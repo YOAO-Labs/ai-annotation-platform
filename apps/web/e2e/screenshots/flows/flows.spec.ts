@@ -26,6 +26,9 @@ import { runWorkspaceLayoutPersistence } from "./workspace-layout-persistence";
 import { runWorkspaceNamedPreset } from "./workspace-named-preset";
 import { runVideoCommentBadges } from "./video-comment-badges";
 import { runDiscussionMentionReturn } from "./discussion-mention-return";
+import { runMaskSliceInstances } from "./mask-slice-instances";
+import { runDiscussionTargetDrafts } from "./discussion-target-drafts";
+import { runTaskDrawingComment } from "./task-drawing-comment";
 import { runPolylineDraw } from "./polyline-draw";
 import { runPolygonDraw } from "./polygon-draw";
 import { runPolygonBoundaryTrace } from "./polygon-boundary-trace";
@@ -221,6 +224,9 @@ const FLOW_SOURCE_BY_ASSET: Record<string, string> = {
   "polygon-slice-undo": "polygon-slice-undo.ts",
   "video-comment-badges": "video-comment-badges.ts",
   "discussion-mention-return": "discussion-mention-return.ts",
+  "mask-slice-instances": "mask-slice-instances.ts",
+  "discussion-target-drafts": "discussion-target-drafts.ts",
+  "task-drawing-comment": "task-drawing-comment.ts",
 };
 
 function flowWatchPaths(assetId: string): string[] {
@@ -2692,7 +2698,6 @@ test.describe("flow recordings", () => {
     await applyScreenshotTheme(page, "dark");
     await installRecordingWorkbenchLayout(page, "both", {
       workspace: { context: "annotate:image", preset: "standard" },
-      image: { afterBoxCreate: "pick_class" },
     });
     let created: string[] = [];
     try {
@@ -2707,6 +2712,31 @@ test.describe("flow recordings", () => {
           id,
           cached.users.annotator.email,
         );
+    }
+  });
+
+  test("mask-slice-instances — Mask 直线切割为两个实例", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    const taskId = cached.projects.image_demo.tasks.annotating.id;
+    const userEmail = cached.users.annotator.email;
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, userEmail);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      workspace: { context: "annotate:image", preset: "standard" },
+      image: { afterBoxCreate: "pick_class" },
+    });
+    let created: string[] = [];
+    try {
+      const win = await runMaskSliceInstances(page, cached);
+      created = (win.evidence.cleanup_annotation_ids as string[]) ?? [];
+      flowBehaviorEvidence["mask-slice-instances"] = win.evidence;
+      await finalize(page, "mask-slice-instances", undefined, drawTrim(win, t0));
+    } finally {
+      // 精确删除流程自己上传并切分的两个实例（像素读回已在母版之外完成）。
+      for (const id of created) await seed.deleteTaskAnnotation(taskId, id, userEmail);
     }
   });
 
@@ -2767,6 +2797,65 @@ test.describe("flow recordings", () => {
     const result = await runDiscussionMentionReturn(page, cached);
     flowBehaviorEvidence["discussion-mention-return"] = result.evidence;
     await finalize(page, "discussion-mention-return", undefined, drawTrim(result, t0));
+  });
+
+  test("discussion-target-drafts — 讨论草稿按收件人各自保留", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    const taskId = cached.projects.image_demo.tasks.annotating.id;
+    const userEmail = cached.users.annotator.email;
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, userEmail);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      workspace: { context: "annotate:image", preset: "standard" },
+      image: { afterBoxCreate: "pick_class" },
+    });
+    // 流程只选中这个已保存对象并验证它的独立草稿，不修改它。
+    const annotation = await seed.createTaskAnnotation(taskId, userEmail, {
+      annotation_type: "bbox",
+      tool_unit_id: "bbox",
+      class_name: "car",
+      geometry: { type: "bbox", x: 0.58, y: 0.52, w: 0.16, h: 0.14 },
+    });
+    try {
+      const win = await runDiscussionTargetDrafts(page, cached, { annotationId: annotation.id });
+      flowBehaviorEvidence["discussion-target-drafts"] = win.evidence;
+      await finalize(page, "discussion-target-drafts", undefined, drawTrim(win, t0));
+    } finally {
+      await seed.deleteTaskAnnotation(taskId, annotation.id, userEmail);
+    }
+  });
+
+  test("task-drawing-comment — 在题图上圈点并随评论发送", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    const taskId = cached.projects.image_demo.tasks.annotating.id;
+    const userEmail = cached.users.annotator.email;
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, userEmail);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      workspace: { context: "annotate:image", preset: "standard" },
+      image: { afterBoxCreate: "pick_class" },
+    });
+    // 一个真实落库的标注：流程读回它证明圈点没有改动已保存标注；
+    // 评论由流程自己按 id 删除。
+    const kept = await seed.createTaskAnnotation(taskId, userEmail, {
+      annotation_type: "bbox",
+      tool_unit_id: "bbox",
+      class_name: "car",
+      geometry: { type: "bbox", x: 0.72, y: 0.62, w: 0.13, h: 0.12 },
+    });
+    try {
+      const win = await runTaskDrawingComment(page, cached);
+      flowBehaviorEvidence["task-drawing-comment"] = win.evidence;
+      await finalize(page, "task-drawing-comment", undefined, drawTrim(win, t0));
+    } finally {
+      await seed.deleteTaskAnnotation(taskId, kept.id, userEmail);
+    }
   });
 });
 
