@@ -24,6 +24,8 @@ import { runBboxDraw } from "./bbox-draw";
 import { runWorkspaceLayoutBasics, workspaceLayoutBasicsLayout } from "./workspace-layout-basics";
 import { runWorkspaceLayoutPersistence } from "./workspace-layout-persistence";
 import { runWorkspaceNamedPreset } from "./workspace-named-preset";
+import { runVideoCommentBadges } from "./video-comment-badges";
+import { runDiscussionMentionReturn } from "./discussion-mention-return";
 import { runPolylineDraw } from "./polyline-draw";
 import { runPolygonDraw } from "./polygon-draw";
 import { runPolygonBoundaryTrace } from "./polygon-boundary-trace";
@@ -217,6 +219,8 @@ const FLOW_SOURCE_BY_ASSET: Record<string, string> = {
   "workspace-named-preset": "workspace-named-preset.ts",
   "polygon-boundary-trace": "polygon-boundary-trace.ts",
   "polygon-slice-undo": "polygon-slice-undo.ts",
+  "video-comment-badges": "video-comment-badges.ts",
+  "discussion-mention-return": "discussion-mention-return.ts",
 };
 
 function flowWatchPaths(assetId: string): string[] {
@@ -2731,6 +2735,38 @@ test.describe("flow recordings", () => {
           cached.users.annotator.email,
         );
     }
+  });
+
+  test("video-comment-badges — 视频对象评论角标与对象讨论", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    const t0 = Date.now();
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.admin.email);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      common: { petEnabled: false, showAnnotationComments: true },
+      workspace: { context: "annotate:video", preset: "standard" },
+    });
+    const result = await runVideoCommentBadges(page, cached);
+    flowBehaviorEvidence["video-comment-badges"] = result.evidence;
+    await finalize(page, "video-comment-badges", undefined, drawTrim(result, t0));
+  });
+
+  test("discussion-mention-return — 提及成员并从通知返回原评论", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    const t0 = Date.now();
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.admin.email);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      common: { petEnabled: false },
+      workspace: { context: "annotate:image", preset: "standard" },
+    });
+    const result = await runDiscussionMentionReturn(page, cached);
+    flowBehaviorEvidence["discussion-mention-return"] = result.evidence;
+    await finalize(page, "discussion-mention-return", undefined, drawTrim(result, t0));
   });
 });
 
