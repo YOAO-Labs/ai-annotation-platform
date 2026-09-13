@@ -23,8 +23,11 @@ import { runRotatedBbox } from "./rotated-bbox";
 import { runBboxDraw } from "./bbox-draw";
 import { runWorkspaceLayoutBasics, workspaceLayoutBasicsLayout } from "./workspace-layout-basics";
 import { runWorkspaceLayoutPersistence } from "./workspace-layout-persistence";
+import { runWorkspaceNamedPreset } from "./workspace-named-preset";
 import { runPolylineDraw } from "./polyline-draw";
 import { runPolygonDraw } from "./polygon-draw";
+import { runPolygonBoundaryTrace } from "./polygon-boundary-trace";
+import { runPolygonSliceUndo } from "./polygon-slice-undo";
 import { runMaskDraw } from "./mask-draw";
 import { runVideoTrack } from "./video-track";
 import { runVideoTimelineZoom } from "./video-timeline-zoom";
@@ -211,6 +214,9 @@ const FLOW_SOURCE_BY_ASSET: Record<string, string> = {
   "jobs-bell-active": "jobs-bell-active.ts",
   "video-tracker-job-states": "video-tracker-job-states.ts",
   "workspace-layout-persistence": "workspace-layout-persistence.ts",
+  "workspace-named-preset": "workspace-named-preset.ts",
+  "polygon-boundary-trace": "polygon-boundary-trace.ts",
+  "polygon-slice-undo": "polygon-slice-undo.ts",
 };
 
 function flowWatchPaths(assetId: string): string[] {
@@ -2647,6 +2653,84 @@ test.describe("flow recordings", () => {
       path.join(DOCS_IMAGES, "workbench/hotkey-cheatsheet.gif"),
       { fps: 8, maxWidth: 900, ...drawTrim(win, t0) },
     );
+  });
+
+  test("workspace-named-preset — 命名布局预设的保存、套用与撤销", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    // 与 workspace-layout-persistence 相同：流程自己走真实偏好读写与刷新核验，
+    // 隔离库的播种 / 重建可能很慢，测试预算单独给出。
+    test.setTimeout(420_000);
+    const t0 = Date.now();
+    await seed.injectToken(page, cached.users.annotator.email);
+    let annotationId: string | undefined;
+    try {
+      const result = await runWorkspaceNamedPreset(page, cached);
+      annotationId = result.evidence.annotationId;
+      flowBehaviorEvidence["workspace-named-preset"] = result.evidence;
+      await finalize(page, "workspace-named-preset", undefined, drawTrim(result, t0));
+    } finally {
+      // 偏好由流程自己恢复；这里只删除本流程画出的那一个对象。
+      if (annotationId)
+        await seed.deleteTaskAnnotation(
+          cached.projects.image_demo.tasks.annotating.id,
+          annotationId,
+          cached.users.annotator.email,
+        );
+    }
+  });
+
+  test("polygon-boundary-trace — 沿已有边界追踪相邻多边形", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.annotator.email);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      workspace: { context: "annotate:image", preset: "standard" },
+      image: { afterBoxCreate: "pick_class" },
+    });
+    let created: string[] = [];
+    try {
+      const win = await runPolygonBoundaryTrace(page, cached);
+      created = [win.evidence.sourceId, win.evidence.savedId];
+      flowBehaviorEvidence["polygon-boundary-trace"] = win.evidence;
+      await finalize(page, "polygon-boundary-trace", undefined, drawTrim(win, t0));
+    } finally {
+      for (const id of created)
+        await seed.deleteTaskAnnotation(
+          cached.projects.image_demo.tasks.annotating.id,
+          id,
+          cached.users.annotator.email,
+        );
+    }
+  });
+
+  test("polygon-slice-undo — 多边形切割与撤销重做", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.annotator.email);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      workspace: { context: "annotate:image", preset: "standard" },
+      image: { afterBoxCreate: "pick_class" },
+    });
+    let created: string[] = [];
+    try {
+      const win = await runPolygonSliceUndo(page, cached);
+      created = [win.evidence.sourceId, win.evidence.createdId];
+      flowBehaviorEvidence["polygon-slice-undo"] = win.evidence;
+      await finalize(page, "polygon-slice-undo", undefined, drawTrim(win, t0));
+    } finally {
+      for (const id of created)
+        await seed.deleteTaskAnnotation(
+          cached.projects.image_demo.tasks.annotating.id,
+          id,
+          cached.users.annotator.email,
+        );
+    }
   });
 });
 
