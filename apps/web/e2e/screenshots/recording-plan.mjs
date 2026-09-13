@@ -38,6 +38,9 @@ const manual = [
   "hotkey-cheatsheet",
   "video-comment-badges",
   "discussion-mention-return",
+  "video-issue-resolution",
+  "project-guide-autosave",
+  "project-invitation-join",
 ];
 
 // Inference execution is explicit: a panel can require live capabilities without

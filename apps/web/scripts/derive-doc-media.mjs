@@ -76,6 +76,10 @@ const POSTER_AT_SECONDS = new Map([
   ["video-track", 19.9],
   ["video-propagate-track-vs-copy", 14],
   ["video-mask-correction-propagate", 25],
+  // 下列为本次新登记素材的占位海报时间（约目标时长的 85%），需在成片验收后按实际画面复核。
+  ["video-issue-resolution", 27.2],
+  ["project-guide-autosave", 20.4],
+  ["project-invitation-join", 27.2],
 ]);
 
 const TARGETS = new Map(
@@ -153,6 +157,9 @@ const TARGETS = new Map(
     ["large-image-progressive", "large-image/progressive"],
     ["large-image-pyramid-recovery", "large-image/pyramid-recovery"],
     ["large-image-mask-limit", "large-image/mask-limit"],
+    ["video-issue-resolution", "discussion/video-issue-resolution"],
+    ["project-guide-autosave", "projects/guide-autosave"],
+    ["project-invitation-join", "team/project-invitation-join"],
   ].map(([assetId, target]) => [assetId, target]),
 );
 

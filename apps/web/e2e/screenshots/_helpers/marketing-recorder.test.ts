@@ -90,7 +90,7 @@ test("registers and documents every independent marketing asset", () => {
     path.join(REPO_ROOT, "docs-site/dev/reference/marketing-asset-catalog.md"),
     "utf8",
   );
-  assert.equal(MARKETING_ASSET_SPECS.size, 73);
+  assert.equal(MARKETING_ASSET_SPECS.size, 76);
   for (const spec of MARKETING_ASSET_SPECS.values()) {
     assert.ok(spec.title.length > 0, `${spec.assetId} missing title`);
     assert.ok(spec.theme.length > 0, `${spec.assetId} missing theme`);
