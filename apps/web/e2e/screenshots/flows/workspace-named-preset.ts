@@ -224,6 +224,16 @@ async function createSelectedBbox(
   return { id, taskId: task.id };
 }
 
+/**
+ * 标准布局把任务队列与类别面板放回两个停靠组时无需处理；预设恢复「合并为标签」
+ * 的排列时，active tab 是最后拖入的任务队列，会把 onlyWhenVisible 的类别面板从
+ * DOM 卸载。点一次「类别面板」标签页保证两个面板同时可读，再由调用方断言。
+ */
+async function activatePaletteTab(page: import("@playwright/test").Page): Promise<void> {
+  const paletteTab = page.getByRole("tab", { name: "类别面板", exact: true });
+  if (await paletteTab.isVisible()) await paletteTab.click();
+}
+
 export async function runWorkspaceNamedPreset(
   page: Page,
   catalog: ScreenshotSeedCatalog,
@@ -277,8 +287,15 @@ export async function runWorkspaceNamedPreset(
     await page.getByTestId("tool-btn-select").click();
     const selectedItem = page.getByTestId(`box-list-item-${created.id}`);
     await expect(selectedItem).toBeVisible({ timeout: 10_000 });
-    await selectedItem.click();
-    await expect(selectedItem).toHaveClass(/border-brand/);
+    // 提交后应用会自动选中新对象并展开浮动信息卡；只有未选中时才点列表项。
+    if (!((await selectedItem.getAttribute("class")) ?? "").includes("border-brand")) {
+      await selectedItem.click();
+      await expect(selectedItem).toHaveClass(/border-brand/);
+    }
+    // 展开的浮动信息卡（z-popover-elevated）会盖住后续所有列表点击：
+    // 与 workspace-layout-basics 一致，先收起浮窗再继续。
+    const selectionCardCollapse = page.getByRole("button", { name: "收起浮窗", exact: true });
+    if (await selectionCardCollapse.isVisible()) await selectionCardCollapse.click();
     await page.waitForTimeout(800);
 
     const drawStartMs = Date.now();
@@ -286,10 +303,18 @@ export async function runWorkspaceNamedPreset(
     // ── 自定义面板排列：任务队列并入类别面板标签，讨论面板隐藏 ──
     await page.waitForTimeout(900);
     await recordingPanelCommand(page, "任务队列", "与类别面板合并为标签");
-    await waitForRecordingPanels(page, ["class-palette"], ["task-queue"]);
+    // task-queue/class-palette 是 onlyWhenVisible renderer：合并后 active tab 是
+    // 「任务队列」，非 active 的 class-palette 会从 DOM 卸载（count 0）而非隐藏。
+    // 先点回「类别面板」标签让两个面板都在 DOM 中且可读。
+    await page.getByRole("tab", { name: "类别面板", exact: true }).click();
+    await expect(page.locator('[data-workbench-panel="task-queue"]')).toHaveCount(0);
+    await expect(page.locator('[data-workbench-panel="class-palette"]')).toBeVisible();
     await page.waitForTimeout(1_300);
-    await recordingPanelCommand(page, "讨论 / Issue", "隐藏面板");
-    await waitForRecordingPanels(page, ["inspector"], ["discussion"]);
+    await recordingPanelCommand(page, "讨论", "隐藏面板");
+    await expect(page.locator('[data-workbench-panel="discussion"]')).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
     await expect(selectedItem).toHaveClass(/border-brand/);
     const panelsAfterCustom = await visiblePanels(page);
     await page.waitForTimeout(1_200);
@@ -335,6 +360,7 @@ export async function runWorkspaceNamedPreset(
 
     // ── 切到标准标注布局，再套回「边界精修」──
     await recordingLayoutCommand(page, "标准标注布局");
+    await activatePaletteTab(page);
     await waitForRecordingPanels(page, [
       "canvas",
       "task-queue",
@@ -353,7 +379,13 @@ export async function runWorkspaceNamedPreset(
     });
     await expect(applyPreset).toBeEnabled({ timeout: 15_000 });
     await applyPreset.click();
-    await waitForRecordingPanels(page, ["class-palette"], ["task-queue", "discussion"]);
+    await activatePaletteTab(page);
+    await expect(page.locator('[data-workbench-panel="task-queue"]')).toHaveCount(0);
+    await expect(page.locator('[data-workbench-panel="discussion"]')).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    await expect(page.locator('[data-workbench-panel="class-palette"]')).toBeVisible();
     await expect(selectedItem).toHaveClass(/border-brand/);
     const panelsAfterApply = await visiblePanels(page);
     await page.waitForTimeout(1_500);
@@ -364,6 +396,7 @@ export async function runWorkspaceNamedPreset(
       .filter({ hasText: `已应用「${PRESET_NAME}」布局` })
       .first();
     await undoToast.getByRole("button", { name: "撤销", exact: true }).click();
+    await activatePaletteTab(page);
     await waitForRecordingPanels(page, [
       "canvas",
       "task-queue",
@@ -381,6 +414,17 @@ export async function runWorkspaceNamedPreset(
     await page.waitForTimeout(1_300);
 
     // ── 刷新后读回真实偏好并重新打开布局菜单：预设仍在账号里 ──
+    // 刷新前先回标准布局：撤销后的自定义排列含隐藏/合并面板，刷新恢复
+    // 浮动信息卡时偶发把画布挤出视口；标准排列与 persistence 流程的刷新路径一致。
+    await recordingLayoutCommand(page, "标准标注布局");
+    await activatePaletteTab(page);
+    await waitForRecordingPanels(page, [
+      "canvas",
+      "task-queue",
+      "class-palette",
+      "inspector",
+      "discussion",
+    ]);
     await page.reload();
     await waitForImage(page);
     await waitForDesktop(page);
@@ -425,9 +469,14 @@ export async function runWorkspaceNamedPreset(
         await page.waitForTimeout(500);
         // 公开 PATCH 只做深合并，没有删除操作；先清空隔离行，再写入原始文档。
         clearStoredPreferences(originalUserId);
+        // namedPresetsRevision 是引擎管理的只读键：PATCH 不带 namedPresets 时携带它
+        // 会被 422 (named_presets_revision_read_only) 拒绝，服务端在带 namedPresets 时
+        // 也会自行丢弃该键。恢复写回时一律剔除，revision 由服务端按存储行重建。
+        const restorePayload = { ...originalPreferences };
+        delete restorePayload.namedPresetsRevision;
         const response = await page.request.patch("/api/v1/auth/me/preferences", {
           headers: { Authorization: `Bearer ${await token(page)}` },
-          data: originalPreferences,
+          data: restorePayload,
         });
         if (!response.ok()) {
           writeStoredPreferences(originalUserId, originalPreferences);
