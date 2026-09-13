@@ -30,6 +30,8 @@ const manual = [
   "large-image-pyramid-recovery",
   "large-image-mask-limit",
   "hotkey-cheatsheet",
+  "video-comment-badges",
+  "discussion-mention-return",
 ];
 
 // Inference execution is explicit: a panel can require live capabilities without
