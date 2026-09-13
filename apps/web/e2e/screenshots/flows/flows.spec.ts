@@ -23,6 +23,9 @@ import { runRotatedBbox } from "./rotated-bbox";
 import { runBboxDraw } from "./bbox-draw";
 import { runWorkspaceLayoutBasics, workspaceLayoutBasicsLayout } from "./workspace-layout-basics";
 import { runWorkspaceLayoutPersistence } from "./workspace-layout-persistence";
+import { runVideoIssueResolution } from "./video-issue-resolution";
+import { runProjectGuideAutosave } from "./project-guide-autosave";
+import { runProjectInvitationJoin } from "./project-invitation-join";
 import { runPolylineDraw } from "./polyline-draw";
 import { runPolygonDraw } from "./polygon-draw";
 import { runMaskDraw } from "./mask-draw";
@@ -211,6 +214,9 @@ const FLOW_SOURCE_BY_ASSET: Record<string, string> = {
   "jobs-bell-active": "jobs-bell-active.ts",
   "video-tracker-job-states": "video-tracker-job-states.ts",
   "workspace-layout-persistence": "workspace-layout-persistence.ts",
+  "video-issue-resolution": "video-issue-resolution.ts",
+  "project-guide-autosave": "project-guide-autosave.ts",
+  "project-invitation-join": "project-invitation-join.ts",
 };
 
 function flowWatchPaths(assetId: string): string[] {
@@ -2647,6 +2653,48 @@ test.describe("flow recordings", () => {
       path.join(DOCS_IMAGES, "workbench/hotkey-cheatsheet.gif"),
       { fps: 8, maxWidth: 900, ...drawTrim(win, t0) },
     );
+  });
+
+  test("video-issue-resolution — 视频问题定位与连续处理", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.annotator.email);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both", {
+      workspace: { context: "annotate:video", preset: "video-tracking" },
+    });
+    // 两条问题夹具由流程自身在 finally 中通过正式接口按 id 精确清理。
+    const win = await runVideoIssueResolution(page, cached, () => undefined);
+    flowBehaviorEvidence["video-issue-resolution"] = win.evidence;
+    await finalize(page, "video-issue-resolution", undefined, drawTrim(win, t0));
+  });
+
+  test("project-guide-autosave — 标注指引表格编辑自动保存", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.admin.email);
+    await applyScreenshotTheme(page, "dark");
+    // 设置页无需工作台布局预置；流程自己在 finally 中恢复该项目的原始指引。
+    const win = await runProjectGuideAutosave(page, cached);
+    flowBehaviorEvidence["project-guide-autosave"] = win.evidence;
+    await finalize(page, "project-guide-autosave", undefined, drawTrim(win, t0));
+  });
+
+  test("project-invitation-join — 项目邀请创建与被邀请人加入", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    const t0 = Date.now();
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.admin.email);
+    await applyScreenshotTheme(page, "dark");
+    // 流程自身完成退出与被邀请人登录；finally 撤销邀请或移除本次新增的成员关系。
+    const win = await runProjectInvitationJoin(page, cached, () => undefined);
+    flowBehaviorEvidence["project-invitation-join"] = win.evidence;
+    await finalize(page, "project-invitation-join", undefined, drawTrim(win, t0));
   });
 });
 
