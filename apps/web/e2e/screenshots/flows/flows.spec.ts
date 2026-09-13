@@ -2722,32 +2722,6 @@ test.describe("flow recordings", () => {
     }
   });
 
-  test("video-issue-resolution — 视频问题定位与连续处理", async ({ page, seed }) => {
-    if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
-    const t0 = Date.now();
-    await installScreenshotEnvironment(page);
-    await seed.injectToken(page, cached.users.annotator.email);
-    await applyScreenshotTheme(page, "dark");
-    await installRecordingWorkbenchLayout(page, "both", {
-      workspace: { context: "annotate:image", preset: "standard" },
-    });
-    let created: string[] = [];
-    try {
-      const win = await runPolygonBoundaryTrace(page, cached);
-      created = [win.evidence.sourceId, win.evidence.savedId];
-      flowBehaviorEvidence["polygon-boundary-trace"] = win.evidence;
-      await finalize(page, "polygon-boundary-trace", undefined, drawTrim(win, t0));
-    } finally {
-      for (const id of created)
-        await seed.deleteTaskAnnotation(
-          cached.projects.image_demo.tasks.annotating.id,
-          id,
-          cached.users.annotator.email,
-        );
-    }
-  });
-
   test("mask-slice-instances — Mask 直线切割为两个实例", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
