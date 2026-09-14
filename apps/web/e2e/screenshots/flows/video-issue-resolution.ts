@@ -42,6 +42,7 @@ interface FeedbackIssue {
   task_id: string;
   thread_parent_id: string | null;
   anchor_position: { x: number; y: number; frame?: number } | null;
+  resolved_at: string | null;
 }
 
 type FrameRegion = readonly [number, number];
@@ -383,12 +384,13 @@ export async function runVideoIssueResolution(
     const drawEndMs = Date.now();
 
     // 真实读回：目标问题已解决且带回复，下一条问题仍未解决。
+    // 回复以 kind=comment 落库，不出现在 kind=issue 的列表里：父子链以创建响应为准。
     const issues = await listIssues(page, accessToken, project.id, task.id);
     const storedTarget = issues.find((issue) => issue.id === targetIssue.id);
     const storedNext = issues.find((issue) => issue.id === nextIssue.id);
-    const storedReply = issues.find((issue) => issue.id === reply.id);
     expect(storedTarget?.status, "目标问题必须真实落库为已解决").toBe("resolved");
-    expect(storedReply?.thread_parent_id).toBe(targetIssue.id);
+    expect(storedTarget?.resolved_at, "已解决时间戳必须落库").toBeTruthy();
+    expect(reply.thread_parent_id, "回复必须挂在目标问题线程下").toBe(targetIssue.id);
     expect(storedNext?.status, "下一条问题必须仍未解决").toBe("open");
 
     result = {

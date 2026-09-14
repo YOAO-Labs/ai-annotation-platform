@@ -181,7 +181,9 @@ export async function runDiscussionMentionReturn(
     await option.click();
     const chip = editor(page).locator(`[data-mention-uid="${memberRow.user_id}"]`);
     await expect(chip).toHaveText(`@${memberRow.user_name}`, { timeout: 10_000 });
-    await page.keyboard.insertText(` ${BODY_SUFFIX}`);
+    const pickerChipName = (await chip.textContent()) ?? ``;
+    // 提及 chip 序列化时自带一个尾随空格，这里不再补前导空格。
+    await page.keyboard.insertText(BODY_SUFFIX);
 
     // 2) 发送真实任务留言，并读回服务端存储的提及对象与混合讨论来源。
     const postedResponse = page.waitForResponse(
@@ -200,7 +202,9 @@ export async function runDiscussionMentionReturn(
       offset: 0,
       length: memberRow.user_name.length + 1,
     };
-    expect(posted.body).toBe(`@${memberRow.user_name} ${BODY_SUFFIX}`);
+    // chip 与正文之间由富文本序列化插入空白（普通空格或 NBSP）：归一后再比对。
+    const normalizedBody = posted.body.replace(/\u00a0/g, " ");
+    expect(normalizedBody).toBe(`@${memberRow.user_name} ${BODY_SUFFIX}`);
     expect(posted.mentions).toEqual([expectedMention]);
     expect(posted.thread_parent_id).toBeNull();
     const feed = await json<{
@@ -252,13 +256,13 @@ export async function runDiscussionMentionReturn(
     let highlightedCommentKey = "";
     try {
       const memberPage = await memberContext.newPage();
-      // 新上下文从零开始：登录前没有任何会话，管理员 token 不会泄漏进来。
+      // 先到应用 origin（about:blank 上 localStorage 访问被拒），再确认零会话。
+      await memberPage.goto(BASE_URL, { waitUntil: "domcontentloaded" });
       memberContextIsolated =
         (await memberPage.evaluate(() => localStorage.getItem("token"))) === null;
       if (!memberContextIsolated) {
         throw new Error("[discussion-mention-return] 隔离上下文不应带有上一个账号的会话");
       }
-      await memberPage.goto(BASE_URL, { waitUntil: "domcontentloaded" });
       await signInWithStorage(memberPage, memberLogin);
       await memberPage.goto("/projects", { waitUntil: "domcontentloaded" });
       await notificationBell(memberPage).click();
@@ -290,7 +294,7 @@ export async function runDiscussionMentionReturn(
         commentId,
         body: posted.body,
         mention: expectedMention,
-        pickerChipName: await chip.textContent().then((text) => text ?? ""),
+        pickerChipName,
         memberContextIsolated,
         highlightedCommentKey,
         notificationReadAt: mentionNotifications[0].read_at,
@@ -312,7 +316,13 @@ export async function runDiscussionMentionReturn(
         cleanupError = cleanupError ?? error;
       }
     }
-    const mentionDeletions = await notifications(page, memberLogin.token);
+    let mentionDeletions: NotificationItem[] = [];
+    try {
+      mentionDeletions = await notifications(page, memberLogin.token);
+    } catch {
+      // 预算尾部清理尽力而为：通知残留由下一次运行开头的撤销步骤兜底。
+      cleanupError = cleanupError ?? new Error("读取提及通知超时，跳过通知清理");
+    }
     for (const item of mentionDeletions) {
       if (item.type !== "feedback.comment_mentioned") continue;
       if (commentId && item.target_id !== commentId) continue;

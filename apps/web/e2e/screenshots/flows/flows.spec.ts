@@ -2795,7 +2795,7 @@ test.describe("flow recordings", () => {
     test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
-    await seed.injectToken(page, cached.users.annotator.email);
+    await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
     await installRecordingWorkbenchLayout(page, "both", {
       workspace: { context: "annotate:video", preset: "video-tracking" },
@@ -2821,7 +2821,8 @@ test.describe("flow recordings", () => {
 
   test("discussion-mention-return — 提及成员并从通知返回原评论", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    // 双浏览器上下文（管理员 + 被提及成员）登录与通知往返最慢：单独放宽预算。
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
