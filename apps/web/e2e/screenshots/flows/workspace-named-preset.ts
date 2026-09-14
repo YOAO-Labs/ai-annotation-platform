@@ -301,13 +301,18 @@ export async function runWorkspaceNamedPreset(
     const drawStartMs = Date.now();
 
     // ── 自定义面板排列：任务队列并入类别面板标签，讨论面板隐藏 ──
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(1_600);
     await recordingPanelCommand(page, "任务队列", "与类别面板合并为标签");
     // task-queue/class-palette 是 onlyWhenVisible renderer：合并后 active tab 是
     // 「任务队列」，非 active 的 class-palette 会从 DOM 卸载（count 0）而非隐藏。
-    // 先点回「类别面板」标签让两个面板都在 DOM 中且可读。
-    await page.getByRole("tab", { name: "类别面板", exact: true }).click();
-    await expect(page.locator('[data-workbench-panel="task-queue"]')).toHaveCount(0);
+    // 先点回「类别面板」标签让两个面板都在 DOM 中且可读；真实窗口下首次点击
+    // 偶发被合并动画吞掉，重试一次。
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const paletteTab = page.getByRole("tab", { name: "类别面板", exact: true });
+      if (await paletteTab.isVisible()) await paletteTab.click();
+      await page.waitForTimeout(400);
+      if ((await page.locator('[data-workbench-panel="task-queue"]').count()) === 0) break;
+    }
     await expect(page.locator('[data-workbench-panel="class-palette"]')).toBeVisible();
     await page.waitForTimeout(1_300);
     await recordingPanelCommand(page, "讨论", "隐藏面板");
@@ -356,7 +361,7 @@ export async function runWorkspaceNamedPreset(
     ).find(([, preset]) => preset?.name === PRESET_NAME)?.[0];
     expect(presetId, "保存后必须能读回预设 ID").toBeTruthy();
     await expect(menu).toBeHidden({ timeout: 10_000 });
-    await page.waitForTimeout(1_400);
+    await page.waitForTimeout(2_000);
 
     // ── 切到标准标注布局，再套回「边界精修」──
     await recordingLayoutCommand(page, "标准标注布局");
@@ -372,6 +377,7 @@ export async function runWorkspaceNamedPreset(
     const panelsAfterStandard = await visiblePanels(page);
     await page.waitForTimeout(1_400);
 
+    await page.waitForTimeout(600);
     menu = await openQuickMenu(page);
     const applyPreset = menu.getByRole("button", {
       name: `应用预设 ${PRESET_NAME}`,
@@ -388,7 +394,7 @@ export async function runWorkspaceNamedPreset(
     await expect(page.locator('[data-workbench-panel="class-palette"]')).toBeVisible();
     await expect(selectedItem).toHaveClass(/border-brand/);
     const panelsAfterApply = await visiblePanels(page);
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(2_200);
 
     // ── 撤销这次应用：回到上一步排列，仍保持同一任务与选中对象 ──
     const undoToast = page
@@ -407,6 +413,7 @@ export async function runWorkspaceNamedPreset(
     await expect(selectedItem).toHaveClass(/border-brand/);
     const panelsAfterUndo = await visiblePanels(page);
     expect(panelsAfterUndo).toEqual(panelsAfterStandard);
+    await page.waitForTimeout(700);
     const selectionPreserved = ((await selectedItem.getAttribute("class")) ?? "").includes(
       "border-brand",
     );

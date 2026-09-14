@@ -127,7 +127,8 @@ const config = defineConfig({
         launchOptions: {
           env: MARKETING_BROWSER_ENV,
           args: [
-            "--window-position=0,0",
+            // 起始位置避开屏幕左上角：macOS 26 会把贴边窗口吸进平铺槽并改写尺寸。
+            "--window-position=22,55",
             "--window-size=1440,900",
             `--force-device-scale-factor=${MAC_CAPTURE ? 2 : 1.8}`,
             "--hide-scrollbars",

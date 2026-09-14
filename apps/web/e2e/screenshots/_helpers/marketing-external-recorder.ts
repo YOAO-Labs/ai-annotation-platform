@@ -399,11 +399,14 @@ async function configureNativeCaptureWindow(page: Page): Promise<void> {
       return;
     }
     requestedOuter = correctedOuterSize(metrics, requestedOuter);
+    // macOS 26 会把贴到屏幕边缘 (0,0) 的窗口自动纳入平铺槽位并改写尺寸，
+    // 使 CG 原生边界不再等于请求值（录制门禁会拒绝）。位置放在菜单栏下方的
+    // 非边缘起点，避开边缘吸附；尺寸仍由 width/height 精确给出。
     await session.send("Browser.setWindowBounds", {
       windowId,
       bounds: {
-        left: 0,
-        top: 0,
+        left: 22,
+        top: 55,
         width: requestedOuter.width,
         height: requestedOuter.height,
         windowState: "normal",
