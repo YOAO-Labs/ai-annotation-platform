@@ -2846,6 +2846,8 @@ test.describe("flow recordings", () => {
     await applyScreenshotTheme(page, "dark");
     await installRecordingWorkbenchLayout(page, "both", {
       workspace: { context: "annotate:image", preset: "standard" },
+      // 讨论列写宽：草稿文字在母版中可读（拖拽方案见 _workbench-layout.ts 注释）。
+      rightColumnWidth: 460,
       image: { afterBoxCreate: "pick_class" },
     });
     // 流程只选中这个已保存对象并验证它的独立草稿，不修改它。
@@ -2875,6 +2877,8 @@ test.describe("flow recordings", () => {
     await applyScreenshotTheme(page, "dark");
     await installRecordingWorkbenchLayout(page, "both", {
       workspace: { context: "annotate:image", preset: "standard" },
+      // 讨论列写宽：草稿文字在母版中可读（拖拽方案见 _workbench-layout.ts 注释）。
+      rightColumnWidth: 460,
       image: { afterBoxCreate: "pick_class" },
     });
     // 一个真实落库的标注：流程读回它证明圈点没有改动已保存标注；

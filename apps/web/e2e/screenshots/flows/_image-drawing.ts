@@ -22,7 +22,7 @@ export async function prepareImageDrawing(page: Page, catalog: ScreenshotSeedCat
   const stage = page.getByTestId("workbench-stage");
   await expect(stage).toHaveAttribute("data-image-ready", "true");
   await waitForRecordingPanels(page, ["canvas", "task-queue", "class-palette", "inspector"]);
-  await recordingPanelCommand(page, "讨论 / Issue", "隐藏面板");
+  await recordingPanelCommand(page, "讨论", "隐藏面板");
   await hidePredictions(page);
   await expect(stage).toHaveAttribute("data-ai-box-count", "0");
 }

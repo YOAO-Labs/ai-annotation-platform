@@ -254,7 +254,7 @@ export async function runSmartScribble(
     expect(original?.class_name).toBe(anchor.label);
 
     await recordingLayoutCommand(page, "图片 AI 审阅布局");
-    await recordingPanelCommand(page, "讨论 / Issue", "隐藏面板");
+    await recordingPanelCommand(page, "讨论", "隐藏面板");
     await page
       .getByRole("tab")
       .filter({ has: page.getByRole("button", { name: "隐藏类别面板", exact: true }) })

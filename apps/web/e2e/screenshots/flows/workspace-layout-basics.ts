@@ -141,9 +141,9 @@ export async function runWorkspaceLayoutBasics(
     await sameState();
     await page.waitForTimeout(1500);
 
-    await recordingPanelCommand(page, "讨论 / Issue", "与标注详情合并为标签");
+    await recordingPanelCommand(page, "讨论", "与标注详情合并为标签");
     const discussionTab = page.getByRole("tab").filter({
-      has: page.getByRole("button", { name: "隐藏讨论 / Issue", exact: true }),
+      has: page.getByRole("button", { name: "隐藏讨论", exact: true }),
     });
     const inspectorTab = page.getByRole("tab").filter({
       has: page.getByRole("button", { name: "隐藏标注详情", exact: true }),
@@ -163,11 +163,11 @@ export async function runWorkspaceLayoutBasics(
     await page.waitForTimeout(1300);
 
     // The title-bar X hides only the active discussion tab; inspector remains available.
-    await page.getByRole("button", { name: "隐藏讨论 / Issue", exact: true }).click();
+    await page.getByRole("button", { name: "隐藏讨论", exact: true }).click();
     await waitForRecordingPanels(page, ["inspector"], ["discussion"]);
     await sameState();
     await page.waitForTimeout(1200);
-    await recordingLayoutCommand(page, "讨论 / Issue");
+    await recordingLayoutCommand(page, "讨论");
     await waitForRecordingPanels(page, ["discussion"], ["inspector"]);
     await sameState();
     await page.waitForTimeout(1700);

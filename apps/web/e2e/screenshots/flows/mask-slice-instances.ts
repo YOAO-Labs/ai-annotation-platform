@@ -314,9 +314,14 @@ export async function runMaskSliceInstances(
   await page.waitForTimeout(1600);
 
   // 依次选中两个结果实例，展示真实落库的两个对象。
+  // 提交切割后应用会自动选中保留实例并展开浮动信息卡（z-popover-elevated），
+  // 它会盖住所有列表点击；与 named-preset 一致，每次点击前先收起浮窗。
+  const selectionCardCollapse = page.getByRole("button", { name: "收起浮窗", exact: true });
+  if (await selectionCardCollapse.isVisible()) await selectionCardCollapse.click();
   await keptRow.click();
   await expect(keptRow).toHaveClass(/border-brand/);
   await page.waitForTimeout(1700);
+  if (await selectionCardCollapse.isVisible()) await selectionCardCollapse.click();
   await createdRow.click();
   await expect(createdRow).toHaveClass(/border-brand/);
   await page.waitForTimeout(1700);
@@ -343,7 +348,13 @@ export async function runMaskSliceInstances(
   expect(createdRle.size).toEqual(sourceRle.size);
   expect(commitBody.report.source_areas).toEqual([sourceArea]);
   expect(commitBody.report.result_areas).toEqual([maskArea(keptRle), maskArea(createdRle)]);
-  expect(commitBody.cut_path).toEqual(CUT_PATH);
+  // 切割线是真实指针拖拽产生的：提交的 cut_path 是归一化坐标四舍五入的浮点，
+  // 不与常量逐位相等，只验证两个端点都落在预期直线上且顺序一致。
+  expect(commitBody.cut_path).toHaveLength(2);
+  commitBody.cut_path.forEach((point, index) => {
+    expect(Math.abs(point[0] - CUT_PATH[index][0])).toBeLessThan(0.005);
+    expect(Math.abs(point[1] - CUT_PATH[index][1])).toBeLessThan(0.005);
+  });
   expect(saved.map((row) => row.id).sort()).toEqual([keptId, createdId].sort());
   expect(saved.every((row) => row.class_name === vehicle.label)).toBe(true);
 

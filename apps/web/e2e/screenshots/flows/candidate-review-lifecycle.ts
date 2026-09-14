@@ -78,7 +78,7 @@ export async function runCandidateReviewLifecycle(
     (await page.locator('[data-workbench-panel="discussion"]').getAttribute("aria-hidden")) !==
     "true"
   ) {
-    await recordingPanelCommand(page, "讨论 / Issue", "隐藏面板");
+    await recordingPanelCommand(page, "讨论", "隐藏面板");
   }
   await page
     .getByRole("tab")

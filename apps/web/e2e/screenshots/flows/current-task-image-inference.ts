@@ -37,7 +37,7 @@ export async function runCurrentTaskImageInference(
   await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 15_000 });
   await expect(stage).toHaveAttribute("data-user-box-count", "0", { timeout: 10_000 });
   await waitForRecordingPanels(page, ["canvas", "task-queue", "ai-task"]);
-  await recordingPanelCommand(page, "讨论 / Issue", "隐藏面板");
+  await recordingPanelCommand(page, "讨论", "隐藏面板");
   await page.waitForTimeout(1_000);
 
   const drawStartMs = Date.now();

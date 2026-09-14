@@ -175,7 +175,7 @@ export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
       await reloadWithSidebarLayout(page, "both", {
         workspace: { context: "annotate:image", preset: "ai-review" },
       });
-      await recordingPanelCommand(page, "讨论 / Issue", "隐藏面板");
+      await recordingPanelCommand(page, "讨论", "隐藏面板");
       const panel = page.getByTestId("ai-prediction-popover");
       await panel.waitFor({ state: "visible", timeout: 5000 });
       await waitForRecordingPanels(page, ["canvas", "ai-task"]);

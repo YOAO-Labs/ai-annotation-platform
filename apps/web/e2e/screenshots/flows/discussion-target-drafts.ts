@@ -15,7 +15,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
 import { discussionTargetKey } from "../../../src/pages/Workbench/state/discussionTypes";
-import { hidePredictions, movePointerAtRefreshRate, openImageAnnotate } from "./_canvas";
+import { hidePredictions, openImageAnnotate } from "./_canvas";
 import { waitForRecordingPanels } from "./_workbench-layout";
 import type { DrawWindow } from "./rotated-bbox";
 
@@ -62,36 +62,15 @@ async function apiFetch<T>(
 }
 
 /**
- * 准备用真实拖拽把右栏拖宽（同一 Dockview 竖向分隔条，偏好由安装布局的沙箱接管）。
- * 讨论面板默认在 15% 右栏里，母版文字过窄；这一步不进母版，也不改产品默认值。
+ * 讨论面板默认在 15% 右栏里，母版文字过窄；宽列由录制沙箱在
+ * `installRecordingWorkbenchLayout` 里通过 `rightColumnWidth` 直接写入
+ * （拖动 sash 会与偏好 PATCH 竞争回弹，且那一步本来就不进母版）。
+ * 这里只等待讨论面板按宽布局就绪。
  */
-export async function widenDiscussionColumn(page: Page, deltaPx = 220): Promise<Locator> {
+export async function widenDiscussionColumn(page: Page, _deltaPx = 220): Promise<Locator> {
   const discussion = page.locator('[data-workbench-panel="discussion"]');
   await discussion.waitFor({ state: "visible", timeout: 10_000 });
-  const before = await discussion.boundingBox();
-  if (!before) throw new Error("[discussion-target-drafts] 讨论面板没有可见边界");
-  const sash = await page
-    .locator("[data-workbench-workspace] .dv-sash")
-    .evaluateAll((elements, boundary) => {
-      const rect = elements
-        .map((element) => element.getBoundingClientRect())
-        .find(
-          (candidate) =>
-            candidate.height > candidate.width &&
-            candidate.width > 0 &&
-            Math.abs(candidate.left + candidate.width / 2 - boundary) < 6,
-        );
-      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
-    }, before.x);
-  if (!sash) throw new Error("[discussion-target-drafts] 右栏分隔条不存在");
-  await page.mouse.move(sash.x, sash.y);
-  await page.waitForTimeout(300);
-  await page.mouse.down();
-  await movePointerAtRefreshRate(page, sash, { x: sash.x - deltaPx, y: sash.y }, 800);
-  await page.mouse.up();
-  await expect
-    .poll(async () => (await discussion.boundingBox())?.width ?? 0)
-    .toBeGreaterThan(before.width + deltaPx * 0.6);
+  await expect.poll(async () => (await discussion.boundingBox())?.width ?? 0).toBeGreaterThan(300);
   return discussion;
 }
 
@@ -213,7 +192,7 @@ export async function runDiscussionTargetDrafts(
   );
   const annotationScope = await apiFetch<DiscussionPage>(
     page,
-    `/api/v1/tasks/${task.id}/discussion/page?scope=annotation`,
+    `/api/v1/tasks/${task.id}/discussion/page?scope=annotation&annotation_id=${options.annotationId}`,
   );
   const readBack = taskScope.items.filter((item) => item.data.body === TASK_DRAFT);
   expect(readBack).toHaveLength(1);

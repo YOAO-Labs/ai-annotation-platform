@@ -63,7 +63,7 @@ export async function runSamToolRecording(
     { timeout: 30_000 },
   );
   await waitForRecordingPanels(page, ["canvas", "task-queue", "ai-task"]);
-  await recordingPanelCommand(page, "讨论 / Issue", "隐藏面板");
+  await recordingPanelCommand(page, "讨论", "隐藏面板");
   for (const title of ["类别面板", "标注详情"]) {
     await page
       .getByRole("tab")
