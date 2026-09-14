@@ -88,7 +88,16 @@ function applyRecordingLayout(
         leftWidthPct: 15,
         rightWidthPct: 15,
       },
-      layout: embeddedLayout(preferences.workbench.layout, open),
+      layout: {
+        ...embeddedLayout(preferences.workbench.layout, open),
+        // 选中标注的浮动信息卡默认展开在画布右上（约 340×440），会盖住母版
+        // 关键内容。录制沙箱统一让它以收起胶囊起步：需要展示选中详情的流程
+        // 仍可在窗口内点击胶囊展开。
+        floatingSelection: {
+          ...preferences.workbench.layout.floatingSelection,
+          collapsed: true,
+        },
+      },
     },
   };
 }
