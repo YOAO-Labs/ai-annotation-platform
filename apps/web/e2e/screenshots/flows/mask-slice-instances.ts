@@ -258,6 +258,10 @@ export async function runMaskSliceInstances(
   // 行内统计来自真实内容解码；这一步证明夹具 Mask 覆盖了两辆相邻车辆的区域。
   await expect(sourceRow).toContainText(/\d+ px · \d+ 组件 · \d+ 孔洞 · AABB/, { timeout: 20_000 });
   await expect(sourceRow).not.toContainText("load_failed");
+  // 录制沙箱让选中信息卡以收起胶囊起步；「编辑 Mask」在展开卡上，先点胶囊展开。
+  const expandCard = page.getByLabel(/展开选中信息卡.*可拖动/);
+  if (await expandCard.isVisible()) await expandCard.click();
+  await page.waitForTimeout(600);
 
   // ── 母版窗口 ──
   const drawStartMs = Date.now();

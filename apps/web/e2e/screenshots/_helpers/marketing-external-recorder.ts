@@ -390,29 +390,42 @@ async function configureNativeCaptureWindow(page: Page): Promise<void> {
   const session = await page.context().newCDPSession(page);
   const { windowId } = await session.send("Browser.getWindowForTarget");
   let requestedOuter: { width: number; height: number } | undefined;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  // macOS 26 的窗口平铺会把固定起点的连续新窗口逐个吸进平铺槽位（CDP 视角
+  // 尺寸正确、CG 原生边界却被改写）。每次重试换一个起点，打断吸附判定。
+  const retryOrigins = [
+    { left: 22, top: 55 },
+    { left: 64, top: 78 },
+    { left: 108, top: 102 },
+    { left: 152, top: 126 },
+    { left: 196, top: 150 },
+  ];
+  for (let attempt = 0; attempt < retryOrigins.length; attempt += 1) {
     const metrics = await pageMetrics(page);
     if (
       metrics.innerWidth === MARKETING_LOGICAL_VIEWPORT.width &&
       metrics.innerHeight === MARKETING_LOGICAL_VIEWPORT.height
     ) {
-      return;
+      // CDP 满足后仍需 CG 确认：平铺下 CDP 报请求值、CG 报槽位值，只有两者
+      // 一致才是真实全尺寸窗口。
+      const native = await session.send("Browser.getWindowBounds", { windowId });
+      const nativeWidth = native.bounds.width ?? 0;
+      const nativeHeight = native.bounds.height ?? 0;
+      const snapped =
+        Math.abs(nativeWidth - metrics.outerWidth) > 2 ||
+        Math.abs(nativeHeight - metrics.outerHeight) > 2;
+      if (!snapped) return;
     }
     requestedOuter = correctedOuterSize(metrics, requestedOuter);
-    // macOS 26 会把贴到屏幕边缘 (0,0) 的窗口自动纳入平铺槽位并改写尺寸，
-    // 使 CG 原生边界不再等于请求值（录制门禁会拒绝）。位置放在菜单栏下方的
-    // 非边缘起点，避开边缘吸附；尺寸仍由 width/height 精确给出。
     await session.send("Browser.setWindowBounds", {
       windowId,
       bounds: {
-        left: 22,
-        top: 55,
+        ...retryOrigins[attempt],
         width: requestedOuter.width,
         height: requestedOuter.height,
         windowState: "normal",
       },
     });
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(300);
   }
   const actual = await pageMetrics(page);
   throw new Error(
