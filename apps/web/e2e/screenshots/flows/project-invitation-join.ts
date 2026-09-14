@@ -237,11 +237,11 @@ export async function runProjectInvitationJoin(
     await expect(invitationRow).toContainText("待接受");
     await expect(invitationRow).toContainText("质检员");
     await expect(invitationRow).toContainText(project.name);
-    await page.waitForTimeout(2_400);
+    await page.waitForTimeout(3400);
 
     // 2. 真实退出登录：被邀请邮箱尚未注册，接受动作发生在 /register?token 页。
     await logoutFromTopBar(page);
-    await page.waitForTimeout(1_200);
+    await page.waitForTimeout(2200);
 
     // 3. 打开邀请链接：新邮箱走「设置你的账号」一次性注册；页面不得出现 token 字段。
     await page.goto(`/register?token=${inviteToken}`);
@@ -254,7 +254,7 @@ export async function runProjectInvitationJoin(
       await page.locator("body").innerText(),
       "邀请页面不得渲染一次性注册链接或 token",
     ).not.toContain(inviteToken);
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(3000);
     await page.getByPlaceholder("如何在平台中称呼你").fill("受邀审核员");
     const passwordField = page.locator("input[type='password']").first();
     await passwordField.fill(INVITED_PASSWORD, { timeout: 10_000 });
@@ -278,7 +278,7 @@ export async function runProjectInvitationJoin(
     await expect(page.getByText(`你已加入项目「${project.name}」。`)).toBeVisible();
     await expect(page.getByText("等待分派")).toBeVisible();
     await expect(page.getByRole("button", { name: "打开项目", exact: true })).toBeVisible();
-    await page.waitForTimeout(2_800);
+    await page.waitForTimeout(3800);
     const drawEndMs = Date.now();
 
     // 窗口后（成片裁掉）：API 读回验证新增的项目成员关系。注册 adopting 了新会话，

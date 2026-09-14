@@ -151,7 +151,7 @@ export async function runProjectGuideAutosave(
     // 1. 直接聚焦边界规则单元格并改写文字，不点击「保存」。
     await cell.click();
     await expect(cell).toBeFocused();
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(1300);
     await observeSaveStatus(page);
     // 与 e2e/tests/guide-autosave.spec.ts 相同的 fill() 输入；状态文本可能因初始
     // 自动保存早已是「已保存」而不变化，持久化以 API 轮询为准（防抖 1s + PATCH）。
@@ -177,26 +177,26 @@ export async function runProjectGuideAutosave(
       "如出现保存中过渡态则记录为附加证据",
     ).toBeDefined();
 
-    await page.waitForTimeout(1_800);
+    await page.waitForTimeout(2200);
 
     // 2. 打开预览展示规则，再刷新页面由真实 GET 读回。
     await editor(page).getByRole("tab", { name: "预览", exact: true }).click();
     const preview = page.getByTestId("markdown-preview");
     await expect(preview).toContainText(EDITED_RULE);
-    await page.waitForTimeout(2_200);
+    await page.waitForTimeout(2600);
 
     await editor(page).getByRole("tab", { name: "编辑", exact: true }).click();
     await expect(richTextBody(page)).toBeVisible();
     await page.reload();
     await expect(richTextBody(page)).toBeVisible({ timeout: 30_000 });
-    await page.waitForTimeout(1_400);
+    await page.waitForTimeout(1800);
     await editor(page).getByRole("tab", { name: "预览", exact: true }).click();
     await expect(page.getByTestId("markdown-preview")).toContainText(EDITED_RULE, {
       timeout: 15_000,
     });
     const persistedGuide = await readGuide(page, accessToken, project.id);
     expect(persistedGuide).toContain(EDITED_RULE);
-    await page.waitForTimeout(2_400);
+    await page.waitForTimeout(2800);
 
     result = {
       drawStartMs,

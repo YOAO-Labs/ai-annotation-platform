@@ -145,21 +145,21 @@ export async function runPolygonSliceUndo(
   const drawStartMs = Date.now();
 
   // ── 已保存对象 → 右键上下文菜单 → 切割多边形 ──
-  await page.waitForTimeout(1_100);
+  await page.waitForTimeout(1766);
   await page.mouse.click(inside.x, inside.y, { button: "right" });
   await page.getByRole("menuitem", { name: "切割多边形", exact: true }).click();
   await expect(controls).toBeVisible({ timeout: 10_000 });
-  await page.waitForTimeout(1_300);
+  await page.waitForTimeout(1966);
 
   // ── 从对象外逐点画穿越切线，点间停顿展示切线预览 ──
   for (const point of CUT_PATH) {
     const { x, y } = mediaPoint(bounds, point);
     await page.mouse.move(x, y);
-    await page.waitForTimeout(320);
+    await page.waitForTimeout(986);
     await page.mouse.click(x, y);
-    await page.waitForTimeout(520);
+    await page.waitForTimeout(1186);
   }
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(1366);
 
   // ── 两块预览：先看真实的两区域结果，再确认 ──
   await controls.getByRole("button", { name: "预览切割", exact: true }).click();
@@ -167,7 +167,7 @@ export async function runPolygonSliceUndo(
   const preview = JSON.parse((await controls.getAttribute("data-slice-preview")) ?? "[]") as Array<{
     points: number[][];
   }>;
-  await page.waitForTimeout(1_800);
+  await page.waitForTimeout(2466);
 
   const commitPending = page.waitForResponse(
     (response) =>
@@ -182,21 +182,21 @@ export async function runPolygonSliceUndo(
   const createdId = commit.created_annotation_id;
   await expect(page.getByTestId(`box-list-item-${createdId}`)).toBeVisible({ timeout: 10_000 });
   const afterCommit = await readTaskAnnotations(page, task.id);
-  await page.waitForTimeout(1_500);
+  await page.waitForTimeout(2166);
 
   // ── 撤销：两个对象回到来源一个，来源几何恢复原样 ──
   const undone = await restore(page, task.id, "undo");
   await expect(stage).toHaveAttribute("data-user-box-count", "1", { timeout: 10_000 });
   await expect(page.getByTestId(`box-list-item-${createdId}`)).toHaveCount(0);
   const afterUndo = await readTaskAnnotations(page, task.id);
-  await page.waitForTimeout(1_700);
+  await page.waitForTimeout(2366);
 
   // ── 重做：同两个已保存对象回来 ──
   const redone = await restore(page, task.id, "redo");
   await expect(stage).toHaveAttribute("data-user-box-count", "2", { timeout: 10_000 });
   await expect(page.getByTestId(`box-list-item-${createdId}`)).toBeVisible({ timeout: 10_000 });
   const afterRedo = await readTaskAnnotations(page, task.id);
-  await page.waitForTimeout(1_500);
+  await page.waitForTimeout(2166);
 
   // ── 真实结果断言：来源保留原 ID、几何与属性，新对象是同一次切割的产物 ──
   expect(afterCommit.map((item) => item.id).sort()).toEqual([source.id, createdId].sort());

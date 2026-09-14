@@ -122,16 +122,16 @@ export async function runPolygonBoundaryTrace(
   const drawStartMs = Date.now();
 
   // ── 相邻区域先落两个自由点，再进入「沿已有边界」──
-  await page.waitForTimeout(1_100);
+  await page.waitForTimeout(1330);
   for (const point of NEIGHBOR_FREE_POINTS) {
     const { x, y } = mediaPoint(bounds, point);
     await page.mouse.move(x, y);
-    await page.waitForTimeout(280);
+    await page.waitForTimeout(510);
     await page.mouse.click(x, y);
-    await page.waitForTimeout(460);
+    await page.waitForTimeout(690);
   }
   await expect(stage).toHaveAttribute("data-polygon-draft-count", "2");
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(930);
 
   await controls.getByRole("button", { name: "沿已有边界", exact: true }).click();
   await expect(controls).toContainText("在已保存的多边形边界上点击起点");
@@ -139,19 +139,19 @@ export async function runPolygonBoundaryTrace(
   // ── 在来源边界上点起点与终点（取来源轮廓的两个真实顶点）──
   const traceStart = mediaPoint(bounds, anchor.polygon[4]);
   await page.mouse.move(traceStart.x, traceStart.y);
-  await page.waitForTimeout(420);
+  await page.waitForTimeout(650);
   await page.mouse.click(traceStart.x, traceStart.y);
   await expect(controls).toContainText("在同一条边界上点击终点");
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1130);
 
   const traceEnd = mediaPoint(bounds, anchor.polygon[2]);
   await page.mouse.move(traceEnd.x, traceEnd.y);
-  await page.waitForTimeout(420);
+  await page.waitForTimeout(650);
   await page.mouse.click(traceEnd.x, traceEnd.y);
   await expect(controls.getByRole("button", { name: "确认追加", exact: true })).toBeVisible({
     timeout: 10_000,
   });
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1130);
 
   // ── 对比两个方向：先看非默认方向，再回到「较短」的那条并确认 ──
   const clockwise = controls.getByRole("button", { name: /^顺时针/ });
@@ -164,20 +164,20 @@ export async function runPolygonBoundaryTrace(
   const other = shorter === clockwise ? counterclockwise : clockwise;
   await other.click();
   await expect(other).toHaveAttribute("aria-pressed", "true");
-  await page.waitForTimeout(1_500);
+  await page.waitForTimeout(1730);
   await shorter.click();
   await expect(shorter).toHaveAttribute("aria-pressed", "true");
-  await page.waitForTimeout(1_200);
+  await page.waitForTimeout(1430);
   const confirmedDirection = (await shorter.textContent()) ?? "";
   await controls.getByRole("button", { name: "确认追加", exact: true }).click();
   await expect(stage).toHaveAttribute("data-polygon-draft-count", "5", { timeout: 10_000 });
-  await page.waitForTimeout(1_400);
+  await page.waitForTimeout(1630);
 
   // ── Enter 闭合相邻多边形并选择 car 保存 ──
   await page.keyboard.press("Enter");
   const saved = await commitPendingAnnotationClass(page, { label: anchor.label, taskId: task.id });
   await expect(stage).toHaveAttribute("data-pending-drawing", "false");
-  await page.waitForTimeout(1_400);
+  await page.waitForTimeout(1630);
 
   // ── 读回两个对象：相邻多边形存在，来源版本与几何未变 ──
   const after = await readTaskAnnotations(page, task.id);
@@ -206,7 +206,7 @@ export async function runPolygonBoundaryTrace(
       "共享边界必须来自来源轮廓上的真实顶点",
     ).toBe(true);
   }
-  await page.waitForTimeout(1_200);
+  await page.waitForTimeout(1430);
 
   const drawEndMs = Date.now();
   return {

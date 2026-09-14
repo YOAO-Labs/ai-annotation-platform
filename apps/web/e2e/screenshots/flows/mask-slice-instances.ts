@@ -261,18 +261,18 @@ export async function runMaskSliceInstances(
 
   // ── 母版窗口 ──
   const drawStartMs = Date.now();
-  await page.waitForTimeout(1400);
+  await page.waitForTimeout(1650);
 
   await page.locator('button[aria-label="编辑 Mask"]:visible').last().click();
   await openMaskSettings(page);
   await expect(controls).toContainText("就绪", { timeout: 20_000 });
-  await page.waitForTimeout(1600);
+  await page.waitForTimeout(1850);
 
   await controls.getByTitle("Mask 高级工具").click();
   await page.getByRole("menuitem", { name: "直线切割为两个实例", exact: true }).click();
   await expect(page.getByRole("menu")).toBeHidden();
   await expect(controls).toContainText("拖动两点定义直线");
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1150);
 
   // 收起设置面板再拖线，避免面板遮挡画布；松手后重开预览两块结果与像素数量。
   await closeMaskSettings(page);
@@ -280,7 +280,7 @@ export async function runMaskSliceInstances(
   const from = mediaPoint(bounds, CUT_PATH[0]);
   const to = mediaPoint(bounds, CUT_PATH[1]);
   await page.mouse.move(from.x, from.y);
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(450);
   await page.mouse.down();
   await movePointerPathAtRefreshRate(page, [from, to], 800);
   await page.mouse.up();
@@ -289,7 +289,7 @@ export async function runMaskSliceInstances(
   await expect(page.getByTestId("mask-primary-action")).toHaveText("提交 2 个实例");
   await expect(controls).toContainText("直线切割");
   await expect(controls).toContainText(/面积 \d+ → \d+\+\d+ px/);
-  await page.waitForTimeout(2600); // 停留展示两块彩色预览与像素数量
+  await page.waitForTimeout(2850); // 停留展示两块彩色预览与像素数量
 
   const commitPath = `/api/v1/tasks/${task.id}/annotations/mask-mutations:commit`;
   const commitRequest = page.waitForRequest((request) => pathOf(request.url()) === commitPath);
@@ -311,7 +311,7 @@ export async function runMaskSliceInstances(
   const createdRow = page.getByTestId(`box-list-item-${createdId}`);
   await expect(keptRow).toHaveCount(1, { timeout: 15_000 });
   await expect(createdRow).toHaveCount(1);
-  await page.waitForTimeout(1600);
+  await page.waitForTimeout(1850);
 
   // 依次选中两个结果实例，展示真实落库的两个对象。
   // 提交切割后应用会自动选中保留实例并展开浮动信息卡（z-popover-elevated），
@@ -320,11 +320,11 @@ export async function runMaskSliceInstances(
   if (await selectionCardCollapse.isVisible()) await selectionCardCollapse.click();
   await keptRow.click();
   await expect(keptRow).toHaveClass(/border-brand/);
-  await page.waitForTimeout(1700);
+  await page.waitForTimeout(1950);
   if (await selectionCardCollapse.isVisible()) await selectionCardCollapse.click();
   await createdRow.click();
   await expect(createdRow).toHaveClass(/border-brand/);
-  await page.waitForTimeout(1700);
+  await page.waitForTimeout(1950);
 
   const drawEndMs = Date.now();
 

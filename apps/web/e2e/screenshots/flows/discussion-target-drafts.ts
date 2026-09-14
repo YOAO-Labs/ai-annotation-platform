@@ -130,11 +130,11 @@ export async function runDiscussionTargetDrafts(
 
   // ── 母版窗口 ──
   const drawStartMs = Date.now();
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1366);
 
   await typeIntoEditor(page, editor(), TASK_DRAFT);
   await expect(editor()).toHaveText(TASK_DRAFT);
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1366);
 
   // 选中一个已保存对象：发送目标自动跟随它，输入框切换到该目标自己的（空）草稿。
   const annotationRow = page.getByTestId(`box-list-item-${options.annotationId}`);
@@ -142,17 +142,17 @@ export async function runDiscussionTargetDrafts(
   await expect(annotationRow).toHaveClass(/border-brand/);
   await expect(destination()).toHaveValue(annotationTargetKey);
   await expect(editor()).toBeEmpty();
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1066);
 
   await typeIntoEditor(page, editor(), ANNOTATION_DRAFT);
   await expect(editor()).toHaveText(ANNOTATION_DRAFT);
-  await page.waitForTimeout(1100);
+  await page.waitForTimeout(1266);
 
   // 只改变阅读范围：列表筛选变化，当前目标的草稿不被搬动。
   const scopeChecks: Array<{ scope: string; editorText: string }> = [];
   for (const nextScope of ["task", "annotation", "all"]) {
     await scope().selectOption(nextScope);
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(1066);
     scopeChecks.push({ scope: nextScope, editorText: await editor().innerText() });
     expect(await editor().innerText()).toBe(ANNOTATION_DRAFT);
   }
@@ -160,13 +160,13 @@ export async function runDiscussionTargetDrafts(
   // 在两个收件人之间往返：每个目标仍显示自己的原草稿。
   await destination().selectOption(taskTargetKey);
   await expect(editor()).toHaveText(TASK_DRAFT);
-  await page.waitForTimeout(1300);
+  await page.waitForTimeout(1466);
   await destination().selectOption(annotationTargetKey);
   await expect(editor()).toHaveText(ANNOTATION_DRAFT);
-  await page.waitForTimeout(1300);
+  await page.waitForTimeout(1466);
   await destination().selectOption(taskTargetKey);
   await expect(editor()).toHaveText(TASK_DRAFT);
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1066);
 
   // 发送任务草稿，并在「任务留言」来源标签下读回。
   const pending = page.waitForResponse(
@@ -181,7 +181,7 @@ export async function runDiscussionTargetDrafts(
   const row = reader().getByTestId("discussion-comment-row").filter({ hasText: TASK_DRAFT });
   await expect(row).toBeVisible({ timeout: 15_000 });
   await expect(row.getByTestId("discussion-source-chip")).toHaveText("任务留言");
-  await page.waitForTimeout(2400);
+  await page.waitForTimeout(2566);
 
   const drawEndMs = Date.now();
 

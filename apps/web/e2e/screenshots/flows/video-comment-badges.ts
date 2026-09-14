@@ -224,12 +224,12 @@ export async function runVideoCommentBadges(
     });
 
     const drawStartMs = Date.now();
-    await page.waitForTimeout(1_400);
+    await page.waitForTimeout(1700);
     await page.getByTestId("video-timeline-toggle").click();
     await page
       .getByTestId("video-timeline-bottom-bar")
       .waitFor({ state: "visible", timeout: 5_000 });
-    await page.waitForTimeout(1_100);
+    await page.waitForTimeout(1400);
 
     // F0 → F8：逐帧前进，轨迹角标跟随当前帧对象。
     const nextFrame = page.getByRole("button", { name: "下一帧", exact: true });
@@ -238,12 +238,12 @@ export async function runVideoCommentBadges(
       await expect(stage).toHaveAttribute("data-video-frame-index", String(frame), {
         timeout: 10_000,
       });
-      await page.waitForTimeout(260);
+      await page.waitForTimeout(560);
     }
     // 单帧标注只属于 F0：离开该帧后对象和角标一起消失，轨迹角标仍在。
     await expect(badge(page, single.id)).toHaveCount(0);
     await expect(badge(page, track.id)).toHaveAttribute("aria-label", trackBadgeLabel);
-    await page.waitForTimeout(1_700);
+    await page.waitForTimeout(2000);
 
     // F8 → F0：回到单帧标注所在帧，两个角标同时可见。
     const previousFrame = page.getByRole("button", { name: "上一帧", exact: true });
@@ -252,10 +252,10 @@ export async function runVideoCommentBadges(
       await expect(stage).toHaveAttribute("data-video-frame-index", String(frame), {
         timeout: 10_000,
       });
-      await page.waitForTimeout(260);
+      await page.waitForTimeout(560);
     }
     await expect(badge(page, single.id)).toHaveAttribute("aria-label", singleBadgeLabel);
-    await page.waitForTimeout(1_400);
+    await page.waitForTimeout(1700);
 
     // 点击可见轨迹的角标：讨论切换到该对象的评论范围。
     await badge(page, track.id).click();
@@ -285,7 +285,7 @@ export async function runVideoCommentBadges(
     await expect(
       discussion.locator(`[data-comment-key="annotation_comment:${singleComment}"]`),
     ).toHaveCount(0);
-    await page.waitForTimeout(2_200);
+    await page.waitForTimeout(2500);
 
     result = {
       drawStartMs,

@@ -195,7 +195,7 @@ export async function runTaskDrawingComment(
 
   // ── 母版窗口 ──
   const drawStartMs = Date.now();
-  await page.waitForTimeout(1300);
+  await page.waitForTimeout(1487);
 
   await reader().getByRole("button", { name: "在题图上绘制" }).click();
   await expect(reader().getByRole("button", { name: "正在绘制…" })).toBeVisible();
@@ -205,19 +205,19 @@ export async function runTaskDrawingComment(
   const toolbar = doneButton.locator("..");
   await expect(toolbar).toContainText("0 条");
   await toolbar.getByRole("button", { name: "黄", exact: true }).click();
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1087);
 
   // 在题图上圈出这个漏标对象：真实指针按住拖动，闭合一圈。
   const bounds: MediaBounds = await renderedMediaBounds(stage);
   const start = mediaPoint(bounds, circlePath[0]!);
   const path = circlePath.map((point) => mediaPoint(bounds, point));
   await page.mouse.move(start.x, start.y);
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(387);
   await page.mouse.down();
   await movePointerPathAtRefreshRate(page, path, 2200);
   await page.mouse.up();
   await expect(toolbar).toContainText("1 条", { timeout: 10_000 });
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1387);
 
   // 「完成」把这段笔触挂到输入框；工具条消失，输入框显示自己的批注条数。
   await doneButton.click();
@@ -225,7 +225,7 @@ export async function runTaskDrawingComment(
   const drawingBadge = reader().getByRole("button", { name: /^批注 · 1 条$/ });
   await expect(drawingBadge).toBeVisible({ timeout: 10_000 });
   await expect(editor()).toBeEmpty();
-  await page.waitForTimeout(1400);
+  await page.waitForTimeout(1587);
 
   // 不写正文直接发送：只有绘图的评论也必须能提交。
   const pending = page.waitForResponse(
@@ -263,15 +263,15 @@ export async function runTaskDrawingComment(
   expect(Math.abs(previewStart[1]! - circlePath[0]![1])).toBeLessThan(0.01);
   expect(Math.abs(previewEnd[0]! - circlePath[0]![0])).toBeLessThan(0.01);
   expect(Math.abs(previewEnd[1]! - circlePath[0]![1])).toBeLessThan(0.01);
-  await page.waitForTimeout(1600);
+  await page.waitForTimeout(1787);
 
   // 打开这条已发布绘图：点评论行把笔触固定叠加回画布（悬停态即真实回放）。
   await expect(row).not.toHaveClass(/border-brand/);
   await row.hover();
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(887);
   await row.click({ position: { x: 12, y: 12 } });
   await expect(row).toHaveClass(/border-brand/, { timeout: 10_000 });
-  await page.waitForTimeout(2400);
+  await page.waitForTimeout(2587);
 
   const drawEndMs = Date.now();
 
