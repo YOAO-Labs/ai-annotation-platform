@@ -296,13 +296,13 @@ export async function runVideoIssueResolution(
     await expect(panel.getByTestId(`discussion-issue-card-${targetIssue.id}`)).toBeVisible({
       timeout: 10_000,
     });
-    await page.waitForTimeout(1950);
+    await page.waitForTimeout(3200);
     await panel.getByTestId(`discussion-issue-open-${targetIssue.id}`).click();
     await expect(detail).toHaveAttribute("data-issue-id", targetIssue.id, { timeout: 10_000 });
     await expect(detail.getByTestId(`discussion-issue-root-${targetIssue.id}`)).toContainText(
       TARGET_BODY,
     );
-    await page.waitForTimeout(2350);
+    await page.waitForTimeout(3600);
     const frameAfterReading = await stage.getAttribute("data-video-frame-index");
     expect(frameAfterReading, "阅读问题不得改变当前源帧").toBe(String(READING_FRAME));
     const readingSignature = await mediaSignature(page);
@@ -338,7 +338,7 @@ export async function runVideoIssueResolution(
     const navigationTransitions = await finishIssueNavigationObservation(page);
     expect(navigationTransitions.map((entry) => entry.status)).toContain("preparing");
     expect(navigationTransitions.at(-1)).toEqual({ status: "ready", frame: String(TARGET_FRAME) });
-    await page.waitForTimeout(2350); // 让目标帧、图钉与状态提示停留可读
+    await page.waitForTimeout(3600); // 让目标帧、图钉与状态提示停留可读
 
     // 3. 回复并解决，保留真实写入结果。
     const editor = detail.getByRole("textbox", { name: "留言" });
@@ -356,7 +356,7 @@ export async function runVideoIssueResolution(
     await expect(detail.getByTestId(`discussion-issue-reply-${reply.id}`)).toContainText(
       REPLY_BODY,
     );
-    await page.waitForTimeout(1950);
+    await page.waitForTimeout(3200);
 
     const resolved = page.waitForResponse(
       (response) =>
@@ -372,7 +372,7 @@ export async function runVideoIssueResolution(
         exact: true,
       }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.waitForTimeout(2550); // 继续阅读已解决的完整详情
+    await page.waitForTimeout(3800); // 继续阅读已解决的完整详情
 
     // 4. 打开下一条未解决问题，保持连续处理。
     await detail.getByTestId(`discussion-issue-next-${targetIssue.id}`).click();
@@ -382,7 +382,7 @@ export async function runVideoIssueResolution(
         exact: true,
       }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.waitForTimeout(2550);
+    await page.waitForTimeout(3800);
 
     const drawEndMs = Date.now();
 

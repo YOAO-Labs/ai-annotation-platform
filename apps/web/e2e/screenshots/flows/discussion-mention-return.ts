@@ -167,7 +167,7 @@ export async function runDiscussionMentionReturn(
     );
 
     const drawStartMs = Date.now();
-    await page.waitForTimeout(1616);
+    await page.waitForTimeout(2616);
 
     // 1) 真实 @ 选择器：输入 @ 触发成员浮层，选中隔离成员后编辑器插入提及 chip。
     await editor(page).click();
@@ -177,7 +177,7 @@ export async function runDiscussionMentionReturn(
     await page.keyboard.insertText(memberRow.user_name);
     const option = picker.getByRole("option").filter({ hasText: memberRow.user_name });
     await expect(option).toHaveCount(1, { timeout: 10_000 });
-    await page.waitForTimeout(1316);
+    await page.waitForTimeout(2316);
     await option.click();
     const chip = editor(page).locator(`[data-mention-uid="${memberRow.user_id}"]`);
     await expect(chip).toHaveText(`@${memberRow.user_name}`, { timeout: 10_000 });
@@ -221,7 +221,7 @@ export async function runDiscussionMentionReturn(
     await expect(
       discussionPanel(page).getByTestId("discussion-comment-row").filter({ hasText: BODY_SUFFIX }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.waitForTimeout(2316);
+    await page.waitForTimeout(3316);
 
     // 3) 切换到该成员自己的会话，从通知中心打开“任务留言提到了你”。
     await page.evaluate(() => {
@@ -232,17 +232,17 @@ export async function runDiscussionMentionReturn(
     await applyScreenshotTheme(page, "dark");
     await page.goto("/projects", { waitUntil: "domcontentloaded" });
     await notificationBell(page).waitFor({ state: "visible", timeout: 20_000 });
-    await page.waitForTimeout(1416);
+    await page.waitForTimeout(2416);
     await notificationBell(page).click();
     const mentionNotification = page.getByRole("button", { name: MENTION_NOTIFICATION });
     await expect(mentionNotification).toHaveCount(1, { timeout: 15_000 });
-    await page.waitForTimeout(1616);
+    await page.waitForTimeout(2616);
     await mentionNotification.click();
     await expect(page).toHaveURL(new RegExp(`task_comment=${commentId}`), { timeout: 20_000 });
     const highlighted = commentRow(page, commentId);
     await expect(highlighted).toHaveAttribute("aria-current", "true", { timeout: 20_000 });
     await expect(highlighted).toContainText(BODY_SUFFIX);
-    await page.waitForTimeout(2816);
+    await page.waitForTimeout(3816);
     const drawEndMs = Date.now();
 
     // 4) drawEnd 之外：真正隔离的浏览器上下文复用同一条通知做跨会话核对。
