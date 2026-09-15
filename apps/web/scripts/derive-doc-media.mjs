@@ -42,7 +42,7 @@ const POSTER_AT_SECONDS = new Map([
   ["polygon-slice-undo", 22.1],
   ["video-comment-badges", 18.7],
   ["discussion-mention-return", 23.8],
-  ["mask-slice-instances", 20.4],
+  ["mask-slice-instances", 14],
   ["discussion-target-drafts", 23.8],
   ["task-drawing-comment", 18.7],
   ["rotated-bbox", 9.3],
@@ -79,7 +79,7 @@ const POSTER_AT_SECONDS = new Map([
   // 下列为本次新登记素材的占位海报时间（约目标时长的 85%），需在成片验收后按实际画面复核。
   ["video-issue-resolution", 27.2],
   ["project-guide-autosave", 20.4],
-  ["project-invitation-join", 27.2],
+  ["project-invitation-join", 20],
 ]);
 
 const TARGETS = new Map(
