@@ -1,7 +1,40 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-09-12T08:17:24.745Z",
+  "updated_at": "2026-09-15T01:28:16.584Z",
   "entries": {
+    "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
+      "asset_id": "home-hero/data-manager",
+      "role": "hero-image",
+      "generated_at": "2026-09-12T08:17:24.744Z",
+      "captured_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca",
+      "source_worktree_dirty": false,
+      "derived_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca",
+      "derivation_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "docs-site/scripts/generate-home-hero-media.mjs",
+      "watch_paths": [
+        "docs-site/user-guide/images/projects/data-manager-overview.png",
+        "apps/web/e2e/screenshots/scenes/projects.ts",
+        "docs-site/scripts/generate-home-hero-media.mjs",
+        "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
+      ],
+      "sha256": "7dbc9735fe2c9d68453f699049be80233ef1cd985274cf833028c7b1da407b89",
+      "bytes": 52872,
+      "media": {
+        "codec": "webp",
+        "width": 1440,
+        "height": 900
+      },
+      "capture": {
+        "profile": "static",
+        "inference": "none"
+      },
+      "source_asset": {
+        "path": "docs-site/user-guide/images/projects/data-manager-overview.png",
+        "sha256": "ff723a42341d7e5646e71905516d30ecac42a2dcd84ae36d37c833f153fce128",
+        "captured_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca"
+      }
+    },
     "docs-site/.vitepress/theme/assets/home/hero/pointcloud.webp": {
       "asset_id": "home-hero/pointcloud",
       "role": "hero-image",
@@ -1779,6 +1812,396 @@
         "sha256": "9fcfd64916d030bd73b8db00bfcd7d77abc9d5c897d8ba664b4c4616c2fece90"
       }
     },
+    "docs-site/public/media/discussion/mention-return-poster.webp": {
+      "asset_id": "discussion-mention-return",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:56.791Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › discussion-mention-return",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "e47d64b07a307092af1691c049d6b9fc7561e59ecdcdb6ffeabe56e9bfc8367f",
+      "bytes": 60362,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T011215Z-df5d65ddcc30",
+        "assetId": "discussion-mention-return",
+        "sha256": "22cda4260c124d27e13723c2d83b02f576ac6785f32101d4a6d9b3d30227a53a",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 19.233333
+        }
+      }
+    },
+    "docs-site/public/media/discussion/mention-return.mp4": {
+      "asset_id": "discussion-mention-return",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:56.757Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › discussion-mention-return",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "42258862d62b3da2cda3232af1a560e942730e836bf033831505c7421b18812d",
+      "bytes": 486369,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 19.233333
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T011215Z-df5d65ddcc30",
+        "assetId": "discussion-mention-return",
+        "sha256": "22cda4260c124d27e13723c2d83b02f576ac6785f32101d4a6d9b3d30227a53a",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 19.233333
+        }
+      }
+    },
+    "docs-site/public/media/discussion/target-drafts-poster.webp": {
+      "asset_id": "discussion-target-drafts",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:46.241Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › discussion-target-drafts",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "b86627cd0135864b9568da3083d9b2a104945a460b55bd5440c4b63450817d75",
+      "bytes": 53758,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T005854Z-df5d65ddcc30",
+        "assetId": "discussion-target-drafts",
+        "sha256": "cd52d7147e80bcf4d2313a121b228b9f40a2f89c2bde2733de530151e5e8e94d",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 18.916667
+        }
+      }
+    },
+    "docs-site/public/media/discussion/target-drafts.mp4": {
+      "asset_id": "discussion-target-drafts",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:46.209Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › discussion-target-drafts",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "e746e6e3cff09f801654c8fc44dd60e83c1235eb88ebb29bfe1dce29e2ddb740",
+      "bytes": 406305,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 18.933333
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T005854Z-df5d65ddcc30",
+        "assetId": "discussion-target-drafts",
+        "sha256": "cd52d7147e80bcf4d2313a121b228b9f40a2f89c2bde2733de530151e5e8e94d",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 18.916667
+        }
+      }
+    },
+    "docs-site/public/media/discussion/task-drawing-poster.webp": {
+      "asset_id": "task-drawing-comment",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:47.970Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › task-drawing-comment",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "81adcb876789796989948169a10e633287d7b72520a10d65104ec4bb541aee5c",
+      "bytes": 54926,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T005957Z-df5d65ddcc30",
+        "assetId": "task-drawing-comment",
+        "sha256": "31aabfcc1868e4552d4006e9e862002958ca0ac497007dd407b28dc4887fa169",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 14.45
+        }
+      }
+    },
+    "docs-site/public/media/discussion/task-drawing.mp4": {
+      "asset_id": "task-drawing-comment",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:47.942Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › task-drawing-comment",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "868539a7d2f797054274312b1529d363ab5c2cf28323fa4a87a032d770d6b031",
+      "bytes": 289249,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 14.466667
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T005957Z-df5d65ddcc30",
+        "assetId": "task-drawing-comment",
+        "sha256": "31aabfcc1868e4552d4006e9e862002958ca0ac497007dd407b28dc4887fa169",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 14.45
+        }
+      }
+    },
+    "docs-site/public/media/discussion/video-comment-badges-poster.webp": {
+      "asset_id": "video-comment-badges",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:50.452Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › video-comment-badges",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "64e638666fc087a2574b5e9e8738a1f56168fb7565204757d91233a822be9032",
+      "bytes": 76044,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T010343Z-df5d65ddcc30",
+        "assetId": "video-comment-badges",
+        "sha256": "aadf7feb1906a242a39ff2e9b44c9f12d7dcdbabd61efbbd6c7c6cadfc6ffe85",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 20.15
+        }
+      }
+    },
+    "docs-site/public/media/discussion/video-comment-badges.mp4": {
+      "asset_id": "video-comment-badges",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:50.418Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › video-comment-badges",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "abdbd13e6d2091a5580f2b301063ffc4bd673ad7825396ddd59e854d0a837986",
+      "bytes": 785104,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 20.166667
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T010343Z-df5d65ddcc30",
+        "assetId": "video-comment-badges",
+        "sha256": "aadf7feb1906a242a39ff2e9b44c9f12d7dcdbabd61efbbd6c7c6cadfc6ffe85",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 20.15
+        }
+      }
+    },
+    "docs-site/public/media/discussion/video-issue-resolution-poster.webp": {
+      "asset_id": "video-issue-resolution",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:52.880Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › video-issue-resolution",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "88a1546deb39c04302ce1d86f312491c0d450a84e9793ad0a4fb6e3931eff29b",
+      "bytes": 57818,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T010925Z-df5d65ddcc30",
+        "assetId": "video-issue-resolution",
+        "sha256": "b5d3b6b277987717fd58bc2d3cf36f7c51fee7a968e8471b1adf2db2dc7fbbc6",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 22.933333
+        }
+      }
+    },
+    "docs-site/public/media/discussion/video-issue-resolution.mp4": {
+      "asset_id": "video-issue-resolution",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:52.847Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › video-issue-resolution",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "7cae68c79d14f3271fdc85f07e504b77f448e499042df3053c0fa158cd8c461c",
+      "bytes": 475723,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 22.933333
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T010925Z-df5d65ddcc30",
+        "assetId": "video-issue-resolution",
+        "sha256": "b5d3b6b277987717fd58bc2d3cf36f7c51fee7a968e8471b1adf2db2dc7fbbc6",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 22.933333
+        }
+      }
+    },
     "docs-site/public/media/jobs/jobs-bell-active-poster.webp": {
       "asset_id": "jobs-bell-active",
       "role": "poster",
@@ -2325,6 +2748,84 @@
         "clip": {
           "start": 72.4,
           "duration": 8.5
+        }
+      }
+    },
+    "docs-site/public/media/mask/slice-instances-poster.webp": {
+      "asset_id": "mask-slice-instances",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:28:16.584Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › mask-slice-instances",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "2f6e0732c09637e20a2aad133ae0c6ea59bdec3a6ba51470deca033485edef4f",
+      "bytes": 63364,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T005748Z-df5d65ddcc30",
+        "assetId": "mask-slice-instances",
+        "sha256": "7e5e39686130e8aa971ae82087e5b1944165bd7d17f4733684721094b2759995",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 16.183333
+        }
+      }
+    },
+    "docs-site/public/media/mask/slice-instances.mp4": {
+      "asset_id": "mask-slice-instances",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:28:16.552Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › mask-slice-instances",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "f52b12d1653be6230ec25fc8bd4708bc7e1757d22ebed3ac32c108328663d26d",
+      "bytes": 415909,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 16.2
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T005748Z-df5d65ddcc30",
+        "assetId": "mask-slice-instances",
+        "sha256": "7e5e39686130e8aa971ae82087e5b1944165bd7d17f4733684721094b2759995",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 16.183333
         }
       }
     },
@@ -2954,6 +3455,84 @@
         }
       }
     },
+    "docs-site/public/media/polygon/boundary-trace-poster.webp": {
+      "asset_id": "polygon-boundary-trace",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:39.589Z",
+      "captured_commit": "add121f0ad7a927acbec24b250a4b5551ddc79a8",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › polygon-boundary-trace",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "f789dd01dc8008e1580f3d756e48106b512d96ca4001c76cf99fb78ac874dd68",
+      "bytes": 59154,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260914T185558Z-add121f0ad7a",
+        "assetId": "polygon-boundary-trace",
+        "sha256": "dd19809b1c40362740f3495408dfd59eab35ad364c7c33f1995214150f6b7764",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 17.266667
+        }
+      }
+    },
+    "docs-site/public/media/polygon/boundary-trace.mp4": {
+      "asset_id": "polygon-boundary-trace",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:39.558Z",
+      "captured_commit": "add121f0ad7a927acbec24b250a4b5551ddc79a8",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › polygon-boundary-trace",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "a25d579d9c6810b67ef3c388c1cfc166fb555776b79bfcdafaa3ee10dc4fb0f4",
+      "bytes": 450121,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 17.266667
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260914T185558Z-add121f0ad7a",
+        "assetId": "polygon-boundary-trace",
+        "sha256": "dd19809b1c40362740f3495408dfd59eab35ad364c7c33f1995214150f6b7764",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 17.266667
+        }
+      }
+    },
     "docs-site/public/media/polygon/draw-poster.webp": {
       "asset_id": "polygon-draw",
       "role": "poster",
@@ -3049,6 +3628,84 @@
         "clip": {
           "start": 65.4,
           "duration": 14.3
+        }
+      }
+    },
+    "docs-site/public/media/polygon/slice-undo-poster.webp": {
+      "asset_id": "polygon-slice-undo",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:42.015Z",
+      "captured_commit": "add121f0ad7a927acbec24b250a4b5551ddc79a8",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › polygon-slice-undo",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "d39c42f393e4c0be8350cb8a4a515d7bf8719a6b601eee26ecf5565237111f80",
+      "bytes": 58580,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260914T185709Z-add121f0ad7a",
+        "assetId": "polygon-slice-undo",
+        "sha256": "ef595f2d5ebab3090d785552c70dfce2236f2a8100e93916e9c19437b17ba9c5",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 20
+        }
+      }
+    },
+    "docs-site/public/media/polygon/slice-undo.mp4": {
+      "asset_id": "polygon-slice-undo",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:41.983Z",
+      "captured_commit": "add121f0ad7a927acbec24b250a4b5551ddc79a8",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › polygon-slice-undo",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "e5a22909dfcce195c54783b5590def7ea104198331e223183a9dc3a9ff66a8e2",
+      "bytes": 477555,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 20
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260914T185709Z-add121f0ad7a",
+        "assetId": "polygon-slice-undo",
+        "sha256": "ef595f2d5ebab3090d785552c70dfce2236f2a8100e93916e9c19437b17ba9c5",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 20
         }
       }
     },
@@ -3339,6 +3996,84 @@
         "input_sha256": "9498e4f57004cca1529ee8dd0e55c306d6abc8ab41c2a67c26f14c71a6249860",
         "trim_start_seconds": 0.5,
         "note": "Removed login/loading pre-roll; retained the original capture and core interaction."
+      }
+    },
+    "docs-site/public/media/projects/guide-autosave-poster.webp": {
+      "asset_id": "project-guide-autosave",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:54.506Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › project-guide-autosave",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "129c0daa248a77dddcbdd7cf944307565b68b5bc11e79f59764a4be2f63207b4",
+      "bytes": 28016,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T011034Z-df5d65ddcc30",
+        "assetId": "project-guide-autosave",
+        "sha256": "efb0d16e4316df9cefd2aee725d59878f977b3069b19720c0e59fba870744819",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 17.333333
+        }
+      }
+    },
+    "docs-site/public/media/projects/guide-autosave.mp4": {
+      "asset_id": "project-guide-autosave",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:54.476Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › project-guide-autosave",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "021a6afc2fd5d07de6fa2a3b2db4dd6876cdb1db4c9794662f5c3af0c1b9af44",
+      "bytes": 196439,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 17.333333
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T011034Z-df5d65ddcc30",
+        "assetId": "project-guide-autosave",
+        "sha256": "efb0d16e4316df9cefd2aee725d59878f977b3069b19720c0e59fba870744819",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 17.333333
+        }
       }
     },
     "docs-site/public/media/projects/ml-routing-poster.webp": {
@@ -4357,6 +5092,84 @@
         "clip": {
           "start": 2.5,
           "duration": 19.1
+        }
+      }
+    },
+    "docs-site/public/media/team/project-invitation-join-poster.webp": {
+      "asset_id": "project-invitation-join",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:26:02.439Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › project-invitation-join",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "a0a0413064f9ca578e271aa5b4aacb0766b4af88b81e1351b533ba6b5d719d8b",
+      "bytes": 6688,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T011451Z-df5d65ddcc30",
+        "assetId": "project-invitation-join",
+        "sha256": "29772d493848169119861d46eba065566e79bccff18528d45bf8618fa97fb696",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 23.183333
+        }
+      }
+    },
+    "docs-site/public/media/team/project-invitation-join.mp4": {
+      "asset_id": "project-invitation-join",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:26:02.412Z",
+      "captured_commit": "df5d65ddcc3024b3ec3999af934038113bd6b2d0",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › project-invitation-join",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "7f81df4a83a8d88771b61a9034311c93dc6b1ced0959fc3162a245d25ee1e7ed",
+      "bytes": 187198,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 23.2
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260915T011451Z-df5d65ddcc30",
+        "assetId": "project-invitation-join",
+        "sha256": "29772d493848169119861d46eba065566e79bccff18528d45bf8618fa97fb696",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 23.183333
         }
       }
     },
@@ -6390,6 +7203,84 @@
         }
       }
     },
+    "docs-site/public/media/workbench/named-preset-poster.webp": {
+      "asset_id": "workspace-named-preset",
+      "role": "poster",
+      "generated_at": "2026-09-15T01:19:37.377Z",
+      "captured_commit": "f84b25369acc34a3787f532533d0a572b85cf358",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › workspace-named-preset",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "b11b1de15ebbf61151cac963e022bea5466931f8ffe86108ea13f332b0f16982",
+      "bytes": 58590,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260914T143347Z-f84b25369acc",
+        "assetId": "workspace-named-preset",
+        "sha256": "e2a3918c55dd1abcf19aa759d66e611cb9a636a8818aab772e59d862e00d480d",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 20.483333
+        }
+      }
+    },
+    "docs-site/public/media/workbench/named-preset.mp4": {
+      "asset_id": "workspace-named-preset",
+      "role": "docs-video",
+      "generated_at": "2026-09-15T01:19:37.344Z",
+      "captured_commit": "f84b25369acc34a3787f532533d0a572b85cf358",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › workspace-named-preset",
+      "watch_paths": [
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs"
+      ],
+      "sha256": "a2d3703dfbfd900068c5f4986e697ac44fdc8560f46a97dc7f016faced8a0e3d",
+      "bytes": 608844,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 20.5
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20260914T143347Z-f84b25369acc",
+        "assetId": "workspace-named-preset",
+        "sha256": "e2a3918c55dd1abcf19aa759d66e611cb9a636a8818aab772e59d862e00d480d",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 20.483333
+        }
+      }
+    },
     "docs-site/public/media/workbench/rotated-bbox-poster.webp": {
       "asset_id": "rotated-bbox",
       "role": "poster",
@@ -6631,39 +7522,6 @@
           "start": 0.7,
           "duration": 8.6
         }
-      }
-    },
-    "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
-      "asset_id": "home-hero/data-manager",
-      "role": "hero-image",
-      "generated_at": "2026-09-12T08:17:24.744Z",
-      "captured_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca",
-      "source_worktree_dirty": false,
-      "derived_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca",
-      "derivation_worktree_dirty": true,
-      "seed_revision": "screenshots-2026-08-g",
-      "source": "docs-site/scripts/generate-home-hero-media.mjs",
-      "watch_paths": [
-        "docs-site/user-guide/images/projects/data-manager-overview.png",
-        "apps/web/e2e/screenshots/scenes/projects.ts",
-        "docs-site/scripts/generate-home-hero-media.mjs",
-        "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
-      ],
-      "sha256": "7dbc9735fe2c9d68453f699049be80233ef1cd985274cf833028c7b1da407b89",
-      "bytes": 52872,
-      "media": {
-        "codec": "webp",
-        "width": 1440,
-        "height": 900
-      },
-      "capture": {
-        "profile": "static",
-        "inference": "none"
-      },
-      "source_asset": {
-        "path": "docs-site/user-guide/images/projects/data-manager-overview.png",
-        "sha256": "ff723a42341d7e5646e71905516d30ecac42a2dcd84ae36d37c833f153fce128",
-        "captured_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca"
       }
     }
   }
