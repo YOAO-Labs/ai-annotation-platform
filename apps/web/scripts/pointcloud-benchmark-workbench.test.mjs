@@ -5,6 +5,10 @@ function fixture(overrides = {}) {
   const state = {
     inspectorVisible: false,
     inspectorTabVisible: true,
+    inspectorTabBlocked: false,
+    boxBlocked: false,
+    canvasMaximized: false,
+    quickLayoutOpen: false,
     settingsOpen: false,
     advancedOpen: false,
     inspectorEnabled: true,
@@ -14,13 +18,20 @@ function fixture(overrides = {}) {
     ...overrides,
   };
   const visible = {
-    box: () => state.boxAvailable && state.inspectorVisible && state.manualExpanded,
-    inspector: () => state.inspectorVisible,
+    box: () =>
+      state.boxAvailable &&
+      state.inspectorVisible &&
+      !state.canvasMaximized &&
+      state.manualExpanded,
+    inspector: () => state.inspectorVisible && !state.canvasMaximized,
     tab: () => state.inspectorTabVisible,
+    quickLayout: () => state.quickLayoutOpen,
+    restore: () => state.quickLayoutOpen && state.canvasMaximized,
+    layout: () => true,
     dialog: () => state.settingsOpen,
     details: () => state.settingsOpen,
     toggle: () => state.settingsOpen && state.advancedOpen,
-    manual: () => state.inspectorVisible,
+    manual: () => state.inspectorVisible && !state.canvasMaximized,
     settings: () => true,
     close: () => state.settingsOpen,
     summary: () => state.settingsOpen,
@@ -29,6 +40,15 @@ function fixture(overrides = {}) {
     tab: () => {
       state.events.push("activate inspector tab");
       state.inspectorVisible = true;
+    },
+    layout: () => {
+      state.events.push("open quick layout");
+      state.quickLayoutOpen = true;
+    },
+    restore: () => {
+      state.events.push("restore canvas layout");
+      state.canvasMaximized = false;
+      state.quickLayoutOpen = false;
     },
     settings: () => {
       state.events.push("open settings");
@@ -49,6 +69,7 @@ function fixture(overrides = {}) {
         state.inspectorEnabled = true;
         state.inspectorVisible = true;
         state.inspectorTabVisible = true;
+        state.inspectorTabBlocked = false;
       }
     },
     close: () => {
@@ -71,6 +92,9 @@ function fixture(overrides = {}) {
       throw new Error(`Unexpected nested locator ${key} ${selector}`);
     },
     getByRole(role, options) {
+      if (key === "quickLayout" && role === "button" && options.name === "恢复画布布局") {
+        return locator("restore");
+      }
       if (key === "details" && role === "button" && options.name === "标注详情") {
         return locator("toggle");
       }
@@ -97,7 +121,17 @@ function fixture(overrides = {}) {
       }
       return null;
     },
-    async click() {
+    async click(options = {}) {
+      if (options.trial) {
+        state.events.push(key === "tab" ? "trial inspector tab" : `trial ${key}`);
+        if (
+          (key === "tab" && (state.canvasMaximized || state.inspectorTabBlocked)) ||
+          (key === "box" && state.boxBlocked)
+        ) {
+          throw new Error(`${key} is covered by the canvas overlay`);
+        }
+        return;
+      }
       actions[key]?.();
     },
   });
@@ -112,7 +146,20 @@ function fixture(overrides = {}) {
     getByRole(role, options) {
       if (role === "tab" && options.name === "标注详情") return locator("tab");
       if (role === "button" && options.name === "工作台设置") return locator("settings");
+      if (role === "button" && options.name === "布局") return locator("layout");
+      if (role === "dialog" && options.name === "布局快捷设置") {
+        return locator("quickLayout");
+      }
       throw new Error(`Unexpected role ${role} ${options.name}`);
+    },
+    keyboard: {
+      async press(key) {
+        if (key !== "Escape" || !state.quickLayoutOpen) {
+          throw new Error(`Unexpected key ${key}`);
+        }
+        state.events.push("close quick layout");
+        state.quickLayoutOpen = false;
+      },
     },
   };
   return { page, state };
@@ -125,12 +172,48 @@ describe("point-cloud benchmark inspector preparation", () => {
     await revealFirstBenchmarkBox(page);
 
     expect(state.events).toEqual([
+      "trial inspector tab",
       "activate inspector tab",
       "wait inspector visible",
       "wait manual visible",
       "expand manual section",
       "wait box visible",
+      "trial box",
     ]);
+  });
+
+  it("restores a maximized canvas through the layout owner before using the inspector", async () => {
+    const { page, state } = fixture({
+      canvasMaximized: true,
+      inspectorVisible: true,
+      manualExpanded: false,
+    });
+
+    await revealFirstBenchmarkBox(page);
+
+    expect(state.events).toEqual([
+      "trial inspector tab",
+      "open quick layout",
+      "wait quickLayout visible",
+      "restore canvas layout",
+      "wait quickLayout hidden",
+      "wait manual visible",
+      "expand manual section",
+      "wait box visible",
+      "trial box",
+    ]);
+  });
+
+  it("uses the panel owner when a non-maximized overlay still blocks the tab", async () => {
+    const { page, state } = fixture({ inspectorTabBlocked: true });
+
+    await revealFirstBenchmarkBox(page);
+
+    expect(state.events).toContain("open quick layout");
+    expect(state.events).toContain("close quick layout");
+    expect(state.events).toContain("hide inspector");
+    expect(state.events).toContain("show inspector");
+    expect(state.events.at(-1)).toBe("trial box");
   });
 
   it("restores a hidden inspector through workbench settings before reading rows", async () => {
@@ -150,6 +233,7 @@ describe("point-cloud benchmark inspector preparation", () => {
       "wait manual visible",
       "expand manual section",
       "wait box visible",
+      "trial box",
     ]);
   });
 
@@ -163,11 +247,23 @@ describe("point-cloud benchmark inspector preparation", () => {
     expect(state.events.indexOf("hide inspector")).toBeLessThan(
       state.events.indexOf("show inspector"),
     );
-    expect(state.events.at(-1)).toBe("wait box visible");
+    expect(state.events.at(-1)).toBe("trial box");
   });
 
   it("fails instead of silently skipping required refinement sampling", async () => {
     const { page } = fixture({ inspectorVisible: true, manualExpanded: true, boxAvailable: false });
+
+    await expect(revealFirstBenchmarkBox(page, { timeout: 1 })).rejects.toThrow(
+      "refinement sampling cannot continue",
+    );
+  });
+
+  it("fails when a visible annotation row is still covered", async () => {
+    const { page } = fixture({
+      inspectorVisible: true,
+      manualExpanded: true,
+      boxBlocked: true,
+    });
 
     await expect(revealFirstBenchmarkBox(page, { timeout: 1 })).rejects.toThrow(
       "refinement sampling cannot continue",

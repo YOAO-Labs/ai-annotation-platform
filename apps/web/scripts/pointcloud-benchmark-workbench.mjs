@@ -4,15 +4,45 @@ async function isVisible(locator) {
   return locator.isVisible().catch(() => false);
 }
 
+async function isActionable(locator) {
+  return locator
+    .click({ trial: true, timeout: 750 })
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function restoreCanvasLayoutIfMaximized(page, timeout) {
+  await page.getByRole("button", { name: "布局", exact: true }).click();
+  const quickLayout = page.getByRole("dialog", { name: "布局快捷设置", exact: true });
+  await quickLayout.waitFor({ state: "visible", timeout });
+  const restore = quickLayout.getByRole("button", { name: "恢复画布布局", exact: true });
+  if (await isVisible(restore)) {
+    await restore.click();
+    await quickLayout.waitFor({ state: "hidden", timeout });
+    return true;
+  }
+  await page.keyboard.press("Escape");
+  await quickLayout.waitFor({ state: "hidden", timeout });
+  return false;
+}
+
 async function activateInspectorPanel(page, timeout) {
   const inspector = page.getByTestId("ai-inspector-panel");
   if (await isVisible(inspector)) return;
 
   const inspectorTab = page.getByRole("tab", { name: "标注详情", exact: true }).first();
   if (await isVisible(inspectorTab)) {
-    await inspectorTab.click();
-    await inspector.waitFor({ state: "visible", timeout });
-    return;
+    let actionable = await isActionable(inspectorTab);
+    if (!actionable) {
+      await restoreCanvasLayoutIfMaximized(page, timeout);
+      if (await isVisible(inspector)) return;
+      actionable = await isActionable(inspectorTab);
+    }
+    if (actionable) {
+      await inspectorTab.click();
+      await inspector.waitFor({ state: "visible", timeout });
+      return;
+    }
   }
 
   await page.getByRole("button", { name: "工作台设置", exact: true }).click();
@@ -59,12 +89,13 @@ export async function revealFirstBenchmarkBox(page, options = {}) {
     const manualSection = page.getByTestId("section-header-manual");
     await manualSection.waitFor({ state: "visible", timeout });
     if ((await manualSection.getAttribute("aria-expanded")) === "false") {
-      await manualSection.click();
+      await manualSection.click({ timeout });
     }
   }
 
   try {
     await firstBox.waitFor({ state: "visible", timeout });
+    if (!(await isActionable(firstBox))) throw new Error("annotation row is covered");
   } catch (cause) {
     throw new Error(
       "The benchmark annotation exists but is not visible in the active inspector; refinement sampling cannot continue",
