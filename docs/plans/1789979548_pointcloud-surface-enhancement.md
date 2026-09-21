@@ -1,6 +1,6 @@
 # Point-cloud surface enhancement phase 1
 
-> Status: implemented; production-sized renderer benchmark pending a real long-sequence fixture
+> Status: implemented; real-project RTX 3090 benchmark completed with promotion-gate exceptions
 
 ## Context
 
@@ -94,11 +94,12 @@ Only after phase 1 usability and performance evidence should a separate plan eva
 
 ## Outcome
 
-- Landed commits: `0ead62ba1`, `50ce6246a`, `cc28e2cc0`, `32353788b`, `7b3dd307a`, `b2450e6ce`, `a627a0443`
+- Landed commits: `0ead62ba1`, `50ce6246a`, `cc28e2cc0`, `32353788b`, `7b3dd307a`, `b2450e6ce`, `a627a0443`, `b91b242de`, `d12881364`
 - Release milestone: Not yet determined
 - User documentation: `docs-site/user-guide/workbench/pointcloud-view.md`, `docs-site/user-guide/reference/settings.md`, and generated workbench settings reference
 - Developer documentation: no persistent data-model or renderer-ownership change; the existing `docs-site/dev/reference/point-cloud-data-model.md` contract remains applicable
 - ADR: not required; the implementation extends the existing single-renderer architecture without a new service or persisted annotation contract
 - CHANGELOG: Unreleased entry added
-- Verification: 46 focused web tests and focused API preference tests passed; web typecheck and lint passed with five unrelated pre-existing warnings; Legacy point-cloud smoke/settings/PointMask qualification passed; 21 strict WebGPU edit/playback tests passed; the strict surface-style preference test passed while preserving one canvas and one renderer owner. A separate browser probe selected one non-fallback NVIDIA Ampere WebGPU adapter.
-- Remaining work: run `pointcloud:renderer-bench` for both `points` and `surface` on the same production-sized Scene once a real fixture with at least 39 frames, camera calibration, and a navigable timeline is available. The current synthetic E2E fixture establishes functional RTX 3090/WebGPU feasibility but is not a substitute for the repository promotion gate. Learned reconstruction remains outside phase 1.
+- Verification: 46 focused web tests and focused API preference tests passed; web typecheck and lint passed with five unrelated pre-existing warnings; Legacy point-cloud smoke/settings/PointMask qualification passed; 21 strict WebGPU edit/playback tests passed; the strict surface-style preference test passed while preserving one canvas and one renderer owner. A separate browser probe selected one non-fallback NVIDIA Ampere WebGPU adapter. The real-project benchmark used nuScenes mini `scene-0061` (39 frames, six cameras, ego poses, 34,688 points in the initial frame and 34,720 in its next frame) at 1440×900/DPR 1 with 20 cold and 20 adjacent-warm samples per style. Both `points` and `surface` selected the real `webgpu` backend, kept one renderer owner, performed zero WebGPU canvas readbacks, emitted no runtime errors, and held idle rAF p95 at 16.8 ms. WebGPU `points` recorded cold/warm geometry p95 of 379.7/117.5 ms, warm RGB p95 of 135.5 ms, and refinement first-open/reopen of 128.6/126.5 ms. WebGPU `surface` recorded 399.4/122.8 ms, 143.6 ms, and 202.7/133.3 ms respectively. The surface steady-state overhead was about 5% for geometry and 6% for warm RGB; its refinement reopen overhead was about 5%, while the first open also paid the initial neighbor-load cost. GPU-process RSS did not grow over the measured cycle, cache entry counts remained bounded, and surface mode ended with one depth-raster request still settling.
+- Promotion result: the benchmark run was valid, but the repository promotion gate did not pass. The unchanged `points` baseline already exceeded the 250 ms cold-geometry and 50 ms refinement-open thresholds. `surface` also exceeded the 120 ms warm-geometry threshold by 2.8 ms and its first-open-within-10-ms-of-reopen check. These are recorded as measured exceptions rather than treated as a pass.
+- Remaining work: profile the shared cold-load path and tri-view first-open path, then rerun multiple benchmark rounds before changing either implementation or thresholds. Thresholds must not be relaxed solely to make this run pass. Learned reconstruction remains outside phase 1.
