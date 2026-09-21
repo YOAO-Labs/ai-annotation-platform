@@ -46,7 +46,7 @@ describe("workbenchSettingsFields 注册表", () => {
   });
 
   it("注册表默认值与现状一致", () => {
-    expect(WORKBENCH_SETTING_FIELDS).toHaveLength(49);
+    expect(WORKBENCH_SETTING_FIELDS).toHaveLength(50);
     const byKey = Object.fromEntries(
       WORKBENCH_SETTING_FIELDS.map((f) => [f.key, getFieldValue(DEFAULT_WORKBENCH_PREFERENCES, f)]),
     );
@@ -83,6 +83,7 @@ describe("workbenchSettingsFields 注册表", () => {
       "video.largeFrameStep": 10,
       "video.autoFitOnResize": true,
       "video.trackContinueAutoAdvance": false,
+      "pointcloud.displayStyle": "points",
       "pointcloud.pointSize": 0.06,
       "pointcloud.persistCameraView": false,
       "pointcloud.colorizeWithCamera": false,
@@ -144,7 +145,7 @@ describe("settings presentation", () => {
   });
   it("all settings share the field-backed purpose groups without missing or duplicating fields", () => {
     const fields = getVisibleWorkbenchSettingFields();
-    expect(fields).toHaveLength(48);
+    expect(fields).toHaveLength(49);
     expect(fields.some((field) => field.hidden)).toBe(false);
     const groups = groupWorkbenchSettings(fields);
     // notifications 分组由共享通知偏好面板渲染，不承载偏好字段
@@ -155,7 +156,7 @@ describe("settings presentation", () => {
       group.sections.flatMap((section) => section.fields.map((field) => field.key)),
     );
     expect(groupedKeys.sort()).toEqual(fields.map((field) => field.key).sort());
-    expect(new Set(groupedKeys).size).toBe(48);
+    expect(new Set(groupedKeys).size).toBe(49);
     const canvas = groups.find((group) => group.key === "canvas")!;
     expect(
       new Set(canvas.sections.flatMap((section) => section.fields.map((field) => field.category))),

@@ -19,7 +19,7 @@ import {
 } from "react";
 import { isWorkbenchInteractionBlocked } from "../../state/workbenchInteractionGuards";
 
-import type { PointcloudCameraState } from "@/api/auth";
+import type { PointCloudDisplayStyle, PointcloudCameraState } from "@/api/auth";
 import type { WorkbenchLayoutPatch } from "@/pages/Workbench/state/useWorkbenchConfig";
 import type { LidarAxisConvention } from "@/types";
 
@@ -55,6 +55,8 @@ interface UsePointCloudSceneParams {
   pcdDecimate: number;
   /** 工作台打开时冻结的 renderer 选择；设置切换后需刷新。 */
   rendererMode?: PointCloudRendererMode;
+  /** View-only point profile; updates the existing scene without rebuilding its renderer. */
+  displayStyle?: PointCloudDisplayStyle;
   pointSize: number;
   showGrid: boolean;
   showAxisGizmo: boolean;
@@ -131,6 +133,7 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     sceneRef,
     pcdDecimate,
     rendererMode = "legacy",
+    displayStyle = "points",
     pointSize,
     showGrid,
     showAxisGizmo,
@@ -238,6 +241,7 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
         }
         scene = created;
         sceneRef.current = created;
+        created.setDisplayStyle(displayStyle);
         created.setPointSize(pointSize);
         created.setGridVisible(showGrid);
         created.setAxisGizmoVisible(showAxisGizmo);
@@ -292,6 +296,10 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
   useLayoutEffect(() => {
     sceneRef.current?.resize();
   }, [layoutKey, getVisibleRegions, rendererReadyVersion, sceneRef]);
+
+  useEffect(() => {
+    sceneRef.current?.setDisplayStyle(displayStyle);
+  }, [displayStyle, rendererReadyVersion, sceneRef]);
 
   useEffect(() => {
     sceneRef.current?.setPointSize(pointSize);

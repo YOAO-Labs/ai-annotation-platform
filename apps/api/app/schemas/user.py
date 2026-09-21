@@ -404,6 +404,8 @@ class WorkbenchPointcloudPreferences(BaseModel):
 
     model_config = {"extra": "forbid"}
 
+    # View-only rendering profile. ``surface`` never changes source points or annotation indices.
+    displayStyle: Literal["points", "surface"] = "points"
     pointSize: float = Field(default=0.06, ge=0.01, le=0.3)
     persistCameraView: bool = False
     colorizeWithCamera: bool = False

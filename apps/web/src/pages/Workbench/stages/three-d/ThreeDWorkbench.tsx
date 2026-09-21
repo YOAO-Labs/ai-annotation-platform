@@ -32,7 +32,10 @@ import { useProject } from "@/hooks/useProjects";
 import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { useFrameNeighbors } from "@/hooks/useFrameNeighbors";
 import { useNeighborAnnotations } from "@/hooks/useNeighborAnnotations";
-import { useNeighborPointClouds } from "@/hooks/useNeighborPointClouds";
+import {
+  resolveNeighborPointCloudPlan,
+  useNeighborPointClouds,
+} from "@/hooks/useNeighborPointClouds";
 import { useSceneTrajectory } from "@/hooks/useSceneTrajectory";
 import { alignPsrToFrame, frameRelMatrix } from "./geometry/egoAlign";
 import { cullPointsInBoxes } from "./geometry/cullDynamicPoints";
@@ -426,6 +429,7 @@ export function ThreeDWorkbench({
     [box3dDefaultSize],
   );
   const [triFloatBounds, setTriFloatBounds] = useState<FloatingPanelBounds | null>(null);
+  const displayStyle = workbenchPointcloud.displayStyle === "surface" ? "surface" : "points";
   const pointSize = workbenchPointcloud.pointSize;
   const colorizeOn = workbenchPointcloud.colorizeWithCamera;
   const colorAdjust: ColorAdjust = useMemo(
@@ -454,12 +458,14 @@ export function ThreeDWorkbench({
   const overlayScope = workbenchCommon.crossFrameOverlayScope === "all" ? "all" : "selected";
   // v0.15.19 · 邻帧点云叠加开关 + 独立帧数(点云比框重,前后各 ≤3 帧)。
   const pointOverlayOn = workbenchPointcloud.neighborPointOverlay;
-  const pointOverlayFrameK =
-    workbenchPointcloud.neighborPointOverlayK === 2 ||
-    workbenchPointcloud.neighborPointOverlayK === 3
-      ? workbenchPointcloud.neighborPointOverlayK
-      : 1;
-  const pointOverlayK = pointOverlayOn ? pointOverlayFrameK : 0;
+  // Surface enhancement reuses only the nearest previous/next frame when pose data exists.
+  // An explicit diagnostic overlay keeps its configured K and color/status semantics.
+  const neighborPointPlan = resolveNeighborPointCloudPlan(
+    displayStyle,
+    pointOverlayOn,
+    workbenchPointcloud.neighborPointOverlayK,
+  );
+  const neighborPointK = neighborPointPlan.frameCount;
   // v0.15.22 · §C.8-B / v0.15.23 · §C.8-A 邻帧点云动态点处理:
   // cull=剔除落在当前帧 box 内的邻帧点;align=逐目标把邻帧点搬到当前帧位置(无拖影)。
   const neighborPointCull: "keep" | "cull" | "align" =
@@ -977,6 +983,7 @@ export function ThreeDWorkbench({
     sceneRef,
     pcdDecimate: performanceConfig.pcdDecimate,
     rendererMode,
+    displayStyle,
     pointSize,
     showGrid: workbenchPointcloud.showGrid,
     showAxisGizmo: workbenchPointcloud.showAxisGizmo,
@@ -2398,10 +2405,9 @@ export function ThreeDWorkbench({
     return s;
   }, [selectedIds, selectedTrackId, annotations]);
 
-  // v0.15.18 · 框叠加(overlayK)或点云叠加(pointOverlayK)任一开启都要邻帧 + 轨迹;
-  // 取两者最大帧数拉取,各自再按需切片(框用 overlayK,点云用 pointOverlayK),互不放大。
-  const neighborsActive = overlayK > 0 || pointOverlayK > 0;
-  const neighborsFetchK = Math.max(1, overlayK, pointOverlayK);
+  // 框叠加、显式点云叠加或 surface 辅助任一开启都需要邻帧 + 轨迹；各自仍按需切片。
+  const neighborsActive = overlayK > 0 || neighborPointK > 0;
+  const neighborsFetchK = Math.max(1, overlayK, neighborPointK);
   const { data: neighborsData } = useFrameNeighbors(
     neighborsActive ? taskId : null,
     neighborsFetchK,
@@ -2497,21 +2503,21 @@ export function ThreeDWorkbench({
   }, [referenceBoxes]);
 
   // v0.15.18 · 邻帧点云叠加。需 scene + ego 轨迹(无轨迹直接叠会乱,故 gate on poseByFrame)。
-  const pointOverlayActive = pointOverlayK > 0 && !!neighborsData?.scene_id && !!poseByFrame;
+  const neighborPointsActive = neighborPointK > 0 && !!neighborsData?.scene_id && !!poseByFrame;
   const pointNeighbors = useMemo(() => {
-    if (!pointOverlayActive || !neighborsData) return [];
+    if (!neighborPointsActive || !neighborsData) return [];
     return [
-      ...(neighborsData.prev ?? []).slice(0, pointOverlayK),
-      ...(neighborsData.next ?? []).slice(0, pointOverlayK),
+      ...(neighborsData.prev ?? []).slice(0, neighborPointK),
+      ...(neighborsData.next ?? []).slice(0, neighborPointK),
     ].map((n) => ({ taskId: n.task_id, frameIndex: n.frame_index }));
-  }, [pointOverlayActive, neighborsData, pointOverlayK]);
+  }, [neighborPointsActive, neighborsData, neighborPointK]);
   // v0.15.23 · §C.8-A align 模式:把落在邻帧 box 内的点按目标位姿搬到当前帧位置(逐目标
   // 补偿,真·消除拖影)。需邻帧「全部」框(按 track_id 与当前帧框配对),独立于框叠加
   // (overlayK)且 scope 恒为 all;仅 align 时拉取,避免无谓请求。
-  const alignActive = pointOverlayActive && neighborPointCull === "align";
+  const alignActive = neighborPointsActive && neighborPointCull === "align";
   const { byTask: alignAnnsByTask } = useNeighborAnnotations(
     alignActive ? taskId : null,
-    pointOverlayK,
+    neighborPointK,
     null,
     alignActive,
   );
@@ -2570,13 +2576,13 @@ export function ThreeDWorkbench({
     pointNeighbors,
     axisConvention,
     neighborPointTarget,
-    pointOverlayActive,
+    neighborPointsActive,
   );
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     const curFrame = neighborsData?.frame_index ?? null;
-    if (!pointOverlayActive || !poseByFrame || curFrame == null) {
+    if (!neighborPointsActive || !poseByFrame || curFrame == null) {
       scene.setNeighborPoints([]);
       setNeighborCulledCount(0);
       setNeighborMovedCount(0);
@@ -2588,6 +2594,7 @@ export function ThreeDWorkbench({
       matrix: NonNullable<ReturnType<typeof frameRelMatrix>>;
       dir: "past" | "future";
       distance: number;
+      displayMode: "surface" | "diagnostic";
     };
     // v0.15.22 · cull:把对齐到当前帧后落在 tracked box 内的邻帧点剔除,只叠静止背景。
     // v0.15.23 · align:落在邻帧 box 内的点按目标位姿搬到当前帧位置(逐目标补偿,无拖影);
@@ -2623,6 +2630,7 @@ export function ThreeDWorkbench({
           matrix: renderMatrix,
           dir: pcd.frameIndex >= curFrame ? "future" : "past",
           distance: Math.abs(pcd.frameIndex - curFrame),
+          displayMode: neighborPointPlan.displayMode,
         };
       })
       .filter((f): f is NeighborFrame => f != null);
@@ -2630,7 +2638,7 @@ export function ThreeDWorkbench({
     setNeighborCulledCount(cullOn ? culledTotal : 0);
     setNeighborMovedCount(alignOn ? movedTotal : 0);
   }, [
-    pointOverlayActive,
+    neighborPointsActive,
     neighborPcds,
     poseByFrame,
     neighborsData,
@@ -2638,6 +2646,7 @@ export function ThreeDWorkbench({
     boxes,
     currentBoxesByTrack,
     neighborBoxesByTask,
+    neighborPointPlan.displayMode,
   ]);
 
   // v0.13.4 · 选中框被哪些相机看到(可见角点数 > 0),按可见角点数降序;首个 = 最正对。

@@ -519,6 +519,21 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     control: { type: "toggle", onText: "已开启", offText: "已关闭" },
   },
   {
+    key: "pointcloud.displayStyle",
+    section: "points",
+    category: "pointcloud",
+    label: "点云显示样式",
+    description:
+      "点模式保持原始显示；表面增强仅用软 Splat 和有位姿时的相邻帧增加视觉密度，不生成几何，也不改变拾取与标注数据",
+    control: {
+      type: "select",
+      options: [
+        { value: "points", label: "原始点" },
+        { value: "surface", label: "表面增强（纯视觉）" },
+      ],
+    },
+  },
+  {
     key: "pointcloud.pointSize",
     section: "points",
     category: "pointcloud",

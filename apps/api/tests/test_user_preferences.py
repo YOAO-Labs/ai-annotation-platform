@@ -92,6 +92,7 @@ def test_workbench_layout_preferences_keep_default_subtree():
 
     assert prefs.named_presets_revision == "0"
     assert prefs.workbench.image.smoothImage is True
+    assert prefs.workbench.pointcloud.displayStyle == "points"
     assert prefs.workbench.layout.left_open is None
     assert prefs.workbench.layout.floating_task_queue is None
     assert prefs.workbench.layout.floating_class_palette is None

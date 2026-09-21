@@ -77,6 +77,7 @@ const baseProps = {
     },
     workbenchVideo: { defaultPlaybackRate: 1, largeFrameStep: 10 },
     workbenchPointcloud: {
+      displayStyle: "points",
       pointSize: 0.06,
       persistCameraView: false,
       colorizeWithCamera: false,
