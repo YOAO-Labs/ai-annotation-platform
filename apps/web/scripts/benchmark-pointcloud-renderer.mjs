@@ -1,6 +1,7 @@
 import { chromium } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { revealFirstBenchmarkBox } from "./pointcloud-benchmark-workbench.mjs";
 
 const baseUrl = process.env.POINTCLOUD_BENCH_BASE_URL ?? "http://127.0.0.1:3000";
 const projectId = process.env.POINTCLOUD_BENCH_PROJECT_ID;
@@ -590,18 +591,9 @@ async function runMode(browser, token, user, mode) {
     );
     let refinement = null;
     const refinementReopen = [];
-    const firstBox = page.locator('[data-testid^="box-list-item-"]').first();
-    if ((await firstBox.count()) === 0) {
-      const manualSection = page.getByTestId("section-header-manual");
-      if (
-        (await manualSection.count()) > 0 &&
-        (await manualSection.getAttribute("aria-expanded")) === "false"
-      ) {
-        await manualSection.click();
-        await firstBox.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
-      }
-    }
-    if ((await firstBox.count()) > 0) {
+    const firstBox = await revealFirstBenchmarkBox(page);
+    // Keep the transient layout controls scoped to this mode run.
+    {
       // Since the dockview layout rework, panel visibility lives in the workbench
       // settings dialog (面板与高级布局 details); the tri-view panel no longer has
       // an inline collapse button or a layout menu item.
