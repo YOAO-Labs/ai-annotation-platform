@@ -61,7 +61,7 @@ last_reviewed: 2026-09-10
 | 图片 | `autoFitOnResize`                                                                  | 展开 / 收起边栏或画布容器尺寸变化后，自动让图片重新适应画布                                                                                |
 | 视频 | `defaultPlaybackRate` / `largeFrameStep`                                           | 视频任务默认播放速率和大步进帧数                                                                                                           |
 | 视频 | `autoFitOnResize`                                                                  | 展开 / 收起或拖宽边栏后，自动让视频重新适应画布                                                                                            |
-| 点云 | `pointSize` / `pointMaskSelectMode`                                                | 点云点径和点云分割工具的默认点选模式                                                                                                       |
+| 点云 | `pointSize` / `displayStyle` / `pointMaskSelectMode`                               | 点云点径、原始点 / 表面增强显示方式和点云分割工具的默认点选模式；表面增强只影响显示，不改变当前帧原始点索引                                |
 | 点云 | `neighborPointOverlay` / `neighborPointOverlayK` / `neighborPointCull`             | 邻帧点云叠加开关、帧数与动态目标处理方式                                                                                                   |
 | 点云 | `persistCameraView`                                                                | 记住 3D 主视角的相机位置、目标点、up 向量和 orbit / BEV 模式                                                                               |
 | 点云 | `colorizeWithCamera` / `colorizeContrast` / `colorizeBrightness` / `colorizeGamma` | 相机 RGB 上色开关与色彩调整                                                                                                                |
