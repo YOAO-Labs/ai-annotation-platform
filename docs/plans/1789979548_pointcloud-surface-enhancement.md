@@ -1,0 +1,93 @@
+# Point-cloud surface enhancement phase 1
+
+> Status: in progress
+
+## Context
+
+The point-cloud workbench already renders the current LiDAR frame, can project camera RGB onto it, and can align bounded neighboring frames with ego poses. Those capabilities are sufficient for a useful first visual-enhancement phase without training or a generative model. The workbench must not present inferred geometry as annotation truth, and it must preserve its single renderer owner and point-index contracts.
+
+This phase adds an optional **surface enhancement** display style. It uses soft circular splats and the existing bounded, pose-aligned neighboring points to make static surfaces easier to read. It remains a view-only aid: the current LiDAR frame is the sole source for picking, point masks, measurements, boxes, and saved annotations.
+
+## Goals
+
+- Add a persisted point-cloud display-style preference with `points` as the compatibility default and `surface` as the opt-in enhancement.
+- Render soft circular splats in both the legacy WebGL2 and WebGPU paths without adding a second renderer, canvas, or animation loop.
+- Apply the display style consistently to the main view and orthographic tri-view; neighbor-frame points may contribute to visual density but never to picking or annotation indices.
+- In surface mode, reuse the existing bounded neighbor-frame loading, ego alignment, dynamic-point handling, cache, cancellation, and task/scene ownership rules.
+- Keep the feature usable on one RTX 3090 by bounding additional point counts and avoiding server inference, model weights, or training.
+- Document the annotator-visible behavior, limitations, and fallback semantics.
+
+## Non-goals
+
+- No NeRF, 3D Gaussian Splatting training, diffusion generation, mesh reconstruction, or hole-filling geometry.
+- No synthesized points, object completion, semantic segmentation, or changes to annotation payloads.
+- No promise of photorealism. Camera colorization remains an independent existing option; absent RGB coverage, the normal point-cloud colors remain authoritative.
+- No multi-session preprocessing service or GPU scheduling changes in this phase.
+
+## Design
+
+### Preference and UX
+
+Add `pointcloud.displayStyle: "points" | "surface"` to account-level workbench preferences. The settings panel describes `surface` as a view-only soft-splat enhancement. Existing accounts and tasks resolve to `points`.
+
+Surface mode implicitly requests the same bounded neighbor-frame data used by the existing neighbor overlay when scene ego poses are available. The explicit neighbor-overlay setting continues to control diagnostic trail colors and its configured frame count. Surface enhancement uses at most one frame on each side by default and the existing neighbor point budget; if poses or neighboring frames are unavailable, it degrades to soft splats on the current frame. Dynamic-point culling/alignment uses the existing preference and annotation-derived transforms.
+
+### Rendering and truth boundaries
+
+- Extend the existing point layer with a display-style input rather than introducing another renderer owner.
+- `points` preserves current point appearance and behavior.
+- `surface` uses a soft circular/elliptical alpha profile and a conservative size multiplier. Depth testing remains enabled, and depth writes must not make transparent borders occlude later splats.
+- The main point geometry remains the only raycast object and the only geometry exposed to point-mask selection.
+- Neighbor visual layers stay non-pickable and do not enter tri-view editing geometry.
+- Camera colorization and selection highlighting remain compatible with both display styles.
+- Renderer device loss and unsupported WebGPU continue through the existing legacy fallback path with the selected style retained.
+
+### Lifecycle and performance
+
+- Bind asynchronous neighbor results to the current task/scene generation through the existing query key, abort signal, and scene-clearing effect. A stale completion must not repopulate a switched task.
+- Keep the current point-decimation policy. Surface-mode neighbors are capped by the existing `min(80,000, pcdDecimate / 8)` per-frame target and at most the nearest previous/next frame unless the explicit overlay asks for more.
+- Avoid per-frame CPU buffer rebuilding. Style changes update materials/nodes in place; geometry changes continue through the existing scene load owner.
+- Record benchmark evidence on the actual adapter instead of copying historical thresholds. Acceptance is no regression outside the repository's current point-cloud benchmark limits and no sustained unbounded frame-time or GPU-memory growth during task switches.
+
+## Implementation workstreams
+
+1. **Rendering core**
+   - Add a shared display-style type and soft-splat material profile.
+   - Implement legacy WebGL2 and WebGPU parity in `PointCloudScene`, `PointCloudTriViewPass`, and the WebGPU point layer.
+   - Preserve raycast geometry, clipping, camera colorization, selection, disposal, and renderer ownership.
+   - Add focused unit coverage for style updates and resource disposal.
+
+2. **Preference and workbench orchestration**
+   - Extend API validation, frontend preference types/defaults, settings metadata, and tests.
+   - Pass the style through `usePointCloudScene` without recreating the renderer.
+   - Make surface mode request bounded neighbor data while preserving explicit overlay behavior and stale-result clearing.
+   - Add regression tests for defaults, validation, scene switching, and preference synchronization.
+
+3. **Documentation and qualification**
+   - Update the point-cloud user guide and the Unreleased changelog.
+   - Run focused API and web tests, CSS-token lint if UI styles change, web type/lint checks for touched code, and `git diff --check`.
+   - Run the repository point-cloud renderer benchmark in supported legacy and WebGPU modes on the RTX 3090 host. Report the detected adapter, browser/backend, scenario point counts, and artifacts. Clean generated temporary artifacts after recording results.
+   - Perform a real-browser smoke test covering points/surface switching, current-task picking, neighbor fallback, task/scene switching, tri-view, and WebGPU fallback where the environment supports it.
+
+## Acceptance criteria
+
+- Existing users see the unchanged `points` default.
+- Switching to `surface` changes only rendering and does not reload the page or recreate the renderer.
+- Current-frame point picking, point-mask indices, box editing, and saved annotation payloads are identical between styles.
+- Surface mode works with no cameras and no neighbors; camera RGB and aligned neighbors enhance it when available.
+- Stale neighbor loads cannot appear after task/scene switching, and disabling the feature clears its visual-only neighbor layers.
+- Main view and tri-view render the selected profile in both legacy WebGL2 and WebGPU, with normal device-loss fallback.
+- The current benchmark gate passes on the available RTX 3090, and the final report states measured results rather than inferred feasibility.
+- User documentation and `CHANGELOG.md` describe the feature as a non-generative annotation aid and state its limits.
+
+## Risks and mitigations
+
+- **False confidence from visually filled surfaces:** keep the feature opt-in, use explicit “visual enhancement” wording, and never feed neighbors or soft coverage into annotation truth.
+- **Dynamic-object ghosting:** reuse keep/cull/per-object-align behavior; default surface assistance to the nearest neighbor pair and document residual artifacts.
+- **Transparency ordering or depth artifacts:** use an alpha-tested soft profile with depth testing and verify overlapping surfaces in both backends.
+- **GPU pressure:** retain decimation, cap neighbors, reuse materials and geometry, and validate repeated task switches on the target hardware.
+- **Backend drift:** keep a single style contract and focused parity tests for legacy and WebGPU implementations.
+
+## Follow-up boundary
+
+Only after phase 1 usability and performance evidence should a separate plan evaluate offline-trained dynamic 3D Gaussian Splatting or other learned reconstruction. That work would require dataset-specific training, calibration/pose quality gates, confidence visualization, artifact caching, and a strict separation between generated context and annotation truth.
