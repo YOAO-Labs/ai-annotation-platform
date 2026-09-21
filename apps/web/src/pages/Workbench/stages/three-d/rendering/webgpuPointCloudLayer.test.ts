@@ -56,8 +56,13 @@ describe("webgpuPointCloudLayer", () => {
       THREE.RedFormat,
       THREE.FloatType,
     );
-    const material = (layer.object as THREE.Sprite).material;
-    const baseNode = (material as unknown as { colorNode: unknown }).colorNode;
+    const material = (layer.object as THREE.Sprite).material as unknown as THREE.Material & {
+      colorNode: unknown;
+      opacityNode: unknown;
+      sizeNode: unknown;
+      size: number;
+    };
+    const baseNode = material.colorNode;
     const materialVersion = material.version;
     layer.setCameraColorization([
       {
@@ -71,11 +76,26 @@ describe("webgpuPointCloudLayer", () => {
         height: 1,
       },
     ]);
-    expect((material as unknown as { colorNode: unknown }).colorNode).toBe(baseNode);
+    expect(material.colorNode).toBe(baseNode);
     expect(material.version).toBe(materialVersion);
     expect(layer.updatePointData(new Float32Array(12), new Float32Array(12))).toBe(false);
     layer.setColorAdjust({ contrast: 1.1, brightness: 0.1, gamma: 1.2 });
     layer.setCameraColorization(null);
+
+    const opacityNode = material.opacityNode;
+    const sizeNode = material.sizeNode;
+    const materialVersionAfterCreation = material.version;
+    layer.setDisplayStyle("surface");
+    expect(layer.object.userData.pointCloudDisplayStyle).toBe("surface");
+    expect(material.size).toBeCloseTo(0.096);
+    expect(material.opacityNode).toBe(opacityNode);
+    expect(material.sizeNode).toBe(sizeNode);
+    expect(material.version).toBe(materialVersionAfterCreation);
+    layer.setPointSize(0.1);
+    expect(material.size).toBeCloseTo(0.16);
+    layer.setDisplayStyle("points");
+    expect(material.size).toBeCloseTo(0.1);
+    expect(layer.object.userData.pointCloudDisplayStyle).toBe("points");
 
     layer.dispose();
     imageTexture.dispose();

@@ -2,10 +2,14 @@ import * as THREE from "three";
 import { ClippingGroup, PointsNodeMaterial } from "three/webgpu";
 import type Node from "three/src/nodes/core/Node.js";
 import {
+  float,
   instancedBufferAttribute,
   instancedDynamicBufferAttribute,
+  length,
   mix,
+  smoothstep,
   uniform,
+  uv,
   vec3,
 } from "three/tsl";
 
@@ -16,6 +20,11 @@ import {
   createCameraTextureColorNode,
   type GpuCameraTextureSample,
 } from "./cameraTextureColorNode";
+import {
+  POINT_CLOUD_SURFACE_SIZE_MULTIPLIER,
+  pointCloudDisplaySize,
+  type PointCloudDisplayStyle,
+} from "./pointCloudDisplayStyle";
 
 const SELECTION_ATTRIBUTE = "pointSelection";
 
@@ -24,6 +33,7 @@ export interface WebGpuPointCloudLayer {
   updatePointData(positions: Float32Array, colors: Float32Array): boolean;
   setPointCount(count: number): void;
   setPointSize(size: number): void;
+  setDisplayStyle(style: PointCloudDisplayStyle): void;
   setClippingPlanes(planes: THREE.Plane[]): void;
   setSelection(indices: readonly number[] | null, pointIndexStride: number): void;
   setCameraColorization(samples: readonly GpuCameraTextureSample[] | null): void;
@@ -37,6 +47,7 @@ interface WebGpuPointCloudLayerOptions {
   color?: THREE.ColorRepresentation;
   opacity?: number;
   depthWrite?: boolean;
+  displayStyle?: PointCloudDisplayStyle;
   selection?: boolean;
   /** WebGPURenderer (含 WebGL2 fallback) 只通过 ClippingGroup 消费局部裁剪面。 */
   clipping?: boolean;
@@ -88,17 +99,33 @@ export function createWebGpuPointCloudLayer(
     ? ensureSelectionAttribute(geometry, position.count)
     : null;
 
-  const sizeNode = uniform(options.pointSize);
+  let pointSize = options.pointSize;
+  let displayStyle = options.displayStyle ?? "points";
+  const sizeNode = uniform(pointSize);
+  const displayStyleNode = uniform(displayStyle === "surface" ? 1 : 0);
+  const surfaceSizeNode = mix(
+    float(1),
+    float(POINT_CLOUD_SURFACE_SIZE_MULTIPLIER),
+    displayStyleNode,
+  );
+  const radialDistance = length(uv().mul(2).sub(1));
+  const surfaceAlpha = smoothstep(float(0.45), float(1), radialDistance).oneMinus();
   const material = new PointsNodeMaterial({
-    size: options.pointSize,
+    size: pointCloudDisplaySize(pointSize, displayStyle),
     sizeAttenuation: options.sizeAttenuation,
     transparent: (options.opacity ?? 1) < 1,
     opacity: options.opacity ?? 1,
     depthWrite: options.depthWrite ?? true,
+    alphaToCoverage: true,
   });
   const positionNode = instancedBufferAttribute(position) as unknown as Node<"vec3">;
   material.positionNode = positionNode;
-  material.sizeNode = sizeNode;
+  material.sizeNode = sizeNode.mul(surfaceSizeNode);
+  // The style uniform preserves one material and shader topology. In surface
+  // mode, the radial alpha is tested before depth writes; points mode remains
+  // the original full quad.
+  material.opacityNode = mix(float(1), surfaceAlpha, displayStyleNode);
+  material.alphaTestNode = displayStyleNode.mul(0.08);
 
   let baseColorNode: Node<"vec3">;
   let selectionNode: Node<"float"> | null = null;
@@ -127,9 +154,11 @@ export function createWebGpuPointCloudLayer(
   sprite.frustumCulled = false;
   const clippingGroup = options.clipping ? new ClippingGroup() : null;
   if (clippingGroup) clippingGroup.add(sprite);
+  const object = clippingGroup ?? sprite;
+  object.userData.pointCloudDisplayStyle = displayStyle;
 
   return {
-    object: clippingGroup ?? sprite,
+    object,
     updatePointData(positions, colors) {
       const pointCount = positions.length / 3;
       if (
@@ -157,8 +186,16 @@ export function createWebGpuPointCloudLayer(
       geometry.setDrawRange(0, sprite.count);
     },
     setPointSize(size) {
+      pointSize = size;
       sizeNode.value = size;
-      material.size = size;
+      material.size = pointCloudDisplaySize(size, displayStyle);
+    },
+    setDisplayStyle(style) {
+      if (style === displayStyle) return;
+      displayStyle = style;
+      displayStyleNode.value = style === "surface" ? 1 : 0;
+      material.size = pointCloudDisplaySize(pointSize, displayStyle);
+      object.userData.pointCloudDisplayStyle = displayStyle;
     },
     setClippingPlanes(planes) {
       if (clippingGroup) {

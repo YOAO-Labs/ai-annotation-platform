@@ -17,6 +17,12 @@ import {
   createWebGpuPointCloudLayer,
   type WebGpuPointCloudLayer,
 } from "./rendering/webgpuPointCloudLayer";
+import {
+  applyLegacyPointCloudDisplayStyle,
+  disposeLegacyPointCloudDisplayStyle,
+  pointCloudDisplaySize,
+  type PointCloudDisplayStyle,
+} from "./rendering/pointCloudDisplayStyle";
 
 export interface ClientRectSnapshot {
   left: number;
@@ -220,6 +226,7 @@ export class PointCloudTriViewPass {
     front: TRI_ZOOM_DEFAULT,
   };
   private worldPointSize = 0.06;
+  private displayStyle: PointCloudDisplayStyle = "points";
   private active = false;
   private visible = true;
   private geometryGeneration = 0;
@@ -264,6 +271,7 @@ export class PointCloudTriViewPass {
         pointSize: 2,
         sizeAttenuation: false,
         clipping: true,
+        displayStyle: this.displayStyle,
       });
       this.points = this.webGpuPointLayer.object;
     }
@@ -349,6 +357,14 @@ export class PointCloudTriViewPass {
     return true;
   }
 
+  setDisplayStyle(style: PointCloudDisplayStyle): boolean {
+    if (style === this.displayStyle) return false;
+    this.displayStyle = style;
+    if (this.material) applyLegacyPointCloudDisplayStyle(this.material, style);
+    this.webGpuPointLayer?.setDisplayStyle(style);
+    return true;
+  }
+
   setActive(active: boolean): boolean {
     if (active === this.active) return false;
     this.active = active;
@@ -414,7 +430,7 @@ export class PointCloudTriViewPass {
       );
       const cssPixelsPerMeter = rect.width / 2 / halfW;
       const pointSize = Math.max(1, this.worldPointSize * cssPixelsPerMeter * this.pixelRatio);
-      if (this.material) this.material.size = pointSize;
+      if (this.material) this.material.size = pointCloudDisplaySize(pointSize, this.displayStyle);
       this.webGpuPointLayer?.setPointSize(pointSize);
       for (const scissor of scissors) {
         renderer.setScissor(scissor.x, scissor.y, scissor.width, scissor.height);
@@ -429,6 +445,7 @@ export class PointCloudTriViewPass {
 
   dispose(): void {
     this.removePoints();
+    if (this.material) disposeLegacyPointCloudDisplayStyle(this.material);
     this.material?.dispose();
     this.material = null;
     this.layout = null;
