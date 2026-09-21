@@ -1,6 +1,6 @@
 # Point-cloud surface enhancement phase 1
 
-> Status: in progress
+> Status: implemented; production-sized renderer benchmark pending a real long-sequence fixture
 
 ## Context
 
@@ -91,3 +91,14 @@ Surface mode implicitly requests the same bounded neighbor-frame data used by th
 ## Follow-up boundary
 
 Only after phase 1 usability and performance evidence should a separate plan evaluate offline-trained dynamic 3D Gaussian Splatting or other learned reconstruction. That work would require dataset-specific training, calibration/pose quality gates, confidence visualization, artifact caching, and a strict separation between generated context and annotation truth.
+
+## Outcome
+
+- Landed commits: `0ead62ba1`, `50ce6246a`, `cc28e2cc0`, `32353788b`, `7b3dd307a`, `b2450e6ce`, `a627a0443`
+- Release milestone: Not yet determined
+- User documentation: `docs-site/user-guide/workbench/pointcloud-view.md`, `docs-site/user-guide/reference/settings.md`, and generated workbench settings reference
+- Developer documentation: no persistent data-model or renderer-ownership change; the existing `docs-site/dev/reference/point-cloud-data-model.md` contract remains applicable
+- ADR: not required; the implementation extends the existing single-renderer architecture without a new service or persisted annotation contract
+- CHANGELOG: Unreleased entry added
+- Verification: 46 focused web tests and focused API preference tests passed; web typecheck and lint passed with five unrelated pre-existing warnings; Legacy point-cloud smoke/settings/PointMask qualification passed; 21 strict WebGPU edit/playback tests passed; the strict surface-style preference test passed while preserving one canvas and one renderer owner. A separate browser probe selected one non-fallback NVIDIA Ampere WebGPU adapter.
+- Remaining work: run `pointcloud:renderer-bench` for both `points` and `surface` on the same production-sized Scene once a real fixture with at least 39 frames, camera calibration, and a navigable timeline is available. The current synthetic E2E fixture establishes functional RTX 3090/WebGPU feasibility but is not a substitute for the repository promotion gate. Learned reconstruction remains outside phase 1.
