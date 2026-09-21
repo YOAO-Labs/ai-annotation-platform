@@ -16,9 +16,19 @@ test("点云设置盖过精修面板，阻断工具键并保存点径与显示�
   const data = await seed.owned();
   const lidar = await seed.seedLidar();
   await seed.injectToken(page, data.admin_email);
+  const strictWebGpu = process.env.PLAYWRIGHT_POINTCLOUD_WEBGPU === "1";
+  if (strictWebGpu) {
+    await page.addInitScript(() =>
+      localStorage.setItem("aap.experiment.pointCloudWebGpuRenderer", "1"),
+    );
+  }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/projects/${lidar.lidar_project_id}/annotate`);
   await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("pointcloud-renderer-backend")).toHaveAttribute(
+    "data-backend",
+    strictWebGpu ? "webgpu" : "legacy-webgl2",
+  );
   const viewport = page.getByTestId("pc-viewport");
   const rendererCanvas = page.locator("[data-workbench-render-surface] > canvas");
   await expect(rendererCanvas).toHaveCount(1);
