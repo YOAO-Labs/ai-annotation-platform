@@ -40071,6 +40071,15 @@
             "title": "Colorizewithcamera",
             "type": "boolean"
           },
+          "displayStyle": {
+            "default": "points",
+            "enum": [
+              "points",
+              "surface"
+            ],
+            "title": "Displaystyle",
+            "type": "string"
+          },
           "neighborPointCull": {
             "default": "keep",
             "enum": [
