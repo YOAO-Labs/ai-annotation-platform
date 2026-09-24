@@ -325,6 +325,12 @@ export function SceneTimeline({
   const pendingNavigationRef = useRef<ScenePlaybackTarget | null>(null);
   const navigationTimerRef = useRef<number | null>(null);
   const navigationInFlightRef = useRef(false);
+  const navigationIntentRef = useRef(0);
+  const earlyNavigationPrefetchRef = useRef<{
+    taskId: string;
+    intent: number;
+    promise: Promise<void>;
+  } | null>(null);
   const expectedTaskRef = useRef<string | null>(null);
   const navigationEpochRef = useRef(0);
   const pointerPrefetchTimerRef = useRef<number | null>(null);
@@ -448,7 +454,7 @@ export function SceneTimeline({
   }, [cellWidth, currentFrame, expanded, playbackActive, sceneStart, virtualizer]);
 
   const prefetchFrame = useCallback(
-    (summary: SceneTimelineFrameSummary) => {
+    (summary: SceneTimelineFrameSummary, shouldRun?: () => boolean) => {
       if (summary.state !== "available" || !summary.task_id || summary.task_id === taskId)
         return Promise.resolve();
       return queryClient
@@ -457,14 +463,15 @@ export function SceneTimeline({
           queryFn: ({ signal }) => tasksApi.getPointCloudManifest(summary.task_id!, { signal }),
           staleTime: 5 * 60 * 1000,
         })
-        .then((manifest) =>
-          prefetchPointCloudFrameAssets(manifest, {
+        .then((manifest) => {
+          if (shouldRun && !shouldRun()) return;
+          return prefetchPointCloudFrameAssets(manifest, {
             depthRasters: prefetchDepthRasters,
             ...(prefetchDecimateThreshold === undefined
               ? {}
               : { decimateThreshold: prefetchDecimateThreshold }),
-          }),
-        )
+          });
+        })
         .catch(() => {});
     },
     [prefetchDecimateThreshold, prefetchDepthRasters, queryClient, taskId],
@@ -503,9 +510,17 @@ export function SceneTimeline({
         frameIndex: target.frameIndex,
       });
       const epoch = navigationEpochRef.current;
+      const intent = navigationIntentRef.current;
       try {
         const summary = frameByIndex.get(target.frameIndex);
-        if (summary) void prefetchFrame(summary);
+        const earlyPrefetch = earlyNavigationPrefetchRef.current;
+        const targetPrefetch =
+          earlyPrefetch?.taskId === target.taskId && earlyPrefetch.intent === intent
+            ? earlyPrefetch.promise
+            : summary
+              ? prefetchFrame(summary, () => intent === navigationIntentRef.current)
+              : Promise.resolve();
+        earlyNavigationPrefetchRef.current = null;
         const allowed = await onNavigateFrame(target.taskId, target.annotationId);
         publishPointCloudNavigationTrace({
           source: "timeline",
@@ -521,7 +536,17 @@ export function SceneTimeline({
           for (let index = target.frameIndex + 1; frameByIndex.has(index); index += 1) {
             const next = frameByIndex.get(index)!;
             if (next.state === "available") {
-              void prefetchFrame(next);
+              // The asset cache has one speculative lane. Starting the following frame
+              // immediately would cancel the selected frame before its prefetch can finish.
+              void targetPrefetch.then(() => {
+                if (
+                  epoch === navigationEpochRef.current &&
+                  intent === navigationIntentRef.current &&
+                  !pendingNavigationRef.current
+                ) {
+                  return prefetchFrame(next);
+                }
+              });
               break;
             }
           }
@@ -555,8 +580,10 @@ export function SceneTimeline({
   const scheduleNavigation = useCallback(
     (summary: SceneTimelineFrameSummary) => {
       if (!summary.task_id || summary.task_id === taskId || summary.state !== "available") return;
+      const hadPendingNavigation = pendingNavigationRef.current !== null;
       onPlaybackActiveChange?.(false);
       cancelManual();
+      const intent = ++navigationIntentRef.current;
       const generation = beginPointCloudNavigationTrace({
         source: "timeline",
         targetTaskId: summary.task_id,
@@ -567,6 +594,13 @@ export function SceneTimeline({
         annotationId: summary.selected_track?.annotation_id ?? null,
         frameIndex: summary.frame_index,
       };
+      if (!hadPendingNavigation && !navigationInFlightRef.current) {
+        earlyNavigationPrefetchRef.current = {
+          taskId: summary.task_id,
+          intent,
+          promise: prefetchFrame(summary, () => intent === navigationIntentRef.current),
+        };
+      }
       if (navigationInFlightRef.current)
         publishPointCloudNavigationTrace({
           source: "timeline",
@@ -582,7 +616,7 @@ export function SceneTimeline({
         FRAME_NAVIGATION_SETTLE_MS,
       );
     },
-    [cancelManual, onPlaybackActiveChange, runPendingNavigation, taskId],
+    [cancelManual, onPlaybackActiveChange, prefetchFrame, runPendingNavigation, taskId],
   );
 
   const schedulePointerPrefetch = useCallback(

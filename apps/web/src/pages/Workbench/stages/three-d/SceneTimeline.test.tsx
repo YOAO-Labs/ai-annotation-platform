@@ -208,7 +208,9 @@ describe("SceneTimeline", () => {
 
       expect(navigate).toHaveBeenCalledTimes(1);
       expect(navigate).toHaveBeenLastCalledWith("task-2", null);
-      expect(prefetchPointCloudFrameAssetsMock).toHaveBeenCalledTimes(1);
+      expect(
+        prefetchPointCloudFrameAssetsMock.mock.calls.map(([manifest]) => manifest.task_id),
+      ).toEqual(["task-1", "task-2"]);
     } finally {
       vi.useRealTimers();
     }
@@ -242,6 +244,32 @@ describe("SceneTimeline", () => {
     }
   });
 
+  it("restarts the settled target prefetch after repeated clicks on the same frame", async () => {
+    const navigate = vi.fn().mockResolvedValue(true);
+    renderTimeline({ taskId: "task-0", trackId: null, onNavigateFrame: navigate });
+    await waitFor(() => expect(prefetchPointCloudFrameAssetsMock).toHaveBeenCalled());
+    prefetchPointCloudFrameAssetsMock.mockClear();
+    vi.useFakeTimers();
+
+    try {
+      fireEvent.click(screen.getByTestId("scene-timeline-frame-1"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      fireEvent.click(screen.getByTestId("scene-timeline-frame-1"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(
+        prefetchPointCloudFrameAssetsMock.mock.calls.map(([manifest]) => manifest.task_id),
+      ).toEqual(["task-1", "task-1"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not block task navigation on a slow target frame prefetch", async () => {
     let finishTargetPrefetch!: () => void;
     const targetPrefetch = new Promise<void>((resolve) => {
@@ -265,8 +293,9 @@ describe("SceneTimeline", () => {
     finishTargetPrefetch();
   });
 
-  it("starts warming the following frame as soon as navigation succeeds", async () => {
+  it("waits for the selected frame prefetch before warming the following frame", async () => {
     let finishNavigation!: (allowed: boolean) => void;
+    let finishTargetPrefetch!: () => void;
     const navigate = vi.fn(
       () =>
         new Promise<boolean>((resolve) => {
@@ -294,13 +323,23 @@ describe("SceneTimeline", () => {
       cameras: [],
       expires_in: 900,
     }));
+    prefetchPointCloudFrameAssetsMock.mockImplementation((manifest: { task_id: string }) =>
+      manifest.task_id === "task-1"
+        ? new Promise<void>((resolve) => {
+            finishTargetPrefetch = resolve;
+          })
+        : Promise.resolve(),
+    );
     renderTimeline({ taskId: "task-0", trackId: null, onNavigateFrame: navigate });
 
     fireEvent.click(screen.getByTestId("scene-timeline-frame-1"));
+    await waitFor(() => expect(finishTargetPrefetch).toBeTypeOf("function"));
     expect(getPointCloudManifestMock.mock.calls.some(([id]) => id === "task-2")).toBe(false);
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("task-1", "ann-1"));
 
     finishNavigation(true);
+    expect(getPointCloudManifestMock.mock.calls.some(([id]) => id === "task-2")).toBe(false);
+    finishTargetPrefetch();
 
     await waitFor(() =>
       expect(getPointCloudManifestMock).toHaveBeenCalledWith(
@@ -465,7 +504,11 @@ describe("SceneTimeline", () => {
       [201, 400],
     ]);
     expect(screen.getByRole("status")).toHaveTextContent("已跳过 200 个缺失或不可访问帧");
-    expect(getPointCloudManifestMock).not.toHaveBeenCalled();
+    expect(getPointCloudManifestMock).toHaveBeenCalledTimes(1);
+    expect(getPointCloudManifestMock).toHaveBeenCalledWith(
+      "task-201",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("leaves an exact unavailable target in place and ignores input arrow shortcuts", async () => {
