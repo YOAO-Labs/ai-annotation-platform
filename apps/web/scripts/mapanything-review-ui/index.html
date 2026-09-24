@@ -343,7 +343,7 @@
         </div>
         <span class="badge">离线实验 · 不参与标注</span>
       </header>
-      <p class="notice">
+      <p class="notice" id="notice">
         彩色表面由模型深度反投影并连接有效像素；青色点来自
         LiDAR。六路相机共同覆盖车身周围，但遮挡、无效深度与相机接缝仍可能缺失或错位。表面仅供观察，不参与标注。
       </p>
@@ -362,6 +362,7 @@
             <img id="depth-image" alt="模型深度颜色图" />
             <img id="prompt-image" alt="输入模型的 LiDAR 点" />
             <img id="error-image" alt="留出点误差标记" />
+            <img id="temporal-fill-image" alt="相邻帧补入的模型像素" />
           </div>
           <div class="controls">
             <label
@@ -373,6 +374,9 @@
             >
             <label><input id="show-prompt" type="checkbox" checked /> LiDAR 输入点</label>
             <label><input id="show-errors" type="checkbox" checked /> 留出点误差</label>
+            <label id="temporal-fill-control" hidden
+              ><input id="show-temporal-fill" type="checkbox" /> 显示跨帧补入像素</label
+            >
           </div>
           <div class="legend">
             <span><i class="swatch" style="background: #26f8a8"></i>模型输入 LiDAR</span>

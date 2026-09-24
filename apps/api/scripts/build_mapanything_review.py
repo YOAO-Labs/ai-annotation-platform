@@ -25,6 +25,7 @@ from import_nuscenes_scene import (
     _resolve_source_path,
     _transform,
 )
+from mapanything_temporal import fuse_anchor, temporal_support
 from qualify_depth_reconstruction import (
     _metrics,
     _nearest_lidar_errors,
@@ -315,6 +316,7 @@ def _extract_result(
     processed_view: dict,
     prediction: dict,
     reference_from_global: np.ndarray,
+    temporal: dict | None = None,
 ) -> dict:
     frame_index = source["frame_index"]
     camera_role = source["camera_role"]
@@ -330,9 +332,12 @@ def _extract_result(
     raster, holdout = _depth_raster(source, projected, visible, width, height)
     prefix = f"frame-{frame_index:02d}-{camera_role.lower().replace('_', '-')}"
     np.asarray(depth, dtype="<f4").tofile(output / f"{prefix}-depth.bin")
+    np.asarray(mask, dtype="u1").tofile(output / f"{prefix}-mask.bin")
     np.asarray(raster, dtype="<f4").tofile(output / f"{prefix}-lidar-depth.bin")
     truth = source["returns"][holdout, 2]
     pixels = projected[holdout]
+    holdout_file = f"{prefix}-holdout.bin"
+    np.column_stack((pixels, truth)).astype("<f4").tofile(output / holdout_file)
     predicted = depth[pixels[:, 1], pixels[:, 0]]
     errors = np.abs(predicted - truth)
     baseline = _nearest_lidar_errors(
@@ -393,6 +398,72 @@ def _extract_result(
     surface = _save_surface(
         output, prefix, depth, mask, raster, rgb, intrinsic, reference_from_camera
     )
+    temporal_result = None
+    if temporal is not None:
+        fused_depth = temporal["depth"]
+        fused_mask = temporal["mask"]
+        fused_rgb = temporal["rgb"]
+        fused_valid = fused_mask[pixels[:, 1], pixels[:, 0]]
+        fused_errors = np.abs(fused_depth[pixels[:, 1], pixels[:, 0]] - truth)
+        temporal_surface = _save_surface(
+            output,
+            f"{prefix}-temporal",
+            fused_depth,
+            fused_mask,
+            raster,
+            fused_rgb,
+            intrinsic,
+            reference_from_camera,
+        )
+        strict_mask = temporal["supported"] | temporal["filled"]
+        strict_valid = strict_mask[pixels[:, 1], pixels[:, 0]]
+        strict_surface = _save_surface(
+            output,
+            f"{prefix}-temporal-strict",
+            fused_depth,
+            strict_mask,
+            raster,
+            fused_rgb,
+            intrinsic,
+            reference_from_camera,
+        )
+        fill_overlay = np.zeros((*fused_mask.shape, 4), dtype=np.uint8)
+        fill_overlay[temporal["filled"]] = (92, 222, 201, 155)
+        fill_file = f"{prefix}-temporal-fill.png"
+        Image.fromarray(fill_overlay).save(output / fill_file)
+        fused_depth_file = f"{prefix}-temporal-depth.bin"
+        np.asarray(fused_depth, dtype="<f4").tofile(output / fused_depth_file)
+        fused_mask_file = f"{prefix}-temporal-mask.bin"
+        strict_mask_file = f"{prefix}-temporal-strict-mask.bin"
+        np.asarray(fused_mask, dtype="u1").tofile(output / fused_mask_file)
+        np.asarray(strict_mask, dtype="u1").tofile(output / strict_mask_file)
+        temporal_result = {
+            "surface": temporal_surface,
+            "strict_surface": strict_surface,
+            "fill_overlay": fill_file,
+            "depth_values": fused_depth_file,
+            "mask_values": fused_mask_file,
+            "strict_mask_values": strict_mask_file,
+            "cross_frame_fraction": round(float(temporal["cross_frame"].mean()), 4),
+            "supported_fraction": round(float(temporal["supported"].mean()), 4),
+            "filled_fraction": round(float(temporal["filled"].mean()), 4),
+            "fused_fraction": round(float(fused_mask.mean()), 4),
+            "strict_fraction": round(float(strict_mask.mean()), 4),
+            "valid_holdout_returns": int(fused_valid.sum()),
+            "model_on_valid": _metrics(fused_errors[fused_valid])
+            if fused_valid.any()
+            else None,
+            "lidar_on_valid": _metrics(baseline[fused_valid])
+            if fused_valid.any()
+            else None,
+            "strict_valid_holdout_returns": int(strict_valid.sum()),
+            "strict_model_on_valid": _metrics(fused_errors[strict_valid])
+            if strict_valid.any()
+            else None,
+            "strict_lidar_on_valid": _metrics(baseline[strict_valid])
+            if strict_valid.any()
+            else None,
+        }
     model_xyz = _points_to_reference(camera_xyz, reference_from_camera)
     model_rgb = rgb[y, x]
     model_confidence = confidence[y, x]
@@ -402,7 +473,7 @@ def _extract_result(
     confident_count = _save_cloud(
         output / f"{prefix}-confident.bin", model_xyz[confident], model_rgb[confident]
     )
-    return {
+    result = {
         "frame_index": frame_index,
         "camera_role": camera_role,
         "size": [width, height],
@@ -435,7 +506,58 @@ def _extract_result(
         "surface": surface,
         "camera_view": camera_view,
         "depth_values": f"{prefix}-depth.bin",
+        "mask_values": f"{prefix}-mask.bin",
         "lidar_depth_values": f"{prefix}-lidar-depth.bin",
+        "holdout_values": holdout_file,
+    }
+    if temporal_result is not None:
+        result["temporal"] = temporal_result
+    return result
+
+
+def _prepare_views(sources: list[dict], reference_camera_from_global: np.ndarray):
+    import torch
+    from mapanything.utils.image import preprocess_inputs
+
+    input_views = [
+        {
+            "img": source["image"],
+            "intrinsics": source["intrinsic"].astype(np.float32),
+            "depth_z": np.zeros(
+                (source["image"].height, source["image"].width), dtype=np.float32
+            ),
+            "camera_poses": (
+                reference_camera_from_global @ source["global_from_camera"]
+            ).astype(np.float32),
+            "is_metric_scale": torch.tensor([True]),
+        }
+        for source in sources
+    ]
+    processed = preprocess_inputs(input_views)
+    for source, view in zip(sources, processed, strict=True):
+        height, width = view["depth_z"].shape[1:]
+        coordinates, visible = _project_returns(
+            source, view["intrinsics"][0].numpy(), width, height
+        )
+        raster, _ = _depth_raster(source, coordinates, visible, width, height)
+        view["depth_z"] = torch.from_numpy(raster)[None]
+    return processed
+
+
+def _temporal_view(source: dict, processed: dict, prediction: dict) -> dict:
+    depth = prediction["depth_z"][0, :, :, 0].float().numpy()
+    mask = prediction["mask"][0, :, :, 0].bool().numpy()
+    rgb = np.uint8(np.clip(prediction["img_no_norm"][0].float().numpy() * 255, 0, 255))
+    intrinsic = processed["intrinsics"][0].cpu().numpy()
+    coordinates, visible = _project_returns(source, intrinsic, *depth.shape[::-1])
+    prompt_depth, _ = _depth_raster(source, coordinates, visible, *depth.shape[::-1])
+    return {
+        "depth": depth,
+        "mask": mask,
+        "rgb": rgb,
+        "intrinsic": intrinsic,
+        "global_from_camera": source["global_from_camera"],
+        "prompt_depth": prompt_depth,
     }
 
 
@@ -448,13 +570,18 @@ def main() -> None:
     parser.add_argument(
         "--cameras", help="Comma-separated camera roles, or 'all' for six cameras"
     )
+    parser.add_argument(
+        "--temporal-fusion",
+        action="store_true",
+        help="Infer three adjacent frames per camera and fuse into the middle frame",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    generation_start = time.perf_counter()
 
     import mapanything
     import torch
     from mapanything.models import MapAnything
-    from mapanything.utils.image import preprocess_inputs
 
     if torch.cuda.device_count() != 1:
         raise RuntimeError("Expose exactly one GPU with CUDA_VISIBLE_DEVICES")
@@ -500,7 +627,12 @@ def main() -> None:
         raise ValueError(f"camera roles must be chosen from {CAMERA_ROLES}")
     if len(set(camera_roles)) != len(camera_roles):
         raise ValueError("camera roles must be unique")
-    if not selected or len(selected) > 4 or len(selected) * len(camera_roles) > 8:
+    if len(set(selected)) != len(selected):
+        raise ValueError("frame indices must be unique")
+    if args.temporal_fusion:
+        if len(selected) != 3 or selected != list(range(selected[0], selected[0] + 3)):
+            raise ValueError("temporal fusion requires three adjacent frames in order")
+    elif not selected or len(selected) > 4 or len(selected) * len(camera_roles) > 8:
         raise ValueError("select 1 to 4 frames and at most 8 total views")
     if any(index < 0 or index >= len(sequence) for index in selected):
         raise ValueError("frame index outside the scene")
@@ -519,56 +651,109 @@ def main() -> None:
         for role in camera_roles
     ]
     reference_from_global = np.linalg.inv(sources[0]["global_from_ego_lidar"])
-    reference_camera_from_global = np.linalg.inv(sources[0]["global_from_camera"])
-    input_views = [
-        {
-            "img": source["image"],
-            "intrinsics": source["intrinsic"].astype(np.float32),
-            "depth_z": np.zeros(
-                (source["image"].height, source["image"].width), dtype=np.float32
-            ),
-            "camera_poses": (
-                reference_camera_from_global @ source["global_from_camera"]
-            ).astype(np.float32),
-            "is_metric_scale": torch.tensor([True]),
-        }
-        for source in sources
+    groups = (
+        [
+            [source for source in sources if source["camera_role"] == role]
+            for role in camera_roles
+        ]
+        if args.temporal_fusion
+        else [sources]
+    )
+    prepared = [
+        _prepare_views(group, np.linalg.inv(group[0]["global_from_camera"]))
+        for group in groups
     ]
-    processed = preprocess_inputs(input_views)
-    for source, view in zip(sources, processed, strict=True):
-        height, width = view["depth_z"].shape[1:]
-        coordinates, visible = _project_returns(
-            source, view["intrinsics"][0].numpy(), width, height
-        )
-        raster, _ = _depth_raster(source, coordinates, visible, width, height)
-        view["depth_z"] = torch.from_numpy(raster)[None]
-
     start_load = time.perf_counter()
     model = MapAnything.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
     model = model.to("cuda").eval()
     load_s = round(time.perf_counter() - start_load, 2)
+    inference_by_group = []
+    group_predictions = []
     torch.cuda.reset_peak_memory_stats()
-    start_infer = time.perf_counter()
-    with torch.inference_mode():
-        predictions = model.infer(
-            processed,
-            memory_efficient_inference=True,
-            minibatch_size=1,
-            use_amp=True,
-            amp_dtype="bf16",
-            apply_mask=True,
-            mask_edges=True,
-            apply_confidence_mask=False,
+    for group, processed in zip(groups, prepared, strict=True):
+        start_infer = time.perf_counter()
+        with torch.inference_mode():
+            predictions = model.infer(
+                processed,
+                memory_efficient_inference=True,
+                minibatch_size=1,
+                use_amp=True,
+                amp_dtype="bf16",
+                apply_mask=True,
+                mask_edges=True,
+                apply_confidence_mask=False,
+            )
+        torch.cuda.synchronize()
+        inference_by_group.append(
+            {
+                "camera_role": group[0]["camera_role"]
+                if args.temporal_fusion
+                else "JOINT",
+                "seconds": round(time.perf_counter() - start_infer, 2),
+            }
         )
-    torch.cuda.synchronize()
-    inference_s = round(time.perf_counter() - start_infer, 2)
+        group_predictions.append(
+            [
+                {
+                    key: item[key].cpu()
+                    for key in ("depth_z", "conf", "mask", "img_no_norm")
+                }
+                for item in predictions
+            ]
+        )
+        del predictions
+    inference_s = round(sum(item["seconds"] for item in inference_by_group), 2)
     peak_reserved_mib = round(torch.cuda.max_memory_reserved() / 1048576, 1)
-    results = [
-        _extract_result(output, source, view, prediction, reference_from_global)
-        for source, view, prediction in zip(
-            sources, processed, predictions, strict=True
-        )
-    ]
+    if args.temporal_fusion:
+        results = []
+        temporal_details = []
+        for group, processed, predictions in zip(
+            groups, prepared, group_predictions, strict=True
+        ):
+            views = [
+                _temporal_view(source, view, prediction)
+                for source, view, prediction in zip(
+                    group, processed, predictions, strict=True
+                )
+            ]
+            supported, cross_frame = temporal_support(views)
+            fused_depth, fused_mask, fused_rgb, filled = fuse_anchor(
+                views, supported, 1
+            )
+            results.append(
+                _extract_result(
+                    output,
+                    group[1],
+                    processed[1],
+                    predictions[1],
+                    reference_from_global,
+                    {
+                        "depth": fused_depth,
+                        "mask": fused_mask,
+                        "rgb": fused_rgb,
+                        "filled": filled,
+                        "supported": supported[1],
+                        "cross_frame": cross_frame[1],
+                    },
+                )
+            )
+            temporal_details.append(
+                {
+                    "camera_role": group[1]["camera_role"],
+                    "input_frames": selected,
+                    "source_supported_fractions": [
+                        round(float(mask.mean()), 4) for mask in supported
+                    ],
+                }
+            )
+    else:
+        results = [
+            _extract_result(output, source, view, prediction, reference_from_global)
+            for source, view, prediction in zip(
+                sources, prepared[0], group_predictions[0], strict=True
+            )
+        ]
+        temporal_details = None
     try:
         app_revision = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"], text=True
@@ -588,6 +773,11 @@ def main() -> None:
         "load_s": load_s,
         "inference_s": inference_s,
         "peak_torch_reserved_mib": peak_reserved_mib,
+        "generation_s_before_bundle": round(time.perf_counter() - generation_start, 2),
+        "input_frames": selected,
+        "inference_by_group": inference_by_group,
+        "temporal_fusion": args.temporal_fusion,
+        "temporal_details": temporal_details,
         "frames": results,
     }
     (output / "data.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")

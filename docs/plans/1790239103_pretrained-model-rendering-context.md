@@ -18,6 +18,8 @@ A two-frame, sparse-LiDAR-guided MapAnything pilot now has a [local human review
 
 The subsequent [six-camera surface review](../research/53-mapanything-six-camera-surface-review.md) combines one key frame into a colored, rotatable 3D mesh preview. All six model-valid held-out MAEs remain above the matched LiDAR-nearest baselines; per-camera valid pixel coverage ranges from 61.9% to 87.0%. A selected camera view looks surface-like, while the overview exposes holes and seams. This meets the visual experiment request but does not open the production gate.
 
+The [three-frame temporal review](../research/54-mapanything-temporal-surface-review.md) adds pose-aligned, consistency-filtered hole filling to the six-camera preview and compares identical held-out locations against single-frame inference in two scenes. The model improved depth MAE in five of six camera roles in the tuning scene and four of six in the separate check scene, but the new coverage was small, some added pixels remained inaccurate, and the model still lost to the current-frame LiDAR-nearest baseline in all 12 model-valid camera/scene pairs. Strict temporal filtering sharply reduced coverage. This remains an offline visual experiment, not a candidate for production asset generation.
+
 ## Work packages
 
 ### 1. Candidate qualification
@@ -52,4 +54,4 @@ Load only the active frame's bounded asset through the existing scene/cache owne
 
 ## Decision points
 
-The offline evaluator, initial 24-view result, and MapAnything point and six-camera surface reviews are completed first slices. The next slice is candidate diagnosis and a held-out multi-scene qualification, reporting valid-output coverage alongside paired depth error and camera seam quality. Production asset generation and workbench wiring are explicitly contingent on that result. If direct pretrained depth remains inaccurate, do not treat scene-specific 3DGS as a drop-in fix: it requires a separate plan for scene optimization time, actor separation, calibration quality, asset lifecycle and annotator benefit.
+The offline evaluator, initial 24-view result, and MapAnything point, six-camera, and three-frame temporal reviews are completed first slices. The next slice is full-scene and dynamic-stratum qualification against a pose-aligned multi-frame LiDAR baseline, with seam quality and annotator benefit measured separately. Production asset generation and workbench wiring are explicitly contingent on the stated gate. If direct pretrained depth remains inaccurate, do not treat scene-specific 3DGS as a drop-in fix: it requires a separate plan for scene optimization time, actor separation, calibration quality, asset lifecycle and annotator benefit.
