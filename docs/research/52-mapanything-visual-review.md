@@ -6,6 +6,8 @@ Keep MapAnything as an **offline, read-only visual experiment**. Its valid depth
 
 The local [visual review generator](../../apps/api/scripts/build_mapanything_review.py) produces a static [browser viewer](../../apps/web/scripts/mapanything-review-ui/index.html). It lets a reviewer switch frames, blend RGB and depth, inspect prompt and held-out-error marks, and rotate LiDAR and model point clouds in one coordinate system. The artifact never calls the project API or writes to the development database. The two-frame example lives under the ignored `.artifacts/model-review/mapanything-scene0061/` directory in the checkout where this test ran; it is not committed because it contains nuScenes-derived images.
 
+The later [six-camera surface review](53-mapanything-six-camera-surface-review.md) adds a colored mesh display and a same-frame surround-camera assembly to this viewer.
+
 ## Sources and method
 
 - Model: [MapAnything source](https://github.com/facebookresearch/map-anything) at `3d10cf7a3016fc0f9bb13a071ee66c47b10be0d9`, using the [Apache checkpoint](https://huggingface.co/facebook/map-anything-apache) at `00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a`. The script requires the pinned source checkout and weight revision.

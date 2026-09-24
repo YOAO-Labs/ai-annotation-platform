@@ -36,6 +36,14 @@ from qualify_depth_reconstruction import (
 MODEL_ID = "facebook/map-anything-apache"
 MODEL_REVISION = "00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a"
 MODEL_CODE_REVISION = "3d10cf7a3016fc0f9bb13a071ee66c47b10be0d9"
+CAMERA_ROLES = (
+    "CAM_FRONT",
+    "CAM_FRONT_RIGHT",
+    "CAM_BACK_RIGHT",
+    "CAM_BACK",
+    "CAM_BACK_LEFT",
+    "CAM_FRONT_LEFT",
+)
 
 
 def _table(meta: Path, name: str) -> dict[str, dict]:
@@ -90,6 +98,7 @@ def _frame_source(
     prompt, holdout, _ = _prompt_split(returns, image.width, image.height)
     return {
         "frame_index": frame_index,
+        "camera_role": camera_role,
         "image": image,
         "intrinsic": intrinsic,
         "extrinsic": extrinsic,
@@ -143,6 +152,10 @@ def _points_to_reference(points: np.ndarray, transform: np.ndarray) -> np.ndarra
     return points @ transform[:3, :3].T + transform[:3, 3]
 
 
+def _three_coordinates(vector: np.ndarray) -> list[float]:
+    return [float(vector[1]), float(vector[2]), -float(vector[0])]
+
+
 def _save_cloud(path: Path, xyz: np.ndarray, rgb: np.ndarray) -> int:
     count = min(len(xyz), len(rgb))
     record = np.empty(
@@ -168,9 +181,88 @@ def _save_cloud(path: Path, xyz: np.ndarray, rgb: np.ndarray) -> int:
     return count
 
 
+def _mesh_faces(depth: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    """Join nearby valid depth samples without spanning large depth jumps."""
+    height, width = depth.shape
+    indices = np.arange(height * width, dtype=np.uint32).reshape(height, width)
+    a, b = indices[:-1, :-1], indices[:-1, 1:]
+    c, d = indices[1:, :-1], indices[1:, 1:]
+
+    def accepted(i: np.ndarray, j: np.ndarray, k: np.ndarray) -> np.ndarray:
+        flat_depth = depth.ravel()
+        near = np.minimum(np.minimum(flat_depth[i], flat_depth[j]), flat_depth[k])
+        far = np.maximum(np.maximum(flat_depth[i], flat_depth[j]), flat_depth[k])
+        return (
+            valid.ravel()[i]
+            & valid.ravel()[j]
+            & valid.ravel()[k]
+            & (far - near <= 0.25 + 0.04 * near)
+        )
+
+    first = np.stack((a, b, c), axis=-1)[accepted(a, b, c)]
+    second = np.stack((b, d, c), axis=-1)[accepted(b, d, c)]
+    return np.concatenate((first, second), axis=0).astype("<u4", copy=False)
+
+
+def _save_surface(
+    output: Path,
+    prefix: str,
+    depth: np.ndarray,
+    mask: np.ndarray,
+    raster: np.ndarray,
+    rgb: np.ndarray,
+    intrinsic: np.ndarray,
+    reference_from_camera: np.ndarray,
+) -> dict:
+    sample_y, sample_x = np.mgrid[0 : depth.shape[0] : 2, 0 : depth.shape[1] : 2]
+    z = depth[sample_y, sample_x]
+    prompt_depth = raster[sample_y, sample_x]
+    valid = (
+        mask[sample_y, sample_x]
+        & np.isfinite(z)
+        & (z >= 1)
+        & (z <= 80)
+        & (
+            (prompt_depth == 0)
+            | (np.abs(z - prompt_depth) <= np.maximum(1, 0.1 * prompt_depth))
+        )
+    )
+    camera_xyz = np.stack(
+        (
+            (sample_x - intrinsic[0, 2]) / intrinsic[0, 0] * z,
+            (sample_y - intrinsic[1, 2]) / intrinsic[1, 1] * z,
+            z,
+        ),
+        axis=-1,
+    )
+    camera_xyz[~valid] = 0
+    vertices = _points_to_reference(camera_xyz.reshape(-1, 3), reference_from_camera)
+    vertex_file = f"{prefix}-surface-vertices.bin"
+    index_file = f"{prefix}-surface-indices.bin"
+    preview_index_file = f"{prefix}-surface-preview-indices.bin"
+    vertex_count = _save_cloud(
+        output / vertex_file, vertices, rgb[sample_y, sample_x].reshape(-1, 3)
+    )
+    faces = _mesh_faces(z, valid)
+    faces.tofile(output / index_file)
+    preview_grid_indices = np.arange(z.size, dtype="<u4").reshape(z.shape)[::3, ::3]
+    preview_faces = _mesh_faces(z[::3, ::3], valid[::3, ::3])
+    preview_indices = preview_grid_indices.ravel()[preview_faces]
+    preview_indices.tofile(output / preview_index_file)
+    return {
+        "vertices": vertex_file,
+        "indices": index_file,
+        "preview_indices": preview_index_file,
+        "vertex_count": vertex_count,
+        "triangle_count": int(len(faces)),
+        "preview_triangle_count": int(len(preview_faces)),
+        "valid_vertex_fraction": round(float(valid.mean()), 4),
+    }
+
+
 def _save_image_overlays(
     output: Path,
-    frame_index: int,
+    prefix: str,
     rgb: np.ndarray,
     depth: np.ndarray,
     confidence: np.ndarray,
@@ -178,7 +270,6 @@ def _save_image_overlays(
     source: dict,
     holdout: np.ndarray,
 ) -> dict[str, str]:
-    prefix = f"frame-{frame_index:02d}"
     Image.fromarray(rgb).save(output / f"{prefix}-rgb.jpg", quality=88)
     depth_color = cv2.applyColorMap(
         np.uint8(np.clip(depth, 0, 80) / 80 * 255), cv2.COLORMAP_TURBO
@@ -226,6 +317,7 @@ def _extract_result(
     reference_from_global: np.ndarray,
 ) -> dict:
     frame_index = source["frame_index"]
+    camera_role = source["camera_role"]
     depth = prediction["depth_z"][0, :, :, 0].float().cpu().numpy()
     confidence = prediction["conf"][0].float().cpu().numpy()
     mask = prediction["mask"][0, :, :, 0].bool().cpu().numpy()
@@ -236,7 +328,7 @@ def _extract_result(
     intrinsic = processed_view["intrinsics"][0].cpu().numpy()
     projected, visible = _project_returns(source, intrinsic, width, height)
     raster, holdout = _depth_raster(source, projected, visible, width, height)
-    prefix = f"frame-{frame_index:02d}"
+    prefix = f"frame-{frame_index:02d}-{camera_role.lower().replace('_', '-')}"
     np.asarray(depth, dtype="<f4").tofile(output / f"{prefix}-depth.bin")
     np.asarray(raster, dtype="<f4").tofile(output / f"{prefix}-lidar-depth.bin")
     truth = source["returns"][holdout, 2]
@@ -250,7 +342,7 @@ def _extract_result(
         mask[pixels[:, 1], pixels[:, 0]] & np.isfinite(predicted) & (predicted > 0)
     )
     images = _save_image_overlays(
-        output, frame_index, rgb, depth, confidence, projected, source, holdout
+        output, prefix, rgb, depth, confidence, projected, source, holdout
     )
 
     ego_from_lidar = source["ego_from_lidar"]
@@ -292,6 +384,15 @@ def _extract_result(
         axis=1,
     )
     reference_from_camera = reference_from_lidar @ np.linalg.inv(source["extrinsic"])
+    camera_orientation = reference_from_camera[:3, :3]
+    camera_view = {
+        "position": _three_coordinates(reference_from_camera[:3, 3]),
+        "forward": _three_coordinates(camera_orientation @ np.array([0, 0, 1])),
+        "up": _three_coordinates(camera_orientation @ np.array([0, -1, 0])),
+    }
+    surface = _save_surface(
+        output, prefix, depth, mask, raster, rgb, intrinsic, reference_from_camera
+    )
     model_xyz = _points_to_reference(camera_xyz, reference_from_camera)
     model_rgb = rgb[y, x]
     model_confidence = confidence[y, x]
@@ -303,6 +404,7 @@ def _extract_result(
     )
     return {
         "frame_index": frame_index,
+        "camera_role": camera_role,
         "size": [width, height],
         "prompt_returns": int(source["prompt"].sum()),
         "prompt_cells": int(np.count_nonzero(raster)),
@@ -330,6 +432,8 @@ def _extract_result(
             "model": f"{prefix}-model.bin",
             "confident": f"{prefix}-confident.bin",
         },
+        "surface": surface,
+        "camera_view": camera_view,
         "depth_values": f"{prefix}-depth.bin",
         "lidar_depth_values": f"{prefix}-lidar-depth.bin",
     }
@@ -341,6 +445,9 @@ def main() -> None:
     parser.add_argument("--scene", default="scene-0061")
     parser.add_argument("--frames", default="0,1")
     parser.add_argument("--camera", default="CAM_FRONT")
+    parser.add_argument(
+        "--cameras", help="Comma-separated camera roles, or 'all' for six cameras"
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -383,8 +490,18 @@ def main() -> None:
     for row in sample_data.values():
         data_by_sample.setdefault(row["sample_token"], []).append(row)
     selected = [int(index) for index in args.frames.split(",")]
-    if len(selected) < 2 or len(selected) > 4:
-        raise ValueError("select 2 to 4 nearby frames for this review")
+    if args.cameras == "all":
+        camera_roles = CAMERA_ROLES
+    elif args.cameras:
+        camera_roles = tuple(role.strip() for role in args.cameras.split(","))
+    else:
+        camera_roles = (args.camera,)
+    if not camera_roles or any(role not in CAMERA_ROLES for role in camera_roles):
+        raise ValueError(f"camera roles must be chosen from {CAMERA_ROLES}")
+    if len(set(camera_roles)) != len(camera_roles):
+        raise ValueError("camera roles must be unique")
+    if not selected or len(selected) > 4 or len(selected) * len(camera_roles) > 8:
+        raise ValueError("select 1 to 4 frames and at most 8 total views")
     if any(index < 0 or index >= len(sequence) for index in selected):
         raise ValueError("frame index outside the scene")
     sources = [
@@ -392,13 +509,14 @@ def main() -> None:
             root,
             index,
             sequence[index],
-            args.camera,
+            role,
             data_by_sample,
             calibrations,
             sensors,
             poses,
         )
         for index in selected
+        for role in camera_roles
     ]
     reference_from_global = np.linalg.inv(sources[0]["global_from_ego_lidar"])
     reference_camera_from_global = np.linalg.inv(sources[0]["global_from_camera"])
@@ -459,7 +577,8 @@ def main() -> None:
         app_revision = None
     summary = {
         "scene": args.scene,
-        "camera": args.camera,
+        "camera": camera_roles[0] if len(camera_roles) == 1 else "MULTI_CAMERA",
+        "cameras": camera_roles,
         "model_id": MODEL_ID,
         "model_revision": MODEL_REVISION,
         "model_code_revision": model_code_revision,

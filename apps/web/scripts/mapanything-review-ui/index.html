@@ -174,6 +174,27 @@
         align-items: center;
         gap: 7px;
       }
+      .controls [hidden] {
+        display: none;
+      }
+      .controls select {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel-raised);
+        color: var(--text);
+        padding: 4px 6px;
+      }
+      .controls button {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel-raised);
+        color: var(--text);
+        padding: 5px 8px;
+      }
+      .controls button[aria-pressed="true"] {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
       .controls input[type="checkbox"] {
         accent-color: var(--accent);
       }
@@ -238,6 +259,38 @@
         color: var(--muted);
         font-size: 11px;
       }
+      .overview {
+        margin-top: 16px;
+      }
+      .overview-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        padding: 12px;
+      }
+      .overview-card {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-raised);
+        color: var(--text);
+        padding: 0;
+        text-align: left;
+      }
+      .overview-card[aria-pressed="true"] {
+        border-color: var(--accent);
+      }
+      .overview-card img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 518 / 294;
+        object-fit: cover;
+      }
+      .overview-card span {
+        display: block;
+        padding: 7px 9px;
+        font-size: 12px;
+      }
       .notes {
         margin-top: 16px;
         color: var(--muted);
@@ -252,6 +305,9 @@
           grid-template-columns: 1fr;
         }
         .metrics {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .overview-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
         #cloud-view {
@@ -288,8 +344,8 @@
         <span class="badge">离线实验 · 不参与标注</span>
       </header>
       <p class="notice">
-        模型生成的表面可能偏离真实物体。青色点来自
-        LiDAR；彩色点由模型深度反投影。误差标记只覆盖留出的 LiDAR 位置，不能证明无点区域正确。
+        彩色表面由模型深度反投影并连接有效像素；青色点来自
+        LiDAR。六路相机共同覆盖车身周围，但遮挡、无效深度与相机接缝仍可能缺失或错位。表面仅供观察，不参与标注。
       </p>
       <div class="toolbar">
         <nav class="frame-tabs" id="frame-tabs" aria-label="选择帧"></nav>
@@ -299,7 +355,7 @@
         <section class="panel">
           <div class="panel-head">
             <h2>相机对照</h2>
-            <span>移动指针查看像素深度</span>
+            <span id="view-label">移动指针查看像素深度</span>
           </div>
           <div class="image-stage" id="image-stage" aria-label="相机图与深度叠加">
             <img id="rgb-image" alt="相机原图" />
@@ -328,14 +384,28 @@
         </section>
         <section class="panel">
           <div class="panel-head">
-            <h2>3D 点云对照</h2>
-            <span>拖动旋转 · 滚轮缩放</span>
+            <h2>3D 表面聚合</h2>
+            <span id="load-status">拖动旋转 · 滚轮缩放</span>
           </div>
-          <div id="cloud-view" role="img" aria-label="LiDAR 与模型点云的可旋转三维对照"></div>
+          <div
+            id="cloud-view"
+            role="img"
+            aria-label="六视角模型表面与 LiDAR 的可旋转三维对照"
+          ></div>
           <div class="controls">
-            <label
-              ><input id="show-lidar" type="checkbox" checked /> 青色 LiDAR（相机视野内）</label
+            <button type="button" id="overview-preset" aria-pressed="true">全局总览</button>
+            <button type="button" id="camera-preset" aria-pressed="false">从当前相机看</button>
+            <label id="aggregate-control"
+              ><input id="aggregate-cameras" type="checkbox" /> 聚合显示全部相机</label
             >
+            <label
+              >模型显示
+              <select id="model-display">
+                <option value="surface">连续表面</option>
+                <option value="points">采样点</option>
+              </select></label
+            >
+            <label><input id="show-lidar" type="checkbox" /> 青色 LiDAR（相机视野内）</label>
             <label><input id="show-model" type="checkbox" checked /> 彩色模型</label>
             <label><input id="confident-only" type="checkbox" /> 仅显示模型自报高置信</label>
             <label>点大小 <input id="point-size" type="range" min="1" max="8" value="4" /></label>
@@ -343,9 +413,17 @@
         </section>
       </div>
       <div class="metrics" id="metrics"></div>
+      <section class="panel overview" id="overview" hidden>
+        <div class="panel-head">
+          <h2>六路相机一览</h2>
+          <span>点击任一画面检查该视角</span>
+        </div>
+        <div class="overview-grid" id="overview-grid"></div>
+      </section>
       <p class="notes" id="notes">
         仅供人工观察：卡片中的误差只统计模型有效像素，顶部同时列出全部留出点误差；模型自报置信度尚未校准，青色
-        LiDAR 是几何参考。3D 视图中的两帧使用同一参考坐标。该页面从本地静态文件加载，不连接项目
+        LiDAR 是几何参考。相机表面使用各自的标定和位姿对齐；深度突变及与输入 LiDAR
+        明显冲突处不会连接三角片。聚合画面不代表被遮挡物体也已重建。该页面从本地静态文件加载，不连接项目
         API。
       </p>
     </main>

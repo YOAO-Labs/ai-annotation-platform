@@ -16,6 +16,8 @@ The first offline test used 4 frames × 6 cameras of nuScenes mini `scene-0061` 
 
 A two-frame, sparse-LiDAR-guided MapAnything pilot now has a [local human review page and paired results](../research/52-mapanything-visual-review.md). On model-valid held-out points, its MAE was 0.881 m and 0.412 m; the nearest LiDAR input scored 0.423 m and 0.183 m at those same locations. Across all held-out points, model MAE rose to 4.629 m and 3.997 m because some predictions were masked out. This is a useful candidate for wider evaluation, not a promotion: two adjacent front-camera frames do not cover the required camera, scene, temporal, or annotator gates.
 
+The subsequent [six-camera surface review](../research/53-mapanything-six-camera-surface-review.md) combines one key frame into a colored, rotatable 3D mesh preview. All six model-valid held-out MAEs remain above the matched LiDAR-nearest baselines; per-camera valid pixel coverage ranges from 61.9% to 87.0%. A selected camera view looks surface-like, while the overview exposes holes and seams. This meets the visual experiment request but does not open the production gate.
+
 ## Work packages
 
 ### 1. Candidate qualification
@@ -50,4 +52,4 @@ Load only the active frame's bounded asset through the existing scene/cache owne
 
 ## Decision points
 
-The offline evaluator, initial 24-view result, and two-frame MapAnything visual review are completed first slices. The next slice is candidate diagnosis and a held-out multi-scene qualification, reporting valid-output coverage alongside paired depth error. Production asset generation and workbench wiring are explicitly contingent on that result. If direct pretrained depth remains inaccurate, do not treat scene-specific 3DGS as a drop-in fix: it requires a separate plan for scene optimization time, actor separation, calibration quality, asset lifecycle and annotator benefit.
+The offline evaluator, initial 24-view result, and MapAnything point and six-camera surface reviews are completed first slices. The next slice is candidate diagnosis and a held-out multi-scene qualification, reporting valid-output coverage alongside paired depth error and camera seam quality. Production asset generation and workbench wiring are explicitly contingent on that result. If direct pretrained depth remains inaccurate, do not treat scene-specific 3DGS as a drop-in fix: it requires a separate plan for scene optimization time, actor separation, calibration quality, asset lifecycle and annotator benefit.
