@@ -14,6 +14,8 @@ The phase-1 plan and real-project benchmark are in [point-cloud surface enhancem
 
 The first offline test used 4 frames × 6 cameras of nuScenes mini `scene-0061` on one RTX 3090. [The full method and numbers](../research/51-pretrained-depth-for-pointcloud-context.md) show that PromptDA small and Depth Anything V2 Metric Outdoor Small each lost to projected LiDAR nearest depth in all 24 views. Median per-view MAE was 15.238 m and 5.601 m, against 0.967 m for the LiDAR baseline. Even prompt-fitted affine calibration did not close the gap. Warm inference on one camera was feasible, but that is insufficient to authorize renderer integration. The read-only qualification script is in `apps/api/scripts/qualify_depth_reconstruction.py`.
 
+A two-frame, sparse-LiDAR-guided MapAnything pilot now has a [local human review page and paired results](../research/52-mapanything-visual-review.md). On model-valid held-out points, its MAE was 0.881 m and 0.412 m; the nearest LiDAR input scored 0.423 m and 0.183 m at those same locations. Across all held-out points, model MAE rose to 4.629 m and 3.997 m because some predictions were masked out. This is a useful candidate for wider evaluation, not a promotion: two adjacent front-camera frames do not cover the required camera, scene, temporal, or annotator gates.
+
 ## Work packages
 
 ### 1. Candidate qualification
@@ -48,4 +50,4 @@ Load only the active frame's bounded asset through the existing scene/cache owne
 
 ## Decision points
 
-The offline evaluator and initial 24-view result are the completed first slice. The next slice is candidate diagnosis and a held-out multi-scene qualification. Production asset generation and workbench wiring are explicitly contingent on that result. If direct pretrained depth remains inaccurate, do not treat scene-specific 3DGS as a drop-in fix: it requires a separate plan for scene optimization time, actor separation, calibration quality, asset lifecycle and annotator benefit.
+The offline evaluator, initial 24-view result, and two-frame MapAnything visual review are completed first slices. The next slice is candidate diagnosis and a held-out multi-scene qualification, reporting valid-output coverage alongside paired depth error. Production asset generation and workbench wiring are explicitly contingent on that result. If direct pretrained depth remains inaccurate, do not treat scene-specific 3DGS as a drop-in fix: it requires a separate plan for scene optimization time, actor separation, calibration quality, asset lifecycle and annotator benefit.

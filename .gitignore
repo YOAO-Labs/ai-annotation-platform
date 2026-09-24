@@ -30,6 +30,7 @@ test-results/
 .artifacts/marketing/
 .artifacts/media-refresh/
 .artifacts/recordings/
+.artifacts/model-review/
 .pytest_cache/
 .ruff_cache/
 
