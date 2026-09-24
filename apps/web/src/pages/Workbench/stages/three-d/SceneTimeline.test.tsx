@@ -9,6 +9,7 @@ const useSceneTimelineMock = vi.hoisted(() => vi.fn());
 const getSceneTimelineMock = vi.hoisted(() => vi.fn());
 const getPointCloudManifestMock = vi.hoisted(() => vi.fn());
 const prefetchPointCloudFrameAssetsMock = vi.hoisted(() => vi.fn());
+const isPointCloudFramePrefetchReadyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/useSceneTimeline", () => ({
   useSceneTimeline: useSceneTimelineMock,
@@ -24,6 +25,7 @@ vi.mock("@/api/tasks", () => ({
 
 vi.mock("./pointCloudAssetCache", () => ({
   prefetchPointCloudFrameAssets: prefetchPointCloudFrameAssetsMock,
+  isPointCloudFramePrefetchReady: isPointCloudFramePrefetchReadyMock,
 }));
 
 vi.mock("@tanstack/react-virtual", () => ({
@@ -121,6 +123,7 @@ describe("SceneTimeline", () => {
       expires_in: 900,
     });
     prefetchPointCloudFrameAssetsMock.mockReset().mockResolvedValue(undefined);
+    isPointCloudFramePrefetchReadyMock.mockReset().mockReturnValue(false);
     useSceneTimelineMock.mockReturnValue({
       data: timelineData(),
       isError: false,
@@ -164,6 +167,28 @@ describe("SceneTimeline", () => {
     fireEvent.click(screen.getByTestId("scene-timeline-frame-1"));
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("task-1", "ann-1"));
+  });
+
+  it("starts a decoded target after 120ms while retaining the click-settle window", async () => {
+    const navigate = vi.fn().mockResolvedValue(true);
+    renderTimeline({ taskId: "task-0", trackId: null, onNavigateFrame: navigate });
+    await waitFor(() => expect(prefetchPointCloudFrameAssetsMock).toHaveBeenCalled());
+    isPointCloudFramePrefetchReadyMock.mockReturnValue(true);
+    vi.useFakeTimers();
+
+    try {
+      fireEvent.click(screen.getByTestId("scene-timeline-frame-1"));
+      expect(isPointCloudFramePrefetchReadyMock).toHaveBeenCalledWith(
+        expect.objectContaining({ point_cloud_url: "https://assets.test/frame-1.pcd" }),
+        { depthRasters: false },
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(119));
+      expect(navigate).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(navigate).toHaveBeenCalledWith("task-1", "ann-1");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("coalesces 100ms frame clicks and navigates only to the latest intent", async () => {

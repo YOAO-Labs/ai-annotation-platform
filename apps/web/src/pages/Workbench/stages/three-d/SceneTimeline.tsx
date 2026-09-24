@@ -11,7 +11,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 
-import type { SceneTimelineFrameSummary } from "@/api/generated";
+import type { SceneTimelineFrameSummary, TaskPointCloudManifestResponse } from "@/api/generated";
 import { tasksApi } from "@/api/tasks";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -38,7 +38,10 @@ import {
   timelineZoomOffset,
   type TimelineFrameRange,
 } from "./sceneTimelineVirtualization";
-import { prefetchPointCloudFrameAssets } from "./pointCloudAssetCache";
+import {
+  isPointCloudFramePrefetchReady,
+  prefetchPointCloudFrameAssets,
+} from "./pointCloudAssetCache";
 import { CrossFrameJobCenter } from "./CrossFrameJobCenter";
 import {
   useScenePlayback,
@@ -47,8 +50,9 @@ import {
   type ScenePlaybackTarget,
 } from "./useScenePlayback";
 
-// 人工快速点选约为 8–10 次/秒，只提交停手后的最终意图；自动播放不支付此防抖。
+// 连点仍合并最终意图；目标资源就绪后可少等 40 ms，自动播放不支付此防抖。
 const FRAME_NAVIGATION_SETTLE_MS = 160;
+const READY_FRAME_NAVIGATION_SETTLE_MS = 120;
 
 interface SceneTimelineProps {
   taskId: string | null;
@@ -580,6 +584,18 @@ export function SceneTimeline({
   const scheduleNavigation = useCallback(
     (summary: SceneTimelineFrameSummary) => {
       if (!summary.task_id || summary.task_id === taskId || summary.state !== "available") return;
+      const cachedManifest = queryClient.getQueryData<TaskPointCloudManifestResponse>([
+        "task-point-cloud-manifest",
+        summary.task_id,
+      ]);
+      const targetReady =
+        cachedManifest?.task_id === summary.task_id &&
+        isPointCloudFramePrefetchReady(cachedManifest, {
+          depthRasters: prefetchDepthRasters,
+          ...(prefetchDecimateThreshold === undefined
+            ? {}
+            : { decimateThreshold: prefetchDecimateThreshold }),
+        });
       const hadPendingNavigation = pendingNavigationRef.current !== null;
       onPlaybackActiveChange?.(false);
       cancelManual();
@@ -613,10 +629,19 @@ export function SceneTimeline({
         });
       navigationTimerRef.current = window.setTimeout(
         runPendingNavigation,
-        FRAME_NAVIGATION_SETTLE_MS,
+        targetReady ? READY_FRAME_NAVIGATION_SETTLE_MS : FRAME_NAVIGATION_SETTLE_MS,
       );
     },
-    [cancelManual, onPlaybackActiveChange, prefetchFrame, runPendingNavigation, taskId],
+    [
+      cancelManual,
+      onPlaybackActiveChange,
+      prefetchDecimateThreshold,
+      prefetchDepthRasters,
+      prefetchFrame,
+      queryClient,
+      runPendingNavigation,
+      taskId,
+    ],
   );
 
   const schedulePointerPrefetch = useCallback(

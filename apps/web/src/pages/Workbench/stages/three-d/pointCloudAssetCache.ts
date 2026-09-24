@@ -28,6 +28,7 @@ const pointCloudBuffers = new Map<string, PointCloudBufferCacheEntry>();
 interface DecodedFrameCacheEntry {
   promise: Promise<DecodedPointCloudFrame>;
   ready: boolean;
+  frame: DecodedPointCloudFrame | null;
   lane: "shared" | "active" | "prefetch";
   signal?: AbortSignal;
 }
@@ -215,6 +216,7 @@ function decodedPointCloudFrameRequest(
   const entry: DecodedFrameCacheEntry = {
     promise: Promise.resolve(null as unknown as DecodedPointCloudFrame),
     ready: false,
+    frame: null,
     lane,
     signal: options.signal,
   };
@@ -227,6 +229,7 @@ function decodedPointCloudFrameRequest(
     )
     .then((frame) => {
       entry.ready = true;
+      entry.frame = frame;
       return frame;
     })
     .catch((error) => {
@@ -248,6 +251,32 @@ export function loadDecodedPointCloudFrame(
     lane: "shared",
     signal: options.signal,
   }).promise;
+}
+
+/** Read-only check for the assets needed by the selected renderer before a shorter click settle. */
+export function isPointCloudFramePrefetchReady(
+  manifest: TaskPointCloudManifestResponse,
+  options: PointCloudFramePrefetchOptions = {},
+): boolean {
+  const url = manifest.point_cloud_url;
+  const convention = manifest.axis_convention ?? "iso_8855";
+  const threshold = options.decimateThreshold ?? 500_000;
+  const decoded = decodedFrames.get(`${url}\n${convention}\n${threshold}`);
+  if (!decoded?.ready || !decoded.frame) return false;
+  if (!options.depthRasters) return true;
+
+  const cameraAssets = manifest.cameras
+    .filter((camera) => !!camera.image_url)
+    .map((camera) => ({ camera, bitmap: cameraBitmaps.get(camera.image_url)?.bitmap }));
+  if (cameraAssets.some(({ bitmap }) => !bitmap)) return false;
+  const usableCameras = cameraAssets.flatMap(({ camera, bitmap }) =>
+    camera.calibration && bitmap
+      ? [{ calibration: camera.calibration, width: bitmap.width, height: bitmap.height }]
+      : [],
+  );
+  if (usableCameras.length === 0 || usableCameras.length > 6) return true;
+  const key = depthRasterKey(url, decoded.frame.positions, usableCameras);
+  return depthRasters.get(key)?.ready === true;
 }
 
 /** Active-scene load with one unambiguous cache/timing event for the benchmark trace. */

@@ -417,21 +417,36 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
     }
   }, [props.legacy.common, run]);
 
+  const syncCommandPanelVisibility = useCallback(
+    (id: PanelId) => {
+      if (id !== "tri-view" && id !== "camera-view") return;
+      setPanelVisible(id, isPanelContentVisible(api?.getPanel(id)?.api));
+    },
+    [api, setPanelVisible],
+  );
+
   const commands = useMemo<WorkbenchWorkspaceCommands>(
     () => ({
       toggleSide: (side) => run((engine) => engine.toggleSide(side)),
       setCameraPresentation: (mode) => run((engine) => engine.setCameraPresentation(mode)),
       applyThreeDPreset: (id) => run((engine) => engine.applyThreeDPreset(id)),
       show: (id) => {
-        if (panelSupportsContext(id, context)) run((engine) => engine.show(id), true);
+        if (panelSupportsContext(id, context)) {
+          run((engine) => engine.show(id), true);
+          syncCommandPanelVisibility(id);
+        }
       },
-      hide: (id) => run((engine) => engine.hide(id), true),
+      hide: (id) => {
+        run((engine) => engine.hide(id), true);
+        syncCommandPanelVisibility(id);
+      },
       toggle: (id) => {
-        if (panelSupportsContext(id, context))
-          run((engine) => (engine.isVisible(id) ? engine.hide(id) : engine.show(id)), true);
+        if (!panelSupportsContext(id, context)) return;
+        run((engine) => (engine.isVisible(id) ? engine.hide(id) : engine.show(id)), true);
+        syncCommandPanelVisibility(id);
       },
     }),
-    [context, run],
+    [context, run, syncCommandPanelVisibility],
   );
   useImperativeHandle(commandsRef, () => commands, [commands]);
 
