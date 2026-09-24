@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nuScenes 全序列表面审阅</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font:
+          14px/1.5 system-ui,
+          "Noto Sans SC",
+          sans-serif;
+        background: #101720;
+        color: #eaf3f5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 1720px;
+        margin: auto;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 23px;
+      }
+      h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+      p {
+        margin: 5px 0 0;
+        color: #adc0ca;
+      }
+      .header,
+      .toolbar,
+      .panel-head,
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+      .header {
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+      .tag {
+        color: #f7d994;
+        background: #322a19;
+        border: 1px solid #866a31;
+        border-radius: 7px;
+        padding: 5px 9px;
+      }
+      .notice {
+        padding: 11px 14px;
+        border: 1px solid #725f3a;
+        background: #2c281e;
+        border-radius: 9px;
+        margin-bottom: 14px;
+      }
+      .toolbar,
+      .panel {
+        background: #1a2834;
+        border: 1px solid #394b59;
+        border-radius: 10px;
+      }
+      .toolbar {
+        padding: 12px 14px;
+        margin-bottom: 14px;
+      }
+      input[type="range"] {
+        accent-color: #5cdec9;
+      }
+      #frame-slider {
+        width: min(430px, 60vw);
+      }
+      label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      button,
+      select {
+        color: #eaf3f5;
+        background: #263845;
+        border: 1px solid #516877;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button[aria-pressed="true"] {
+        color: #092720;
+        background: #5cdec9;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 14px;
+      }
+      .panel {
+        overflow: hidden;
+      }
+      .panel-head {
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid #394b59;
+      }
+      .panel-head span,
+      #status,
+      .hint {
+        color: #adc0ca;
+        font-size: 12px;
+      }
+      #cloud-view {
+        height: min(60vw, 630px);
+        min-height: 440px;
+        background: #0c1720;
+      }
+      #cloud-view canvas {
+        display: block;
+      }
+      .controls {
+        padding: 10px 14px;
+        border-top: 1px solid #394b59;
+        font-size: 12px;
+      }
+      #image {
+        width: 100%;
+        display: block;
+        background: #0c1720;
+      }
+      .image-body {
+        padding: 12px;
+      }
+      .camera-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 7px;
+        margin-top: 10px;
+      }
+      .camera-grid button {
+        padding: 0;
+        text-align: left;
+        overflow: hidden;
+      }
+      .camera-grid img {
+        width: 100%;
+        display: block;
+      }
+      .camera-grid span {
+        display: block;
+        padding: 4px 6px;
+      }
+      .camera-grid button[aria-pressed="true"] {
+        outline: 2px solid #5cdec9;
+      }
+      #metrics {
+        margin: 12px 0 0;
+        font-variant-numeric: tabular-nums;
+      }
+      #metrics strong {
+        color: #5cdec9;
+      }
+      .footer {
+        margin-top: 14px;
+        font-size: 12px;
+      }
+      @media (max-width: 1050px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        #cloud-view {
+          height: 55vw;
+        }
+      }
+      @media (max-width: 600px) {
+        main {
+          padding: 10px;
+        }
+        #cloud-view {
+          height: 420px;
+          min-height: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="header">
+        <div>
+          <h1>MapAnything · nuScenes 全序列表面审阅</h1>
+          <p id="subtitle">读取场景数据中…</p>
+        </div>
+        <span class="tag">离线实验 · 不参与标注</span>
+      </div>
+      <p class="notice">
+        全部关键帧都成为重建锚点；每帧六路相机分别使用自身及相邻帧的 RGB、位姿和稀疏
+        LiDAR。全场景网格按位姿对齐并限量拼合，可查看连续路段，但仍可能有接缝、动态物体残影和错误表面。
+      </p>
+      <div class="toolbar">
+        <button id="previous" type="button">上一帧</button
+        ><label
+          >帧 <input id="frame-slider" type="range" min="0" value="0" /><output id="frame-label"
+            >0</output
+          ></label
+        ><button id="next" type="button">下一帧</button>
+        <label
+          >相机
+          <select id="camera-select"></select></label
+        ><span id="status">正在加载…</span>
+      </div>
+      <div class="layout">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>3D 表面</h2>
+            <span>拖动旋转 · 滚轮缩放</span>
+          </div>
+          <div id="cloud-view" role="img" aria-label="全场景或当前帧的可旋转三维表面"></div>
+          <div class="controls">
+            <label
+              >范围
+              <select id="scope">
+                <option value="scene">全场景</option>
+                <option value="frame">当前帧六相机</option>
+                <option value="camera">当前相机</option>
+              </select></label
+            ><label
+              >筛选
+              <select id="mode">
+                <option value="fused">补洞表面</option>
+                <option value="strict">严格一致表面</option>
+              </select></label
+            ><label><input id="show-lidar" type="checkbox" /> 对齐后的整段 LiDAR</label
+            ><button id="overview-preset" type="button">全局视角</button
+            ><button id="camera-preset" type="button">当前相机视角</button>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>六视角原图与误差</h2>
+            <span id="image-label"></span>
+          </div>
+          <div class="image-body">
+            <img id="image" alt="当前相机 RGB 画面" />
+            <div id="metrics"></div>
+            <div class="camera-grid" id="camera-grid"></div>
+            <p class="hint">
+              MAE 仅在模型有效且同一组留出 LiDAR 点上与本帧 LiDAR 邻近值比较；模型另使用相邻帧
+              LiDAR。相机图中的空白及动态目标请人工检查。
+            </p>
+          </div>
+        </section>
+      </div>
+      <p class="footer" id="run-meta"></p>
+    </main>
+    <script type="module" src="./viewer.js"></script>
+  </body>
+</html>

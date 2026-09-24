@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DA3 场景深度模型审阅</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font:
+          14px/1.5 system-ui,
+          "Noto Sans SC",
+          sans-serif;
+        background: #101720;
+        color: #eaf3f5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 1550px;
+        margin: auto;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+      h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+      p {
+        color: #b4c4cd;
+        margin: 5px 0 13px;
+      }
+      .tag {
+        background: #342a18;
+        color: #f6d58e;
+        border: 1px solid #8d6f36;
+        border-radius: 7px;
+        padding: 6px 9px;
+      }
+      .head,
+      .toolbar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .head {
+        justify-content: space-between;
+      }
+      .toolbar,
+      .panel {
+        background: #1a2834;
+        border: 1px solid #394b59;
+        border-radius: 10px;
+      }
+      .toolbar {
+        padding: 12px;
+        margin-bottom: 13px;
+      }
+      select,
+      button {
+        background: #263845;
+        color: #eaf3f5;
+        border: 1px solid #526a79;
+        border-radius: 6px;
+        padding: 6px 9px;
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 13px;
+      }
+      .panel {
+        overflow: hidden;
+      }
+      .panel h2 {
+        padding: 12px;
+        border-bottom: 1px solid #394b59;
+      }
+      #scene {
+        height: 570px;
+        background: #0b1720;
+      }
+      #scene canvas {
+        display: block;
+      }
+      .image-panel {
+        padding: 12px;
+      }
+      .images {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .images img {
+        width: 100%;
+        display: block;
+      }
+      .metrics {
+        line-height: 1.8;
+        font-variant-numeric: tabular-nums;
+      }
+      .metrics strong {
+        color: #5cdec9;
+      }
+      .note {
+        font-size: 12px;
+      }
+      @media (max-width: 1000px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 600px) {
+        main {
+          padding: 10px;
+        }
+        #scene {
+          height: 380px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="head">
+        <h1 id="title">DA3 · 场景模型审阅</h1>
+        <span class="tag">离线实验 · 不参与标注</span>
+      </div>
+      <p id="notice">
+        LiDAR 仅用于留出点评分和显示网格的冲突检查。模型未读取稀疏 LiDAR，数值不能当作与 MapAnything
+        相同输入条件的胜负结论。
+      </p>
+      <div class="toolbar">
+        <label
+          >关键帧
+          <select id="frame"></select></label
+        ><label
+          >相机
+          <select id="camera"></select></label
+        ><label
+          >表面
+          <select id="scope">
+            <option value="camera">当前相机</option>
+            <option value="frame">六路聚合</option>
+          </select></label
+        ><button id="overview" type="button">全局视角</button
+        ><button id="camera-view" type="button">从相机看</button><span id="status">读取中…</span>
+      </div>
+      <div class="layout">
+        <section class="panel">
+          <h2>彩色深度表面 · 可旋转</h2>
+          <div id="scene" role="img" aria-label="DA3 彩色深度网格三维预览"></div>
+        </section>
+        <section class="panel">
+          <h2>RGB / 深度图</h2>
+          <div class="image-panel">
+            <div class="images">
+              <img id="rgb" alt="相机 RGB 图" /><img id="depth" alt="预测深度颜色图" />
+            </div>
+            <div class="metrics" id="metrics"></div>
+            <p class="note">
+              网格剔除与输入 LiDAR 深度冲突的顶点；右侧 MAE
+              使用未经该显示规则筛选的模型有效深度。连接像素形成的表面可能有空洞和错误拓扑。
+            </p>
+          </div>
+        </section>
+      </div>
+      <p id="meta" class="note"></p>
+    </main>
+    <script type="module" src="./viewer.js"></script>
+  </body>
+</html>
