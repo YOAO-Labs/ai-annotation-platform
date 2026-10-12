@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>VGGT-Ω · 1,318 张全曝光对照</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+        color: #182b35;
+        background: #f7f9fa;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+      button,
+      select {
+        color: inherit;
+        border: 1px solid #dce4e8;
+        border-radius: 8px;
+        background: white;
+        padding: 8px 12px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        background: #f1f6f8;
+      }
+      button:focus-visible,
+      select:focus-visible,
+      a:focus-visible {
+        outline: 3px solid #2b829b;
+        outline-offset: 3px;
+      }
+      button[aria-pressed="true"] {
+        color: #155b70;
+        border-color: #95bcca;
+        background: #eaf4f6;
+      }
+      a {
+        color: #256e83;
+        text-decoration: none;
+      }
+      main {
+        max-width: 1440px;
+        padding: 28px 32px 40px;
+        margin: auto;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 24px;
+      }
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        font-weight: 650;
+        color: #65808d;
+      }
+      h1 {
+        margin: 8px 0;
+        font-size: 27px;
+        letter-spacing: -0.04em;
+        font-weight: 650;
+      }
+      .subtitle {
+        color: #607681;
+        font-size: 13px;
+        line-height: 1.7;
+        margin: 0;
+      }
+      .tag {
+        background: #eaf3ef;
+        color: #376b54;
+        padding: 7px 11px;
+        border-radius: 20px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .stats {
+        display: flex;
+        gap: 28px;
+        margin: 20px 0;
+        flex-wrap: wrap;
+      }
+      .stat {
+        font-size: 12px;
+        color: #70828c;
+      }
+      .stat strong {
+        color: #1a333f;
+        font-size: 21px;
+        font-weight: 650;
+        margin-right: 5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .group {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .group label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      input[type="checkbox"],
+      input[type="range"] {
+        accent-color: #23758c;
+      }
+      .card {
+        background: white;
+        border: 1px solid #e4eaed;
+        border-radius: 14px;
+        box-shadow: 0 6px 20px #19394608;
+        overflow: hidden;
+      }
+      #stage {
+        position: relative;
+        width: 100%;
+        height: min(62vh, 680px);
+        min-height: 430px;
+        background: white;
+        touch-action: none;
+      }
+      #stage > canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #stage .trajectory {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .stage-caption {
+        position: absolute;
+        left: 18px;
+        top: 16px;
+        font-size: 11px;
+        color: #788b95;
+        background: #ffffffe6;
+        padding: 6px 9px;
+        border-radius: 6px;
+        pointer-events: none;
+      }
+      #load-state {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: #4c7484;
+        font-size: 14px;
+        background: #ffffffed;
+        z-index: 2;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .stage-bottom {
+        padding: 10px 16px;
+        border-top: 1px solid #edf1f3;
+        font-size: 11px;
+        color: #72838d;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .sequence {
+        padding: 14px 16px;
+        margin-top: 12px;
+      }
+      .playback {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+      #timeline {
+        flex: 1;
+        min-width: 80px;
+      }
+      #frame-label {
+        min-width: 130px;
+        font-variant-numeric: tabular-nums;
+      }
+      #strip {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 4px 2px 8px;
+        scrollbar-width: thin;
+      }
+      .frame {
+        border: 2px solid transparent;
+        border-radius: 8px;
+        padding: 3px;
+        flex: 0 0 116px;
+        background: #f5f8f9;
+      }
+      .frame[aria-pressed="true"] {
+        border-color: #2b829b;
+      }
+      .frame img {
+        width: 106px;
+        height: 60px;
+        object-fit: cover;
+        display: block;
+        border-radius: 4px;
+      }
+      .frame span {
+        display: block;
+        text-align: left;
+        padding: 5px 2px 1px;
+        color: #63808b;
+        font-size: 10px;
+      }
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 15px;
+        margin: 25px 0 12px;
+        flex-wrap: wrap;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0;
+        font-weight: 650;
+      }
+      #cameras {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+      }
+      #cameras button {
+        font-size: 11px;
+        padding: 6px 12px;
+      }
+      .comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .image-title {
+        padding: 11px 14px;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: #506c78;
+        font-size: 12px;
+      }
+      .comparison img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: white;
+      }
+      .note {
+        font-size: 11px;
+        color: #7c8e97;
+        line-height: 1.8;
+        margin: 12px 0 0;
+      }
+      details {
+        margin-top: 22px;
+        color: #637b86;
+        font-size: 12px;
+        line-height: 1.8;
+      }
+      summary {
+        cursor: pointer;
+      }
+      #evidence {
+        padding: 12px 0;
+        display: flex;
+        gap: 22px;
+        flex-wrap: wrap;
+      }
+      .error {
+        color: #ad3c38 !important;
+      }
+      @media (max-width: 760px) {
+        main {
+          padding: 20px 12px;
+        }
+        h1 {
+          font-size: 23px;
+        }
+        header {
+          align-items: flex-start;
+        }
+        .stats {
+          gap: 16px;
+        }
+        .stat strong {
+          font-size: 18px;
+        }
+        #stage {
+          min-height: 360px;
+          height: 53vh;
+        }
+        .comparison {
+          grid-template-columns: 1fr;
+        }
+        .playback {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        #play {
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        #timeline {
+          min-width: 150px;
+        }
+        #frame-label {
+          min-width: 0;
+        }
+        .stage-bottom {
+          flex-direction: column;
+          gap: 4px;
+        }
+        .tag {
+          display: none;
+        }
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../vendor/three.module.js",
+          "three/addons/controls/OrbitControls.js": "../vendor/OrbitControls.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <div class="eyebrow">VGGT-Ω / ALL EXPOSURES</div>
+          <h1>1,318 张图，完整参与。</h1>
+          <p class="subtitle">scene-0061 · 重叠窗口与统一坐标 · 静态增密 / 动态运动补偿对照</p>
+        </div>
+        <div class="group">
+          <a href="../full-sequence/">上一组 234 张图 ↗</a><span class="tag">18 个重叠窗口</span>
+        </div>
+      </header>
+      <div class="stats">
+        <div class="stat"><strong id="stat-frames">224</strong>前视参考时刻</div>
+        <div class="stat"><strong id="stat-images">1,318</strong>独立曝光</div>
+        <div class="stat"><strong id="stat-seconds">—</strong>秒序列</div>
+        <div class="stat"><strong id="stat-points">—</strong>完整模型点</div>
+        <div class="stat"><strong id="stat-runtime">—</strong>秒推理</div>
+      </div>
+      <p class="subtitle" id="quality-summary" role="status"></p>
+      <div class="toolbar">
+        <div class="group">
+          <label for="method">重建</label
+          ><select id="method">
+            <option value="fused_all">全部扫描 · 实测 + 校准模型</option>
+            <option value="calibrated_all" selected>全部扫描 · 校准模型</option>
+            <option value="measured_all">全部扫描 · 实测 LiDAR</option>
+            <option value="fused_key">关键扫描 · 实测 + 校准模型</option>
+            <option value="calibrated_key">关键扫描 · 校准模型</option>
+            <option value="measured_key">关键扫描 · 实测 LiDAR</option>
+            <option value="raw">窗口原生几何 · 逐窗 Sim3</option></select
+          ><label for="lod">显示点数</label
+          ><select id="lod">
+            <option value="120000">12 万</option>
+            <option value="350000" selected>35 万</option>
+            <option value="1200000">120 万</option>
+          </select>
+        </div>
+        <div class="group">
+          <label><input type="checkbox" id="trajectory" checked />前视轨迹</label
+          ><label><input type="checkbox" id="actors" checked />当前时刻目标</label
+          ><select id="dynamic" aria-label="动态物体策略">
+            <option value="single">动态 · 单曝光对齐</option>
+            <option value="unaligned">动态 · 未补偿叠加</option>
+            <option value="compensated">动态 · 刚体补偿</option></select
+          ><select id="view" aria-label="观察视角">
+            <option value="free">全局视角</option>
+            <option value="top">俯视</option>
+            <option value="source">跟随当前相机</option></select
+          ><button id="reset">重置视角</button>
+        </div>
+      </div>
+      <section class="card" aria-label="可旋转的整场景重建">
+        <div id="stage">
+          <div class="stage-caption">拖动旋转 · 滚轮缩放 · 右键平移</div>
+          <div
+            id="actor-state"
+            class="stage-caption error"
+            style="left: auto; right: 18px; top: 48px"
+            hidden
+          ></div>
+          <div id="load-state">正在读取整段场景重建…</div>
+        </div>
+        <div class="stage-bottom">
+          <span id="cloud-label">正在加载…</span
+          ><span id="render-status">真实点投影 · 白色区域为缺失几何</span>
+        </div>
+      </section>
+      <section class="card sequence" aria-label="场景时间序列">
+        <div class="playback">
+          <button id="play" aria-label="播放序列">▶ 播放</button
+          ><input
+            type="range"
+            id="timeline"
+            min="0"
+            max="223"
+            value="0"
+            aria-label="当前参考时刻"
+          /><span id="frame-label">001 / 224 · 0.00s</span
+          ><label
+            ><select id="speed" aria-label="播放速度">
+              <option value="1">1×</option>
+              <option value="0.5">0.5×</option>
+              <option value="2">2×</option>
+            </select></label
+          >
+        </div>
+        <div id="strip"></div>
+      </section>
+      <div class="section-head">
+        <h2>最近曝光 RGB / 前视模型渲染</h2>
+        <div id="cameras" aria-label="相机方向"></div>
+      </div>
+      <section class="comparison">
+        <div class="card">
+          <div class="image-title"><span>输入 RGB</span><span id="rgb-camera">前视</span></div>
+          <a id="input-link" target="_blank" rel="noopener"
+            ><img id="input-image" alt="当前时刻预处理后的相机图像"
+          /></a>
+        </div>
+        <div class="card">
+          <div class="image-title">
+            <span>前视 · 校准静态点云 + 当前动态策略</span><span id="render-grid">—</span>
+          </div>
+          <a id="render-link" target="_blank" rel="noopener"
+            ><img id="render-image" alt="整场景校准点云的RGB投影渲染"
+          /></a>
+        </div>
+      </section>
+      <p class="note">
+        右图固定为当前参考时刻的前视，使用全部扫描校准后的完整静态模型点云与所选动态策略，颜色来自真实曝光，白色为空缺。
+        左侧可查看六路最近曝光，时间差会标出；选择其他方向时，两图不是同向对照。浏览器点数只影响上方预览。
+        动态层独立使用全部允许扫描校准，上方「关键扫描 / 全部扫描」切换比较静态背景。
+        三种动态层均以同一参考时刻展示，单曝光也做时刻对齐。使用真实标注的实例轨迹校正，行人和非刚体只取单曝光；输入图像本身的运动模糊无法由几何补偿保证消除。
+      </p>
+      <details>
+        <summary>查看推理与几何验证记录</summary>
+        <div id="evidence"></div>
+        <p>
+          全部 1,318 张独立曝光进入 18 个窗口，每窗 144 张，通常重叠 72
+          张，尾窗对齐末张图。每张图固定一个输出窗口，重复上下文不重复计数。
+          使用真实内外参统一坐标，关键扫描和全部扫描分别校准。三次评测扫描及其前后 100ms 邻域的共 11
+          次扫描全局排除，剩余 371 次可用。 动态策略使用前后 100ms
+          邻域，未补偿与补偿共享输入点；这是一组离线、真实标注辅助的实验。稀疏表面回波支持率不能证明稠密表面或
+          RGB 都准确。
+        </p>
+        <div class="group">
+          <a href="sweeps-protocol.json" target="_blank">1,318 张输入清单 ↗</a
+          ><a href="static-validation.json" target="_blank">静态几何验证 ↗</a
+          ><a href="dynamic-validation.json" target="_blank">动态表面支持 ↗</a
+          ><a href="sweeps-build.json" target="_blank">全部曝光参与记录 ↗</a>
+        </div>
+      </details>
+    </main>
+    <script type="module" src="./viewer.js"></script>
+  </body>
+</html>
