@@ -8,10 +8,9 @@ last_reviewed: 2026-06-10
 
 # BUG 反馈管理
 
-列表的状态与严重度使用统一漏斗筛选组，修改后即时更新；问题详情和处理操作保持独立。 [筛选操作说明](/user-guide/reference/filtering)。
+面向超级管理员与项目管理员的问题反馈追踪与工单治理指南。汇总用户在标注工作台及各业务页面上报的缺陷反馈、控制台错误日志与现场截图。
 
-工作台顶栏及其他页面右下角的反馈入口收集到的反馈会落在 `bug_reports` 表中。
-`super_admin` 和 `project_admin` 均可通过 `GET /api/v1/bug_reports` API 访问工单列表；侧边栏 **管理 → BUG 反馈**（`/bugs`）入口仅对 `super_admin` 前端可见。
+工作台顶栏及其他页面右下角的反馈入口收集到的反馈会持久化在系统中。`super_admin` 和 `project_admin` 均可查阅工单列表并按状态与严重度进行筛选（详见 [筛选操作说明](/user-guide/reference/filtering)）。侧边栏 **管理 → BUG 反馈**（`/bugs`）入口仅对 `super_admin` 开放。
 
 > 非管理员用户提交反馈后只能在「设置 → 我的反馈」里查看自己提交的工单。
 

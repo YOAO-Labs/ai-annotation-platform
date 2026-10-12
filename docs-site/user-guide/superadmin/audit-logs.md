@@ -120,7 +120,10 @@ Top action、目标类型和操作人角色分布。“仅业务事件”会排�
 日期；刷新任务延迟时，查询自动扩大实时补齐范围，因此不会静默漏数。概览只覆盖在线保留期，超期月份
 仍通过审计归档接口回源。
 
-月报接口仅允许 super admin：
+<details>
+<summary>🛠️ 开发者与自动化脚本接口参考</summary>
+
+月报接口仅允许 super admin 访问：
 
 ```text
 GET /api/v1/audit-logs/monthly-summary?month=2026-08&business_only=true
@@ -128,9 +131,11 @@ GET /api/v1/audit-logs/monthly-summary?month=2026-08&business_only=true
 
 支持导出 CSV 或 JSON（同步 `StreamingResponse`，最大 50,000 行；超限时需缩小过滤范围）：
 
-```
+```text
 GET /api/v1/audit-logs/export?format=csv&from=2026-01-01&action=task.reject
 ```
+
+</details>
 
 ## 直接 SQL 查询示例
 

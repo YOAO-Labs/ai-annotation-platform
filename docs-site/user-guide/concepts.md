@@ -3,7 +3,7 @@ title: 平台概念与术语
 audience: [annotator, reviewer, project_admin, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-12
 ---
 
 # 平台概念与术语
@@ -85,53 +85,57 @@ Job 的 `kind` 完整列表：
 
 ## 状态流转速查
 
-### Task 状态
+### Task 状态（单任务生命周期）
 
-Task 状态描述单条数据的生命周期：
-
-```
-pending（未开始）
-  → in_progress（进行中，已有人工标注）
-    → review（待审核，已提交）
-      → completed（已完成，审核通过）
-      → rejected（被退回）
-        → in_progress（标注员重做）→ review → …
-```
-
-> `rejected` 是审核退回任务的真实运行时状态（M1 引入），落库为字符串；它**不在** `TaskStatus` 5 值枚举（`uploading` / `pending` / `in_progress` / `review` / `completed`）内，但可按 `reject_reason_type` 过滤，并在工作台任务队列显示为「待重做」。
->
-> `uploading` 只用于直接 `/files/upload-init` 上传创建的任务，并在客户端调用 `upload-complete` 后进入 `pending`。普通数据集关联和超过 `TASK_CREATE_SYNC_THRESHOLD` 的异步建任务都会直接创建为 `pending`，不经过 `uploading`。
->
-> 各状态在任务队列里的显示标签见 [工作台 · 任务队列里的状态标签](./workbench/#任务队列里的状态标签)。
-
-### Batch 状态
-
-Batch 状态描述一批任务的整体推进阶段（独立于 Task 状态）：
-
-```
-draft（草稿）→ active（已激活）
-  → pre_annotated（AI 已预标，等待人工接管）
-  → annotating（标注中）
-    → reviewing（审核中）
-      → approved（已通过）
-      → rejected（被驳回）
-  → archived（已归档）
+```mermaid
+stateDiagram-v2
+    [*] --> pending: 创建任务
+    pending --> in_progress: 标注员领取/开始标注
+    in_progress --> review: 提交质检
+    review --> completed: 质检通过
+    review --> rejected: 质检退回
+    rejected --> in_progress: 接受退回重新修改
+    completed --> [*]
 ```
 
-> `pre_annotated` 是 Batch 的状态，表示该批次的 AI 预标注已完成、等待分配给标注员；它不是 Task 级别的状态。
->
-> owner 可以执行 `rejected → reviewing`（跳过重标直接复审）、`rejected → active`（重激活）以及多条归档/撤销路径。其中 `rejected → reviewing`、`approved → reviewing`、`archived → active`、`pre_annotated → active` 要求填写原因，`rejected → active` 当前不要求。只有 `active / pre_annotated / annotating / approved / rejected` 能直接归档。**驳回后「回到标注」是两跳** `rejected →（owner 重激活）→ active →（标注员开始做退回任务，自动）→ annotating`，并非自动单跳。完整状态机见 [批次与分配 · 批次状态机](./projects/batch)。
+> - `rejected`（待重做）：任务被审核员退回后的运行时状态，在工作台任务队列中显示为「待重做」，附带结构化退回原因。
+> - `uploading`：仅在直接通过文件上传创建任务时短暂出现，上传完成后自动转为 `pending`。
 
-### Job 状态
+### Batch 状态（批次整体阶段）
 
+Batch 状态描述一组任务切片的整体推进进度，独立于单题 Task 状态：
+
+```mermaid
+stateDiagram-v2
+    [*] --> draft: 创建批次草稿
+    draft --> active: 指派人员并激活
+    draft --> pre_annotated: 运行 AI 批量预标注
+    pre_annotated --> active: 激活供人工接管
+    active --> annotating: 标注员开始作业
+    annotating --> reviewing: 任务全部送审
+    reviewing --> approved: 质检全部通过
+    reviewing --> rejected: 批次整体驳回
+    approved --> archived: 项目归档
 ```
-pending → running → completed
-                  → failed
-                  → cancelled
+
+> - `pre_annotated`：表示批次内已生成模型候选预测，等待管理员分派或标注员开始作业。
+> - 完整状态流转与所有者重激活规则参见 [批次与分配 · 批次状态机](./projects/batch)。
+
+### Job 状态（异步后台任务）
+
+```mermaid
+flowchart LR
+    A[pending 排队中] --> B[running 执行中]
+    B --> C[completed 成功]
+    B --> D[failed 失败]
+    B --> E[cancelled 已取消]
 ```
 
-## 常见混淆
+## 常见概念混淆速查
 
-- **Annotation vs Prediction**：前者由人产出、有效；后者由模型产出、需确认。
-- **Task vs Batch**：Task 是最小粒度（一张图），Batch 是 Task 的集合切片。
-- **Project vs Dataset**：Dataset 是数据的物理存储，Project 是对 Dataset 加标注配置之后的工作单元。
+| 易混淆概念组                 | 关键区别                                                                                                 | 常见误区纠偏                                                                               |
+| :--------------------------- | :------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------- |
+| **Annotation vs Prediction** | **Annotation** 是人工确认或创建的真实标注；<br>**Prediction** 是算法模型输出的候选预测。                 | 预测结果（Prediction）不直接计入最终导出成果，必须经标注员采纳或修正为标注（Annotation）。 |
+| **Task vs Batch**            | **Task** 是单条作业数据（1 张图 / 1 段视频）；<br>**Batch** 是为多人分工划分的任务切片集合。             | 标注员按批次（Batch）领取工作包，在工作台中逐题（Task）进行标注与提交。                    |
+| **Project vs Dataset**       | **Dataset** 是原始多媒体文件的物理存储与索引；<br>**Project** 是关联了数据集并配置了标注类别的工作域。   | 同一个数据集可关联到多个不同项目（如同一批街景图分别做车辆检测项目和道路分割项目）。       |
+| **平台角色 vs 项目角色**     | **平台角色**（账号级）决定全站管理权限；<br>**项目角色**（成员级）决定在特定项目内是标注、质检还是只读。 | 同一员工可在 A 项目做标注员，在 B 项目做质检员，系统会依项目上下文自动切换权限视图。       |
