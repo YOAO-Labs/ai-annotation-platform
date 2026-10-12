@@ -90,7 +90,7 @@ test("registers and documents every independent marketing asset", () => {
     path.join(REPO_ROOT, "docs-site/dev/reference/marketing-asset-catalog.md"),
     "utf8",
   );
-  assert.equal(MARKETING_ASSET_SPECS.size, 65);
+  assert.equal(MARKETING_ASSET_SPECS.size, 66);
   for (const spec of MARKETING_ASSET_SPECS.values()) {
     assert.ok(spec.title.length > 0, `${spec.assetId} missing title`);
     assert.ok(spec.theme.length > 0, `${spec.assetId} missing theme`);
@@ -237,6 +237,7 @@ test("archives an immutable video and writes a verifiable manifest", async () =>
       assetId: "sam-tools/smart-point",
       assetSpec: TEST_SPEC,
       source: "apps/web/e2e/screenshots/flows/flows.spec.ts",
+      watchPaths: ["apps/web/e2e/screenshots/flows/project-onboarding.ts"],
       testTitle: "flow recordings › sam-tool-smart-point",
       projectName: "marketing-master",
       seedRevision: "screenshots-test",
@@ -271,6 +272,7 @@ test("archives an immutable video and writes a verifiable manifest", async () =>
         string,
         {
           review_status: string;
+          watch_paths: string[];
           gif_variants: Array<{ startSec: number; durationSec: number }>;
           files: {
             capture_source: {
@@ -311,6 +313,11 @@ test("archives an immutable video and writes a verifiable manifest", async () =>
         }
       >;
     };
+
+    assert.deepEqual(manifest.entries["sam-tools/smart-point"].watch_paths, [
+      "apps/web/e2e/screenshots/flows/flows.spec.ts",
+      "apps/web/e2e/screenshots/flows/project-onboarding.ts",
+    ]);
     const entry = manifest.entries["sam-tools/smart-point"];
     assert.deepEqual(
       entry.gif_variants
@@ -739,6 +746,7 @@ test("Mac native capture retains Retina content detail and qualified timestamps"
 });
 
 test("Mac cadence excludes motion in browser chrome and normalizes the source timebase", () => {
+  // Leave an input tail for fps-filter end-of-stream rounding; still inspect exactly 66 frames.
   const text = execFileSync(
     "ffmpeg",
     [
@@ -747,11 +755,11 @@ test("Mac cadence excludes motion in browser chrome and normalizes the source ti
       "-f",
       "lavfi",
       "-i",
-      "testsrc2=s=320x60:r=60:d=1.1",
+      "testsrc2=s=320x60:r=60:d=1.2",
       "-f",
       "lavfi",
       "-i",
-      "color=c=black:s=320x180:r=60:d=1.1",
+      "color=c=black:s=320x180:r=60:d=1.2",
       "-filter_complex",
       `[0:v][1:v]vstack,${cadenceCaptureFilter("screencapturekit", { x: 0, y: 60, width: 320, height: 180 })}`,
       "-frames:v",

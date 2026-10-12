@@ -35,6 +35,7 @@ pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point
 
 # 高清母版：Mac 自动选择原生驱动；Linux 沿用 X11/NVIDIA
 pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile marketing
+pnpm --filter @anno/web screenshots:record -- --flow project-onboarding --profile marketing
 ```
 
 默认 `docs` 规格在 Mac / Linux 使用 Playwright 与 CPU H.264 编码，生成
@@ -189,7 +190,8 @@ Mac 使用 ScreenCaptureKit 捕获已核对的单个窗口并写入 H.264，首�
 同一段录制中。包含登录、画框、提交和导入标注的 `e2e-quickstart` 是文档组合教程，营销 project
 会显式跳过它。归档器会用 `ffprobe` 强制检查两份视频的 3840×2160、60fps，并检查两份母版的
 最短/最长时长、编码和非全黑画面；任一门禁不符合时录制直接失败。MKV 与 MP4 使用相同的绝对动作时间窗口，
-都会去掉登录、白屏、骨架屏和网络等待，未裁切缓存只在生成期间存在并在结束时删除。核心动作短于规格下限时，
+都会去掉动作窗口外的准备画面；`project-onboarding` 从登录页开始计入动作窗口，完整保留登录、创建项目和进入工作台。
+未裁切缓存只在生成期间存在并在结束时删除。核心动作短于规格下限时，
 不得向前回填登录或加载画面，也不得通过慢放、故意放慢操作或无意义重复动作满足时长门禁；应补齐与主题相关的必要镜头，
 或修正该资产的最短时长。
 

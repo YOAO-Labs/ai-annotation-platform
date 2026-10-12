@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-09-14T02:06:28.390Z",
+  "updated_at": "2026-10-12T06:16:21.069Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -3501,6 +3501,106 @@
         "clip": {
           "start": 86,
           "duration": 24.6
+        }
+      }
+    },
+    "docs-site/public/media/projects/onboarding-poster.webp": {
+      "asset_id": "project-onboarding",
+      "role": "poster",
+      "generated_at": "2026-10-12T06:16:21.069Z",
+      "captured_commit": "28e2b75b33c09ae697bf7c16faae284e4faeacf4",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › project-onboarding",
+      "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/project-create-existing-resources.ts",
+        "apps/web/e2e/screenshots/flows/project-onboarding.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs",
+        "apps/web/src/components/projects/CreateProjectWizard.tsx",
+        "apps/web/src/components/projects/steps/Step7Success.tsx",
+        "apps/web/src/pages/Login/LoginPage.tsx"
+      ],
+      "sha256": "4978032e296aec4aab1e9643cd0dcff01e9708d63e68d3ff767c290e0749a2ef",
+      "bytes": 90434,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20261012T061201Z-28e2b75b33c0",
+        "assetId": "project-onboarding",
+        "sha256": "d21c32ff87c92bf968fb184a6e09e1df2bcdd8a8a35ba4db695e173218eb90b5",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 22.7
+        }
+      }
+    },
+    "docs-site/public/media/projects/onboarding.mp4": {
+      "asset_id": "project-onboarding",
+      "role": "docs-video",
+      "generated_at": "2026-10-12T06:16:21.041Z",
+      "captured_commit": "28e2b75b33c09ae697bf7c16faae284e4faeacf4",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › project-onboarding",
+      "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/project-create-existing-resources.ts",
+        "apps/web/e2e/screenshots/flows/project-onboarding.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs",
+        "apps/web/src/components/projects/CreateProjectWizard.tsx",
+        "apps/web/src/components/projects/steps/Step7Success.tsx",
+        "apps/web/src/pages/Login/LoginPage.tsx"
+      ],
+      "sha256": "2fb7d21954e88b744e116dd0a5960fe5181980468b0a0cbb74ff87733251bc68",
+      "bytes": 535251,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 22.7
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20261012T061201Z-28e2b75b33c0",
+        "assetId": "project-onboarding",
+        "sha256": "d21c32ff87c92bf968fb184a6e09e1df2bcdd8a8a35ba4db695e173218eb90b5",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 22.7
         }
       }
     },

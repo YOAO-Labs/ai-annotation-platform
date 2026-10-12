@@ -10,7 +10,7 @@ export const PROJECT_CREATE_RECORDING_NAME = "道路车辆质检推广演示";
 
 const pointerByPage = new WeakMap<Page, { x: number; y: number }>();
 
-async function moveTo(page: Page, locator: Locator): Promise<void> {
+export async function moveTo(page: Page, locator: Locator): Promise<void> {
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   if (!box) throw new Error("[project-create-existing-resources] 目标控件不可见");
@@ -36,14 +36,16 @@ export async function runProjectCreateExistingResources(
   page: Page,
   catalog: ScreenshotSeedCatalog,
   onCreated: (projectId: string) => void,
+  options: { projectName?: string; navigate?: boolean } = {},
 ): Promise<DrawWindow> {
+  const projectNameValue = options.projectName ?? PROJECT_CREATE_RECORDING_NAME;
   const sourceProject = catalog.projects.image_demo;
   const dataset = Object.values(sourceProject.datasets)[0];
   if (!dataset) {
     throw new Error("[project-create-existing-resources] image_demo 缺少可复用的图片数据集");
   }
 
-  await page.goto("/projects");
+  if (options.navigate !== false) await page.goto("/projects");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({
     timeout: 10_000,
   });
@@ -65,8 +67,8 @@ export async function runProjectCreateExistingResources(
   const projectName = wizard.getByPlaceholder(/智能门店货架/);
   await moveTo(page, projectName);
   await projectName.click();
-  await projectName.pressSequentially(PROJECT_CREATE_RECORDING_NAME, { delay: 45 });
-  await expect(projectName).toHaveValue(PROJECT_CREATE_RECORDING_NAME);
+  await projectName.pressSequentially(projectNameValue, { delay: 45 });
+  await expect(projectName).toHaveValue(projectNameValue);
   await page.waitForTimeout(750);
 
   const step1Next = wizard.getByRole("button", { name: /下一步/ });
@@ -106,7 +108,7 @@ export async function runProjectCreateExistingResources(
   const created = await createdResponse;
   assertOk(created, "创建项目");
   const createdBody = (await created.json()) as { id?: string; name?: string };
-  if (!createdBody.id || createdBody.name !== PROJECT_CREATE_RECORDING_NAME) {
+  if (!createdBody.id || createdBody.name !== projectNameValue) {
     throw new Error("[project-create-existing-resources] 创建结果与录制项目不匹配");
   }
   onCreated(createdBody.id);
@@ -174,7 +176,7 @@ export async function runProjectCreateExistingResources(
   }
   memberResponses.forEach((response) => assertOk(response, "添加已有成员"));
 
-  await expect(wizard.getByText(PROJECT_CREATE_RECORDING_NAME, { exact: true })).toBeVisible();
+  await expect(wizard.getByText(projectNameValue, { exact: true })).toBeVisible();
   await expect(wizard.getByRole("button", { name: "项目设置" })).toBeVisible();
   await page.waitForTimeout(2_000);
 
