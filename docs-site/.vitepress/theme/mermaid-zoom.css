@@ -45,10 +45,84 @@
   opacity: 0.85;
   transition:
     opacity 0.2s,
-    background 0.2s;
+    background 0.2s,
+    border-color 0.2s;
 }
 
 .mermaid-zoom-btn:hover {
   opacity: 1;
   background: var(--vp-c-bg-soft);
+  border-color: var(--vp-c-brand-1);
+}
+
+/* ============================================================
+ * 暗色模式高对比度 Mermaid 主题覆盖
+ * ============================================================ */
+
+.dark .mermaid-zoom {
+  background: #14161f;
+  border-color: rgba(147, 160, 255, 0.25);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.dark .mermaid-zoom svg .node rect,
+.dark .mermaid-zoom svg .node circle,
+.dark .mermaid-zoom svg .node polygon,
+.dark .mermaid-zoom svg .node path {
+  fill: #1a1f2e !important;
+  stroke: #7b8bff !important;
+  stroke-width: 1.5px !important;
+}
+
+.dark .mermaid-zoom svg .nodeLabel,
+.dark .mermaid-zoom svg text.nodeLabel,
+.dark .mermaid-zoom svg .label text,
+.dark .mermaid-zoom svg .node .label {
+  fill: #f1f5f9 !important;
+  color: #f1f5f9 !important;
+  font-weight: 550 !important;
+}
+
+.dark .mermaid-zoom svg .flowchart-link,
+.dark .mermaid-zoom svg path.edge-thickness-normal,
+.dark .mermaid-zoom svg path.edge-thickness-thick,
+.dark .mermaid-zoom svg path.transition,
+.dark .mermaid-zoom svg .edge-pattern-solid {
+  stroke: #93a0ff !important;
+  stroke-width: 1.8px !important;
+}
+
+.dark .mermaid-zoom svg marker path {
+  fill: #93a0ff !important;
+  stroke: #93a0ff !important;
+}
+
+.dark .mermaid-zoom svg .edgeLabel {
+  background-color: #14161f !important;
+  color: #cbd5e1 !important;
+  fill: #cbd5e1 !important;
+  font-size: 12px !important;
+}
+
+.dark .mermaid-zoom svg .cluster rect {
+  fill: rgba(23, 44, 255, 0.08) !important;
+  stroke: rgba(147, 160, 255, 0.35) !important;
+  stroke-dasharray: 4 4 !important;
+}
+
+.dark .mermaid-zoom svg .cluster .nodeLabel,
+.dark .mermaid-zoom svg .cluster text {
+  fill: #93a0ff !important;
+  font-weight: 600 !important;
+}
+
+.dark .mermaid-zoom-btn {
+  background: #1e2230;
+  color: #f4f1e8;
+  border-color: rgba(147, 160, 255, 0.25);
+}
+
+.dark .mermaid-zoom-btn:hover {
+  background: #282f44;
+  border-color: #93a0ff;
 }
