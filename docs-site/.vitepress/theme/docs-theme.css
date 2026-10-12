@@ -289,9 +289,82 @@
 .docs-reading-page .vp-doc .custom-block p {
   font-size: 14px;
 }
+.docs-reading-page .vp-doc details {
+  margin: 16px 0;
+  padding: 0;
+  border: 1px solid var(--docs-border);
+  border-radius: var(--docs-radius);
+  background: var(--docs-bg-elv);
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.docs-reading-page .vp-doc details:hover {
+  border-color: var(--docs-royal-deep);
+}
+.docs-reading-page .vp-doc details[open] {
+  border-color: var(--docs-border);
+}
 .docs-reading-page .vp-doc details summary {
+  padding: 12px 16px;
+  background: var(--docs-bg-alt);
+  font-weight: 600;
   cursor: pointer;
-  line-height: 1.7;
+  line-height: 1.6;
+  user-select: none;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+.docs-reading-page .vp-doc details summary:hover {
+  background-color: var(--docs-royal-soft);
+  color: var(--docs-royal);
+}
+.docs-reading-page .vp-doc details[open] summary {
+  border-bottom: 1px solid var(--docs-divider);
+}
+.docs-reading-page .vp-doc details > :not(summary) {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.docs-reading-page .vp-doc details > *:nth-child(2) {
+  margin-top: 14px;
+}
+.docs-reading-page .vp-doc details > *:last-child {
+  margin-bottom: 14px;
+}
+
+.docs-reading-page .vp-doc kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: var(--docs-font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--docs-text-1);
+  background: var(--docs-bg-alt);
+  border: 1px solid var(--docs-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+.doc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 550;
+  border-radius: 9999px;
+  background: var(--docs-royal-soft);
+  color: var(--docs-royal);
+  border: 1px solid rgba(23, 44, 255, 0.15);
+  margin-right: 6px;
+  line-height: 1.4;
+}
+
+.dark .doc-badge {
+  border-color: rgba(147, 160, 255, 0.25);
 }
 .docs-reading-page .vp-doc th {
   background: var(--docs-bg-alt);
