@@ -1,7 +1,7 @@
 import type { ScreenshotScene } from "./_types";
 import { waitForScreenshotImage } from "../environment";
 
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import {
   installRecordingWorkbenchLayout,
   waitForRecordingPanels,
@@ -57,8 +57,10 @@ export const REVIEW_SCENES: ScreenshotScene[] = [
       const reason = page.getByRole("alertdialog", { name: "退回原因（1 个任务）" });
       await reason.getByRole("button", { name: "位置或尺寸不准", exact: true }).click();
       const comment = page.getByRole("alertdialog", { name: "补充说明", exact: true });
-      await comment.getByRole("button", { name: "位置与边界不准", exact: true }).click();
-      await comment.getByRole("textbox", { name: "补充说明（可选）" }).waitFor();
+      await comment.getByRole("button", { name: /位置与边界不准/ }).click();
+      await expect(comment.getByRole("textbox", { name: "补充说明（可选）" })).toHaveValue(
+        "位置与边界不准",
+      );
     },
     // 第二步的真实补充说明与快捷标签，不提交退回，也不修改待审任务。
     capture: { kind: "locator", selector: '[role="alertdialog"]', padding: 0 },
