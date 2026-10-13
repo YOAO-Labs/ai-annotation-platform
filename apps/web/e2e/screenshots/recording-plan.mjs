@@ -42,6 +42,9 @@ const manual = [
   "video-issue-resolution",
   "project-guide-autosave",
   "project-invitation-join",
+  "project-create-existing-resources",
+  "background-export-download",
+  "storage-connector-create-test",
 ];
 
 // Inference execution is explicit: a panel can require live capabilities without
@@ -98,6 +101,82 @@ export const MARKETING_ONLY_FLOWS = [
   "pointcloud-panel-layout",
 ];
 
+// Mac marketing capture has a reviewed non-ML allowlist. Keep ML and tracker
+// views out even when their flow has no declared backend requirement.
+export const MAC_MARKETING_FLOWS = [
+  "project-onboarding",
+  "bbox-draw",
+  "workspace-layout-basics",
+  "rotated-bbox",
+  "polyline-draw",
+  "polygon-draw",
+  "mask-draw",
+  "review-reject",
+  "batch-bulk-actions",
+  "video-track",
+  "video-timeline-zoom",
+  "video-chapter",
+  "video-track-carryover",
+  "video-mask-track-edit",
+  "video-draw",
+  "workspace-layout-persistence",
+  "workspace-named-preset",
+  "polygon-boundary-trace",
+  "polygon-slice-undo",
+  "mask-slice-instances",
+  "discussion-target-drafts",
+  "task-drawing-comment",
+  "pointcloud-controls",
+  "pointcloud-view",
+  "pointcloud-billboard-label",
+  "pointcloud-camera-seed-3d-box",
+  "pointcloud-crossframe-track",
+  "pointcloud-panel-layout",
+  "large-image-progressive",
+  "large-image-pyramid-recovery",
+  "large-image-mask-limit",
+  "hotkey-cheatsheet",
+  "video-comment-badges",
+  "discussion-mention-return",
+  "video-issue-resolution",
+  "project-guide-autosave",
+  "project-invitation-join",
+  "project-create-existing-resources",
+  "background-export-download",
+  "storage-connector-create-test",
+];
+
+export const MAC_MARKETING_EXCLUDED_FLOWS = [
+  "ai-prediction-import",
+  "video-tracker-job-states",
+  "sam-tool-smart-point",
+  "sam-tool-smart-box",
+  "sam-tool-exemplar",
+  "sam-interactive",
+  "ocr-inference",
+  "secondary-inference-attribute",
+  "jobs-retry-recovery",
+  "ai-preannotate",
+  "pipeline-apply-project",
+  "current-task-image-inference",
+  "candidate-keyboard-review",
+  "candidate-review-lifecycle",
+  "smart-scribble",
+  "video-tracker-range",
+  "video-tracker-cross-frame-points",
+  "video-tracker-positive-negative",
+  "video-tracker-box-seed",
+  "video-tracker-text-discovery",
+  "current-frame-video-inference",
+  "video-timeline-prediction-navigation",
+  "video-mask-correction-propagate",
+  "video-propagate-track-vs-copy",
+  "video-track-batch-propagate",
+  "video-tracker-combo-discovery",
+  "ai-tracker-panel",
+  "project-ml-routing",
+];
+
 export function recordingPlan(flows, profile = "docs") {
   if (!["docs", "marketing"].includes(profile)) throw new Error(`Unknown profile: ${profile}`);
   if (!flows.length)
@@ -126,11 +205,18 @@ export function marketingCaptureDriver(platform, requestedDriver, flows = []) {
   const driver = requestedDriver ?? (platform === "darwin" ? "screencapturekit" : "x11grab");
   if (platform === "darwin" && driver === "screencapturekit") {
     const plan = recordingPlan(flows, "marketing");
+    const rejected = plan.flows.filter(
+      (id) => MAC_MARKETING_EXCLUDED_FLOWS.includes(id) || !MAC_MARKETING_FLOWS.includes(id),
+    );
     if (
+      rejected.length ||
       plan.backendRequirements !== "none" ||
       plan.flows.some((id) => recordingInference(id) !== "none")
     ) {
-      throw new Error("Mac marketing capture requires flows with no ML capabilities or inference.");
+      const excluded = rejected.length ? `; excluded: ${rejected.join(", ")}` : "";
+      throw new Error(
+        `Mac marketing capture requires an explicit non-ML selection with no ML capabilities or inference${excluded}.`,
+      );
     }
     return driver;
   }

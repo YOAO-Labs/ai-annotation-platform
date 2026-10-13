@@ -77,7 +77,6 @@ const POSTER_AT_SECONDS = new Map([
   ["video-track", 19.9],
   ["video-propagate-track-vs-copy", 14],
   ["video-mask-correction-propagate", 25],
-  // 下列为本次新登记素材的占位海报时间（约目标时长的 85%），需在成片验收后按实际画面复核。
   ["video-issue-resolution", 27.2],
   ["project-guide-autosave", 20.4],
   ["project-invitation-join", 20],

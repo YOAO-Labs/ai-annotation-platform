@@ -7,6 +7,14 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { MARKETING_ASSET_SPECS, type MarketingAssetSpec } from "./marketing-assets.ts";
 import {
+  MAC_MARKETING_EXCLUDED_FLOWS,
+  MAC_MARKETING_FLOWS,
+  RECORDING_FLOWS,
+  marketingCaptureDriver,
+  recordingInference,
+  recordingPlan,
+} from "../recording-plan.mjs";
+import {
   committedAnnotationFromPayload,
   isAnnotationCommitRequest,
   mediaBoundsFromStageBox,
@@ -84,6 +92,36 @@ function createVideoFixture(
   ]);
   return target;
 }
+
+test("Mac marketing allowlist maps to registered non-ML marketing assets", () => {
+  const plan = recordingPlan(MAC_MARKETING_FLOWS, "marketing");
+  assert.equal(plan.backendRequirements, "none");
+  assert.equal(new Set(MAC_MARKETING_FLOWS).size, MAC_MARKETING_FLOWS.length);
+  for (const flowId of MAC_MARKETING_FLOWS) {
+    assert.ok(MARKETING_ASSET_SPECS.has(flowId), `Missing marketing asset spec for ${flowId}`);
+    assert.equal(recordingInference(flowId), "none", `Mac allowlist must not infer: ${flowId}`);
+    assert.equal(
+      marketingCaptureDriver("darwin", undefined, [flowId]),
+      "screencapturekit",
+      `Mac must accept registered non-ML flow ${flowId}`,
+    );
+  }
+  for (const flowId of MAC_MARKETING_EXCLUDED_FLOWS) {
+    assert.ok(Object.hasOwn(RECORDING_FLOWS, flowId), `Stale Mac exclusion ${flowId}`);
+    assert.ok(!MAC_MARKETING_FLOWS.includes(flowId), `Excluded flow was allowlisted: ${flowId}`);
+    assert.throws(
+      () => marketingCaptureDriver("darwin", undefined, [flowId]),
+      (error: unknown) => error instanceof Error && error.message.includes(`excluded: ${flowId}`),
+    );
+  }
+  assert.equal(new Set(MAC_MARKETING_EXCLUDED_FLOWS).size, MAC_MARKETING_EXCLUDED_FLOWS.length);
+  const classifiedFlows = new Set([...MAC_MARKETING_FLOWS, ...MAC_MARKETING_EXCLUDED_FLOWS]);
+  assert.deepEqual(
+    Object.keys(RECORDING_FLOWS).filter((flowId) => !classifiedFlows.has(flowId)),
+    [],
+    "Every registered flow must be Mac-eligible or explicitly excluded",
+  );
+});
 
 test("reuses one explicit run identity across Playwright workers", () => {
   const temporaryRepo = fs.mkdtempSync(path.join(os.tmpdir(), "marketing-run-context-"));
