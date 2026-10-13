@@ -3,7 +3,7 @@ audience: [super_admin, project_admin]
 type: how-to
 since: v0.5.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-14
 ---
 
 # 用户与权限管理
@@ -95,9 +95,11 @@ last_reviewed: 2026-09-19
 
 ## 编辑用户
 
-![编辑用户对话框：角色选择 + 停用按钮](../images/superadmin/users/edit-modal.png)
+![编辑用户对话框：平台角色选择、影响预览与删除账号入口](../images/superadmin/users/edit-modal.png)
 
 点击成员行末的编辑按钮，可查看平台角色和各项目身份，调整角色或所属数据组：
+
+超级管理员的编辑对话框显示平台角色选择、角色影响预览和红色 **删除账号** 操作；删除是独立的软删除，不是停用。离职交接、停用与恢复仍从成员列表的 **离职处理** 入口操作。
 
 - 切换 **角色**（受 actor.role × target.role 矩阵限制，邮箱只读不可改）
 - 更改所属**数据组**
@@ -126,7 +128,7 @@ last_reviewed: 2026-09-19
 
 ## 用户组
 
-![用户组 tab：分组列表与成员管理](../images/superadmin/users/groups-tab.png)
+![数据组 tab：分组列表、成员数与查看成员入口](../images/superadmin/users/groups-tab.png)
 
 用户组是给项目和 batch 派题用的批量选择器：
 
@@ -153,9 +155,9 @@ last_reviewed: 2026-09-19
 
 ## 权限矩阵预览
 
-![权限矩阵预览：PERMISSION_GROUPS × ROLE_PERMISSIONS 表](../images/superadmin/users/permission-matrix.png)
+![权限矩阵预览：四种平台角色按权限类别展示的角色卡片](../images/superadmin/users/permission-matrix.png)
 
-侧边栏 **用户与权限** → **角色** tab 展示 `PERMISSION_GROUPS × ROLE_PERMISSIONS` 表，便于核对。实际权限名（来自 `apps/web/src/constants/permissions.ts`）：
+侧边栏 **用户与权限** → **角色** tab 以四张平台角色卡展示 `PERMISSION_GROUPS × ROLE_PERMISSIONS`，按权限类别区分授予和未授予项，便于核对。实际权限名（来自 `apps/web/src/constants/permissions.ts`）：
 
 - 项目管理：`project.create` / `project.edit` / `project.delete` / `project.transfer` / `project.export`
 - 任务：`task.assign` / `task.annotate` / `task.review` / `task.approve` / `task.reject`
