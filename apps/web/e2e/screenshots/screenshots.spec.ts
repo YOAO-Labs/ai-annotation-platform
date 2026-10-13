@@ -23,7 +23,7 @@
  */
 import { test } from "../fixtures/seed";
 import type { ScreenshotSeedCatalog } from "../fixtures/seed";
-import { SCENES } from "./scenes/index";
+import { SCENES, selectScreenshotScenes } from "./scenes/index";
 import type { Role } from "./scenes/index";
 import { injectAnnotations } from "./_helpers/annotate";
 import { setupMockState } from "./_helpers/mock-state";
@@ -61,6 +61,15 @@ function readExistingManifest(): Record<string, { auto?: boolean }> {
 
 const existingManifest = readExistingManifest();
 
+const screenshotSelection = selectScreenshotScenes(process.env.SCREENSHOT_STATIC_PROFILE);
+if (process.env.SCREENSHOT_STATIC_PROFILE === "non-ml") {
+  console.info(
+    `[screenshots] static profile=non-ml; selected ${screenshotSelection.scenes.length} scene(s): ` +
+      `${screenshotSelection.scenes.map((scene) => scene.name).join(", ")}; excluded ML scene(s): ` +
+      screenshotSelection.excluded.join(", "),
+  );
+}
+
 test.describe("screenshots automation", () => {
   let cached: ScreenshotSeedCatalog | null = null;
 
@@ -68,7 +77,7 @@ test.describe("screenshots automation", () => {
     cached = loadScreenshotCatalog();
   });
 
-  for (const scene of SCENES) {
+  for (const scene of screenshotSelection.scenes) {
     test(scene.name, async ({ page, seed }, info) => {
       if (!cached) throw new Error("screenshot seed catalog 未完成");
       const catalog = cached;

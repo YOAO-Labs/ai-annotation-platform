@@ -25,11 +25,10 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     route: () => "/projects",
     prepare: async (page) => {
       await waitForAdminProjectsDashboard(page);
-      const newBtn = page.getByRole("button", { name: /新建项目|新建/ }).first();
-      if (await newBtn.count()) {
-        await newBtn.click();
-        await page.locator('[data-testid="project-wizard"]').waitFor({ timeout: 10_000 });
-      }
+      const newButton = page.getByTestId("new-project-btn");
+      await newButton.waitFor({ state: "visible", timeout: 10_000 });
+      await newButton.click();
+      await page.getByTestId("project-wizard").waitFor({ state: "visible", timeout: 10_000 });
     },
     capture: { kind: "locator", selector: '[data-testid="project-wizard"]', padding: 0 },
     target: "docs-site/user-guide/images/projects/wizard-steps.png",
@@ -193,6 +192,7 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
   },
   {
     name: "projects/prediction-purge-modal",
+    requiresML: true,
     role: "admin",
     fixture: { project: "image_demo", task: "predicted" },
     // /projects（AdminProjectsDashboard）的项目卡/行才有 ProjectActionsMenu ⋮ 菜单

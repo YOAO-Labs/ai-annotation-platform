@@ -60,6 +60,7 @@ function makeJob(i: number, status: MockJob["status"] = "completed"): MockJob {
 export const AI_PRE_SCENES: ScreenshotScene[] = [
   {
     name: "ai-pre/stepper",
+    requiresML: true,
     role: "admin",
     route: () => "/ai-pre",
     prepare: async (page) => {
@@ -71,6 +72,7 @@ export const AI_PRE_SCENES: ScreenshotScene[] = [
   },
   {
     name: "ai-pre/history-search",
+    requiresML: true,
     role: "admin",
     route: () => "/ai-pre/jobs",
     prepare: async (page) => {
@@ -100,6 +102,7 @@ export const AI_PRE_SCENES: ScreenshotScene[] = [
   // v0.10.40 ai-pre 重构（项目卡片 + ProjectDetailPanel）中已删除，无对应 UI 可截。
   {
     name: "wizard/step4-backend",
+    requiresML: true,
     role: "admin",
     route: () => "/projects",
     prepare: async (page) => {
