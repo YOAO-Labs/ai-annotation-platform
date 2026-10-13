@@ -13,7 +13,7 @@ test.afterEach(({ page }) => {
 });
 
 async function prepare(request: APIRequestContext, seed: SeedAPI, required = false) {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
   const response = await request.get(`${API_BASE}/api/v1/projects/${data.project_id}`, { headers });
   expect(response.ok()).toBe(true);
@@ -514,11 +514,13 @@ test("切到视频退出连续模式，审核入口无法开启", async ({ page,
   await expect(page.getByTestId("continuous-creation-status")).toBeHidden();
   await expect(page.getByTestId("continuous-creation-controls")).toBeHidden();
 
-  await seed.advanceTask({
-    taskId: data.task_ids[0],
-    toStatus: "review",
-    reviewerEmail: data.reviewer_email,
+  // Reach review through the real workflow so the reviewer's mount-time claim
+  // sees frozen contributor evidence instead of a silent 409.
+  const submitToken = await seed.accessToken(data.annotator_email);
+  const submitted = await request.post(`${API_BASE}/api/v1/tasks/${data.task_ids[0]}/submit`, {
+    headers: { Authorization: `Bearer ${submitToken}` },
   });
+  expect(submitted.ok(), await submitted.text()).toBe(true);
   await seed.injectToken(page, data.reviewer_email);
   await page.goto(`/projects/${data.project_id}/review?task=${data.task_ids[0]}`);
   await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");

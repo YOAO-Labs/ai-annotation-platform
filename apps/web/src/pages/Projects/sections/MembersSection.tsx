@@ -3,12 +3,15 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Badge } from "@/components/ui/Badge";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Modal } from "@/components/ui/Modal";
 import { useToastStore } from "@/components/ui/Toast";
 import { useProjectMembers, useRemoveProjectMember } from "@/hooks/useProjects";
 import { AssignMemberModal } from "@/components/projects/AssignMemberModal";
+import { MemberRoleChangeModal } from "@/components/projects/MemberRoleChangeModal";
+import { PROJECT_ROLE_LABELS, ROLE_LABELS } from "@/constants/roles";
 import type { ProjectResponse, ProjectMemberResponse } from "@/api/projects";
+import type { PlatformRole, ProjectRole } from "@/types";
 
 const PLACEHOLDER_CLASS = "p-8 text-center text-sm text-muted-foreground";
 const HEAD_CELL_BASE =
@@ -20,6 +23,7 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
   const remove = useRemoveProjectMember(project.id);
   const [assignOpen, setAssignOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<ProjectMemberResponse | null>(null);
+  const [roleChangeMember, setRoleChangeMember] = useState<ProjectMemberResponse | null>(null);
 
   const onRemove = (m: ProjectMemberResponse) => {
     remove.mutate(m.id, {
@@ -34,11 +38,11 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
   return (
     <>
       <Card>
-        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
           <h3 className="text-sm font-semibold">项目成员</h3>
-          <div className="flex gap-2">
-            <Button onClick={() => setAssignOpen(true)}>
-              <Icon name="plus" size={12} />
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <Button size="sm" variant="ghost" onClick={() => setAssignOpen(true)}>
+              <Icon name="plus" />
               添加成员
             </Button>
           </div>
@@ -68,7 +72,14 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
                   <tr key={m.id}>
                     <td className="w-[42%] border-b border-border py-2.5 pr-3 pl-4">
                       <div className="flex min-w-0 items-center gap-2.5">
-                        <Avatar initial={m.user_name.slice(0, 1)} size="sm" />
+                        <UserAvatar
+                          size="sm"
+                          user={{
+                            name: m.user_name,
+                            email: m.user_email,
+                            avatar_ref: m.avatar_ref,
+                          }}
+                        />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium" title={m.user_name}>
                             {m.user_name}
@@ -83,16 +94,34 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
                       </div>
                     </td>
                     <td className="border-b border-border p-3 whitespace-nowrap">
-                      {m.role === "annotator" ? (
-                        <Badge variant="accent">标注员</Badge>
-                      ) : (
-                        <Badge variant="warning">审核员</Badge>
-                      )}
+                      <Badge
+                        variant={
+                          m.role === "annotator"
+                            ? "accent"
+                            : m.role === "reviewer"
+                              ? "warning"
+                              : "outline"
+                        }
+                      >
+                        {PROJECT_ROLE_LABELS[m.role as ProjectRole] ?? m.role}
+                      </Badge>
+                      <span className="mt-1 block text-2xs text-muted-foreground">
+                        {ROLE_LABELS[m.platform_role as PlatformRole] ?? m.platform_role}
+                      </span>
                     </td>
                     <td className="border-b border-border p-3 whitespace-nowrap text-muted-foreground">
                       {new Date(m.assigned_at).toLocaleDateString("zh-CN")}
                     </td>
                     <td className="border-b border-border py-2.5 pr-4 pl-3 text-right whitespace-nowrap">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="更改职责"
+                        onClick={() => setRoleChangeMember(m)}
+                      >
+                        <Icon name="refresh" size={11} />
+                        更改职责
+                      </Button>
                       <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(m)}>
                         <Icon name="x" size={11} />
                         移除
@@ -114,6 +143,14 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
           onClose={() => setAssignOpen(false)}
         />
       )}
+
+      <MemberRoleChangeModal
+        open={!!roleChangeMember}
+        projectId={project.id}
+        member={roleChangeMember}
+        members={members}
+        onClose={() => setRoleChangeMember(null)}
+      />
 
       <Modal
         open={!!confirmRemove}

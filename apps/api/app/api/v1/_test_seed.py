@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import secrets
 import struct
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -53,6 +55,231 @@ async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None
 
 
 router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
+
+
+# ---------------------------------------------------------------------------
+# Owned (per-test) fixture scopes
+#
+# `seed/reset` rebuilds one fixed shared namespace and stays the documented
+# serial exception. Owned fixtures give every test its own deterministic
+# identifiers derived from a short namespace token, so creation and cleanup
+# never touch neighbouring namespaces or ordinary data. Identifiers stay
+# within the column limits: namespace is 4-12 `[a-z0-9]` chars, which bounds
+# `DS-E2E-{ns}` at 19/20, `B-E2E-{ns}` at 18/30 and `T-E2E-{ns}{index:06d}`
+# at 24/30 characters.
+# ---------------------------------------------------------------------------
+
+_OWNED_NAMESPACE_PATTERN = re.compile(r"^[a-z0-9]{4,12}$")
+
+
+@dataclass(frozen=True)
+class _OwnedFixtureScope:
+    """Exact identifiers of one owned E2E fixture namespace."""
+
+    namespace: str
+
+    @property
+    def admin_email(self) -> str:
+        return f"admin-{self.namespace}@e2e.test"
+
+    @property
+    def annotator_email(self) -> str:
+        return f"anno-{self.namespace}@e2e.test"
+
+    @property
+    def reviewer_email(self) -> str:
+        return f"rev-{self.namespace}@e2e.test"
+
+    @property
+    def user_emails(self) -> list[str]:
+        return [self.admin_email, self.annotator_email, self.reviewer_email]
+
+    @property
+    def project_name(self) -> str:
+        return f"E2E Owned {self.namespace}"
+
+    @property
+    def batch_display_id(self) -> str:
+        return f"B-E2E-{self.namespace}"
+
+    @property
+    def dataset_display_id(self) -> str:
+        return f"DS-E2E-{self.namespace}"
+
+    @property
+    def registry_name(self) -> str:
+        return f"E2E SAM Mock Owned {self.namespace}"
+
+    @property
+    def registry_url(self) -> str:
+        return f"http://mock-sam-{self.namespace}.e2e:9999"
+
+    @property
+    def image_key_prefix(self) -> str:
+        return f"e2e/owned/{self.namespace}/image/"
+
+    @property
+    def task_display_prefix(self) -> str:
+        return f"T-E2E-{self.namespace}"
+
+    # -- lidar fixture kind (`/seed/lidar` with this namespace) --
+
+    @property
+    def lidar_project_name(self) -> str:
+        return f"E2E Lidar {self.namespace}"
+
+    @property
+    def lidar_dataset_display_id(self) -> str:
+        return f"DS-LDR-{self.namespace}"
+
+    @property
+    def lidar_storage_prefix(self) -> str:
+        return f"e2e/lidar/{self.namespace}/"
+
+    @property
+    def lidar_admin_email(self) -> str:
+        return self.admin_email
+
+    @property
+    def lidar_annotator_email(self) -> str:
+        return self.annotator_email
+
+    # -- project-roles fixture kind (`/seed/project-roles` with this namespace) --
+
+    _PR_KEYS = ("a", "b", "c", "d")
+
+    @property
+    def pr_user_emails(self) -> list[str]:
+        locals_ = (
+            "owner-a",
+            "owner-b",
+            "owner-c",
+            "employee",
+            "peer",
+            "spare",
+            "viewer",
+            "viewer-unassigned",
+            "solo",
+        )
+        return [f"{local}-{self.namespace}@e2e.test" for local in locals_]
+
+    @property
+    def pr_project_names(self) -> list[str]:
+        return [
+            f"E2E Project Roles {key.upper()} {self.namespace}" for key in self._PR_KEYS
+        ]
+
+    @property
+    def pr_project_display_ids(self) -> dict[str, str]:
+        return {key: f"P-PR-{key.upper()}-{self.namespace}" for key in self._PR_KEYS}
+
+    @property
+    def pr_dataset_display_ids(self) -> dict[str, str]:
+        return {key: f"DS-PR-{key.upper()}-{self.namespace}" for key in self._PR_KEYS}
+
+    @property
+    def pr_task_display_prefix(self) -> dict[str, str]:
+        return {key: f"T-PR-{key.upper()}-{self.namespace}-" for key in self._PR_KEYS}
+
+    @property
+    def pr_storage_prefix(self) -> str:
+        return f"e2e/owned/{self.namespace}/project-roles/"
+
+    # -- filtering fixture kind (`/seed/filtering` with this namespace) --
+
+    @property
+    def filter_user_emails(self) -> list[str]:
+        return [
+            f"filter-active-{self.namespace}@e2e.test",
+            f"filter-inactive-{self.namespace}@e2e.test",
+        ]
+
+    @property
+    def filter_project_display_ids(self) -> list[str]:
+        ns = self.namespace
+        return [
+            f"P-FI-I-{ns}",
+            f"P-FI-V-{ns}",
+            f"P-FI-P-{ns}",
+            f"P-FI-L-{ns}",
+            f"P-FI-OA-{ns}",
+            f"P-FI-OB-{ns}",
+        ]
+
+    @property
+    def filter_dataset_display_ids(self) -> list[str]:
+        ns = self.namespace
+        return [
+            f"DS-FI-I-{ns}",
+            f"DS-FI-V-{ns}",
+            f"DS-FI-P-{ns}",
+            f"DS-FI-L-{ns}",
+            f"DS-OA-{ns}",
+            f"DS-OB-{ns}",
+        ]
+
+    @property
+    def filter_template_display_ids(self) -> list[str]:
+        ns = self.namespace
+        return [f"TPLFI-A-{ns}", f"TPLFI-B-{ns}"]
+
+    @property
+    def filter_storage_prefix(self) -> str:
+        return f"e2e/owned/{self.namespace}/filtering/"
+
+    @property
+    def takeover_email(self) -> str:
+        """Namespace-scoped actor created through the real invite/register path."""
+        return f"takeover-{self.namespace}@e2e.test"
+
+    # -- aggregate exact selectors for the cleanup engine --
+
+    @property
+    def all_user_emails(self) -> list[str]:
+        return [
+            *self.user_emails,
+            self.takeover_email,
+            *self.pr_user_emails,
+            *self.filter_user_emails,
+        ]
+
+    @property
+    def all_project_names(self) -> list[str]:
+        return [self.project_name, self.lidar_project_name, *self.pr_project_names]
+
+    @property
+    def all_project_display_ids(self) -> list[str]:
+        return [*self.pr_project_display_ids.values(), *self.filter_project_display_ids]
+
+    @property
+    def all_dataset_display_ids(self) -> list[str]:
+        return [
+            self.dataset_display_id,
+            self.lidar_dataset_display_id,
+            *self.pr_dataset_display_ids.values(),
+            *self.filter_dataset_display_ids,
+        ]
+
+    @property
+    def all_storage_prefixes(self) -> list[str]:
+        return [
+            self.image_key_prefix,
+            self.lidar_storage_prefix,
+            self.pr_storage_prefix,
+            self.filter_storage_prefix,
+        ]
+
+
+def _parse_owned_namespace(namespace: str) -> _OwnedFixtureScope:
+    if not _OWNED_NAMESPACE_PATTERN.fullmatch(namespace or ""):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "e2e_owned_namespace_invalid",
+                "reason": "namespace must match ^[a-z0-9]{4,12}$",
+            },
+        )
+    return _OwnedFixtureScope(namespace=namespace)
 
 
 def _delete_seed_object_prefix(
@@ -129,8 +356,40 @@ def _delete_filtering_seed_objects(storage: Any) -> None:
     )
 
 
-async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
-    """定向删除 E2E fixture，并在当前事务内确认关键残留已清零。"""
+def _is_transaction_abort(exc: BaseException) -> bool:
+    """Recognise a deadlock/serialization failure for the cleanup fail-fast policy.
+
+    Observed in the P9 owned-cleanup failure: a DELETE that hit a PostgreSQL
+    deadlock was rolled back, the following cleanup DELETEs were also skipped, and
+    the request ended as a misleading ``e2e_seed_cleanup_incomplete`` residual
+    instead of the real cause. The deliberate policy here is therefore: never
+    absorb a recognised deadlock/serialization error (``40P01``/``40001``) —
+    re-raise it so the original cause stays visible. ``25P02`` (transaction
+    already aborted) is treated only as a downstream symptom of another failure,
+    not as an independent signal.
+    """
+    for candidate in (exc, getattr(exc, "orig", None), getattr(exc, "__cause__", None)):
+        if candidate is None:
+            continue
+        state = getattr(candidate, "sqlstate", None) or getattr(
+            candidate, "pgcode", None
+        )
+        if state in {"40P01", "40001"}:
+            return True
+        if type(candidate).__name__ in {"DeadlockDetectedError", "SerializationError"}:
+            return True
+    return False
+
+
+async def _cleanup_e2e_fixtures(
+    db: AsyncSession, owned: _OwnedFixtureScope | None = None
+) -> None:
+    """定向删除 E2E fixture，并在当前事务内确认关键残留已清零。
+
+    ``owned=None`` 清理共享固定命名空间（reset/project-roles/filtering 的收敛语义）；
+    传入 ``owned`` 时所有谓词收窄为该命名空间的精确标识，绝不触及相邻命名空间
+    或普通数据。两种 scope 共用同一删除顺序与同一张表清单，避免出现第二套引擎。
+    """
     import logging
 
     log = logging.getLogger("anno-api.seed_cleanup")
@@ -141,21 +400,34 @@ async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
     #    SAVEPOINT 自动继承。
     await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
 
-    # 1) 找 fixture 项目 / 用户的 id
+    # 1) 找 fixture 项目 / 用户的 id（按 scope 选择谓词）
+    if owned is None:
+        project_selector = "name = 'E2E Demo Project' OR display_id LIKE 'P-E2E-%'"
+        project_params: dict = {}
+        user_selector = "email LIKE '%@e2e.test'"
+        user_params: dict = {}
+    else:
+        # 项目按本命名空间的精确名称或 display_id 匹配（不同 fixture kind 用不同寻址）。
+        project_selector = "name = ANY(:owned_project_names) OR display_id = ANY(:owned_project_display_ids)"
+        project_params = {
+            "owned_project_names": owned.all_project_names,
+            "owned_project_display_ids": owned.all_project_display_ids,
+        }
+        user_selector = "email = ANY(:owned_emails)"
+        user_params = {"owned_emails": owned.all_user_emails}
+
     fixture_proj_rows = (
         await db.execute(
-            text(
-                "SELECT id FROM projects "
-                "WHERE name = 'E2E Demo Project' "
-                "OR display_id LIKE 'P-E2E-%'"
-            )
+            text(f"SELECT id FROM projects WHERE {project_selector}"), project_params
         )
     ).fetchall()
     fixture_project_ids = [r[0] for r in fixture_proj_rows]
     log.info("seed_cleanup · fixture project ids: %s", fixture_project_ids)
 
     fixture_user_rows = (
-        await db.execute(text("SELECT id FROM users WHERE email LIKE '%@e2e.test'"))
+        await db.execute(
+            text(f"SELECT id FROM users WHERE {user_selector}"), user_params
+        )
     ).fetchall()
     fixture_user_ids = [r[0] for r in fixture_user_rows]
     log.info("seed_cleanup · fixture user ids: %s", fixture_user_ids)
@@ -171,6 +443,11 @@ async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
             async with db.begin_nested():
                 await db.execute(text(sql), params or {})
         except Exception as exc:
+            if _is_transaction_abort(exc):
+                # Fail fast: in the P9 repro an absorbed deadlock left the later
+                # cleanup statements skipped and surfaced as a misleading residual.
+                log.warning("seed_cleanup abort · %s · %s", sql.split()[2], exc)
+                raise
             log.warning("seed_cleanup skip · %s · %s", sql.split()[2], exc)
 
     fixture_annotation_ids: list = []
@@ -205,11 +482,17 @@ async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
 
         # The filtering fixture owns these rows outside the ordinary task cascade.
         # Delete them before tasks/projects so their restrictive foreign keys cannot
-        # block reset, while leaving every non-E2E row untouched.
+        # block reset, while leaving every non-E2E row untouched. The legacy
+        # `BUG-E2E-FILTER-` prefix is a shared-fixture identifier and may only be
+        # matched by the shared (`owned is None`) cleanup; an owned namespace must
+        # never delete another namespace's or the shared filtering rows.
+        legacy_bug_prefix = (
+            " OR display_id LIKE 'BUG-E2E-FILTER-%'" if owned is None else ""
+        )
         await _try_delete(
             "DELETE FROM bug_comments WHERE bug_report_id IN ("
             " SELECT id FROM bug_reports WHERE project_id = ANY(:pids) "
-            " OR task_id = ANY(:tids) OR display_id LIKE 'BUG-E2E-FILTER-%')",
+            f" OR task_id = ANY(:tids){legacy_bug_prefix})",
             {
                 "pids": fixture_project_ids,
                 "tids": fixture_task_ids,
@@ -217,7 +500,7 @@ async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
         )
         await _try_delete(
             "DELETE FROM bug_reports WHERE project_id = ANY(:pids) "
-            " OR task_id = ANY(:tids) OR display_id LIKE 'BUG-E2E-FILTER-%'",
+            f" OR task_id = ANY(:tids){legacy_bug_prefix}",
             {
                 "pids": fixture_project_ids,
                 "tids": fixture_task_ids,
@@ -296,29 +579,50 @@ async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
         )
 
     # WebCodecs seed 的 video_chunks 随 dataset_item CASCADE,这里显式双保险,
-    # 确保 E2E 反复 seed 不残留旧 chunk 行。
+    # 确保 E2E 反复 seed 不残留旧 chunk 行。owned scope 只匹配自己的 dataset。
+    if owned is None:
+        dataset_selector = "display_id LIKE 'DS-E2E-%'"
+        dataset_params: dict = {}
+    else:
+        dataset_selector = "display_id = ANY(:owned_dataset_display_ids)"
+        dataset_params = {"owned_dataset_display_ids": owned.all_dataset_display_ids}
     await _try_delete(
         "DELETE FROM video_chunks WHERE dataset_item_id IN ("
         " SELECT id FROM dataset_items WHERE dataset_id IN ("
-        "   SELECT id FROM datasets WHERE display_id LIKE 'DS-E2E-%'))"
+        f"   SELECT id FROM datasets WHERE {dataset_selector}))",
+        dataset_params,
     )
 
     # reset 中创建的图像 dataset 不由 project_datasets 反向级联删除；
     # 必须在删 E2E 用户前显式清理，避免 datasets.created_by 拦住用户删除。
-    await _try_delete("DELETE FROM datasets WHERE display_id LIKE 'DS-E2E-%'")
+    await _try_delete(f"DELETE FROM datasets WHERE {dataset_selector}", dataset_params)
 
-    # Project templates are user-owned assets and do not cascade from projects.
-    await _try_delete(
-        "DELETE FROM project_templates WHERE display_id LIKE 'TPL-E2E-FILTER-%'",
-    )
+    if owned is None:
+        # Project templates are user-owned assets and do not cascade from projects.
+        await _try_delete(
+            "DELETE FROM project_templates WHERE display_id LIKE 'TPL-E2E-FILTER-%'",
+        )
 
-    # Direct fixture audit rows must disappear before the actor users.  The
-    # production audit trigger still protects ordinary writes; this is only a
-    # fixture-scoped cleanup predicate.
-    await _try_delete(
-        "DELETE FROM audit_logs WHERE detail_json ->> 'fixture' = 'filtering' "
-        "AND path = '/api/v1/__test/seed/filtering'",
-    )
+        # Direct fixture audit rows must disappear before the actor users.  The
+        # production audit trigger still protects ordinary writes; this is only a
+        # fixture-scoped cleanup predicate.
+        await _try_delete(
+            "DELETE FROM audit_logs WHERE detail_json ->> 'fixture' = 'filtering' "
+            "AND path = '/api/v1/__test/seed/filtering'",
+        )
+    else:
+        await _try_delete(
+            "DELETE FROM project_templates WHERE display_id = ANY(:owned_template_display_ids)",
+            {"owned_template_display_ids": owned.filter_template_display_ids},
+        )
+
+        # Owned filtering audit rows carry their namespace in detail_json, so
+        # this predicate never touches another namespace's audit trail.
+        await _try_delete(
+            "DELETE FROM audit_logs WHERE detail_json ->> 'namespace' = :owned_ns "
+            "AND path = '/api/v1/__test/seed/filtering'",
+            {"owned_ns": owned.namespace},
+        )
 
     if fixture_user_ids:
         # 删用户的反向引用，再删用户。表名 / 列名见 v0.8.7+ DB schema：
@@ -345,22 +649,31 @@ async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
             )
         # 用户最后删（前面所有反向引用清干净后，仅靠 ON DELETE SET NULL FK 的字段
         # 会被 PG 自动置 NULL，无 ondelete 的字段需我们已手动删完）。
-        await _try_delete("DELETE FROM users WHERE email LIKE '%@e2e.test'")
+        await _try_delete(f"DELETE FROM users WHERE {user_selector}", user_params)
 
     # v0.23.3 ADR-0050 · mock registry 已有 singleton pool，且 pool 的
     # legacy_instance_id / member 都以 RESTRICT 引用 registry。先删除 mock pool
     # （member 随 pool CASCADE），再删 registry；包含顶栏多后端测试的第二个固定夹具。
     # 否则第二次 reset 会留下旧 registry，
     # 重建时撞 url unique 约束。共享 pool / registry 均不受影响。
+    if owned is None:
+        registry_selector = (
+            "url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')"
+        )
+        registry_params: dict = {}
+    else:
+        registry_selector = "url = :owned_registry_url"
+        registry_params = {"owned_registry_url": owned.registry_url}
     await _try_delete(
         "DELETE FROM ml_backend_service_pools WHERE legacy_instance_id IN "
-        "(SELECT id FROM ml_backend_registry "
-        "WHERE url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999'))"
+        f"(SELECT id FROM ml_backend_registry WHERE {registry_selector})",
+        registry_params,
     )
     # v0.19.0 ADR-0044 · 清旧的 E2E mock registry 行(url unique 约束,
     # 重建必须先删旧)。共享注册项不删,只删本 fixture 自造的 mock url。
     await _try_delete(
-        "DELETE FROM ml_backend_registry WHERE url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')"
+        f"DELETE FROM ml_backend_registry WHERE {registry_selector}",
+        registry_params,
     )
 
     await db.flush()
@@ -369,27 +682,46 @@ async def _cleanup_e2e_fixtures(db: AsyncSession) -> None:
     # cleanup 是测试隔离合同的一部分：对象存储失败必须让 teardown 失败，不能只记 warning。
     from app.services.storage import storage_service
 
-    _delete_webcodecs_seed_objects(storage_service)
-    _delete_filtering_seed_objects(storage_service)
+    if owned is None:
+        _delete_webcodecs_seed_objects(storage_service)
+        _delete_filtering_seed_objects(storage_service)
+    else:
+        for prefix in owned.all_storage_prefixes:
+            _delete_seed_object_prefix(
+                storage_service,
+                bucket=storage_service.datasets_bucket,
+                prefix=prefix,
+                label=f"owned-{owned.namespace}-{prefix.rstrip('/').rsplit('/', 1)[-1]}",
+            )
     _delete_comment_attachment_seed_objects(storage_service, fixture_annotation_ids)
 
-    residual_row = (
-        (
-            await db.execute(
-                text(
-                    "SELECT "
-                    "(SELECT count(*) FROM users "
-                    " WHERE email LIKE '%@e2e.test') AS users, "
-                    "(SELECT count(*) FROM projects "
-                    " WHERE name = 'E2E Demo Project' "
-                    "    OR display_id LIKE 'P-E2E-%') AS projects, "
-                    "(SELECT count(*) FROM ml_backend_registry "
-                    " WHERE url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')) AS ml_backends"
-                )
-            )
+    if owned is None:
+        residual_query = (
+            "SELECT "
+            "(SELECT count(*) FROM users "
+            " WHERE email LIKE '%@e2e.test') AS users, "
+            "(SELECT count(*) FROM projects "
+            " WHERE name = 'E2E Demo Project' "
+            "    OR display_id LIKE 'P-E2E-%') AS projects, "
+            "(SELECT count(*) FROM ml_backend_registry "
+            " WHERE url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')) AS ml_backends"
         )
-        .mappings()
-        .one()
+        residual_params: dict = {}
+    else:
+        residual_query = (
+            "SELECT "
+            "(SELECT count(*) FROM users WHERE email = ANY(:owned_emails)) AS users, "
+            "(SELECT count(*) FROM projects WHERE name = ANY(:owned_project_names)) AS projects, "
+            "(SELECT count(*) FROM ml_backend_registry "
+            " WHERE url = :owned_registry_url) AS ml_backends"
+        )
+        residual_params = {
+            "owned_emails": owned.all_user_emails,
+            "owned_project_names": owned.all_project_names,
+            "owned_registry_url": owned.registry_url,
+        }
+    residual_row = (
+        (await db.execute(text(residual_query), residual_params)).mappings().one()
     )
     residuals = {
         key: int(residual_row[key]) for key in ("users", "projects", "ml_backends")
@@ -434,22 +766,52 @@ class SeedReset(BaseModel):
     ml_backend_id: str
 
 
-@router.post(
-    "/seed/reset",
-    response_model=SeedReset,
-    status_code=200,
-    include_in_schema=False,
+@dataclass(frozen=True)
+class _ImageWorkbenchFixture:
+    """Identifiers used by the standard image-workbench fixture builder."""
+
+    admin_email: str
+    annotator_email: str
+    reviewer_email: str
+    project_name: str
+    batch_display_id: str
+    dataset_display_id: str
+    dataset_name: str
+    task_display_prefix: str
+    image_key_prefix: str
+    registry_name: str
+    registry_url: str
+
+
+_BASE_IMAGE_WORKBENCH = _ImageWorkbenchFixture(
+    admin_email="admin@e2e.test",
+    annotator_email="anno@e2e.test",
+    reviewer_email="rev@e2e.test",
+    project_name="E2E Demo Project",
+    batch_display_id="B-E2E-1",
+    dataset_display_id="DS-E2E-IMAGE",
+    dataset_name="E2E Image Dataset",
+    task_display_prefix="T-E2E-",
+    image_key_prefix="e2e/image/",
+    registry_name="E2E SAM Mock",
+    registry_url="http://mock-sam.e2e:9999",
 )
-async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
-    """先清理旧 fixture，再重建固定 E2E 数据（幂等）。"""
+
+
+async def _build_image_workbench_fixture(
+    db: AsyncSession, ids: _ImageWorkbenchFixture
+) -> SeedReset:
+    """Build the standard image workbench fixture for the given identifiers.
+
+    Shared by the destructive shared `seed/reset` and the per-test owned
+    route; both differ only in the identifiers below.
+    """
     from tests.factory import create_user, create_project, create_task
 
-    await _cleanup_e2e_fixtures(db)
-
-    admin = await create_user(db, "super_admin", "admin@e2e.test", "E2E Admin")
-    annotator = await create_user(db, "annotator", "anno@e2e.test", "E2E Annotator")
-    reviewer = await create_user(db, "reviewer", "rev@e2e.test", "E2E Reviewer")
-    project = await create_project(db, owner_id=admin.id, name="E2E Demo Project")
+    admin = await create_user(db, "super_admin", ids.admin_email, "E2E Admin")
+    annotator = await create_user(db, "employee", ids.annotator_email, "E2E Annotator")
+    reviewer = await create_user(db, "employee", ids.reviewer_email, "E2E Reviewer")
+    project = await create_project(db, owner_id=admin.id, name=ids.project_name)
     # Mask E2E 走兼容 polygon 提交；能力握手要求项目显式开启
     # region 工具。保留 bbox 绑定，避免改变其他工作台 E2E 的基础数据。
     bbox_binding = project.tool_bindings.get("bbox", {})
@@ -488,7 +850,7 @@ async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
     # 任务不可见），工作台显示「该项目暂无任务」。
     batch = TaskBatch(
         project_id=project.id,
-        display_id="B-E2E-1",
+        display_id=ids.batch_display_id,
         name="E2E Default Batch",
         status="annotating",
         annotator_id=annotator.id,
@@ -505,8 +867,8 @@ async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
     from app.services.storage import storage_service
 
     image_dataset = Dataset(
-        display_id="DS-E2E-IMAGE",
-        name="E2E Image Dataset",
+        display_id=ids.dataset_display_id,
+        name=ids.dataset_name,
         data_type="image",
         file_count=5,
         created_by=admin.id,
@@ -520,7 +882,7 @@ async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
     tasks = []
     task_created_at = datetime.now(timezone.utc)
     for index in range(5):
-        image_key = f"e2e/image/task-{index + 1}.svg"
+        image_key = f"{ids.image_key_prefix}task-{index + 1}.svg"
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" '
             'viewBox="0 0 64 48">'
@@ -548,7 +910,9 @@ async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
         db.add(item)
         await db.flush()
         t = await create_task(
-            db, project_id=project.id, display_id=f"T-E2E-{index + 1:06d}"
+            db,
+            project_id=project.id,
+            display_id=f"{ids.task_display_prefix}{index + 1:06d}",
         )
         # PostgreSQL now() is shared by this transaction. Distinct timestamps
         # keep the normal image-task ordering independent of random UUIDs.
@@ -557,6 +921,10 @@ async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
         t.dataset_item_id = item.id
         t.file_name = item.file_name
         t.file_path = item.file_path
+        # Known-empty accumulator: the base fixture is created by the recording
+        # binary, so review specs can create+submit through the real APIs and
+        # freeze complete evidence instead of leaving every round unknown.
+        t.annotation_contributor_ids = []
         tasks.append(t)
     await db.flush()
     batch.total_tasks = len(tasks)
@@ -574,8 +942,8 @@ async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
     )
 
     mock_backend = MLBackendRegistry(
-        name="E2E SAM Mock",
-        url="http://mock-sam.e2e:9999",
+        name=ids.registry_name,
+        url=ids.registry_url,
         state="connected",
         is_interactive=True,
         auth_method="none",
@@ -625,15 +993,557 @@ async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
 
 
 @router.post(
+    "/seed/reset",
+    response_model=SeedReset,
+    status_code=200,
+    include_in_schema=False,
+)
+async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
+    """先清理旧 fixture，再重建固定 E2E 数据（幂等）。
+
+    共享固定命名空间的破坏性重建：这是已记录的串行例外路径，会收敛所有
+    E2E fixture（含 owned 命名空间）。每个测试私有的数据请改用 `/seed/owned`。
+    """
+    await _cleanup_e2e_fixtures(db)
+    return await _build_image_workbench_fixture(db, _BASE_IMAGE_WORKBENCH)
+
+
+class SeedOwnedRequest(BaseModel):
+    namespace: str
+
+
+@router.post(
+    "/seed/owned",
+    response_model=SeedReset,
+    status_code=200,
+    include_in_schema=False,
+)
+async def seed_owned(
+    payload: SeedOwnedRequest, db: AsyncSession = Depends(get_db)
+) -> SeedReset:
+    """Build this namespace's own image-workbench fixture without touching others.
+
+    Deterministic, retry-safe and non-destructive: identifiers derive from the
+    validated namespace, creation deletes nothing outside the namespace, and a
+    repeat call for the same namespace first removes only that namespace's
+    leftover fixture before rebuilding. Cleanup counterpart:
+    `POST /api/v1/__test/seed/owned-cleanup`.
+    """
+    scope = _parse_owned_namespace(payload.namespace)
+    # Retry on the same namespace must converge: drop only this namespace's
+    # leftovers, then rebuild it. Neighbouring namespaces are untouched.
+    await _cleanup_e2e_fixtures(db, owned=scope)
+    return await _build_image_workbench_fixture(
+        db,
+        _ImageWorkbenchFixture(
+            admin_email=scope.admin_email,
+            annotator_email=scope.annotator_email,
+            reviewer_email=scope.reviewer_email,
+            project_name=scope.project_name,
+            batch_display_id=scope.batch_display_id,
+            dataset_display_id=scope.dataset_display_id,
+            dataset_name=f"E2E Owned {scope.namespace} Image Dataset",
+            task_display_prefix=scope.task_display_prefix,
+            image_key_prefix=scope.image_key_prefix,
+            registry_name=scope.registry_name,
+            registry_url=scope.registry_url,
+        ),
+    )
+
+
+@router.post(
+    "/seed/owned-cleanup",
+    response_model=SeedCleanup,
+    status_code=200,
+    include_in_schema=False,
+)
+async def seed_owned_cleanup(
+    payload: SeedOwnedRequest, db: AsyncSession = Depends(get_db)
+) -> SeedCleanup:
+    """Delete exactly the named namespace's fixture; idempotent and exact.
+
+    Only the namespace's own users, project, batch, dataset, tasks, media
+    objects and mock backend rows are removed. Shared fixtures, neighbouring
+    namespaces and ordinary data are never matched, and residuals fail the
+    request instead of being swallowed.
+    """
+    scope = _parse_owned_namespace(payload.namespace)
+    await _cleanup_e2e_fixtures(db, owned=scope)
+    await db.commit()
+    return SeedCleanup()
+
+
+def _project_role_svg_bytes(index: int) -> bytes:
+    """Deterministic tiny image used by the project-roles acceptance fixture."""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" '
+        'viewBox="0 0 64 48">'
+        f'<rect width="64" height="48" fill="hsl({index * 37} 32% 88%)"/>'
+        '<rect x="4" y="4" width="56" height="40" rx="3" fill="none" '
+        'stroke="#64748b" stroke-width="1"/>'
+        f'<text x="32" y="27" text-anchor="middle" font-size="9" '
+        f'fill="#334155">E2E {index + 1}</text></svg>'
+    ).encode("utf-8")
+
+
+async def _build_project_roles_image_project(
+    db: AsyncSession,
+    *,
+    key: str,
+    owner: Any,
+    project_display_id: str,
+    dataset_display_id: str,
+    project_name: str,
+    image_key_prefix: str,
+    task_display_prefix: str,
+    task_count: int,
+) -> tuple[Any, list[Any]]:
+    """Create one image project with deterministic SVG items and tasks.
+
+    Tasks explicitly carry a *known-empty* ``annotation_contributor_ids`` list:
+    the fixture is created by the recording binary, so a later real
+    annotation+submit by the assigned employee can freeze complete review
+    evidence instead of leaving the round permanently unknown.  The existing
+    ``seed.advance_task`` bypass is deliberately not used here.
+    """
+    from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
+    from app.db.models.project import Project
+    from app.db.models.task import Task
+    from app.services.project import coalesce_legacy_into_tool_bindings
+    from app.services.storage import storage_service
+
+    kw: dict = {"classes": ["car", "person"]}
+    coalesce_legacy_into_tool_bindings(kw, None, "image-det")
+    project = Project(
+        display_id=project_display_id,
+        name=project_name,
+        type_label="图像目标检测",
+        type_key="image-det",
+        owner_id=owner.id,
+        tool_bindings=kw["tool_bindings"],
+        ai_enabled=False,
+    )
+    db.add(project)
+    await db.flush()
+
+    dataset = Dataset(
+        display_id=dataset_display_id,
+        name=f"E2E Roles {key.upper()} Dataset",
+        data_type="image",
+        file_count=task_count,
+        created_by=owner.id,
+    )
+    db.add(dataset)
+    await db.flush()
+    db.add(ProjectDataset(project_id=project.id, dataset_id=dataset.id))
+
+    tasks: list[Task] = []
+    for index in range(task_count):
+        image_key = f"{image_key_prefix}task-{index + 1}.svg"
+        svg = _project_role_svg_bytes(index)
+        storage_service.client.put_object(
+            Bucket=storage_service.datasets_bucket,
+            Key=image_key,
+            Body=svg,
+            ContentType="image/svg+xml",
+        )
+        item = DatasetItem(
+            dataset_id=dataset.id,
+            file_name=f"{key.lower()}-task-{index + 1}.svg",
+            file_path=image_key,
+            file_type="image",
+            file_size=len(svg),
+            width=64,
+            height=48,
+        )
+        db.add(item)
+        await db.flush()
+        task = Task(
+            display_id=f"{task_display_prefix}{index + 1:03d}",
+            project_id=project.id,
+            status="pending",
+            file_name=item.file_name,
+            file_path=item.file_path,
+            file_type="image",
+            dataset_item_id=item.id,
+            annotation_contributor_ids=[],
+        )
+        db.add(task)
+        tasks.append(task)
+    await db.flush()
+    return project, tasks
+
+
+class ProjectRolesSeedUser(BaseModel):
+    id: str
+    email: str
+    platform_role: str
+
+
+class ProjectRolesSeedProject(BaseModel):
+    project_id: str
+    display_id: str
+    owner_email: str
+    project_role: str | None
+    membership_id: str | None
+    batch_id: str
+    task_ids: list[str]
+
+
+class ProjectRolesSeed(BaseModel):
+    """Accounts/projects for the two-project browser acceptance fixture.
+
+    ``employee`` is an annotator in ``a`` and a reviewer in ``b``, has no
+    membership in ``c`` (whose task is nevertheless assigned to them), and is an
+    idle annotator in ``d`` so the test can revoke that membership cleanly.
+    ``solo`` is an employee with no membership at all.
+    """
+
+    employee_email: str
+    peer_email: str
+    owner_email_a: str
+    owner_email_b: str
+    owner_email_c: str
+    viewer_email: str
+    viewer_unassigned_email: str
+    spare_email: str
+    solo_email: str
+    users: dict[str, ProjectRolesSeedUser]
+    projects: dict[str, ProjectRolesSeedProject]
+    annotation_task_id: str
+    review_task_id: str
+    c_assigned_task_id: str
+    open_pool_task_id: str
+
+
+@router.post(
+    "/seed/project-roles",
+    response_model=ProjectRolesSeed,
+    status_code=200,
+    include_in_schema=False,
+)
+async def seed_project_roles(
+    payload: SeedOwnedRequest | None = None, db: AsyncSession = Depends(get_db)
+) -> ProjectRolesSeed:
+    """Build the deterministic multi-project employee-role acceptance fixture.
+
+    With ``namespace`` the fixture is built for exactly that owned namespace:
+    namespaced accounts/projects/datasets/objects, no shared-namespace
+    pre-clean, and `owned-cleanup` converges it. Without a namespace the
+    legacy shared fixture is rebuilt with the cleanup-safe ``P-E2E-*`` /
+    ``DS-E2E-*`` / ``B-E2E-*`` / ``T-E2E-*`` display-id prefixes and
+    ``@e2e.test`` account suffix, so `/seed/reset` and `/seed/cleanup`
+    converge it with the base one (documented serial exception). Review work
+    is intentionally left for the spec to submit through the real API so
+    contributor evidence is complete.
+    """
+    from app.db.models.project_member import ProjectMember
+    from app.db.models.task_batch import TaskBatch
+    from tests.factory import create_user
+
+    namespace = payload.namespace if payload is not None else None
+    scope = _parse_owned_namespace(namespace) if namespace is not None else None
+    if scope is None:
+        await _cleanup_e2e_fixtures(db)
+
+        def user_email(local: str) -> str:
+            return f"{local}@e2e.test"
+
+        def project_display(key: str) -> str:
+            return f"P-E2E-PR-{key.upper()}"
+
+        def project_name(key: str) -> str:
+            return f"E2E Project Roles {key.upper()}"
+
+        def dataset_display(key: str) -> str:
+            return f"DS-E2E-PR-{key.upper()}"
+
+        def batch_display(key: str) -> str:
+            return f"B-E2E-PR-{key.upper()}"
+
+        def task_display_prefix(key: str) -> str:
+            return f"T-E2E-PR-{key.upper()}-"
+
+        def image_key_prefix(key: str) -> str:
+            return f"e2e/project-roles/{key.lower()}/"
+
+    else:
+        await _cleanup_e2e_fixtures(db, owned=scope)
+
+        def user_email(local: str) -> str:
+            return f"{local}-{scope.namespace}@e2e.test"
+
+        def project_display(key: str) -> str:
+            return scope.pr_project_display_ids[key.lower()]
+
+        def project_name(key: str) -> str:
+            return f"E2E Project Roles {key.upper()} {scope.namespace}"
+
+        def dataset_display(key: str) -> str:
+            return scope.pr_dataset_display_ids[key.lower()]
+
+        def batch_display(key: str) -> str:
+            return f"B-E2E-PR-{key.upper()}-{scope.namespace}"
+
+        def task_display_prefix(key: str) -> str:
+            return scope.pr_task_display_prefix[key.lower()]
+
+        def image_key_prefix(key: str) -> str:
+            return f"{scope.pr_storage_prefix}{key.lower()}/"
+
+    owner_a = await create_user(
+        db, "project_admin", user_email("owner-a"), "E2E Owner A"
+    )
+    owner_b = await create_user(
+        db, "project_admin", user_email("owner-b"), "E2E Owner B"
+    )
+    owner_c = await create_user(
+        db, "project_admin", user_email("owner-c"), "E2E Owner C"
+    )
+    employee = await create_user(db, "employee", user_email("employee"), "E2E Employee")
+    peer = await create_user(db, "employee", user_email("peer"), "E2E Peer")
+    spare = await create_user(db, "employee", user_email("spare"), "E2E Spare")
+    viewer = await create_user(db, "viewer", user_email("viewer"), "E2E Viewer")
+    viewer_unassigned = await create_user(
+        db, "viewer", user_email("viewer-unassigned"), "E2E Viewer Unassigned"
+    )
+    # Platform employee with no project membership: exercises the no-project
+    # employee empty state without a new production endpoint.
+    solo = await create_user(db, "employee", user_email("solo"), "E2E Solo")
+
+    project_a, tasks_a = await _build_project_roles_image_project(
+        db,
+        key="a",
+        owner=owner_a,
+        project_display_id=project_display("a"),
+        dataset_display_id=dataset_display("a"),
+        project_name=project_name("a"),
+        image_key_prefix=image_key_prefix("a"),
+        task_display_prefix=task_display_prefix("a"),
+        task_count=1,
+    )
+    project_b, tasks_b = await _build_project_roles_image_project(
+        db,
+        key="b",
+        owner=owner_b,
+        project_display_id=project_display("b"),
+        dataset_display_id=dataset_display("b"),
+        project_name=project_name("b"),
+        image_key_prefix=image_key_prefix("b"),
+        task_display_prefix=task_display_prefix("b"),
+        task_count=1,
+    )
+    project_c, tasks_c = await _build_project_roles_image_project(
+        db,
+        key="c",
+        owner=owner_c,
+        project_display_id=project_display("c"),
+        dataset_display_id=dataset_display("c"),
+        project_name=project_name("c"),
+        image_key_prefix=image_key_prefix("c"),
+        task_display_prefix=task_display_prefix("c"),
+        task_count=1,
+    )
+    project_d, tasks_d = await _build_project_roles_image_project(
+        db,
+        key="d",
+        owner=owner_a,
+        project_display_id=project_display("d"),
+        dataset_display_id=dataset_display("d"),
+        project_name=project_name("d"),
+        image_key_prefix=image_key_prefix("d"),
+        task_display_prefix=task_display_prefix("d"),
+        task_count=1,
+    )
+
+    batch_a = TaskBatch(
+        project_id=project_a.id,
+        display_id=batch_display("a"),
+        name="E2E Roles A Batch",
+        status="annotating",
+        annotator_id=employee.id,
+        reviewer_id=peer.id,
+        assigned_user_ids=[str(employee.id)],
+        created_by=owner_a.id,
+        total_tasks=1,
+    )
+    batch_b = TaskBatch(
+        project_id=project_b.id,
+        display_id=batch_display("b"),
+        name="E2E Roles B Batch",
+        status="annotating",
+        annotator_id=peer.id,
+        reviewer_id=employee.id,
+        assigned_user_ids=[str(peer.id)],
+        created_by=owner_b.id,
+        total_tasks=1,
+    )
+    batch_c = TaskBatch(
+        project_id=project_c.id,
+        display_id=batch_display("c"),
+        name="E2E Roles C Batch",
+        status="annotating",
+        annotator_id=peer.id,
+        reviewer_id=None,
+        assigned_user_ids=[str(peer.id)],
+        created_by=owner_c.id,
+        total_tasks=1,
+    )
+    # Open pool: no batch default and no task assignee.  An annotator member may
+    # still open the task, but the employee owns no assignment, so the member
+    # can be revoked cleanly without a handoff blocker.
+    batch_d = TaskBatch(
+        project_id=project_d.id,
+        display_id=batch_display("d"),
+        name="E2E Roles D Batch",
+        status="annotating",
+        annotator_id=None,
+        reviewer_id=None,
+        assigned_user_ids=[],
+        created_by=owner_a.id,
+        total_tasks=1,
+    )
+    db.add_all([batch_a, batch_b, batch_c, batch_d])
+    await db.flush()
+
+    task_a_add = tasks_a[0]
+    task_b_review = tasks_b[0]
+    task_c_assigned = tasks_c[0]
+    task_d_open = tasks_d[0]
+    task_a_add.batch_id = batch_a.id
+    task_a_add.assignee_id = employee.id
+    task_b_review.batch_id = batch_b.id
+    task_b_review.assignee_id = peer.id
+    # Assignment alone must not grant authority: employee is not a member of C.
+    task_c_assigned.batch_id = batch_c.id
+    task_c_assigned.assignee_id = employee.id
+    task_d_open.batch_id = batch_d.id
+
+    def add_member(project: Any, user: Any, role: str) -> ProjectMember:
+        member = ProjectMember(
+            project_id=project.id,
+            user_id=user.id,
+            role=role,
+            assigned_by=project.owner_id,
+        )
+        db.add(member)
+        return member
+
+    memberships = {
+        "employee_a": add_member(project_a, employee, "annotator"),
+        "peer_a": add_member(project_a, peer, "reviewer"),
+        "spare_a": add_member(project_a, spare, "viewer"),
+        "viewer_a": add_member(project_a, viewer, "viewer"),
+        "employee_b": add_member(project_b, employee, "reviewer"),
+        "peer_b": add_member(project_b, peer, "annotator"),
+        "peer_c": add_member(project_c, peer, "annotator"),
+        "employee_d": add_member(project_d, employee, "annotator"),
+        "peer_d": add_member(project_d, peer, "reviewer"),
+    }
+    await db.flush()
+    await db.commit()
+
+    def project_payload(
+        project: Any,
+        owner: Any,
+        batch: Any,
+        tasks: list[Any],
+        membership: ProjectMember | None,
+        project_role: str | None,
+    ) -> ProjectRolesSeedProject:
+        return ProjectRolesSeedProject(
+            project_id=str(project.id),
+            display_id=project.display_id,
+            owner_email=owner.email,
+            project_role=project_role,
+            membership_id=str(membership.id) if membership else None,
+            batch_id=str(batch.id),
+            task_ids=[str(task.id) for task in tasks],
+        )
+
+    def user_payload(user: Any) -> ProjectRolesSeedUser:
+        return ProjectRolesSeedUser(
+            id=str(user.id), email=user.email, platform_role=user.role
+        )
+
+    return ProjectRolesSeed(
+        employee_email=employee.email,
+        peer_email=peer.email,
+        owner_email_a=owner_a.email,
+        owner_email_b=owner_b.email,
+        owner_email_c=owner_c.email,
+        viewer_email=viewer.email,
+        viewer_unassigned_email=viewer_unassigned.email,
+        spare_email=spare.email,
+        solo_email=solo.email,
+        users={
+            "employee": user_payload(employee),
+            "peer": user_payload(peer),
+            "owner_a": user_payload(owner_a),
+            "owner_b": user_payload(owner_b),
+            "owner_c": user_payload(owner_c),
+            "spare": user_payload(spare),
+            "viewer": user_payload(viewer),
+            "viewer_unassigned": user_payload(viewer_unassigned),
+            "solo": user_payload(solo),
+        },
+        projects={
+            "a": project_payload(
+                project_a,
+                owner_a,
+                batch_a,
+                tasks_a,
+                memberships["employee_a"],
+                "annotator",
+            ),
+            "b": project_payload(
+                project_b,
+                owner_b,
+                batch_b,
+                tasks_b,
+                memberships["employee_b"],
+                "reviewer",
+            ),
+            "c": project_payload(project_c, owner_c, batch_c, tasks_c, None, None),
+            "d": project_payload(
+                project_d,
+                owner_a,
+                batch_d,
+                tasks_d,
+                memberships["employee_d"],
+                "annotator",
+            ),
+        },
+        annotation_task_id=str(task_a_add.id),
+        review_task_id=str(task_b_review.id),
+        c_assigned_task_id=str(task_c_assigned.id),
+        open_pool_task_id=str(task_d_open.id),
+    )
+
+
+@router.post(
     "/seed/filtering",
     response_model=FilteringSeedManifest,
     status_code=200,
     include_in_schema=False,
 )
-async def seed_filtering(db: AsyncSession = Depends(get_db)) -> FilteringSeedManifest:
-    """Reset and build the deterministic filtering acceptance fixture."""
-    await seed_reset(db)
-    return await build_filtering_seed(db)
+async def seed_filtering(
+    payload: SeedOwnedRequest | None = None, db: AsyncSession = Depends(get_db)
+) -> FilteringSeedManifest:
+    """Build the deterministic filtering acceptance fixture.
+
+    With a ``namespace`` the fixture is built entirely inside that owned
+    namespace (no shared reset, exact owned-cleanup coverage). Without one the
+    legacy shared path resets the shared fixture first — the documented serial
+    exception for callers that have not migrated yet.
+    """
+    namespace = payload.namespace if payload is not None else None
+    if namespace is None:
+        await seed_reset(db)
+        return await build_filtering_seed(db)
+    scope = _parse_owned_namespace(namespace)
+    await _cleanup_e2e_fixtures(db, owned=scope)
+    return await build_filtering_seed(db, namespace)
 
 
 class SeedLidar(BaseModel):
@@ -740,14 +1650,25 @@ def _make_test_pcd_frames() -> tuple[
     return [payload, payload], "nuscenes_profile", count
 
 
+class SeedLidarRequest(BaseModel):
+    namespace: str
+
+
 @router.post(
     "/seed/lidar",
     response_model=SeedLidar,
-    status_code=200,
     include_in_schema=False,
 )
-async def seed_lidar(db: AsyncSession = Depends(get_db)) -> SeedLidar:
-    """造点云 E2E fixture(幂等)。需先调 /seed/reset(复用其 E2E 用户),缺则补建。"""
+async def seed_lidar(
+    payload: SeedLidarRequest, db: AsyncSession = Depends(get_db)
+) -> SeedLidar:
+    """造点云 E2E fixture(幂等)。命名空间私有:仅触碰本命名空间的用户/项目/对象。
+
+    复用 `seed/owned` 造的 admin/annotator 用户(缺则补建),删除旧 lidar
+    fixture 也只按本命名空间的精确名称/对象前缀匹配,不触碰相邻命名空间与
+    共享固定 fixture。
+    """
+    scope = _parse_owned_namespace(payload.namespace)
     from sqlalchemy import select
 
     from app.db.models.annotation import Annotation
@@ -770,22 +1691,23 @@ async def seed_lidar(db: AsyncSession = Depends(get_db)) -> SeedLidar:
             except Exception:
                 await sp.rollback()
 
-    # 复用 reset 造的 E2E 用户;缺则补建(令 /seed/lidar 可独立调用)。
+    # 复用本命名空间 owned fixture 的 admin/annotator 用户;缺则补建。
     async def _user(role: str, email: str, name: str) -> User:
         existing = (
             await db.execute(select(User).where(User.email == email))
         ).scalar_one_or_none()
         return existing or await create_user(db, role, email, name)
 
-    admin = await _user("super_admin", "admin@e2e.test", "E2E Admin")
-    annotator = await _user("annotator", "anno@e2e.test", "E2E Annotator")
+    admin = await _user("super_admin", scope.admin_email, "E2E Admin")
+    annotator = await _user("employee", scope.annotator_email, "E2E Annotator")
 
-    # 幂等:删旧 lidar fixture(name='E2E Lidar Project',含 task/annotation/锁/草稿链)。
+    # 幂等:删旧 lidar fixture(仅按本命名空间精确名称匹配)。
     old_pids = [
         r[0]
         for r in (
             await db.execute(
-                text("SELECT id FROM projects WHERE name = 'E2E Lidar Project'")
+                text("SELECT id FROM projects WHERE name = :lidar_project_name"),
+                {"lidar_project_name": scope.lidar_project_name},
             )
         ).fetchall()
     ]
@@ -818,22 +1740,32 @@ async def seed_lidar(db: AsyncSession = Depends(get_db)) -> SeedLidar:
             "DELETE FROM projects WHERE id = ANY(:pids)", {"pids": old_pids}
         )
     # Dataset 不归属于 Project，不能依赖删项目级联；清掉上次 seed 遗留的 items/scene。
-    await _try_delete("DELETE FROM datasets WHERE display_id LIKE 'DS-E2E-LDR-%'")
+    await _try_delete(
+        "DELETE FROM datasets WHERE display_id = :lidar_dataset_display_id",
+        {"lidar_dataset_display_id": scope.lidar_dataset_display_id},
+    )
     await db.flush()
+    # 本命名空间旧点云/相机对象按前缀清空(对象存储不随 DB 级联)。
+    _delete_seed_object_prefix(
+        storage_service,
+        bucket=storage_service.datasets_bucket,
+        prefix=scope.lidar_storage_prefix,
+        label=f"owned-lidar-{scope.namespace}",
+    )
 
     # 上传两个独立帧到 datasets_bucket(presign GET 才能 200,前端 loadPcd 才成功)。
     suffix = secrets.token_hex(3)
     pcd_frames, pcd_source, pcd_point_count = _make_test_pcd_frames()
     pcd_keys = []
     for idx, pcd_bytes in enumerate(pcd_frames):
-        pcd_key = f"e2e/lidar/{suffix}-{idx}.pcd"
+        pcd_key = f"{scope.lidar_storage_prefix}{suffix}-{idx}.pcd"
         storage_service.client.put_object(
             Bucket=storage_service.datasets_bucket,
             Key=pcd_key,
             Body=pcd_bytes,
         )
         pcd_keys.append(pcd_key)
-    camera_key = f"e2e/lidar/{suffix}-camera-front.svg"
+    camera_key = f"{scope.lidar_storage_prefix}{suffix}-camera-front.svg"
     camera_svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" '
         'viewBox="0 0 640 480">'
@@ -870,7 +1802,7 @@ async def seed_lidar(db: AsyncSession = Depends(get_db)) -> SeedLidar:
     }
     project = Project(
         display_id=f"P-E2E-LIDAR-{suffix}",
-        name="E2E Lidar Project",
+        name=scope.lidar_project_name,
         type_label="点云标注",
         type_key="lidar",
         data_type="lidar",
@@ -902,8 +1834,8 @@ async def seed_lidar(db: AsyncSession = Depends(get_db)) -> SeedLidar:
     await db.flush()
 
     dataset = Dataset(
-        display_id=f"DS-E2E-LDR-{suffix}",
-        name=f"E2E Lidar Dataset {suffix}",
+        display_id=scope.lidar_dataset_display_id,
+        name=f"E2E Lidar Dataset {scope.namespace}",
         data_type="point_cloud",
         file_count=6,
         created_by=admin.id,

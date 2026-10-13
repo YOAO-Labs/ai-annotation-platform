@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  imageWorkbenchAborts,
+  isExpectedRequestAbort,
+  type RequestErrorSignal,
+} from "../helpers/request-errors";
 import type { APIRequestContext, APIResponse, Page, Response } from "@playwright/test";
 import { expect, test as base, type SeedData } from "../fixtures/seed";
 
@@ -37,7 +42,7 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
 
 const test = base.extend<{ sliceCase: Case }>({
   sliceCase: async ({ page, request, seed, browser }, provideFixture, testInfo) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -90,7 +95,7 @@ const test = base.extend<{ sliceCase: Case }>({
       allowedErrors: new Set(),
     };
     await seed.injectToken(page, data.annotator_email);
-    const errors: Array<{ kind: string; path?: string; message: string; method?: string }> = [];
+    const errors: RequestErrorSignal[] = [];
     page.on("pageerror", (error) => errors.push({ kind: "page", message: error.message }));
     page.on("console", (message) => {
       if (message.type() === "error")
@@ -129,21 +134,9 @@ const test = base.extend<{ sliceCase: Case }>({
     let passed = false;
     try {
       await provideFixture(fixture);
-      const expectedAborts = errors.filter(
-        (error) =>
-          error.kind === "request" &&
-          error.message === "net::ERR_ABORTED" &&
-          ((error.method === "POST" && error.path === "/api/v1/auth/me/heartbeat") ||
-            (error.method === "GET" &&
-              ([
-                "/api/v1/auth/me",
-                "/api/v1/auth/registration-status",
-                "/api/v1/feedbacks",
-                "/api/v1/projects",
-                "/api/v1/tasks",
-                "/api/v1/audit-logs",
-              ].includes(error.path!) ||
-                /^\/api\/v1\/tasks\/[0-9a-f-]{36}(\/annotations)?$/.test(error.path!)))),
+      // Reload can report keepalive session telemetry as aborted after the API accepts it.
+      const expectedAborts = errors.filter((error) =>
+        isExpectedRequestAbort(error, imageWorkbenchAborts),
       );
       const unexpected = errors.filter(
         (error) =>
@@ -191,7 +184,7 @@ const test = base.extend<{ sliceCase: Case }>({
         page.removeAllListeners("request");
         await page.unrouteAll({ behavior: "ignoreErrors" });
         if (!page.isClosed()) await page.goto("about:blank");
-        await seed.reset();
+        await seed.owned();
       }
     }
   },

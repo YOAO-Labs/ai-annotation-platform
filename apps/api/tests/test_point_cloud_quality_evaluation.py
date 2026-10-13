@@ -9,7 +9,6 @@ from sqlalchemy import event
 
 from app.db.models.dataset import Dataset, Scene
 from app.db.models.point_cloud_quality import PointCloudQualityIssue
-from app.db.models.project_member import ProjectMember
 from app.schemas.point_cloud_quality import (
     PointCloudQualityConfig,
     PointCloudQualityGovernanceConfig,
@@ -23,7 +22,7 @@ from app.services.point_cloud_quality.service import (
     PointCloudQualityError,
     refresh_issue_staleness_bulk,
 )
-from tests.factory import create_project
+from tests.factory import create_membership, create_project
 
 
 def _sample(
@@ -161,13 +160,12 @@ async def test_quality_evaluation_api_promotes_candidate_once(
     project.data_type = "lidar"
     baseline = _config(minimum_points=5)
     project.point_cloud_quality_config = baseline.model_dump(mode="json")
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=reviewer_user.id,
-            role="reviewer",
-            assigned_by=user.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=reviewer_user.id,
+        role="reviewer",
+        assigned_by=user.id,
     )
     dataset = Dataset(
         display_id=f"DS-QE-{uuid.uuid4().hex[:6]}",

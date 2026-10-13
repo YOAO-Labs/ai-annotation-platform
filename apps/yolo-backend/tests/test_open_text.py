@@ -1,4 +1,4 @@
-"""v0.18.21 · 开集文本路径辅助函数单测 (不需 ultralytics / GPU)."""
+"""开集文本路径辅助函数单测 (不需 ultralytics / GPU)."""
 
 from __future__ import annotations
 

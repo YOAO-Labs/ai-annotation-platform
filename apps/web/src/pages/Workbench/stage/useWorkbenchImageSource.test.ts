@@ -132,6 +132,36 @@ describe("resolveWorkbenchImageSource", () => {
     ).toMatchObject({ kind: "pyramid-pending", taskId: "task-1" });
   });
 
+  it("refreshes signed overview URLs through a read without rebuilding the pyramid", async () => {
+    const get = vi
+      .spyOn(tasksApi, "getImagePyramid")
+      .mockResolvedValueOnce(ready)
+      .mockResolvedValue({
+        ...ready,
+        overview: { url: "/fresh-overview.webp", expires_at: "2026-09-15T00:00:00Z" },
+      });
+    const rebuild = vi.spyOn(tasksApi, "retryImagePyramid");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result, unmount } = renderHook(() => useWorkbenchImageSource(task(true, "ready")), {
+      wrapper,
+    });
+    await waitFor(() =>
+      expect(result.current.source).toMatchObject({ overviewUrl: "/overview.webp" }),
+    );
+    await act(async () => {
+      await result.current.refresh();
+    });
+    await waitFor(() =>
+      expect(result.current.source).toMatchObject({ overviewUrl: "/fresh-overview.webp" }),
+    );
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(rebuild).not.toHaveBeenCalled();
+    unmount();
+    client.clear();
+  });
+
   it("optimistically enters pending and polls after an explicit retry", async () => {
     const failedResponse: ImagePyramidResponse = {
       ...ready,

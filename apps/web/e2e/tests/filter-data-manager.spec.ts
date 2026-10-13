@@ -28,12 +28,78 @@ async function checked(response: Response) {
   return response.json();
 }
 
+// The Data section scrolls the whole page (the frame root scroll owner), not a
+// table-local container; scroll it far enough to trigger cursor loading.
+async function scrollDataPageToBottom(page: Page) {
+  await page.locator("[data-dm-scroll-owner='data']").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+}
+
 function url(projectId: string, state: Record<string, string> = {}) {
   return "/projects/" + projectId + "/data-manager?" + new URLSearchParams(state).toString();
 }
 
 function envelope(value: unknown) {
   return JSON.stringify({ v: 1, value });
+}
+
+for (const scope of ["tasks", "objects", "tracks"] as const) {
+  test(`wide ${scope} tables contain horizontal scrolling without losing page headers`, async ({
+    page,
+    filtering,
+  }) => {
+    const projectId =
+      scope === "tasks"
+        ? filtering.image.project_id
+        : scope === "objects"
+          ? filtering.paging.project_id
+          : filtering.lidar.project_id;
+    const response = queryResponse(page, projectId, scope);
+    await page.goto(url(projectId, { lens: scope }));
+    await checked(await response);
+    const table = page.getByRole("table");
+    await expect(table).toBeVisible();
+    const viewport = scope === "tasks" ? table.locator("..") : table;
+    const pageScroller = page.locator("[data-dm-scroll-owner='data']");
+    const header = scope === "tasks" ? table.locator("thead") : table.locator("[role=row]").first();
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect
+        .poll(() =>
+          viewport.evaluate((element) => {
+            const parent = element.parentElement!;
+            return element.getBoundingClientRect().right - parent.getBoundingClientRect().right;
+          }),
+        )
+        .toBeLessThanOrEqual(1);
+      await expect
+        .poll(() => pageScroller.evaluate((element) => element.scrollWidth - element.clientWidth))
+        .toBeLessThanOrEqual(1);
+      await viewport.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+      });
+      expect(await viewport.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+      expect(await pageScroller.evaluate((element) => element.scrollLeft)).toBe(0);
+      const headerCell = await header.getByRole("columnheader").last().boundingBox();
+      expect(headerCell!.x + headerCell!.width).toBeLessThanOrEqual(width);
+    }
+    if (scope !== "tasks") {
+      await pageScroller.evaluate((element) => {
+        element.scrollTop = 1000;
+      });
+      await expect
+        .poll(async () => {
+          const h = await header.boundingBox();
+          const p = await pageScroller.boundingBox();
+          return Math.abs(h!.y - p!.y);
+        })
+        .toBeLessThanOrEqual(1);
+      expect(await viewport.evaluate((element) => element.scrollTop)).toBe(0);
+      await scrollDataPageToBottom(page);
+      await expect(page.getByText(/已加载 10[12] \/ 10[12]/)).toBeVisible();
+    }
+  });
 }
 
 test("AI review restores OR and required attributes restore nested groups", async ({
@@ -139,9 +205,7 @@ test("object and logical-track totals retain full scope across cursor pages", as
   );
   await expect(page.getByRole("table")).toHaveAttribute("aria-rowcount", "101");
   const moreObjects = queryResponse(page, filtering.paging.project_id, "objects");
-  await page.getByRole("table").evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-  });
+  await scrollDataPageToBottom(page);
   const next = await checked(await moreObjects);
   expect(next.total).toBe(101);
   expect(next.items.map((item: { annotation_id: string }) => item.annotation_id)).toEqual(
@@ -158,9 +222,7 @@ test("object and logical-track totals retain full scope across cursor pages", as
     String(filtering.lidar.track_refs.length),
   );
   const moreTracks = queryResponse(page, filtering.lidar.project_id, "tracks");
-  await page.getByRole("table").evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-  });
+  await scrollDataPageToBottom(page);
   const trackNext = await checked(await moreTracks);
   const refs = [...tracks.items, ...trackNext.items].map(
     (item: { track_id: string }) => item.track_id,
@@ -284,6 +346,9 @@ test("grouped saved views persist creation and edits, cancel navigation, and cop
   await page.getByRole("button", { name: "保存视图", exact: true }).click();
   const updated = await checked(await updatedResponse);
   expect(updated.filter_json).toEqual({ ...expression, op: "and" });
+  // Saving refetches the current query. Finish that response before registering
+  // a reload listener, which must only observe the new document's request.
+  await page.waitForLoadState("networkidle");
   const reload = queryResponse(page, projectId, "tasks");
   await page.reload();
   const reloaded = await reload;

@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Badge } from "@/components/ui/Badge";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Modal } from "@/components/ui/Modal";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import {
   useApiKeys,
@@ -159,9 +160,17 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
     }
   };
 
-  const onRotate = (key: ApiKey) => {
+  const onRotate = async (key: ApiKey) => {
     if (key.revoked_at) return;
-    if (!confirm(`轮换 "${key.name}" ？旧密钥将立即失效，需替换所有使用方。`)) return;
+    if (
+      !(await confirmDialog({
+        tone: "danger",
+        title: "轮换 API 密钥",
+        description: `轮换后「${key.name}」的旧密钥将立即失效，需替换所有使用方。`,
+        confirmLabel: "轮换",
+      }))
+    )
+      return;
     rotateKey.mutate(key.id, {
       onSuccess: (data) => setSecret(data),
       onError: (err) =>
@@ -173,9 +182,17 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
     });
   };
 
-  const onRevoke = (key: ApiKey) => {
+  const onRevoke = async (key: ApiKey) => {
     if (key.revoked_at) return;
-    if (!confirm(`吊销 "${key.name}" ？此操作不可恢复。`)) return;
+    if (
+      !(await confirmDialog({
+        tone: "danger",
+        title: "吊销 API 密钥",
+        description: `吊销后「${key.name}」将立即失效，此操作不可恢复。`,
+        confirmLabel: "吊销",
+      }))
+    )
+      return;
     revokeKey.mutate(key.id, {
       onSuccess: () => pushToast({ msg: "已吊销", kind: "success" }),
       onError: (err) =>

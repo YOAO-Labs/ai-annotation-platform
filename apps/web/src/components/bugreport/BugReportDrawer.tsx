@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useRef, type ClipboardEvent } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import {
   bugReportsApi,
@@ -451,7 +452,15 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("确定删除此反馈？")) return;
+    if (
+      !(await confirmDialog({
+        tone: "danger",
+        title: "删除反馈",
+        description: "反馈删除后不可恢复。",
+        confirmLabel: "删除",
+      }))
+    )
+      return;
     try {
       await bugReportsApi.delete(id);
       pushToast({ msg: "反馈已删除", kind: "success" });

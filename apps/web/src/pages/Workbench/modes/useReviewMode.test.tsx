@@ -1,5 +1,6 @@
-import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import type { TaskResponse } from "@/types";
 import { useReviewMode } from "./useReviewMode";
 
@@ -64,16 +65,34 @@ function renderReview(
 ) {
   const navigateTask = vi.fn();
   const pushToast = vi.fn();
-  const rendered = renderHook(() =>
-    useReviewMode({
-      mode,
-      taskId: "t1",
-      task: task(overrides),
-      navigateTask,
-      pushToast,
-    }),
-  );
-  return { ...rendered, navigateTask, pushToast };
+  const taskId = overrides.id ?? "t1";
+  const initialProps = {
+    mode,
+    taskId,
+    task: task(overrides),
+    navigateTask,
+    pushToast,
+  };
+  const rendered = renderHook((props: typeof initialProps) => useReviewMode(props), {
+    initialProps,
+  });
+  return { ...rendered, navigateTask, pushToast, initialProps };
+}
+
+/** 结算队首 decisionDialog 并出队(等价 Host 的 settle + 退场 dispose),模拟用户按下按钮。 */
+async function settleDecisionDialog(value: boolean | string | null) {
+  const head = useDecisionDialogStore.getState().queue[0];
+  if (!head) throw new Error("decisionDialog 队列为空");
+  await act(async () => {
+    useDecisionDialogStore.getState().settle(value);
+  });
+  await act(async () => {
+    useDecisionDialogStore.getState().dispose();
+  });
+}
+
+function queuedTitle() {
+  return useDecisionDialogStore.getState().queue[0]?.request.title;
 }
 
 describe("useReviewMode", () => {
@@ -81,6 +100,11 @@ describe("useReviewMode", () => {
     mocks.approveMutate.mockReset();
     mocks.rejectMutate.mockReset();
     mocks.claimMutate.mockReset();
+  });
+
+  // decisionDialog store 是模块级单例,清空队列避免跨测试残留(T3 store-settle 约定)。
+  afterEach(() => {
+    useDecisionDialogStore.setState({ queue: [] });
   });
 
   it("claims review tasks only in review mode", () => {
@@ -103,8 +127,8 @@ describe("useReviewMode", () => {
     expect(result.current.diffMode).toBe("raw");
   });
 
-  it("handles A/R review hotkeys", () => {
-    const { result } = renderReview();
+  it("handles A/R review hotkeys", async () => {
+    renderReview();
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
@@ -114,27 +138,57 @@ describe("useReviewMode", () => {
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
     });
-    expect(result.current.rejectModal?.open).toBe(true);
+    // 'r' 打开退回两步流的第一步（reason_type choiceDialog）
+    await waitFor(() => expect(queuedTitle()).toBe("退回原因（1 个任务）"));
   });
 
-  it("routes reject confirm to reject mutation", () => {
+  it("routes the two-step reject flow to reject mutation with skip hint", async () => {
     const { result } = renderReview("review", { skip_reason: "no_target" });
 
-    expect(result.current.rejectModal?.skipReasonHint).toBe("no_target");
-    act(() =>
-      result.current.rejectModal?.onConfirm({
-        reason_type: "wrong_geometry",
-        reason: "框不完整",
-      }),
-    );
+    await act(async () => {
+      result.current.topbarActions.onReject?.();
+    });
+    // 第一步：skip 提示透传到 choice 描述
+    const choice = useDecisionDialogStore.getState().queue[0];
+    expect(choice?.request.title).toBe("退回原因（1 个任务）");
+    expect(choice?.request.description).toContain("此任务被标注员跳过：no_target");
+    await settleDecisionDialog("wrong_geometry");
+    // 第二步：可选补充说明
+    await waitFor(() => expect(queuedTitle()).toBe("补充说明"));
+    await settleDecisionDialog("框不完整");
     expect(mocks.rejectMutate).toHaveBeenCalledWith(
       { taskId: "t1", reason_type: "wrong_geometry", reason: "框不完整" },
       expect.any(Object),
     );
   });
 
-  it("ignores A/R from settings buttons and restores review shortcuts after close", () => {
+  it("cancelling the second step drops the whole reject", async () => {
     const { result } = renderReview();
+
+    await act(async () => {
+      result.current.topbarActions.onReject?.();
+    });
+    await settleDecisionDialog("missing");
+    await waitFor(() => expect(queuedTitle()).toBe("补充说明"));
+    await settleDecisionDialog(null);
+    expect(mocks.rejectMutate).not.toHaveBeenCalled();
+  });
+
+  it("aborts the reject when the task switched while the dialog is open", async () => {
+    const { result, rerender, initialProps } = renderReview();
+
+    await act(async () => {
+      result.current.topbarActions.onReject?.();
+    });
+    await settleDecisionDialog("wrong_geometry");
+    // async-await gap：第二步弹窗期间切到另一任务，确认后按 currentTaskIdRef 复验放弃
+    rerender({ ...initialProps, taskId: "t2", task: task({ id: "t2" }) });
+    await settleDecisionDialog("框不完整");
+    expect(mocks.rejectMutate).not.toHaveBeenCalled();
+  });
+
+  it("ignores A/R from settings buttons and restores review shortcuts after close", () => {
+    renderReview();
     const settings = document.createElement("button");
     settings.dataset.workbenchSettings = "";
     settings.dataset.state = "open";
@@ -144,7 +198,7 @@ describe("useReviewMode", () => {
       settings.dispatchEvent(new KeyboardEvent("keydown", { key: "r", bubbles: true }));
     });
     expect(mocks.approveMutate).not.toHaveBeenCalled();
-    expect(result.current.rejectModal?.open).toBe(false);
+    expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
     settings.remove();
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" })));
     expect(mocks.approveMutate).toHaveBeenCalledTimes(1);

@@ -5,9 +5,10 @@
 // - 搜索 "ocr" → 仅 OCR 协议卡可见。
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import userEvent from "@testing-library/user-event";
 
 const mockOverview = vi.fn();
 vi.mock("@/api/adminMlIntegrations", () => ({
@@ -184,6 +185,49 @@ function renderUI() {
 }
 
 describe("CapabilityCatalogPanel · 协议双层视图", () => {
+  it("目录搜索逐字输入保留空格", async () => {
+    const user = userEvent.setup();
+    renderUI();
+    await screen.findByText(/支持 9 类 AI 标注能力/);
+    const input = screen.getByRole("textbox");
+    await user.type(input, "SAM ");
+    expect(input).toHaveValue("SAM ");
+    await user.type(input, "2");
+    expect(input).toHaveValue("SAM 2");
+  });
+
+  it("按后端分组的模型卡保留任务徽标", async () => {
+    mockGetInstances.mockResolvedValue({
+      instances: [
+        {
+          backend_id: "gsam2-registry-id",
+          state: "connected",
+          source: "env",
+          name: "gsam2",
+          infra: "pytorch",
+          models: [
+            {
+              id: "sam2-model",
+              display_name: "SAM 2",
+              task: "detection",
+              infra: "pytorch",
+              is_interactive: false,
+              supported_prompts: ["text"],
+              supported_geometric_outputs: ["bbox"],
+              supported_trackers: [],
+              modality: "image",
+            },
+          ],
+        },
+      ],
+    });
+    renderUI();
+    await screen.findByText("SAM 2");
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "backend" } });
+    expect(screen.getByText("SAM 2")).toBeInTheDocument();
+    const card = screen.getByText("SAM 2").parentElement!.parentElement!;
+    expect(within(card).getByText("检测")).toBeVisible();
+  });
   beforeEach(() => {
     mockOverview.mockReset();
     mockGetProtocol.mockReset();
@@ -218,6 +262,38 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     }
     // 0 backend 时所有协议卡都是「暂无接入」
     expect(screen.getAllByText("暂无接入").length).toBe(9);
+  });
+
+  it("非法 catalog_group 深链 → chip 提示且可移除，移除后非法参数从 URL 清掉", async () => {
+    // 回归（PR #103 Codex P2）：issue chip 此前只读，共享链接里的非法
+    // catalog_group 无法被用户清除。移除 = 回落默认枚举（codec 删除该键）。
+    let currentSearch = "";
+    function LocationProbe() {
+      const location = useLocation();
+      currentSearch = location.search;
+      return null;
+    }
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/?catalog_group=bogus"]}>
+          <CapabilityCatalogPanel />
+          <LocationProbe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    // 渲染回落默认 task 分组，同时给出可见提示 chip。
+    await screen.findByText(/支持 9 类 AI 标注能力/);
+    expect(screen.getByText("无效的目录分组")).toBeInTheDocument();
+    expect(currentSearch).toContain("catalog_group=bogus");
+
+    fireEvent.click(screen.getByRole("button", { name: "移除无效的目录分组筛选" }));
+    await waitFor(() => {
+      expect(currentSearch).not.toContain("catalog_group");
+    });
+    expect(screen.queryByText("无效的目录分组")).not.toBeInTheDocument();
   });
 
   it("默认协议能力分组切到列表视图 → 渲染协议能力列表", async () => {
@@ -331,7 +407,9 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     expect(screen.queryByText("暂无可用模型条目")).not.toBeInTheDocument();
     expect(screen.queryByText("尚无项目注册 ML Backend")).not.toBeInTheDocument();
     // 「输出属性」行透传 backend 自报的 output_attribute_types (而非只看空 schema)。
-    expect(screen.getByText("class")).toBeInTheDocument();
+    // 阶段二后属性行在卡片详情展开区内，先展开再断言。
+    fireEvent.click(screen.getByRole("button", { name: /详情/ }));
+    expect(await screen.findByText("class")).toBeInTheDocument();
   });
 
   it("非超管 (project_admin) 不调 admin overview, 能力目录退到 /instances 视图而非硬报错", async () => {

@@ -74,4 +74,4 @@ AI 预标流水线（把多个 backend 按 DAG 串成「detect → 属性」这�
 - **可见**：超管全可见；`公开` 人人可见、`私有` 仅本人、`组织` 仅该组织成员。
 - **编辑 / 删除**：超管、创建者本人、或组织编排的同组织成员。
 
-架构与数据模型细节见 [ADR-0046](../../dev/adr/0046-project-pipeline-library-and-scopes)。
+架构与数据模型细节见 [ADR-0046](../../dev/adr/archive/0046-project-pipeline-library-and-scopes)。

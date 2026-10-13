@@ -645,4 +645,98 @@ describe("useVideoPlaybackController", () => {
     });
     expect((await current).status).toBe("ready");
   });
+
+  it("paused frame-clock writes only land on the latest navigation target or its echo (Issue #114)", () => {
+    const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+    const { result } = setup({ current: video });
+
+    // 时间轴点击 seek：导航目标 = 17，乐观写落地。
+    act(() => result.current.controls.seekToFrame(17));
+    expect(result.current.frameIndex).toBe(17);
+
+    // 高负载交错下迟到的旧帧回报（时间轴点击量化帧、被步进超越）：必须被栅栏丢弃。
+    act(() => videoHookMocks.onFrameChange?.(9));
+    expect(result.current.frameIndex).toBe(17);
+    // 非导航来源的任意新帧同样不允许改写暂停态选中帧。
+    act(() => videoHookMocks.onFrameChange?.(18));
+    expect(result.current.frameIndex).toBe(17);
+    // 导航目标回声照常接受（幂等）。
+    act(() => videoHookMocks.onFrameChange?.(17));
+    expect(result.current.frameIndex).toBe(17);
+
+    // 新的显式导航（键盘步进）正常推进。
+    act(() => result.current.controls.seekToFrame(18));
+    expect(result.current.frameIndex).toBe(18);
+
+    // 播放态逐帧推进不受栅栏限制。
+    act(() => result.current.controls.togglePlayback());
+    expect(result.current.isPlaybackActive).toBe(true);
+    act(() => videoHookMocks.onFrameChange?.(25));
+    expect(result.current.frameIndex).toBe(25);
+  });
+
+  it("播放推进后暂停，旧导航目标的迟到回报不得拽回旧帧（PR #118 评审跟进）", () => {
+    const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+    const { result } = setup({ current: video });
+
+    // 纯净评审序列:seek 17(此后无任何新导航)→ 播放推进到 25 → 暂停。
+    act(() => result.current.controls.seekToFrame(17));
+    expect(result.current.frameIndex).toBe(17);
+
+    act(() => result.current.controls.togglePlayback());
+    expect(result.current.isPlaybackActive).toBe(true);
+    act(() => videoHookMocks.onFrameChange?.(25));
+    expect(result.current.frameIndex).toBe(25);
+
+    act(() => result.current.controls.togglePlayback());
+    expect(result.current.isPlaybackActive).toBe(false);
+
+    // 暂停后,导航目标 17 的迟到回报不得把帧号拽回旧帧。
+    act(() => videoHookMocks.onFrameChange?.(17));
+    expect(result.current.frameIndex).toBe(25);
+  });
+
+  it("host 外部改写受控帧后，旧导航目标的迟到回报不得拽回旧帧（PR #118 评审跟进）", () => {
+    const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+    // ref 对象必须稳定:内联字面量会让「首帧预热」效应每次渲染重跑并顺手刷新导航目标,
+    // 掩盖真实的栅栏缺口(真实宿主的 ref 是稳定对象)。
+    const videoRef = { current: video };
+    let controlled = 0;
+    const onFrameIndexChange = vi.fn((frame: number) => {
+      controlled = frame;
+    });
+    const { result, rerender } = renderHook(() =>
+      useVideoPlaybackController({
+        manifest: MANIFEST,
+        videoRef: videoRef as never,
+        annotations: [],
+        selectedId: null,
+        selectedTrack: null,
+        hiddenTrackIds: new Set<string>(),
+        lockedTrackIds: new Set<string>(),
+        readOnly: false,
+        drag: null,
+        currentFrameEntries: [],
+        onUpdate: vi.fn(),
+        controlledFrameIndex: controlled,
+        onFrameIndexChange,
+      }),
+    );
+
+    // seek 17:登记导航目标并乐观写 17,受控 prop 跟进。
+    act(() => result.current.controls.seekToFrame(17));
+    expect(result.current.frameIndex).toBe(17);
+    expect(controlled).toBe(17);
+
+    // 宿主外部跳转(章节/段落/任务恢复)直接改受控帧,不经 seekFrameAsync。
+    controlled = 40;
+    rerender();
+    expect(result.current.frameIndex).toBe(40);
+
+    // 旧导航目标 17 的迟到回报:必须被栅栏丢弃,受控帧不得回写。
+    const writesBefore = onFrameIndexChange.mock.calls.length;
+    act(() => videoHookMocks.onFrameChange?.(17));
+    expect(result.current.frameIndex).toBe(40);
+    expect(onFrameIndexChange.mock.calls.length).toBe(writesBefore);
+  });
 });

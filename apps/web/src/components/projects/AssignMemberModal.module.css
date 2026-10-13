@@ -73,6 +73,18 @@
   background: color-mix(in srgb, var(--sc-brand) 12%, transparent);
 }
 
+.userButtonDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.otherRoleHint {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--sc-muted-foreground);
+  white-space: nowrap;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;

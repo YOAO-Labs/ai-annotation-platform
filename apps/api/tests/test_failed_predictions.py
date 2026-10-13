@@ -93,7 +93,7 @@ async def _seed_failed(
 
 
 async def test_list_failed_predictions_basic_fields(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """两条 failed → 列表 total=2，关键字段（backend_name / project_name / retry_count）正确。"""
     user, token = super_admin
@@ -118,7 +118,7 @@ async def test_list_failed_predictions_basic_fields(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/admin/failed-predictions?page=1&page_size=10", headers=headers
     )
     assert resp.status_code == 200, resp.text
@@ -136,16 +136,16 @@ async def test_list_failed_predictions_basic_fields(
         assert item["task_display_id"] == task.display_id
 
 
-async def test_list_failed_predictions_requires_manager(httpx_client_bound, annotator):
+async def test_list_failed_predictions_requires_manager(httpx_client, annotator):
     _, token = annotator
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/admin/failed-predictions", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 403
 
 
 async def test_retry_failed_prediction_queues_celery_and_returns_202(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -161,7 +161,7 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     with patch(
         "app.workers.predictions_retry.retry_failed_prediction.apply_async"
     ) as mock_apply:
-        resp = await httpx_client_bound.post(
+        resp = await httpx_client.post(
             f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
         )
 
@@ -175,16 +175,14 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     # 未自报 device 的 backend 保守落 gpu(ml)队列。
     assert call_kwargs["queue"] == "ml"
 
-    repeated = await httpx_client_bound.post(
+    repeated = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
     )
     assert repeated.status_code == 409
     mock_apply.assert_called_once()
 
 
-async def test_retry_blocked_when_max_exceeded(
-    httpx_client_bound, super_admin, db_session
-):
+async def test_retry_blocked_when_max_exceeded(httpx_client, super_admin, db_session):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
@@ -199,18 +197,18 @@ async def test_retry_blocked_when_max_exceeded(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
     )
     assert resp.status_code == 409, resp.text
     assert "Max retries" in resp.text
 
 
-async def test_retry_404_for_unknown_id(httpx_client_bound, super_admin):
+async def test_retry_404_for_unknown_id(httpx_client, super_admin):
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     fake = uuid.uuid4()
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fake}/retry", headers=headers
     )
     assert resp.status_code == 404
@@ -441,9 +439,7 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
     assert fp.extra["last_gpu_arbiter_error"] == expected
 
 
-async def test_retry_requires_manager(
-    httpx_client_bound, annotator, db_session, super_admin
-):
+async def test_retry_requires_manager(httpx_client, annotator, db_session, super_admin):
     user, _ = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
@@ -454,7 +450,7 @@ async def test_retry_requires_manager(
     await db_session.commit()
 
     _, token = annotator
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/retry",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -465,7 +461,7 @@ async def test_retry_requires_manager(
 
 
 async def test_dismiss_marks_failed_prediction_and_audit_logged(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -477,7 +473,7 @@ async def test_dismiss_marks_failed_prediction_and_audit_logged(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/dismiss", headers=headers
     )
     assert resp.status_code == 200, resp.text
@@ -486,7 +482,7 @@ async def test_dismiss_marks_failed_prediction_and_audit_logged(
     assert body["dismissed_at"] is not None
 
     # 默认列表不再返回该行
-    list_resp = await httpx_client_bound.get(
+    list_resp = await httpx_client.get(
         "/api/v1/admin/failed-predictions", headers=headers
     )
     assert list_resp.status_code == 200
@@ -494,7 +490,7 @@ async def test_dismiss_marks_failed_prediction_and_audit_logged(
     assert all(i["id"] != str(fp.id) for i in items)
 
     # include_dismissed=true 时回归
-    list_resp2 = await httpx_client_bound.get(
+    list_resp2 = await httpx_client.get(
         "/api/v1/admin/failed-predictions?include_dismissed=true", headers=headers
     )
     assert list_resp2.status_code == 200
@@ -503,7 +499,7 @@ async def test_dismiss_marks_failed_prediction_and_audit_logged(
     assert by_id[str(fp.id)]["dismissed_at"] is not None
 
 
-async def test_dismiss_blocks_retry(httpx_client_bound, super_admin, db_session):
+async def test_dismiss_blocks_retry(httpx_client, super_admin, db_session):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
@@ -514,18 +510,18 @@ async def test_dismiss_blocks_retry(httpx_client_bound, super_admin, db_session)
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    await httpx_client_bound.post(
+    await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/dismiss", headers=headers
     )
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
     )
     assert resp.status_code == 409
     assert "dismissed" in resp.text.lower()
 
 
-async def test_restore_clears_dismissed_at(httpx_client_bound, super_admin, db_session):
+async def test_restore_clears_dismissed_at(httpx_client, super_admin, db_session):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
@@ -536,11 +532,11 @@ async def test_restore_clears_dismissed_at(httpx_client_bound, super_admin, db_s
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    await httpx_client_bound.post(
+    await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/dismiss", headers=headers
     )
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/restore", headers=headers
     )
     assert resp.status_code == 200, resp.text
@@ -549,14 +545,14 @@ async def test_restore_clears_dismissed_at(httpx_client_bound, super_admin, db_s
     assert body["dismissed_at"] is None
 
     # 默认列表又能看到
-    list_resp = await httpx_client_bound.get(
+    list_resp = await httpx_client.get(
         "/api/v1/admin/failed-predictions", headers=headers
     )
     items = list_resp.json()["items"]
     assert any(i["id"] == str(fp.id) for i in items)
 
 
-async def test_dismiss_is_idempotent(httpx_client_bound, super_admin, db_session):
+async def test_dismiss_is_idempotent(httpx_client, super_admin, db_session):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
@@ -567,10 +563,10 @@ async def test_dismiss_is_idempotent(httpx_client_bound, super_admin, db_session
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    r1 = await httpx_client_bound.post(
+    r1 = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/dismiss", headers=headers
     )
-    r2 = await httpx_client_bound.post(
+    r2 = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/dismiss", headers=headers
     )
     assert r1.status_code == 200
@@ -580,7 +576,7 @@ async def test_dismiss_is_idempotent(httpx_client_bound, super_admin, db_session
 
 
 async def test_dismiss_requires_manager(
-    httpx_client_bound, annotator, db_session, super_admin
+    httpx_client, annotator, db_session, super_admin
 ):
     user, _ = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -593,7 +589,7 @@ async def test_dismiss_requires_manager(
 
     _, token = annotator
     headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/dismiss", headers=headers
     )
     assert resp.status_code == 403

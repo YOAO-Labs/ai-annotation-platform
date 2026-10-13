@@ -615,6 +615,7 @@ async def build_export_zip(
     project_id: uuid.UUID,
     *,
     batch_id: uuid.UUID | None,
+    task_ids: list[uuid.UUID] | None = None,
     targets: list[str],
     include_attributes: bool,
     video_frame_mode: str,
@@ -633,7 +634,7 @@ async def build_export_zip(
     图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, aap_json}（`yolo` 兼容旧 = yolo-det）。
     VOC 走旧同步路径，不在此处。
     """
-    svc = ExportService(db)
+    svc = ExportService(db, task_ids=task_ids)
     project = await svc.db.get(Project, project_id)
 
     tmp_path = _new_zip_tempfile()

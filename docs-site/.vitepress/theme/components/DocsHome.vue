@@ -33,13 +33,15 @@ const finalLinks = [
     <div class="grain" aria-hidden="true"></div>
     <div class="home-progress" aria-hidden="true"><i></i></div>
 
-    <DataAtlasHero />
+    <div class="hero-screen">
+      <DataAtlasHero />
 
-    <div class="marquee" aria-hidden="true">
-      <div class="marquee-track">
-        <span v-for="n in 2" :key="n">
-          <template v-for="cap in capabilities" :key="cap + n">{{ cap }} <b>✦</b> </template>
-        </span>
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee-track">
+          <span v-for="n in 2" :key="n">
+            <template v-for="cap in capabilities" :key="cap + n">{{ cap }} <b>✦</b> </template>
+          </span>
+        </div>
       </div>
     </div>
 

@@ -16,7 +16,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
-from tests.factory import create_project, create_user
+from tests.factory import create_membership, create_project, create_user
 
 pytestmark = pytest.mark.asyncio
 
@@ -40,13 +40,12 @@ async def test_management_user_query_stats_export_share_scope_and_filters(
     outside = await create_user(
         db_session, "annotator", "outside@e.test", "Outside User"
     )
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=member.id,
-            role="annotator",
-            assigned_by=manager.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=member.id,
+        role="annotator",
+        assigned_by=manager.id,
     )
     await db_session.flush()
 
@@ -202,7 +201,7 @@ async def test_bulk_invite_preview_rolls_back_and_apply_keeps_failed_rows(
 ):
     payload = {
         "items": [
-            {"email": "bulk-good@e.test", "role": "annotator"},
+            {"email": "bulk-good@e.test", "role": "employee"},
             {"email": "bulk-bad@e.test", "role": "not-a-role"},
         ]
     }
@@ -245,14 +244,13 @@ async def test_bulk_group_assignment_scope_and_role_impact_preview(
 ):
     manager, _ = project_admin
     project = await create_project(db_session, owner_id=manager.id, name="Group Scope")
-    managed = await create_user(db_session, "annotator", "group@e.test", "Group User")
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=managed.id,
-            role="annotator",
-            assigned_by=manager.id,
-        )
+    managed = await create_user(db_session, "employee", "group@e.test", "Group User")
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=managed.id,
+        role="annotator",
+        assigned_by=manager.id,
     )
     group = Group(name="Bulk Group")
     db_session.add(group)
@@ -275,13 +273,12 @@ async def test_bulk_group_assignment_scope_and_role_impact_preview(
     await db_session.refresh(managed)
     assert managed.group_id == group.id
 
+    # Platform-role preview is super-admin only (plan AUTH-04).
     impact = await httpx_client.get(
-        f"/api/v1/users/{managed.id}/role/preview?role=reviewer",
+        f"/api/v1/users/{managed.id}/role/preview?role=employee",
         headers=_headers(project_admin),
     )
-    assert impact.status_code == 200, impact.text
-    assert impact.json()["can_change"] is True
-    assert impact.json()["projects"][0]["project_id"] == str(project.id)
+    assert impact.status_code == 403, impact.text
 
     unauthorized = await httpx_client.post(
         "/api/v1/users/groups/bulk/preview",
@@ -298,8 +295,8 @@ async def test_batch_distribution_preview_is_read_only_and_apply_respects_defaul
 ):
     admin, _ = super_admin
     project = await create_project(db_session, owner_id=admin.id, name="Batch Plan")
-    annotator = await create_user(db_session, "annotator", "batch-a@e.test", "Batch A")
-    reviewer = await create_user(db_session, "reviewer", "batch-r@e.test", "Batch R")
+    annotator = await create_user(db_session, "employee", "batch-a@e.test", "Batch A")
+    reviewer = await create_user(db_session, "employee", "batch-r@e.test", "Batch R")
     db_session.add_all(
         [
             ProjectMember(

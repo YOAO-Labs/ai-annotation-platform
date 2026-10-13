@@ -39,6 +39,7 @@ export async function runVideoDraw(
   const firstAnchor = recordingAnchor(catalog, "video_demo", "tracking", "front_truck_f0", 0);
   const secondAnchor = recordingAnchor(catalog, "video_demo", "tracking", "front_truck_f8", 8);
   expect(secondAnchor.label).toBe(firstAnchor.label);
+  await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
   await page.getByTestId("video-tool-btn-track").click();
   await selectVideoRecordingClass(page, stage, firstAnchor.label);
   const drawStartMs = Date.now();

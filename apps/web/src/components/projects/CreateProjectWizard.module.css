@@ -312,6 +312,23 @@
   max-height: 240px;
 }
 
+.memberRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.roleSelect {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--sc-border);
+  border-radius: var(--radius-sm);
+  background: var(--sc-card);
+  color: var(--sc-foreground);
+  font-family: inherit;
+  font-size: 12px;
+}
+
 .choiceButton {
   display: flex;
   align-items: center;

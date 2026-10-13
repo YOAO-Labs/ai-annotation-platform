@@ -68,6 +68,32 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 
 错误统一抛 `ai_annotation.errors` 下的异常(`AuthenticationError` / `NotFoundError` / `JobFailedError` 等);响应模型 `extra="allow"`,容忍服务端新增字段。
 
+### 项目角色与成员
+
+平台把**账号身份(平台角色)**与**项目职责(项目角色)**分开:同一个账号可以在 A 项目标注、B 项目质检。项目访问来自成员关系,`client.projects.access()` 读取当前账号在某个项目上的解析后权限与能力集;`client.projects.list()` 的 `Project.my_project_role` 是当前账号的项目角色。
+
+```python
+with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
+    access = client.projects.access(project.id)
+    print(access.platform_role, access.project_role, access.capabilities)
+
+    # 成员输出是扁平的: role=项目角色, platform_role=平台角色
+    for member in client.members.list(project.id):
+        print(member.user_name, member.role, member.platform_role, member.version)
+
+    # 角色变更: 先只读预检, 再按版本 + token 原子提交
+    preview = client.members.preview_role_change(project.id, member.id, "reviewer")
+    if not preview.blockers:
+        client.members.change_role(
+            project.id, member.id, "reviewer",
+            expected_version=preview.current_version,
+            preview_token=preview.preview_token,
+            reason="rebalance workload",
+        )
+```
+
+`role` 取值是项目角色 `annotator` / `reviewer` / `viewer`(平台 `viewer` 账号只能是只读项目角色);`Me.role` 是平台角色 `super_admin` / `project_admin` / `employee` / `viewer`。自审拒绝与全项目导出限制等完整规则见仓库文档站的可见性与权限说明。
+
 ## Issue 与反馈
 
 `client.feedbacks.create()` 创建反馈，`client.feedbacks.list()` 按 `items` / `next_cursor` 翻页。
@@ -129,7 +155,11 @@ aap datasets preview-unlink <dataset-id> <project-id>
 aap datasets unlink <dataset-id> <project-id> --yes
 
 aap batches create <project-id> --name round-1 --dataset-id <dataset-id>
-aap members add <project-id> --user-id <user-id> --role annotator
+aap members list <project-id>                    # 项目角色 / 平台角色分列
+aap members add <project-id> --user-id <user-id> --role annotator   # 项目角色: annotator|reviewer|viewer
+aap members preview-role <project-id> <member-id> --role reviewer   # 只读预检, 返回 token 与阻塞项
+aap members change-role <project-id> <member-id> --role reviewer \
+  --expected-version 2 --preview-token <tok> --reason "重新分配职责" --yes
 
 aap predictions import <project-id> result.json --format aap_json [--dry-run]
 aap jobs wait <job-id>                             # 进度条跟随到终态

@@ -1,4 +1,4 @@
-"""v0.14.15 protocol v2.1 request and error contract tests."""
+"""v2.1 request and error contract tests."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ class _PredictorHTTPError:
 def test_predict_singular_task_wire_returns_singular_shape(
     app_client, monkeypatch
 ) -> None:
-    """v0.18.23 · 平台交互调用发单数 {task, context}; 响应须为单数形 (顶层 result, 无 results),
+    """平台交互调用发单数 {task, context}; 响应须为单数形 (顶层 result, 无 results),
     否则平台 predict_interactive 读 data["result"] 拿不到结果 (exemplar 候选丢失)。"""
     main, client = app_client
     monkeypatch.setattr(main, "_predictor", _PredictorOneBox())

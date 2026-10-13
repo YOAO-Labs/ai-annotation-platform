@@ -46,6 +46,7 @@ from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.project_access import resolve_project_access
 from app.schemas.aap_json import AAPImportErrorEntry, AAPImportResult
 from app.schemas.prediction import (
     PredictionPurgeCounts,
@@ -65,6 +66,29 @@ router = APIRouter()
 
 MAX_RETRY_COUNT = 3
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+
+
+async def _assert_can_manage_failed_prediction(
+    db: AsyncSession, fp: FailedPrediction, user: User
+) -> None:
+    """Failed-prediction retry/dismiss/restore management is project-bound.
+
+    A platform project administrator retains management only over projects they
+    own; a super administrator manages every project.  A membership in another
+    owner's project grants no management.
+    """
+
+    if user.role == UserRole.SUPER_ADMIN.value:
+        return
+    project = await db.get(Project, fp.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    access = await resolve_project_access(db, user=user, project=project)
+    if access.is_manager:
+        return
+    raise HTTPException(
+        status_code=403, detail="仅项目负责人或超级管理员可管理失败预测"
+    )
 
 
 class FailedPredictionItem(BaseModel):
@@ -110,29 +134,34 @@ async def list_failed_predictions(
         description="v0.8.8 · true 时同时返回已 dismiss 的失败预测；默认隐藏",
     ),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(*_MANAGERS)),
+    actor: User = Depends(require_roles(*_MANAGERS)),
 ):
     base_filter = (
         FailedPrediction.dismissed_at.is_(None) if not include_dismissed else None
     )
 
     count_q = select(func.count()).select_from(FailedPrediction)
-    if base_filter is not None:
-        count_q = count_q.where(base_filter)
-    total = (await db.execute(count_q)).scalar() or 0
-
     rows_q = (
         select(FailedPrediction, Task, Project, MLBackend)
         .outerjoin(Task, Task.id == FailedPrediction.task_id)
         .outerjoin(Project, Project.id == FailedPrediction.project_id)
         .outerjoin(MLBackend, MLBackend.id == FailedPrediction.ml_backend_id)
         .order_by(desc(FailedPrediction.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
     )
+    if actor.role == UserRole.PROJECT_ADMIN.value:
+        # A platform project administrator's global list covers only their own
+        # projects; an explicit other-owner project cannot be enumerated here.
+        owned_project_ids = select(Project.id).where(Project.owner_id == actor.id)
+        count_q = count_q.where(FailedPrediction.project_id.in_(owned_project_ids))
+        rows_q = rows_q.where(FailedPrediction.project_id.in_(owned_project_ids))
     if base_filter is not None:
+        count_q = count_q.where(base_filter)
         rows_q = rows_q.where(base_filter)
-    rows = (await db.execute(rows_q)).all()
+    total = (await db.execute(count_q)).scalar() or 0
+
+    rows = (
+        await db.execute(rows_q.offset((page - 1) * page_size).limit(page_size))
+    ).all()
 
     items: list[FailedPredictionItem] = []
     for fp, t, p, b in rows:
@@ -172,6 +201,7 @@ async def retry_failed_prediction(
     fp = await db.get(FailedPrediction, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
+    await _assert_can_manage_failed_prediction(db, fp, current_user)
     if fp.dismissed_at is not None:
         raise HTTPException(
             status_code=409,
@@ -238,6 +268,7 @@ async def dismiss_failed_prediction(
     fp = await db.get(FailedPrediction, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
+    await _assert_can_manage_failed_prediction(db, fp, current_user)
     if fp.dismissed_at is None:
         fp.dismissed_at = datetime.now(timezone.utc)
         await AuditService.log(
@@ -275,6 +306,7 @@ async def restore_failed_prediction(
     fp = await db.get(FailedPrediction, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
+    await _assert_can_manage_failed_prediction(db, fp, current_user)
     if fp.dismissed_at is not None:
         fp.dismissed_at = None
         await AuditService.log(

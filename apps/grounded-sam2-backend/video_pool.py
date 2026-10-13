@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from managed_pool import (
+from aap_backend_runtime import (
     BuildArtifact,
     ManagedBuildTimeout,
     ManagedLruPool,
@@ -58,6 +58,7 @@ class VideoPool:
             build_timeout=build_timeout,
             build_serial_lock=build_serial_lock,
             pool_name="video model pool",
+            logger_name="grounded-sam2-backend.managed-pool",
         )
 
     def _build(self, sam_variant: str) -> BuildArtifact[SAM2VideoTracker]:

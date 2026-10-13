@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
@@ -494,8 +495,16 @@ export function StorageConnectionsPanel({
     });
   };
 
-  const removeConnection = (conn: StorageConnection) => {
-    if (!window.confirm(`删除连接器 "${conn.name}"？`)) return;
+  const removeConnection = async (conn: StorageConnection) => {
+    if (
+      !(await confirmDialog({
+        tone: "danger",
+        title: "删除连接器",
+        description: `将删除连接器「${conn.name}」，删除后不可恢复。`,
+        confirmLabel: "删除",
+      }))
+    )
+      return;
     deleteMutation.mutate(conn.id, {
       onSuccess: () => pushToast({ msg: "连接器已删除", kind: "success" }),
       onError: (error) =>

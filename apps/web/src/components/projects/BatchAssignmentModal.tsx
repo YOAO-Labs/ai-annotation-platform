@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "clsx";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Icon } from "@/components/ui/Icon";
 import { Badge } from "@/components/ui/Badge";
 import { useToastStore } from "@/components/ui/Toast";
@@ -189,7 +189,15 @@ function Column({
   roleColor,
 }: {
   title: string;
-  members: { id: string; user_id: string; user_name: string; user_email: string; role: string }[];
+  members: {
+    id: string;
+    user_id: string;
+    user_name: string;
+    user_email: string;
+    role: string;
+    /** 头像引用；结构上是 ProjectMemberResponse 的子集，缺省 = 回退首字母。 */
+    avatar_ref?: string | null;
+  }[];
   selectedId: string | null;
   onSelect: (userId: string | null) => void;
   roleColor: "accent" | "warning";
@@ -226,7 +234,10 @@ function Column({
             <span className={clsx(styles.radioMark, checked && styles.radioMarkChecked)}>
               {checked && <span className={styles.radioMarkInner} />}
             </span>
-            <Avatar initial={(m.user_name || "?").slice(0, 1).toUpperCase()} size="sm" />
+            <UserAvatar
+              size="sm"
+              user={{ name: m.user_name, email: m.user_email, avatar_ref: m.avatar_ref }}
+            />
             <span className={styles.memberText}>
               <span className={styles.memberName}>{m.user_name}</span>
               <span className={styles.memberEmail}>{m.user_email}</span>

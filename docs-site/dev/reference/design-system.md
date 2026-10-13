@@ -3,7 +3,7 @@ title: Design System
 audience: [developer]
 type: reference
 status: stable
-last_reviewed: 2026-07-11
+last_reviewed: 2026-09-17
 ---
 
 # Design System
@@ -18,22 +18,27 @@ Shared filter controls, applied URL state, and query/action scopes are described
 
 `shadcn.css` is the single source of truth for neutral surfaces, text, borders, radii, focus rings, and canvas-only theme values.
 
-| Purpose         | Token / class                                                           |
-| --------------- | ----------------------------------------------------------------------- |
-| Page background | `--sc-background` / `bg-background`                                     |
-| Card surface    | `--sc-card` / `bg-card`                                                 |
-| Popover surface | `--sc-popover` / `bg-popover`                                           |
-| Primary text    | `--sc-foreground` / `text-foreground`                                   |
-| Secondary text  | `--sc-muted-foreground` / `text-muted-foreground`                       |
-| Muted surface   | `--sc-muted` / `bg-muted`                                               |
-| Hairline border | `--sc-border` / `border-border`                                         |
-| Primary action  | `--sc-primary` / `bg-primary text-primary-foreground`                   |
-| Brand accent    | `--sc-brand` / `text-brand bg-brand`                                    |
-| Danger status   | `--sc-status-danger` / `text-status-danger bg-status-danger-soft`       |
-| Caution status  | `--sc-status-caution` / `text-status-caution bg-status-caution-soft`    |
-| Positive status | `--sc-status-positive` / `text-status-positive bg-status-positive-soft` |
-| Info status     | `--sc-status-info` / `text-status-info bg-status-info-soft`             |
-| Info alternate  | `--sc-status-info-alt` / `text-status-info-alt bg-status-info-alt-soft` |
+| Purpose               | Token / class                                                           |
+| --------------------- | ----------------------------------------------------------------------- |
+| Page background       | `--sc-background` / `bg-background`                                     |
+| Card surface          | `--sc-card` / `bg-card`                                                 |
+| Popover surface       | `--sc-popover` / `bg-popover`                                           |
+| Primary text          | `--sc-foreground` / `text-foreground`                                   |
+| Secondary text        | `--sc-muted-foreground` / `text-muted-foreground`                       |
+| Muted surface         | `--sc-muted` / `bg-muted`                                               |
+| Hairline border       | `--sc-border` / `border-border`                                         |
+| Primary action        | `--sc-primary` / `bg-primary text-primary-foreground`                   |
+| Brand accent          | `--sc-brand` / `text-brand bg-brand`                                    |
+| Danger status         | `--sc-status-danger` / `text-status-danger bg-status-danger-soft`       |
+| Caution status        | `--sc-status-caution` / `text-status-caution bg-status-caution-soft`    |
+| Positive status       | `--sc-status-positive` / `text-status-positive bg-status-positive-soft` |
+| Info status           | `--sc-status-info` / `text-status-info bg-status-info-soft`             |
+| Info alternate        | `--sc-status-info-alt` / `text-status-info-alt bg-status-info-alt-soft` |
+| Search highlight      | `--sc-mark` / `bg-mark text-mark-foreground`                            |
+| Stage: image          | `--sc-stage-image` / `text-stage-image bg-stage-image-soft`             |
+| Stage: video          | `--sc-stage-video` / `text-stage-video bg-stage-video-soft`             |
+| Stage: 3D/point cloud | `--sc-stage-threed` / `text-stage-threed bg-stage-threed-soft`          |
+| Overlay blur          | `--sc-overlay-blur` / `backdrop-blur-overlay`                           |
 
 Dark mode is driven by `<html data-theme="dark">`. `shadcn.css` redirects Tailwind's `dark:` variant to that attribute, so components should use `dark:` classes rather than a `.dark` class.
 
@@ -50,6 +55,8 @@ Neutral UI should stay neutral. Use color only for meaning:
 | Information / counts  | `sky`     | `bg-status-info-alt-soft text-status-info-alt` |
 
 Status chips should use the semantic soft background, the matching status text utility, and a small `bg-current` dot when a quick scan cue helps. Do not write paired hue classes such as `text-rose-600 dark:text-rose-400`; the status utilities read theme tokens from `shadcn.css`.
+
+Search hits in list panels use `bg-mark text-mark-foreground` (solid warm background with dark text) so they stay legible on both themes. The stage colors (`image` / `video` / `threed`) are a separate meaning from status: they only distinguish which workbench the pending commands apply to when a view mixes stages (for example the shortcut panel's "all types" filter). Do not reuse them for state. Every centered overlay uses the single `backdrop-blur-overlay` utility so the workbench's floating panels and app modals blur the backdrop to the same degree. The 3D/point-cloud workbench keeps the dim without the blur: backdrop-filtering a live software-rendered canvas stalls compositor cleanup, so those panels use the no-blur overlay variant.
 
 ## Type Scale
 
@@ -94,6 +101,12 @@ Use semantic z utilities instead of raw numeric z-index classes:
 - Do not add raw numeric `z-N` / `z-[N]` classes. Use the semantic z utilities above.
 - Use shadcn/ui primitives from `apps/web/src/components/shadcn/ui/` for low-level behavior where possible.
 - Keep existing `@/components/ui/*` adapters only when they preserve the current app API; they should delegate to shadcn/Radix behavior or Tailwind classes internally.
+
+## Decision dialogs
+
+Blocking decisions — confirms, destructive actions, multi-choice steps, and required-reason input — use one shared capability: `@/components/ui/decisionDialog` (`confirmDialog` / `choiceDialog` / `inputDialog` / `alertDialog`), rendered by a single `<DecisionDialogHost />`. The host mounts next to both `ToastRack` sites in `App.tsx` so the full-screen Workbench routes are covered without `AppShell`. Content dialogs (forms, previews, multi-section panels) remain `components/ui/Modal`. `beforeunload` stays native because the browser requires that dialog to be synchronous.
+
+One capability, one visual language: never introduce a second confirm / alert / reason surface. An eslint `no-restricted-properties` rule (error) bans `window.confirm` / `window.alert` / `window.prompt` call sites in `apps/web/src`, with test files exempt. Copy follows an action–object–consequence voice: the title states the action and object (`删除数据集`), the description states the consequence and scope, and the confirm button uses the verb. Danger tone is restrained — a status-colored icon and confirm button over a soft danger icon container (`text-status-danger bg-status-danger-soft`), never full-bleed red. Destructive dialogs focus Cancel by default and neutral ones focus Confirm; Esc and overlay click cancel. Callers keep owning their pending states — the service resolves before the action runs — and results still surface through `Toast`.
 
 ## Filter presentation
 

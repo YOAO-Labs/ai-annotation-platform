@@ -1,7 +1,7 @@
 {
   "name": "@anno/web",
   "private": true,
-  "version": "0.25.3",
+  "version": "0.26.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:visual": "playwright test --config=playwright.extended.config.ts --grep @visual",
-    "test:e2e:stress": "playwright test --config=playwright.extended.config.ts --grep @stress",
+    "test:e2e:stress": "playwright test --config=playwright.stress.config.ts",
     "test:e2e:mask-readonly": "PLAYWRIGHT_RASTER_MASK_MATRIX=readonly playwright test e2e/tests/raster-mask-native.spec.ts --project=chromium",
     "test:e2e:mask-native": "PLAYWRIGHT_RASTER_MASK_MATRIX=native playwright test e2e/tests/raster-mask-native.spec.ts e2e/tests/mask-advanced-operations.spec.ts --project=chromium",
     "test:e2e:mask-ai-native": "PLAYWRIGHT_RASTER_MASK_MATRIX=native playwright test e2e/tests/native-mask-ai.spec.ts e2e/tests/video-tracker-local-review.spec.ts --project=chromium",
@@ -46,7 +46,8 @@
     "mask:large-canvas-bench": "node scripts/benchmark-mask-large-canvas.mjs",
     "mask:packed-cpu-bench": "node scripts/benchmark-mask-packed-cpu.mjs",
     "mask:webgpu-operation-bench": "node scripts/benchmark-mask-webgpu-operation.mjs",
-    "mask:webgpu-separable-bench": "node scripts/benchmark-mask-webgpu-separable.mjs"
+    "mask:webgpu-separable-bench": "node scripts/benchmark-mask-webgpu-separable.mjs",
+    "gen:avatars": "node scripts/gen-pixel-avatars.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
@@ -90,6 +91,8 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@dicebear/core": "^10.7.0",
+    "@dicebear/styles": "^10.6.0",
     "@eslint/js": "^9.16.0",
     "@hey-api/openapi-ts": "^0.55.0",
     "@playwright/test": "^1.49.0",

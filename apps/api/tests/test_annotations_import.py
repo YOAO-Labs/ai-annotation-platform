@@ -33,6 +33,7 @@ from app.db.models.task import Task
 from app.services.annotations_import import import_aap_json_annotations
 from app.services.task_dataset_link import link_items
 from tests.test_track_operations import _seed_scene
+from tests.factory import create_membership, build_tool_bindings
 
 pytestmark = pytest.mark.asyncio
 
@@ -57,8 +58,7 @@ async def _seed_project_with_tasks(
         type_label="测试",
         owner_id=owner_id,
         status="in_progress",
-        classes=["car", "truck"],
-        tool_bindings=tool_bindings or {},
+        tool_bindings=tool_bindings or build_tool_bindings(["car", "truck"]),
     )
     db.add(project)
     await db.flush()
@@ -1025,6 +1025,12 @@ async def test_import_annotations_forbidden_for_annotator(
     user, _ = super_admin
     project, tasks = await _seed_project_with_tasks(db_session, user.id)
     _annotator_user, annotator_token = annotator
+    # Visible project member with the annotator role: import stays a management
+    # capability, so the denial must be 403 rather than an invisible 404.
+    await create_membership(
+        db_session, project_id=project.id, user_id=_annotator_user.id, role="annotator"
+    )
+    await db_session.flush()
     headers = {"Authorization": f"Bearer {annotator_token}"}
 
     payload = _aap_envelope(

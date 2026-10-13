@@ -1,4 +1,4 @@
-"""v0.10.0 (vendor-aligned) · SAM3Predictor 行为单测.
+"""SAM3Predictor 行为单测 (vendor-aligned).
 
 绕开 __init__ 真实加载 (无 GPU + 不要触发 build_sam3_image_model 真实拉权重),
 手工挂 mock Sam3Processor; 验证:
@@ -164,7 +164,7 @@ def test_exemplar_score_threshold_override(predictor_with_mocks, fake_image):
     assert inst._processor.confidence_threshold == 0.85
 
 
-# ---------- predict_exemplars (v0.18.19 · 多正负框 + text 组合) ----------
+# ---------- predict_exemplars (多正负框 + text 组合) ----------
 
 
 def test_exemplars_multi_box_accumulated(predictor_with_mocks, fake_image):
@@ -438,7 +438,7 @@ def test_reset_called_before_and_after_prompt(predictor_with_mocks, fake_image):
     assert inst._processor.reset_all_prompts.call_count == 2
 
 
-# ---------- predict_interactive (v0.18.17 · SAM-style point / interactive_box) ----------
+# ---------- predict_interactive (SAM-style point / interactive_box) ----------
 
 
 def _fake_inst_output(num: int):
@@ -478,7 +478,7 @@ def test_interactive_point_returns_polygon(predictor_with_mocks, fake_image):
     assert len(results) == 1
     assert results[0]["type"] == "polygonlabels"
     assert results[0]["value"]["polygonlabels"] == ["object"]
-    # v0.18.18 · 单点单 mask (multimask=False) 回灌 low-res logits.
+    # 单点单 mask (multimask=False) 回灌 low-res logits.
     assert isinstance(mask_next, str) and mask_next
 
 
@@ -593,7 +593,7 @@ def test_interactive_multimask_sorted_by_iou(predictor_with_mocks, fake_image):
     scores = [r["score"] for r in results]
     assert scores == sorted(scores, reverse=True)
     assert scores[0] == pytest.approx(0.95)
-    # v0.18.18 · 多候选阶段 index 歧义 → 不回灌 mask_input_next.
+    # 多候选阶段 index 歧义 → 不回灌 mask_input_next.
     assert mask_next is None
 
 

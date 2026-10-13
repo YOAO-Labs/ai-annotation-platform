@@ -307,6 +307,12 @@ POST /api/v1/tasks/{task_id}/annotations/video/track-compositions
 
 accept 成功后才 invalidate annotation query；discard 只清前端候选和后端 staged result。该 job 级候选与 `usePredictions` 管理的单 shape Prediction 候选是两条独立状态。完整状态机、能力路由与多目标落库见[视频 AI 追踪架构](./video-ai-tracking)。
 
+### PVS 种子采集与传播对话框
+
+`state/useTrackerSeedCollection.ts` 持有「落点选目标」工作流：点/框种子列表（每颗带目标序号 obj、落点帧 frame）、当前目标与锚点帧、采集会话（临时借用 smart-point/smart-box 工具，退出恢复原工具），以及传播对话框的生命周期（无源检测 / 单源延展 / ≥2 条多选批量）。提交前由纯模块 `state/trackerSeedPrompts.ts` 把种子按 obj → frame 分组成多帧 prompts（xyxy 框归一化为后端 {x,y,w,h}，两级均数值排序保证 payload 确定，从而幂等键不依赖收集顺序）。
+
+归属边界：面板显隐命令归工作区布局域、章节圈选解除与刷选范围归时间轴章节域、临时工具准入归 `useVideoToolCommands`——本模块只调用注入的窄命令。画布手势通过 `collectPoint` / `collectBox` 归集，不直接改写种子列表。对话框提交成功后挂上 jobId 就地转「追踪中…」，仅当该 job 出候选、失败或被清理时关闭，运行中不因重渲染丢失。
+
 ## Video Tracks JSON 导出
 
 `video-track` 项目可通过现有导出入口拿到专用 JSON：
@@ -388,7 +394,7 @@ GET /api/v1/projects/{project_id}/batches/{batch_id}/export?format=coco&video_fr
 - `Ctrl+Delete` / `Ctrl+Backspace` 删除整条选中轨迹
 - `Tab` / `Shift+Tab` 循环轨迹
 - `Esc` 取消选择
-- `1-9` 有选中视频对象时改其 `class_name`；无选中时切 active class
+- `1-9`、`0` 有选中视频对象时改其 `class_name`；无选中时切 active class（按项目类别顺序取前十个）
 
 视频任务使用自己的 polygon / polyline 与交互式 AI 工具入口：智能点、智能框、Exemplar 在当前帧生成 `video_polygon`，Magic Box 生成 `video_bbox`；切帧会清理帧绑定的瞬态候选。图片专用 canvas 工具不会直接挂进视频 Stage。视频 AI 追踪配置面板与 job 审阅条由 `WorkbenchShell` 经 `stageOverlay` 渲染；配置面板以中间 stage 为局部定位容器，使拖动、缩放和边界夹取始终限定在画布内。左侧队列、顶部提交/审核、右侧属性面板、评论、任务锁和离线队列继续复用同一个 Workbench 外壳。
 

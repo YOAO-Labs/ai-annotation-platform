@@ -34,6 +34,11 @@ export function Thumbnail({
   const rootRef = useElementStyle<HTMLDivElement>(rootStyle);
 
   useEffect(() => {
+    setLoaded(false);
+    setErrored(false);
+  }, [blurhash, src]);
+
+  useEffect(() => {
     if (!blurhash || !canvasRef.current) return;
     import("blurhash")
       .then(({ decode }) => {

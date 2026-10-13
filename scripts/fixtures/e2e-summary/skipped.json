@@ -1,0 +1,104 @@
+{
+  "config": {
+    "configFile": "/tmp/opencode/p8-fixture-gen/playwright.config.ts",
+    "rootDir": "/tmp/opencode/p8-fixture-gen/tests",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/opencode/p8-fixture-gen/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/tmp/opencode/p8-fixture-gen/tests",
+        "testIgnore": [],
+        "testMatch": ["**/*.@(spec|test).?(c|m)[jt]s?(x)"],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "skipped.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.59.1",
+    "workers": 56,
+    "webServer": null
+  },
+  "stats": {
+    "startTime": "2026-09-20T11:11:56.714Z",
+    "duration": 201.32499999999982,
+    "expected": 0,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "errors": [],
+  "suites": [
+    {
+      "title": "skipped.spec.ts",
+      "file": "skipped.spec.ts",
+      "specs": [
+        {
+          "title": "intentionally skipped",
+          "ok": true,
+          "id": "d8d28d37d76e8a5d8285-cb509b03104efa02d21a",
+          "file": "skipped.spec.ts",
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "skip",
+                  "location": {
+                    "file": "/tmp/opencode/p8-fixture-gen/tests/skipped.spec.ts",
+                    "line": 2,
+                    "column": 6
+                  }
+                }
+              ],
+              "expectedStatus": "skipped",
+              "projectId": "chromium",
+              "results": [
+                {
+                  "status": "skipped",
+                  "duration": 0,
+                  "retry": 0,
+                  "error": null
+                }
+              ],
+              "status": "skipped"
+            }
+          ]
+        }
+      ],
+      "suites": []
+    }
+  ]
+}

@@ -26,6 +26,7 @@ from app.services.image_pyramid import (
 )
 from app.services.storage import StorageService
 from app.workers import image_pyramid as image_pyramid_worker
+from tests.factory import build_tool_bindings
 
 
 async def _make_image_task(db_session, owner_id, *, width=8193, height=6145):
@@ -35,7 +36,7 @@ async def _make_image_task(db_session, owner_id, *, width=8193, height=6145):
         type_key="image-segmentation",
         type_label="Image",
         owner_id=owner_id,
-        classes=["defect"],
+        tool_bindings=build_tool_bindings(["defect"], unit="region"),
     )
     dataset = Dataset(
         display_id=f"D-PYR-{uuid.uuid4().hex[:6]}",
@@ -198,7 +199,7 @@ async def test_prepare_generation_is_singleflight_and_fences_source_replacement(
 
 
 async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_image_task(db_session, user.id)
@@ -258,12 +259,12 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     )
     headers = {"Authorization": f"Bearer {token}"}
 
-    unauthorized_response = await httpx_client_bound.get(
+    unauthorized_response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/image-pyramid"
     )
     assert unauthorized_response.status_code == 401
 
-    manifest_response = await httpx_client_bound.get(
+    manifest_response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/image-pyramid", headers=headers
     )
     assert manifest_response.status_code == 200
@@ -273,7 +274,7 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     assert "image-pyramids/" not in str(body["manifest"])
     assert manifest_response.headers["etag"].startswith('"pyramid-1-')
 
-    not_modified_response = await httpx_client_bound.get(
+    not_modified_response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/image-pyramid",
         headers={
             **headers,
@@ -288,7 +289,7 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
         {"kind": "overview", "generation": 1},
         {"kind": "tile", "generation": 1, "level": 0, "x": 0, "y": 0},
     ]
-    urls_response = await httpx_client_bound.post(
+    urls_response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
         headers=headers,
         json={"items": items},
@@ -299,7 +300,7 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
         "tile",
     ]
 
-    invalid_response = await httpx_client_bound.post(
+    invalid_response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
         headers=headers,
         json={
@@ -309,7 +310,7 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     assert invalid_response.status_code == 422
     assert invalid_response.json()["detail"]["reason"] == "invalid_coordinate"
 
-    stale_generation_response = await httpx_client_bound.post(
+    stale_generation_response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
         headers=headers,
         json={"items": [{"kind": "overview", "generation": 2}]},
@@ -324,7 +325,7 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
         "app.api.v1.tasks.image_pyramid.storage_service.verify_upload",
         lambda key, bucket=None: False,
     )
-    missing_object_response = await httpx_client_bound.post(
+    missing_object_response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
         headers=headers,
         json={"items": [{"kind": "overview", "generation": 1}]},
@@ -339,7 +340,7 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
 
 
 async def test_source_replacement_invalidates_ready_generation(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_image_task(db_session, user.id)
@@ -371,7 +372,7 @@ async def test_source_replacement_invalidates_ready_generation(
         lambda owner, generation: False,
     )
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/image-pyramid",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -453,7 +454,7 @@ async def test_reconcile_removes_processed_failed_generation(
 
 
 async def test_retry_is_idempotent_while_generation_is_pending(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_image_task(db_session, user.id)
@@ -479,7 +480,7 @@ async def test_retry_is_idempotent_while_generation_is_pending(
         lambda *args, **kwargs: pytest.fail("pending generation must not enqueue"),
     )
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/image-pyramid/retry",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -492,7 +493,7 @@ async def test_retry_is_idempotent_while_generation_is_pending(
 
 
 async def test_task_summary_is_lightweight(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_image_task(db_session, user.id)
@@ -525,7 +526,7 @@ async def test_task_summary_is_lightweight(
         lambda *args, **kwargs: "https://storage.invalid/source",
     )
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}",
         headers={"Authorization": f"Bearer {token}"},
     )

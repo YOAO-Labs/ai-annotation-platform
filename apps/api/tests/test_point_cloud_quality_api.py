@@ -10,7 +10,6 @@ from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.point_cloud_quality import PointCloudQualityIssue
-from app.db.models.project_member import ProjectMember
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.schemas._jsonb_types import SensorCalibration
@@ -31,7 +30,7 @@ from app.workers.point_cloud_quality import (
     _normalize_points,
     execute_scan,
 )
-from tests.factory import create_project
+from tests.factory import create_membership, create_project
 
 
 def _box(center_x: float = 0) -> dict:
@@ -514,12 +513,8 @@ async def test_quality_api_lists_locates_and_requires_wont_fix_reason(
         },
         "body": "复核后确认稀疏回波",
     }
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=other_user.id,
-            role="annotator",
-        )
+    await create_membership(
+        db_session, project_id=project.id, user_id=other_user.id, role="annotator"
     )
     await db_session.commit()
     response = await httpx_client.post(

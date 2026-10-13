@@ -1,0 +1,139 @@
+{
+  "config": {
+    "configFile": "/tmp/opencode/p8-fixture-gen/playwright.config.ts",
+    "rootDir": "/tmp/opencode/p8-fixture-gen/tests",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 1,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/opencode/p8-fixture-gen/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/tmp/opencode/p8-fixture-gen/tests",
+        "testIgnore": [],
+        "testMatch": ["**/*.@(spec|test).?(c|m)[jt]s?(x)"],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "maxfailures.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.59.1",
+    "workers": 56,
+    "webServer": null
+  },
+  "stats": {
+    "startTime": "2026-09-20T11:11:59.095Z",
+    "duration": 3482.5719999999997,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "errors": [
+    {
+      "message": "\u001b[31mTesting stopped early after 1 maximum allowed failures.\u001b[39m"
+    }
+  ],
+  "suites": [
+    {
+      "title": "maxfailures-a.spec.ts",
+      "file": "maxfailures-a.spec.ts",
+      "specs": [
+        {
+          "title": "first fails",
+          "ok": false,
+          "id": "7f7757b8ca057c670ee7-3f49c22cbd2ca26c6f42",
+          "file": "maxfailures-a.spec.ts",
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 8,
+                  "retry": 0,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"b\"\u001b[39m\nReceived: \u001b[31m\"a\"\u001b[39m"
+                  }
+                },
+                {
+                  "status": "failed",
+                  "duration": 10,
+                  "retry": 1,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"b\"\u001b[39m\nReceived: \u001b[31m\"a\"\u001b[39m"
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ]
+        }
+      ],
+      "suites": []
+    },
+    {
+      "title": "maxfailures-b.spec.ts",
+      "file": "maxfailures-b.spec.ts",
+      "specs": [
+        {
+          "title": "never runs due to max-failures",
+          "ok": true,
+          "id": "9154d60c172ed2d91559-6c4a26042e96a5a85abb",
+          "file": "maxfailures-b.spec.ts",
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "results": [
+                {
+                  "status": "passed",
+                  "duration": 7,
+                  "retry": 0,
+                  "error": null
+                }
+              ],
+              "status": "expected"
+            }
+          ]
+        }
+      ],
+      "suites": []
+    }
+  ]
+}

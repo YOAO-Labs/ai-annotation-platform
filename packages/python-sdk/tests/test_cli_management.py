@@ -90,6 +90,8 @@ def test_members_add_and_remove(respx_mock):
         "user_name": "李四",
         "user_email": "li@example.com",
         "role": "reviewer",
+        "platform_role": "employee",
+        "version": 1,
         "assigned_at": "2026-08-14T00:00:00Z",
     }
     add_route = respx_mock.post(f"{API}/projects/{PROJECT_ID}/members").mock(
@@ -122,6 +124,126 @@ def test_members_add_and_remove(respx_mock):
     )
     assert result.exit_code == 0
     assert remove_route.called
+
+
+def test_members_add_viewer_role(respx_mock):
+    user_id = str(uuid4())
+    member = {
+        "id": str(uuid4()),
+        "user_id": user_id,
+        "user_name": "观察者",
+        "user_email": "viewer@example.com",
+        "role": "viewer",
+        "platform_role": "viewer",
+        "version": 1,
+        "assigned_at": "2026-08-14T00:00:00Z",
+    }
+    route = respx_mock.post(f"{API}/projects/{PROJECT_ID}/members").mock(
+        return_value=httpx.Response(201, json=member)
+    )
+    result = runner.invoke(
+        app,
+        [
+            "members",
+            "add",
+            PROJECT_ID,
+            "--user-id",
+            user_id,
+            "--role",
+            "viewer",
+            "--json",
+        ],
+        env=ENV,
+    )
+    assert result.exit_code == 0
+    assert json.loads(route.calls.last.request.content)["role"] == "viewer"
+
+
+def test_members_preview_and_change_role(respx_mock):
+    member_id = str(uuid4())
+    user_id = str(uuid4())
+    preview_route = respx_mock.post(
+        f"{API}/projects/{PROJECT_ID}/members/{member_id}/role/preview"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "member_id": member_id,
+                "user_id": user_id,
+                "current_role": "annotator",
+                "current_version": 2,
+                "target_role": "reviewer",
+                "requires_handoff": False,
+                "blockers": [],
+                "blocker_details": [],
+                "resource_snapshot": {},
+                "preview_token": "tok-9",
+            },
+        )
+    )
+    preview = runner.invoke(
+        app,
+        [
+            "members",
+            "preview-role",
+            PROJECT_ID,
+            member_id,
+            "--role",
+            "reviewer",
+            "--json",
+        ],
+        env=ENV,
+    )
+    assert preview.exit_code == 0
+    assert json.loads(preview.stdout)["preview_token"] == "tok-9"
+    assert json.loads(preview_route.calls.last.request.content) == {
+        "project_role": "reviewer"
+    }
+
+    change_route = respx_mock.patch(
+        f"{API}/projects/{PROJECT_ID}/members/{member_id}/role"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": member_id,
+                "user_id": user_id,
+                "user_name": "李四",
+                "user_email": "li@example.com",
+                "role": "reviewer",
+                "platform_role": "employee",
+                "version": 3,
+                "assigned_at": "2026-08-14T00:00:00Z",
+            },
+        )
+    )
+    args = [
+        "members",
+        "change-role",
+        PROJECT_ID,
+        member_id,
+        "--role",
+        "reviewer",
+        "--expected-version",
+        "2",
+        "--preview-token",
+        "tok-9",
+        "--reason",
+        "rebalance workload",
+        "--json",
+    ]
+    guarded = runner.invoke(app, args, env=ENV)
+    assert guarded.exit_code == 2
+    assert "--yes" in guarded.output
+    assert not change_route.called
+
+    result = runner.invoke(app, [*args, "--yes"], env=ENV)
+    assert result.exit_code == 0
+    body = json.loads(change_route.calls.last.request.content)
+    assert body["expected_version"] == 2
+    assert body["preview_token"] == "tok-9"
+    assert body["reason"] == "rebalance workload"
+    assert json.loads(result.stdout)["role"] == "reviewer"
 
 
 def test_datasets_update_items_projects_and_preview(respx_mock):

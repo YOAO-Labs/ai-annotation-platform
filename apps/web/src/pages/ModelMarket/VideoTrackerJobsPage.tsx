@@ -238,7 +238,7 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <FilterGroup label="筛选" compact>
+          <FilterGroup label="筛选" hideLabel compact>
             <FilterSelect
               aria-label="筛选视频项目"
               value={selectedProjectId}

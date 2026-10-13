@@ -221,3 +221,13 @@ export const ANCHOR_CLASS: Record<Anchor, string> = {
   "bottom-right": "bottom-[30%] right-3 flex-col",
   overflow: "bottom-3 left-0 right-0 justify-center flex-row",
 };
+
+/** Camera overlay navigation must leave task and propagation shortcuts to their owners. */
+export function enlargedCameraNavigationDirection(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
+): -1 | 1 | null {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
+  if (event.key === "ArrowLeft") return -1;
+  if (event.key === "ArrowRight") return 1;
+  return null;
+}

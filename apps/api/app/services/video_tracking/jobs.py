@@ -32,7 +32,7 @@ from app.schemas.video_tracker_job import (
     VideoTrackerJobOut,
     VideoTrackerPropagateRequest,
 )
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
     collaboration_config,

@@ -2,8 +2,8 @@
 
 挂载于 /projects/{project_id}/guide-assets/* 之下. 与 datasets items
 upload 链路同结构但 storage prefix 独立 (projects/{id}/guide/...), 不污染
-dataset_items 表. 权限要求 project owner 或 super_admin (与 ProjectSettings
-入口对齐).
+dataset_items 表. 读取沿用项目可见性；上传和删除仅限 project owner 或
+super_admin (与 ProjectSettings 入口对齐).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.deps import get_db, require_project_owner
+from app.deps import get_db, require_project_owner, require_project_visible
 from app.schemas.guide_asset import (
     ALLOWED_GUIDE_ASSET_TYPES,
     MAX_GUIDE_ASSET_SIZE_BYTES,
@@ -146,7 +146,7 @@ async def guide_asset_delete(
 )
 async def guide_asset_sign_url(
     key: str,
-    project: Project = Depends(require_project_owner),
+    project: Project = Depends(require_project_visible),
     _: AsyncSession = Depends(get_db),
 ):
     _assert_key_belongs_to_project(key, project.id)

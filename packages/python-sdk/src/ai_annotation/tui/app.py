@@ -1,8 +1,8 @@
 """aap tui 监控面板 (Textual)。
 
 监控六视图: Projects / Datasets / Jobs / ML Backends / 看板 / 绩效; jobs 默认 3s 轮询。
-轻量动作 (v0.15.8): Projects tab `e` 发起导出, Jobs tab `c` 软取消 job, 均经二次确认弹窗。
-下钻子路由 (v0.15.10): 行选中 / `o` / 「打开」按钮 push 专属详情 Screen (面包屑 + 返回);
+轻量动作: Projects tab `e` 发起导出, Jobs tab `c` 软取消 job, 均经二次确认弹窗。
+下钻子路由: 行选中 / `o` / 「打开」按钮 push 专属详情 Screen (面包屑 + 返回);
 项目详情屏内嵌 概览 / 本项目任务 / 本项目 Backend 三个 scoped 子 tab。每个主 tab 顶部有动作按钮栏。
 SDK Client 是同步 httpx —— 所有网络调用放 thread worker, 经 call_from_thread 回 UI 线程。
 TUI 是 Client 公开 API 的纯消费方, 不碰 _http / 内部实现。
@@ -1035,7 +1035,7 @@ _ML_LIVE_CSS = (
 
 
 class MlBackendDetailScreen(Screen[None]):
-    """ML Backend 实时详情屏: WS 1s 推流 + 滚动曲线 (v0.15.12)。
+    """ML Backend 实时详情屏: WS 1s 推流 + 滚动曲线。
 
     进屏订阅 `/ws/ml-backend-stats` (触发后端 beat 采集), 离屏 cancel (DECR 停采)。
     WS 不可用 / 鉴权失败 → 顶部静态 REST 快照仍在, 状态行提示降级, 不崩。
@@ -1267,7 +1267,7 @@ class ProjectDetailScreen(Screen[None]):
         bat.fixed_columns = 1
         bat.border_title = "本项目批次"
         mt = self.query_one("#pd-members-table", DataTable)
-        mt.add_columns("用户", "邮箱", "角色", "加入时间")
+        mt.add_columns("用户", "邮箱", "项目角色", "平台角色", "加入时间")
         mt.fixed_columns = 1
         mt.border_title = "本项目成员"
         jt = self.query_one("#pd-jobs-table", DataTable)
@@ -1467,6 +1467,7 @@ class ProjectDetailScreen(Screen[None]):
                 m.user_name,
                 m.user_email,
                 m.role,
+                m.platform_role,
                 _fmt_dt(m.assigned_at),
                 key=str(m.id),
             )
@@ -2258,7 +2259,7 @@ class AapTuiApp(App[None]):
     def _load_ml_backends(self) -> None:
         """ml-backends 列表是 project-scoped: 遍历项目逐个聚合 (N+1, 单 worker 内串行)。
 
-        v0.19.1 · 全局注册表 (ADR-0044) 下同一物理 backend 可被多个项目启用, 逐项目
+        全局注册表 (ADR-0044) 下同一物理 backend 可被多个项目启用, 逐项目
         返回的是同一 registry id; 按 id 去重合并为一行 (累积所属项目), 既避免 DataTable
         同一 key 重复 add_row 崩溃, 也免得展示重复行。
         """

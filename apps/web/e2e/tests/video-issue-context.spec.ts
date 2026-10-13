@@ -1,4 +1,10 @@
-import { isVideoLifecycleCancellation } from "../helpers/video-request-errors";
+import {
+  isExpectedRequestAbort,
+  videoWorkbenchAborts,
+  type AbortAllowRule,
+  type RequestErrorSignal,
+} from "../helpers/request-errors";
+import { invalidSeekTarget, rangeValueForFrame } from "../helpers/video-timeline-seek";
 import { layoutCommand } from "../helpers/workbench-layout";
 import type { APIRequestContext, APIResponse, Browser, Page, Route } from "@playwright/test";
 import { randomUUID } from "node:crypto";
@@ -52,14 +58,6 @@ interface Track {
     outside: Array<{ from: number; to: number }>;
   };
 }
-interface EvidenceError {
-  kind: "page" | "console" | "http" | "request";
-  message: string;
-  method?: string;
-  path?: string;
-  status?: number;
-  body?: string;
-}
 interface IssueCase {
   data: SeedData;
   taskId: string;
@@ -84,18 +82,45 @@ const isFixtureMedia = (url: URL, fixture: string) =>
   url.pathname.includes(`/e2e/video/webcodecs/${fixture}/`) &&
   /\/(?:source|chunk-\d+)\.mp4$/.test(url.pathname);
 
-function expectedRequestAbort(error: EvidenceError, fixture: IssueCase) {
-  if (isVideoLifecycleCancellation(error)) return true;
-  if (error.kind !== "request" || error.message !== "net::ERR_ABORTED" || !error.path) return false;
-  if (error.method === "DELETE")
-    return (
-      (fixture.mediaLatency && /^\/api\/v1\/tasks\/[0-9a-f-]{36}\/lock$/.test(error.path)) ||
-      fixture.navigatedTaskIds.some((id) => error.path === `/api/v1/tasks/${id}/lock`)
+/** Fixture-specific cancellations beyond the shared workbench policy. */
+function fixtureAbortRules(fixture: IssueCase): AbortAllowRule[] {
+  const rules: AbortAllowRule[] = [];
+  if (fixture.mediaLatency) {
+    rules.push(
+      {
+        method: "DELETE",
+        path: /^\/api\/v1\/tasks\/[0-9a-f-]{36}\/lock$/,
+        reason: "navigation may cancel the lock release while media is still decoding",
+      },
+      {
+        method: "GET",
+        path: new RegExp(
+          `/e2e/video/webcodecs/${fixture.fixtureName}/(?:source|chunk-\\d+)\\.mp4$`,
+        ),
+        reason: "retiring the task aborts in-flight fixture media fetches",
+      },
     );
-  if (error.method !== "GET") return false;
-  if (fixture.actorChanged && ["/api/v1/projects", "/api/v1/audit-logs"].includes(error.path))
-    return true;
-  return fixture.mediaLatency && isFixtureMedia(new URL(error.path, API_BASE), fixture.fixtureName);
+  }
+  for (const id of fixture.navigatedTaskIds)
+    rules.push({
+      method: "DELETE",
+      path: `/api/v1/tasks/${id}/lock`,
+      reason: "navigation away from a visited task may cancel its lock release",
+    });
+  if (fixture.actorChanged)
+    rules.push(
+      {
+        method: "GET",
+        path: "/api/v1/projects",
+        reason: "actor switch retires the previous session's project list query",
+      },
+      {
+        method: "GET",
+        path: "/api/v1/audit-logs",
+        reason: "actor switch retires the previous session's audit-log query",
+      },
+    );
+  return rules;
 }
 
 async function json<T>(response: APIResponse): Promise<T> {
@@ -162,7 +187,7 @@ async function graphicsEvidence(browser: Browser, page: Page) {
 const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
   videoFixture: [MAIN_FIXTURE, { option: true }],
   issueCase: async ({ page, request, seed, browser, videoFixture }, provideFixture, testInfo) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const video = await seed.videoWebCodecs(data.project_id, { fixture: videoFixture });
     const token = await seed.accessToken(data.admin_email);
     if (videoFixture === MAIN_FIXTURE) await expectSeededChunks(request, token, video);
@@ -216,7 +241,7 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
       releaseMedia: [],
       expectedHttpErrors: [],
     };
-    const errors: EvidenceError[] = [];
+    const errors: RequestErrorSignal[] = [];
     const pending: Promise<void>[] = [];
     const relevant = (url: string) =>
       pathOf(url).startsWith("/api/v1/") || isFixtureMedia(new URL(url), videoFixture);
@@ -243,7 +268,7 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
       // Read the body immediately: Playwright Response handles can expire on reload.
       pending.push(
         (async () => {
-          const entry: EvidenceError = {
+          const entry: RequestErrorSignal = {
             kind: "http",
             method: response.request().method(),
             path: pathOf(response.url()),
@@ -268,7 +293,8 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
       await provideFixture(fixture);
       await Promise.all(pending);
       // Feedback/annotation writes are never allowlisted. Navigation may cancel lock cleanup.
-      const expectedAborts = errors.filter((error) => expectedRequestAbort(error, fixture));
+      const rules = [...videoWorkbenchAborts, ...fixtureAbortRules(fixture)];
+      const expectedAborts = errors.filter((error) => isExpectedRequestAbort(error, rules));
       const expectedHttp = errors.filter(
         (error) =>
           error.kind === "http" &&
@@ -349,7 +375,7 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
           await page.unrouteAll({ behavior: "ignoreErrors" });
           if (!page.isClosed()) await page.goto("about:blank");
         } finally {
-          await seed.reset();
+          await seed.owned();
         }
       }
     }
@@ -371,27 +397,133 @@ async function key(page: Page, value: string) {
   await page.keyboard.press(value);
 }
 
+async function expectPaintSettled(page: Page) {
+  // 时间轴点击触发的精确取帧是异步完成的：负载高时会迟到，并盖掉随后键盘
+  // 步进已到达的帧号（实测把 F120 拽回 F105）。等绘制帧号追上选中帧号再继
+  // 续；原生 <video> 回退不经精确管线，无需等待。
+  await expect
+    .poll(
+      () =>
+        stage(page).evaluate((node) => {
+          if (node.getAttribute("data-video-frame-source") !== "webcodecs") return true;
+          return (
+            node.getAttribute("data-video-painted-frame-index") ===
+            node.getAttribute("data-video-frame-index")
+          );
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+}
+
+async function seekNavigationSnapshot(page: Page, frame: number, value: number, phase: string) {
+  // 只读快照（计划 D）：不改变事件传播、焦点或播放器状态，仅在导航失败时作为
+  // 附件帮助区分「目标未写入 / 事件未处理 / 呈现未完成」。收集自身异常降级为
+  // 字段占位，绝不覆盖原始断言错误。
+  const info = test.info();
+  const snapshot: Record<string, unknown> = {
+    phase,
+    test: info.title,
+    retry: info.retry,
+    repeatEachIndex: info.repeatEachIndex,
+    workerIndex: info.workerIndex,
+    shard: info.config.shard,
+    targetFrame: frame,
+    requestedRangeValue: value,
+  };
+  const capture = async (name: string, read: () => Promise<unknown>) => {
+    try {
+      snapshot[name] = await read();
+    } catch (error) {
+      snapshot[name] = `unavailable: ${String(error)}`;
+    }
+  };
+  await capture("selectedFrame", () => stage(page).getAttribute("data-video-frame-index"));
+  await capture("paintedFrame", () => stage(page).getAttribute("data-video-painted-frame-index"));
+  await capture("frameSource", () => stage(page).getAttribute("data-video-frame-source"));
+  await capture("preciseState", () => stage(page).getAttribute("data-video-precise-state"));
+  await capture("timelineWindow", () => readTimeline(page));
+  await capture("rangeInput", () =>
+    page.getByLabel("视频帧时间轴", { exact: true }).evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        value: (node as HTMLInputElement).value,
+        pointerEvents: getComputedStyle(node).pointerEvents,
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      };
+    }),
+  );
+  return snapshot;
+}
+
 async function seek(page: Page, frame: number) {
-  await key(page, "k");
-  let window = await readTimeline(page);
-  if (frame < window.from || frame > window.to) {
-    await expandTimeline(page);
-    await page.getByTestId("video-timeline-zoom-reset").click();
-    window = await readTimeline(page);
-  }
-  const input = page.getByLabel("视频帧时间轴", { exact: true });
-  await input.scrollIntoViewIfNeeded();
-  const rect = (await input.boundingBox())!;
-  const ratio = Math.max(0, Math.min(1, (frame - window.from) / (window.to - window.from)));
-  await page.mouse.click(rect.x + 1 + ratio * (rect.width - 2), rect.y + rect.height / 2);
-  let current = Number(await stage(page).getAttribute("data-video-frame-index"));
-  for (let steps = 0; current !== frame && steps < 10; steps += 1) {
-    const forward = frame > current;
-    current += forward ? 1 : -1;
-    await key(page, forward ? "Shift+ArrowRight" : "Shift+ArrowLeft");
-    await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(current));
-  }
-  await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(frame));
+  const invalid = invalidSeekTarget(frame);
+  if (invalid) throw new Error(invalid);
+  await test.step(`定位视频时间轴到 F${frame}`, async () => {
+    await key(page, "k");
+    // 建立包含目标的有效窗口；缩放复位后等窗口状态实际更新再复用，
+    // 不沿用更新之前的窗口数据。零跨度（单帧素材）显式拒绝。
+    const ensureWindow = async (forceReset = false) => {
+      let current = await readTimeline(page);
+      if (!forceReset && frame >= current.from && frame <= current.to) return current;
+      await expandTimeline(page);
+      await page.getByTestId("video-timeline-zoom-reset").click();
+      await expect
+        .poll(
+          async () => {
+            current = await readTimeline(page);
+            return frame >= current.from && frame <= current.to;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      return current;
+    };
+    let window = await ensureWindow();
+    if (window.to - window.from <= 0)
+      throw new Error(`时间轴窗口 [${window.from}, ${window.to}] 退化；本辅助函数只服务多帧素材`);
+    // range 0..10000 的归一化粒度必须能精确还原目标帧（与 pctToFrame 反向映射
+    // 一致）；本套件 180 帧素材在任意合法窗口下逐帧可表达，长素材不可表达时
+    // 回全窗口复核，仍不可表达则立即失败，不静默接受近似帧。
+    let mapping = rangeValueForFrame(frame, window);
+    if (!mapping.expressible) {
+      window = await ensureWindow(true);
+      mapping = rangeValueForFrame(frame, window);
+    }
+    if (!mapping.expressible)
+      throw new Error(
+        `目标帧 ${frame} 在时间轴窗口 [${window.from}, ${window.to}] 无法经 range 归一化` +
+          `精确表达（value=${mapping.value} 反解为 ${mapping.representedFrame}）；请缩小时间轴窗口后重试`,
+      );
+    const input = page.getByLabel("视频帧时间轴", { exact: true });
+    await input.scrollIntoViewIfNeeded();
+    let phase = "request-target";
+    try {
+      await test.step(`经 range 输入通路写入 value=${mapping.value}`, async () => {
+        // 应用既有输入路径：range onChange → onSeek。不写内部状态，也不依赖
+        // 播放浮层可交互（fill 无命中检查，浮层隐藏时裸坐标点击会被静默吞掉）。
+        await input.fill(String(mapping.value));
+        await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(frame));
+      });
+      phase = "paint-settled";
+      // 先断言选择帧到达目标（上一步），再等绘制帧追上；最后复核选择帧未被
+      // 迟到结果覆盖——应用层 Issue #114 单调栅栏保留为冗余防护。
+      await test.step("确认呈现完成且选择帧未被迟到结果覆盖", async () => {
+        await expectPaintSettled(page);
+        await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(frame));
+      });
+    } catch (error) {
+      await test.info().attach("seek-navigation-state", {
+        contentType: "application/json",
+        body: JSON.stringify(
+          await seekNavigationSnapshot(page, frame, mapping.value, phase),
+          null,
+          2,
+        ),
+      });
+      throw error;
+    }
+  });
 }
 
 async function revealFab(page: Page) {
@@ -1022,6 +1154,7 @@ test.describe("video Issue persisted context", () => {
     expect(await annotations(request, fixture)).toEqual([]);
     await page.reload();
     await expect(stage(page)).toBeVisible({ timeout: 25_000 });
+    await expectPaintSettled(page);
     await openIssues(page);
     const range = issues.find((issue) => issue.anchor_position?.frame === 120)!;
     await expect(page.getByTestId(`discussion-issue-card-${range.id}`)).toContainText("F120–F160");
@@ -1068,6 +1201,7 @@ test.describe("video Issue persisted context", () => {
     await page.setViewportSize({ width: 1180, height: 820 });
     await page.reload();
     await expect(stage(page)).toBeVisible({ timeout: 25_000 });
+    await expectPaintSettled(page);
     await page
       .getByTestId("ai-inspector-panel")
       .getByRole("button", { name: "全部", exact: true })
@@ -1125,6 +1259,7 @@ test.describe("video Issue persisted context", () => {
     expect(updated.version).toBeGreaterThan(original.version);
     await page.reload();
     await expect(stage(page)).toBeVisible({ timeout: 25_000 });
+    await expectPaintSettled(page);
     await locate(page, fixture, issue, true);
     await expect(navigation(page)).toContainText("对象已变化");
     expect((await listIssues(request, fixture)).find((entry) => entry.id === issue.id)).toEqual(
@@ -1137,6 +1272,7 @@ test.describe("video Issue persisted context", () => {
     expect(removed.status(), await removed.text()).toBe(204);
     await page.reload();
     await expect(stage(page)).toBeVisible({ timeout: 25_000 });
+    await expectPaintSettled(page);
     await locate(page, fixture, issue, true);
     await expect(navigation(page)).toContainText("对象已变化");
     await expect(trackRow(page, original.id)).toHaveCount(0);
@@ -1349,29 +1485,30 @@ test.describe("video Issue persisted context", () => {
       await request.get(`${API_BASE}/api/v1/users`, { headers: auth(fixture.token) }),
     );
     const annotator = users.find((user) => user.email === fixture.data.annotator_email)!;
-    const otherUser = users.find((user) => user.email === fixture.data.reviewer_email)!;
-    // Make the second real seeded user an annotator through the administrative API.
-    await json(
-      await request.patch(`${API_BASE}/api/v1/users/${otherUser.id}/role`, {
+    // Authority now comes from project membership: invite a second employee who
+    // accepts an annotator responsibility in this project through the real
+    // invitation → registration path, then hand the batch to them. The actor is
+    // namespace-scoped (`takeover-<namespace>@e2e.test`) so the exact owned
+    // cleanup removes it instead of leaking a shared global account.
+    const takeoverEmail = fixture.data.admin_email.replace(/^admin-/, "takeover-");
+    const invitation = await json<{ token: string }>(
+      await request.post(`${API_BASE}/api/v1/users/invite`, {
         headers: auth(fixture.token),
-        data: { role: "annotator" },
+        data: {
+          email: takeoverEmail,
+          role: "employee",
+          project_id: fixture.data.project_id,
+          project_member_role: "annotator",
+        },
       }),
     );
-    // Assignment requires the project responsibility as well as the global role.
-    const membersPath = `${API_BASE}/api/v1/projects/${fixture.data.project_id}/members`;
-    const members = await json<Array<{ id: string; user_id: string }>>(
-      await request.get(membersPath, { headers: auth(fixture.token) }),
-    );
-    const previousMember = members.find((member) => member.user_id === otherUser.id);
-    expect(previousMember).toBeDefined();
-    const removed = await request.delete(`${membersPath}/${previousMember!.id}`, {
-      headers: auth(fixture.token),
-    });
-    expect(removed.status()).toBe(204);
-    await json(
-      await request.post(membersPath, {
-        headers: auth(fixture.token),
-        data: { user_id: otherUser.id, role: "annotator" },
+    const takeover = await json<{ user: { id: string } }>(
+      await request.post(`${API_BASE}/api/v1/auth/register`, {
+        data: {
+          token: invitation.token,
+          name: "E2E Takeover",
+          password: "Takeover-123",
+        },
       }),
     );
     const batch = await json<{ id: string }>(
@@ -1414,7 +1551,7 @@ test.describe("video Issue persisted context", () => {
     await json(
       await request.patch(
         `${API_BASE}/api/v1/projects/${fixture.data.project_id}/batches/${batch.id}`,
-        { headers: auth(fixture.token), data: { annotator_id: otherUser.id } },
+        { headers: auth(fixture.token), data: { annotator_id: takeover.user.id } },
       ),
     );
     fixture.expectedHttpErrors.push({
@@ -1438,6 +1575,7 @@ test.describe("video Issue persisted context", () => {
     expect(visible.items.some((entry) => entry.id === issue.id)).toBe(false);
     await page.reload();
     await expect(stage(page)).toBeVisible({ timeout: 25_000 });
+    await expectPaintSettled(page);
     await openIssues(page);
     await page.getByTestId("issue-list-scope").selectOption("project");
     await expect(card).toHaveCount(0);

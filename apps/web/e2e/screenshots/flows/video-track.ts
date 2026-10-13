@@ -20,6 +20,7 @@ import {
   movePointerAtRefreshRate,
   commitPendingAnnotationClass,
 } from "./_canvas";
+import { collapseVideoSelectionCard } from "./_video-keyframe-recording";
 
 export async function runVideoTrack(
   page: Page,
@@ -118,6 +119,7 @@ export async function runVideoTrack(
   await page.getByRole("button", { name: "回到首帧", exact: true }).click();
   await expect.poll(currentFrame).toBe(0);
   await page.getByRole("tab", { name: "标注详情", exact: true }).click();
+  await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
   await page.getByTestId("video-tool-btn-track").click();
   const anchor = recordingAnchor(catalog, "video_demo", "tracking", "front_truck_f0", 0);
   await selectVideoRecordingClass(page, stage, anchor.label);
@@ -135,6 +137,8 @@ export async function runVideoTrack(
   const annotationId = created.id as string;
   const track = page.getByTestId("video-track-row");
   await expect(track).toHaveCount(1);
+  // 新建轨迹会同时打开选中浮窗，浮窗覆盖右栏轨道行会让点击无限等待。
+  await collapseVideoSelectionCard(page);
   await track.click();
   await expect(track).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("video-track-timeline")).toBeVisible();

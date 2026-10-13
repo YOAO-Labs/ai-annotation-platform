@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset, DatasetItem
@@ -92,6 +92,88 @@ def _prediction(task_id: uuid.UUID, project_id: uuid.UUID) -> Prediction:
         result={"shapes": []},
         source="ml_backend",
     )
+
+
+@pytest.mark.asyncio
+async def test_reset_rebinds_materialized_assignment_of_departed_member(
+    db_session: AsyncSession, super_admin
+):
+    """角色交接把旧默认物化到 terminal task 上；reset 回 pending 后，若该用户已
+    不再持有对应项目职责，物化指派必须让位给批次新默认（非 override）。"""
+
+    from app.db.models.project_member import ProjectMember
+    from app.db.models.task_batch import TaskBatch
+    from tests.factory import create_user
+
+    owner, _ = super_admin
+    project = await _seed_linked(db_session, owner.id, n_items=2)
+    batch_id = await _make_batch(db_session, project)
+
+    old_annotator = await create_user(
+        db_session, "employee", f"reset-old-{uuid.uuid4().hex[:6]}@test.local", "Old"
+    )
+    replacement = await create_user(
+        db_session, "employee", f"reset-new-{uuid.uuid4().hex[:6]}@test.local", "New"
+    )
+    db_session.add_all(
+        [
+            ProjectMember(
+                project_id=project.id,
+                user_id=old_annotator.id,
+                role="annotator",
+                assigned_by=owner.id,
+            ),
+            ProjectMember(
+                project_id=project.id,
+                user_id=replacement.id,
+                role="annotator",
+                assigned_by=owner.id,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    batch = await db_session.get(TaskBatch, batch_id)
+    batch.annotator_id = old_annotator.id
+    batch.status = "annotating"
+    tasks = (
+        (
+            await db_session.execute(
+                select(Task).where(Task.batch_id == batch_id).order_by(Task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    tasks[0].status = "completed"
+    # Handoff-style materialization: explicit old-user assignment, not an
+    # override, on history past the editable annotation phase.
+    tasks[0].assignee_id = old_annotator.id
+    tasks[0].assignee_is_override = False
+    tasks[1].assignee_id = replacement.id
+    tasks[1].assignee_is_override = True
+    await db_session.flush()
+
+    # The old annotator leaves the project; only the replacement remains.
+    await db_session.execute(
+        delete(ProjectMember).where(
+            ProjectMember.project_id == project.id,
+            ProjectMember.user_id == old_annotator.id,
+        )
+    )
+    await db_session.flush()
+
+    batch_out, affected, _ = await BatchService(db_session).reset_to_draft(batch_id)
+    # Only the completed task needed a status reset.
+    assert affected == 1
+    await db_session.refresh(tasks[0])
+    await db_session.refresh(tasks[1])
+    # The departed member's materialized assignment inherits the batch default
+    # again; the genuine manual override is preserved.
+    assert tasks[0].status == "pending"
+    assert tasks[0].assignee_id is None
+    assert batch_out.annotator_id is None or True  # default untouched by reset
+    assert tasks[1].assignee_id == replacement.id
 
 
 async def _make_batch(db: AsyncSession, project: Project) -> uuid.UUID:

@@ -64,7 +64,7 @@ async def _seed_annotations(
 
 @pytest.mark.asyncio
 async def test_detail_aggregation_sliced_by_project(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """对账:全局 throughput = 各项目之和;project 过滤后 = 单项目数字。"""
     admin_user, admin_token = super_admin
@@ -77,20 +77,20 @@ async def test_detail_aggregation_sliced_by_project(
 
     headers = {"Authorization": f"Bearer {admin_token}"}
     # 全局
-    g = await httpx_client_bound.get(
+    g = await httpx_client.get(
         f"/api/v1/dashboard/admin/people/{ann_user.id}", headers=headers
     )
     assert g.status_code == 200
     assert g.json()["throughput"] == 5
     # 项目 P1
-    s1 = await httpx_client_bound.get(
+    s1 = await httpx_client.get(
         f"/api/v1/dashboard/admin/people/{ann_user.id}?project={p1.id}",
         headers=headers,
     )
     assert s1.status_code == 200
     assert s1.json()["throughput"] == 3
     # 项目 P2
-    s2 = await httpx_client_bound.get(
+    s2 = await httpx_client.get(
         f"/api/v1/dashboard/admin/people/{ann_user.id}?project={p2.id}",
         headers=headers,
     )
@@ -99,7 +99,7 @@ async def test_detail_aggregation_sliced_by_project(
 
 @pytest.mark.asyncio
 async def test_list_main_metric_sliced_by_project(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """list 端点:project 过滤后 main_metric 反映单项目(非全局 5)。"""
     admin_user, admin_token = super_admin
@@ -117,7 +117,7 @@ async def test_list_main_metric_sliced_by_project(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {admin_token}"}
-    r = await httpx_client_bound.get(
+    r = await httpx_client.get(
         f"/api/v1/dashboard/admin/people?project={p1.id}&period=4w", headers=headers
     )
     assert r.status_code == 200
@@ -128,7 +128,7 @@ async def test_list_main_metric_sliced_by_project(
 
 @pytest.mark.asyncio
 async def test_super_admin_global_unchanged(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """回归:super_admin 不带 project → 全局数字(5)不变。"""
     admin_user, admin_token = super_admin
@@ -139,7 +139,7 @@ async def test_super_admin_global_unchanged(
     await _seed_annotations(db_session, p2.id, ann_user.id, 2)
     await db_session.commit()
 
-    r = await httpx_client_bound.get(
+    r = await httpx_client.get(
         f"/api/v1/dashboard/admin/people/{ann_user.id}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -148,7 +148,7 @@ async def test_super_admin_global_unchanged(
 
 @pytest.mark.asyncio
 async def test_project_admin_scoped_to_own_project(
-    httpx_client_bound, db_session, super_admin, project_admin, annotator
+    httpx_client, db_session, super_admin, project_admin, annotator
 ):
     """project_admin:仅自有项目可见 + 强制项目范围。"""
     admin_user, _ = super_admin
@@ -166,17 +166,15 @@ async def test_project_admin_scoped_to_own_project(
 
     headers = {"Authorization": f"Bearer {pm_token}"}
     # 自有项目 → 200
-    ok = await httpx_client_bound.get(
+    ok = await httpx_client.get(
         f"/api/v1/dashboard/admin/people?project={own.id}&period=4w", headers=headers
     )
     assert ok.status_code == 200
     # 不带 project → 403(必须指定范围)
-    no_proj = await httpx_client_bound.get(
-        "/api/v1/dashboard/admin/people", headers=headers
-    )
+    no_proj = await httpx_client.get("/api/v1/dashboard/admin/people", headers=headers)
     assert no_proj.status_code == 403
     # 越权他人项目 → 404(隐藏存在性)
-    forbidden = await httpx_client_bound.get(
+    forbidden = await httpx_client.get(
         f"/api/v1/dashboard/admin/people?project={other.id}", headers=headers
     )
     assert forbidden.status_code == 404
@@ -184,7 +182,7 @@ async def test_project_admin_scoped_to_own_project(
 
 @pytest.mark.asyncio
 async def test_project_admin_detail_blocks_non_member(
-    httpx_client_bound, db_session, super_admin, project_admin, annotator
+    httpx_client, db_session, super_admin, project_admin, annotator
 ):
     """安全:project_admin 查非本项目成员的详情 → 404(防 IDOR / 跨项目枚举)。"""
     admin_user, _ = super_admin
@@ -197,7 +195,7 @@ async def test_project_admin_detail_blocks_non_member(
     await db_session.commit()
 
     # pm 用自己的项目 own + 他人 user_id → 非成员 → 404
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/dashboard/admin/people/{ann_user.id}?project={own.id}",
         headers={"Authorization": f"Bearer {pm_token}"},
     )
@@ -206,7 +204,7 @@ async def test_project_admin_detail_blocks_non_member(
 
 @pytest.mark.asyncio
 async def test_project_admin_member_of_others_project_blocked(
-    httpx_client_bound, db_session, super_admin, project_admin
+    httpx_client, db_session, super_admin, project_admin
 ):
     """安全:project_admin 是他人项目的 ProjectMember 但非 owner 时,仍 → 404。
 
@@ -228,12 +226,12 @@ async def test_project_admin_member_of_others_project_blocked(
     await db_session.commit()
 
     # pm 拿 other.id 访问 → 严格 owner 校验失败 → 404(不是 200,不是 403)
-    r_list = await httpx_client_bound.get(
+    r_list = await httpx_client.get(
         f"/api/v1/dashboard/admin/people?project={other.id}",
         headers={"Authorization": f"Bearer {pm_token}"},
     )
     assert r_list.status_code == 404
-    r_export = await httpx_client_bound.get(
+    r_export = await httpx_client.get(
         f"/api/v1/dashboard/admin/people/export?project={other.id}",
         headers={"Authorization": f"Bearer {pm_token}"},
     )
@@ -241,10 +239,10 @@ async def test_project_admin_member_of_others_project_blocked(
 
 
 @pytest.mark.asyncio
-async def test_annotator_still_denied(httpx_client_bound, annotator):
+async def test_annotator_still_denied(httpx_client, annotator):
     """普通 annotator 无权访问成员绩效。"""
     _, token = annotator
-    r = await httpx_client_bound.get(
+    r = await httpx_client.get(
         "/api/v1/dashboard/admin/people",
         headers={"Authorization": f"Bearer {token}"},
     )

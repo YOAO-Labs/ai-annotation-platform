@@ -37,6 +37,10 @@ from app.services.annotation_propagation import (
     _new_track_id as _new_track_id,
     _track_visible_keyframes as _track_visible_keyframes,
 )
+from app.services.annotation_evidence import (
+    record_annotation_actor,
+    record_annotation_actors_for_tasks,
+)
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.raster_mask_storage import (
     prepare_mask_geometry_for_annotation_write,
@@ -253,6 +257,11 @@ class AnnotationService:
         video_segment_id: uuid.UUID | None = None,
     ) -> Annotation:
         task = await self.db.get(Task, task_id)
+        # A2 · record before any Annotation/SceneTrack lock: this takes the task
+        # row lock first, keeps the global Task -> Annotation order, and rolls
+        # back with the mutation if the mutation fails.
+        if task is not None:
+            await record_annotation_actor(self.db, task, user_id)
         source = "prediction_based" if parent_prediction_id else "manual"
 
         if task and task.project_id:
@@ -353,6 +362,9 @@ class AnnotationService:
                 for index, raw_shape in enumerate(raw_shapes)
             ]
         task = await self.db.get(Task, prediction.task_id)
+        if task is not None:
+            # A2 · task row lock before the accepted annotations are written.
+            await record_annotation_actor(self.db, task, user_id)
         await prepare_mask_payload_for_write(
             self.db,
             task,
@@ -910,6 +922,8 @@ class AnnotationService:
         if src_task is None:
             raise HTTPException(status_code=404, detail="source task not found")
 
+        # A2 · lock the target task before the propagated annotations are written.
+        await record_annotation_actor(self.db, target_task, user_id)
         ctx = await self._resolve_propagate_context(
             src_task=src_task, target_task=target_task
         )
@@ -1165,6 +1179,8 @@ class AnnotationService:
         target_task = await self.db.get(Task, target_task_id)
         if target_task is None:
             raise HTTPException(status_code=404, detail="target task not found")
+        # A2 · lock the target task before the batch of propagated annotations.
+        await record_annotation_actor(self.db, target_task, user_id)
         ctx = await self._resolve_propagate_context(
             src_task=source_task, target_task=target_task
         )
@@ -1231,6 +1247,13 @@ class AnnotationService:
             raise HTTPException(status_code=404, detail="task not found")
         if from_task.project_id != to_task.project_id:
             raise HTTPException(status_code=422, detail="跨 project 插值不被允许")
+
+        # A2 · interpolation also writes to middle-frame tasks discovered later,
+        # so use the nonblocking task lock: a busy endpoint task rolls back to a
+        # retryable 409 rather than forming a wait cycle.
+        await record_annotation_actors_for_tasks(
+            self.db, [from_task.id, to_task.id], user_id, nowait=True
+        )
 
         async def _scene_frame(task: Task) -> tuple[uuid.UUID | None, int | None]:
             item_id = await resolve_primary_item_id(self.db, task)
@@ -1339,6 +1362,8 @@ class AnnotationService:
                 skipped_frames.append(f)
                 continue
 
+            # A2 · lock this mid task (NOWAIT) before writing its interpolation.
+            await record_annotation_actor(self.db, mid_task, user_id, nowait=True)
             t = (f - from_frame) / (to_frame - from_frame)
             psr, compensated = interpolate_psr(
                 psr_a,
@@ -1523,6 +1548,8 @@ class AnnotationService:
         frame_count: int | None = None,
         max_created: int = VIDEO_BBOX_CONVERSION_LIMIT,
     ) -> tuple[Annotation | None, list[Annotation], bool, list[int]]:
+        # A2 · lock the task before any annotation row is created/updated.
+        await record_annotation_actor(self.db, task, user_id)
         geometry = annotation.geometry or {}
         if geometry.get("type") != "video_track_bbox":
             raise ValueError("annotation must be a video_track_bbox")
@@ -1637,6 +1664,8 @@ class AnnotationService:
         delete_sources: bool = True,
         gap_mode: str = "interpolate",
     ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
+        # A2 · lock the task before any annotation row is created/updated.
+        await record_annotation_actor(self.db, task, user_id)
         if operation == "aggregate_bboxes":
             updated, created, deleted = await self._aggregate_video_bboxes(
                 task=task,

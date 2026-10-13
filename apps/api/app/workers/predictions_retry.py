@@ -187,7 +187,7 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
         stored_context = (fp.extra or {}).get("request_context")
         request_context = stored_context if isinstance(stored_context, dict) else None
         ns = NotificationService(db)
-        await ns.notify(
+        pending = await ns.notify(
             user_id=uid,
             type="failed_prediction.retry.started",
             target_type="failed_prediction",
@@ -195,6 +195,8 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
             payload={"project_id": str(fp.project_id)},
         )
         await db.commit()
+        if pending is not None:
+            await ns.publish_committed([pending])
 
     if not task or not backend:
         async with session_factory() as db:

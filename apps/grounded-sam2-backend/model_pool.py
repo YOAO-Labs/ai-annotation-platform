@@ -8,13 +8,13 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from embedding_cache import EmbeddingCache
-from managed_pool import (
+from aap_backend_runtime import (
     BuildArtifact,
     ManagedBuildTimeout,
     ManagedLruPool,
     ManagedPoolBusyError,
 )
+from embedding_cache import EmbeddingCache
 
 if TYPE_CHECKING:
     from predictor import GroundedSAM2Predictor
@@ -67,6 +67,7 @@ class ModelPool:
             build_timeout=build_timeout,
             build_serial_lock=build_serial_lock,
             pool_name="image model pool",
+            logger_name="grounded-sam2-backend.managed-pool",
         )
 
     def _build(

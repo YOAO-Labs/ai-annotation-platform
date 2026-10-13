@@ -1,4 +1,4 @@
-"""v0.9.4 phase 2 · predict_text() 三分支行为单测 (无 GPU, mock dino + sam).
+"""predict_text() 三分支行为单测 (无 GPU, mock dino + sam).
 
 box 模式必须跳过 SAM image embedding + cache.put + sam.predict (节省 GPU 时间是这个分支
 的核心动机). mask 模式保持当前行为. both 模式同 instance 配对返回 rect + poly.

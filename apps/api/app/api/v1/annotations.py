@@ -29,9 +29,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _assert_task_editable, _assert_task_visible
+from app.api.v1.tasks._shared import (
+    _assert_review_adjustment_evidence,
+    _assert_task_editable,
+    _assert_task_visible,
+    _resolve_task_access,
+    assert_annotation_write_allowed,
+)
 from app.config import settings
-from app.db.enums import UserRole
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.raster_mask_upload import RasterMaskUpload
@@ -39,12 +44,10 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import (
-    assert_project_visible,
     get_current_user,
     get_db,
     require_active_task_actor,
     require_project_owner,
-    require_roles,
     require_scopes,
 )
 from app.schemas.aap_json import AAPImportResult
@@ -80,13 +83,6 @@ from app.utils.raster_mask_rle import (
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 logger = logging.getLogger(__name__)
-
-_ANNOTATORS = (
-    UserRole.SUPER_ADMIN,
-    UserRole.PROJECT_ADMIN,
-    UserRole.REVIEWER,
-    UserRole.ANNOTATOR,
-)
 
 # v0.23.5 · WS-D · D3 · per-task cap on unclaimed raster-mask uploads.
 # The upload endpoint returns an anonymous reference (not yet linked to an
@@ -285,7 +281,7 @@ async def upload_task_mask_content(
     task_id: uuid.UUID,
     payload: dict,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ANNOTATORS)),
+    user: User = Depends(get_current_user),
 ) -> dict:
     # Match all Mask writers: the Task row is the first database row lock.
     task = (
@@ -298,10 +294,13 @@ async def upload_task_mask_content(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    await assert_project_visible(task.project_id, db, user)
-    _assert_task_editable(task, user)
+    access = await _resolve_task_access(db, task, user, lock_membership=True)
+    assert_annotation_write_allowed(task, access)
+    await _assert_review_adjustment_evidence(db, task, user, access)
+    await _assert_task_visible(db, task, user, access=access)
+    _assert_task_editable(task, user, access=access)
     if (
-        user.role == UserRole.ANNOTATOR
+        access.project_role == "annotator"
         and task.assignee_id is not None
         and task.assignee_id != user.id
     ):
@@ -458,7 +457,17 @@ async def _load_single_task_for_ids(
             detail="bulk operation requires all annotations belong to a single task",
         )
     task_id = next(iter(task_ids))
-    task = await db.get(Task, task_id)
+    # Lock the task row before any capability/evidence check so the decision is
+    # made on the current row and concurrent writers are serialized (the bulk
+    # UPDATE itself also takes this lock later).
+    task = (
+        await db.execute(
+            select(Task)
+            .where(Task.id == task_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail=f"task {task_id} not found")
     return task
@@ -473,7 +482,7 @@ async def bulk_update_annotations(
     payload: AnnotationBulkUpdateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ANNOTATORS)),
+    user: User = Depends(get_current_user),
 ):
     """I12 · 批量更新 N 个标注. 失败整体回滚 (单事务).
 
@@ -482,9 +491,16 @@ async def bulk_update_annotations(
     - 不允许 bulk 改 tool_unit_id (会破坏 class_name 校验链)
     """
     task = await _load_single_task_for_ids(db, payload.ids)
-    await _assert_task_visible(db, task, user)
-    _assert_task_editable(task, user)
+    access = await _resolve_task_access(db, task, user, lock_membership=True)
+    assert_annotation_write_allowed(task, access)
+    await _assert_review_adjustment_evidence(db, task, user, access)
+    await _assert_task_visible(db, task, user, access=access)
+    _assert_task_editable(task, user, access=access)
 
+    from app.services.annotation_evidence import record_annotation_actor
+
+    # A2 · take the task row lock before the bulk annotation UPDATEs.
+    await record_annotation_actor(db, task, user.id)
     service = AnnotationService(db)
     updated = await service.bulk_update(
         payload.ids,

@@ -258,14 +258,14 @@ def _predict_url(proj, backend) -> str:
 
 
 async def test_predict_frame_rejects_oversize_content_length(
-    httpx_client_bound, super_admin, db_session, patched_storage
+    httpx_client, super_admin, db_session, patched_storage
 ):
     """Content-Length > 32 MiB → 413, no storage upload, no backend call."""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _predict_url(proj, backend),
         content=b"x",  # 1 byte body but headers declare an oversized payload
         headers={
@@ -283,7 +283,7 @@ async def test_predict_frame_rejects_oversize_content_length(
 
 
 async def test_predict_frame_rejects_oversize_streamed(
-    httpx_client_bound, super_admin, db_session, patched_storage
+    httpx_client, super_admin, db_session, patched_storage
 ):
     """streamed payload > 32 MiB (honest Content-Length) → 413."""
     user, token = super_admin
@@ -294,7 +294,7 @@ async def test_predict_frame_rejects_oversize_streamed(
     big = b"\xff\xd8" + b"\x00" * (MAX_FRAME_UPLOAD_BYTES + 1)
     files = {"frame": ("f.jpg", big, "image/jpeg")}
     data = {"task_id": str(task.id), "frame_index": "0", "config": "{}"}
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _predict_url(proj, backend),
         files=files,
         data=data,
@@ -306,14 +306,14 @@ async def test_predict_frame_rejects_oversize_streamed(
 
 
 async def test_predict_frame_rejects_undecodable_image(
-    httpx_client_bound, super_admin, db_session, patched_storage
+    httpx_client, super_admin, db_session, patched_storage
 ):
     """bytes under the cap but not a valid image → 400."""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _predict_url(proj, backend),
         files={"frame": ("f.jpg", b"not an image at all", "image/jpeg")},
         data={"task_id": str(task.id), "frame_index": "0", "config": "{}"},

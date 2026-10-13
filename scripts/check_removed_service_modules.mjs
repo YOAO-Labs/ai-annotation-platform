@@ -48,7 +48,7 @@ const ALLOWED_FILES = new Set([
   "docs/migration/v0.23.0-gpu-ledger-inventory.md",
   "docs/migration/v0.23.1-gpu-orchestration-inventory.md",
   "scripts/check_removed_service_modules.mjs",
-  "scripts/check_removed_service_modules.py",
+  "apps/api/scripts/check_removed_service_modules.py",
 ]);
 
 // Historical directories may contain old path facts but NOT links to deleted
@@ -63,17 +63,6 @@ const HISTORICAL_DIRS = [
   "ROADMAP/",
   "CHANGELOG.md",
 ];
-
-// Provenance docstrings: implementation modules that document their origin
-// ("Moved verbatim from app.services.<legacy>") in their module docstring.
-// These are permanent text references, not import forms.
-const PROVENANCE_FILES = new Set([
-  "apps/api/app/services/gpu_arbitration/ledger/__init__.py",
-  "apps/api/app/services/gpu_arbitration/ledger/keys.py",
-  "apps/api/app/services/gpu_arbitration/ledger/store.py",
-  "apps/api/app/services/gpu_arbitration/ledger/types.py",
-  "apps/api/app/services/gpu_arbitration/ledger/validation.py",
-]);
 
 // ---------------------------------------------------------------------------
 // Scan helpers.
@@ -91,12 +80,7 @@ function isHistorical(relPath) {
 }
 
 function isAllowed(relPath) {
-  return (
-    ALLOWED_FILES.has(relPath) ||
-    PROVENANCE_FILES.has(relPath) ||
-    isHistorical(relPath) ||
-    isFacadeFile(relPath)
-  );
+  return ALLOWED_FILES.has(relPath) || isHistorical(relPath) || isFacadeFile(relPath);
 }
 
 // The 23 facade files themselves reference their own path in docstrings; they

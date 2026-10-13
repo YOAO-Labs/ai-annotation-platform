@@ -78,6 +78,22 @@ export function useTransitionBatch(projectId: string) {
   });
 }
 
+// v0.x · 整批送审：提交批次内所有 pending / in_progress 任务并推进到 reviewing。
+export function useSubmitBatch(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: string) => batchesApi.submitReview(projectId, batchId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["batches", projectId] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task"] });
+      qc.invalidateQueries({ queryKey: ["annotations"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
 // v0.7.3 · 多选批量操作
 export function useBulkArchiveBatches(projectId: string) {
   const qc = useQueryClient();
@@ -229,6 +245,7 @@ export function useRejectBatch(projectId: string) {
       qc.invalidateQueries({ queryKey: ["batches", projectId] });
       qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["notifications"] });
     },
   });

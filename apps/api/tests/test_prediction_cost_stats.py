@@ -125,10 +125,8 @@ async def _seed_failed(
     await db.flush()
 
 
-async def test_prediction_cost_stats_empty_returns_zeros(
-    httpx_client_bound, auth_headers
-):
-    resp = await httpx_client_bound.get(
+async def test_prediction_cost_stats_empty_returns_zeros(httpx_client, auth_headers):
+    resp = await httpx_client.get(
         "/api/v1/dashboard/admin/prediction-cost-stats?range=30d", headers=auth_headers
     )
     assert resp.status_code == 200, resp.text
@@ -143,7 +141,7 @@ async def test_prediction_cost_stats_empty_returns_zeros(
 
 
 async def test_prediction_cost_stats_aggregates_with_data(
-    httpx_client_bound, auth_headers, db_session, super_admin
+    httpx_client, auth_headers, db_session, super_admin
 ):
     user, _ = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -184,7 +182,7 @@ async def test_prediction_cost_stats_aggregates_with_data(
     await db_session.flush()
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/admin/prediction-cost-stats?range=30d", headers=auth_headers
     )
     assert resp.status_code == 200, resp.text
@@ -210,7 +208,7 @@ async def test_prediction_cost_stats_aggregates_with_data(
 
 
 async def test_prediction_cost_stats_range_7d_excludes_old_rows(
-    httpx_client_bound, auth_headers, db_session, super_admin
+    httpx_client, auth_headers, db_session, super_admin
 ):
     user, _ = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -242,7 +240,7 @@ async def test_prediction_cost_stats_range_7d_excludes_old_rows(
     await db_session.commit()
 
     r7 = (
-        await httpx_client_bound.get(
+        await httpx_client.get(
             "/api/v1/dashboard/admin/prediction-cost-stats?range=7d",
             headers=auth_headers,
         )
@@ -251,7 +249,7 @@ async def test_prediction_cost_stats_range_7d_excludes_old_rows(
     assert abs(r7["total_cost"] - 0.05) < 1e-6
 
     r30 = (
-        await httpx_client_bound.get(
+        await httpx_client.get(
             "/api/v1/dashboard/admin/prediction-cost-stats?range=30d",
             headers=auth_headers,
         )
@@ -261,20 +259,18 @@ async def test_prediction_cost_stats_range_7d_excludes_old_rows(
 
 
 async def test_prediction_cost_stats_invalid_range_returns_422(
-    httpx_client_bound, auth_headers
+    httpx_client, auth_headers
 ):
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/admin/prediction-cost-stats?range=90d",
         headers=auth_headers,
     )
     assert resp.status_code == 422
 
 
-async def test_prediction_cost_stats_requires_super_admin(
-    httpx_client_bound, annotator
-):
+async def test_prediction_cost_stats_requires_super_admin(httpx_client, annotator):
     _, token = annotator
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/admin/prediction-cost-stats?range=30d",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -282,7 +278,7 @@ async def test_prediction_cost_stats_requires_super_admin(
 
 
 async def test_prediction_cost_stats_p50_p95_p99(
-    httpx_client_bound, auth_headers, db_session, super_admin
+    httpx_client, auth_headers, db_session, super_admin
 ):
     """v0.8.7 F2 · PERCENTILE_CONT 聚合 inference_time_ms。"""
     user, _ = super_admin
@@ -303,7 +299,7 @@ async def test_prediction_cost_stats_p50_p95_p99(
         )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/admin/prediction-cost-stats?range=30d",
         headers=auth_headers,
     )

@@ -1,4 +1,4 @@
-"""YOLO 推理 + 结果映射到协议 v2 result types (v0.14.12).
+"""YOLO 推理 + 结果映射到协议 v2 result types.
 
 四 task 分支:
 - detection    → result.type=rectanglelabels, value={x,y,width,height,rectanglelabels:[cls]}
@@ -546,7 +546,7 @@ class YoloPredictor:
         return _emit_tracks(tracks), int(elapsed * 1000)
 
 
-# ── v0.21.1 · 检测式视频追踪辅助 ──────────────────────────────────────────────
+# ── 检测式视频追踪辅助 ──────────────────────────────────────────────
 
 
 def _fetch_video(file_path: str) -> tuple[str, bool]:

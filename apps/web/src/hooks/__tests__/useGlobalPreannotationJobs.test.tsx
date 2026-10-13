@@ -91,7 +91,7 @@ describe("useGlobalPreannotationJobs", () => {
   it("非 admin 角色不建连", () => {
     useAuthStore.setState({
       token: "tok-123",
-      user: { id: "u1", role: "annotator" } as unknown as never,
+      user: { id: "u1", role: "employee" } as unknown as never,
     });
     renderHook(() => useGlobalPreannotationJobs());
     expect(MockWebSocket.instances.length).toBe(0);

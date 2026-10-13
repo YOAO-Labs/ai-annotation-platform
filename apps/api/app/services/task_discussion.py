@@ -15,15 +15,16 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import HTTPException
 from sqlalchemy import and_, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.api.v1.tasks._shared import _assert_task_visible
 from app.deps import assert_project_visible
-from app.db.enums import UserRole
+from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
@@ -267,14 +268,25 @@ def _feedback_out(
     )
 
 
-def _actions_for(*, source: DiscussionSource, author_id: uuid.UUID, user: User):
-    is_admin = user.role in {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN}
+def _actions_for(
+    *,
+    source: DiscussionSource,
+    author_id: uuid.UUID,
+    user: User,
+    project_role: str | None = None,
+    is_manager: bool = False,
+):
+    """Comment actions derived from the *resolved project access*.
+
+    A global platform ``reviewer`` is not a moderator; the current reviewer
+    membership is, and management is owner/super-admin.
+    """
     return discussion_actions(
         source,
         "comment",
         is_author=author_id == user.id,
-        is_admin=is_admin,
-        is_reviewer=user.role == UserRole.REVIEWER,
+        is_admin=is_manager,
+        is_reviewer=project_role == ProjectRole.REVIEWER.value,
         is_accessible=True,
         # Native task comments and legacy annotation comments have no Issue thread
         # affordance in this product scope.
@@ -284,10 +296,10 @@ def _actions_for(*, source: DiscussionSource, author_id: uuid.UUID, user: User):
 
 def _identifier_selects(
     *,
-    task_id: uuid.UUID,
+    task_id: uuid.UUID | ColumnElement[Any],
     scope: DiscussionScope,
-    annotation_id: uuid.UUID | None,
-    project_id: uuid.UUID,
+    annotation_id: uuid.UUID | ColumnElement[Any] | None,
+    project_id: uuid.UUID | ColumnElement[Any],
 ):
     """Return the source identifier SELECTs used by the single read model query."""
 
@@ -328,6 +340,30 @@ def _identifier_selects(
             )
         )
     return selects
+
+
+def task_comment_count_sq() -> ColumnElement[int]:
+    """Correlated count of the complete Workbench comment feed per ``Task`` row.
+
+    Reuses ``_identifier_selects`` so Data Manager task counts always agree with
+    the discussion panel total: active annotation comments (including comments
+    on soft-deleted annotations) plus active native task comments. Issue posts,
+    issue replies and mirrored annotation comments never count.
+    """
+
+    # The union hides the Task references from auto-correlation, so correlate
+    # each source select explicitly to keep the count attached to the outer
+    # task row instead of counting the whole table.
+    source_selects = _identifier_selects(
+        task_id=Task.id,
+        scope="all",
+        annotation_id=None,
+        project_id=Task.project_id,
+    )
+    identifiers = union_all(
+        *(item.correlate(Task) for item in source_selects)
+    ).subquery()
+    return select(func.count()).select_from(identifiers).scalar_subquery()
 
 
 async def list_task_discussion(
@@ -443,6 +479,14 @@ async def list_task_discussion(
         [feedback.author_id for feedback in feedback_by_id.values()],
     )
 
+    # Resolve the current project access once so comment actions use the
+    # project role rather than the account's legacy global role.
+    from app.db.models.project import Project
+    from app.services.project_access import resolve_project_access
+
+    project = await db.get(Project, task.project_id)
+    access = await resolve_project_access(db, user=user, project=project)
+
     items: list[TaskDiscussionItem] = []
     for row in page_identifiers:
         if row.source == "annotation_comment":
@@ -454,7 +498,11 @@ async def list_task_discussion(
                 _annotation_comment_out(comment, author_name)
             )
             actions = _actions_for(
-                source="annotation_comment", author_id=comment.author_id, user=user
+                source="annotation_comment",
+                author_id=comment.author_id,
+                user=user,
+                project_role=access.project_role,
+                is_manager=access.is_manager,
             )
             source: DiscussionSource = "annotation_comment"
         else:
@@ -464,7 +512,11 @@ async def list_task_discussion(
             brief = feedback_briefs.get(str(feedback.author_id))
             data = _feedback_out(feedback, brief.name if brief is not None else None)
             actions = _actions_for(
-                source="feedback", author_id=feedback.author_id, user=user
+                source="feedback",
+                author_id=feedback.author_id,
+                user=user,
+                project_role=access.project_role,
+                is_manager=access.is_manager,
             )
             source = "feedback"
         items.append(TaskDiscussionItem(source=source, data=data, actions=actions))

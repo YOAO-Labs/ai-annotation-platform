@@ -107,7 +107,7 @@ function rewriteBody(text, { isReadme } = {}) {
   // 1) ADR 内互引：`[text](0023-...)` / `(./0023-...)` / `(archive/0023-...)`
   //    → 按被引用编号在 top / archive 的位置改写为 VitePress 站点绝对路径。
   body = body.replace(
-    /\]\((?:\.?\/)?(?:archive\/)?(\d{4})-[\w-]+\.md(#[^)\s]*)?\)/g,
+    /\]\((?:\.\.?\/)*(?:archive\/)?(\d{4})-[\w-]+\.md(#[^)\s]*)?\)/g,
     (m, num, hash = "") => {
       const site = resolveAdrLink(parseInt(num, 10));
       return site ? `](${site}${hash})` : m;

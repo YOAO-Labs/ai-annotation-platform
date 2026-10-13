@@ -233,6 +233,7 @@ function insertionSteps(tree: Tree): { id: string; reference: string; direction:
 
 export interface WorkbenchLayoutExecutor {
   preserveGridSizes(): (resizedGroup?: string) => void;
+  reassertReservedGroups(): void;
   syncConstraints(): void;
   capture(): WorkspaceSnapshot;
   restore(snapshot: WorkspaceSnapshot): void;
@@ -1099,6 +1100,10 @@ export function createWorkbenchLayoutExecutor(
 
   return {
     preserveGridSizes,
+    reassertReservedGroups() {
+      const parking = getGroup("parking");
+      if (parking && parking.api.location.type === "grid") parking.api.setVisible(false);
+    },
     syncConstraints,
     capture() {
       if (desktop) return structuredClone(desktop);

@@ -35,6 +35,7 @@ export const opsSidebar: DefaultTheme.SidebarItem[] = [
       { text: "视频帧服务", link: "/ops/runbooks/video-frame-service" },
       { text: "图片金字塔", link: "/ops/runbooks/image-pyramid" },
       { text: "PG 连接池耗尽", link: "/ops/runbooks/postgres-connection-pool-exhausted" },
+      { text: "员工项目角色迁移与回滚", link: "/ops/runbooks/project-role-migration" },
     ],
   },
 ];

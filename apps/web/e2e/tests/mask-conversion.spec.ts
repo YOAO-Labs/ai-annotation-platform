@@ -35,11 +35,11 @@ async function json<T>(response: APIResponse): Promise<T> {
 
 test.describe("annotation conversion center", () => {
   test.afterEach(async ({ seed }) => {
-    await seed.reset();
+    await seed.owned();
   });
 
   test("polygon copy to Mask, then replace Mask with polygon", async ({ page, request, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({
@@ -187,7 +187,7 @@ test.describe("annotation conversion center", () => {
     seed,
   }) => {
     test.setTimeout(90_000);
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.configureRasterMask(data.project_id, true);
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     const token = await seed.accessToken(data.admin_email);
@@ -290,7 +290,7 @@ test.describe("annotation conversion center", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     const fixture = await seed.injectRasterMask({

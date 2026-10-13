@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # MinIO 存储桶布局
 
-平台所有对象存储数据按"生命周期 + 安全敏感度"分桶。共 5 个桶,职责互不重叠,迁移与备份策略各自独立。
+平台所有对象存储数据按"生命周期 + 安全敏感度"分桶。各桶职责互不重叠,迁移与备份策略各自独立。
 
 ## 桶清单
 
@@ -19,6 +19,13 @@ last_reviewed: 2026-07-11
 | `bug-reports`   | `MINIO_BUG_REPORTS_BUCKET`   | Bug 反馈截图                                       | `bug-report-attachments/{user_id}/{uuid}-{name}`                                                                                     | 整桶 180 天                                              | 不备份                                                                                                                             |
 | `media-cache`   | `MINIO_MEDIA_CACHE_BUCKET`   | **派生缓存**: 缩略图、视频帧、chunk、playback 转码 | `thumbnails/{item_id}.webp`、`videos/{item_id}/frames/{idx}_{w}.{fmt}`、`videos/{item_id}/chunks/{id}.mp4`、`playback/{item_id}.mp4` | **仅 `videos/` 30 天**;`playback/`、`thumbnails/` 不过期 | **不备份**(`videos/` 帧/chunk 按需重生;`playback/`、`thumbnails/` 入库一次性生成、不惰性重建,丢失需重跑 `generate_video_metadata`) |
 | `audit-archive` | `MINIO_AUDIT_ARCHIVE_BUCKET` | 审计冷分区归档                                     | `{YYYY}/{MM}.jsonl.gz`                                                                                                               | **永久**(合规)                                           | 强备份,建议开 versioning + object lock                                                                                             |
+| `import`        | `MINIO_IMPORT_BUCKET`        | 预标注导入的临时产物                               | 一次性 key(ROI crop、导入包)                                                                                                         | 整桶 7 天                                                | 不备份(短生命周期)                                                                                                                 |
+| `export`        | `MINIO_EXPORT_BUCKET`        | 导出标注产物                                       | 一次性 key(ZIP / 富格式导出)                                                                                                         | 整桶 7 天                                                | 不备份(短生命周期)                                                                                                                 |
+| `avatars`       | `MINIO_AVATARS_BUCKET`       | **用户头像**(上传后规范化的 256×256 WebP)          | `{token}.webp`(`token` = 32 位随机十六进制)                                                                                          | **永久,且不挂 lifecycle**                                | 备份                                                                                                                               |
+
+> `avatars` 不挂 lifecycle 是有意的:头像是不可重生的持久身份数据,由 `users.avatar_ref` 持久引用;一旦过期就会出现"DB 指向已删对象"的破图(与下方 playback 是同类故障)。更换头像时由 API 显式删除旧对象。
+
+读取侧:头像图片由 `GET /api/v1/avatars/{token}` 提供(免鉴权、强缓存)。该 URL 是 128 位随机 token 的**能力 URL**——持有 URL 即可读取该图片,但 token 不可枚举、URL 不含用户 ID 或任何 PII、响应只有 `image/webp` 字节且无写操作。修改此端点前请先确认这一可见性边界仍可接受。
 
 ## 路由规则
 
@@ -52,6 +59,7 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 ## 容量监控
 
-- 前端: 超级管理员 → "存储管理" 页面,5 个桶分卡片展示对象数 / 总大小 / 错误状态。
+- 前端: 超级管理员 → "存储管理" 页面,按卡片展示各桶对象数 / 总大小 / 错误状态(卡片集合由 `GET /api/v1/storage/buckets` 返回的桶清单决定)。
 - API: `GET /api/v1/storage/buckets`、`GET /api/v1/admin/ml-integrations/overview`。
 - `media-cache` 体积主要受 `videos/` 前缀的 30 天 lifecycle 约束(帧/chunk 缓存),异常增长通常意味着视频源被频繁访问 → 检查 video_frame_service 命中率。`playback/`、`thumbnails/` 不过期但单文件小、数量随 item 线性增长,占比通常很小。
+- `avatars` 单对象 ≤ 约 40 KB(256×256 WebP),体积随用户数线性增长;数量对不上用户数时,检查是否有无引用的孤儿对象(`users.avatar_ref` 里不存在对应 token),可在确认后手工删除。

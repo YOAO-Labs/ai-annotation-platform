@@ -100,4 +100,4 @@ dispose 后 chargedBytes == 0
 randomized ledger、背景/Mask 联合 E2E、hidden/BFCache、Worker crash、两页签和 dispose 归零门。
 
 相关决策见
-[ADR-0064](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/0064-task-scoped-raster-resource-coordination.md)。
+[ADR-0064](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0064-task-scoped-raster-resource-coordination.md)。

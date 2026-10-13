@@ -4,14 +4,14 @@ vendor 形态: vendor/grounded-sam-2/ 下放上游官方仓库副本 (固定 com
 本模块只对 vendor 内的 SAM 2.1 image_predictor + GroundingDINO inference utilities 做一层 prompt 适配,
 返回平台协议要求的 polygonlabels / rectanglelabels 字典数组.
 
-mask → polygon 简化策略 (v0.9.4 phase 3 起抽到 apps/_shared/mask_utils, 与 v0.10.x sam3-backend 共用):
-    cv2.findContours(RETR_CCOMP, CHAIN_APPROX_NONE)  # v0.9.14 升级到 CCOMP 抓内外环
+mask → polygon 简化策略 (实现位于 apps/_shared/mask_utils, 与 sam3-backend 共用):
+    cv2.findContours(RETR_CCOMP, CHAIN_APPROX_NONE)  # CCOMP 抓内外环
     → 各连通域外环 / hole 配对（hierarchy parent 索引归属）
     → shapely.simplify(tolerance=DEFAULT_SIMPLIFY_TOLERANCE, preserve_topology=True)
     → 像素坐标归一化到 [0,1] (6 位精度对齐协议)
 
-输出 shape 智能选择 (v0.9.14):
-- 单连通域无 hole → polygonlabels {points}                 // 字面与 v0.9.13 一致, 老前端 / 老 fixture 不破
+输出 shape 智能选择:
+- 单连通域无 hole → polygonlabels {points}                 // 保持既有字面, 老前端 / 老 fixture 不破
 - 单连通域带 hole → polygonlabels {points, holes}          // 新增, 前端 PolygonGeometry.holes 渲染镂空
 - 多连通域       → polygonlabels {polygons:[{points, holes}]}  // 新增 multi_polygon, 前端 MultiPolygonGeometry
 
@@ -85,7 +85,7 @@ def _resolve_mask_input(
 
 
 def _maybe_encode_low_res(low_res: np.ndarray | None, *, enable: bool) -> str | None:
-    """v0.18.18 · 仅单 mask 精修阶段回灌 low-res logits (多候选 index 歧义不回灌)。"""
+    """仅单 mask 精修阶段回灌 low-res logits (多候选 index 歧义不回灌)。"""
     if not enable or low_res is None or len(low_res) < 1:
         return None
     try:
@@ -95,7 +95,7 @@ def _maybe_encode_low_res(low_res: np.ndarray | None, *, enable: bool) -> str | 
         return None
 
 
-# v0.9.4 phase 3 默认 tolerance (像素). docs/research/13-simplify-tolerance-eval.md
+# 默认 tolerance (像素). docs/research/13-simplify-tolerance-eval.md
 # 跑出来的合理默认 — 50 张 SAM mask 样本 95% 满足 IoU≥0.95, 顶点数中位 ~70.
 # 单次请求可由 Context.simplify_tolerance 覆盖.
 DEFAULT_SIMPLIFY_TOLERANCE = 1.0
@@ -116,7 +116,7 @@ SAM2_CONFIGS = {
 DINO_CONFIGS = {
     "T": ("GroundingDINO_SwinT_OGC.py", "groundingdino_swint_ogc.pth"),
     # vendor 里 SwinB 的 config 实际命名为 GroundingDINO_SwinB_cfg.py (不是 _cogcoor.py);
-    # checkpoint 仍是 groundingdino_swinb_cogcoor.pth. 变体热切换 (v0.10.23) 前 DINO 永远锁 T,
+    # checkpoint 仍是 groundingdino_swinb_cogcoor.pth. 启用变体热切换前 DINO 只锁 T 变体,
     # 此 config 文件名错配从未被触发.
     "B": ("GroundingDINO_SwinB_cfg.py", "groundingdino_swinb_cogcoor.pth"),
 }
@@ -241,9 +241,9 @@ class GroundedSAM2Predictor:
     ) -> tuple[list[dict[str, Any]], bool, str | None]:
         """返回 (results, cache_hit, mask_input_next). image=None 仅在 cache_key 命中时可省.
 
-        v0.18.17 · 正/负点累加由前端重发全量点 (无状态); multimask_output=True 单点歧义出
+        正/负点累加由前端重发全量点 (无状态); multimask_output=True 单点歧义出
         3 候选 (按 iou 降序, 前端 top-1 + 切换).
-        v0.18.18 · mask_input (上一轮 256×256 low-res logits, base64) 回灌; multimask=False
+        mask_input (上一轮 256×256 low-res logits, base64) 回灌; multimask=False
         的单 mask 精修阶段把本轮 low-res 编码回 mask_input_next 供下一次回传。
         """
         w, h, hit = self._prime_sam(image, cache_key)
@@ -304,7 +304,7 @@ class GroundedSAM2Predictor:
         output_geometry: str = "polygon",
         prompt_revision: str | None = None,
     ) -> tuple[list[dict[str, Any]], bool, str | None]:
-        """v0.18.17 · interactive_box 单框单 mask (协议 type=interactive_box 路由到此).
+        """interactive_box 单框单 mask (协议 type=interactive_box 路由到此).
         multimask_output=True 出 3 候选 (按 iou 降序).
 
         框是单发 prompt (前端不链式精修), 第 3 项 mask_input_next 恒 None。
@@ -403,7 +403,7 @@ class GroundedSAM2Predictor:
         cache_key: str | None = None,
         simplify_tolerance: float | None = None,
     ) -> tuple[list[dict[str, Any]], bool]:
-        """v0.18.12 · 框→mask 批量分割原子: 一图一次 set_image, N 框共享 image embedding。
+        """框→mask 批量分割原子: 一图一次 set_image, N 框共享 image embedding。
 
         用于多阶段编排的下游 box-seg 阶段——上游检测器已产出 bbox, 这里对每框跑轻量
         SAM decoder 出 polygon。encoder(set_image)成本只付一次, 远优于逐 crop N 次编码。
@@ -441,7 +441,7 @@ class GroundedSAM2Predictor:
     ) -> tuple[int, int, bool]:
         """命中: restore state, 返回 (w, h, True). 未命中: set_image + put, 返回 (w, h, False).
 
-        cache_key=None 时绕过缓存(等价 v0.9.0 行为).
+        cache_key=None 时绕过缓存.
         """
         if cache_key and self.embedding_cache is not None:
             entry = self.embedding_cache.get(cache_key)
@@ -467,7 +467,7 @@ class GroundedSAM2Predictor:
         text_threshold: float | None = None,
         simplify_tolerance: float | None = None,
     ) -> tuple[list[dict[str, Any]], bool]:
-        """v0.9.4 phase 2 · output 三分支:
+        """output 三分支:
         - "box":  仅 DINO, 跳过 SAM image embedding + mask + 简化, 返回 rectanglelabels
         - "mask": 当前默认行为, DINO + SAM mask → polygon, 返回 polygonlabels
         - "both": 同 instance 配对返回 [rectangle, polygon] 两条 (前端按需消费)
@@ -483,7 +483,7 @@ class GroundedSAM2Predictor:
             caption = caption + "."
 
         image_tensor = self._dino_image_tensor(np_img)
-        # v0.9.2 · 项目级阈值 override；缺省回退到 instance 默认值（来自 backend env）
+        # 项目级阈值 override；缺省回退到 instance 默认值（来自 backend env）
         eff_box = self.box_threshold if box_threshold is None else float(box_threshold)
         eff_text = (
             self.text_threshold if text_threshold is None else float(text_threshold)
@@ -605,15 +605,15 @@ class GroundedSAM2Predictor:
     def _rings_to_polygon_label(
         rings: list[MultiPolygonRing], label: str, score: float
     ) -> dict[str, Any]:
-        """v0.9.14 · mask_to_multi_polygon 输出 → LabelStudio polygonlabels shape.
+        """mask_to_multi_polygon 输出 → LabelStudio polygonlabels shape.
 
         智能选择三种字面:
-        - 单连通无 hole → {points, polygonlabels}                  (与 v0.9.13 之前字面完全一致)
+        - 单连通无 hole → {points, polygonlabels}                  (保持既有字面)
         - 单连通带 hole → {points, holes, polygonlabels}            (新, 老前端忽略 holes 字段)
         - 多连通       → {polygons:[{points,holes?},...], polygonlabels}  (新, 老前端忽略 polygons 字段)
 
         老前端遇到带 holes / polygons 的新字段会 fallback 到 points (老路径) 还是空, 取决于
-        前端反序列化实现; v0.9.14 同时升级前端 transforms.ts 适配, 老前端兼容靠"单连通无 hole
+        前端反序列化实现; 前端 transforms.ts 已适配这些字段, 老前端兼容靠"单连通无 hole
         时不写新字段"这条路径覆盖大多数 mask.
         """
         if len(rings) == 1 and not rings[0]["holes"]:
@@ -712,7 +712,7 @@ class GroundedSAM2Predictor:
     ) -> list[dict[str, Any]]:
         if masks.ndim == 4:
             masks = masks[:, 0]
-        # v0.18.17 · multimask 候选按 score 降序, 保证 results[0]=top-1 (与 sam3 对齐);
+        # multimask 候选按 score 降序, 保证 results[0]=top-1 (与 sam3 对齐);
         # 单 mask / predict_boxes 路径 (sort_by_score=False) 保留原顺序 (parent_box_idx 依赖).
         if sort_by_score and scores is not None and len(scores) > 1:
             order = np.argsort(-np.asarray(scores), kind="stable")

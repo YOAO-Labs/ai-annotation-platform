@@ -109,7 +109,7 @@ COPY sam3-backend/scripts/ ./scripts/
 COPY sam3-backend/main.py sam3-backend/predictor.py sam3-backend/video_predictor.py \
      sam3-backend/pvs_video_predictor.py sam3-backend/schemas.py \
      sam3-backend/embedding_cache.py sam3-backend/observability.py \
-     sam3-backend/managed_pool.py sam3-backend/pool_domain.py \
+     sam3-backend/pool_domain.py \
      sam3-backend/gpu_lifecycle.py ./
 COPY sam3-backend/tests/ ./tests/
 RUN mkdir -p /app/checkpoints /app/.cache/huggingface

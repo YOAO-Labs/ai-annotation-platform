@@ -5,9 +5,8 @@ close it before that loop exits; no client or connection pool is kept at module 
 All scripts touch keys from one physical resource hash slot and never perform network
 or database work while the atomic section is running.
 
-Extracted verbatim from the legacy ``app.services.gpu_arbiter_store`` module. This is the
-orchestration layer: it depends on the ledger primitive submodules and registers the 15
-final Lua scripts from :mod:`gpu_arbitration.ledger.scripts`.
+This is the orchestration layer: it depends on the ledger primitive submodules and
+registers the 15 final Lua scripts from :mod:`gpu_arbitration.ledger.scripts`.
 """
 
 from __future__ import annotations

@@ -9,17 +9,19 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks._shared import (
-    _ANNOTATORS,
     _assert_task_editable,
     _assert_task_visible,
     _load_task_or_404,
+    _resolve_task_access,
     _visible_task_ids,
+    require_task_annotation_write,
 )
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.deps import get_db, require_roles
+from app.deps import get_db, get_current_user
+from app.services.project_access import ProjectAccess
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.cross_frame_job import CrossFrameJobCreate, CrossFrameJobListResponse
 from app.services import async_job as async_job_svc
@@ -71,6 +73,7 @@ async def _create_job(
     source_task: Task,
     current_user: User,
     data: CrossFrameJobCreate,
+    access: ProjectAccess | None = None,
     target_frame_override: list[int] | None = None,
     source_ids_override: list[uuid.UUID] | None = None,
     parent_job_id: uuid.UUID | None = None,
@@ -117,7 +120,9 @@ async def _create_job(
     tasks_by_id = {
         row.id: row for row in task_rows if row.project_id == source_task.project_id
     }
-    visible_ids = await _visible_task_ids(db, project, current_user, list(tasks_by_id))
+    visible_ids = await _visible_task_ids(
+        db, project, current_user, list(tasks_by_id), access=access
+    )
 
     targets: list[dict] = []
     for frame_index in requested_frames:
@@ -142,7 +147,7 @@ async def _create_job(
             )
             continue
         try:
-            _assert_task_editable(target, current_user)
+            _assert_task_editable(target, current_user, access=access)
         except HTTPException:
             targets.append(
                 {
@@ -236,16 +241,18 @@ async def create_cross_frame_job(
     task_id: uuid.UUID,
     data: CrossFrameJobCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     source_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, source_task, current_user)
-    _assert_task_editable(source_task, current_user)
+    await _assert_task_visible(db, source_task, current_user, access=access)
+    _assert_task_editable(source_task, current_user, access=access)
     job, created = await _create_job(
         db,
         source_task=source_task,
         current_user=current_user,
         data=data,
+        access=access,
     )
     if created:
         job = await _dispatch_job(db, job)
@@ -260,7 +267,7 @@ async def list_cross_frame_jobs(
     task_id: uuid.UUID,
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
@@ -298,10 +305,11 @@ async def retry_cross_frame_job(
     task_id: uuid.UUID,
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user)
+    await _assert_task_visible(db, anchor_task, current_user, access=access)
     job = await db.get(AsyncJob, job_id)
     if job is None or job.kind != JOB_KIND:
         raise HTTPException(status_code=404, detail="cross-frame job not found")
@@ -341,13 +349,15 @@ async def retry_cross_frame_job(
             status_code=409, detail="job snapshot is not retryable"
         ) from exc
     source_task = await _load_task_or_404(db, source_task_id)
-    await _assert_task_visible(db, source_task, current_user)
-    _assert_task_editable(source_task, current_user)
+    source_access = await _resolve_task_access(db, source_task, current_user)
+    await _assert_task_visible(db, source_task, current_user, access=source_access)
+    _assert_task_editable(source_task, current_user, access=source_access)
     retry_job, created = await _create_job(
         db,
         source_task=source_task,
         current_user=current_user,
         data=data,
+        access=source_access,
         target_frame_override=frames,
         source_ids_override=source_ids,
         parent_job_id=job.id,

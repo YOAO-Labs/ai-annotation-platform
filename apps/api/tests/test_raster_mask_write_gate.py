@@ -265,7 +265,7 @@ async def test_prediction_create_gate_on_keeps_all_contract_validation(
 
 @pytest.mark.asyncio
 async def test_accept_prediction_gate_off_rejects_before_annotation_or_link(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     project, task = await _seed_image_task(db_session, user.id)
@@ -276,7 +276,7 @@ async def test_accept_prediction_gate_off_rejects_before_annotation_or_link(
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", False)
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/predictions/{prediction.id}/accept",
         json={},
         headers={"Authorization": f"Bearer {token}"},

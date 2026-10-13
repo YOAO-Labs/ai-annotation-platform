@@ -13,7 +13,13 @@ from app.db.models.notification import Notification
 from app.db.models.notification_preference import NotificationPreference
 from app.db.models.project_member import ProjectMember
 from app.schemas.annotation_feedback import AnnotationFeedbackCreate
-from tests.factory import create_batch, create_project, create_task, create_user
+from tests.factory import (
+    create_membership,
+    create_batch,
+    create_project,
+    create_task,
+    create_user,
+)
 
 
 def _headers(user, token: str | None = None) -> dict[str, str]:
@@ -38,7 +44,7 @@ async def test_native_task_comment_mentions_round_trip_and_notify_once(
 ):
     actor, actor_token = super_admin
     recipient = await create_user(
-        db_session, "annotator", f"mention-{uuid4().hex}@test.local", "Mentioned"
+        db_session, "employee", f"mention-{uuid4().hex}@test.local", "Mentioned"
     )
     project = await create_project(db_session, owner_id=actor.id)
     batch = await create_batch(db_session, project_id=project.id, status="active")
@@ -46,13 +52,12 @@ async def test_native_task_comment_mentions_round_trip_and_notify_once(
     task.file_type = file_type
     batch.annotator_id = recipient.id
     task.batch_id = batch.id
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=recipient.id,
-            role="annotator",
-            assigned_by=actor.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=recipient.id,
+        role="annotator",
+        assigned_by=actor.id,
     )
     await db_session.flush()
 
@@ -134,7 +139,7 @@ async def test_mentions_reject_foreign_destinations_and_replies(
 ):
     actor, token = super_admin
     recipient = await create_user(
-        db_session, "annotator", f"foreign-{uuid4().hex}@test.local", "Foreign"
+        db_session, "employee", f"foreign-{uuid4().hex}@test.local", "Foreign"
     )
     project = await create_project(db_session, owner_id=actor.id)
     task = await create_task(db_session, project_id=project.id)
@@ -207,13 +212,13 @@ async def test_task_comment_mentions_skip_hidden_inactive_and_muted_recipients(
 ):
     actor, token = super_admin
     assigned = await create_user(
-        db_session, "annotator", f"assigned-{uuid4().hex}@test.local", "Assigned"
+        db_session, "employee", f"assigned-{uuid4().hex}@test.local", "Assigned"
     )
     inactive = await create_user(
-        db_session, "annotator", f"inactive-{uuid4().hex}@test.local", "Inactive"
+        db_session, "employee", f"inactive-{uuid4().hex}@test.local", "Inactive"
     )
     unassigned = await create_user(
-        db_session, "annotator", f"unassigned-{uuid4().hex}@test.local", "Unassigned"
+        db_session, "employee", f"unassigned-{uuid4().hex}@test.local", "Unassigned"
     )
     inactive.is_active = False
     project = await create_project(db_session, owner_id=actor.id)

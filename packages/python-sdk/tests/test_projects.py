@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from ai_annotation.errors import PermissionDeniedError
-from ai_annotation.models import Project
+from ai_annotation.models import Project, ProjectAccess
 
 from .conftest import API
 
@@ -88,6 +88,81 @@ def test_project_writes_map_permission_error(client, respx_mock, method):
             client.projects.update(PROJECT["id"], name="blocked")
         else:
             client.projects.delete(PROJECT["id"])
+
+
+def test_project_list_exposes_my_project_role(client, respx_mock):
+    respx_mock.get(f"{API}/projects").mock(
+        return_value=httpx.Response(
+            200, json=[{**PROJECT, "my_project_role": "reviewer"}]
+        )
+    )
+    projects = client.projects.list()
+    assert projects[0].my_project_role == "reviewer"
+
+
+def test_project_access_for_member(client, respx_mock):
+    pid = PROJECT["id"]
+    user_id = str(uuid4())
+    member_id = str(uuid4())
+    respx_mock.get(f"{API}/projects/{pid}/access").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "project_id": pid,
+                "user_id": user_id,
+                "platform_role": "employee",
+                "project_role": "reviewer",
+                "membership_id": member_id,
+                "membership_version": 2,
+                "access_kind": "member",
+                "is_manager": False,
+                "capabilities": [
+                    "project.read",
+                    "task.read",
+                    "review.write",
+                    "export.annotations",
+                ],
+            },
+        )
+    )
+    access = client.projects.access(pid)
+    assert isinstance(access, ProjectAccess)
+    assert access.project_role == "reviewer"
+    assert access.platform_role == "employee"
+    assert access.access_kind == "member"
+    assert access.membership_version == 2
+    assert "review.write" in access.capabilities
+
+
+def test_project_access_for_manager_has_no_membership(client, respx_mock):
+    pid = PROJECT["id"]
+    respx_mock.get(f"{API}/projects/{pid}/access").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "project_id": pid,
+                "user_id": str(uuid4()),
+                "platform_role": "project_admin",
+                "access_kind": "owner",
+                "is_manager": True,
+            },
+        )
+    )
+    access = client.projects.access(pid)
+    assert access.access_kind == "owner"
+    assert access.is_manager is True
+    assert access.project_role is None
+    assert access.membership_id is None
+    assert access.capabilities == []
+
+
+def test_project_access_maps_permission_error(client, respx_mock):
+    pid = PROJECT["id"]
+    respx_mock.get(f"{API}/projects/{pid}/access").mock(
+        return_value=httpx.Response(403, json={"detail": "forbidden"})
+    )
+    with pytest.raises(PermissionDeniedError):
+        client.projects.access(pid)
 
 
 def test_extra_fields_tolerated(client, respx_mock):

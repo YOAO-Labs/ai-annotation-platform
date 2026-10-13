@@ -25,20 +25,20 @@ interface ClassPaletteProps {
   dense?: boolean;
   /** 纯预览模式：行不响应点击；hover 不变色；鼠标 default。 */
   readOnly?: boolean;
+  /** 键盘导航接入：过滤结果（与查询原文）变化时回调（popover 用它驱动 Up/Down/Enter）。 */
+  onFilteredChange?: (filtered: string[], query: string) => void;
 }
 
-const SHORTCUT_LETTERS = "abcdefghijklmnopqrstuvwxyz";
+/** 类别直选只有十个数字槽：1-9 + 0（按工具绑定单元配置顺序取前十个）。 */
+export const CLASS_SHORTCUT_SLOTS = 10;
 
 function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
-/** 1-9 数字键 + a-z 字母键依次映射到 classes 列表。 */
 export function shortcutForIndex(idx: number): string {
-  if (idx < 9) return String(idx + 1);
-  const letterIdx = idx - 9;
-  if (letterIdx < SHORTCUT_LETTERS.length) return SHORTCUT_LETTERS[letterIdx].toUpperCase();
-  return "";
+  if (idx < 0 || idx >= CLASS_SHORTCUT_SLOTS) return "";
+  return idx === 9 ? "0" : String(idx + 1);
 }
 
 export function ClassPalette({
@@ -51,6 +51,7 @@ export function ClassPalette({
   highlightIndex,
   dense = false,
   readOnly = false,
+  onFilteredChange,
 }: ClassPaletteProps) {
   const handlePick = (c: string) => {
     if (readOnly) return;
@@ -59,6 +60,7 @@ export function ClassPalette({
   const [query, setQuery] = useState("");
   const showSearch = enableSearch ?? classes.length > 9;
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setQuery("");
@@ -70,6 +72,17 @@ export function ClassPalette({
     return classes.filter((c) => c.toLowerCase().includes(q));
   }, [classes, query]);
 
+  useEffect(() => {
+    onFilteredChange?.(filtered, query);
+  }, [filtered, query, onFilteredChange]);
+
+  // 键盘高亮行保持在可视范围内（类别多时 popover 内部滚动）。
+  useEffect(() => {
+    if (typeof highlightIndex !== "number") return;
+    const row = listRef.current?.children[highlightIndex] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: "nearest" });
+  }, [highlightIndex]);
+
   // recent 只展示当前项目存在的类别
   const visibleRecent = useMemo(
     () => recent.filter((c) => classes.includes(c)).slice(0, 5),
@@ -80,6 +93,7 @@ export function ClassPalette({
     <div className={cn("flex flex-col", dense ? "gap-1.5" : "gap-2")}>
       {showSearch && (
         <input
+          data-class-picker-search=""
           ref={inputRef}
           autoFocus={dense}
           value={query}
@@ -111,7 +125,7 @@ export function ClassPalette({
         </div>
       )}
 
-      <div className="flex flex-col gap-px">
+      <div className="flex flex-col gap-px" ref={listRef}>
         {filtered.map((c) => {
           const idx = classes.indexOf(c);
           const sk = shortcutForIndex(idx);

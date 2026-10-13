@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { StatCard } from "@/components/ui/StatCard";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { TabRow } from "@/components/ui/TabRow";
@@ -42,12 +42,13 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { USERS_URL_DEFAULTS, USERS_URL_KEYS, usersUrlCodec } from "./usersUrlState";
 
-// actor.role × target.role → 可点"编辑"（即可改角色或可删）
+// actor.role × target.role → 可点"编辑"（即可改平台角色或可删）。
+// 平台角色编辑仅 super_admin（后端 AUTH-04）；项目管理员的生命周期路径仅
+// 接受 employee 目标，观察者行不提供编辑/离职等入口。
 const EDITABLE_TARGET_ROLES_BY_ACTOR: Record<UserRole, UserRole[]> = {
-  super_admin: ["super_admin", "project_admin", "reviewer", "annotator", "viewer"],
-  project_admin: ["reviewer", "annotator"],
-  reviewer: [],
-  annotator: [],
+  super_admin: ["super_admin", "project_admin", "employee", "viewer"],
+  project_admin: ["employee"],
+  employee: [],
   viewer: [],
 };
 
@@ -55,8 +56,7 @@ const ROLE_COLORS: Record<string, "accent" | "ai" | "warning" | "success" | "out
   {
     super_admin: "danger",
     project_admin: "accent",
-    reviewer: "ai",
-    annotator: "outline",
+    employee: "ai",
     viewer: "success",
   };
 
@@ -365,7 +365,7 @@ function UsersPageContent() {
           />
           {tab === "members" && (
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <FilterGroup label="账号" compact>
+              <FilterGroup label="账号" hideLabel compact>
                 <FilterSelect
                   aria-label="账号状态"
                   value={userStatus}
@@ -376,7 +376,6 @@ function UsersPageContent() {
                       { replace: false },
                     );
                   }}
-                  className="w-full"
                 >
                   {Object.entries(USER_STATUS_FILTER_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -693,7 +692,7 @@ function UsersPageContent() {
                         </td>
                         <td className={`${TD_CLASS} pl-4`}>
                           <div className="flex items-center gap-2.5">
-                            <Avatar initial={u.name[0]} size="md" />
+                            <UserAvatar user={u} size="md" />
                             <div className="min-w-0">
                               <div className="max-w-[240px] truncate text-sm font-medium">
                                 {u.name}
@@ -747,7 +746,9 @@ function UsersPageContent() {
                                 <Icon name="activity" size={11} />
                               </Button>
                             )}
-                            {me?.id !== u.id && editableTargets.includes(u.role as UserRole) ? (
+                            {me?.id !== u.id &&
+                            editableTargets.includes(u.role as UserRole) &&
+                            u.is_managed !== false ? (
                               <>
                                 <Button
                                   variant="ghost"
@@ -767,7 +768,10 @@ function UsersPageContent() {
                                     <Icon name="key" size={11} />
                                   </Button>
                                 )}
-                                {isActive && (
+                                {/* 生命周期写入（离职/删除/恢复）需要目标的派生项目
+                                    全部在自己的管理范围内；跨项目行仅开放账号级操作，
+                                    否则按钮点开必然 403。 */}
+                                {isActive && u.is_lifecycle_managed !== false && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -781,7 +785,7 @@ function UsersPageContent() {
                                     />
                                   </Button>
                                 )}
-                                {isActive && (
+                                {isActive && u.is_lifecycle_managed !== false && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -791,41 +795,51 @@ function UsersPageContent() {
                                     <Icon name="trash" size={11} className="text-status-danger" />
                                   </Button>
                                 )}
-                                {!isActive && REACTIVATABLE_KINDS.has(u.disabled_kind ?? "") && (
-                                  <>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setOffboardingUser(u)}
-                                      title="继续交接"
-                                    >
-                                      <Icon
-                                        name="arrowRight"
-                                        size={11}
-                                        className="text-status-caution"
-                                      />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setReactivatingUser(u)}
-                                      title="恢复账号"
-                                    >
-                                      <Icon
-                                        name="rotate-ccw"
-                                        size={11}
-                                        className="text-status-positive"
-                                      />
-                                    </Button>
-                                  </>
-                                )}
+                                {!isActive &&
+                                  u.is_lifecycle_managed !== false &&
+                                  REACTIVATABLE_KINDS.has(u.disabled_kind ?? "") && (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setOffboardingUser(u)}
+                                        title="继续交接"
+                                      >
+                                        <Icon
+                                          name="arrowRight"
+                                          size={11}
+                                          className="text-status-caution"
+                                        />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setReactivatingUser(u)}
+                                        title="恢复账号"
+                                      >
+                                        <Icon
+                                          name="rotate-ccw"
+                                          size={11}
+                                          className="text-status-positive"
+                                        />
+                                      </Button>
+                                    </>
+                                  )}
                               </>
                             ) : (
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 disabled
-                                title={me?.id === u.id ? "不能修改自己" : "无权修改该用户"}
+                                title={
+                                  me?.id === u.id
+                                    ? "不能修改自己"
+                                    : u.is_managed === false
+                                      ? u.role === "super_admin"
+                                        ? "仅可查看：超级管理员账号"
+                                        : "该用户不在你管理的项目内，仅可查看"
+                                      : "无权修改该用户"
+                                }
                               >
                                 <Icon name="edit" size={11} className="opacity-40" />
                               </Button>
@@ -995,7 +1009,7 @@ function UsersPageContent() {
               并提醒首次登录后立即修改密码。
             </div>
             <div className={SUMMARY_CARD_CLASS}>
-              <Avatar initial={resettingPwd.name[0]} size="md" />
+              <UserAvatar user={resettingPwd} size="md" />
               <div>
                 <div className="text-sm font-medium">{resettingPwd.name}</div>
                 <div className="mono text-xs text-muted-foreground">{resettingPwd.email}</div>
@@ -1090,7 +1104,7 @@ function UsersPageContent() {
                 : "确认删除以下账号？该用户将无法登录，但历史标注与审计记录仍会保留。"}
             </div>
             <div className={SUMMARY_CARD_CLASS}>
-              <Avatar initial={deleting.name[0]} size="md" />
+              <UserAvatar user={deleting} size="md" />
               <div>
                 <div className="text-sm font-medium">{deleting.name}</div>
                 <div className="mono text-xs text-muted-foreground">{deleting.email}</div>
@@ -1137,9 +1151,7 @@ function UsersPageContent() {
                         (u: UserResponse) =>
                           u.id !== deleting.id &&
                           u.is_active &&
-                          (u.role === "annotator" ||
-                            u.role === "reviewer" ||
-                            u.role === "project_admin"),
+                          (u.role === "employee" || u.role === "project_admin"),
                       )
                       .map((u: UserResponse) => (
                         <option key={u.id} value={u.id}>

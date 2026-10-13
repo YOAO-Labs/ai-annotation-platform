@@ -152,6 +152,7 @@ class AdminPersonItem(BaseModel):
     role: str
     status: str  # online / offline
     project_count: int
+    avatar_ref: str | None = None
     main_metric: int  # 标注员=本周完成 / 审核员=本周审核
     main_metric_label: str
     weekly_compare_pct: float | None = None

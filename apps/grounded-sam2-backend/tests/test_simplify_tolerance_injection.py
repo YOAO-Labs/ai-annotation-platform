@@ -1,4 +1,4 @@
-"""v0.9.4 phase 3 · Context.simplify_tolerance 注入路径 + 顶点 WARN 单测.
+"""Context.simplify_tolerance 注入路径 + 顶点 WARN 单测.
 
 不加载 GPU 模型, 用 mock 直接喂 mask 给 _masks_to_results / predict_text mask 路径,
 观察 mask_to_polygon 调用时的 tolerance 透传 + 顶点数 > 200 触发 logger.warning.

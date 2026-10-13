@@ -61,7 +61,7 @@ const baseRow = {
 describe("JobsBell", () => {
   beforeEach(() => {
     localStorage.clear();
-    useAuthStore.getState().setAuth("jobs-u1-token", { id: "u1", role: "annotator" } as MeResponse);
+    useAuthStore.getState().setAuth("jobs-u1-token", { id: "u1", role: "employee" } as MeResponse);
     mockList.mockReset();
     mockCancel.mockReset();
     mockGet.mockReset();
@@ -288,7 +288,7 @@ describe("JobsBell", () => {
     act(() =>
       useAuthStore
         .getState()
-        .setAuth("jobs-u2-token", { id: "u2", role: "annotator" } as MeResponse),
+        .setAuth("jobs-u2-token", { id: "u2", role: "employee" } as MeResponse),
     );
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
     await act(async () => resolveFirst({ items: [{ ...baseRow, id: "alice-job" }], total: 1 }));
@@ -316,7 +316,7 @@ describe("JobsBell", () => {
     act(() =>
       useAuthStore
         .getState()
-        .setAuth("jobs-u1-token-2", { id: "u1", role: "annotator" } as MeResponse),
+        .setAuth("jobs-u1-token-2", { id: "u1", role: "employee" } as MeResponse),
     );
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
     expect(firstSignal.aborted).toBe(true);
@@ -338,7 +338,7 @@ describe("JobsBell", () => {
     act(() =>
       useAuthStore
         .getState()
-        .setAuth("jobs-u2-token", { id: "u2", role: "annotator" } as MeResponse),
+        .setAuth("jobs-u2-token", { id: "u2", role: "employee" } as MeResponse),
     );
     expect(screen.queryByRole("dialog", { name: "后台任务详情" })).not.toBeInTheDocument();
   });
@@ -358,7 +358,7 @@ describe("JobsBell", () => {
     act(() =>
       useAuthStore
         .getState()
-        .setAuth("jobs-u2-token", { id: "u2", role: "annotator" } as MeResponse),
+        .setAuth("jobs-u2-token", { id: "u2", role: "employee" } as MeResponse),
     );
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
     await act(async () => resolveCancel({ status: "cancelled", id: "j1" }));

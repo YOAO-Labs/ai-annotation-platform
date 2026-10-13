@@ -11,7 +11,8 @@
         "arn:aws:s3:::prod-media-cache",
         "arn:aws:s3:::prod-audit-archive",
         "arn:aws:s3:::prod-import",
-        "arn:aws:s3:::prod-export"
+        "arn:aws:s3:::prod-export",
+        "arn:aws:s3:::prod-avatars"
       ]
     },
     {
@@ -41,7 +42,8 @@
         "arn:aws:s3:::prod-media-cache/*",
         "arn:aws:s3:::prod-audit-archive/*",
         "arn:aws:s3:::prod-import/*",
-        "arn:aws:s3:::prod-export/*"
+        "arn:aws:s3:::prod-export/*",
+        "arn:aws:s3:::prod-avatars/*"
       ]
     }
   ]

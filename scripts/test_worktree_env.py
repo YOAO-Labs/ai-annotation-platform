@@ -27,7 +27,7 @@ class IdentityTests(unittest.TestCase):
             self.assertTrue(
                 set(dev["buckets"].values()).isdisjoint(test["buckets"].values())
             )
-            self.assertEqual(len(dev["buckets"]), 7)
+            self.assertEqual(len(dev["buckets"]), 8)
             document = json.loads((root / ".worktree/identity.json").read_text())
             self.assertEqual(document["root"], str(root.resolve()))
             self.assertNotIn("password", json.dumps(document).lower())

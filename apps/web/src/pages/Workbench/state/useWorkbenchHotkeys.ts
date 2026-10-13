@@ -20,12 +20,13 @@ import {
   isMaskContextHotkey,
   isMaskHotkeyBlocked,
   isSamCandidateHotkeyBlocked,
+  type HotkeyStage,
 } from "./hotkeys";
+import { createCommandEventMatcher, type EffectiveCommandState } from "./hotkeyBindings";
 import { nextInCategory, nextCategory } from "../stage/frameObjectCycle";
 import { aiBoxOnFrame } from "../stage/aiBoxFrames";
 import type { UseMaskEditorReturn } from "./useMaskEditor";
 import { canEditMask } from "./canEditMask";
-import { recordHotkeyUsage } from "./hotkeyUsage";
 import { bboxGeom } from "./transforms";
 import type { useWorkbenchState, VideoTool } from "./useWorkbenchState";
 import type { useAnnotationHistory } from "./useAnnotationHistory";
@@ -136,6 +137,8 @@ export interface UseWorkbenchHotkeysArgs {
   disabled?: boolean;
   ignoredKeys?: Set<string>;
   videoMode?: boolean;
+  /** Actual stage, so image overrides cannot reach a 3D selection. */
+  stage?: HotkeyStage;
   requestVideoTool?: (tool: VideoTool) => void;
   /** v0.10.29 · 视频采样网格生效 (step>1) 时改写 ←/→ 键位；step=1 维持现状。 */
   samplingActive?: boolean;
@@ -156,6 +159,8 @@ export interface UseWorkbenchHotkeysArgs {
   maskPixelReadOnly?: boolean;
   /** 证据对比期间冻结所有 Mask 编辑快捷键，包括取消草稿。 */
   maskInteractionFrozen?: boolean;
+  /** Increment B · 账号级快捷键覆盖解析出的生效命令表（含默认值）。 */
+  shortcutsEffective?: Map<string, EffectiveCommandState>;
 }
 
 export interface UseWorkbenchHotkeysReturn {
@@ -233,6 +238,7 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     disabled = false,
     ignoredKeys,
     videoMode = false,
+    stage = videoMode ? "video" : "image",
     requestVideoTool,
     samplingActive = false,
     videoControlsRef,
@@ -245,6 +251,7 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     maskTaskReadOnly = false,
     maskPixelReadOnly = false,
     maskInteractionFrozen = false,
+    shortcutsEffective,
   } = args;
 
   const [spacePan, setSpacePan] = useState(false);
@@ -252,6 +259,24 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
   const videoSpaceDraggedRef = useRef(false);
   const [nudgeMap, setNudgeMap] = useState<Map<string, Geom>>(new Map());
   const nudgeOrigRef = useRef<Map<string, Geom>>(new Map());
+  // Increment B · 运行期绑定冲突每会话每按键只上报一次。
+  const reportedConflictsRef = useRef(new Set<string>());
+
+  const reportBindingConflict = useCallback(
+    (e: KeyboardEvent) => {
+      const token = `${e.ctrlKey || e.metaKey ? "Mod+" : ""}${e.altKey ? "Alt+" : ""}${
+        e.shiftKey ? "Shift+" : ""
+      }${e.key}`;
+      if (reportedConflictsRef.current.has(token)) return;
+      reportedConflictsRef.current.add(token);
+      pushToast({
+        msg: `快捷键 ${token} 存在重复绑定，本次未执行`,
+        sub: "可在快捷键面板中检查并修正冲突的组合。",
+        kind: "warning",
+      });
+    },
+    [pushToast],
+  );
 
   const markSpacePanDrag = useCallback(() => {
     if (videoSpaceDownRef.current) videoSpaceDraggedRef.current = true;
@@ -498,6 +523,12 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
       const modifiedToken = hotkeyIgnoreToken(e);
       if (ignoredKeys?.has(e.key) || (modifiedToken && ignoredKeys?.has(modifiedToken))) return;
       const attributeHotkey = (digit: string) => {
+        // Increment B · 属性快捷键只在显式聚焦的属性快捷键区域内生效；
+        // 仅选中标注不再把画布数字键改成属性编辑。
+        const active = document.activeElement;
+        if (!(active instanceof Element && active.closest("[data-attribute-shortcut-region]"))) {
+          return null;
+        }
         const sel = s.selectedId;
         if (!sel) return null;
         const ann = annotationsRef.current.find((a) => a.id === sel);
@@ -518,12 +549,21 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
         return null;
       };
 
+      // Increment B · 生效绑定匹配器（每事件一次；未挂载偏好时走 dispatchKey 默认表）。
+      const matcher = shortcutsEffective
+        ? createCommandEventMatcher(e, shortcutsEffective, stage)
+        : null;
+
       const action = dispatchKey(e, {
         isInputFocused: isWorkbenchInputFocused(e.target),
         hasSelection: !!s.selectedId || s.selectedIds.length > 0,
         pendingActive: !!s.pendingDrawing || !!s.editingClass || batchChanging || classPickerActive,
         attributeHotkey,
         videoMode,
+        stage,
+        matchCommand: matcher?.match,
+        commandBindingConflict: matcher?.conflict ?? false,
+        onCommandBindingConflict: () => reportBindingConflict(e),
         selectedPrediction:
           aiBoxes.find(
             (box) =>
@@ -541,7 +581,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
           ),
       });
       if (!action) return;
-      recordHotkeyUsage(action.type);
 
       switch (action.type) {
         case "undo":
@@ -839,6 +878,9 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
         }
 
         case "setTool": {
+          // 工具命令可被改绑到 F1/F5/Home/PageDown 等带浏览器默认行为的键，
+          // 命中后必须吞掉事件，避免同时切工具又刷新 / 滚动页面。
+          e.preventDefault();
           if (action.tool === "mask" && maskToolDisabledReason) {
             pushToast({ msg: maskToolDisabledReason, kind: "warning" });
             return;
@@ -899,6 +941,8 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
         }
 
         case "setVideoTool":
+          // 同 setTool：改绑到 F1/F5/Home 等键时不要让浏览器默认行为同时生效。
+          e.preventDefault();
           if (aiInteractiveEnabled === false && AI_TOOL_HOTKEY_IDS.has(action.tool)) {
             return;
           }
@@ -928,16 +972,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
           if (!ann) return;
           const next = { ...(ann.attributes ?? {}), [action.key]: action.value };
           handleUpdateAttributes(ann.id, next);
-          return;
-        }
-
-        case "setClassByLetter": {
-          const letterIdx = action.letter.charCodeAt(0) - "a".charCodeAt(0);
-          const idx = 9 + letterIdx;
-          if (classes[idx]) {
-            s.setActiveClass(classes[idx]);
-            recordRecentClass(classes[idx]);
-          }
           return;
         }
 
@@ -995,9 +1029,12 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     disabled,
     ignoredKeys,
     videoMode,
+    stage,
     requestVideoTool,
     samplingActive,
     videoControlsRef,
+    shortcutsEffective,
+    reportBindingConflict,
     s,
     history,
     classes,

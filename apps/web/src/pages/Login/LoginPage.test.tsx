@@ -1,6 +1,6 @@
 /**
  * v0.8.5 · LoginPage 单测：已登录跳转 / 表单提交 / 错误提示 / loading 态 /
- * eye toggle / 注册入口可见性。
+ * eye toggle / 注册入口可见性；Issue #123 · 登录返回目标过滤错误页与角色默认首页。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -168,5 +168,83 @@ describe("LoginPage", () => {
       </MemoryRouter>,
     );
     expect(screen.getByText("PROJECTS")).toBeInTheDocument();
+  });
+
+  // Issue #123 · 错误页不能成为登录后的返回目标;无效目标回落角色默认首页。
+  it("来源是 /unauthorized → 回落 /dashboard,不再回错误页", () => {
+    useAuthStore.setState({ token: "t", user: null });
+    render(
+      <MemoryRouter
+        initialEntries={[{ pathname: "/login", state: { from: { pathname: "/unauthorized" } } }]}
+      >
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/dashboard" element={<div>DASHBOARD</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("DASHBOARD")).toBeInTheDocument();
+  });
+
+  it("超级管理员无有效返回目标时默认落到 /overview", () => {
+    useAuthStore.setState({
+      token: "t",
+      user: { id: "1", role: "super_admin" } as never,
+    });
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/overview" element={<div>OVERVIEW</div>} />
+          <Route path="/dashboard" element={<div>DASHBOARD</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("OVERVIEW")).toBeInTheDocument();
+  });
+
+  it("超级管理员来源是 /unauthorized → 回落 /overview 而非错误页", () => {
+    useAuthStore.setState({
+      token: "t",
+      user: { id: "1", role: "super_admin" } as never,
+    });
+    render(
+      <MemoryRouter
+        initialEntries={[{ pathname: "/login", state: { from: { pathname: "/unauthorized" } } }]}
+      >
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/overview" element={<div>OVERVIEW</div>} />
+          <Route path="/unauthorized" element={<div>UNAUTHORIZED</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("OVERVIEW")).toBeInTheDocument();
+  });
+
+  it("?next=/unauthorized → 被过滤,回落 /dashboard", () => {
+    useAuthStore.setState({ token: "t", user: null });
+    render(
+      <MemoryRouter initialEntries={["/login?next=%2Funauthorized"]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/dashboard" element={<div>DASHBOARD</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("DASHBOARD")).toBeInTheDocument();
+  });
+
+  it("?next= 合法业务路径 → 保留返回能力", () => {
+    useAuthStore.setState({ token: "t", user: null });
+    render(
+      <MemoryRouter initialEntries={["/login?next=%2Fdatasets"]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/datasets" element={<div>DATASETS</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("DATASETS")).toBeInTheDocument();
   });
 });

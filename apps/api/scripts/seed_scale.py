@@ -1,4 +1,4 @@
-"""规模化压测种子数据（v0.11.30 大表查询地基验证用，v0.12.x 复用）。
+"""规模化压测种子数据。
 
 生成 1 个 project + 1 dataset + N 个 task（默认 10 万），分布在 M 个 active 批次；
 并让一个标注员对前 K 个 task 留有 active 标注（撑大 scheduler 的「已标注」NOT EXISTS
@@ -80,16 +80,22 @@ async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
                 )
             )
         ).scalar()
+        # Project duties live on project_members; the account platform role is
+        # no longer an annotator/reviewer value after the 0174 employee cutover.
         annotator_id = (
             await db.execute(
                 text(
-                    "SELECT id FROM users WHERE role = 'annotator' ORDER BY created_at LIMIT 1"
+                    "SELECT u.id FROM users u "
+                    "JOIN project_members pm ON pm.user_id = u.id "
+                    "WHERE pm.role = 'annotator' AND u.is_active "
+                    "ORDER BY u.created_at LIMIT 1"
                 )
             )
         ).scalar()
         if not owner_id or not annotator_id:
             print(
-                "[seed_scale] need at least 1 super_admin + 1 annotator (run seed.py first)"
+                "[seed_scale] need at least 1 super_admin and 1 user with the "
+                "annotator project duty via project_members (run seed.py first)"
             )
             raise SystemExit(1)
 
@@ -103,6 +109,17 @@ async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
                 {"m": MARKER, "owner": owner_id, "n": n_tasks},
             )
         ).scalar()
+
+        # Explicit project duty so the stress project is actually reachable by
+        # the annotator under the project-scoped access model.
+        await db.execute(
+            text(
+                "INSERT INTO project_members (id, project_id, user_id, role, assigned_by) "
+                "VALUES (gen_random_uuid(), :proj, :anno, 'annotator', :owner) "
+                "ON CONFLICT (project_id, user_id) DO NOTHING"
+            ),
+            {"proj": project_id, "anno": annotator_id, "owner": owner_id},
+        )
 
         dataset_id = (
             await db.execute(

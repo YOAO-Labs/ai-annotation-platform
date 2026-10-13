@@ -1,5 +1,11 @@
 from typing import Annotated, Any, Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from uuid import UUID
 from datetime import datetime
 
@@ -9,6 +15,135 @@ NamedPresetsRevision = Annotated[
     str,
     Field(strict=True, pattern=r"^(?:0|[0-9a-f]{32})$"),
 ]
+
+
+_SHORTCUT_MODIFIER_KEY_NAMES = frozenset(
+    {"shift", "control", "alt", "altgraph", "meta", "capslock", "numlock", "fn"}
+)
+
+
+class ShortcutBinding(BaseModel):
+    """v0.24 · 单条结构化快捷键绑定。
+
+    ``key`` 是规范化的 ``KeyboardEvent.key``：单个字符（任意字符，如 ``/``）或
+    小写命名键（如 ``arrowright``）。``modifiers`` 是显式修饰键集合，匹配时要求
+    完全一致（``mod`` = 平台主修饰键，Ctrl/⌘）。
+    """
+
+    model_config = {"extra": "forbid"}
+
+    key: str = Field(
+        min_length=1, max_length=32, pattern=r"^(?:.{1}|[a-z][a-z0-9]{0,31})$"
+    )
+    modifiers: list[Literal["mod", "alt", "shift"]] = Field(default_factory=list)
+
+    @field_validator("key")
+    @classmethod
+    def _key_not_modifier(cls, v: str) -> str:
+        if v.lower() in _SHORTCUT_MODIFIER_KEY_NAMES:
+            raise ValueError("key must not be a modifier key name")
+        return v
+
+    @field_validator("modifiers")
+    @classmethod
+    def _dedupe_sort(cls, v: list[str]) -> list[str]:
+        seen: list[str] = []
+        for item in v:
+            if item not in seen:
+                seen.append(item)
+        return sorted(seen)
+
+
+# 可编辑命令的稳定 ID 及其所属域；与前端 state/hotkeyBindings.ts 的注册表一一对应。
+# 本增量之外的新命令需先在前端注册再在此处放行（写路径按「域 + 命令 ID」严格校验）。
+_SHORTCUT_COMMAND_DOMAINS: dict[str, str] = {
+    "common.task.next": "common",
+    "common.task.prev": "common",
+    "image.tool.select": "image",
+    "image.tool.box": "image",
+    "image.tool.rotatedBox": "image",
+    "image.tool.polygon": "image",
+    "image.tool.polyline": "image",
+    "image.tool.keypoint": "image",
+    "image.tool.mask": "image",
+    "image.tool.aiCycle": "image",
+    "image.tool.magicBox": "image",
+    "image.selection.lock": "image",
+    "image.selection.hide": "image",
+    "video.tool.select": "video",
+    "video.tool.box": "video",
+    "video.tool.rotatedBox": "video",
+    "video.tool.keypoint": "video",
+    "video.tool.track": "video",
+    "video.tool.mask": "video",
+    "video.tool.smartPoint": "video",
+    "video.tool.smartBox": "video",
+    "video.tool.exemplar": "video",
+    "video.tool.magicBox": "video",
+    "video.tool.polygon": "video",
+    "video.track.locked": "video",
+    "video.track.hidden": "video",
+    "video.track.outside": "video",
+    "video.track.occluded": "video",
+    "video.track.bookmark": "video",
+    "video.frame.next": "video",
+    "video.frame.prev": "video",
+    "video.frame.micro.next": "video",
+    "video.frame.micro.prev": "video",
+    "video.track.keyframe.next": "video",
+    "video.track.keyframe.prev": "video",
+}
+
+
+def shortcut_command_domain(command_id: str) -> str | None:
+    """返回命令所属的覆盖域（common / image / video）；未注册命令返回 None。"""
+    return _SHORTCUT_COMMAND_DOMAINS.get(command_id)
+
+
+_ShortcutOverrideBucket = dict[str, list[ShortcutBinding] | None]
+
+
+class WorkbenchShortcutPreferences(BaseModel):
+    """v0.24 · 账号级快捷键覆盖。
+
+    每个桶（common / image / video）将命令 ID 映射到该命令的完整组合列表：
+    缺失或 ``null`` = 用默认组合；空列表 = 停用；非空列表（≤2 条，一主一备）=
+    整体替换默认组合。PATCH 只提交变更的命令条目（深合并按命令生效）。
+    """
+
+    model_config = {"extra": "forbid"}
+
+    # 只接受当前受支持的 schema 版本；更高版本由客户端保留为 opaque 子树，
+    # 写路径不能用一个「看起来合法」的版本来静默停用全部覆盖。
+    schemaVersion: Literal[1] = 1
+    common: _ShortcutOverrideBucket = Field(default_factory=dict)
+    image: _ShortcutOverrideBucket = Field(default_factory=dict)
+    video: _ShortcutOverrideBucket = Field(default_factory=dict)
+
+    @field_validator("common", "image", "video")
+    @classmethod
+    def _validate_bucket(
+        cls, v: _ShortcutOverrideBucket, info: ValidationInfo
+    ) -> _ShortcutOverrideBucket:
+        domain = info.field_name
+        for command_id, value in v.items():
+            if value is None:
+                # 显式恢复默认（重置）对未知 ID 也放行：客户端据此清除损坏存量条目。
+                continue
+            expected = shortcut_command_domain(command_id)
+            if expected is None:
+                raise ValueError(f"unknown shortcut command id: {command_id}")
+            if expected != domain:
+                # 命令 ID 必须落在自己的域桶；否则写入会通过校验却被生效表忽略。
+                raise ValueError(
+                    f"shortcut command {command_id} does not belong to the "
+                    f"{domain} bucket"
+                )
+            if len(value) > 2:
+                raise ValueError(
+                    f"shortcut command {command_id} allows at most 2 bindings"
+                )
+        return v
 
 
 class FloatingPanelState(BaseModel):
@@ -292,7 +427,8 @@ class WorkbenchPointcloudPreferences(BaseModel):
 class WorkbenchPreferences(BaseModel):
     """v0.9.41 · 标注工作台渲染偏好（I17 Configuration）。
     v0.13.10 · 增加 layout 子树承载跨设备布局偏好。
-    v0.15.3 · 平铺字段拆为 common/image/video/pointcloud 四子树；layout 保持顶层。"""
+    v0.15.3 · 平铺字段拆为 common/image/video/pointcloud 四子树；layout 保持顶层。
+    v0.24 · 增加 shortcuts 子树承载账号级快捷键覆盖（写路径严格校验）。"""
 
     model_config = {"extra": "forbid"}
 
@@ -307,6 +443,7 @@ class WorkbenchPreferences(BaseModel):
     layout: WorkbenchLayoutPreferences = Field(
         default_factory=WorkbenchLayoutPreferences
     )
+    shortcuts: WorkbenchShortcutPreferences | None = None
 
 
 class AIToolPreferences(BaseModel):
@@ -358,7 +495,7 @@ class OnboardingPreferences(BaseModel):
 
 
 class UIPreferences(BaseModel):
-    """v0.15.25 · 全局 UI 偏好（工作台之外）。当前仅主题；跟随账号跨设备。
+    """v0.15.25 · 全局 UI 偏好（工作台之外）；跟随账号跨设备。
 
     主题原先只存 localStorage（仅本机），升级到服务端偏好后换设备登录即保持。
     'system' = 跟随操作系统 prefers-color-scheme。"""
@@ -368,6 +505,9 @@ class UIPreferences(BaseModel):
     theme: Literal["light", "dark", "system"] = "system"
     # v0.20.19 · 二次推理面板显隐 (跨设备): true=隐藏工具条。默认 false=显示 (不回归现状)。
     secondary_bar_hidden: bool = False
+    # 登录后「版本更新提醒」已确认的版本。空串 = 从未确认；前端按语义化版本比较，
+    # 仅当构建版本更新时弹一次「本次更新」，点「知道了」写回本键，跨设备去重。
+    changelog_seen_version: str = ""
 
 
 class UserPreferences(BaseModel):
@@ -399,9 +539,17 @@ class WorkbenchLayoutPreferencesRead(WorkbenchLayoutPreferences):
 
 
 class WorkbenchPreferencesRead(WorkbenchPreferences):
+    """Read shape with opaque fallbacks for rolling upgrades.
+
+    ``workspace`` keeps stored layout envelopes verbatim; ``shortcuts`` tolerates
+    corrupt or newer shortcut subtrees so one bad bucket cannot fail the whole
+    preference GET. The route strips and re-inserts both around validation.
+    """
+
     layout: WorkbenchLayoutPreferencesRead = Field(
         default_factory=WorkbenchLayoutPreferencesRead
     )
+    shortcuts: WorkbenchShortcutPreferences | dict[str, Any] | None = None
 
 
 class UserPreferencesRead(UserPreferences):
@@ -416,7 +564,21 @@ class UserCreate(BaseModel):
     email: str
     name: str
     password: str
-    role: str = "annotator"
+    #: Account/platform role.  Administrator-created ordinary staff default to
+    #: ``employee``; public registration is always a viewer and does not use
+    #: this schema.  Legacy global annotator/reviewer inputs are rejected.
+    role: str = "employee"
+
+    @field_validator("role")
+    @classmethod
+    def _validate_platform_role(cls, value: str) -> str:
+        from app.db.enums import LEGACY_PLATFORM_STAFF_ROLES, PLATFORM_ROLES
+
+        if value in LEGACY_PLATFORM_STAFF_ROLES:
+            raise ValueError("旧全局角色已废弃，请使用 employee")
+        if value not in PLATFORM_ROLES:
+            raise ValueError(f"非法角色: {value}")
+        return value
 
 
 class UserOut(BaseModel):
@@ -444,6 +606,8 @@ class UserOut(BaseModel):
     deactivation_scheduled_at: datetime | None = None
     # v0.9.41 · 标注偏好（workbench 渲染配置等）。空对象 = 用客户端默认。
     preferences: dict = Field(default_factory=dict)
+    # 头像引用（preset:<slug> / upload:<token>）；None = 首字母回退。
+    avatar_ref: str | None = None
     created_at: datetime
 
     class Config:
@@ -557,6 +721,8 @@ class UserBrief(BaseModel):
     email: str
     role: str | None = None
     avatar_initial: str
+    # 头像引用（preset:<slug> / upload:<token>）；None = 前端回退 avatar_initial。
+    avatar_ref: str | None = None
 
     class Config:
         from_attributes = True

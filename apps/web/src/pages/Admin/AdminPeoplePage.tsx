@@ -14,7 +14,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { Histogram } from "@/components/ui/Histogram";
 import { RadialProgress } from "@/components/ui/RadialProgress";
@@ -23,6 +23,8 @@ import { useAdminPeople, useAdminPersonDetail } from "@/hooks/useDashboard";
 import { useProjects } from "@/hooks/useProjects";
 import { usePermissions } from "@/hooks/usePermissions";
 import { REJECT_REASON_TYPE_LABELS } from "@/pages/Review/rejectReasonTypes";
+import { ROLE_LABELS } from "@/constants/roles";
+import type { PlatformRole } from "@/types";
 import { dashboardApi, type AdminPersonItem } from "@/api/dashboard";
 import { tasksApi } from "@/api/tasks";
 import { useToastStore } from "@/components/ui/Toast";
@@ -43,10 +45,33 @@ const ROLE_OPTS = [
   { v: "annotator", label: "标注员" },
   { v: "reviewer", label: "审核员" },
 ];
+
+/**
+ * Platform account role label.  The card never renders a raw enum and never
+ * compares the platform role to a project duty (that comparison is always false
+ * after the employee cutover).
+ */
+export function platformRoleLabel(role: string): string {
+  return ROLE_LABELS[role as PlatformRole] ?? role;
+}
+
+type BadgeVariant = "default" | "accent" | "ai" | "danger";
+
+/** Badge colour by platform account role (not by project duty). */
+export const PLATFORM_ROLE_BADGE_VARIANT: Record<string, BadgeVariant> = {
+  super_admin: "danger",
+  project_admin: "accent",
+  employee: "ai",
+  viewer: "default",
+};
+
+export function platformRoleBadgeVariant(role: string): BadgeVariant {
+  return PLATFORM_ROLE_BADGE_VARIANT[role] ?? "default";
+}
 const PERIOD_OPTS = [
   { v: "today", label: "今日" },
-  { v: "7d", label: "本周" },
-  { v: "1m", label: "本月" },
+  { v: "7d", label: "最近 7 天" },
+  { v: "1m", label: "最近 30 天" },
 ];
 const SORT_OPTS = [
   { v: "throughput", label: "产能↓" },
@@ -175,6 +200,11 @@ export function AdminPeoplePage() {
           )}
         </div>
         <div className="flex gap-2">
+          {project && (
+            <Button onClick={() => navigate(`/projects/${project}/data-manager?section=members`)}>
+              项目成员看板
+            </Button>
+          )}
           <Button variant="ghost" onClick={handleExport} disabled={exporting}>
             <Icon name="download" size={13} />
             {exporting ? "导出中…" : "导出 CSV"}
@@ -272,8 +302,10 @@ export function AdminPeoplePage() {
 
       {activeUserId && (
         <PersonDrawer
+          key={`${authOwnerId}:${project}:${period}:${activeUserId}`}
           userId={activeUserId}
           project={project || undefined}
+          period={period}
           onClose={() => setActiveUserId(null)}
         />
       )}
@@ -321,7 +353,10 @@ function PersonCard({ item, onClick }: { item: AdminPersonItem; onClick: () => v
     <Card onClick={onClick} className="cursor-pointer">
       <div className="flex flex-col gap-2.5 p-3.5">
         <div className="flex items-center gap-2.5">
-          <Avatar initial={item.name?.charAt(0) || "?"} size="md" />
+          <UserAvatar
+            user={{ name: item.name, email: item.email, avatar_ref: item.avatar_ref }}
+            size="md"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 text-sm font-semibold">
               <span className="truncate">{item.name}</span>
@@ -332,7 +367,9 @@ function PersonCard({ item, onClick }: { item: AdminPersonItem; onClick: () => v
               />
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Badge variant={item.role === "annotator" ? "accent" : "ai"}>{item.role}</Badge>
+              <Badge variant={platformRoleBadgeVariant(item.role)}>
+                {platformRoleLabel(item.role)}
+              </Badge>
               {item.project_count} 项目
             </div>
           </div>
@@ -413,14 +450,16 @@ function PercentBarFill({ value }: { value: number }) {
 function PersonDrawer({
   userId,
   project,
+  period,
   onClose,
 }: {
   userId: string;
   project?: string;
+  period: PeoplePeriod;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const { data, isLoading } = useAdminPersonDetail(userId, "4w", project);
+  const { data, isLoading } = useAdminPersonDetail(userId, period, project);
 
   // v0.12.6 (A3) · reject/类别维度下钻:仅项目模式可下钻(tasks 查询需 project_id)。
   // 选中一个维度值 → 内联展开该项目内本人匹配任务列表。

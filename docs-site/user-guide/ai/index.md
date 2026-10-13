@@ -56,7 +56,7 @@ last_reviewed: 2026-08-16
 1. 当前账号是否有对应入口的角色权限。
 2. 项目是否启用了所需工具单位和交互式 AI 开关。
 3. 项目是否启用了声明该能力的 ML Backend；视频追踪还要求 backend 声明对应 tracker。
-4. 任务或批次是否满足运行前置条件。批量预标要求批次处于 `active`。
+4. 任务或批次是否满足运行前置条件。批量预标要求批次处于 `active`，或为尚未分派标注员与质检员的 `draft` 批次。
 
 具体的模型置灰、能力路由和项目配置见[项目 ML 模型](../projects/ml-backends)；运行失败后的恢复路径见[失败预测恢复](../workflows/failed-prediction-recovery)。
 

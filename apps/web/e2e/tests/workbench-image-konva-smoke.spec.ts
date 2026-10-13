@@ -16,7 +16,7 @@ import { test, expect } from "../fixtures/seed";
 
 test.describe("workbench image konva smoke", { tag: "@visual" }, () => {
   test("画框后对 workbench-stage 容器截图(Konva 渲染基线)", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     // The rendering baseline must not depend on an external ML service's error banner.
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const configured = await page.request.patch(`/api/v1/projects/${data.project_id}`, {

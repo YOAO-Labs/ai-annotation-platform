@@ -22,6 +22,10 @@ from app.db.models.scene_track import (
 )
 from app.db.models.task import Task
 from app.schemas.scene_track import SceneTrackCommandRequest
+from app.services.annotation_evidence import (
+    lock_tasks_for_evidence,
+    record_annotation_actors_for_tasks,
+)
 from app.services.track_operation import SceneTrackContext, resolve_scene_track_context
 
 
@@ -329,6 +333,30 @@ async def prepare_scene_track_command(
     for_update: bool = False,
 ) -> PreparedSceneTrackCommand:
     context = await resolve_scene_track_context(db, anchor_task)
+    if for_update:
+        # Keep the global Task -> SceneTrack/Annotation lock order. Lock the
+        # union of every involved track's member tasks in one stable order
+        # before any Track row lock, so swapped primary/secondary merges cannot
+        # deadlock.
+        involved_track_ids = [request.track_id]
+        if request.secondary_track_id is not None:
+            involved_track_ids.append(request.secondary_track_id)
+        member_task_ids = (
+            (
+                await db.execute(
+                    select(Annotation.task_id)
+                    .join(SceneTrack, SceneTrack.id == Annotation.scene_track_id)
+                    .where(
+                        SceneTrack.scene_id == context.scene_id,
+                        SceneTrack.track_id.in_(involved_track_ids),
+                    )
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        await lock_tasks_for_evidence(db, member_task_ids, nowait=True)
     primary = await _load_track(
         db,
         context=context,
@@ -803,6 +831,7 @@ async def apply_scene_track_command(
     primary_track = prepared.primary.track
     affected_track_ids = set(prepared.after_intervals)
     created_track: SceneTrack | None = None
+    resume_task_id: uuid.UUID | None = None
     if prepared.request.kind == "split":
         assert prepared.created_track_id is not None
         created_track = SceneTrack(
@@ -895,6 +924,7 @@ async def apply_scene_track_command(
             if frame == prepared.request.resume_frame
         )
         source = prepared.affected_members[0]
+        resume_task_id = target_task_id
         db.add(
             _copy_resume_member(
                 source=source, target_task_id=target_task_id, actor_id=actor_id
@@ -911,6 +941,18 @@ async def apply_scene_track_command(
         )
 
     await db.flush()
+    # A2 · every scene-track member write is annotation-phase work by the actor.
+    scene_affected_tasks = {member.task_id for member in prepared.affected_members}
+    scene_affected_tasks |= {member.task_id for member in prepared.primary.members}
+    if prepared.secondary is not None:
+        scene_affected_tasks |= {
+            member.task_id for member in prepared.secondary.members
+        }
+    if resume_task_id is not None:
+        scene_affected_tasks.add(resume_task_id)
+    await record_annotation_actors_for_tasks(
+        db, scene_affected_tasks, actor_id, nowait=True
+    )
     result_revisions: dict[str, int] = {}
     tracks_for_result = [primary_track]
     if prepared.secondary is not None:
@@ -1034,6 +1076,20 @@ async def revert_scene_track_operation(
 
     before_tracks: dict[str, dict] = operation.before_state.get("tracks", {})
     after_tracks: dict[str, dict] = operation.after_state.get("tracks", {})
+    # Keep Task -> SceneTrack/Annotation order: lock the member task rows before
+    # locking the Track rows below.
+    revert_task_ids: set[uuid.UUID] = set()
+    for tracks in (before_tracks, after_tracks):
+        for state in tracks.values():
+            for member in state.get("members", []):
+                raw = member.get("task_id")
+                if not raw:
+                    continue
+                try:
+                    revert_task_ids.add(uuid.UUID(str(raw)))
+                except (ValueError, AttributeError, TypeError):
+                    continue
+    await lock_tasks_for_evidence(db, revert_task_ids, nowait=True)
     all_track_ids = set(before_tracks) | set(after_tracks)
     current_tracks = list(
         (
@@ -1233,5 +1289,8 @@ async def revert_scene_track_operation(
     revert.result_revisions = result_revisions
     revert.after_state = after_state
     revert.response_json = response
+    await record_annotation_actors_for_tasks(
+        db, {row.task_id for row in all_rows}, actor_id, nowait=True
+    )
     await db.flush()
     return revert, response

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAuthApi = vi.hoisted(() => ({
@@ -47,7 +48,7 @@ const user: MeResponse = {
   id: "user-1",
   email: "annotator@example.com",
   name: "Annotator",
-  role: "annotator",
+  role: "employee",
   group_name: null,
   status: "active",
   created_at: "2026-05-10T00:00:00Z",
@@ -58,7 +59,12 @@ function renderTopBar() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    // TopBar 的 useLogout 内部使用 useNavigate,需要 Router 上下文。
+    return (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>{children}</MemoryRouter>
+      </QueryClientProvider>
+    );
   }
   return render(<TopBar workspace="测试工作区" />, { wrapper: Wrapper });
 }

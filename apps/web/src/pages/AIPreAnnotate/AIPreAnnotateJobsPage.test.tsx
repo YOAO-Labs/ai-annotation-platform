@@ -362,7 +362,7 @@ describe("AIPreAnnotateJobsPage", () => {
   });
 
   it("图像任务查询按同一账号的 token epoch 分隔缓存", async () => {
-    const user = { id: "image-u1", role: "annotator" } as MeResponse;
+    const user = { id: "image-u1", role: "employee" } as MeResponse;
     useAuthStore.getState().setAuth("image-token-1", user);
     renderUI();
     await screen.findByText("暂无 prediction job 历史");

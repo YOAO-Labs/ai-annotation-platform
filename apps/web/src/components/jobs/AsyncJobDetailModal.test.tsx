@@ -1,11 +1,20 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
+import { useRef, useState } from "react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/client";
 import type { MeResponse } from "@/api/auth";
 import type { AsyncJob } from "@/api/asyncJobs";
 import { useAuthStore } from "@/stores/authStore";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "@/components/shadcn/ui/alert-dialog";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -49,7 +58,12 @@ function Location() {
 function renderModal({
   jobId = "j1",
   onRetryQueued,
-}: { jobId?: string; onRetryQueued?: (queued: number) => void } = {}) {
+  navigate,
+}: {
+  jobId?: string;
+  onRetryQueued?: (queued: number) => void;
+  navigate?: (to: string) => Promise<boolean> | boolean;
+} = {}) {
   const onClose = vi.fn();
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -58,7 +72,12 @@ function renderModal({
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <Location />
-        <AsyncJobDetailModal jobId={jobId} onClose={onClose} onRetryQueued={onRetryQueued} />
+        <AsyncJobDetailModal
+          jobId={jobId}
+          onClose={onClose}
+          onRetryQueued={onRetryQueued}
+          navigate={navigate}
+        />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -71,7 +90,7 @@ describe("共享后台任务详情", () => {
     localStorage.clear();
     useAuthStore
       .getState()
-      .setAuth("detail-u1-token", { id: "u1", role: "annotator" } as MeResponse);
+      .setAuth("detail-u1-token", { id: "u1", role: "employee" } as MeResponse);
     mocks.get.mockResolvedValue(job);
     mocks.retry.mockResolvedValue({ queued: 1 });
     mocks.dataset.mockResolvedValue({ id: "d1" });
@@ -79,6 +98,38 @@ describe("共享后台任务详情", () => {
   afterEach(() => {
     act(() => useAuthStore.getState().logout());
   });
+
+  it.each([
+    ["查看数据集", "/datasets?dataset=d1"],
+    ["查看项目数据", "/projects/p1/data-manager"],
+    ["返回项目列表", "/dashboard"],
+  ])(
+    "%s awaits Workbench admission and keeps the detail open on cancellation",
+    async (label, url) => {
+      mocks.project.mockResolvedValue({ id: "p1" });
+      if (label === "返回项目列表") {
+        mocks.get.mockResolvedValue({ ...job, kind: "export", result: {} });
+      }
+      let finish!: (allowed: boolean) => void;
+      const navigate = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const { onClose } = renderModal({ navigate });
+      fireEvent.click(await screen.findByRole("button", { name: label }));
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith(url));
+      expect(screen.getByTestId("location").textContent).toBe("/");
+      expect(onClose).not.toHaveBeenCalled();
+      await act(async () => finish(false));
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: label })).toBeEnabled();
+      navigate.mockResolvedValueOnce(true);
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    },
+  );
 
   it("读回指定作业结果并直接打开通过权限检查的数据集", async () => {
     const { onClose } = renderModal();
@@ -89,6 +140,65 @@ describe("共享后台任务详情", () => {
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent("/datasets?dataset=d1"),
     );
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the detail mounted when a sibling leave dialog is cancelled by pointer", async () => {
+    const onClose = vi.fn();
+    function WorkbenchDialogs() {
+      const [detailOpen, setDetailOpen] = useState(true);
+      const [confirmOpen, setConfirmOpen] = useState(false);
+      const settle = useRef<(allowed: boolean) => void>(() => {});
+      return (
+        <>
+          {detailOpen && (
+            <AsyncJobDetailModal
+              jobId="j1"
+              onClose={() => {
+                onClose();
+                setDetailOpen(false);
+              }}
+              navigate={() =>
+                new Promise<boolean>((resolve) => {
+                  settle.current = resolve;
+                  setConfirmOpen(true);
+                })
+              }
+            />
+          )}
+          <AlertDialog
+            open={confirmOpen}
+            onOpenChange={(open) => {
+              setConfirmOpen(open);
+              if (!open) settle.current(false);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogTitle>切换视频工具</AlertDialogTitle>
+              <AlertDialogDescription>当前源帧还有未完成的绘制。</AlertDialogDescription>
+              <AlertDialogCancel>继续绘制</AlertDialogCancel>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      );
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <WorkbenchDialogs />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "查看数据集" }));
+    await user.click(await screen.findByRole("button", { name: "继续绘制" }));
+    // The lower Radix layer defers outside-pointer dismissal until after click.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "后台任务详情" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看数据集" })).toBeEnabled();
+    await user.click(screen.getByTestId("modal-overlay"));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -177,7 +287,7 @@ describe("共享后台任务详情", () => {
     act(() =>
       useAuthStore
         .getState()
-        .setAuth("detail-u2-token", { id: "u2", role: "annotator" } as MeResponse),
+        .setAuth("detail-u2-token", { id: "u2", role: "employee" } as MeResponse),
     );
     await act(async () => resolveRetry({ queued: 1 }));
     expect(onRetryQueued).not.toHaveBeenCalled();

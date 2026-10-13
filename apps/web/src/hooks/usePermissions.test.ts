@@ -1,5 +1,6 @@
 /**
- * v0.8.3 · usePermissions hook 单测：覆盖 5 角色 × 页面访问 / 权限分支。
+ * usePermissions 单测：平台角色 × 页面访问 / 权限分支。
+ * 项目职责（标注员 / 质检员）由 useProjectAccess 覆盖，不再走这里。
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
@@ -44,13 +45,18 @@ describe("usePermissions", () => {
     expect(result.current.hasAnyPermission("project.create")).toBe(true);
   });
 
-  it("annotator → 仅基础权限", () => {
-    setUser("annotator");
+  it("employee → 标注与审核入口都可达，无平台管理权限", () => {
+    setUser("employee");
     const { result } = renderHook(() => usePermissions());
+    expect(result.current.role).toBe("employee");
+    expect(result.current.isEmployee).toBe(true);
     expect(result.current.canAccessPage("annotate")).toBe(true);
+    expect(result.current.canAccessPage("review")).toBe(true);
     expect(result.current.canAccessPage("users")).toBe(false);
-    expect(result.current.hasPermission("user.invite")).toBe(false);
     expect(result.current.hasPermission("task.annotate")).toBe(true);
+    expect(result.current.hasPermission("task.review")).toBe(true);
+    expect(result.current.hasPermission("project.create")).toBe(false);
+    expect(result.current.hasPermission("user.invite")).toBe(false);
   });
 
   it("project_admin → 项目相关权限有，audit 没有", () => {
@@ -58,27 +64,36 @@ describe("usePermissions", () => {
     const { result } = renderHook(() => usePermissions());
     expect(result.current.hasPermission("project.create")).toBe(true);
     expect(result.current.hasPermission("audit.view")).toBe(false);
+    expect(result.current.isManager).toBe(true);
   });
 
-  it("reviewer → review 页能进，annotate 不能", () => {
-    setUser("reviewer");
+  it("viewer → 只读页面，没有标注 / 审核入口", () => {
+    setUser("viewer");
     const { result } = renderHook(() => usePermissions());
-    expect(result.current.canAccessPage("review")).toBe(true);
+    expect(result.current.canAccessPage("dashboard")).toBe(true);
+    expect(result.current.canAccessPage("review")).toBe(false);
     expect(result.current.canAccessPage("annotate")).toBe(false);
-    expect(result.current.hasPermission("task.approve")).toBe(true);
+    expect(result.current.hasPermission("task.approve")).toBe(false);
   });
 
   it("hasAnyPermission 多个权限或值", () => {
-    setUser("annotator");
+    setUser("employee");
     const { result } = renderHook(() => usePermissions());
     expect(result.current.hasAnyPermission("user.invite", "task.annotate")).toBe(true);
     expect(result.current.hasAnyPermission("user.invite", "audit.view")).toBe(false);
   });
 
   it("allowedPages 暴露用户可达页面列表", () => {
-    setUser("annotator");
+    setUser("employee");
     const { result } = renderHook(() => usePermissions());
     expect(result.current.allowedPages).toContain("dashboard");
     expect(result.current.allowedPages).not.toContain("users");
+  });
+
+  it("历史遗留全局角色不再授予任何平台权限（fail closed）", () => {
+    setUser("reviewer");
+    const { result } = renderHook(() => usePermissions());
+    expect(result.current.allowedPages).toEqual([]);
+    expect(result.current.hasPermission("task.approve")).toBe(false);
   });
 });

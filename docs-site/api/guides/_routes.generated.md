@@ -140,6 +140,12 @@
 | POST | `/refresh` |
 | POST | `/logout-all` |
 
+## `avatars.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{token}` |
+
 ## `batches.py`
 
 | Method | Path |
@@ -151,6 +157,7 @@
 | POST | `/{batch_id}/assignment-apply` |
 | DELETE | `/{batch_id}` |
 | POST | `/{batch_id}/transition` |
+| POST | `/{batch_id}/submit-review` |
 | POST | `/split` |
 | POST | `/distribute-batches` |
 | POST | `/distribution-preview` |
@@ -215,6 +222,9 @@
 
 | Method | Path |
 |---|---|
+| POST | `/projects/{project_id}/data-manager/tasks/assignment-preview` |
+| POST | `/projects/{project_id}/data-manager/tasks/assignment-apply` |
+| POST | `/projects/{project_id}/data-manager/tasks/export` |
 | GET | `/projects/{project_id}/data-manager/schema` |
 | POST | `/projects/{project_id}/data-manager/summary` |
 | POST | `/projects/{project_id}/tasks/{task_id}/data-manager/matches` |
@@ -333,6 +343,9 @@
 | Method | Path |
 |---|---|
 | POST | `/heartbeat` |
+| POST | `/avatar` |
+| PATCH | `/avatar` |
+| DELETE | `/avatar` |
 | POST | `/password` |
 | POST | `/deactivation-request` |
 | GET | `/preferences` |
@@ -408,6 +421,15 @@
 | POST | `/projects/{project_id}/predictions/import` |
 | POST | `/projects/{project_id}/predictions/purge` |
 
+## `project_performance.py`
+
+| Method | Path |
+|---|---|
+| GET | `/projects/{project_id}/performance/members` |
+| GET | `/projects/{project_id}/performance/members/{member_id}/events` |
+| GET | `/projects/{project_id}/performance/members/{member_id}` |
+| GET | `/projects/{project_id}/performance/export` |
+
 ## `project_pipelines.py`
 
 | Method | Path |
@@ -429,6 +451,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/query` |
 | GET | `/stats` |
 | GET | `/{project_id}` |
 | GET | `/{project_id}/readiness` |
@@ -439,8 +462,12 @@
 | GET | `/{project_id}/class-usage` |
 | POST | `/{project_id}/cleanup-orphans` |
 | POST | `/{project_id}/transfer` |
+| GET | `/{project_id}/access` |
 | GET | `/{project_id}/members` |
+| GET | `/{project_id}/mention-candidates` |
 | POST | `/{project_id}/members` |
+| POST | `/{project_id}/members/{member_id}/role/preview` |
+| PATCH | `/{project_id}/members/{member_id}/role` |
 | DELETE | `/{project_id}/members/{member_id}` |
 | POST | `/{project_id}/exports/lidar:preflight` |
 | POST | `/{project_id}/export` |
@@ -722,4 +749,4 @@
 
 ---
 
-_共 66 模块 / 415 路由_
+_共 68 模块 / 432 路由_

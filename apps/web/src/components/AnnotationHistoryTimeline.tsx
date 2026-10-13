@@ -1,4 +1,4 @@
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Badge } from "@/components/ui/Badge";
 import type { HistoryEntry } from "@/api/annotationHistory";
 import styles from "./AnnotationHistoryTimeline.module.css";
@@ -119,14 +119,7 @@ export function AnnotationHistoryTimeline({
             className={isInactive ? styles.inactiveEntry : styles.entry}
           >
             <div className={styles.avatarCell}>
-              <Avatar
-                size="sm"
-                initial={(
-                  e.actor?.avatar_initial ??
-                  e.actor?.name?.slice(0, 1) ??
-                  "?"
-                ).toUpperCase()}
-              />
+              <UserAvatar user={e.actor ?? {}} size="sm" />
             </div>
             <div className={styles.content}>
               <div className={styles.header}>

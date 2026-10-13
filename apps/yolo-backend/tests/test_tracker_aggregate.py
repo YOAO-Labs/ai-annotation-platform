@@ -1,4 +1,4 @@
-"""v0.21.1 · 检测式视频追踪聚合逻辑单测 (无 GPU/无 ultralytics).
+"""检测式视频追踪聚合逻辑单测 (无 GPU/无 ultralytics).
 
 覆盖 predictor 的 _accumulate_track_frame + _emit_tracks: 逐帧带 id 检测框按 track_id
 聚合、坐标归一 0-1、class 多数票、score 均值、keyframe source=prediction。

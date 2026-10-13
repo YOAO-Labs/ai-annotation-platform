@@ -7,6 +7,12 @@ description: Set up this project's worktree environment or diagnose and refresh 
 
 Determine which checkout, Compose project, process, and database serve the reported behavior. A worktree's files do not prove a running service uses that checkout. Inspect service names, mounts, working directories, ports, and queue consumers without printing secrets.
 
+## Primary checkout
+
+The main development API/Web may be owned by the user services `aap-development-api.service` and `aap-development-web.service`, while eight Celery worker/beat containers belong to the primary Compose project. Read the current primary-checkout section in `DEV.md`, inspect PID/cwd and Compose labels, and use the installed `ai-annotation-platform-dev-restart` wrapper when configured. Its source is `scripts/development-restart.py`; it validates ownership and readiness before restarting. Do not kill an unknown process merely because it owns port 3000 or 8000, and do not use `dev:worktree` to manage the primary checkout.
+
+Changes under `apps/_shared`, backend dependency manifests, Dockerfiles, or copied build inputs can require rebuilding each running ML backend that consumes them. Determine the affected, currently enabled services from Compose inputs; preserve model/checkpoint volumes, recreate only those services, and verify their actual health/setup endpoints afterward. A platform API restart does not reload ML backend images.
+
 ## Worktree setup
 
 Use `orca.yaml` and `scripts/orca-worktree-setup.sh`, not a second bootstrap recipe. Orca supplies `ORCA_ROOT_PATH` and `ORCA_WORKTREE_PATH`; the script refuses the primary checkout. Use the available Orca CLI guide when changing managed worktree state.
@@ -33,5 +39,7 @@ For concurrent local checkouts, use `pnpm dev:worktree`, not raw `dev:api` or a 
 Check `docker-compose.yml` and `apps/api/app/workers/celery_app.py` for queue routing. Worker variants include default, maintenance, GPU, CPU, export, image-pyramid, and GPU-control. The maintenance consumer needs privileges for partition DDL and materialized-view refresh; keep ordinary workers on the runtime connection. Shared task code may affect multiple consumers. Mounted `/app` source has an anonymous `/app/.venv` volume masking the host environment.
 
 For a changed task signature, verify the callable inside each affected running container and exercise the relevant dispatch. An unexpected-keyword `TypeError` can mean stale worker code. A healthy API alone does not establish worker readiness.
+
+For long checks, retain the real exit code plus JUnit/JSON or another bounded summary before output can be truncated. Do not repeat a completed suite only to recover console counts. After verification, remove only task-owned logs, databases, Redis instances, buckets, browser profiles, and probes; destroy worktree modes before deleting their worktrees.
 
 Read [diagnostics](references/diagnostics.md) for stuck jobs, stored bug reports, or database-backed checks. Finish with evidence from the affected runtime, or name the unavailable service precisely.

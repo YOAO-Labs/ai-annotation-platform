@@ -28,13 +28,13 @@ pnpm dev:worktree
 pnpm dev:worktree -- up --with-worker
 ```
 
-首次启动会创建独立数据库、Redis 容器和七个 bucket，再运行本 checkout 的迁移。已有且归属正确的资源会复用；已有但未标记或属于别处的资源不会被自动接管。
+首次启动会创建独立数据库、Redis 容器和八个 bucket，再运行本 checkout 的迁移。已有且归属正确的资源会复用；已有但未标记或属于别处的资源不会被自动接管。
 
 | 资源            | 隔离方式                                                          |
 | --------------- | ----------------------------------------------------------------- |
 | PostgreSQL      | 共享实例，库名为 `aap_wt_<id>_<mode>`；数据库 comment 记录归属    |
 | Redis           | 独立、带归属标签的容器；端口仅绑定本机，AOF 存放在工作树目录      |
-| MinIO           | 共享实例，七个 bucket 分别使用环境前缀并记录归属标签              |
+| MinIO           | 共享实例，八个 bucket 分别使用环境前缀并记录归属标签              |
 | API/Web         | 当前 checkout 的进程，自动分配空闲端口并设置 API/WebSocket 代理   |
 | Celery          | 可选的普通及维护 worker，各自单并发，共用本环境的 Redis 和 bucket |
 | DuckDB/临时文件 | 当前工作树、当前模式的独立目录                                    |

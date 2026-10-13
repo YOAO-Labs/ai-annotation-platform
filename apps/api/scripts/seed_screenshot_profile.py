@@ -669,6 +669,23 @@ async def _reconcile_predictions(
         raise ScreenshotSeedReconcileError(
             "image_demo contains non-seed predictions; rerun with --repair"
         )
+    prediction = keep[0]
+    if prediction.created_at != FIXED_TIME:
+        # created_at is a partition key referenced by PredictionMeta. Move this
+        # owned fixture within the same transaction, temporarily clearing the
+        # nullable FK component, then restoring it without losing import metadata.
+        await db.execute(
+            update(PredictionMeta)
+            .where(PredictionMeta.prediction_id == prediction.id)
+            .values(prediction_created_at=None)
+        )
+        prediction.created_at = FIXED_TIME
+        await db.flush()
+        await db.execute(
+            update(PredictionMeta)
+            .where(PredictionMeta.prediction_id == prediction.id)
+            .values(prediction_created_at=FIXED_TIME, created_at=FIXED_TIME)
+        )
     for key, task in tasks.items():
         task.total_predictions = 1 if key == "predicted" else 0
 
@@ -758,10 +775,6 @@ def _set_task_state(tasks: dict[str, Task], users: dict[str, User]) -> None:
         task.reject_reason_type = None
         task.skip_reason = None
         task.skipped_at = None
-        task.created_at = FIXED_TIME + timedelta(minutes=index)
-        task.updated_at = (
-            task.reviewed_at or task.submitted_at or task.assigned_at or task.created_at
-        )
 
 
 def _sync_counters(
@@ -786,6 +799,120 @@ def _sync_counters(
     }
 
 
+def _task_display_id(logical_key: str, index: int) -> str:
+    project_key = PROJECT_SPECS[logical_key].display_id.removeprefix("P-")
+    return f"T-SS-{project_key}-{index + 1:03d}"
+
+
+async def _pin_screenshot_timestamps(
+    db: AsyncSession,
+    resources: dict[str, tuple[Project, Dataset, dict[str, Task]]],
+) -> None:
+    # Flush counters, annotations and backend changes before explicit updates;
+    # an ORM assignment before autoflush can be overwritten by onupdate=now().
+    await db.flush()
+    for logical_key, (project, dataset, tasks) in resources.items():
+        for model, resource in ((Project, project), (Dataset, dataset)):
+            await db.execute(
+                update(model)
+                .where(model.id == resource.id)
+                .values(created_at=FIXED_TIME, updated_at=FIXED_TIME)
+            )
+        for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks):
+            task = tasks[task_spec.key]
+            created_at = FIXED_TIME + timedelta(minutes=index)
+            updated_at = (
+                task.reviewed_at or task.submitted_at or task.assigned_at or created_at
+            )
+            await db.execute(
+                update(Task)
+                .where(Task.id == task.id)
+                .values(created_at=created_at, updated_at=updated_at)
+            )
+
+
+async def finalize_screenshot_seed_timestamps(
+    db: AsyncSession, *, asset_sha256: dict[str, str]
+) -> None:
+    """Pin visible timestamps after all seed stages, including backend binding."""
+    resources = {}
+    for logical_key in PROJECT_SPECS:
+        resources[logical_key] = await _resolve_owned_resources(
+            db,
+            logical_key,
+            adopt_keys=frozenset(),
+            asset_sha256=asset_sha256[logical_key],
+        )
+    await _pin_screenshot_timestamps(db, resources)
+    await db.commit()
+
+
+async def prepare_screenshot_seed_media(
+    db: AsyncSession, *, asset_sha256: dict[str, str]
+) -> dict[str, int]:
+    """Synchronously prepare and verify media only in owned screenshot datasets."""
+    from app.workers.media import _backfill_media
+
+    datasets = []
+    for logical_key, spec in PROJECT_SPECS.items():
+        if spec.data_type not in {"image", "video"}:
+            continue
+        _, dataset, _ = await _resolve_owned_resources(
+            db,
+            logical_key,
+            adopt_keys=frozenset(),
+            asset_sha256=asset_sha256[logical_key],
+        )
+        datasets.append(dataset)
+    # The established media helpers use their own sessions.
+    await db.commit()
+
+    item_count = 0
+    for dataset in datasets:
+        await _backfill_media(str(dataset.id))
+        items = list(
+            (
+                await db.execute(
+                    select(DatasetItem)
+                    .where(DatasetItem.dataset_id == dataset.id)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalars()
+        )
+        for item in items:
+            prefix = f"{dataset.display_id}: {item.file_name}"
+            if item.file_type not in {"image", "video"}:
+                raise ScreenshotSeedReconcileError(
+                    f"{prefix}: unexpected screenshot media type {item.file_type}"
+                )
+            head = (
+                storage_service.verify_upload(
+                    item.thumbnail_path, bucket=storage_service.media_cache_bucket
+                )
+                if item.thumbnail_path
+                else None
+            )
+            if not head or head.get("ContentLength", 0) <= 0:
+                raise ScreenshotSeedReconcileError(
+                    f"{prefix}: screenshot thumbnail/poster is not ready; "
+                    "check media generation errors or rerun with --repair"
+                )
+            if item.file_type == "video":
+                video = (item.metadata_ or {}).get("video") or {}
+                if (
+                    not video.get("frame_count")
+                    or not video.get("fps")
+                    or video.get("probe_error")
+                    or video.get("poster_error")
+                    or video.get("poster_frame_path") != item.thumbnail_path
+                ):
+                    raise ScreenshotSeedReconcileError(
+                        f"{prefix}: screenshot video metadata/poster is not ready"
+                    )
+            item_count += 1
+    return {"datasets": len(datasets), "items": item_count}
+
+
 async def reconcile_screenshot_seed(
     db: AsyncSession,
     *,
@@ -801,6 +928,20 @@ async def reconcile_screenshot_seed(
             adopt_keys=preparation.adopt_keys,
             asset_sha256=asset_sha256[logical_key],
         )
+
+    expected_task_ids = {
+        _task_display_id(logical_key, index): tasks[task_spec.key].id
+        for logical_key, (_, _, tasks) in resources.items()
+        for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks)
+    }
+    collisions = await db.execute(
+        select(Task.id, Task.display_id).where(Task.display_id.in_(expected_task_ids))
+    )
+    for task_id, display_id in collisions:
+        if expected_task_ids[display_id] != task_id:
+            raise ScreenshotSeedReconcileError(
+                f"{display_id}: screenshot task display id is already used by another task"
+            )
 
     for logical_key, (project, dataset, tasks) in resources.items():
         project_state = PROJECT_STATE[logical_key]
@@ -821,8 +962,6 @@ async def reconcile_screenshot_seed(
         project.owner_id = users[project_state["owner"]].id
         project.status = "in_progress"
         project.tool_bindings = copy.deepcopy(project_state["tool_bindings"])
-        project.created_at = FIXED_TIME
-        project.updated_at = FIXED_TIME
 
         dataset.name = dataset_state["name"]
         dataset.description = dataset_state["description"]
@@ -832,8 +971,6 @@ async def reconcile_screenshot_seed(
         if "axis_convention" in dataset_state:
             metadata["axis_convention"] = dataset_state["axis_convention"]
         dataset.metadata_ = metadata
-        dataset.created_at = FIXED_TIME
-        dataset.updated_at = FIXED_TIME
         dataset.file_count = (
             await db.scalar(
                 select(func.count())
@@ -844,6 +981,7 @@ async def reconcile_screenshot_seed(
         )
         for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks):
             task = tasks[task_spec.key]
+            task.display_id = _task_display_id(logical_key, index)
             task.sequence_order = index
             task.status = task_spec.status
             task.assignee_id = None
@@ -860,8 +998,6 @@ async def reconcile_screenshot_seed(
             task.total_annotations = 0
             task.total_predictions = 0
             task.is_labeled = False
-            task.created_at = FIXED_TIME + timedelta(minutes=index)
-            task.updated_at = task.created_at
         if logical_key != "image_demo":
             project.total_tasks = len(tasks)
             project.completed_tasks = 0
@@ -878,6 +1014,7 @@ async def reconcile_screenshot_seed(
     await _reconcile_predictions(db, image_project, image_tasks)
     await _reconcile_annotations(db, image_project, image_tasks, users)
     _sync_counters(image_project, image_batches, image_tasks)
+    await _pin_screenshot_timestamps(db, resources)
     await db.commit()
     return {
         "projects": len(resources),

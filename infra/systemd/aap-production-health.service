@@ -1,0 +1,9 @@
+[Unit]
+Description=LAN production container health recovery
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/ai-annotation-platform-restart
+TimeoutStartSec=240
+UMask=0077
+NoNewPrivileges=true

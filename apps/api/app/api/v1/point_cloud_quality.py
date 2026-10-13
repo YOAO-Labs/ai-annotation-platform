@@ -6,9 +6,10 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _REVIEWERS, _assert_task_visible, _visible_task_ids
+from app.api.v1.tasks._shared import _assert_task_visible, _visible_task_ids
 from app.db.models.annotation import Annotation
 from app.db.models.point_cloud_quality import (
     PointCloudQualityEvaluation,
@@ -19,10 +20,17 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import (
+    get_current_user,
     get_db,
+    require_project_capability,
     require_project_visible,
-    require_roles,
     require_active_task_actor,
+)
+from app.services.project_access import (
+    ProjectAccess,
+    ProjectCapability,
+    assert_capability,
+    resolve_project_access,
 )
 from app.schemas.point_cloud_quality import (
     POINT_CLOUD_QUALITY_RULE_CODES,
@@ -49,7 +57,6 @@ from app.services.point_cloud_quality.evaluation import (
     list_evaluations,
     promote_evaluation,
 )
-from app.services.scheduler import is_privileged_for_project
 
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
@@ -57,6 +64,14 @@ router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
 def _raise_quality_error(exc: PointCloudQualityError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def _assert_review_authority(access: ProjectAccess) -> None:
+    """QC review reads/writes require a manager or a project reviewer."""
+
+    if access.is_manager or ProjectCapability.REVIEW_WRITE.value in access.capabilities:
+        return
+    raise HTTPException(status_code=403, detail="缺少项目权限: review.write")
 
 
 def _run_out(run: PointCloudQualityRun, *, reused: bool = False):
@@ -70,10 +85,11 @@ async def _assert_request_visible(
     *,
     project: Project,
     user: User,
+    access: ProjectAccess,
     body: PointCloudQualityRunRequest,
 ) -> None:
     if body.scope in {"project", "scene_ids"}:
-        if not is_privileged_for_project(user, project):
+        if not access.is_manager:
             raise HTTPException(
                 status_code=403,
                 detail="project and scene quality scans require project owner",
@@ -104,24 +120,48 @@ async def _assert_request_visible(
     if {row.id for row in tasks} != task_ids:
         raise HTTPException(status_code=404, detail="Task not found")
     for task in tasks:
-        await _assert_task_visible(db, task, user)
+        await _assert_task_visible(db, task, user, access=access)
 
 
 async def _assert_issue_visible(
-    db: AsyncSession, issue: PointCloudQualityIssue, user: User
-) -> Project:
+    db: AsyncSession, issue: PointCloudQualityIssue, user: User, *, lock: bool = False
+) -> tuple[Project, ProjectAccess]:
     project = await db.get(Project, issue.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    if is_privileged_for_project(user, project):
-        return project
+    access = await resolve_project_access(
+        db, user=user, project=project, lock_membership=lock
+    )
+    if access.is_manager:
+        return project, access
     if issue.task_id is None:
         raise HTTPException(status_code=403, detail="Quality issue not visible")
     task = await db.get(Task, issue.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, task, user)
-    return project
+    await _assert_task_visible(db, task, user, access=access)
+    return project, access
+
+
+async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
+    try:
+        task = (
+            await db.execute(
+                select(Task)
+                .where(Task.id == task_id)
+                .with_for_update(nowait=True)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+            raise HTTPException(
+                status_code=409, detail={"reason": "task_busy"}
+            ) from exc
+        raise
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 @router.post(
@@ -133,9 +173,20 @@ async def create_run(
     body: PointCloudQualityRunRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_REVIEWERS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.REVIEW_WRITE.value)
+    ),
 ):
-    await _assert_request_visible(db, project=project, user=current_user, body=body)
+    # Re-resolve current authority under a membership lock for the write path and
+    # re-assert the capability on the fresh access.
+    access = await resolve_project_access(
+        db, user=current_user, project=project, lock_membership=True
+    )
+    assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
+    await _assert_request_visible(
+        db, project=project, user=current_user, access=access, body=body
+    )
     try:
         run, job, created = await create_quality_run(
             db, project=project, actor_id=current_user.id, request=body
@@ -167,16 +218,19 @@ async def get_run(
     run_id: uuid.UUID,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_REVIEWERS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.REVIEW_WRITE.value)
+    ),
 ):
     run = await db.get(PointCloudQualityRun, run_id)
     if run is None or run.project_id != project.id:
         raise HTTPException(status_code=404, detail="Point cloud quality run not found")
-    if not is_privileged_for_project(current_user, project):
+    if not access.is_manager:
         task_ids = [uuid.UUID(value) for value in run.scope_json.get("task_ids", [])]
-        if await _visible_task_ids(db, project, current_user, task_ids) != set(
-            task_ids
-        ):
+        if await _visible_task_ids(
+            db, project, current_user, task_ids, access=access
+        ) != set(task_ids):
             raise HTTPException(status_code=403, detail="Quality run not visible")
     return _run_out(run)
 
@@ -188,7 +242,10 @@ async def get_run(
 async def get_issues(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_REVIEWERS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.REVIEW_WRITE.value)
+    ),
     issue_status: Literal["open", "resolved", "wont_fix", "stale"] | None = Query(
         default=None, alias="status"
     ),
@@ -205,14 +262,14 @@ async def get_issues(
     if code is not None and code not in POINT_CLOUD_QUALITY_RULE_CODES:
         raise HTTPException(status_code=422, detail="Unknown point cloud quality code")
     allowed_task_ids: set[uuid.UUID] | None = None
-    if not is_privileged_for_project(current_user, project):
+    if not access.is_manager:
         all_task_ids = list(
             (
                 await db.execute(select(Task.id).where(Task.project_id == project.id))
             ).scalars()
         )
         allowed_task_ids = await _visible_task_ids(
-            db, project, current_user, all_task_ids
+            db, project, current_user, all_task_ids, access=access
         )
     rows, total = await list_issues(
         db,
@@ -247,12 +304,13 @@ async def get_issues(
 async def get_issue(
     issue_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_REVIEWERS)),
+    current_user: User = Depends(get_current_user),
 ):
     issue = await db.get(PointCloudQualityIssue, issue_id)
     if issue is None:
         raise HTTPException(status_code=404, detail="Quality issue not found")
-    await _assert_issue_visible(db, issue, current_user)
+    _project, access = await _assert_issue_visible(db, issue, current_user)
+    _assert_review_authority(access)
     await refresh_issue_staleness(db, issue)
     await db.flush()
     await db.refresh(issue)
@@ -270,12 +328,34 @@ async def patch_issue(
     body: PointCloudQualityIssuePatch,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_REVIEWERS)),
+    current_user: User = Depends(get_current_user),
 ):
     issue = await db.get(PointCloudQualityIssue, issue_id)
     if issue is None:
         raise HTTPException(status_code=404, detail="Quality issue not found")
-    await _assert_issue_visible(db, issue, current_user)
+    # Account-first: resolve the locked membership, then take bounded task and
+    # resource locks so a busy row cannot block indefinitely.
+    _project, access = await _assert_issue_visible(db, issue, current_user, lock=True)
+    _assert_review_authority(access)
+    if issue.task_id is not None:
+        task = await db.get(Task, issue.task_id, populate_existing=True)
+        if task is not None:
+            await _lock_task_nowait(db, task.id)
+    try:
+        issue = (
+            await db.execute(
+                select(PointCloudQualityIssue)
+                .where(PointCloudQualityIssue.id == issue_id)
+                .with_for_update(nowait=True)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+            raise HTTPException(
+                status_code=409, detail={"reason": "point_cloud_quality_issue_busy"}
+            ) from exc
+        raise
     if await refresh_issue_staleness(db, issue):
         raise HTTPException(
             status_code=409, detail={"reason": "point_cloud_quality_issue_stale"}
@@ -330,12 +410,15 @@ async def create_project_evaluation(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_REVIEWERS)),
+    current_user: User = Depends(get_current_user),
+    _access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.PROJECT_MANAGE.value)
+    ),
 ):
-    if not is_privileged_for_project(current_user, project):
-        raise HTTPException(
-            status_code=403, detail="Quality governance requires project owner"
-        )
+    fresh_access = await resolve_project_access(
+        db, user=current_user, project=project, lock_membership=True
+    )
+    assert_capability(fresh_access, ProjectCapability.PROJECT_MANAGE.value)
     try:
         evaluation = await create_evaluation(
             db,
@@ -372,7 +455,10 @@ async def create_project_evaluation(
 async def get_project_evaluations(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(require_roles(*_REVIEWERS)),
+    _current_user: User = Depends(get_current_user),
+    _access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.REVIEW_WRITE.value)
+    ),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
@@ -390,7 +476,10 @@ async def get_project_evaluation(
     evaluation_id: uuid.UUID,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(require_roles(*_REVIEWERS)),
+    _current_user: User = Depends(get_current_user),
+    _access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.REVIEW_WRITE.value)
+    ),
 ):
     evaluation = await db.get(PointCloudQualityEvaluation, evaluation_id)
     if evaluation is None or evaluation.project_id != project.id:
@@ -407,12 +496,15 @@ async def promote_project_evaluation(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_REVIEWERS)),
+    current_user: User = Depends(get_current_user),
+    _access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.PROJECT_MANAGE.value)
+    ),
 ):
-    if not is_privileged_for_project(current_user, project):
-        raise HTTPException(
-            status_code=403, detail="Quality governance requires project owner"
-        )
+    fresh_access = await resolve_project_access(
+        db, user=current_user, project=project, lock_membership=True
+    )
+    assert_capability(fresh_access, ProjectCapability.PROJECT_MANAGE.value)
     try:
         evaluation, locked_project = await promote_evaluation(
             db,

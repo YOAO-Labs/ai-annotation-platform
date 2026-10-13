@@ -1,4 +1,5 @@
 import { openContextToolbar } from "../../fixtures/context-toolbar";
+import { waitForScreenshotVideo } from "../environment";
 import type { ScreenshotScene } from "./_types";
 import { expect, type Page } from "@playwright/test";
 import type { WorkbenchLayoutPreferences } from "../../../src/api/auth";
@@ -63,7 +64,7 @@ export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
       });
       await page.getByRole("tab", { name: "标注详情", exact: true }).click();
       await page.getByTestId("video-timeline-shell").waitFor({ state: "visible", timeout: 15_000 });
-      await page.getByTestId("video-konva-stage").waitFor({ state: "visible", timeout: 10_000 });
+      await waitForScreenshotVideo(page);
       await page.getByText("实时同步", { exact: true }).waitFor({ timeout: 5000 });
 
       // 后台追踪若在 seed repair 前刚好完成，候选审阅条可能晚到；静态场景只展示干净工作台。
@@ -78,13 +79,14 @@ export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
       }
 
       await page.getByTitle("适应视口（双击空白）").click();
-      await page.waitForTimeout(800);
+      await waitForScreenshotVideo(page);
     },
     matrix: DARK_WORKBENCH_MATRIX,
     target: "docs-site/user-guide/images/workbench/video-real-scene.png",
   },
   {
     name: "workbench/video-ai-tracking-panel",
+    clock: "live",
     role: "admin",
     fixture: {
       project: "video_demo",
@@ -99,7 +101,7 @@ export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
     prepare: async (page) => {
       await reloadWithSidebarLayout(page, "both");
       await page.getByTestId("video-timeline-shell").waitFor({ state: "visible", timeout: 15_000 });
-      await page.getByTestId("video-konva-stage").waitFor({ state: "visible", timeout: 10_000 });
+      await waitForScreenshotVideo(page);
 
       const trackerReview = page.getByTestId("video-tracker-review-bar");
       if (await page.getByTestId("tracker-review-tool-capsule").isVisible()) {
@@ -113,7 +115,7 @@ export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
       await page
         .getByTestId("video-tracker-propagate-dialog")
         .waitFor({ state: "visible", timeout: 5000 });
-      await page.waitForTimeout(500);
+      await page.getByText("实时同步", { exact: true }).waitFor({ timeout: 5000 });
     },
     matrix: DARK_WORKBENCH_MATRIX,
     target: "docs-site/user-guide/images/video-propagate/ai-tracking-panel.png",

@@ -36,7 +36,7 @@ Before committing, update documentation affected by the change in the same commi
 | Environment variable        | `.env.example`, `pnpm docs:gen-env-vars`, `DEV.md`                               |
 | Removed or renamed symbol   | Search Markdown references and update affected links                             |
 
-Keep rendered documentation about the current system, without dotted version provenance such as `vX.Y.Z`. Put provenance in comments or frontmatter. Exceptions: `CHANGELOG.md`, `docs/adr/**`, `docs-site/dev/adr/**`, and `*.generated.md`; runtime requirements, routes, and protocol versions remain valid.
+Keep rendered documentation about the current system, without dotted version provenance such as `vX.Y.Z`. Record provenance in Git history, `CHANGELOG.md`, or ADRs — not in source comments or frontmatter. Exceptions: `CHANGELOG.md`, `docs/adr/**`, `docs-site/dev/adr/**`, and `*.generated.md`; runtime requirements, routes, and protocol versions remain valid.
 
 `CHANGELOG.md` follows Keep a Changelog: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`, omitting empty groups. Explain user impact. Pure refactors, tests, and formatting may omit an entry. Release headings use `## [x.y.z] - YYYY-MM-DD`, newest first.
 

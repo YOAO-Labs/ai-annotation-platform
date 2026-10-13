@@ -27,6 +27,7 @@ from sqlalchemy import select, text
 from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.task import Task
+from tests.factory import build_tool_bindings
 
 
 def _load_migration_0118():
@@ -73,7 +74,7 @@ async def _make_project_and_task(db_session, super_admin) -> Task:
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=user.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db_session.add(project)
     await db_session.flush()

@@ -31,6 +31,7 @@ from app.db.models.user import User
 from app.deps import get_db, require_roles
 from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
+from app.services.batch_permissions import bulk_preannotation_eligible_condition
 
 router = APIRouter()
 
@@ -215,7 +216,7 @@ async def bulk_clear_preannotate(
 
         try:
             if payload.mode == "reset_to_draft":
-                _, _, cascade = await svc.reset_to_draft(bid)
+                _, _, cascade = await svc.reset_to_draft(bid, actor_id=admin.id)
             else:
                 # predictions_only: 复用 reset_to_draft 的级联 SQL 但保留 task / lock 状态.
                 # 实现上先记录 batch 当前 status, 再调 reset_to_draft, 最后状态回 ACTIVE.
@@ -310,6 +311,8 @@ class PreannotateProjectSummary(BaseModel):
     ml_backend_state: str | None = None
     ml_backend_max_concurrency: int | None = None
     ready_batches: int = 0
+    # 可预标批次数（active + 未分派标注员与质检员的 draft），与
+    # `allows_bulk_preannotation` 同源；ProjectCardGrid 以「可预标」展示。
     active_batches: int = 0
     last_job_at: datetime | None = None
     recent_failures: int = 0
@@ -356,6 +359,18 @@ async def list_preannotate_project_summary(
     batch_counts: dict[tuple[uuid.UUID, str], int] = {
         (pid, status): cnt for pid, status, cnt in bres.all()
     }
+
+    # issue #124 · 卡片「可预标」= active + 未分派人员的 draft，与
+    # allows_bulk_preannotation 同源；否则卡片可能显示 0 而详情页仍列有草稿。
+    eligible_res = await db.execute(
+        select(TaskBatch.project_id, func.count(TaskBatch.id))
+        .where(
+            TaskBatch.project_id.in_(project_ids),
+            bulk_preannotation_eligible_condition(),
+        )
+        .group_by(TaskBatch.project_id)
+    )
+    eligible_counts = {pid: int(cnt) for pid, cnt in eligible_res.all()}
 
     # v0.10.49 · prediction_jobs 已收敛进 async_jobs，最近预标时间改查 kind=batch_predict
     job_q = await db.execute(
@@ -440,7 +455,7 @@ async def list_preannotate_project_summary(
                 ml_backend_state=bk.state if bk else None,
                 ml_backend_max_concurrency=max_cc,
                 ready_batches=batch_counts.get((proj.id, BatchStatus.PRE_ANNOTATED), 0),
-                active_batches=batch_counts.get((proj.id, BatchStatus.ACTIVE), 0),
+                active_batches=eligible_counts.get(proj.id, 0),
                 last_job_at=last_jobs.get(proj.id),
                 recent_failures=fail_counts.get(proj.id, 0),
             )

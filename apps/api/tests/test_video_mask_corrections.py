@@ -143,7 +143,7 @@ async def _passthrough_enqueue(db, row_id, *, fail_closed=False):
 
 
 async def test_save_frame_zero_is_surgical_versioned_and_audited(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
     correction_storage_mocks,
@@ -164,7 +164,7 @@ async def test_save_frame_zero_is_surgical_versioned_and_audited(
     )
     new_reference = build_rle_reference(ALT_RLE)
 
-    missing = await httpx_client_bound.put(
+    missing = await httpx_client.put(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/0",
         json={"mask": new_reference},
         headers=_bearer(token),
@@ -172,7 +172,7 @@ async def test_save_frame_zero_is_surgical_versioned_and_audited(
     assert missing.status_code == 428
     assert missing.json()["detail"]["reason"] == "if_match_required"
 
-    saved = await httpx_client_bound.put(
+    saved = await httpx_client.put(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/0",
         json={"mask": new_reference},
         headers={**_bearer(token), "If-Match": 'W/"1"'},
@@ -193,7 +193,7 @@ async def test_save_frame_zero_is_surgical_versioned_and_audited(
     validate.assert_awaited_once()
     lock.assert_awaited_once()
 
-    stale = await httpx_client_bound.put(
+    stale = await httpx_client.put(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/0",
         json={"mask": new_reference},
         headers={**_bearer(token), "If-Match": 'W/"1"'},
@@ -332,7 +332,7 @@ async def test_save_mask_keyframe_holds_task_lock_before_rle_lock(
 
 
 async def test_mask_keyframe_delete_is_versioned_surgical_and_restores_hold(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
 ):
@@ -369,14 +369,14 @@ async def test_mask_keyframe_delete_is_versioned_surgical_and_restores_hold(
     current_version = annotation.version
     path = f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/8"
 
-    missing = await httpx_client_bound.patch(
+    missing = await httpx_client.patch(
         path,
         json={"operation": "delete_keyframe"},
         headers=_bearer(token),
     )
     assert missing.status_code == 428
 
-    deleted = await httpx_client_bound.patch(
+    deleted = await httpx_client.patch(
         path,
         json={"operation": "delete_keyframe"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version}"'},
@@ -397,7 +397,7 @@ async def test_mask_keyframe_delete_is_versioned_surgical_and_restores_hold(
     ]
     assert annotation.geometry["outside"] == []
 
-    last = await httpx_client_bound.patch(
+    last = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/2",
         json={"operation": "delete_keyframe"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version + 1}"'},
@@ -405,7 +405,7 @@ async def test_mask_keyframe_delete_is_versioned_surgical_and_restores_hold(
     assert last.status_code == 422
     assert last.json()["detail"]["reason"] == "last_keyframe_required"
 
-    stale = await httpx_client_bound.patch(
+    stale = await httpx_client.patch(
         path,
         json={"operation": "mark_outside"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version}"'},
@@ -428,7 +428,7 @@ async def test_mask_keyframe_delete_is_versioned_surgical_and_restores_hold(
 
 
 async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
 ):
@@ -466,7 +466,7 @@ async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
     current_version = annotation.version
     path = f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/4"
 
-    hidden = await httpx_client_bound.patch(
+    hidden = await httpx_client.patch(
         path,
         json={"operation": "mark_outside"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version}"'},
@@ -479,7 +479,7 @@ async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
     ]
     assert annotation.geometry["keyframes"] == keyframes
 
-    restored = await httpx_client_bound.patch(
+    restored = await httpx_client.patch(
         path,
         json={"operation": "restore_held"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version + 1}"'},
@@ -494,7 +494,7 @@ async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
     ]
     assert annotation.geometry["keyframes"] == keyframes
 
-    prediction_only = await httpx_client_bound.patch(
+    prediction_only = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/3",
         json={"operation": "restore_held"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version + 2}"'},
@@ -502,7 +502,7 @@ async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
     assert prediction_only.status_code == 409
     assert prediction_only.json()["detail"]["reason"] == "manual_outside_missing"
 
-    overlapping_manual = await httpx_client_bound.patch(
+    overlapping_manual = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/3",
         json={"operation": "mark_outside"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version + 2}"'},
@@ -514,7 +514,7 @@ async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
         {"from": 3, "to": 3, "source": "manual"},
     ]
 
-    restored_overlap = await httpx_client_bound.patch(
+    restored_overlap = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/3",
         json={"operation": "restore_held"},
         headers={**_bearer(token), "If-Match": f'W/"{current_version + 3}"'},
@@ -527,7 +527,7 @@ async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
 
 
 async def test_mask_keyframe_operations_honor_task_and_annotation_locks(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
     annotator,
@@ -552,7 +552,7 @@ async def test_mask_keyframe_operations_honor_task_and_annotation_locks(
     await db_session.flush()
     path = f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/mask-keyframes/4"
 
-    task_locked = await httpx_client_bound.patch(
+    task_locked = await httpx_client.patch(
         path,
         json={"operation": "mark_outside"},
         headers={**_bearer(token), "If-Match": 'W/"1"'},
@@ -565,7 +565,7 @@ async def test_mask_keyframe_operations_honor_task_and_annotation_locks(
     )
     annotation.is_locked = True
     await db_session.flush()
-    annotation_locked = await httpx_client_bound.patch(
+    annotation_locked = await httpx_client.patch(
         path,
         json={"operation": "mark_outside"},
         headers={**_bearer(token), "If-Match": 'W/"1"'},
@@ -674,7 +674,7 @@ async def test_operate_mask_keyframe_lock_order_is_task_segment_annotation(
 
 
 async def test_create_correction_freezes_exact_route_and_single_active_lease(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
     correction_storage_mocks,
@@ -701,7 +701,7 @@ async def test_create_correction_freezes_exact_route_and_single_active_lease(
         "corrected_mask_digest": reference["sha256"],
     }
 
-    created = await httpx_client_bound.post(
+    created = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/correction-jobs",
         json=payload,
         headers=_bearer(token),
@@ -750,7 +750,7 @@ async def test_create_correction_freezes_exact_route_and_single_active_lease(
         }
     ]
 
-    preview = await httpx_client_bound.get(
+    preview = await httpx_client.get(
         f"/api/v1/video-tracker-jobs/{body['id']}/preview",
         headers=_bearer(token),
     )
@@ -777,7 +777,7 @@ async def test_create_correction_freezes_exact_route_and_single_active_lease(
         "protect_manual": True,
     }
 
-    duplicate = await httpx_client_bound.post(
+    duplicate = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/correction-jobs",
         json=payload,
         headers=_bearer(token),
@@ -787,7 +787,7 @@ async def test_create_correction_freezes_exact_route_and_single_active_lease(
 
 
 async def test_bbox_fallback_requires_exact_capability_confirmation_and_text(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
     correction_storage_mocks,
@@ -814,7 +814,7 @@ async def test_bbox_fallback_requires_exact_capability_confirmation_and_text(
         "source_annotation_version": 3,
         "corrected_mask_digest": reference["sha256"],
     }
-    unconfirmed = await httpx_client_bound.post(
+    unconfirmed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/correction-jobs",
         json=payload,
         headers=_bearer(token),
@@ -822,7 +822,7 @@ async def test_bbox_fallback_requires_exact_capability_confirmation_and_text(
     assert unconfirmed.status_code == 409
     assert unconfirmed.json()["detail"]["reason"] == "mask_prompt_unsupported"
 
-    no_text = await httpx_client_bound.post(
+    no_text = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/correction-jobs",
         json={**payload, "allow_bbox_fallback": True},
         headers=_bearer(token),
@@ -830,7 +830,7 @@ async def test_bbox_fallback_requires_exact_capability_confirmation_and_text(
     assert no_text.status_code == 422
     assert no_text.json()["detail"]["reason"] == "text_required_for_bbox_fallback"
 
-    created = await httpx_client_bound.post(
+    created = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/correction-jobs",
         json={**payload, "allow_bbox_fallback": True, "text": "car"},
         headers=_bearer(token),
@@ -849,7 +849,7 @@ async def test_bbox_fallback_requires_exact_capability_confirmation_and_text(
 
 
 async def test_enqueue_failure_marks_job_failed_and_releases_active_lease(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
     correction_storage_mocks,
@@ -876,7 +876,7 @@ async def test_enqueue_failure_marks_job_failed_and_releases_active_lease(
         "corrected_mask_digest": reference["sha256"],
     }
 
-    failed = await httpx_client_bound.post(
+    failed = await httpx_client.post(
         f"/api/v1/tasks/{task_id}/video/tracks/{annotation_id}/correction-jobs",
         json=payload,
         headers=_bearer(token),
@@ -893,7 +893,7 @@ async def test_enqueue_failure_marks_job_failed_and_releases_active_lease(
         "app.api.v1.tasks.video.enqueue_tracker_job",
         _passthrough_enqueue,
     )
-    retried = await httpx_client_bound.post(
+    retried = await httpx_client.post(
         f"/api/v1/tasks/{task_id}/video/tracks/{annotation_id}/correction-jobs",
         json=payload,
         headers=_bearer(token),
@@ -903,7 +903,7 @@ async def test_enqueue_failure_marks_job_failed_and_releases_active_lease(
 
 
 async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
     correction_storage_mocks,
@@ -918,7 +918,7 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
         "app.api.v1.tasks.video.enqueue_tracker_job",
         _passthrough_enqueue,
     )
-    created = await httpx_client_bound.post(
+    created = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}/correction-jobs",
         json={
             "correction_frame": 5,
@@ -950,7 +950,7 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
     await db_session.commit()
 
     for action in ("accept", "discard"):
-        blocked = await httpx_client_bound.post(
+        blocked = await httpx_client.post(
             f"/api/v1/video-tracker-jobs/{job_id}/{action}",
             json={},
             headers=_bearer(token),
@@ -960,7 +960,7 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
             blocked.json()["detail"]["reason"] == "correction_requires_local_decision"
         )
 
-    cancelled = await httpx_client_bound.delete(
+    cancelled = await httpx_client.delete(
         f"/api/v1/video-tracker-jobs/{job_id}",
         headers=_bearer(token),
     )
@@ -981,7 +981,7 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
     )
     assert audit_count == 1
 
-    repeated = await httpx_client_bound.delete(
+    repeated = await httpx_client.delete(
         f"/api/v1/video-tracker-jobs/{job_id}",
         headers=_bearer(token),
     )

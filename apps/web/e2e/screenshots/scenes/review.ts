@@ -1,4 +1,5 @@
 import type { ScreenshotScene } from "./_types";
+import { waitForScreenshotImage } from "../environment";
 
 import type { Page } from "@playwright/test";
 import {
@@ -13,7 +14,7 @@ const DARK_WORKBENCH_MATRIX: NonNullable<ScreenshotScene["matrix"]> = {
 
 async function waitForReviewWorkbench(page: Page): Promise<void> {
   await page.getByTestId("review-reject").waitFor({ state: "visible", timeout: 10_000 });
-  await page.waitForTimeout(300);
+  await waitForScreenshotImage(page);
 }
 
 const reviewWorkbenchRoute = (catalog: Parameters<ScreenshotScene["route"]>[0]) => {

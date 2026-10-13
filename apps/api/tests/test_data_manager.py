@@ -10,10 +10,9 @@ from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
     Prediction,
 )
-from app.db.models.project_member import ProjectMember
 from app.db.models.task_batch import TaskBatch
 from app.db.models.video_tracker_job import VideoTrackerJob
-from tests.factory import create_project, create_task
+from tests.factory import create_membership, create_project, create_task
 
 
 pytestmark = pytest.mark.asyncio
@@ -1044,13 +1043,12 @@ async def test_tracker_candidates_share_task_visibility_and_owner_scope(
         db_session, owner_id=owner.id, type_key="video-track"
     )
     project.data_type = "video"
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator_user.id,
-            role="annotator",
-            assigned_by=owner.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=annotator_user.id,
+        role="annotator",
+        assigned_by=owner.id,
     )
     dataset = Dataset(
         display_id="D-DM-TRACKER",

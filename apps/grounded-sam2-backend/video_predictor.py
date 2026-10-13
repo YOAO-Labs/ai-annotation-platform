@@ -1,4 +1,4 @@
-"""SAM 2.1 video tracker 推理封装 (v0.10.35 §B).
+"""SAM 2.1 video tracker 推理封装.
 
 平行于 predictor.py 的图片栈, 但走 **video** 入口:
     build_sam2_video_predictor (vendor/grounded-sam-2/sam2/build_sam.py:100)
@@ -164,9 +164,9 @@ class SAM2VideoTracker:
           - 多帧 (纠偏): {obj_id, prompts:[{frame_index, points?/bbox?}, ...]}, frame_index=绝对源帧。
         坐标归一化 [0,1]。单目标(平台单 annotation 追踪)= 长度 1 的 seeds, instance_id="1"
         → 平台回填源 annotation, 与旧 seed-bbox 行为等价。vendor SAM2VideoPredictor 原生支持
-        任意 obj_id + points/box, 此前 wrapper 硬编码 _OBJ_ID=1 只跟单目标 (v0.21.27 阶段 A 解除)。
+        任意 obj_id + points/box (支持多目标, 不再硬编码单目标)。
 
-        output_geometry: "bbox"(默认) 每帧降外接框; "polygon" 矢量化为多边形顶点 (v0.21.20)。
+        output_geometry: "bbox"(默认) 每帧降外接框; "polygon" 矢量化为多边形顶点。
         返回: [{frame_index(源帧号), instance_id, geometry, confidence, outside}], 含 seed 帧在内。
         空 mask / 退化多边形(顶点<3) → outside=True。
         """
@@ -365,7 +365,7 @@ class SAM2VideoTracker:
         y2 = (y + bh) * h
         return [x1, y1, x2, y2]
 
-    # ---------- 多目标逐对象播种 (v0.21.27 阶段 A; 与 sam3 PVS wrapper 同款) ----------
+    # ---------- 多目标逐对象播种 (与 sam3 PVS wrapper 同款) ----------
 
     def _add_prompt(
         self,

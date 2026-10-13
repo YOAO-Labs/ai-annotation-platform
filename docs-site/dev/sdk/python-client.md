@@ -75,10 +75,13 @@ with Client() as client:
 | `update` | `update(project_id, **fields)`                                                             | `Project`       |
 | `delete` | `delete(project_id)`                                                                       | `None`          |
 | `stats`  | `stats()`                                                                                  | `ProjectStats`  |
+| `access` | `access(project_id)`                                                                       | `ProjectAccess` |
 
 `create` 说明:后端 `type_label` 必填,未通过 `kwargs` 显式给出时 SDK 按 `type_key` → `data_type` → `name` 顺序兜底填充。
 
 `stats()` 返回可见项目聚合(`total_data` / `completed` / `ai_rate` / `pending_review`)+ 最近 12 周时间序列(`*_series`),任意已认证用户可达。
+
+`access()` 返回当前账号在该项目上的解析后权限(`ProjectAccess`):`platform_role`(平台角色)、`project_role`(项目角色,管理者可为 `None`)、`access_kind`(`super_admin` / `owner` / `member`)、`membership_id` / `membership_version`、`is_manager` 与 `capabilities`。`Project.my_project_role` 是列表 / 详情里当前账号的项目角色。授权来自项目成员关系而非账号全局角色,详见[可见性与权限](../concepts/visibility-and-permissions)。
 
 ### client.datasets
 
@@ -250,17 +253,21 @@ with Client() as client:
 
 ### client.members
 
-| 方法     | 签名                             | 返回           |
-| -------- | -------------------------------- | -------------- |
-| `list`   | `list(project_id)`               | `list[Member]` |
-| `add`    | `add(project_id, user_id, role)` | `Member`       |
-| `remove` | `remove(project_id, member_id)`  | `None`         |
+| 方法                  | 签名                                                                                                                                                        | 返回                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `list`                | `list(project_id)`                                                                                                                                          | `list[Member]`             |
+| `add`                 | `add(project_id, user_id, role)`                                                                                                                            | `Member`                   |
+| `preview_role_change` | `preview_role_change(project_id, member_id, project_role, *, replacement_annotator_id=None, replacement_reviewer_id=None)`                                  | `ProjectMemberRolePreview` |
+| `change_role`         | `change_role(project_id, member_id, project_role, *, expected_version, preview_token, reason, replacement_annotator_id=None, replacement_reviewer_id=None)` | `Member`                   |
+| `remove`              | `remove(project_id, member_id)`                                                                                                                             | `None`                     |
 
-`Member` 含 `user_name` / `user_email` / `role` / `assigned_at`。端点对项目可见者开放。
+`Member` 含 `user_name` / `user_email` / `role`(项目角色 `annotator` / `reviewer` / `viewer`)/ `platform_role`(平台角色)/ `version`(CAS 版本)/ `assigned_at` / `updated_at`。端点对项目可见者开放。
+
+`add` 的 `role` 是项目角色;平台 `viewer` 只能获得 `viewer` 成员身份。角色变更分两步:先 `preview_role_change`(只读)拿到 `current_version`、阻塞项、`resource_snapshot` 与一次性 `preview_token`,再 `change_role` 带 `expected_version` + `preview_token` + `reason`(有未完成工作时给显式接替人)。版本 / 快照失效或资源占用抛 `ConflictError`(409),需要重新预检。
 
 ### client.me()
 
-`client.me() -> Me`:返回当前认证主体(`GET /auth/me`),`Me.role` 用于角色感知 / 凭据自检。
+`client.me() -> Me`:返回当前认证主体(`GET /auth/me`)。`Me.role` 是**平台角色**(`super_admin` / `project_admin` / `employee` / `viewer`);项目职责用 `client.projects.access()` 或 `client.members.list()`。
 
 ### client.dashboard
 
@@ -269,12 +276,12 @@ with Client() as client:
 | 方法             | 签名                                                              | 返回               | 角色                                   |
 | ---------------- | ----------------------------------------------------------------- | ------------------ | -------------------------------------- |
 | `admin`          | `admin()`                                                         | `DashboardStats`   | super_admin                            |
-| `reviewer`       | `reviewer()`                                                      | `DashboardStats`   | super_admin / project_admin / reviewer |
-| `annotator`      | `annotator()`                                                     | `DashboardStats`   | annotator+                             |
+| `reviewer`       | `reviewer()`                                                      | `DashboardStats`   | super_admin / project_admin / employee |
+| `annotator`      | `annotator()`                                                     | `DashboardStats`   | super_admin / project_admin / employee |
 | `people`         | `people(role=None, project=None, period=None, sort=None, q=None)` | `list[PersonStat]` | super_admin / project_admin            |
 | `me_performance` | `me_performance(period=None)`                                     | `MyPerformance`    | 任意已认证(self)                       |
 
-`people()`:全员绩效卡片;**project_admin 须传 `project`** 指定其管理范围,super_admin 可全局或任意项目。`admin/reviewer/annotator` 字段随角色而异,经 `DashboardStats`(`extra="allow"`)透传。
+`people()`:全员绩效卡片;**project_admin 须传 `project`** 指定其管理范围,super_admin 可全局或任意项目。`admin/reviewer/annotator` 字段随角色而异,经 `DashboardStats`(`extra="allow"`)透传。`reviewer()` / `annotator()` 接受 `employee` 账号,并按其在各项目的对应成员角色过滤工作负载;没有该角色的项目返回空工作集,不再依赖账号全局角色。
 
 ### client.api_keys
 

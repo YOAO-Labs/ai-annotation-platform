@@ -71,11 +71,14 @@ async function annotations(
   fixture: ReviewCase,
   taskId = fixture.taskId,
 ) {
-  return json<Annotation[]>(
+  const rows = await json<Annotation[]>(
     await request.get(`${API_BASE}/api/v1/tasks/${taskId}/annotations`, {
       headers: auth(fixture.token),
     }),
   );
+  // Seeded rows share created_at values, so the API can reorder equal-time rows.
+  // Compare complete annotation state by stable identity, not database tie order.
+  return rows.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 async function preview(request: APIRequestContext, fixture: ReviewCase, jobId: string) {
@@ -88,7 +91,7 @@ async function preview(request: APIRequestContext, fixture: ReviewCase, jobId: s
 
 const test = base.extend<{ reviewCase: ReviewCase }>({
   reviewCase: async ({ page, request, seed }, provide, testInfo) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const httpErrors: ApiFailure[] = [];
     const consoleErrors: Array<{ path: string; message: string }> = [];
     const pageErrors: string[] = [];
@@ -187,7 +190,7 @@ const test = base.extend<{ reviewCase: ReviewCase }>({
       try {
         await page.goto("about:blank");
       } finally {
-        await seed.reset();
+        await seed.owned();
       }
     }
   },
@@ -247,14 +250,14 @@ async function expectScope(
       ).toHaveCount(0);
   }
   const summary = `审阅 ${targets.length} 个目标 · F${from}–F${to} · 所选待审 ${selected} · 全部待审 ${pending}`;
-  for (const id of [
-    "tracker-review-scope-summary",
-    "video-track-review-scope",
-    "timeline-tracker-review-scope",
+  for (const locator of [
+    review(page).getByTestId("tracker-review-scope-summary"),
+    page.getByTestId("video-track-review-scope"),
+    page.getByTestId("timeline-tracker-review-scope"),
   ]) {
-    await expect(page.getByTestId(id)).toBeVisible();
-    await expect(page.getByTestId(id)).toHaveAttribute("data-review-job-id", jobId);
-    await expect(page.getByTestId(id)).toContainText(summary);
+    await expect(locator).toBeVisible();
+    await expect(locator).toHaveAttribute("data-review-job-id", jobId);
+    await expect(locator).toContainText(summary);
   }
 }
 
@@ -669,11 +672,7 @@ test.describe("F3-4 故障注入：延迟真实 API 响应交付", () => {
       await open(page, fixture);
       await chooseJob(page, oldJob.job_id);
       await setScope(page, ["A"], 16, 16);
-      const dialogs: string[] = [];
-      page.on("dialog", async (dialog) => {
-        dialogs.push(dialog.message());
-        await dialog.dismiss();
-      });
+      // 覆盖确认已迁至应用内决策对话框;409 到达时上下文已切换,不应弹出任何对话框。
       const decisions: unknown[] = [];
       page.on("request", (item) => {
         if (item.method() === "POST" && path(item.url()) === decisionPath(oldJob.job_id)) {
@@ -710,7 +709,7 @@ test.describe("F3-4 故障注入：延迟真实 API 响应交付", () => {
         await refresh(page, currentJob.job_id);
         await expectScope(page, currentJob.job_id, ["B"], 12, 15, 4);
         await expect.poll(() => frame(page)).toBe(14);
-        expect(dialogs).toEqual([]);
+        await expect(page.getByRole("alertdialog")).toHaveCount(0);
         expect(decisions).toHaveLength(1);
         expect(decisions[0]).toMatchObject({
           instance_ids: ["A"],
@@ -743,7 +742,7 @@ test.describe("F3-4 故障注入：延迟真实 API 响应交付", () => {
           faultInjection: `delayed real manual 409 after ${destination} switch`,
           fetched,
           decisions,
-          dialogs,
+          noOverrideConfirm: true,
           remaining,
         });
       } finally {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from managed_pool import ManagedLruPool
+from aap_backend_runtime import ManagedLruPool
 
 PoolId = Literal["image", "multiplex_video", "pvs_video"]
 

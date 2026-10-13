@@ -7,6 +7,13 @@ import {
   type HotkeyAction,
 } from "./hotkeys";
 
+import {
+  createCommandEventMatcher,
+  resolveEffectiveCommands,
+  getEditableCommand,
+  type ShortcutBinding,
+} from "./hotkeyBindings";
+
 const baseCtx: DispatchCtx = {
   isInputFocused: false,
   hasSelection: false,
@@ -74,9 +81,13 @@ describe("dispatchKey · 单键", () => {
     expect(dispatch({ key: "g" })).toEqual({ type: "setTool", tool: "magic-box" });
     expect(dispatch({ key: "G" })).toEqual({ type: "setTool", tool: "magic-box" });
   });
-  it("数字键 1-9 → setClassByDigit", () => {
+  it("数字键 1-9 → setClassByDigit；0 → 第十个类别", () => {
     expect(dispatch({ key: "3" })).toEqual({ type: "setClassByDigit", idx: 2 });
     expect(dispatch({ key: "9" })).toEqual({ type: "setClassByDigit", idx: 8 });
+    expect(dispatch({ key: "0" })).toEqual({ type: "setClassByDigit", idx: 9 });
+  });
+  it("Shift+数字不再顺延切类别（Shift 变体是独立组合）", () => {
+    expect(dispatch({ key: "3", shiftKey: true })).toBeNull();
   });
   it("Alt+1/2/3/4 → setTool (v0.9.6 P2-b 备用切工具)", () => {
     // v0.10.2 · Alt+2 → polygon, Alt+3 → ai-cycle (4 个 AI 工具循环).
@@ -85,15 +96,17 @@ describe("dispatchKey · 单键", () => {
     expect(dispatch({ key: "3", altKey: true })).toEqual({ type: "setTool", tool: "ai-cycle" });
     expect(dispatch({ key: "4", altKey: true })).toEqual({ type: "setTool", tool: "select" });
   });
-  it("Alt+5..9 不映射 (5-9 留给数字切类别 fallback)", () => {
-    expect(dispatch({ key: "5", altKey: true })).toEqual({ type: "setClassByDigit", idx: 4 });
+  it("Alt+5..9 不映射（Alt 备用键只有 1-4；数字切类别只认无修饰数字）", () => {
+    expect(dispatch({ key: "5", altKey: true })).toBeNull();
   });
   it("Alt 仅与单字组合生效 (Alt+Ctrl+1 走 ctrl 分支不动 setTool)", () => {
     expect(dispatch({ key: "1", altKey: true, ctrlKey: true })).toBeNull();
   });
-  it("字母键（非保留）→ setClassByLetter", () => {
-    expect(dispatch({ key: "y" })).toEqual({ type: "setClassByLetter", letter: "y" });
-    expect(dispatch({ key: "z" })).toEqual({ type: "setClassByLetter", letter: "z" });
+  it("字母键（非保留）不再切类别：类别直选只有数字 1-9、0", () => {
+    expect(dispatch({ key: "y" })).toBeNull();
+    expect(dispatch({ key: "z" })).toBeNull();
+    expect(dispatch({ key: "i" })).toBeNull();
+    expect(dispatch({ key: "r" })).toBeNull();
   });
   it("保留字母（v/b/a/d/e/n/u/j/k/c）走专用 action 而非 letter", () => {
     expect(dispatch({ key: "n" })).toEqual({ type: "smartNext", mode: "open" });
@@ -117,8 +130,8 @@ describe("dispatchKey · 单键", () => {
     expect(dispatch({ key: "j" })).toEqual({ type: "cycleUser", dir: 1, loop: false });
     expect(dispatch({ key: "k" })).toEqual({ type: "cycleUser", dir: -1, loop: false });
   });
-  it("X 不再是 cycleAi（AI 待审循环已并入 Tab 同类流转 + ` 跨类）；X 释放给按字母切类", () => {
-    expect(dispatch({ key: "x" })).toEqual({ type: "setClassByLetter", letter: "x" });
+  it("X / 其他未绑定字母不再切类别（类别直选收归数字 1-9、0）", () => {
+    expect(dispatch({ key: "x" })).toBeNull();
     // 循环 AI 待审框现在: Tab 在同类内循环, ` 跨到 AI 待审类。
     expect(dispatch({ key: "Tab" })).toEqual({ type: "imageCycleInCategory", dir: 1 });
     expect(dispatch({ code: "Backquote" })).toEqual({ type: "imageStepCategory", dir: 1 });
@@ -305,27 +318,16 @@ describe("dispatchKey · video mode", () => {
     });
   });
 
-  it("Shift + ArrowLeft / ArrowRight keep one-frame seek when sampling is off", () => {
-    expect(dispatch({ key: "ArrowRight", shiftKey: true }, videoCtx)).toEqual({
-      type: "videoSeek",
-      delta: 1,
-    });
-    expect(dispatch({ key: "ArrowLeft", shiftKey: true }, videoCtx)).toEqual({
-      type: "videoSeek",
-      delta: -1,
-    });
+  it("Shift + ArrowLeft / ArrowRight 不再顺延为逐帧 seek（修饰键必须完全匹配）", () => {
+    // Shift+←/→ 是「源帧微调」专用组合，仅采样开启时生效；非采样下不命中任何命令。
+    expect(dispatch({ key: "ArrowRight", shiftKey: true }, videoCtx)).toBeNull();
+    expect(dispatch({ key: "ArrowLeft", shiftKey: true }, videoCtx)).toBeNull();
   });
 
-  it("Shift + ArrowLeft / ArrowRight do not jump keyframes when a video track is selected", () => {
+  it("Shift + ArrowLeft / ArrowRight with a selected track also stay unbound when sampling is off", () => {
     const selectedTrackCtx: Partial<DispatchCtx> = { videoMode: true, hasSelectedVideoTrack: true };
-    expect(dispatch({ key: "ArrowRight", shiftKey: true }, selectedTrackCtx)).toEqual({
-      type: "videoSeek",
-      delta: 1,
-    });
-    expect(dispatch({ key: "ArrowLeft", shiftKey: true }, selectedTrackCtx)).toEqual({
-      type: "videoSeek",
-      delta: -1,
-    });
+    expect(dispatch({ key: "ArrowRight", shiftKey: true }, selectedTrackCtx)).toBeNull();
+    expect(dispatch({ key: "ArrowLeft", shiftKey: true }, selectedTrackCtx)).toBeNull();
   });
 
   it("Ctrl+M and Ctrl+[ / ] map to video bookmark navigation in video mode", () => {
@@ -487,10 +489,8 @@ describe("dispatchKey · video sampling grid (v0.10.29)", () => {
     const offCtx: Partial<DispatchCtx> = { videoMode: true, samplingActive: false };
     expect(dispatch({ key: "ArrowRight" }, offCtx)).toEqual({ type: "videoSeek", delta: 1 });
     expect(dispatch({ key: "ArrowLeft" }, offCtx)).toEqual({ type: "videoSeek", delta: -1 });
-    expect(dispatch({ key: "ArrowRight", shiftKey: true }, offCtx)).toEqual({
-      type: "videoSeek",
-      delta: 1,
-    });
+    // Shift 变体不再顺延为逐帧 seek（Shift+←/→ 仅在采样开启时是源帧微调）。
+    expect(dispatch({ key: "ArrowRight", shiftKey: true }, offCtx)).toBeNull();
     expect(dispatch({ key: "." }, offCtx)).toBeNull();
   });
 });
@@ -610,5 +610,164 @@ describe("v0.10.5 M4-β · shape 状态位快捷键", () => {
   it("F → setTool keypoint (v0.10.28; K 已被 cycleUser 占用)", () => {
     expect(dispatch({ key: "f" })).toEqual({ type: "setTool", tool: "keypoint" });
     expect(dispatch({ key: "F" })).toEqual({ type: "setTool", tool: "keypoint" });
+  });
+});
+
+describe("自定义命令派发不依赖旧键位", () => {
+  const cases: [string, HotkeyAction, Partial<DispatchCtx>][] = [
+    ["common.task.next", { type: "navigateTask", dir: "next" }, {}],
+    ["common.task.prev", { type: "navigateTask", dir: "prev" }, {}],
+    ...(
+      [
+        ["select", "select"],
+        ["box", "box"],
+        ["rotatedBox", "rotated-box"],
+        ["polygon", "polygon"],
+        ["polyline", "polyline"],
+        ["keypoint", "keypoint"],
+        ["mask", "mask"],
+        ["aiCycle", "ai-cycle"],
+        ["magicBox", "magic-box"],
+      ] as const
+    ).map(([id, tool]): [string, HotkeyAction, Partial<DispatchCtx>] => [
+      `image.tool.${id}`,
+      { type: "setTool", tool },
+      {},
+    ]),
+    [
+      "image.selection.lock",
+      { type: "toggleShapeFlag", flag: "is_locked" },
+      { hasSelection: true },
+    ],
+    [
+      "image.selection.hide",
+      { type: "toggleShapeFlag", flag: "is_hidden" },
+      { hasSelection: true },
+    ],
+    ...(
+      [
+        ["select", "select"],
+        ["box", "box"],
+        ["rotatedBox", "rotated-box"],
+        ["keypoint", "keypoint"],
+        ["track", "track"],
+        ["mask", "mask"],
+        ["smartPoint", "smart-point"],
+        ["smartBox", "smart-box"],
+        ["exemplar", "exemplar"],
+        ["magicBox", "magic-box"],
+        ["polygon", "polygon"],
+      ] as const
+    ).map(([id, tool]): [string, HotkeyAction, Partial<DispatchCtx>] => [
+      `video.tool.${id}`,
+      { type: "setVideoTool", tool },
+      { videoMode: true },
+    ]),
+    [
+      "video.track.locked",
+      { type: "videoToggleLockedTrack" },
+      { videoMode: true, hasSelectedVideoTrack: true },
+    ],
+    [
+      "video.track.hidden",
+      { type: "videoToggleHiddenTrack" },
+      { videoMode: true, hasSelectedVideoTrack: true },
+    ],
+    [
+      "video.track.outside",
+      { type: "videoToggleOutside" },
+      { videoMode: true, hasSelectedVideoTrack: true },
+    ],
+    [
+      "video.track.occluded",
+      { type: "videoToggleOccluded" },
+      { videoMode: true, hasSelectedVideoTrack: true },
+    ],
+    ["video.track.bookmark", { type: "videoToggleBookmark" }, { videoMode: true }],
+    ["video.frame.next", { type: "videoSeek", delta: 1 }, { videoMode: true }],
+    ["video.frame.prev", { type: "videoSeek", delta: -1 }, { videoMode: true }],
+    [
+      "video.frame.next",
+      { type: "videoSeekGrid", dir: 1 },
+      { videoMode: true, samplingActive: true },
+    ],
+    [
+      "video.frame.prev",
+      { type: "videoSeekGrid", dir: -1 },
+      { videoMode: true, samplingActive: true },
+    ],
+    [
+      "video.frame.micro.next",
+      { type: "videoMicroStep", dir: 1 },
+      { videoMode: true, samplingActive: true },
+    ],
+    [
+      "video.frame.micro.prev",
+      { type: "videoMicroStep", dir: -1 },
+      { videoMode: true, samplingActive: true },
+    ],
+    [
+      "video.track.keyframe.next",
+      { type: "videoSeekKeyframe", dir: 1 },
+      { videoMode: true, hasSelectedVideoTrack: true },
+    ],
+    [
+      "video.track.keyframe.prev",
+      { type: "videoSeekKeyframe", dir: -1 },
+      { videoMode: true, hasSelectedVideoTrack: true },
+    ],
+  ];
+  const modifiers: ShortcutBinding["modifiers"][] = [
+    [],
+    ["mod"],
+    ["alt"],
+    ["shift"],
+    ["alt", "shift"],
+  ];
+  it.each(cases)("%s 的裸键与修饰组合都能执行且旧键失效", (id, expected, context) => {
+    for (const mods of modifiers) {
+      const domain = getEditableCommand(id)!.domain;
+      const effective = resolveEffectiveCommands({
+        common: {},
+        image: {},
+        video: {},
+        [domain]: { [id]: [{ key: "x", modifiers: mods }] },
+      });
+      const dispatchBinding = (binding: ShortcutBinding) => {
+        const event = new KeyboardEvent("keydown", {
+          key: binding.key,
+          ctrlKey: binding.modifiers.includes("mod"),
+          altKey: binding.modifiers.includes("alt"),
+          shiftKey: binding.modifiers.includes("shift"),
+        });
+        return dispatchKey(event, {
+          ...baseCtx,
+          ...context,
+          matchCommand: createCommandEventMatcher(
+            event,
+            effective,
+            context.videoMode ? "video" : "image",
+          ).match,
+        });
+      };
+      expect(dispatchBinding({ key: "x", modifiers: mods }), mods.join("+")).toEqual(expected);
+      for (const binding of getEditableCommand(id)!.bindings) {
+        expect(dispatchBinding(binding), "旧键应停止该命令").not.toEqual(expected);
+      }
+    }
+  });
+
+  it.each([
+    ["image.selection.hide", {}],
+    ["image.tool.polyline", { hasSelection: true }],
+    ["video.track.locked", { videoMode: true }],
+    ["video.frame.micro.next", { videoMode: true, samplingActive: false }],
+    ["video.tool.smartBox", { videoMode: true, selectedPrediction: { id: "pending" } }],
+    ["video.tool.box", { videoMode: true, pendingActive: true }],
+    ["image.tool.box", { pendingActive: true }],
+  ] as [string, Partial<DispatchCtx>][])("%s 保留状态保护", (id, context) => {
+    expect(
+      dispatch({ key: "x" }, { ...context, matchCommand: (command) => command === id }),
+    ).toBeNull();
   });
 });

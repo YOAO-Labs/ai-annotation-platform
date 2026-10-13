@@ -1,4 +1,4 @@
-"""v0.18.12 · 框→mask 批量分割原子 predict_boxes 单测。
+"""框→mask 批量分割原子 predict_boxes 单测。
 
 不加载 GPU, mock SAM predict, 验证:
 - 一张图只 set_image 一次 (N 框共享 image embedding);

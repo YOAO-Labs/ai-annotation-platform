@@ -1,4 +1,4 @@
-"""v0.14.17 · 类别白名单 + classes 暴露.
+"""类别白名单 + classes 暴露.
 
 - ModelPool 在模型 build 后缓存 model.names (逐 task), class_names() 暴露给 /setup。
 - Context 接受 classes: list[int] 白名单 (推理层 model.predict(classes=) 过滤)。

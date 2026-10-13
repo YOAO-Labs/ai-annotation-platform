@@ -21,7 +21,7 @@ import {
 import { RuntimeStatusBadge } from "./RuntimeStatusBadge";
 import { InstanceDetailSheet } from "./InstanceDetailSheet";
 import { LifecycleActions } from "./LifecycleActions";
-import { isFreshCachedHealth } from "./parseResidency";
+import { isFreshCachedHealth, parseResidency } from "./parseResidency";
 
 export interface BackendInstanceRowProps {
   pool: PoolViewModel;
@@ -74,6 +74,19 @@ export function BackendInstanceRow({
               </h5>
               <RuntimeStatusBadge axis="routing" value={member.routing} />
               {member.weight != null && <Badge variant="outline">权重 {member.weight}</Badge>}
+              {/* 容量 / 驻留在首层以带标签字段呈现（plan §4.2 成员四条独立信息）。 */}
+              <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
+                并发
+                <span className="font-medium text-foreground tabular-nums">
+                  {runtime?.route_inflight == null ? "—" : runtime.route_inflight}
+                </span>
+                <span aria-hidden="true">/</span>
+                <span>未声明</span>
+              </span>
+              <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
+                驻留
+                <ResidencyInline backend={backend} observe={observe} />
+              </span>
               {!hasWindowMetrics && <Badge variant="outline">{NO_METRICS_LABEL}</Badge>}
             </div>
             <div className="mt-1 truncate font-mono text-2xs text-muted-foreground" title={url}>
@@ -169,6 +182,34 @@ export function BackendInstanceRow({
 }
 
 type HealthBadgeVariant = "success" | "warning" | "danger" | "outline";
+
+/**
+ * 驻留首层摘要：可信驻留显示状态，未知如实显示「未知」，
+ * 不把缺失画成空闲（plan §4.2 / ADR-0051）。
+ */
+function ResidencyInline({
+  backend,
+  observe,
+}: {
+  backend: GlobalBackendItem | undefined;
+  observe: ObserveTarget | undefined;
+}): ReactNode {
+  const hasDirectResidency = observe?.residency != null;
+  const rawResidency: unknown = hasDirectResidency
+    ? observe.residency
+    : backend?.health_meta?.residency;
+  const residency = parseResidency(rawResidency);
+  if (!residency || residency.state === "unknown") {
+    return <span className="font-medium text-muted-foreground">未知</span>;
+  }
+  const trusted = hasDirectResidency
+    ? observe?.ok === true
+    : backend != null && isFreshCachedHealth(backend.state, backend.last_checked_at);
+  if (!trusted) {
+    return <span className="font-medium text-muted-foreground">{residency.state}（未核实）</span>;
+  }
+  return <span className="font-medium text-foreground">{residency.state}</span>;
+}
 
 interface HealthPresentation {
   variant: HealthBadgeVariant;

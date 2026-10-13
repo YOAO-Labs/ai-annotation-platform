@@ -1,10 +1,33 @@
 # 开发指南
 
-同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、七个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
+同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、八个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
 
 > 完整的开发文档（架构、How-to、测试、规范）在 VitePress 文档站：
 > 本地预览 `pnpm docs:dev`，部署版 [GitHub Pages](https://yyq19990828.github.io/ai-annotation-platform/dev/)。
 > 本文件仅保留快速参考。
+
+## 本机开发服务定时重启
+
+主 checkout 的 Web/API 可由用户 systemd 的 `aap-development-web.service`（3000）与 `aap-development-api.service`（8000）管理。单元模板位于 `infra/systemd/aap-development-{api,web}.service.in`；安装到 `~/.config/systemd/user/` 前替换 `@PROJECT_DIR@` 和 `@NODE_BIN_DIR@` 为实际绝对路径。API 直接使用本 checkout 的 Python 虚拟环境，Web 使用固定 Node 路径；Web 端口被占用时会失败，不自动换端口。首次接管已有进程需核对其 PID、会话和工作目录，不得按端口杀未知进程。
+
+将 `scripts/development-restart.py` 复制到 `~/.local/lib/ai-annotation-platform/`，通过 `~/.local/bin/ai-annotation-platform-dev-restart` 调用，传入 `--project-dir` 主 checkout 绝对路径、`--state-dir ~/.local/state/ai-annotation-platform/development-restart`，并透传手动参数。定时器和恢复 service 使用 `infra/systemd/aap-development-restart.{service,timer}`。
+
+`aap-development-restart.timer` 每天北京时间 04:00 重启开发 Web/API，以及开发 Compose 的七类 Celery worker 和 beat。每次先核验容器项目、服务、Compose 来源及 `ALEMBIC_AUTO_UPGRADE=false`，再重启现有容器并等待健康检查；worker 的优雅退出上限为 120 秒，长任务应提前避开维护窗口。它不重建镜像、不自动迁移，也不重启生产容器、共享 PostgreSQL/MinIO/模型服务或其他基础设施。生产 3030/8080 仍由独立的 `aap-production-health.timer` 维护。
+
+```bash
+# 立即重启并等待开发服务就绪
+systemctl --user start aap-development-restart.service
+# 安装单元后启用每日定时重启（用户需已启用 linger）
+systemctl --user enable --now aap-development-restart.timer
+systemctl --user list-timers aap-development-restart.timer
+journalctl --user -u aap-development-restart.service -n 30 --no-pager
+# 仅检查开发容器身份，不重启
+~/.local/bin/ai-annotation-platform-dev-restart --check
+```
+
+定时器关闭错过时刻的补执行，避免登录或开机时补做一次意外重启。API/Web 单元可单独启用开机启动和进程退出恢复。开发日志写入用户 journal，旧脚本的 PID 文件不再作为管理依据。
+
+临时跳过每日重启可创建 `~/.local/state/ai-annotation-platform/development-restart/maintenance`，恢复时删除；完全停用定时器使用 `systemctl --user disable --now aap-development-restart.timer`。开始部署前，创建维护标记后执行 `flock ~/.local/state/ai-annotation-platform/development-restart/restart.lock true`，等待已运行的重启结束；标记会阻止新一轮及后续 API/Web 重启阶段。开发 worker 关闭自动迁移，升级时应先显式运行 Alembic；修改 Compose 后需要重建旧 maintenance 容器使该设置生效。生产维护定时器独立运行。独立 worktree 仍使用 `pnpm dev:worktree`，不接入主 checkout 的定时器。
 
 ## 项目结构
 
@@ -57,7 +80,7 @@ ai-annotation-platform/
 
 ## 前置要求
 
-- Node.js >= 20
+- Node.js >= 22
 - pnpm >= 10
 - Python >= 3.11
 - uv (Python 包管理)
@@ -65,6 +88,8 @@ ai-annotation-platform/
 - pre-commit（推荐，启用 git hooks）
 
 ## 一次性 setup
+
+MinIO 使用 `icr.io/fusion-open/minio/minio` 的固定 digest，Compose 与两个 CI 启动入口保持一致。原 Quay 镜像已停止分发；若拉取失败，先按[CI 服务依赖排障](docs-site/dev/troubleshooting/ci-flaky-services.md)核验镜像和 manifest，不要改用浮动标签或延长应用超时。
 
 ```bash
 pnpm install               # 自动跑 scripts/install-git-hooks.sh，已装 pre-commit 即启用 hooks
@@ -112,7 +137,7 @@ pnpm dev:worktree
 pnpm dev:worktree -- up --with-worker
 ```
 
-启动器给工作树分配稳定身份，创建专属数据库、带归属标签的 Redis 容器和七个
+启动器给工作树分配稳定身份，创建专属数据库、带归属标签的 Redis 容器和八个
 MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配置；迁移、API、
 测试和可选 worker 的目标通过子进程环境统一覆盖，不改共享库。
 
@@ -457,7 +482,7 @@ CI E2E 每个 PR 保留 4 个功能分片，以及 readonly Mask、native Mask�
 每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；同一数据库
 只用一个 Playwright worker，因为 seed/reset 和 teardown 会清理共享数据。
 默认、视觉和压力套件使用构建产物，Mask 任务由 Playwright 启动隔离 API 和 Vite dev。
-功能用例最多重试一次，扩展用例不重试；进程/步骤/job 保留 15/20/30 分钟限时。
+功能用例最多重试一次；扩展用例中视觉基线不重试、压力用例最多重试一次；进程/步骤/job 保留 15/20/30 分钟限时。
 `Frontend E2E` 汇总门禁同时要求路由和全部已选任务成功。每个套件的 HTML、JSON、
 失败截图和 trace 分别上传到 `playwright-report-<suite>`，Actions 摘要展示结果与耗时，
 并区分失败、flaky、跳过及全局错误。详见 [E2E 运行说明](apps/web/e2e/README.md)。
@@ -470,7 +495,7 @@ CI E2E 每个 PR 保留 4 个功能分片，以及 readonly Mask、native Mask�
 CI 检查名称统一使用 `领域 职责`，例如 `Backend tests`、`Frontend verification`、
 `Docs validation`。所有 job（包括单 job 工作流）都显式设置 `name`，并在仓库内保持唯一；
 整个名称使用 sentence case，保留 Python、SDK 等专有名词和缩写。工具明细放在 step 名称中。GitHub 会展示 `工作流 / job (事件)`，因此 job 名称不再添加斜杠；
-例如 `CI / Frontend verification (pull_request)`、`Change analysis / Docs impact (pull_request)`。
+例如 `CI / Frontend verification (pull_request)`、`CI / Backend tests (pull_request)`。
 工作流文件使用 `<domain>-<action>.yml`（聚合工作流保留 `ci.yml`），顶层名称使用 sentence case。
 命名检查器不依赖额外安装包，按仓库统一的块式 YAML 检查：job 键缩进两格，job 属性缩进四格。
 本地 pre-commit 和 CI 均严格检查文件名、工作流名称、job 名称格式及重名。

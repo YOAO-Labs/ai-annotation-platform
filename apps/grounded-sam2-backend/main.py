@@ -1,21 +1,21 @@
 """Grounded-SAM-2 ML Backend — FastAPI 入口.
 
-实现 docs-site/dev/ml-backend-protocol.md 规定的 4 个端点 + v0.9.1 新增 2 个观测端点:
+实现 docs-site/dev/ml-backend-protocol.md 规定的 4 个端点 + 2 个观测端点:
     GET  /health        探活
     GET  /setup         模型配置
     GET  /versions      可用版本
     POST /predict       交互式 / 批量预测（同一端点按 body shape 分流）
-    GET  /metrics       Prometheus exposition (v0.9.1)
-    GET  /cache/stats   embedding cache 当前状态 (v0.9.1)
+    GET  /metrics       Prometheus exposition
+    GET  /cache/stats   embedding cache 当前状态
 
 prompt 类型:
     - context.type == "point"           → SAM 直接出 mask (正/负点累加; multimask 候选)
-    - context.type == "interactive_box" → SAM 单框单 mask (v0.18.17 · 旧 "bbox" 改名)
+    - context.type == "interactive_box" → SAM 单框单 mask (旧 "bbox" 改名)
     - context.type == "text"            → GroundingDINO 出 boxes → SAM 出 mask（可批量）
     注: "bbox" 已退出交互 prompt 命名空间 (旧 type=bbox 落 422); tracker / box-seg 的 bbox
     是几何输入/追踪种子, 走 geometry-prompt 批量路径, 与此无关.
 
-v0.9.1 (M1) 加入 SAM 2 image embedding LRU 缓存:
+SAM 2 image embedding LRU 缓存:
     cache_key = sha1(url_path|sam_variant); 同图二次操作跳过 ~1.5s 的 image encoder.
     point/interactive_box 命中可同时跳过 fetch_image; text 仅省 set_image (DINO 仍需原图).
 """
@@ -127,10 +127,10 @@ EMBEDDING_CACHE_SIZE = int(os.getenv("EMBEDDING_CACHE_SIZE", "16"))
 # B-28+ · idle 自动卸载. 0 / 负数 关闭定时卸载, 仍可通过 POST /unload 手动卸载.
 IDLE_UNLOAD_SECONDS = float(os.getenv("IDLE_UNLOAD_SECONDS", "600"))
 IDLE_CHECK_INTERVAL = float(os.getenv("IDLE_CHECK_INTERVAL", "60"))
-# v0.10.23 · ModelPool 配置. CAP=1 保持现有"单变体常驻"行为; 大显存卡可调高并存多变体.
+# ModelPool 配置. CAP=1 保持"单变体常驻"行为; 大显存卡可调高并存多变体.
 MODEL_POOL_CAP = int(os.getenv("MODEL_POOL_CAP", "1"))
 MODEL_POOL_BUILD_TIMEOUT = float(os.getenv("MODEL_POOL_BUILD_TIMEOUT", "30"))
-# v0.10.35 §B · sam2_video tracker 独立显存池 (与图片池预算分离, 互不驱逐).
+# sam2_video tracker 独立显存池 (与图片池预算分离, 互不驱逐).
 VIDEO_MODEL_POOL_CAP = int(os.getenv("VIDEO_MODEL_POOL_CAP", "1"))
 VIDEO_MODEL_POOL_BUILD_TIMEOUT = float(
     os.getenv("VIDEO_MODEL_POOL_BUILD_TIMEOUT", "60")
@@ -148,7 +148,7 @@ MANAGED_LIFECYCLE_VERIFIED = deployment_verified_flag(
 )
 MAX_PREDICT_REQUEST_BYTES = 6 * 1024 * 1024
 
-# v0.10.1 · /setup 协议标准化暴露 backend 镜像版本 (与 FastAPI app.version 同源).
+# /setup 协议标准化暴露 backend 镜像版本 (与 FastAPI app.version 同源).
 BACKEND_VERSION = os.getenv("BACKEND_VERSION", "0.10.1")
 
 app = FastAPI(title="grounded-sam2-backend", version=BACKEND_VERSION)
@@ -225,7 +225,7 @@ async def _value_error_to_400(_request: Request, exc: ValueError):
 
 _last_request_at: float = time.monotonic()
 _idle_task: asyncio.Task | None = None
-# v0.10.23 · 额外变体 checkpoint 后台预拉状态 (主变体已由 entrypoint 阻塞下好).
+# 额外变体 checkpoint 后台预拉状态 (主变体已由 entrypoint 阻塞下好).
 # status: idle(无额外变体) | downloading | ready | partial(部分失败) | error.
 _prefetch_task: asyncio.Task | None = None
 _provisioning: dict = {"status": "idle", "detail": ""}
@@ -349,7 +349,7 @@ def _model_version(sam_variant: str, dino_variant: str) -> str:
     return f"grounded-sam2-dino{dino_variant}-sam2.1{sam_variant}"
 
 
-# v0.14.12 · 移除 vram_gb (与 yolo SIZE_META 同理): 之前是粗估占位, 实际 SAM2 .pt
+# 不含 vram_gb (与 yolo SIZE_META 同理): 粗估占位不准确, 实际 SAM2 .pt
 # 加载远低于声称值且推理峰值还受 batch / 分辨率 / FP16 影响. tier (fast / balanced /
 # accurate) 作为选购粗粒度档位保留, note 给出语义说明。
 SAM2_VARIANT_METADATA = {
@@ -454,7 +454,7 @@ def _normalize_predict_context(ctx: dict) -> dict:
         normalized, deprecated = normalize_context_model_variants(ctx)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    # v0.14.17 · 同一请求 ctx 常被图像 (_resolve_variant) 与视频 (_resolve_video_variant)
+    # 同一请求 ctx 常被图像 (_resolve_variant) 与视频 (_resolve_video_variant)
     # 两条路径各 normalize 一次; deprecation warning 只在首次记 (标记写回输入 ctx),
     # 消除重复日志噪声。私有标记键不影响 normalize 结果与 422 校验。
     if deprecated and not ctx.get("_mv_deprecation_logged"):
@@ -597,11 +597,11 @@ async def _load_models() -> None:
     # 不再启动急加载默认变体: 未注册 / 无流量时会白占显存 (与下方 video 池同理).
     # 纯懒加载 — 首个推理请求经 _get_predictor → _pool.get 触发冷启; 需暖启点模型市场「预热默认」。
     _last_request_at = time.monotonic()
-    # v0.9.11 PerfHud · pynvml + psutil 初始化 (无 GPU 环境会降级, 不阻塞 startup)
+    # PerfHud · pynvml + psutil 初始化 (无 GPU 环境会降级, 不阻塞 startup)
     init_perfhud_collectors()
     if IDLE_UNLOAD_SECONDS > 0:
         _idle_task = asyncio.create_task(_idle_watcher())
-    # v0.10.35 §B · video 池独立 idle watcher (不与图片池连带). 不预热 video 变体:
+    # video 池独立 idle watcher (不与图片池连带). 不预热 video 变体:
     # 首个 video_tracker 请求触发冷启, 避免空载常驻额外显存.
     if VIDEO_IDLE_UNLOAD_SECONDS > 0:
         _video_idle_task = asyncio.create_task(_video_idle_watcher())
@@ -658,7 +658,7 @@ def _echo_gpu_health_challenge(request: Request, response: Response) -> None:
 
 @app.get("/health", dependencies=[Depends(_echo_gpu_health_challenge)])
 async def health() -> dict:
-    """v0.9.5 · 加 GPU 显存 + cache 指标，便于运维实时观察。
+    """GPU 显存 + cache 指标，便于运维实时观察。
 
     旧前端字段保留：`gpu` 仍是 truthy（True/False），`model_version` / `loaded` 不变；
     新增 `gpu_info` / `cache` 子对象，老前端忽略。
@@ -695,7 +695,7 @@ async def health() -> dict:
     except Exception:  # noqa: BLE001 — CUDA 运行时损坏不应拖垮 /health
         available = False
     gpu_info: dict | None = None
-    # v0.9.11 PerfHud · 同步采样 GPU util/温度/功耗 + 容器 CPU/RAM (无 GPU 环境字段为 None)
+    # PerfHud · 同步采样 GPU util/温度/功耗 + 容器 CPU/RAM (无 GPU 环境字段为 None)
     perf = sample_perfhud()
     if available:
         try:
@@ -739,9 +739,9 @@ async def health() -> dict:
         "cache": cache,
         "model_version": MODEL_VERSION,
         "loaded": image_snapshot["current_size"] > 0,
-        # v0.14.14 协议 §4.3 PoolStatus (cap/current_size/loaded_keys[]/last_evict).
+        # 协议 §4.3 PoolStatus (cap/current_size/loaded_keys[]/last_evict).
         "pool": _legacy_pool_status(image_snapshot),
-        # v0.14.15 · video tracker 独立池同样使用 PoolStatus.loaded_keys 协议形态.
+        # video tracker 独立池同样使用 PoolStatus.loaded_keys 协议形态.
         "video_pool": {
             **_legacy_pool_status(video_snapshot),
             "active_sessions": video_snapshot["active_sessions"],
@@ -770,7 +770,7 @@ async def health() -> dict:
 
 @app.get("/setup")
 def setup() -> dict:
-    # v0.10.1 · /setup 标准化为 JSON Schema 自描述协议 (与 sam3-backend 同构):
+    # /setup 标准化为 JSON Schema 自描述协议 (与 sam3-backend 同构):
     # - name / version / model_version: 必填三元组, 前端用于诊断与兼容判断
     # - supported_prompts: 决定 ToolDock 哪些 AI 工具可用 (M2 ToolDock 重构消费)
     # - params: JSON Schema (Draft-07 子集) — 前端 schema-form 自动渲染参数面板
@@ -782,9 +782,9 @@ def setup() -> dict:
         "model_version": MODEL_VERSION,
         "labels": [],
         "is_interactive": True,
-        # v0.14.14: 声明本 backend 支持 POST /warmup (协议 §4.4).
+        # 声明本 backend 支持 POST /warmup (协议 §4.4).
         "warmup_endpoint": True,
-        # v0.18.17 · "bbox" 图像交互单框 prompt 改名 "interactive_box" (统一双 backend 命名).
+        # "bbox" 图像交互单框 prompt 改名 "interactive_box" (统一双 backend 命名).
         # tracker / box-seg 的 "bbox" 是几何输入/追踪种子 (走 geometry-prompt 批量, 非 /predict
         # context.type 路由), 属存活的「几何形状」语义, 各自保留 (见下方 models[])。
         "supported_prompts": [
@@ -794,9 +794,9 @@ def setup() -> dict:
             "scribble",
             "text",
         ],
-        # v0.9.4 phase 2 · text 路径输出形态选择 (box=DINO 直出, mask=DINO+SAM, both=配对返回).
+        # text 路径输出形态选择 (box=DINO 直出, mask=DINO+SAM, both=配对返回).
         "supported_text_outputs": ["box", "mask", "both"],
-        # v0.10.35 §B · 平台 video_tracker 协议桥据此判断 backend 是否支持视频跟踪.
+        # 平台 video_tracker 协议桥据此判断 backend 是否支持视频跟踪.
         "supported_trackers": ["sam2_video"],
         "tracker_context_mode": (
             "session"
@@ -804,7 +804,7 @@ def setup() -> dict:
             else "none"
         ),
         "max_context_frames": VIDEO_TRACKER_MAX_CONTEXT_FRAMES,
-        # v0.10.40 · 富变体元数据: 与 params.*_variant.enum 同源, enum 保留作老前端兼容.
+        # 富变体元数据: 与 params.*_variant.enum 同源, enum 保留作老前端兼容.
         "supported_variants": _supported_variants(),
         "params": {
             "type": "object",
@@ -855,8 +855,8 @@ def setup() -> dict:
             },
         },
     }
-    # v0.14.9 · 协议 v2: 顶层 infra + 多模型目录 (models[])。
-    # v0.14.11 · 把 grounded-sam2 的 4 条实际能力拆成独立 model 条目, 让平台
+    # 协议 v2: 顶层 infra + 多模型目录 (models[])。
+    # grounded-sam2 的 4 条实际能力拆成独立 model 条目, 让平台
     # 「协议能力目录」按 task 正确归类:
     #   - detection           (text → bbox, DINO 单跑)
     #   - segmentation        (text → mask/polygon, DINO + SAM2)
@@ -866,12 +866,12 @@ def setup() -> dict:
     # 顶层 supported_prompts / supported_geometric_outputs / supported_trackers
     # 全部保留, 供未迁移平台向后兼容 (合成隐式单 model 路径)。
     base["infra"] = "pytorch"
-    # v0.14.12 · 每个 model 只声明真正用到的 axes (而非全暴露 sam+dino 两轴):
+    # 每个 model 只声明真正用到的 axes (而非全暴露 sam+dino 两轴):
     #   - detection 只用 GroundingDINO 输出 bbox, 不走 SAM;
     #   - interactive_seg / tracker 只用 SAM2 (prompts 是 point/bbox, 与 text 无关);
     #   - segmentation 是 DINO + SAM 组合, 两轴都用。
     # 前端模型市场据此正确聚合: SAM 系列只关联到 seg/iseg/tracker, DINO 系列只到 det/seg。
-    # v0.14.13 · `default_variants`: backend 自报该 task 的默认 variant 组合, 供前端
+    # `default_variants`: backend 自报该 task 的默认 variant 组合, 供前端
     # 用户未选时作初值. 与 model 的 supported_variants 轴一一对应:
     #   - detection (DINO 路径) 只声明 dino_variant
     #   - interactive_seg / tracker (SAM2 路径) 只声明 sam_variant
@@ -931,7 +931,7 @@ def setup() -> dict:
             "is_interactive": True,
             # 单次 SAM 推理(prompt→mask),原子。
             "composition": "atom",
-            # v0.18.17 · bbox→interactive_box (图像交互单框单 mask).
+            # bbox→interactive_box (图像交互单框单 mask).
             "supported_prompts": [
                 "point",
                 "interactive_box",
@@ -988,7 +988,7 @@ def setup() -> dict:
             "params": base["params"],
         },
         {
-            # v0.18.12 · 框→mask 批量分割原子: public、非交互、下游可编排。
+            # 框→mask 批量分割原子: public、非交互、下游可编排。
             # 与 interactive-seg 共享底层 SAM(predict_bbox / predict_boxes),
             # 但作为独立 model 暴露——非交互, 供多阶段编排消费上游检测框(geometry-prompt 批量)。
             "id": "grounded-sam2-box-seg",
@@ -1143,9 +1143,9 @@ async def lifecycle_reset(request: Request) -> dict[str, Any]:
 
 
 class ReloadRequest(BaseModel):
-    """v0.10.26 · 可选指定变体预热. 缺省回退 env 默认变体 (保持旧行为).
+    """可选指定变体预热. 缺省回退 env 默认变体.
 
-    v0.10.36 · task_type 区分预热目标池: "image" (默认, 图片池) / "video"
+    task_type 区分预热目标池: "image" (默认, 图片池) / "video"
     (独立 video tracker 池). 旧调用不传 = "image", 行为完全不变.
     """
 
@@ -1158,16 +1158,16 @@ class ReloadRequest(BaseModel):
 async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
     """主动 (重新) 加载变体进 pool. 已加载该变体时 reloaded=false.
 
-    v0.10.26 · 接受可选 {sam_variant, dino_variant} 预热指定变体 (模型市场单变体预热);
+    接受可选 {sam_variant, dino_variant} 预热指定变体 (模型市场单变体预热);
     缺省回退 env 默认变体. 非法变体 422 (同 predict 的 _resolve_variant 校验).
-    v0.10.36 · task_type="video" 改预热独立 video tracker 池 (不用 dino).
+    task_type="video" 时预热独立 video tracker 池 (不用 dino).
     """
     if _pool is None or _video_pool is None:
         raise HTTPException(status_code=503, detail="backend not ready")
     operation = _request_operation(request)
     task_type = (req.task_type if req else None) or "image"
 
-    # v0.10.36 · video 分支: 预热独立 video tracker 池 (单维 sam_variant, 无 dino).
+    # video 分支: 预热独立 video tracker 池 (单维 sam_variant, 无 dino).
     if task_type == "video":
         sv = (req.sam_variant if req else None) or SAM_VARIANT
         if sv not in SAM2_CONFIGS:
@@ -1231,12 +1231,12 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
     }
 
 
-# ---------- v0.14.14: POST /warmup (协议 §4.4) ----------
+# ---------- POST /warmup (协议 §4.4) ----------
 
 
 @app.post("/warmup", response_model=WarmupResponse)
 async def warmup(request: Request, req: WarmupRequest) -> WarmupResponse:
-    """v0.14.14 协议 §4.4 · 加载指定 (sam_variant, dino_variant) 权重到 pool, 不跑 forward.
+    """协议 §4.4 · 加载指定 (sam_variant, dino_variant) 权重到 pool, 不跑 forward.
 
     task 路由 (issue claude[bot] P1, 与 /reload 行为对齐):
     - tracker → 独立 video_pool (单维 sam_variant, 无 dino); 不动图片池, 不强制 DINO.
@@ -1388,13 +1388,13 @@ def _run_prompt_sync(
     pool_cache_hit: bool,
     model_load_ms: int | None,
 ) -> tuple[list[dict], bool, str, str, bool, int | None, str | None]:
-    """v0.14.14 返回 (results, embedding_hit, sam_variant, dino_variant,
+    """返回 (results, embedding_hit, sam_variant, dino_variant,
     pool_cache_hit, model_load_ms, mask_input_next).
 
     - embedding_hit: 图像 embedding 缓存命中 (image fetch / set_image 跳过)
     - pool_cache_hit: model pool 命中 (权重已加载, 不需冷启)
     - model_load_ms: 本次 pool miss 的 build 耗时, 命中时 None
-    - mask_input_next: v0.18.18 · point 精修单 mask 阶段的 low-res logits 回灌, 其余恒 None
+    - mask_input_next: point 精修单 mask 阶段的 low-res logits 回灌, 其余恒 None
     """
     ptype = ctx.get("type")
     mask_context = _validate_mask_context(ctx)
@@ -1412,7 +1412,7 @@ def _run_prompt_sync(
     mask_prompt = _mask_prompt_payload(mask_context)
     cache_key = compute_cache_key(file_path, sv)
 
-    # v0.9.4 phase 3 · simplify_tolerance 单次请求级覆盖 (None 时 predictor 用 DEFAULT_SIMPLIFY_TOLERANCE)
+    # simplify_tolerance 单次请求级覆盖 (None 时 predictor 用 DEFAULT_SIMPLIFY_TOLERANCE)
     simplify_tol = ctx.get("simplify_tolerance")
     if simplify_tol is not None:
         try:
@@ -1435,9 +1435,9 @@ def _run_prompt_sync(
         output_geometry, prompt_revision = _coerce_interactive_output(ctx)
         points = [list(point) for point in mask_context.points]
         labels = list(mask_context.labels or [1] * len(points))
-        # v0.18.17 · 正/负点累加由前端重发全量点; multimask 单点歧义出候选.
+        # 正/负点累加由前端重发全量点; multimask 单点歧义出候选.
         multimask = mask_context.multimask_output
-        # v0.18.18 · 上一轮 low-res logits 回灌 (多点精修阶段; 首点 multimask 候选阶段前端不回传).
+        # 上一轮 low-res logits 回灌 (多点精修阶段; 首点 multimask 候选阶段前端不回传).
         mask_input = mask_context.mask_input
         # miss: 拉图 + 让 predictor 内部 set_image + put; hit: 不拉图, 走 restore_sam.
         image = (
@@ -1472,7 +1472,7 @@ def _run_prompt_sync(
                 detail="context.bbox=[x1,y1,x2,y2] required for type=interactive_box",
             )
         output_geometry, prompt_revision = _coerce_interactive_output(ctx)
-        # v0.18.17 · 单框单 mask (旧 type=bbox 改名; bbox 已退出交互 prompt 命名空间).
+        # 单框单 mask (旧 type=bbox 改名; bbox 已退出交互 prompt 命名空间).
         bbox = list(mask_context.bbox)
         multimask = mask_context.multimask_output
         image = (
@@ -1582,10 +1582,10 @@ def _run_prompt_sync(
                 status_code=422, detail="context.text required for type=text"
             )
         # text 必须拿原图给 DINO; SAM 端仍走缓存 (mask/both 路径)
-        # v0.9.2 · ctx 上的项目级阈值 override (None 时回退到 backend env 默认值)
+        # ctx 上的项目级阈值 override (None 时回退到 backend env 默认值)
         box_th = ctx.get("box_threshold")
         text_th = ctx.get("text_threshold")
-        # v0.9.4 phase 2 · 输出形态; 默认 mask 兼容老前端.
+        # 输出形态; 默认 mask 兼容老前端.
         output_mode = ctx.get("output", "mask")
         if output_mode not in ("box", "mask", "both"):
             raise HTTPException(
@@ -1691,7 +1691,7 @@ def _run_box_seg_sync(
     pool_cache_hit: bool,
     model_load_ms: int | None,
 ) -> tuple[list[dict], bool, str, str, bool, int | None, str | None]:
-    """v0.18.12 · 框→mask 批量分割: 全图 set_image 一次, N 框共享 embedding。
+    """框→mask 批量分割: 全图 set_image 一次, N 框共享 embedding。
 
     返回签名与 :func:`_run_prompt` 对齐(results 各带 parent_box_idx); 末位 mask_input_next 恒 None。
     """
@@ -1796,7 +1796,7 @@ def _seed_bbox_from_ctx(ctx: dict) -> dict:
                 bbox = keyframes[0].get("bbox") or {}
                 return _norm_bbox(bbox)
             return None
-        # v0.21.20 · polygon track: seed = 首关键帧顶点外接框 (SAM2 只吃 bbox seed)。
+        # polygon track: seed = 首关键帧顶点外接框 (SAM2 只吃 bbox seed)。
         if gtype == "video_track_polygon":
             keyframes = sorted(
                 geometry.get("keyframes") or [],
@@ -1844,7 +1844,7 @@ def _seed_bbox_from_ctx(ctx: dict) -> dict:
 
 
 def _seeds_from_ctx(ctx: dict) -> list[dict]:
-    """v0.21.27 阶段 A · 从 context 取逐对象 seed(多目标)。
+    """从 context 取逐对象 seed(多目标)。
 
     与 sam3 PVS `_seeds_from_video_ctx` 同款: `seeds[]` 每条
     {obj_id?, prompts?/bbox?/points?/geometry?}——prompts(多帧纠偏)/bbox/points 原样透传;
@@ -1983,7 +1983,7 @@ async def _run_video_tracker(
             status_code=422,
             detail=f"video_tracker direction must be forward|backward, got {direction!r}",
         )
-    # v0.21.20 · polygon track 回填: 平台按源几何类型下发 output_geometry, "polygon" 时
+    # polygon track 回填: 平台按源几何类型下发 output_geometry, "polygon" 时
     # 每帧保留 mask 矢量化为多边形而非降 bbox; 缺省 "bbox" 维持既有 seed-bbox tracker 行为。
     output_geometry = ctx.get("output_geometry") or "bbox"
     if output_geometry not in ("bbox", "polygon", "mask"):
@@ -2054,7 +2054,7 @@ async def _run_video_tracker(
                 detail={"reason": "tracker_context_lost"},
             ) from exc
 
-    # v0.21.27 阶段 A · 多目标: 优先 seeds[] (逐对象点/框/多帧 prompt), 回退单 seed_bbox。
+    # 多目标: 优先 seeds[] (逐对象点/框/多帧 prompt), 回退单 seed_bbox。
     seeds = _seeds_from_ctx(ctx)
     try:
         async with _video_pool.borrow(sv) as lease:
@@ -2100,7 +2100,7 @@ async def predict(request: Request):
     if isinstance(body, dict) and "task" in body and "context" in body:
         task = body["task"]
         ctx = body.get("context") or {}
-        # v0.10.35 §B · video_tracker 分支 (走独立 video pool, 不进图片缓存路径).
+        # video_tracker 分支 (走独立 video pool, 不进图片缓存路径).
         if ctx.get("type") == "video_tracker":
             correction = (ctx.get("prompt") or {}).get("correction") or {}
             tracker_started = time.perf_counter()
@@ -2173,7 +2173,7 @@ async def predict(request: Request):
     if isinstance(body, dict) and "tasks" in body:
         tasks = body["tasks"]
         ctx = body.get("context") or {"type": "text", "text": body.get("text", "")}
-        # v0.18.12 · 文本批量按 model_id 路由输出形态 (统一 wire): detection→box(纯 DINO),
+        # 文本批量按 model_id 路由输出形态 (统一 wire): detection→box(纯 DINO),
         # segmentation→ctx.output||mask(DINO+SAM)。无 model_id 回落 ctx.output (老 wire 兼容)。
         # type 强制 text 以走 _run_prompt 文本分支 (前端可能发 type=task)。box-seg 走 per-task prompts。
         _mid = ctx.get("model_id")
@@ -2187,7 +2187,7 @@ async def predict(request: Request):
             sv, dv = SAM_VARIANT, DINO_VARIANT
             pool_cache_hit: bool | None = None
             model_load_ms: int | None = None
-            # v0.18.12 · geometry-prompt 批量(下游 box-seg stage): task 携带 prompts[] 框列表,
+            # geometry-prompt 批量(下游 box-seg stage): task 携带 prompts[] 框列表,
             # 走全图 set_image 一次、N 框共享 embedding 的路径; 否则走文本/context 批量。
             box_prompts = t.get("prompts")
             obs_type = "box_seg" if box_prompts else (ctx.get("type") or "unknown")

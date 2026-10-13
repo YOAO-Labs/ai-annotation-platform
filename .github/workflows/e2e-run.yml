@@ -12,10 +12,78 @@ permissions:
   contents: read
 
 jobs:
+  # Plan §6.6: one build per exact fingerprint (commit + build mode + lockfile
+  # + OpenAPI snapshot + Node version), reused by every `built` matrix entry.
+  # The fingerprint names the artifact, so a different lockfile or snapshot can
+  # only fail the download, never silently reuse another build.
+  build:
+    name: Frontend E2E build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      needed: ${{ steps.needed.outputs.needed }}
+      fingerprint: ${{ steps.fingerprint.outputs.fingerprint }}
+      build-seconds: ${{ steps.build.outputs.build-seconds }}
+    env:
+      MATRIX: ${{ inputs.matrix }}
+    steps:
+      - id: needed
+        run: echo "needed=$(echo "$MATRIX" | jq '[.include[] | select(.built == true)] | length > 0')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.needed.outputs.needed == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.needed.outputs.needed == 'true'
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+        if: steps.needed.outputs.needed == 'true'
+      - name: Compute build fingerprint
+        id: fingerprint
+        if: steps.needed.outputs.needed == 'true'
+        run: |
+          vite_env=$(printenv | grep '^VITE_' | sort | sha256sum | cut -d' ' -f1)
+          dot_env=$([ -f .env ] && sha256sum .env | cut -d' ' -f1 || echo absent)
+          fingerprint=$(printf '%s' "$GITHUB_SHA-e2e-$(sha256sum pnpm-lock.yaml | cut -d' ' -f1)-$(sha256sum apps/api/openapi.snapshot.json | cut -d' ' -f1)-$(node --version)-$vite_env-$dot_env" | sha256sum | cut -d' ' -f1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: pnpm install
+        if: steps.needed.outputs.needed == 'true'
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+      - id: build
+        name: Build frontend
+        if: steps.needed.outputs.needed == 'true'
+        working-directory: apps/web
+        env:
+          OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
+        run: |
+          start=$(date +%s)
+          pnpm build --mode e2e
+          echo "build-seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+      - name: Upload dist artifact
+        if: steps.needed.outputs.needed == 'true'
+        env:
+          FINGERPRINT: ${{ steps.fingerprint.outputs.fingerprint }}
+        run: |
+          tar -czf "web-e2e-dist-$FINGERPRINT.tar.gz" -C apps/web dist
+          sha256sum "web-e2e-dist-$FINGERPRINT.tar.gz" > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: steps.needed.outputs.needed == 'true'
+        with:
+          name: web-e2e-dist-${{ steps.fingerprint.outputs.fingerprint }}
+          path: |
+            web-e2e-dist-*.tar.gz
+            SHA256SUMS
+          retention-days: 3
+
   suites:
     name: Frontend E2E suites
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Fail-closed via the needs dependency: a failed shared build skips every
+    # suite (the aggregate Frontend E2E then fails on the skipped result);
+    # `skipped` is only legitimate when no built suite was selected at all.
+    needs: [build]
+    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
     # Each runner owns its services; never parallelize workers against shared fixtures.
     strategy:
       fail-fast: false
@@ -59,6 +127,10 @@ jobs:
       # 用 127.0.0.1 强制 IPv4 避免 ECONNREFUSED ::1:8000。
       PLAYWRIGHT_API_BASE: http://127.0.0.1:8000
     steps:
+      - name: Record prep start
+        run: echo "E2E_PREP_START=$(date +%s)" >> "$GITHUB_ENV"
+      # Fail-closed: a built entry never runs without its fingerprinted build,
+      # and a build failure skips the suites instead of testing stale code.
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -70,18 +142,17 @@ jobs:
       - name: Sync API deps
         working-directory: apps/api
         run: uv sync --extra test
-      # services 没法给 MinIO 镜像传 server 子命令；bitnami/minio 与 Docker Hub 的
-      # minio/minio 均已下架，quay.io 是当前官方社区镜像源。
-      # 直接 docker run 启容器最稳，并等到 health endpoint 通后再继续，避免后续 FastAPI
-      # startup 阶段反复重试拉满 health-check 窗口。
-      # Keep the image from the last passing main run, using MinIO's Quay registry.
+      # The services block cannot pass MinIO's `server` subcommand, so start the
+      # pinned image with docker run and wait for its health endpoint; this
+      # keeps FastAPI startup from racing the container's readiness window.
+      # IBM mirror preserves the digest: https://www.ibm.com/support/pages/node/7289585
       - name: Start MinIO
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+            icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:9000/minio/health/live; then exit 0; fi
             sleep 1
@@ -89,7 +160,6 @@ jobs:
           docker logs minio
           exit 1
       - name: alembic upgrade head
-        if: matrix.built
         working-directory: apps/api
         run: uv run alembic upgrade head
       - name: Start FastAPI in background
@@ -105,23 +175,40 @@ jobs:
           exit 1
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - uses: pnpm/action-setup@v4
       - name: pnpm install
         working-directory: apps/web
         run: pnpm install --frozen-lockfile
       - name: Generate API types for Mask suites
-        if: ${{ !matrix.built }}
+        if: matrix.built != true
         working-directory: apps/web
         env:
           OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
         run: pnpm codegen
-      - name: Build frontend
-        if: matrix.built
-        working-directory: apps/web
+      # Fail-closed: the download only succeeds for the exact fingerprint
+      # because the artifact name embeds it.
+      - uses: actions/download-artifact@v4
+        if: matrix.built == true
+        with:
+          name: web-e2e-dist-${{ needs.build.outputs.fingerprint }}
+          path: shared-build
+      - name: Verify and unpack shared build
+        if: matrix.built == true
+        working-directory: shared-build
         env:
-          OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
-        run: pnpm build --mode e2e
+          FINGERPRINT: ${{ needs.build.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          # SHA256SUMS is produced by the build job from the real archive bytes;
+          # fail if it does not name exactly the requested fingerprinted archive.
+          grep -F "web-e2e-dist-$FINGERPRINT.tar.gz" SHA256SUMS | sha256sum -c -
+          # Adversarial extra: reject a checksums file naming any other archive.
+          if ! diff <(grep -F "web-e2e-dist-$FINGERPRINT.tar.gz" SHA256SUMS) SHA256SUMS; then
+            echo "::error::checksum manifest names archives beyond the requested fingerprint"
+            exit 1
+          fi
+          tar -xzf "web-e2e-dist-$FINGERPRINT.tar.gz" -C "$GITHUB_WORKSPACE/apps/web"
       - name: Install Playwright browsers
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
@@ -129,25 +216,23 @@ jobs:
         id: e2e
         timeout-minutes: 20
         working-directory: apps/web
-        run: pnpm ${{ matrix.command }}
+        run: |
+          echo "E2E_PREP_SECONDS=$(( $(date +%s) - E2E_PREP_START ))" >> "$GITHUB_ENV"
+          echo "E2E_RUN_START=$(date +%s)" >> "$GITHUB_ENV"
+          pnpm ${{ matrix.command }}
+      - name: Record execution seconds
+        if: always() && steps.e2e.outcome != 'skipped'
+        run: echo "E2E_RUN_SECONDS=$(( $(date +%s) - E2E_RUN_START ))" >> "$GITHUB_ENV"
       - name: Summarize E2E results
         if: always()
         env:
           E2E_SUITE: ${{ matrix.suite }}
           E2E_OUTCOME: ${{ steps.e2e.outcome }}
+          E2E_BUILD_SECONDS: ${{ needs.build.outputs.build-seconds }}
+          E2E_STATUS_OUT: apps/web/suite-status/${{ matrix.suite }}.json
         run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-          const path = 'apps/web/e2e-results.json';
-          const heading = `### ${process.env.E2E_SUITE}\n\nOutcome: ${process.env.E2E_OUTCOME}\n\n`;
-          const body = existsSync(path)
-            ? (() => {
-                const { stats, errors } = JSON.parse(readFileSync(path, 'utf8'));
-                return `| Passed | Failed | Flaky | Skipped | Global errors | Duration |\n| --- | --- | --- | --- | --- | --- |\n| ${stats.expected} | ${stats.unexpected} | ${stats.flaky} | ${stats.skipped} | ${errors.length} | ${(stats.duration / 1000).toFixed(1)}s |\n`;
-              })()
-            : 'No completed Playwright report. Inspect setup, server startup or timeout logs.\n';
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, heading + body);
-          NODE
+          mkdir -p apps/web/suite-status
+          node scripts/summarize-e2e-results.mjs "$E2E_SUITE" "$E2E_OUTCOME" apps/web/e2e-results.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -156,5 +241,6 @@ jobs:
             apps/web/playwright-report/
             apps/web/test-results/
             apps/web/e2e-results.json
+            apps/web/suite-status/
             apps/web/e2e-api.log
           retention-days: 7

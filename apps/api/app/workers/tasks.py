@@ -13,6 +13,43 @@ logger = logging.getLogger(__name__)
 _MAX_FAILED_PREDICTION_CONTEXT_BYTES = 8 * 1024
 
 
+async def _preannotation_actor_revoked(db, actor, project_uuid) -> bool:
+    """Fresh-state authority check for the initiating preannotation actor."""
+
+    from app.db.models.project import Project
+    from app.services.project_access import is_privileged_for_project
+
+    await db.refresh(actor)
+    fresh_project = await db.get(Project, project_uuid, populate_existing=True)
+    return (
+        not actor.is_active
+        or fresh_project is None
+        or not is_privileged_for_project(actor, fresh_project)
+    )
+
+
+async def _hold_preannotation_authority(db, actor, project_uuid) -> bool:
+    """Re-check actor/project authority under bounded locks and hold it.
+
+    Inference is long: the initiating account may be disabled or the project
+    ownership transferred while it runs, after the pre-inference check passed.
+    Account -> project share locks (matching the lifecycle lock order) make a
+    concurrent disable or ownership transfer conflict with this transaction,
+    so the authority verified here cannot be revoked between this check and
+    the caller's final-write ``commit()`` which releases the locks.
+    """
+
+    from fastapi import HTTPException
+
+    from app.services.project_write_guard import lock_actor_project_authority
+
+    try:
+        await lock_actor_project_authority(db, actor.id, project_uuid, nowait=False)
+    except HTTPException:
+        return False
+    return not await _preannotation_actor_revoked(db, actor, project_uuid)
+
+
 def _retryable_request_context(context: dict | None) -> dict | None:
     if context is None:
         return None
@@ -533,13 +570,16 @@ async def _run_batch(
     class_filter: list[int] | None = None,
     pipeline_stages: list[dict] | None = None,
     execution_unit: str | None = None,
+    execution_scope: str = "bulk",
+    async_job_id: str | None = None,
 ):
     """v0.9.5 · 批量预标 worker.
 
     新增参数：
     - prompt: 文本批量预标 prompt（None 时走老的 image-only 批量行为）。
     - output_mode: text 模式输出形态（box / mask / both），仅 prompt 非空生效。
-    - batch_id: 跑完后自动转 PRE_ANNOTATED 的目标 batch；None 则不动状态。
+    - batch_id: 跑完后 active 批次自动转 PRE_ANNOTATED；draft 批次 (issue #124)
+      保持 draft 不隐式推进，None 则不动状态。
     - celery_task_id (v0.9.8): 用于 _BatchPredictTask.on_failure 回查 async_jobs 行.
     - user_id (v0.10.45): 写 async_jobs owner, 供 /async-jobs owner-scope 列表可见.
     - model_id (v0.14.9): 协议 v2 多模型路由, 非空时写 context["model_id"]。
@@ -556,12 +596,13 @@ async def _run_batch(
         create_async_engine,
     )
 
-    from app.db.enums import BatchStatus
+    from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
     from app.db.models.async_job import AsyncJob, AsyncJobStatus
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.db.models.project import Project
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
+    from app.db.models.user import User
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from app.services.gpu_arbitration.dispatch import (
@@ -574,6 +615,9 @@ async def _run_batch(
     from app.services.ml_backend import MLBackendService
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService
+    from app.services.project_access import is_privileged_for_project
+    from app.services.task_lock import TaskLockService
+    from app.services.batch_permissions import allows_bulk_preannotation
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -593,6 +637,17 @@ async def _run_batch(
     async with SessionLocal() as db:
         backend = await db.get(MLBackend, uuid.UUID(ml_backend_id))
         if not backend:
+            if async_job_id is not None:
+                try:
+                    failed_job_id = uuid.UUID(async_job_id)
+                except (TypeError, ValueError):
+                    failed_job_id = None
+                if failed_job_id is not None:
+                    await async_job_svc.mark_failed(
+                        db, failed_job_id, error="ML Backend not found"
+                    )
+                    await notify_job_terminal(db, job_id=failed_job_id)
+                    await db.commit()
             _publish_progress(
                 project_id, 0, 0, status="error", error="ML Backend not found"
             )
@@ -606,6 +661,119 @@ async def _run_batch(
         project = await db.get(Project, uuid.UUID(project_id))
         if project is not None:
             project_name = project.name
+        project_uuid = uuid.UUID(project_id)
+        actor: User | None = None
+        if user_id:
+            actor = await db.get(User, uuid.UUID(user_id))
+            if (
+                actor is None
+                or not actor.is_active
+                or project is None
+                or not is_privileged_for_project(actor, project)
+            ):
+                raise ValueError("preannotation actor is unavailable")
+        elif async_job_id is not None:
+            raise ValueError("preannotation actor is required for a scoped job")
+
+        requested_task_ids = (
+            sorted({uuid.UUID(task_id) for task_id in task_ids}, key=str)
+            if task_ids is not None
+            else None
+        )
+        precreated_job: AsyncJob | None = None
+        if async_job_id is not None:
+            try:
+                precreated_job_id = uuid.UUID(async_job_id)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("preannotation async job id is invalid") from exc
+            precreated_job = (
+                await db.execute(
+                    select(AsyncJob)
+                    .where(AsyncJob.id == precreated_job_id)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if (
+                precreated_job is None
+                or precreated_job.project_id != project_uuid
+                or (
+                    user_id is not None and precreated_job.user_id != uuid.UUID(user_id)
+                )
+            ):
+                raise ValueError("preannotation async job scope is unavailable")
+            # A redelivery/retry for a job that already started must not run the
+            # selected tasks a second time. The row lock serializes this check.
+            if precreated_job.status != AsyncJobStatus.PENDING.value:
+                return
+            precreated_job.celery_task_id = celery_task_id
+            await async_job_svc.mark_running(
+                db, precreated_job.id, celery_task_id=celery_task_id
+            )
+            await db.commit()
+        if batch_id:
+            selected_batch = await db.get(TaskBatch, uuid.UUID(batch_id))
+            if (
+                selected_batch is None
+                or selected_batch.project_id != project_uuid
+                # issue #124 · 与 API 同源准入: active 或未分派人员的 draft。
+                or not allows_bulk_preannotation(selected_batch)
+                or selected_batch.admin_locked
+            ):
+                raise ValueError("preannotation batch scope is unavailable")
+        # issue #121 · 工作台单题交互执行 (execution_scope=workbench) 允许 in_progress / draft,
+        # 但批次管理员锁、他人编辑锁、终态任务与越权仍在此兜底; bulk 保持原批量前置条件。
+        workbench_scope = execution_scope == "workbench"
+        if requested_task_ids is not None:
+            scope_rows = (
+                await db.execute(
+                    select(Task, TaskBatch)
+                    .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
+                    .where(
+                        Task.project_id == project_uuid,
+                        Task.id.in_(requested_task_ids),
+                    )
+                )
+            ).all()
+            if len(scope_rows) != len(requested_task_ids):
+                raise ValueError("preannotation task scope is unavailable")
+            if batch_id and any(
+                task.batch_id != uuid.UUID(batch_id) for task, _ in scope_rows
+            ):
+                raise ValueError("preannotation task scope does not match batch")
+            if any(batch is not None and batch.admin_locked for _, batch in scope_rows):
+                raise ValueError("preannotation task scope is admin-locked")
+            if not workbench_scope:
+                if any(task.status != "pending" for task, _ in scope_rows):
+                    raise ValueError("preannotation task scope is no longer pending")
+                # issue #124 · 与 API 同源准入: active 或未分派人员的 draft;
+                # 已分派 draft / 已进入人工流程的批次仍拒绝。
+                if any(
+                    batch is not None and not allows_bulk_preannotation(batch)
+                    for _, batch in scope_rows
+                ):
+                    raise ValueError(
+                        "preannotation task scope does not belong to "
+                        "active or unassigned draft batches"
+                    )
+            elif any(
+                task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES
+                for task, _ in scope_rows
+            ):
+                # 白名单 (pending / in_progress / rejected), 与 API 同源, 排除 uploading
+                # 与终态 (issue #121 review)。
+                raise ValueError("preannotation workbench task scope is not editable")
+            lock_service = TaskLockService(db)
+            actor_id = actor.id if actor is not None else None
+            for task, _ in scope_rows:
+                # 同一 task 可能有多行残留锁, 必须逐行判断 (active_lock 只看最新一行;
+                # issue #121 review)。工作台运行者本人持锁是交互式执行的正常状态。
+                locks = await lock_service.active_locks(task.id)
+                if workbench_scope and actor_id is not None:
+                    locked_by_other = any(lock.user_id != actor_id for lock in locks)
+                else:
+                    locked_by_other = bool(locks)
+                if locked_by_other:
+                    raise ValueError("preannotation task scope is locked for editing")
         context = _build_predict_context(
             prompt=prompt,
             output_mode=output_mode,
@@ -623,8 +791,14 @@ async def _run_batch(
         # v0.11.24 · 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
         skip_predicted = predict_mode == "skip_predicted"
         # base_conds 不含预标过滤, 供 total==0 时回数候选区分「批次本就空」vs「全已预标被跳过」。
-        if task_ids:
-            base_conds = [Task.id.in_([uuid.UUID(tid) for tid in task_ids])]
+        if requested_task_ids is not None:
+            base_conds = [
+                Task.project_id == project_uuid,
+                Task.id.in_(requested_task_ids),
+            ]
+            # 工作台单题交互可对 in_progress 任务运行; bulk 仍只捞 pending。
+            if not workbench_scope:
+                base_conds.append(Task.status == "pending")
         elif batch_id:
             # v0.9.5 · 指定 batch 时仅捞 batch 内 pending tasks
             base_conds = [
@@ -648,7 +822,10 @@ async def _run_batch(
         if predict_mode == "overwrite" and tasks:
             from app.services.batch import BatchService
 
-            await BatchService(db).clean_task_predictions([t.id for t in tasks])
+            overwrite_actor_id = uuid.UUID(user_id) if user_id else None
+            await BatchService(db).clean_task_predictions(
+                [t.id for t in tasks], actor_id=overwrite_actor_id
+            )
             await db.flush()
 
         # v0.10.49 · async_jobs 单一真值：建 batch_predict 行 (status=running)。
@@ -680,15 +857,24 @@ async def _run_batch(
                 job_payload["model_label"] = label
         if prompt:
             job_payload["output_mode"] = output_mode
-        aj = await async_job_svc.create_job(
-            db,
-            kind="batch_predict",
-            user_id=uuid.UUID(user_id) if user_id else None,
-            project_id=uuid.UUID(project_id),
-            payload=job_payload,
-            celery_task_id=celery_task_id,
-        )
-        await async_job_svc.mark_running(db, aj.id, celery_task_id=celery_task_id)
+        if requested_task_ids is not None:
+            job_payload["scope"] = {
+                "task_ids": [str(task_id) for task_id in requested_task_ids]
+            }
+            job_payload["task_ids"] = [str(task_id) for task_id in requested_task_ids]
+        if precreated_job is None:
+            aj = await async_job_svc.create_job(
+                db,
+                kind="batch_predict",
+                user_id=uuid.UUID(user_id) if user_id else None,
+                project_id=uuid.UUID(project_id),
+                payload=job_payload,
+                celery_task_id=celery_task_id,
+            )
+            await async_job_svc.mark_running(db, aj.id, celery_task_id=celery_task_id)
+        else:
+            aj = precreated_job
+            aj.payload = {**(aj.payload or {}), **job_payload}
         await db.commit()
         async_job_id = aj.id
 
@@ -950,6 +1136,29 @@ async def _run_batch(
                 await engine.dispose()
                 return
 
+            # Reauthorize the initiating actor against fresh state before each
+            # final write: a long inference must not keep writing after the
+            # actor's account or project authority was revoked.  A bounded
+            # system job (actor is None) keeps its own explicit authority.
+            if actor is not None and await _preannotation_actor_revoked(
+                db, actor, project_uuid
+            ):
+                await async_job_svc.mark_failed(
+                    db, async_job_id, error="preannotation_actor_revoked"
+                )
+                await notify_job_terminal(db, job_id=async_job_id)
+                await db.commit()
+                _publish_progress(
+                    project_id,
+                    i,
+                    total,
+                    status="failed",
+                    error="permission_revoked",
+                    job_meta=job_meta_base,
+                )
+                await engine.dispose()
+                return
+
             try:
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
                     task,
@@ -968,6 +1177,29 @@ async def _run_batch(
                 )
                 executed_backend_id = stage_clients[0].last_instance_id or backend.id
                 executed_pool_id = stage_clients[0].pool_id or source_pool_id
+                # Re-check under locks after inference: a revocation landing
+                # mid-run must not let this write commit.  The account/project
+                # share locks are held until the commit below, so a concurrent
+                # disable or ownership transfer cannot interleave.
+                if actor is not None and not await _hold_preannotation_authority(
+                    db, actor, project_uuid
+                ):
+                    await db.rollback()
+                    await async_job_svc.mark_failed(
+                        db, async_job_id, error="preannotation_actor_revoked"
+                    )
+                    await notify_job_terminal(db, job_id=async_job_id)
+                    await db.commit()
+                    _publish_progress(
+                        project_id,
+                        i,
+                        total,
+                        status="failed",
+                        error="permission_revoked",
+                        job_meta=job_meta_base,
+                    )
+                    await engine.dispose()
+                    return
                 for pred_result in results:
                     await pred_svc.create_from_ml_result(
                         task_id=task.id,
@@ -1052,6 +1284,9 @@ async def _run_batch(
         all_failed = success_count == 0 and failed_count > 0
 
         # v0.9.5 · 跑完自动 active → pre_annotated（仅当指定 batch + 当前还在 active 时）
+        # issue #124 · 未分派人员的 draft 批次跑完保持 draft：不隐式推进生命周期、
+        # 不隐式分派人员；预测挂在 task 上保留，管理员随后正常分派并 draft → active
+        # 激活即可进入人工流程（激活不清预测）。all_failed 时任何状态都不推进。
         if batch_id and not all_failed:
             batch = await db.get(TaskBatch, uuid.UUID(batch_id))
             if batch and batch.status == BatchStatus.ACTIVE:
@@ -1189,6 +1424,8 @@ def batch_predict(
     class_filter: list[int] | None = None,
     pipeline_stages: list[dict] | None = None,
     execution_unit: str | None = None,
+    execution_scope: str = "bulk",
+    async_job_id: str | None = None,
 ):
     asyncio.run(
         _run_batch(
@@ -1208,5 +1445,7 @@ def batch_predict(
             class_filter=class_filter,
             pipeline_stages=pipeline_stages,
             execution_unit=execution_unit,
+            execution_scope=execution_scope,
+            async_job_id=async_job_id,
         )
     )

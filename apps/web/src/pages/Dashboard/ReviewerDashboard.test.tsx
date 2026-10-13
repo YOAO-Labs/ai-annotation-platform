@@ -1,9 +1,11 @@
 /**
  * v0.10.16 · ReviewerDashboard 单测：加载态 / 空 pending / handleApprove /
- * handleReject（弹 RejectReasonModal 选 reason_type）/ recentReviews 渲染。
+ * handleReject（两步 decisionDialog 选 reason_type + 可选补充说明）/ recentReviews 渲染。
+ * plan 1789527942 · T2：原 RejectReasonModal 已迁移 choiceDialog + inputDialog，
+ * 这里渲染真实 <DecisionDialogHost /> 驱动完整两步流。
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ApiError } from "@/api/client";
 
@@ -39,6 +41,8 @@ vi.mock("@/components/ui/Toast", async () => {
 });
 
 import { ReviewerDashboard } from "./ReviewerDashboard";
+import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 
 const baseStats = {
   pending_review_count: 3,
@@ -58,6 +62,7 @@ function renderUI() {
   return render(
     <MemoryRouter>
       <ReviewerDashboard />
+      <DecisionDialogHost />
     </MemoryRouter>,
   );
 }
@@ -69,6 +74,13 @@ describe("ReviewerDashboard", () => {
     mockInvalidate.mockReset();
     mockPushToast.mockReset();
     mockUseMyRecentReviews.mockReturnValue({ data: [] });
+  });
+
+  // vitest afterEach 先于 RTL cleanup 跑,此刻 Host 仍挂载;清空 decisionDialog 队列防跨用例残留。
+  afterEach(() => {
+    act(() => {
+      useDecisionDialogStore.setState({ queue: [] });
+    });
   });
 
   it("isLoading=true → 显示加载中", () => {
@@ -220,7 +232,7 @@ describe("ReviewerDashboard", () => {
     });
   });
 
-  it("退回按钮 → 弹 RejectReasonModal，确认后调用 rejectMut (默认 missing)", () => {
+  it("退回按钮 → 两步决策弹窗选漏标并留空补充 → 调用 rejectMut", async () => {
     const s = {
       ...baseStats,
       pending_tasks: [
@@ -240,11 +252,17 @@ describe("ReviewerDashboard", () => {
     mockRejectMutate.mockImplementation((_args, opts) => opts?.onSuccess?.());
     renderUI();
     fireEvent.click(screen.getByText("退回"));
-    // Modal 弹出后默认选 missing，直接确认
-    fireEvent.click(screen.getByTestId("reject-confirm"));
-    expect(mockRejectMutate).toHaveBeenCalledWith(
-      { taskId: "t4", reason_type: "missing", reason: undefined },
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    // 第一步 choiceDialog：选项 label 沿用 rejectReasonTypes 单点
+    let dialog = await screen.findByRole("alertdialog", { name: "退回原因（1 个任务）" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "漏标" }));
+    // 第二步 inputDialog：补充说明可留空
+    dialog = await screen.findByRole("alertdialog", { name: "补充说明" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认退回" }));
+    await waitFor(() =>
+      expect(mockRejectMutate).toHaveBeenCalledWith(
+        { taskId: "t4", reason_type: "missing", reason: undefined },
+        expect.objectContaining({ onSuccess: expect.any(Function) }),
+      ),
     );
     expect(mockPushToast).toHaveBeenCalledWith({
       msg: "任务已退回标注员",
@@ -252,7 +270,7 @@ describe("ReviewerDashboard", () => {
     });
   });
 
-  it("退回 Modal 切换 type 后 payload 反映新 type", () => {
+  it("退回弹窗切换 type 后 payload 反映新 type", async () => {
     const s = {
       ...baseStats,
       pending_tasks: [
@@ -271,11 +289,15 @@ describe("ReviewerDashboard", () => {
     mockUseReviewerStats.mockReturnValue({ data: s, isLoading: false });
     renderUI();
     fireEvent.click(screen.getByText("退回"));
-    fireEvent.click(screen.getByTestId("reject-type-wrong_label"));
-    fireEvent.click(screen.getByTestId("reject-confirm"));
-    expect(mockRejectMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: "t5", reason_type: "wrong_label" }),
-      expect.any(Object),
+    let dialog = await screen.findByRole("alertdialog", { name: "退回原因（1 个任务）" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "类别错误" }));
+    dialog = await screen.findByRole("alertdialog", { name: "补充说明" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认退回" }));
+    await waitFor(() =>
+      expect(mockRejectMutate).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: "t5", reason_type: "wrong_label" }),
+        expect.any(Object),
+      ),
     );
   });
 

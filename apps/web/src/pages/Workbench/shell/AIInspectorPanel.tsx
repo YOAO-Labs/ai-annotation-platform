@@ -43,6 +43,8 @@ interface AIInspectorPanelProps {
   /** 受控宽度（仅 open=true 生效；列宽 handle 实际由 WorkbenchLayout 渲染）。 */
   width: number;
   onResize: (w: number) => void;
+  /** Increment B · 视频工作台不启用属性快捷键区域（属性数字键仅图片流支持）。 */
+  isVideoTask?: boolean;
   /** v0.20.19 · 属性区折叠态 (受控, 走 workbench.layout 持久); 缺省回落组件内会话态。 */
   attrCollapsed?: boolean;
   onToggleAttrCollapsed?: () => void;
@@ -173,6 +175,7 @@ export function AIInspectorPanel({
   onFillAttribute,
   attrCollapsed: attrCollapsedProp,
   onToggleAttrCollapsed,
+  isVideoTask,
   aiSectionCollapsed = false,
   onToggleAiSection,
   manualSectionCollapsed = false,
@@ -409,6 +412,8 @@ export function AIInspectorPanel({
                 batchCount={multiCount > 1 ? multiCount : undefined}
                 readOnly={readOnly}
                 hideHeading
+                // Increment B · 图片选中标注的数字属性键改为显式区域 opt-in。
+                shortcutRegion={!isVideoTask}
               />
             </div>
           )}
@@ -1395,152 +1400,205 @@ function BoxesList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, hasMore, isFetchingMore, aiBoxes.length]);
   return (
-    <div ref={parentRef} className="flex-1 overflow-y-auto px-2 py-1">
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
       <div
-        className="relative h-[var(--ai-inspector-list-height)]"
-        ref={(node) => {
-          node?.style.setProperty("--ai-inspector-list-height", `${virtualizer.getTotalSize()}px`);
-        }}
+        data-testid="boxes-list-sticky-header"
+        className="sticky top-0 z-base flex shrink-0 items-center justify-between border-b border-border bg-card/95 px-3 py-1.5 backdrop-blur-sm"
       >
-        {items.map((vItem) => {
-          const r = rows[vItem.index];
-          if (!r) return null;
-          return (
-            <div
-              key={r.key}
-              data-index={vItem.index}
-              data-workbench-video-tool-command={
-                onSelectVideoObject && (r.kind === "ai" || r.kind === "user") ? "" : undefined
-              }
-              ref={(node) => {
-                virtualizer.measureElement(node);
-                node?.style.setProperty("--ai-inspector-row-y", `${vItem.start}px`);
-              }}
-              className="absolute left-0 top-0 w-full translate-y-[var(--ai-inspector-row-y)]"
-            >
-              {r.kind === "ai" && (
-                <BoxListItem
-                  b={r.box}
-                  isAi
-                  selected={selSet.has(r.box.id)}
-                  dimmed={dimmedAiIds?.has(r.box.id) ?? false}
-                  imageWidth={imageWidth}
-                  imageHeight={imageHeight}
-                  onSelect={(e) => selectBox(r.box, e?.shiftKey)}
-                  onAccept={() => onAcceptPrediction(r.box)}
-                  onReject={() => onRejectPrediction?.(r.box)}
-                  onRefine={
-                    onRefinePrediction && r.box.geometry?.type === "polygon"
-                      ? () => onRefinePrediction(r.box)
-                      : undefined
-                  }
-                />
-              )}
-              {r.kind === "header" &&
-                (r.onToggle ? (
-                  // v0.20.22 · 分组头可点折叠 (AI 待审 / 人工)。计数常驻显示; 收起时下方成员行整体跳过。
-                  <button
-                    type="button"
-                    onClick={r.onToggle}
-                    aria-expanded={!r.collapsed}
-                    title={r.collapsed ? `展开${r.label}` : `折叠${r.label}`}
-                    data-testid={`section-header-${r.sectionKey ?? "unknown"}`}
-                    className={cn(
-                      SECTION_CARD_CLASS,
-                      "flex w-full cursor-pointer appearance-none items-center justify-between gap-2 text-left hover:bg-muted",
-                    )}
-                  >
-                    <span className="flex items-center gap-1.5 text-sm font-semibold">
-                      <Icon name={r.collapsed ? "chevRight" : "chevDown"} size={13} />
-                      {r.label}
-                    </span>
-                    <span className="mono text-xs font-medium text-muted-foreground">
-                      {showFrameFilter && frameFilter === "current"
-                        ? `${r.count}/${r.totalCount}`
-                        : r.count}
-                    </span>
-                  </button>
-                ) : (
-                  <div className={SECTION_CARD_CLASS}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold">{r.label}</span>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              const aiIdx = rows.findIndex((r) => r.kind === "header" && r.sectionKey === "ai");
+              if (aiIdx >= 0) virtualizer.scrollToIndex(aiIdx, { align: "start" });
+            }}
+            title="跳转到 AI 待审"
+            className={cn(
+              "inline-flex cursor-pointer appearance-none items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium transition-colors",
+              filteredAiBoxes.length > 0
+                ? "border-status-info/30 bg-status-info-soft text-status-info hover:bg-status-info/20"
+                : "border-border bg-muted/40 text-muted-foreground",
+            )}
+          >
+            <Icon name="sparkle" size={10} />
+            <span>待审候选</span>
+            <span className="font-semibold tabular-nums">{filteredAiBoxes.length}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const userIdx = rows.findIndex(
+                (r) => r.kind === "header" && r.sectionKey === "manual",
+              );
+              if (userIdx >= 0) virtualizer.scrollToIndex(userIdx, { align: "start" });
+            }}
+            title="跳转到人工标注"
+            className={cn(
+              "inline-flex cursor-pointer appearance-none items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium transition-colors",
+              filteredUserBoxes.length > 0
+                ? "border-brand/30 bg-brand/10 text-brand hover:bg-brand/20"
+                : "border-border bg-muted/40 text-muted-foreground",
+            )}
+          >
+            <Icon name="check" size={10} />
+            <span>人工标注</span>
+            <span className="font-semibold tabular-nums">{filteredUserBoxes.length}</span>
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+          <span>共 {filteredAiBoxes.length + filteredUserBoxes.length} 个对象</span>
+        </div>
+      </div>
+      <div ref={parentRef} className="flex-1 overflow-y-auto px-2 py-1">
+        <div
+          className="relative h-[var(--ai-inspector-list-height)]"
+          ref={(node) => {
+            node?.style.setProperty(
+              "--ai-inspector-list-height",
+              `${virtualizer.getTotalSize()}px`,
+            );
+          }}
+        >
+          {items.map((vItem) => {
+            const r = rows[vItem.index];
+            if (!r) return null;
+            return (
+              <div
+                key={r.key}
+                data-index={vItem.index}
+                data-workbench-video-tool-command={
+                  onSelectVideoObject && (r.kind === "ai" || r.kind === "user") ? "" : undefined
+                }
+                ref={(node) => {
+                  virtualizer.measureElement(node);
+                  node?.style.setProperty("--ai-inspector-row-y", `${vItem.start}px`);
+                }}
+                className="absolute left-0 top-0 w-full translate-y-[var(--ai-inspector-row-y)]"
+              >
+                {r.kind === "ai" && (
+                  <BoxListItem
+                    b={r.box}
+                    isAi
+                    selected={selSet.has(r.box.id)}
+                    dimmed={dimmedAiIds?.has(r.box.id) ?? false}
+                    imageWidth={imageWidth}
+                    imageHeight={imageHeight}
+                    onSelect={(e) => selectBox(r.box, e?.shiftKey)}
+                    onAccept={() => onAcceptPrediction(r.box)}
+                    onReject={() => onRejectPrediction?.(r.box)}
+                    onRefine={
+                      onRefinePrediction && r.box.geometry?.type === "polygon"
+                        ? () => onRefinePrediction(r.box)
+                        : undefined
+                    }
+                  />
+                )}
+                {r.kind === "header" &&
+                  (r.onToggle ? (
+                    // v0.20.22 · 分组头可点折叠 (AI 待审 / 人工)。计数常驻显示; 收起时下方成员行整体跳过。
+                    <button
+                      type="button"
+                      onClick={r.onToggle}
+                      aria-expanded={!r.collapsed}
+                      title={r.collapsed ? `展开${r.label}` : `折叠${r.label}`}
+                      data-testid={`section-header-${r.sectionKey ?? "unknown"}`}
+                      className={cn(
+                        SECTION_CARD_CLASS,
+                        "flex w-full cursor-pointer appearance-none items-center justify-between gap-2 text-left hover:bg-muted",
+                      )}
+                    >
+                      <span className="flex items-center gap-1.5 text-sm font-semibold">
+                        <Icon name={r.collapsed ? "chevRight" : "chevDown"} size={13} />
+                        {r.label}
+                      </span>
                       <span className="mono text-xs font-medium text-muted-foreground">
                         {showFrameFilter && frameFilter === "current"
                           ? `${r.count}/${r.totalCount}`
                           : r.count}
                       </span>
+                    </button>
+                  ) : (
+                    <div className={SECTION_CARD_CLASS}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold">{r.label}</span>
+                        <span className="mono text-xs font-medium text-muted-foreground">
+                          {showFrameFilter && frameFilter === "current"
+                            ? `${r.count}/${r.totalCount}`
+                            : r.count}
+                        </span>
+                      </div>
                     </div>
+                  ))}
+                {r.kind === "frameFilter" && (
+                  <FilterGroup
+                    label="显示范围"
+                    compact
+                    className="mb-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5"
+                  >
+                    <FrameFilterTabs value={r.filter} onChange={r.onFilterChange} />
+                  </FilterGroup>
+                )}
+                {r.kind === "sourceFilter" && <PredictionSourceFilterCard filter={r.filter} />}
+                {r.kind === "videoTracks" && (
+                  <div data-testid="video-track-panel-row">{resolvedVideoTrackPanel}</div>
+                )}
+                {r.kind === "user" && (
+                  <div className={r.depth ? "ml-3 border-l-2 border-border pl-2" : undefined}>
+                    <BoxListItem
+                      b={r.box}
+                      rasterMaskStatus={rasterMaskStatusById?.get(r.box.id)}
+                      onRetryRasterMask={
+                        onRetryRasterMask ? () => onRetryRasterMask(r.box.id) : undefined
+                      }
+                      orphan={orphanUserBoxIds?.has(r.box.id) ?? false}
+                      selected={selSet.has(r.box.id)}
+                      imageWidth={imageWidth}
+                      imageHeight={imageHeight}
+                      onSelect={(e) => selectBox(r.box, e?.shiftKey)}
+                      onDelete={
+                        !readOnly && !r.box.is_locked ? () => onDeleteUserBox(r.box.id) : undefined
+                      }
+                      onChangeClass={
+                        !readOnly && !r.box.is_locked && onChangeUserBoxClass
+                          ? () => onChangeUserBoxClass(r.box.id)
+                          : undefined
+                      }
+                      onToggleFlag={
+                        onToggleUserBoxFlag
+                          ? (flag) => onToggleUserBoxFlag(r.box.id, flag)
+                          : undefined
+                      }
+                      onRefine={
+                        r.box.geometry?.type === "raster_mask"
+                          ? !readOnly && !r.box.is_locked && onEditRasterMask
+                            ? () => onEditRasterMask(r.box.id)
+                            : undefined
+                          : onRefineUserPolygon && r.box.geometry?.type === "polygon"
+                            ? () => onRefineUserPolygon(r.box.id)
+                            : undefined
+                      }
+                    />
                   </div>
-                ))}
-              {r.kind === "frameFilter" && (
-                <FilterGroup
-                  label="显示范围"
-                  compact
-                  className="mb-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5"
-                >
-                  <FrameFilterTabs value={r.filter} onChange={r.onFilterChange} />
-                </FilterGroup>
-              )}
-              {r.kind === "sourceFilter" && <PredictionSourceFilterCard filter={r.filter} />}
-              {r.kind === "videoTracks" && (
-                <div data-testid="video-track-panel-row">{resolvedVideoTrackPanel}</div>
-              )}
-              {r.kind === "user" && (
-                <div className={r.depth ? "ml-3 border-l-2 border-border pl-2" : undefined}>
-                  <BoxListItem
-                    b={r.box}
-                    rasterMaskStatus={rasterMaskStatusById?.get(r.box.id)}
-                    onRetryRasterMask={
-                      onRetryRasterMask ? () => onRetryRasterMask(r.box.id) : undefined
-                    }
-                    orphan={orphanUserBoxIds?.has(r.box.id) ?? false}
-                    selected={selSet.has(r.box.id)}
-                    imageWidth={imageWidth}
-                    imageHeight={imageHeight}
-                    onSelect={(e) => selectBox(r.box, e?.shiftKey)}
-                    onDelete={
-                      !readOnly && !r.box.is_locked ? () => onDeleteUserBox(r.box.id) : undefined
-                    }
-                    onChangeClass={
-                      !readOnly && !r.box.is_locked && onChangeUserBoxClass
-                        ? () => onChangeUserBoxClass(r.box.id)
-                        : undefined
-                    }
-                    onToggleFlag={
-                      onToggleUserBoxFlag
-                        ? (flag) => onToggleUserBoxFlag(r.box.id, flag)
-                        : undefined
-                    }
-                    onRefine={
-                      r.box.geometry?.type === "raster_mask"
-                        ? !readOnly && !r.box.is_locked && onEditRasterMask
-                          ? () => onEditRasterMask(r.box.id)
-                          : undefined
-                        : onRefineUserPolygon && r.box.geometry?.type === "polygon"
-                          ? () => onRefineUserPolygon(r.box.id)
-                          : undefined
-                    }
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {(hasMore || isFetchingMore) && (
-        <div className="px-2 py-1.5 text-center text-xs text-muted-foreground">
-          {isFetchingMore ? (
-            "加载更多预测..."
-          ) : (
-            <button
-              onClick={onFetchMore}
-              className="cursor-pointer appearance-none rounded border border-border bg-transparent px-3 py-1 text-xs text-muted-foreground"
-            >
-              加载更多
-            </button>
-          )}
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
+        {(hasMore || isFetchingMore) && (
+          <div className="px-2 py-1.5 text-center text-xs text-muted-foreground">
+            {isFetchingMore ? (
+              "加载更多预测..."
+            ) : (
+              <button
+                onClick={onFetchMore}
+                className="cursor-pointer appearance-none rounded border border-border bg-transparent px-3 py-1 text-xs text-muted-foreground"
+              >
+                加载更多
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

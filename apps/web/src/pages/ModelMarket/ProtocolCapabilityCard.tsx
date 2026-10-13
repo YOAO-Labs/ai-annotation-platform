@@ -1,7 +1,10 @@
 // v0.14.11 · 协议能力卡片 — 一张卡 = 一个协议 task; 卡内挂载已注册 backend 的 model.
-// 卡内已接入模型直接复用 ModelCard, 与 groupBy=backend/infra 等其他分组视图字段对齐
-// (展开可接受输入 / 输出几何 / 输出属性 / 资源 / 变体组合 / 运行时); 空态仍引导注册。
-
+// 卡内已接入模型直接复用 ModelCard, 与 groupBy=backend/infra 等其他分组视图字段对齐;
+// 空态仍引导注册。
+//
+// 模型市场多 TAB UI 优化 · 阶段二 (plan §4.1)：任务标签已在卡标题呈现, 不在卡内
+// 重复徽标; 未接入能力首层只保留一行说明 + 接入入口, 推荐后端收进展开区域。
+import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -20,14 +23,6 @@ interface Props {
   onGoToRegistry?: () => void;
 }
 
-function taskVariant(taskId: string): "accent" | "ai" | "success" | "warning" | "outline" {
-  if (taskId === "detection" || taskId === "obb") return "accent";
-  if (taskId === "segmentation" || taskId === "interactive_seg") return "ai";
-  if (taskId === "keypoint" || taskId === "classification") return "success";
-  if (taskId === "ocr" || taskId === "doc_layout") return "warning";
-  return "outline";
-}
-
 export function ProtocolCapabilityCard({
   task,
   mounted,
@@ -35,7 +30,11 @@ export function ProtocolCapabilityCard({
   modalityLabel,
   onGoToRegistry,
 }: Props) {
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const empty = mounted.length === 0;
+  const suggested = [...task.suggested_backends]
+    .sort((a, b) => Number(b.builtin) - Number(a.builtin))
+    .slice(0, 4);
 
   return (
     <div
@@ -49,7 +48,6 @@ export function ProtocolCapabilityCard({
           <span className="mono text-xs text-muted-foreground">{task.id}</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant={taskVariant(task.id)}>{task.label}</Badge>
           {task.default_modalities.map((m) => (
             <Badge key={m} variant="default">
               {modalityLabel(m)}
@@ -73,48 +71,61 @@ export function ProtocolCapabilityCard({
       {!empty && (
         <div className="mt-1 grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
           {mounted.map((m) => (
-            <ModelCard key={`${m.backendId}:${m.model.id}`} item={m} />
+            <ModelCard
+              key={`${m.backendId}:${m.model.id}`}
+              item={m}
+              // 任务标签已在卡标题呈现（plan §4.1），不在每张模型卡内重复。
+              showTaskBadge={false}
+            />
           ))}
         </div>
       )}
 
       {empty && (
         <div className="flex flex-col gap-2 border-t border-dashed border-border pt-2.5">
-          <div className="text-xs text-muted-foreground">
-            <strong>典型模型：</strong>
-            {task.typical_models.join(" / ")}
-          </div>
-          {task.suggested_backends.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <div className="text-xs text-muted-foreground">推荐接入：</div>
-              {[...task.suggested_backends]
-                // builtin (平台自带) 排前, 外部推荐排后。
-                .sort((a, b) => Number(b.builtin) - Number(a.builtin))
-                .slice(0, 4)
-                .map((s) => (
-                  <div key={s.repo_url} className="flex items-center gap-2 text-xs">
-                    {s.builtin && <Badge variant="success">自带</Badge>}
-                    <span className="font-medium text-foreground">{s.name}</span>
-                    {s.infra && <Badge variant="outline">{infraLabel(s.infra)}</Badge>}
-                    <span className="flex-auto text-muted-foreground">{s.summary}</span>
-                    <a
-                      href={s.repo_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-brand no-underline hover:underline"
-                      title="在新标签页打开仓库"
-                    >
-                      GitHub ↗
-                    </a>
-                  </div>
-                ))}
-            </div>
-          )}
-          {onGoToRegistry && (
-            <div className="flex gap-2">
-              <Button size="sm" onClick={onGoToRegistry}>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              <strong>典型模型：</strong>
+              {task.typical_models.join(" / ") || "—"}
+            </span>
+            {onGoToRegistry && (
+              <Button size="sm" onClick={onGoToRegistry} className="ml-auto">
                 <Icon name="plus" size={11} /> 去注册 backend
               </Button>
+            )}
+          </div>
+          {suggested.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                className="flex w-fit cursor-pointer appearance-none items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setSuggestOpen((v) => !v)}
+                aria-expanded={suggestOpen}
+              >
+                <Icon name={suggestOpen ? "chevDown" : "chevRight"} size={11} />
+                推荐后端（{suggested.length}）
+              </button>
+              {suggestOpen && (
+                <div className="flex flex-col gap-1.5">
+                  {suggested.map((s) => (
+                    <div key={s.repo_url} className="flex items-center gap-2 text-xs">
+                      {s.builtin && <Badge variant="success">自带</Badge>}
+                      <span className="font-medium text-foreground">{s.name}</span>
+                      {s.infra && <Badge variant="outline">{infraLabel(s.infra)}</Badge>}
+                      <span className="flex-auto text-muted-foreground">{s.summary}</span>
+                      <a
+                        href={s.repo_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-brand no-underline hover:underline"
+                        title="在新标签页打开仓库"
+                      >
+                        GitHub ↗
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

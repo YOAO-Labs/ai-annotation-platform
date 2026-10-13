@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from tests.factory import create_membership
 
 
 @pytest.mark.asyncio
@@ -34,7 +35,11 @@ async def test_task_events_batch_sync_fallback(httpx_client, annotator, db_sessi
         file_name="x.jpg",
         file_path="/x",
     )
+    task.assignee_id = user.id
     db_session.add(task)
+    await create_membership(
+        db_session, project_id=project.id, user_id=user.id, role="annotator"
+    )
     await db_session.flush()
 
     settings.task_events_async = False

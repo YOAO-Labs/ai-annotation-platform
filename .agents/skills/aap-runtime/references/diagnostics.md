@@ -23,7 +23,7 @@ Use the requested report ID and correlate its route, request failures, and conso
 
 `apps/api/tests/conftest.py` derives the default `annotation_test` connection from the configured migration connection and permits `TEST_DATABASE_URL` override. Verify the effective target is disposable before tests run migrations or write rows. Keep the existing isolation/role safeguards.
 
-For fixture-created rows that the API must see, use the existing `httpx_client_bound` fixture rather than an unbound client. Per-test SAVEPOINT rollback and process-cache cleanup are different concerns.
+For fixture-created rows that the API must see, use the transaction-bound `httpx_client` fixture. The former `httpx_client_bound` alias has been removed. Tests that intentionally need an independent transaction or cross-connection visibility must follow the explicit connection patterns in `test_worker_signals.py` and `test_discussion_notifications_commit.py`; per-test SAVEPOINT rollback and process-cache cleanup are different concerns.
 
 An old test database can be at Alembic head yet lack the current month's `audit_logs` partition. If annotation writes fail locally while fresh CI passes, inspect the database error and partition coverage before changing the frontend. Initial migration `0037_audit_logs_partition.py` creates a finite range; ongoing maintenance belongs to `app/workers/audit_partition.py`. Use the partition service in the verified test environment when repair is required.
 

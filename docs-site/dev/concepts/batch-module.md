@@ -357,7 +357,7 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 | 文件                                                              | 覆盖重点                                         |
 | ----------------------------------------------------------------- | ------------------------------------------------ |
 | `apps/api/tests/test_batch_lifecycle.py`                          | 批次状态机主干、权限矩阵、bulk 操作              |
-| `apps/api/tests/test_v0_7_6.py`                                   | `reset_to_draft` 与 `pre_annotated → annotating` |
+| `apps/api/tests/test_project_attribute_schema_and_batch_reset.py` | `reset_to_draft` 与 `pre_annotated → annotating` |
 | `apps/api/tests/test_batch_pre_annotated.py`                      | `pre_annotated` 合法迁移                         |
 | `apps/web/src/pages/Projects/sections/BatchesSection.test.tsx`    | BatchesSection 烟测                              |
 | `apps/web/src/pages/Projects/sections/BatchesKanbanView.test.tsx` | Kanban 前端迁移限制                              |

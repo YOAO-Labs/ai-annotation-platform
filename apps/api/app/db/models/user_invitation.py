@@ -16,6 +16,9 @@ class UserInvitation(Base):
     )
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
+    # 独立于平台 role 的项目角色。NULL = 历史账号级邀请 / 尚未回填；
+    # 与 project_id 配对：项目邀请必须有兼容的 project_role，账号级邀请不得携带。
+    project_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
     group_name: Mapped[str | None] = mapped_column(String(128))
     # Optional project target.  This deliberately is not a foreign key: a
     # deleted project must not block project deletion, and a stale invitation

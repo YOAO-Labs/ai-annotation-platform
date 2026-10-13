@@ -124,5 +124,5 @@ SceneTrackOperation
 - 实施计划：`docs/plans/archive/2026-08-25-v0.24.11-3d-track-domain-foundation.md`
 - 调研：`docs/research/24-3d-temporal-object-lifecycle.md`
 - [ADR-0035](0035-scene-and-frame-foundation.md)
-- [ADR-0045](../0045-track-id-as-annotation-column.md)
-- [ADR-0047](../0047-data-manager-entity-read-model.md)
+- [ADR-0045](0045-track-id-as-annotation-column.md)
+- [ADR-0047](0047-data-manager-entity-read-model.md)

@@ -52,3 +52,24 @@ it.each([
     expect(screen.getByText(/重连中/)).toBeInTheDocument();
   },
 );
+
+it("renders active tool gesture hint pill when toolHint prop is provided", () => {
+  render(
+    <StatusBar
+      userBoxesCount={3}
+      aiBoxesCount={1}
+      activeClass="vehicle"
+      imageWidth={1920}
+      imageHeight={1080}
+      cursor={null}
+      preannotationProgress={null}
+      preannotationConn="open"
+      preannotationRetries={0}
+      toolHint={{ tool: "polygon" }}
+    />,
+  );
+
+  expect(screen.getByTestId("tool-gesture-hint-pill")).toBeInTheDocument();
+  expect(screen.getByText("多边形")).toBeInTheDocument();
+  expect(screen.getByText(/Enter\/双击闭合/)).toBeInTheDocument();
+});

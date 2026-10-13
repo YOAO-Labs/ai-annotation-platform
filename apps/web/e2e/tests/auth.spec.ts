@@ -12,14 +12,15 @@ test.describe("auth", () => {
     expect(res.ok()).toBeTruthy();
   });
 
-  test("正确凭证 → 跳 dashboard", async ({ page, seed }) => {
-    const data = await seed.reset();
-    await seed.loginViaUI(page, data.admin_email, "Test1234");
-    await expect(page).toHaveURL(/\/dashboard/);
+  test("正确凭证 → 跳角色默认首页", async ({ page, seed }) => {
+    const data = await seed.owned();
+    // seed admin 为 super_admin,Issue #123 后默认落「平台概览」/overview。
+    await seed.loginViaUI(page, data.admin_email, "Test1234", /\/overview/);
+    await expect(page).toHaveURL(/\/overview/);
   });
 
   test("错密码 → 仍在登录页 + 错误提示", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await page.goto("/login");
     await page.getByPlaceholder("输入账号或邮箱").fill(data.admin_email);
     await page.getByPlaceholder("••••••••").fill("WrongPwd123");

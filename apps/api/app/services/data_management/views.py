@@ -31,6 +31,8 @@ from app.services.data_management.task_filters import (  # noqa: F401
     _dataset_file_type_sq,
     _avg_prediction_confidence_sq,
     _unresolved_feedback_count_sq,
+    _unresolved_issue_count_sq,
+    _comment_count_sq,
     apply_task_visibility,
     visible_tasks_stmt,
 )
@@ -77,7 +79,8 @@ DEFAULT_COLUMNS = [
     "pending_prediction_shape_count",
     "low_confidence_prediction_shape_count",
     "pending_tracker_job_count",
-    "unresolved_feedback_count",
+    "unresolved_issue_count",
+    "comment_count",
     "annotation_source_counts",
     "track_count",
     "last_activity_at",
@@ -113,7 +116,7 @@ DEFAULT_VIEWS: list[dict[str, Any]] = [
     },
     {
         "key": "feedback-open",
-        "name": "有未解决反馈",
+        "name": "有未解决问题",
         "filter_json": {
             "op": "and",
             "rules": [{"field": "feedback.unresolved_count", "op": "gt", "value": 0}],
@@ -332,6 +335,8 @@ def validate_sort(sort_json: list[dict[str, Any]] | None) -> None:
         if field not in _SORT_FIELD_MAP and field not in {
             "avg_prediction_confidence",
             "unresolved_feedback_count",
+            "unresolved_issue_count",
+            "comment_count",
             "model_versions",
             "scene_name",
             "scene.frame_index",
@@ -349,6 +354,9 @@ def validate_sort(sort_json: list[dict[str, Any]] | None) -> None:
 
 def validate_columns(columns_json: list[str] | None) -> None:
     allowed = set(DEFAULT_COLUMNS) | {
+        # Legacy feedback column kept as a compatibility alias of the corrected
+        # unresolved-issue count for saved views that still reference it.
+        "unresolved_feedback_count",
         "assignee",
         "reviewer",
         "batch_id",
@@ -530,6 +538,10 @@ def _sort_expr(field: str) -> ColumnElement[Any]:
         return _avg_prediction_confidence_sq()
     if field == "unresolved_feedback_count":
         return _unresolved_feedback_count_sq()
+    if field == "unresolved_issue_count":
+        return _unresolved_issue_count_sq()
+    if field == "comment_count":
+        return _comment_count_sq()
     if field in {"scene_name", "scene.scene_name"}:
         return _scene_name_sq()
     if field in {"frame_index", "scene.frame_index"}:
@@ -661,11 +673,14 @@ class TaskViewService:
         stmt: Select,
         user: User,
         project: Project,
+        *,
+        project_role: str | None = None,
     ) -> Select:
-        # 与 tasks.list_tasks 对齐: 非特权用户 (annotator/reviewer) 通过 Data Manager
-        # 查询时只能看自己 batch 可见性范围内的任务, 不能看到全项目任务。无 batch 的
-        # 孤儿任务对非特权用户不可见 (inner join 自然过滤)。
-        return apply_task_visibility(stmt, user, project)
+        # 与 tasks.list_tasks 对齐: 非特权用户 (annotator/reviewer/viewer) 通过 Data
+        # Manager 查询时只能看自己任务级/批次级可见性范围内的任务, 不能看到全项目任务。
+        # 显式分派的 unbatched task 也必须保留在这个授权关系中。
+        # ``project_role`` 是调用方解析出的成员职责; 缺失时非特权查询 fail closed。
+        return apply_task_visibility(stmt, user, project, project_role=project_role)
 
     async def count_for_filter(
         self,
@@ -674,6 +689,7 @@ class TaskViewService:
         *,
         user: User,
         project: Project,
+        project_role: str | None = None,
     ) -> int:
         clause = compile_filter(filter_json, project=project, user=user)
         stmt = (
@@ -681,7 +697,7 @@ class TaskViewService:
             .select_from(Task)
             .where(Task.project_id == project_id, clause)
         )
-        stmt = self._apply_visibility(stmt, user, project)
+        stmt = self._apply_visibility(stmt, user, project, project_role=project_role)
         total = await self.db.scalar(stmt)
         return int(total or 0)
 
@@ -692,6 +708,7 @@ class TaskViewService:
         *,
         user: User,
         project: Project,
+        project_role: str | None = None,
     ) -> list[int]:
         """一次扫描算出多个 filter 的计数 (内置 + 已保存视图)，避免 N+1 往返。"""
         if not filters:
@@ -703,7 +720,7 @@ class TaskViewService:
             for i, f in enumerate(filters)
         ]
         stmt = select(*cols).select_from(Task).where(Task.project_id == project_id)
-        stmt = self._apply_visibility(stmt, user, project)
+        stmt = self._apply_visibility(stmt, user, project, project_role=project_role)
         row = (await self.db.execute(stmt)).one()
         return [int(v or 0) for v in row]
 
@@ -718,11 +735,15 @@ class TaskViewService:
         offset: int,
         user: User,
         project: Project,
+        project_role: str | None = None,
     ) -> tuple[list[Any], int]:
         clause = compile_filter(filter_json, project=project, user=user)
         base = Task.project_id == project_id
         count_stmt = self._apply_visibility(
-            select(func.count()).select_from(Task).where(base, clause), user, project
+            select(func.count()).select_from(Task).where(base, clause),
+            user,
+            project,
+            project_role=project_role,
         )
         total = await self.db.scalar(count_stmt)
         requested = set(columns_json)
@@ -736,15 +757,26 @@ class TaskViewService:
                 "frame_index",
             }
         requested.update(item.get("field", "") for item in sort_json or [])
-        projection: list[Any] = [Task]
+        projection: list[Any] = [
+            Task,
+            _TASK_FIELD_MAP["task.assignee"].label("effective_assignee_id"),
+            _TASK_FIELD_MAP["task.reviewer"].label("effective_reviewer_id"),
+        ]
         if "avg_prediction_confidence" in requested:
             projection.append(
                 _avg_prediction_confidence_sq().label("avg_prediction_confidence")
             )
-        if "unresolved_feedback_count" in requested:
+        if (
+            "unresolved_issue_count" in requested
+            or "unresolved_feedback_count" in requested
+        ):
+            # The legacy feedback column is a compatibility alias of the
+            # corrected issue count; serialize both from one projection.
             projection.append(
-                _unresolved_feedback_count_sq().label("unresolved_feedback_count")
+                _unresolved_issue_count_sq().label("unresolved_issue_count")
             )
+        if "comment_count" in requested:
+            projection.append(_comment_count_sq().label("comment_count"))
         if "model_versions" in requested:
             projection.append(_model_versions_sq().label("model_versions"))
         if "scene_name" in requested or "scene.scene_name" in requested:
@@ -793,7 +825,7 @@ class TaskViewService:
         if "scene_total_frames" in requested:
             projection.append(_scene_total_frames_sq().label("scene_total_frames"))
         q = select(*projection).where(base, clause)
-        q = self._apply_visibility(q, user, project)
+        q = self._apply_visibility(q, user, project, project_role=project_role)
         q = apply_sort(q, sort_json).limit(limit).offset(offset)
         rows = (await self.db.execute(q)).all()
         return rows, int(total or 0)

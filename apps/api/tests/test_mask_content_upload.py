@@ -121,7 +121,7 @@ async def test_count_task_mask_references_isolated_per_task(db_session, super_ad
 
 
 async def test_upload_task_mask_content_enforces_quota(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     """pre-seed task with MAX_MASK_OBJECTS_PER_TASK refs → next upload 422."""
     user, token = super_admin
@@ -144,7 +144,7 @@ async def test_upload_task_mask_content_enforces_quota(
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle_gzip", AsyncMock())
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/mask-content",
         json=RLE,
         headers={"Authorization": f"Bearer {token}"},
@@ -156,7 +156,7 @@ async def test_upload_task_mask_content_enforces_quota(
 
 
 async def test_upload_task_mask_content_routes_gzip_when_encoding_declared(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     """payload with encoding=coco_rle_gzip → store_coco_rle_gzip (D1 routing)."""
     user, token = super_admin
@@ -176,7 +176,7 @@ async def test_upload_task_mask_content_routes_gzip_when_encoding_declared(
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle", json_store)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/mask-content",
         json={**RLE, "encoding": "coco_rle_gzip"},
         headers={"Authorization": f"Bearer {token}"},
@@ -189,7 +189,7 @@ async def test_upload_task_mask_content_routes_gzip_when_encoding_declared(
 
 
 async def test_upload_task_mask_content_defaults_to_json_path(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     """payload without encoding → legacy uncompressed JSON store (backward compat)."""
     user, token = super_admin
@@ -207,7 +207,7 @@ async def test_upload_task_mask_content_defaults_to_json_path(
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/mask-content",
         json=RLE,  # no encoding field → legacy path
         headers={"Authorization": f"Bearer {token}"},
@@ -224,7 +224,7 @@ async def test_upload_task_mask_content_defaults_to_json_path(
 
 
 async def test_upload_task_mask_content_accepts_8k_image_envelope(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     _proj, task = await _seed_task(db_session, user.id)
@@ -240,7 +240,7 @@ async def test_upload_task_mask_content_accepts_8k_image_envelope(
     )
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/mask-content",
         json=rle,
         headers={"Authorization": f"Bearer {token}"},
@@ -252,7 +252,7 @@ async def test_upload_task_mask_content_accepts_8k_image_envelope(
 
 
 async def test_upload_task_mask_content_keeps_video_at_4k(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     _proj, task = await _seed_task(db_session, user.id)
@@ -261,7 +261,7 @@ async def test_upload_task_mask_content_keeps_video_at_4k(
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle", store)
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/mask-content",
         json={"encoding": "coco_rle", "size": [1, 4097], "counts": [4097]},
         headers={"Authorization": f"Bearer {token}"},

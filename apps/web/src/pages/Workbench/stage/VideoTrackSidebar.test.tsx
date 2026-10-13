@@ -1,7 +1,8 @@
-import { act, fireEvent, render, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { AnnotationResponse, VideoTrackGeometry, VideoTrackOutsideRange } from "@/types";
+import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 import { trackRangesOverlap, VideoTrackSidebar } from "./VideoTrackSidebar";
 import type { VideoTrackAnnotation } from "./videoStageTypes";
 import type { VideoSelectionCommand } from "../state/videoSelectionCommand";
@@ -65,6 +66,109 @@ describe("trackRangesOverlap (join eligibility)", () => {
     const a = track("a", "Car", [0, 10, 15], [{ from: 11, to: 15, source: "manual" }]);
     const b = track("b", "Car", [12, 20]);
     expect(trackRangesOverlap(a, b)).toBe(false);
+  });
+});
+
+/**
+ * 删除确认是异步决策:确认打开期间浏览器历史可能切到别的题或轨迹被并行删除。
+ * 回归:await 之后按实时 annotations 复检归属,不再把旧题的标注交给 onDeleteTracks。
+ */
+describe("VideoTrackSidebar delete ownership revalidation", () => {
+  function maskTrackFixture(id: string): AnnotationResponse {
+    return {
+      id,
+      task_id: "task-1",
+      project_id: "project-1",
+      user_id: "user-1",
+      source: "manual",
+      annotation_type: "video_track_mask",
+      class_name: "Car",
+      geometry: {
+        type: "video_track_mask",
+        track_id: `trk_${id}`,
+        keyframes: [
+          {
+            frame_index: 0,
+            source: "manual",
+            mask: {
+              encoding: "coco_rle_ref",
+              size: [2, 3],
+              object_key: "raster-masks/test.json",
+              sha256: "a".repeat(64),
+              runs: 3,
+              bytes: 12,
+            },
+          },
+        ],
+        outside: [],
+      },
+      confidence: null,
+      parent_prediction_id: null,
+      parent_annotation_id: null,
+      lead_time: null,
+      is_active: true,
+      ground_truth: false,
+      version: 1,
+      created_at: "2026-07-22T00:00:00Z",
+      updated_at: null,
+    };
+  }
+
+  async function flushTeardown() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  }
+
+  function sidebarWith(
+    annotations: AnnotationResponse[],
+    onDeleteTracks: (a: AnnotationResponse[]) => void,
+  ) {
+    return (
+      <>
+        <VideoTrackSidebar
+          annotations={annotations}
+          selectedId={null}
+          frameIndex={0}
+          readOnly={false}
+          hiddenTrackIds={new Set()}
+          lockedTrackIds={new Set()}
+          onSelect={vi.fn()}
+          onToggleHiddenTrack={vi.fn()}
+          onToggleLockedTrack={vi.fn()}
+          onUpdate={vi.fn()}
+          onDeleteTracks={onDeleteTracks}
+        />
+        <DecisionDialogHost />
+      </>
+    );
+  }
+
+  it("确认期间切题后不再提交删除", async () => {
+    const annotation = maskTrackFixture("mask-1");
+    const onDeleteTracks = vi.fn();
+    const view = render(sidebarWith([annotation], onDeleteTracks));
+
+    fireEvent.click(view.getByTitle("删除 Mask 轨迹"));
+    await screen.findByRole("alertdialog", { name: "删除这条 Mask 轨迹？" });
+
+    // 确认尚未给出时任务已切走:当前题 annotations 变空。
+    view.rerender(sidebarWith([], onDeleteTracks));
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    await flushTeardown();
+    expect(onDeleteTracks).not.toHaveBeenCalled();
+  });
+
+  it("轨迹仍在当前题时确认照常提交", async () => {
+    const annotation = maskTrackFixture("mask-2");
+    const onDeleteTracks = vi.fn();
+    const view = render(sidebarWith([annotation], onDeleteTracks));
+
+    fireEvent.click(view.getByTitle("删除 Mask 轨迹"));
+    const dialog = await screen.findByRole("alertdialog", { name: "删除这条 Mask 轨迹？" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
+    await flushTeardown();
+    expect(onDeleteTracks).toHaveBeenCalledWith([annotation]);
   });
 });
 

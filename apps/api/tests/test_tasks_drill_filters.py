@@ -57,14 +57,12 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
 
 
 @pytest.mark.asyncio
-async def test_filter_by_reject_reason_type(
-    httpx_client_bound, db_session, super_admin
-):
+async def test_filter_by_reject_reason_type(httpx_client, db_session, super_admin):
     admin_user, token = super_admin
     p, a, b = await _seed(db_session, admin_user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}&reject_reason_type=missing",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -74,12 +72,12 @@ async def test_filter_by_reject_reason_type(
 
 
 @pytest.mark.asyncio
-async def test_filter_by_class_name(httpx_client_bound, db_session, super_admin):
+async def test_filter_by_class_name(httpx_client, db_session, super_admin):
     admin_user, token = super_admin
     p, a, b = await _seed(db_session, admin_user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}&class_name=person",
         headers={"Authorization": f"Bearer {token}"},
     )

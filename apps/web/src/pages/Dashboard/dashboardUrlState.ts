@@ -5,6 +5,7 @@ export type DashboardStatus = (typeof DASHBOARD_STATUS_VALUES)[number];
 
 export const DASHBOARD_DATA_TYPE_VALUES = ["image", "video", "lidar"] as const;
 export type DashboardDataType = (typeof DASHBOARD_DATA_TYPE_VALUES)[number];
+export const PROJECT_PAGE_SIZES = [20, 50, 100] as const;
 
 export interface DashboardFilters {
   status?: DashboardStatus;
@@ -16,6 +17,8 @@ export interface DashboardFilters {
 
 export interface DashboardUrlState extends DashboardFilters {
   query: string;
+  page: number;
+  page_size: number;
 }
 
 export const EMPTY_FILTERS: DashboardFilters = {
@@ -29,6 +32,8 @@ export const EMPTY_FILTERS: DashboardFilters = {
 export const EMPTY_DASHBOARD_URL_STATE: DashboardUrlState = {
   ...EMPTY_FILTERS,
   query: "",
+  page: 1,
+  page_size: 20,
 };
 
 export const DASHBOARD_FILTER_KEYS = [
@@ -38,6 +43,8 @@ export const DASHBOARD_FILTER_KEYS = [
   "member_id",
   "created_from",
   "created_to",
+  "page",
+  "page_size",
 ] as const;
 
 function isDashboardStatus(value: string): value is DashboardStatus {
@@ -70,6 +77,18 @@ export function parseDashboardUrlWithIssues(search: string | URLSearchParams): {
 } {
   const params = new URLSearchParams(typeof search === "string" ? search : search.toString());
   const issues: UrlStateIssue[] = [];
+  const rawPage = params.get("page");
+  const parsedPage = Number(rawPage);
+  const validPage = Number.isSafeInteger(parsedPage) && parsedPage >= 1;
+  if (rawPage && !validPage) {
+    issues.push({ key: "page", message: "页码无效，已使用第 1 页" });
+  }
+  const rawPageSize = params.get("page_size");
+  const parsedPageSize = Number(rawPageSize);
+  const validPageSize = (PROJECT_PAGE_SIZES as readonly number[]).includes(parsedPageSize);
+  if (rawPageSize && !validPageSize) {
+    issues.push({ key: "page_size", message: "每页条数无效，已使用每页 20 个" });
+  }
 
   const rawStatus = params.get("status")?.trim() ?? "";
   const status = rawStatus === "" || rawStatus === "all" ? undefined : rawStatus;
@@ -106,6 +125,8 @@ export function parseDashboardUrlWithIssues(search: string | URLSearchParams): {
   return {
     state: {
       query,
+      page: validPage ? parsedPage : 1,
+      page_size: validPageSize ? parsedPageSize : 20,
       status: status !== undefined && isDashboardStatus(status) ? status : undefined,
       data_type: uniqueDataTypes(rawDataTypes.filter(isDashboardDataType)),
       member_id: memberId || undefined,
@@ -121,6 +142,11 @@ export function updateDashboardUrl(
   state: DashboardUrlState,
 ): URLSearchParams {
   const next = new URLSearchParams(current);
+  if (Number.isSafeInteger(state.page) && state.page > 1) next.set("page", String(state.page));
+  else next.delete("page");
+  if ((PROJECT_PAGE_SIZES as readonly number[]).includes(state.page_size) && state.page_size !== 20)
+    next.set("page_size", String(state.page_size));
+  else next.delete("page_size");
   const query = state.query.trim();
   if (query) next.set("q", query);
   else next.delete("q");

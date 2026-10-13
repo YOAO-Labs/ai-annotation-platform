@@ -14,6 +14,10 @@ import {
   DialogTrigger,
 } from "@/components/shadcn/ui/dialog";
 import { annotationGuideVersion, isGuideSeen, markGuideSeen } from "@/utils/annotationGuide";
+import {
+  WORKBENCH_DIALOG_CONTENT_CLASS,
+  workbenchDialogOverlayClass,
+} from "../shell/workbenchDialogClasses";
 
 export interface GuidePanelProps {
   projectId: string;
@@ -23,6 +27,8 @@ export interface GuidePanelProps {
   content: string | null | undefined;
   /** 顶栏提供的当前项目名称，用于对话框上下文。 */
   projectName?: string;
+  /** 关闭遮罩背景模糊(3D / 点云工作台,见 workbenchDialogClasses)。 */
+  backdropBlur?: boolean;
 }
 
 export function guidePanelScopeKey({
@@ -47,6 +53,7 @@ export function GuidePanel({
   guideVersion,
   content,
   projectName,
+  backdropBlur = true,
 }: GuidePanelProps) {
   const trimmed = (content ?? "").trim();
   const version = guideVersion ?? annotationGuideVersion(content);
@@ -139,9 +146,9 @@ export function GuidePanel({
         aria-describedby={undefined}
         data-testid="wb-guide-dialog"
         data-workbench-guide=""
-        className="z-app-drawer flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-border bg-card p-0 text-foreground motion-reduce:animate-none sm:max-w-none md:h-[min(820px,85dvh)] md:max-h-[calc(100dvh-64px)] md:w-[min(1120px,calc(100vw-64px))] md:rounded-xl"
+        className={WORKBENCH_DIALOG_CONTENT_CLASS}
         overlayProps={{
-          className: "z-app-drawer-backdrop bg-black/25 motion-reduce:animate-none",
+          className: workbenchDialogOverlayClass(backdropBlur),
           "data-testid": "wb-guide-overlay",
           "data-workbench-guide": "",
           onPointerDown: (event) => {

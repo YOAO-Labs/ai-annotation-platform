@@ -94,11 +94,11 @@ async def _seed_review(db, owner_id, *, manual_frame: int | None = None):
 
 
 async def test_partial_accept_isolates_window_and_repeat_is_idempotent(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     _, annotation, job = await _seed_review(db_session, user.id)
-    preview = await httpx_client_bound.get(
+    preview = await httpx_client.get(
         f"/api/v1/video-tracker-jobs/{job.id}/preview", headers=_bearer(token)
     )
     assert preview.status_code == 200, preview.text
@@ -116,7 +116,7 @@ async def test_partial_accept_isolates_window_and_repeat_is_idempotent(
         "job_revision": 1,
         "override_manual": False,
     }
-    accepted = await httpx_client_bound.post(
+    accepted = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json=payload,
         headers=_bearer(token),
@@ -130,7 +130,7 @@ async def test_partial_accept_isolates_window_and_repeat_is_idempotent(
     assert [item["frame_index"] for item in annotation.geometry["keyframes"]] == [0, 1]
     assert annotation.geometry["keyframes"][1]["source"] == "prediction"
 
-    after = await httpx_client_bound.get(
+    after = await httpx_client.get(
         f"/api/v1/video-tracker-jobs/{job.id}/preview", headers=_bearer(token)
     )
     body = after.json()
@@ -140,7 +140,7 @@ async def test_partial_accept_isolates_window_and_repeat_is_idempotent(
     assert [item["frame_index"] for item in body["results"]] == [2, 3]
     assert body["expected_source_versions"][str(annotation.id)] == 2
 
-    replay = await httpx_client_bound.post(
+    replay = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json=payload,
         headers=_bearer(token),
@@ -160,11 +160,11 @@ async def test_partial_accept_isolates_window_and_repeat_is_idempotent(
 
 
 async def test_reject_finishes_mixed_review_without_touching_remaining_frames(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     _, annotation, job = await _seed_review(db_session, user.id)
-    accept = await httpx_client_bound.post(
+    accept = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["1"],
@@ -177,7 +177,7 @@ async def test_reject_finishes_mixed_review_without_touching_remaining_frames(
         headers=_bearer(token),
     )
     assert accept.status_code == 200, accept.text
-    reject = await httpx_client_bound.post(
+    reject = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["1"],
@@ -197,7 +197,7 @@ async def test_reject_finishes_mixed_review_without_touching_remaining_frames(
 
 
 async def test_manual_keyframe_requires_override_and_audits_digests(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     _, annotation, job = await _seed_review(db_session, user.id, manual_frame=1)
@@ -211,7 +211,7 @@ async def test_manual_keyframe_requires_override_and_audits_digests(
         "job_revision": 1,
         "override_manual": False,
     }
-    blocked = await httpx_client_bound.post(
+    blocked = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job_id}/decisions",
         json=payload,
         headers=_bearer(token),
@@ -221,7 +221,7 @@ async def test_manual_keyframe_requires_override_and_audits_digests(
     await db_session.refresh(annotation)
     assert annotation.geometry["keyframes"][0]["source"] == "manual"
 
-    overridden = await httpx_client_bound.post(
+    overridden = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job_id}/decisions",
         json={**payload, "override_manual": True},
         headers=_bearer(token),
@@ -244,11 +244,11 @@ async def test_manual_keyframe_requires_override_and_audits_digests(
 
 
 async def test_stale_job_revision_is_structured_conflict(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     _, annotation, job = await _seed_review(db_session, user.id)
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["1"],
@@ -267,7 +267,7 @@ async def test_stale_job_revision_is_structured_conflict(
 
 
 async def test_discovered_instance_reuses_one_annotation_across_windows(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -297,7 +297,7 @@ async def test_discovered_instance_reuses_one_annotation_across_windows(
     db_session.add(job)
     await db_session.commit()
 
-    first = await httpx_client_bound.post(
+    first = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["new-1"],
@@ -310,14 +310,14 @@ async def test_discovered_instance_reuses_one_annotation_across_windows(
         headers=_bearer(token),
     )
     assert first.status_code == 200, first.text
-    preview = await httpx_client_bound.get(
+    preview = await httpx_client.get(
         f"/api/v1/video-tracker-jobs/{job.id}/preview", headers=_bearer(token)
     )
     body = preview.json()
     target_id = body["results"][0]["target_annotation_id"]
     target_version = body["expected_source_versions"][target_id]
 
-    second = await httpx_client_bound.post(
+    second = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["new-1"],
@@ -351,7 +351,7 @@ async def test_discovered_instance_reuses_one_annotation_across_windows(
 
 
 async def test_discovered_instance_keeps_outside_frames_accepted_before_visibility(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -382,7 +382,7 @@ async def test_discovered_instance_keeps_outside_frames_accepted_before_visibili
     db_session.add(job)
     await db_session.commit()
 
-    outside = await httpx_client_bound.post(
+    outside = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["new-1"],
@@ -405,7 +405,7 @@ async def test_discovered_instance_keeps_outside_frames_accepted_before_visibili
         == 0
     )
 
-    visible = await httpx_client_bound.post(
+    visible = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["new-1"],
@@ -437,7 +437,7 @@ async def test_discovered_instance_keeps_outside_frames_accepted_before_visibili
 
 
 async def test_sourceless_decision_skips_instance_with_only_outside_candidates(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -469,7 +469,7 @@ async def test_sourceless_decision_skips_instance_with_only_outside_candidates(
     db_session.add(job)
     await db_session.commit()
 
-    accepted = await httpx_client_bound.post(
+    accepted = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["visible", "missing"],
@@ -486,7 +486,7 @@ async def test_sourceless_decision_skips_instance_with_only_outside_candidates(
         "visible"
     }
 
-    annotations = await httpx_client_bound.get(
+    annotations = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/annotations", headers=_bearer(token)
     )
     assert annotations.status_code == 200, annotations.text
@@ -496,11 +496,11 @@ async def test_sourceless_decision_skips_instance_with_only_outside_candidates(
 
 
 async def test_selector_overlapping_opposite_decision_is_rejected(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     _, annotation, job = await _seed_review(db_session, user.id)
-    first = await httpx_client_bound.post(
+    first = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["1"],
@@ -514,7 +514,7 @@ async def test_selector_overlapping_opposite_decision_is_rejected(
     )
     assert first.status_code == 200, first.text
 
-    overlapping = await httpx_client_bound.post(
+    overlapping = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["1"],
@@ -531,7 +531,7 @@ async def test_selector_overlapping_opposite_decision_is_rejected(
 
 
 async def test_legacy_single_source_mapping_survives_primary_slice_removal(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -577,7 +577,7 @@ async def test_legacy_single_source_mapping_survives_primary_slice_removal(
     db_session.add(job)
     await db_session.commit()
 
-    accepted = await httpx_client_bound.post(
+    accepted = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/decisions",
         json={
             "instance_ids": ["source"],
@@ -591,7 +591,7 @@ async def test_legacy_single_source_mapping_survives_primary_slice_removal(
     )
     assert accepted.status_code == 200, accepted.text
 
-    preview = await httpx_client_bound.get(
+    preview = await httpx_client.get(
         f"/api/v1/video-tracker-jobs/{job.id}/preview", headers=_bearer(token)
     )
     assert preview.status_code == 200, preview.text

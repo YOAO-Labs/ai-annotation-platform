@@ -27,6 +27,13 @@ from aap_backend_runtime.lifecycle_evidence import (
     validate_managed_lifecycle_evidence,
 )
 from aap_backend_runtime.lifecycle_validation import exercise_lifecycle_fault_matrix
+from aap_backend_runtime.managed_pool import (
+    BuildArtifact,
+    ManagedBuildTimeout,
+    ManagedLruPool,
+    ManagedPoolBusyError,
+    ResourceLease,
+)
 from aap_backend_runtime.versions import versions_payload
 from aap_backend_runtime.tracker_sessions import (
     TrackerSessionLost,
@@ -34,11 +41,16 @@ from aap_backend_runtime.tracker_sessions import (
 )
 
 __all__ = [
+    "BuildArtifact",
     "DeviceUnavailableError",
     "EVIDENCE_SCHEMA_VERSION",
     "MAX_UNLOADED_SPREAD_MB",
     "MIN_WORKING_SET_RECOVERY_RATIO",
+    "ManagedBuildTimeout",
+    "ManagedLruPool",
+    "ManagedPoolBusyError",
     "REQUIRED_CONTRACT_CHECKS",
+    "ResourceLease",
     "artifact_evidence",
     "build_managed_lifecycle_evidence",
     "deployment_verified_flag",

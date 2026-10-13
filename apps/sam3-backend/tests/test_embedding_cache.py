@@ -145,7 +145,7 @@ def test_invalid_capacity():
 
 
 def test_default_cap_32():
-    """v0.10.0 默认 cap 32, 与 grounded-sam2 默认 16 区分."""
+    """默认 cap 32, 与 grounded-sam2 默认 16 区分."""
     c = EmbeddingCache()
     assert c.capacity == 32
 

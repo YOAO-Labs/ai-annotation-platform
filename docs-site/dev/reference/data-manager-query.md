@@ -2,12 +2,12 @@
 audience: [developer]
 type: reference
 status: stable
-last_reviewed: 2026-07-22
+last_reviewed: 2026-09-14
 ---
 
 # Data Manager 查询与聚合
 
-Data Manager 是项目范围内的只读探索 read model，提供 task、object 和 logical track 三种 grain。查询、保存视图计数、facet、详情与定位必须从同一个 visible-task scope 派生：项目负责人和超级管理员可见整个项目；其他成员只可见其批次权限允许的任务。它不改变 annotation、prediction 或 tracker candidate 的权威写模型。
+Data Manager 的数据查询使用项目范围内的只读 read model，提供 task、object 和 logical track 三种 grain。查询、保存视图计数、facet、详情与定位必须从同一个 visible-task scope 派生：项目负责人和超级管理员可见整个项目；其他成员只可见其批次权限允许的任务。页面中的任务操作走独立命令入口，不通过 read model 改写 annotation、prediction 或 tracker candidate。
 
 前端字段编辑、URL 状态、草稿校验及数量口径见[筛选状态与结果范围](./filtering.md)。
 
@@ -75,7 +75,7 @@ summary 同时返回：
 - single-frame、tracked annotation 与 distinct track；
 - AI 检测候选待审、低置信候选待审、AI 追踪结果待审；
 - 当前待审检测候选的模型版本与置信度区间分布；
-- 未解决 feedback；
+- 未解决问题（有效、开放的问题主题，对齐工作台问题口径；兼容字段名 `unresolved_feedback`）；
 - 项目 schema 中属性的 eligible/present/missing 与有限枚举值分布。
 - capability 驱动的 image 分辨率、video 时长/帧/关键帧、lidar 相机/标定与 Scene 摘要。
 
@@ -91,11 +91,11 @@ task-centric summary 聚合的是“匹配任务中的全部对象”。object /
 
 `project_task_views.entity_scope` 为 `tasks | objects | tracks`，旧记录迁移为 `tasks`。私有名称唯一键与项目共享名称唯一键都包含 scope，因此三个粒度可以使用同名视图。创建和更新必须使用对应 schema 的 filter/sort/column 白名单；不兼容字段在列表中以 `invalid_fields` 返回，不静默改写。
 
-前端 URL 保存 `lens/view/q/filter/sort/columns/selected`。filter、sort 与 columns 使用带版本号的 JSON envelope；解析失败时回退当前视图，不执行未校验输入。切换 grain 时清空不兼容状态，存在未保存修改时先要求确认。
+前端 URL 保存 `section/lens/view/q/filter/sort/columns/selected/layout/selected_tasks`。`section` 为 `overview | data | members`，缺省仍打开 `data`；`lens` 仅表示数据区域的 grain。filter、sort 与 columns 使用带版本号的 JSON envelope；解析失败时回退当前视图，不执行未校验输入。切换 grain 时清空不兼容状态，存在未保存修改时先要求确认。成员筛选使用独立的 `members_*` 参数，不继承 Data Manager 的对象条件。
 
 三个 grain 共享值编辑控件和保留结构的表达式操作。分组不能展平：即使普通布尔代数等价，也可能改变同对象约束。关键词只从独立 `contains` 规则或直接 AND 中的无歧义规则提取；OR 内关键词保留在树中。外部 q 作为额外 AND 条件，数字和范围草稿不进入查询。页面读取实时 URL，首次请求等待视图和字段恢复；后续条件变化使过期页码和实体 cursor 失效。
 
-前端壳层使用单视口布局，只有结果表和右侧抽屉承担纵向滚动。grain tabs 是唯一的一级页签；桌面端保存视图使用侧栏，窄屏使用下拉。任务、对象与轨迹共用可搜索字段选择器和条件芯片，字段分组及编辑控件完全由各自 `schema.filter_fields` 驱动。这些布局差异不改变 Filter DSL、URL envelope 或保存视图契约。
+一级区域为概览、数据、成员，grain tabs 位于数据区域内。数据区域使用单视口布局，结果表和详情抽屉独立滚动；概览和成员内容允许纵向滚动。桌面端保存视图使用可收起的分组侧栏，窄屏使用下拉。任务、对象与轨迹共用可搜索字段选择器和条件芯片，字段分组及编辑控件完全由各自 `schema.filter_fields` 驱动。这些布局差异不改变 Filter DSL、URL envelope 或保存视图契约。
 
 ## AI 待审
 

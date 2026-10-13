@@ -35,9 +35,8 @@ import { useAuditLogs, useAuditMonthlySummary } from "@/hooks/useAudit";
 import { useUsers } from "@/hooks/useUsers";
 import { auditApi } from "@/api/audit";
 import { AUDIT_BUSINESS_ACTIONS, AUDIT_TARGET_TYPES, auditActionLabel } from "@/utils/auditLabels";
-import { ROLE_LABELS } from "@/constants/roles";
+import { roleLabel } from "@/constants/roles";
 import type { AuditLogResponse, AuditSummaryBucket } from "@/api/audit";
-import type { UserRole } from "@/types";
 import { useElementStyle } from "@/components/ui/useElementStyle";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
@@ -351,14 +350,14 @@ export function AuditPage() {
 
       <Card>
         <div className={styles.filters}>
-          <FilterGroup label="事件范围" compact>
+          {/* 标签自解释（选项即范围），hideLabel 避免纯装饰文案把下拉挤到第二行导致面板错位。 */}
+          <FilterGroup label="事件范围" hideLabel compact>
             <FilterSelect
               aria-label="审计事件范围"
               value={scope}
               onChange={(e) => {
                 patch({ scope: e.target.value as "business" | "all", page: 1 }, { replace: false });
               }}
-              className="w-full"
             >
               <option value="business">仅业务事件</option>
               <option value="all">全部（含 HTTP 元数据）</option>
@@ -517,7 +516,7 @@ export function AuditPage() {
 
         {focused && (
           <div className={styles.focusBar}>
-            <FilterGroup label="追溯模式" compact className={styles.focusTags}>
+            <FilterGroup label="追溯模式" hideLabel compact className={styles.focusTags}>
               {actorId && (
                 <ActiveFilterChip
                   label="操作人"
@@ -632,9 +631,7 @@ export function AuditPage() {
                         )}
                         {it.actor_role && (
                           <span className={styles.tinyBadge}>
-                            <Badge variant="outline">
-                              {ROLE_LABELS[it.actor_role as UserRole] ?? it.actor_role}
-                            </Badge>
+                            <Badge variant="outline">{roleLabel(it.actor_role)}</Badge>
                           </span>
                         )}
                       </div>
@@ -1022,13 +1019,7 @@ function SummaryRanking({
       <div className={styles.rankingRows}>
         {items.map((item) => (
           <div key={item.key || "__system"} className={styles.rankingRow}>
-            <span>
-              {item.key
-                ? roleLabels
-                  ? (ROLE_LABELS[item.key as UserRole] ?? item.key)
-                  : item.key
-                : "系统/未知"}
-            </span>
+            <span>{item.key ? (roleLabels ? roleLabel(item.key) : item.key) : "系统/未知"}</span>
             <strong>{item.event_count.toLocaleString("zh-CN")}</strong>
           </div>
         ))}

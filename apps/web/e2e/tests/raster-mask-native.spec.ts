@@ -152,7 +152,7 @@ test.describe("raster mask native write matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await openTask(page, seed, data, taskId);
     const token = await seed.accessToken(data.annotator_email);
@@ -212,7 +212,7 @@ test.describe("raster mask native write matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -246,7 +246,7 @@ test.describe("raster mask native write matrix", () => {
     page,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     await openTask(page, seed, data, taskId);
@@ -299,7 +299,7 @@ test.describe("raster mask native write matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const firstTaskId = data.task_ids[0];
     const secondTaskId = data.task_ids[1];
     const first = await seed.injectRasterMask({
@@ -342,7 +342,7 @@ test.describe("raster mask native write matrix", () => {
     page,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -381,7 +381,7 @@ test.describe("raster mask native write matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await openTask(page, seed, data, taskId);
     const token = await seed.accessToken(data.annotator_email);
@@ -449,7 +449,7 @@ test.describe("raster mask native write matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -514,7 +514,7 @@ test.describe("raster mask native write matrix", () => {
     page,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const healthy = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     const corrupt = await seed.injectRasterMask({
@@ -542,7 +542,7 @@ test.describe("raster mask native write matrix", () => {
     page,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await openTask(page, seed, data, taskId, false);
 
@@ -568,7 +568,7 @@ test.describe("raster mask native write matrix", () => {
     page,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const healthy = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     const corrupt = await seed.injectRasterMask({
@@ -604,7 +604,7 @@ test.describe("raster mask native write matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -692,7 +692,7 @@ test.describe("raster mask read-only and closed-gate matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     await openTask(page, seed, data, taskId);
@@ -728,7 +728,7 @@ test.describe("raster mask read-only and closed-gate matrix", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });

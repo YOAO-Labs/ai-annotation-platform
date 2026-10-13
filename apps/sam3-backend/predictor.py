@@ -1,9 +1,9 @@
-"""SAM 3 推理封装 (v0.10.0 / M0, vendor 对齐重写于 2026-05-13).
+"""SAM 3 推理封装 (vendor 对齐).
 
 vendor: facebookresearch/sam3 @ 4cbac14, 通过 scripts/sync_vendor.sh 同步.
 入口: `from sam3 import build_sam3_image_model` + `from sam3.model.sam3_image_processor import Sam3Processor`.
 
-支持的 prompt (v0.18.17 选项 B: 启用 inst_interactivity):
+支持的 prompt (启用 inst_interactivity):
   - text:            processor.set_text_prompt(prompt, state) → 全图所有匹配概念的 mask + box
   - exemplar:        processor.add_geometric_prompt(box, label=True, state) → 全图相似实例 (PCS)
   - point:           model.predict_inst(state, point_coords, point_labels) → 单实例点交互 (SAM-style)
@@ -171,7 +171,7 @@ class SAM3Predictor:
     def _load_model(self):
         """加载 SAM 3 image model.
 
-        v0.18.17: 启用 inst_interactivity, 解锁 SAM-style point / 单框单 mask 交互
+        启用 inst_interactivity, 解锁 SAM-style point / 单框单 mask 交互
         (model.predict_inst); 同一模型亦提供 PCS (text / exemplar)。
 
         checkpoint 用 sam3.pt (3.0) 而非 sam3.1_multiplex.pt: 后者是视频模型
@@ -197,7 +197,7 @@ class SAM3Predictor:
                 load_from_HF=(ckpt_path is None),
                 device=self.device,
                 enable_segmentation=True,
-                enable_inst_interactivity=True,  # v0.18.17: 解锁 point / interactive_box
+                enable_inst_interactivity=True,  # 解锁 point / interactive_box
                 eval_mode=True,
             )
         except Exception as exc:  # noqa: BLE001
@@ -331,7 +331,7 @@ class SAM3Predictor:
         语义都是「找全图与 box 内对象相似的所有实例」. 没有 SAM-2-style 的「这个 box 内部出一个 mask」.
         用户期待单框单 mask 的场景请走 grounded-sam2-backend.
 
-        v0.18.19 起内部转 predict_exemplars 单元素正框 (兼容薄封装).
+        内部转 predict_exemplars 单元素正框 (兼容薄封装).
         """
         return self.predict_exemplars(
             image,
@@ -352,7 +352,7 @@ class SAM3Predictor:
         simplify_tolerance: float | None = None,
         score_threshold: float | None = None,
     ) -> tuple[list[dict[str, Any]], bool]:
-        """v0.10.0 单框 exemplar; v0.18.19 起内部转 predict_exemplars 单元素正框 (兼容薄封装)."""
+        """单框 exemplar; 内部转 predict_exemplars 单元素正框 (兼容薄封装)."""
         return self.predict_exemplars(
             image,
             [{"bbox": exemplar_bbox, "label": True}],
@@ -375,7 +375,7 @@ class SAM3Predictor:
         output_geometry: str = "polygon",
         prompt_revision: str | None = None,
     ) -> tuple[list[dict[str, Any]], bool]:
-        """v0.18.19 · PCS 多正负框 (+ 可选 text) 迭代 refinement (无状态: 每请求重发全量).
+        """PCS 多正负框 (+ 可选 text) 迭代 refinement (无状态: 每请求重发全量).
 
         - exemplars: [{bbox:[x1,y1,x2,y2] 归一化 xyxy, label:bool}, ...]; True=正框(扩召回) /
           False=负框(排误检). 顺序累加经 add_geometric_prompt (append_boxes 非覆盖).
@@ -449,7 +449,7 @@ class SAM3Predictor:
         output_geometry: str = "polygon",
         prompt_revision: str | None = None,
     ) -> tuple[list[dict[str, Any]], bool, str | None]:
-        """v0.18.17 · SAM-style 单实例点/框交互 (与 grounded-sam2 对齐).
+        """SAM-style 单实例点/框交互 (与 grounded-sam2 对齐).
 
         走 inst_interactive_predictor (model.predict_inst), 复用同一 backbone_out 缓存
         (开 inst 后 set_image 一次同产 PCS + sam2 特征). 与 PCS (text/exemplar) 语义不同:
@@ -458,7 +458,7 @@ class SAM3Predictor:
         - points: 归一化 [[x,y],...]; labels: 1=正点 / 0=负点 (累加由前端重发全量点).
         - box:    归一化 [x1,y1,x2,y2] 单框单 mask.
         - multimask_output=True: 单点歧义时返回 3 候选 (按 iou 降序), 前端 top-1 + 切换.
-        - mask_input: v0.18.18 · 上一轮 256×256 low-res logits (base64) 回灌, 多点精修提升
+        - mask_input: 上一轮 256×256 low-res logits (base64) 回灌, 多点精修提升
           边界稳定性。返回三元组第 3 项 mask_input_next 携带本轮 low-res 供下一次回传,
           仅 points 精修且 multimask_output=False 时返回 (多候选 index 歧义 / 框单发不回灌)。
 
@@ -749,7 +749,7 @@ class SAM3Predictor:
     def _rings_to_polygon_label(
         rings: list[MultiPolygonRing], label: str, score: float
     ) -> dict[str, Any]:
-        """与 grounded-sam2 完全一致的 polygonlabels 智能字面 (v0.9.14)."""
+        """与 grounded-sam2 一致的 polygonlabels 智能字面。"""
         if len(rings) == 1 and not rings[0]["holes"]:
             return {
                 "type": "polygonlabels",

@@ -134,7 +134,7 @@ def test_clip_single_frame_geometry_uses_inclusive_range():
 
 async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     monkeypatch,
     super_admin,
 ):
@@ -210,7 +210,7 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
         "app.workers.export.run_export.delay",
         lambda **kwargs: dispatched.update(kwargs),
     )
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export?targets=video_json",
         json={"scope": request.model_dump(mode="json")},
         headers={"Authorization": f"Bearer {token}"},

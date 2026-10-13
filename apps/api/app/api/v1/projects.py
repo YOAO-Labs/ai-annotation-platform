@@ -3,9 +3,9 @@ import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, or_, and_, update
 from app.deps import (
@@ -14,9 +14,25 @@ from app.deps import (
     require_roles,
     require_project_visible,
     require_project_owner,
+    require_project_capability,
     assert_project_visible,
 )
-from app.db.enums import UserRole
+from app.db.enums import (
+    PROJECT_ROLES,
+    TaskStatus,
+    UserRole,
+    WORKBENCH_AI_EDITABLE_TASK_STATUSES,
+)
+from app.services.project_access import (
+    ProjectCapability,
+    resolve_project_access,
+)
+from app.services.project_membership import (
+    add_member as add_project_member,
+    change_role as change_project_member_role,
+    preview_role_change as preview_project_member_role_change,
+    remove_member as remove_project_member,
+)
 from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -27,6 +43,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.async_job import AsyncJob
 from app.schemas.project import (
     ProjectOut,
+    ProjectPage,
     ProjectCreate,
     ProjectUpdate,
     ProjectStats,
@@ -35,8 +52,13 @@ from app.schemas.project import (
     ProjectCleanupOrphansOut,
     ProjectMemberOut,
     ProjectMemberCreate,
+    ProjectMemberRolePreviewRequest,
+    ProjectMemberRolePreviewOut,
+    ProjectMemberRoleChangeRequest,
+    ProjectAccessOut,
     ProjectTransferRequest,
     ProjectReadinessSummary,
+    MentionCandidateOut,
 )
 from app.schemas.project_pipeline import ProjectPipelineApplyRequest, ProjectPipelineOut
 from app.schemas.export import (
@@ -52,6 +74,7 @@ from app.services.pipeline_validation import (
     resolve_preannotate_queue,
 )
 from app.services.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
+from app.services.batch_permissions import allows_bulk_preannotation
 from app.services.pipeline_template import (
     assert_pipeline_visible,
     copy_pipeline_stages,
@@ -83,15 +106,47 @@ _STATS_SERIES_STEP = timedelta(days=7)
 
 
 def _visible_project_filter(user: User):
-    """构造按当前用户可见性过滤项目的子查询条件 (Project 主查询)。"""
+    """构造按当前用户可见性过滤项目的子查询条件 (Project 主查询)。
+
+    统一口径：super_admin 全见；项目负责人见自有项目；其余账号见其成员项目。
+    平台 project_admin 若只是他人项目成员，按成员可见性处理（不获得管理权）。
+    """
     if user.role == UserRole.SUPER_ADMIN:
         return None  # 不过滤
+    # A legitimate owner must also hold an administrative platform role; an
+    # anomalous non-administrative owner is not implicitly visible.
     if user.role == UserRole.PROJECT_ADMIN:
-        return Project.owner_id == user.id
-    # annotator / reviewer / viewer：通过 ProjectMember 关联
+        return or_(
+            Project.owner_id == user.id,
+            Project.id.in_(
+                select(ProjectMember.project_id).where(ProjectMember.user_id == user.id)
+            ),
+        )
     return Project.id.in_(
         select(ProjectMember.project_id).where(ProjectMember.user_id == user.id)
     )
+
+
+async def _my_project_roles(
+    db: AsyncSession, user: User, projects: list[Project]
+) -> dict[uuid.UUID, str]:
+    """Membership role of the requesting account per project (managers: absent)."""
+
+    ids = [project.id for project in projects]
+    if not ids or user.role == UserRole.SUPER_ADMIN:
+        return {}
+    rows = await db.execute(
+        select(ProjectMember.project_id, ProjectMember.role).where(
+            ProjectMember.user_id == user.id,
+            ProjectMember.project_id.in_(ids),
+        )
+    )
+    return {project_id: role for project_id, role in rows.all()}
+
+
+def _attach_my_project_role(items: list[dict], roles: dict[uuid.UUID, str]) -> None:
+    for item in items:
+        item["my_project_role"] = roles.get(item["id"])
 
 
 def _stats_bucket_ends(now: datetime) -> list[datetime]:
@@ -198,11 +253,14 @@ async def _serialize_project(
     通过 ai_completed_lookup 批量提供（list_projects 路径）或 fallback 单独查询。
     """
     owner_name = None
+    owner_avatar_ref = None
     if project.owner_id:
         owner_row = await db.execute(
-            select(User.name).where(User.id == project.owner_id)
+            select(User.name, User.avatar_ref).where(User.id == project.owner_id)
         )
-        owner_name = owner_row.scalar_one_or_none()
+        owner_row = owner_row.first()
+        if owner_row is not None:
+            owner_name, owner_avatar_ref = owner_row
     count_row = await db.execute(
         select(func.count())
         .select_from(ProjectMember)
@@ -250,6 +308,7 @@ async def _serialize_project(
         )
     data["ml_backend_id"] = ml_backend_id_for_response
     data["owner_name"] = owner_name
+    data["owner_avatar_ref"] = owner_avatar_ref
     data["member_count"] = member_count
     data["ai_completed_tasks"] = ai_completed
     data["batch_summary"] = batch_summary
@@ -303,19 +362,33 @@ async def _assert_project_kind_update_allowed(
             )
 
 
-@router.get("", response_model=list[ProjectOut])
-async def list_projects(
+def _project_filter_datetime(value: str | None, *, end_of_day: bool = False):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="创建日期须为 ISO 日期或时间"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    if end_of_day and len(value) == 10:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return parsed
+
+
+def _project_list_query(
+    user: User,
+    *,
     status: str | None = None,
     search: str | None = None,
-    # v0.7.2 · 高级筛选维度（FilterDrawer 对接）
-    type_key: list[str] | None = Query(None),
-    # v0.10.28 · 媒体维度筛选 (image / video / lidar)
-    data_type: list[str] | None = Query(None),
+    type_key: list[str] | None = None,
+    data_type: list[str] | None = None,
     member_id: uuid.UUID | None = None,
-    created_from: str | None = None,  # ISO date "2026-01-01"
+    project_role: str | None = None,
+    created_from: str | None = None,
     created_to: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
     q = select(Project)
     cond = _visible_project_filter(user)
@@ -337,13 +410,31 @@ async def list_projects(
                 )
             )
         )
-    if created_from:
-        q = q.where(Project.created_at >= created_from)
-    if created_to:
-        q = q.where(Project.created_at <= created_to)
-    result = await db.execute(q.order_by(Project.created_at.desc()))
-    projects = result.scalars().all()
+    if project_role:
+        if project_role not in PROJECT_ROLES:
+            raise HTTPException(status_code=422, detail="非法项目职责")
+        q = q.where(
+            Project.id.in_(
+                select(ProjectMember.project_id).where(
+                    ProjectMember.user_id == user.id,
+                    ProjectMember.role == project_role,
+                )
+            )
+        )
+    start = _project_filter_datetime(created_from)
+    end = _project_filter_datetime(created_to, end_of_day=True)
+    if start is not None and end is not None and start > end:
+        raise HTTPException(status_code=422, detail="创建开始日期不能晚于结束日期")
+    if start is not None:
+        q = q.where(Project.created_at >= start)
+    if end is not None:
+        q = q.where(Project.created_at <= end)
+    return q.order_by(Project.created_at.desc(), Project.id.desc())
 
+
+async def _serialize_project_list(
+    db: AsyncSession, projects: list[Project]
+) -> list[dict]:
     # v0.7.0：批量预查 ai_completed_tasks 避免 N+1 — 单 GROUP BY 查询
     from app.db.models.annotation import Annotation
 
@@ -380,6 +471,82 @@ async def list_projects(
         )
         for p in projects
     ]
+
+
+@router.get("", response_model=list[ProjectOut])
+async def list_projects(
+    status: str | None = None,
+    search: str | None = None,
+    # v0.7.2 · 高级筛选维度（FilterDrawer 对接）
+    type_key: list[str] | None = Query(None),
+    # v0.10.28 · 媒体维度筛选 (image / video / lidar)
+    data_type: list[str] | None = Query(None),
+    member_id: uuid.UUID | None = None,
+    project_role: str | None = None,
+    created_from: str | None = None,  # ISO date "2026-01-01"
+    created_to: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = _project_list_query(
+        user,
+        status=status,
+        search=search,
+        type_key=type_key,
+        data_type=data_type,
+        member_id=member_id,
+        project_role=project_role,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    result = await db.execute(q)
+    projects = list(result.scalars().all())
+    items = await _serialize_project_list(db, projects)
+    _attach_my_project_role(items, await _my_project_roles(db, user, projects))
+    return items
+
+
+@router.get("/query", response_model=ProjectPage)
+async def query_projects(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = None,
+    search: str | None = None,
+    type_key: list[str] | None = Query(None),
+    data_type: list[str] | None = Query(None),
+    member_id: uuid.UUID | None = None,
+    project_role: str | None = None,
+    created_from: str | None = None,
+    created_to: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = _project_list_query(
+        user,
+        status=status,
+        search=search,
+        type_key=type_key,
+        data_type=data_type,
+        member_id=member_id,
+        project_role=project_role,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    total = int(
+        await db.scalar(select(func.count()).select_from(q.order_by(None).subquery()))
+        or 0
+    )
+    result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
+    projects = list(result.scalars().all())
+    items = await _serialize_project_list(db, projects)
+    _attach_my_project_role(items, await _my_project_roles(db, user, projects))
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": (total + page_size - 1) // page_size,
+    }
 
 
 @router.get("/stats", response_model=ProjectStats)
@@ -709,8 +876,12 @@ async def _validate_backend_modality(
 async def get_project(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    return await _serialize_project(db, project)
+    out = await _serialize_project(db, project)
+    roles = await _my_project_roles(db, user, [project])
+    out["my_project_role"] = roles.get(project.id)
+    return out
 
 
 @router.get("/{project_id}/readiness", response_model=ProjectReadinessSummary)
@@ -824,6 +995,8 @@ async def get_project_readiness(
     )
     # Assignment validity includes the actual receiving account and membership,
     # not merely the existence of some other active member with that role.
+    # Responsibility is project-scoped: the project role alone decides, never
+    # the account's platform role.
     valid_members = (
         await db.execute(
             select(ProjectMember.user_id, ProjectMember.role)
@@ -831,7 +1004,6 @@ async def get_project_readiness(
             .where(
                 ProjectMember.project_id == project.id,
                 User.is_active.is_(True),
-                User.role == ProjectMember.role,
             )
         )
     ).all()
@@ -1295,6 +1467,16 @@ async def cleanup_annotation_orphans(
                 attribute_keys,
             )
         await db.flush()
+        if mutation_task_ids:
+            from app.services.annotation_evidence import (
+                record_annotation_actors_for_tasks,
+            )
+
+            # A2 · this cleanup writes annotation attributes / deactivations under
+            # task locks already held above, so accumulate the actor here too.
+            await record_annotation_actors_for_tasks(
+                db, mutation_task_ids, current_user.id
+            )
         if deactivated_task_ids:
             from app.services.annotation import AnnotationService
 
@@ -1332,13 +1514,30 @@ async def transfer_owner(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    project = await db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
+    # Account-first, then the project row — the same order as the platform-role
+    # mutation, so a concurrent demotion of the target cannot interleave with
+    # the role check and the ownership write.
+    from app.services.user_lifecycle import UserLifecycleService
 
-    target = await db.get(User, body.new_owner_id)
+    accounts = await UserLifecycleService.lock_accounts(db, [body.new_owner_id])
+    target = accounts.get(body.new_owner_id)
     if target is None or not target.is_active:
         raise HTTPException(status_code=404, detail="目标用户不存在")
+
+    project = (
+        (
+            await db.execute(
+                select(Project)
+                .where(Project.id == project_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
     if target.role != UserRole.PROJECT_ADMIN:
         raise HTTPException(status_code=400, detail="仅可转移给 project_admin")
 
@@ -1348,19 +1547,45 @@ async def transfer_owner(
     return await _serialize_project(db, project)
 
 
+@router.get("/{project_id}/access", response_model=ProjectAccessOut)
+async def get_project_access(
+    project: Project = Depends(require_project_visible),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Resolved project access for the current account.
+
+    Managers may have null membership fields; ordinary members expose their
+    membership identity/version and fixed capability set.
+    """
+
+    access = await resolve_project_access(db, user=current_user, project=project)
+    return ProjectAccessOut(
+        project_id=access.project_id,
+        user_id=access.user_id,
+        platform_role=access.platform_role,
+        project_role=access.project_role,
+        membership_id=access.membership_id,
+        membership_version=access.membership_version,
+        access_kind=access.access_kind,
+        is_manager=access.is_manager,
+        capabilities=sorted(access.capabilities),
+    )
+
+
 @router.get("/{project_id}/members", response_model=list[ProjectMemberOut])
 async def list_members(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
 ):
     rows = await db.execute(
-        select(ProjectMember, User.name, User.email)
+        select(ProjectMember, User.name, User.email, User.avatar_ref, User.role)
         .join(User, User.id == ProjectMember.user_id)
         .where(ProjectMember.project_id == project.id)
         .order_by(ProjectMember.assigned_at.desc())
     )
     out = []
-    for member, user_name, user_email in rows.all():
+    for member, user_name, user_email, avatar_ref, platform_role in rows.all():
         out.append(
             ProjectMemberOut(
                 id=member.id,
@@ -1368,10 +1593,92 @@ async def list_members(
                 user_name=user_name,
                 user_email=user_email,
                 role=member.role,
+                platform_role=platform_role,
+                version=member.version,
                 assigned_at=member.assigned_at,
+                updated_at=member.updated_at,
+                avatar_ref=avatar_ref,
             )
         )
     return out
+
+
+@router.get(
+    "/{project_id}/mention-candidates", response_model=list[MentionCandidateOut]
+)
+async def list_mention_candidates(
+    project: Project = Depends(require_project_visible),
+    db: AsyncSession = Depends(get_db),
+):
+    """讨论区 @ 提及候选：项目负责人、启用的平台超管、项目成员，按 user_id 去重。
+
+    顺序固定为 负责人 → 超管 → 成员，前端据此展示「项目负责人 / 超级管理员」标签。
+    """
+    seen: set[uuid.UUID] = set()
+    out: list[MentionCandidateOut] = []
+
+    def add(user_id: uuid.UUID, name: str, email: str | None, kind: str) -> None:
+        if user_id in seen:
+            return
+        seen.add(user_id)
+        out.append(
+            MentionCandidateOut(
+                user_id=user_id, user_name=name, user_email=email, kind=kind
+            )
+        )
+
+    if project.owner_id is not None:
+        owner = (
+            await db.execute(
+                select(User.name, User.email, User.is_active).where(
+                    User.id == project.owner_id
+                )
+            )
+        ).first()
+        if owner is not None and owner.is_active:
+            add(project.owner_id, owner.name, owner.email, "owner")
+
+    super_admins = (
+        await db.execute(
+            select(User.id, User.name, User.email)
+            .where(
+                User.role == UserRole.SUPER_ADMIN.value,
+                User.is_active.is_(True),
+            )
+            .order_by(User.name)
+        )
+    ).all()
+    for user_id, name, email in super_admins:
+        add(user_id, name, email, "super_admin")
+
+    members = (
+        await db.execute(
+            select(ProjectMember, User.name, User.email)
+            .join(User, User.id == ProjectMember.user_id)
+            .where(ProjectMember.project_id == project.id)
+            .order_by(ProjectMember.assigned_at.desc())
+        )
+    ).all()
+    for member, user_name, user_email in members:
+        add(member.user_id, user_name, user_email, "member")
+
+    return out
+
+
+async def _member_out(db: AsyncSession, member: ProjectMember) -> ProjectMemberOut:
+    target = await db.get(User, member.user_id)
+    return ProjectMemberOut(
+        id=member.id,
+        user_id=member.user_id,
+        user_name=target.name if target else "",
+        user_email=target.email if target else "",
+        role=member.role,
+        platform_role=target.role if target else None,
+        version=member.version,
+        assigned_at=member.assigned_at,
+        updated_at=member.updated_at,
+        avatar_ref=target.avatar_ref if target else None,
+    )
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberOut, status_code=201)
@@ -1380,49 +1687,71 @@ async def add_member(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
 ):
-    target = await db.get(User, body.user_id)
-    if target is None or not target.is_active:
-        raise HTTPException(status_code=404, detail="目标用户不存在")
-    expected_roles = {
-        "annotator": UserRole.ANNOTATOR.value,
-        "reviewer": UserRole.REVIEWER.value,
-        "viewer": UserRole.VIEWER.value,
-    }
-    if target.role != expected_roles[body.role]:
-        labels = {"annotator": "标注员", "reviewer": "审核员", "viewer": "观察者"}
-        raise HTTPException(
-            status_code=400,
-            detail=f"目标用户角色不是{labels[body.role]}，项目成员职责必须与全局角色匹配",
-        )
+    member = await add_project_member(
+        db,
+        project=project,
+        actor=current_user,
+        target_user_id=body.user_id,
+        project_role=body.role,
+    )
+    return await _member_out(db, member)
 
-    existing = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project.id,
-            ProjectMember.user_id == body.user_id,
-        )
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="该用户已在项目中")
 
-    member = ProjectMember(
-        id=uuid.uuid4(),
-        project_id=project.id,
-        user_id=body.user_id,
-        role=body.role,
-        assigned_by=current_user.id,
+@router.post(
+    "/{project_id}/members/{member_id}/role/preview",
+    response_model=ProjectMemberRolePreviewOut,
+)
+async def preview_member_role_change(
+    member_id: uuid.UUID,
+    body: ProjectMemberRolePreviewRequest,
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
+):
+    """Read-only role-change preview: blockers, resource snapshot and token."""
+
+    result = await preview_project_member_role_change(
+        db,
+        project=project,
+        actor=current_user,
+        member_id=member_id,
+        target_role=body.project_role,
+        replacement_annotator_id=body.replacement_annotator_id,
+        replacement_reviewer_id=body.replacement_reviewer_id,
     )
-    db.add(member)
-    await db.commit()
-    await db.refresh(member)
-    return ProjectMemberOut(
-        id=member.id,
-        user_id=member.user_id,
-        user_name=target.name,
-        user_email=target.email,
-        role=member.role,
-        assigned_at=member.assigned_at,
+    return ProjectMemberRolePreviewOut(**result)
+
+
+@router.patch(
+    "/{project_id}/members/{member_id}/role",
+    response_model=ProjectMemberOut,
+)
+async def change_member_role(
+    member_id: uuid.UUID,
+    body: ProjectMemberRoleChangeRequest,
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
+):
+    """Role change with expected version, preview token and explicit handoff."""
+
+    member = await change_project_member_role(
+        db,
+        project=project,
+        actor=current_user,
+        member_id=member_id,
+        target_role=body.project_role,
+        expected_version=body.expected_version,
+        preview_token=body.preview_token,
+        reason=body.reason,
+        replacement_annotator_id=body.replacement_annotator_id,
+        replacement_reviewer_id=body.replacement_reviewer_id,
     )
+    return await _member_out(db, member)
 
 
 @router.delete("/{project_id}/members/{member_id}", status_code=204)
@@ -1430,12 +1759,12 @@ async def remove_member(
     member_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
 ):
-    member = await db.get(ProjectMember, member_id)
-    if member is None or member.project_id != project.id:
-        raise HTTPException(status_code=404, detail="成员不存在")
-    await db.delete(member)
-    await db.commit()
+    await remove_project_member(
+        db, project=project, actor=current_user, member_id=member_id
+    )
     return Response(status_code=204)
 
 
@@ -1459,6 +1788,9 @@ async def preflight_project_lidar_export(
     body: LidarExportPreflightRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
+    _access=Depends(
+        require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
+    ),
 ) -> LidarExportPreflightResponse:
     if project.data_type != "lidar":
         raise HTTPException(status_code=422, detail="project is not a lidar project")
@@ -1520,6 +1852,9 @@ async def export_project(
     project: Project = Depends(require_project_visible),
     actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _access=Depends(
+        require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
+    ),
 ):
     # v0.10.27 · 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
     # v0.10.43 · 多目标（方案 B）：一个 job 产一个 zip（>1 目标分子目录）。
@@ -1740,11 +2075,15 @@ class PipelineStage(BaseModel):
 
 class PreannotateRequest(BaseModel):
     ml_backend_id: uuid.UUID | None = None
-    task_ids: list[uuid.UUID] | None = None
+    task_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=200)
     # v0.9.5 · 文本批量预标可选参数
     prompt: str | None = None
     output_mode: Literal["box", "mask", "both"] = "mask"
     batch_id: uuid.UUID | None = None
+    # 执行场景 (issue #121): bulk=数据管理批量预标 (缺省, 保留 pending + active 批次 +
+    # 无有效编辑锁的批量前置条件); workbench=工作台「当前题 AI」单题交互执行, 按当前用户
+    # 对该题的编辑语义校验 (允许 in_progress 任务与 draft 批次, 保留管理员锁 / 他人锁 / 终态保护)。
+    execution_scope: Literal["bulk", "workbench"] = "bulk"
     # v0.10.38 · 按后端参数面板 (epic 阶段 2): 选中 backend 的 /setup.params 值,
     # 由前端按 backend 分桶解析后显式带上, worker 合并进 /predict context (覆盖项目级阈值兜底).
     params: dict | None = None
@@ -2035,6 +2374,130 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
     return warnings
 
 
+async def _validate_preannotate_task_scope(
+    db: AsyncSession,
+    *,
+    project: Project,
+    task_ids: list[uuid.UUID],
+    batch_id: uuid.UUID | None,
+) -> list[uuid.UUID]:
+    """Validate and canonicalize an explicit preannotation task scope."""
+
+    requested = sorted(set(task_ids), key=str)
+    rows = (
+        await db.execute(
+            select(Task, TaskBatch)
+            .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
+            .where(Task.project_id == project.id, Task.id.in_(requested))
+        )
+    ).all()
+    if len(rows) != len(requested):
+        raise HTTPException(
+            status_code=422,
+            detail="task_ids must belong to the selected project",
+        )
+    if batch_id is not None and any(task.batch_id != batch_id for task, _ in rows):
+        raise HTTPException(
+            status_code=422,
+            detail="task_ids must belong to batch_id",
+        )
+    if any(batch is not None and batch.admin_locked for _, batch in rows):
+        raise HTTPException(
+            status_code=409,
+            detail="one or more selected batches are admin-locked",
+        )
+    if any(task.status != "pending" for task, _ in rows):
+        raise HTTPException(
+            status_code=409,
+            detail="explicit preannotation tasks must be pending",
+        )
+    # issue #124 · draft 批次在未分派标注员与质检员时同样可批量预标;
+    # 已分派人员的 draft 与已进入人工流程的批次仍拒绝。
+    if any(
+        batch is not None and not allows_bulk_preannotation(batch) for _, batch in rows
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "explicit preannotation tasks must belong to active or "
+                "unassigned draft batches"
+            ),
+        )
+    from app.services.task_lock import TaskLockService
+
+    lock_service = TaskLockService(db)
+    for task, _ in rows:
+        if await lock_service.active_lock(task.id) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="one or more selected tasks are locked for editing",
+            )
+    return requested
+
+
+# 终态任务: 先撤回 / 重开后再运行; 其它不可编辑状态 (如 uploading) 单独提示。
+_WORKBENCH_AI_TERMINAL_STATUSES = {
+    TaskStatus.REVIEW.value,
+    TaskStatus.COMPLETED.value,
+}
+
+
+async def _validate_workbench_task_scope(
+    db: AsyncSession,
+    *,
+    project: Project,
+    task_ids: list[uuid.UUID],
+    actor: User,
+) -> list[uuid.UUID]:
+    """校验工作台「当前题 AI」的单题执行范围 (issue #121)。
+
+    与数据管理批量路径不同, 交互式执行只针对调用者正在编辑的那道题, 因此允许
+    in_progress 任务与 draft 批次; 任务归属、批次管理员锁、他人编辑锁与终态任务
+    仍然受保护。拒绝原因用中文, 因为工作台面板会原样展示 API detail。
+    """
+
+    requested = sorted(set(task_ids), key=str)
+    if len(requested) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="工作台当前题 AI 一次仅支持一个任务",
+        )
+    row = (
+        await db.execute(
+            select(Task, TaskBatch)
+            .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
+            .where(Task.project_id == project.id, Task.id == requested[0])
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="任务不存在或不属于当前项目")
+    task, batch = row
+    if batch is not None and batch.admin_locked:
+        raise HTTPException(
+            status_code=409,
+            detail="任务所属批次已被管理员锁定，无法运行 AI",
+        )
+    # 白名单而非黑名单: 只有明确可编辑的 pending / in_progress / rejected 放行,
+    # uploading (对象未校验) 与未来新增/非法状态一律拒绝 (issue #121 review)。
+    if task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES:
+        if task.status in _WORKBENCH_AI_TERMINAL_STATUSES:
+            detail = "当前任务已提交审核或已完成，请先撤回或重开后再运行 AI"
+        else:
+            detail = "当前任务尚未就绪，请等待上传完成后再运行 AI"
+        raise HTTPException(status_code=409, detail=detail)
+    from app.services.task_lock import TaskLockService
+
+    # 同一 task 可能存在多行残留锁 (unique 仅在 (task_id, user_id) 上), 必须逐行判断,
+    # 不能只看 active_lock() 的第一行, 否则他人持锁时可能被本人锁掩盖 (issue #121 review)。
+    locks = await TaskLockService(db).active_locks(task.id)
+    if any(lock.user_id != actor.id for lock in locks):
+        raise HTTPException(
+            status_code=409,
+            detail="当前任务正由其他成员编辑，无法运行 AI",
+        )
+    return requested
+
+
 @router.post("/{project_id}/preannotate")
 async def trigger_preannotation(
     body: PreannotateRequest,
@@ -2042,6 +2505,11 @@ async def trigger_preannotation(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Optional durable identity for retrying a scoped preannotation request.",
+    ),
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
@@ -2172,6 +2640,36 @@ async def trigger_preannotation(
                 raise HTTPException(status_code=422, detail=geo_violations[0].detail)
         pipeline_stages_payload = norm
 
+    if body.execution_scope == "workbench":
+        if not body.task_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="工作台当前题 AI 必须指定当前任务",
+            )
+        # 工作台单题语义由任务推导批次, 不接受 batch_id: 否则会落入下方「批次须 active」
+        # 的批量校验 (draft 批次误报 400) 或放行无关 active 批次 (issue #121 review)。
+        if body.batch_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="工作台当前题 AI 不支持指定批次",
+            )
+    explicit_task_ids: list[uuid.UUID] | None = None
+    if body.task_ids:
+        if body.execution_scope == "workbench":
+            explicit_task_ids = await _validate_workbench_task_scope(
+                db,
+                project=project,
+                task_ids=body.task_ids,
+                actor=current_user,
+            )
+        else:
+            explicit_task_ids = await _validate_preannotate_task_scope(
+                db,
+                project=project,
+                task_ids=body.task_ids,
+                batch_id=body.batch_id,
+            )
+
     # v0.9.5 · 指定 batch 时校验归属本项目 + 状态在 active
     total_tasks_hint: int | None = None
     if body.batch_id:
@@ -2183,11 +2681,27 @@ async def trigger_preannotation(
         batch = await db.get(TaskBatch, body.batch_id)
         if not batch or batch.project_id != project.id:
             raise HTTPException(status_code=404, detail="Batch not found")
-        if batch.status != BatchStatus.ACTIVE:
+        # issue #124 · 未分派人员（标注员与质检员）的 draft 批次同样可批量预标,
+        # 让管理员先跑 AI 再分派人工; 已分派 draft / 其它状态仍拒绝。
+        if not allows_bulk_preannotation(batch):
+            if batch.status == BatchStatus.DRAFT:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "draft batch already has an annotator or reviewer "
+                        "assigned; bulk preannotation is only available "
+                        "before assignment"
+                    ),
+                )
             raise HTTPException(
                 status_code=400,
-                detail=f"batch.status must be 'active' to preannotate, got {batch.status!r}",
+                detail=(
+                    "batch.status must be 'active' or an unassigned 'draft' "
+                    f"to preannotate, got {batch.status!r}"
+                ),
             )
+        if batch.admin_locked:
+            raise HTTPException(status_code=409, detail="batch is admin-locked")
         hint_conds = [
             TaskModel.batch_id == body.batch_id,
             TaskModel.status == "pending",
@@ -2223,35 +2737,166 @@ async def trigger_preannotation(
         )
         if src_stage is not None and src_stage.source:
             execution_unit = (src_stage.source or {}).get("execution_unit")
+
+    # 派发前预建持久作业, 让客户端可轮询同一 job、并发重试不会重复入队。
+    # - 数据管理重试可带幂等键 (复用/去重)。
+    # - 工作台单题请求 (无幂等键) 也预建, 使 worker 在派发前的范围复校验失败时
+    #   on_failure 能按 celery_task_id 落一条 failed 作业 (issue #121 review)。
+    from app.services import async_job as async_job_svc
+    from app.services.data_management.actions import (
+        assert_idempotent_request_matches,
+        find_idempotent_job,
+        lock_idempotency_key,
+        normalize_idempotency_key,
+        request_digest as data_manager_request_digest,
+    )
+
+    idempotency_key = normalize_idempotency_key(idempotency_key)
+    precreated_job: AsyncJob | None = None
+    if idempotency_key is not None:
+        canonical_body = body.model_dump(mode="json")
+        canonical_body["task_ids"] = (
+            [str(task_id) for task_id in explicit_task_ids]
+            if explicit_task_ids is not None
+            else None
+        )
+        request_digest_value = data_manager_request_digest(canonical_body)
+        await lock_idempotency_key(
+            db,
+            action="preannotate",
+            project_id=project.id,
+            actor_id=current_user.id,
+            key=idempotency_key,
+        )
+        existing = await find_idempotent_job(
+            db,
+            kind="batch_predict",
+            project_id=project.id,
+            actor_id=current_user.id,
+            key=idempotency_key,
+        )
+        if existing is not None:
+            assert_idempotent_request_matches(existing, digest=request_digest_value)
+            if existing.status != "pending":
+                return {
+                    "job_id": str(existing.id),
+                    "status": existing.status,
+                    "total_tasks": (existing.payload or {}).get("total_tasks"),
+                    "channel": f"project:{project.id}:preannotate",
+                    "celery_task_id": existing.celery_task_id,
+                }
+            # A request may have crashed after committing this pending row but
+            # before publishing to Celery. Reuse the row and safely republish;
+            # the worker's row lock makes a duplicate delivery a no-op.
+            precreated_job = existing
+        else:
+            scoped_ids = (
+                [str(task_id) for task_id in explicit_task_ids]
+                if explicit_task_ids is not None
+                else None
+            )
+            precreated_payload: dict = {
+                "batch_id": str(body.batch_id) if body.batch_id else None,
+                "ml_backend_id": str(source_backend_id),
+                "total_tasks": (
+                    len(scoped_ids) if scoped_ids is not None else total_tasks_hint
+                ),
+                "project_display_id": project.display_id,
+                "project_name": project.name,
+                "data_manager_idempotency_key": idempotency_key,
+                "data_manager_request_digest": request_digest_value,
+            }
+            if scoped_ids is not None:
+                precreated_payload["scope"] = {"task_ids": scoped_ids}
+                precreated_payload["task_ids"] = scoped_ids
+            precreated_job = await async_job_svc.create_job(
+                db,
+                kind="batch_predict",
+                user_id=current_user.id,
+                project_id=project.id,
+                payload=precreated_payload,
+            )
+        # Use the durable async job id as the Celery task id. The failure hook
+        # can therefore resolve a job even if the worker fails before the API
+        # request reaches its post-dispatch commit.
+        precreated_job.celery_task_id = str(precreated_job.id)
+        await db.commit()
+    elif body.execution_scope == "workbench" and explicit_task_ids is not None:
+        # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
+        # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
+        # 工作台面板不会因找不到终态记录而无限轮询。
+        scoped_ids = [str(task_id) for task_id in explicit_task_ids]
+        precreated_job = await async_job_svc.create_job(
+            db,
+            kind="batch_predict",
+            user_id=current_user.id,
+            project_id=project.id,
+            payload={
+                "batch_id": None,
+                "ml_backend_id": str(source_backend_id),
+                "total_tasks": len(scoped_ids),
+                "project_display_id": project.display_id,
+                "project_name": project.name,
+                "scope": {"task_ids": scoped_ids},
+                "task_ids": scoped_ids,
+            },
+        )
+        precreated_job.celery_task_id = str(precreated_job.id)
+        await db.commit()
+
     apply_opts: dict = {"queue": queue}
     if has_tracker_stage:
         apply_opts["soft_time_limit"] = settings.tracker_soft_time_limit_seconds
-    job = batch_predict.apply_async(
-        args=[
-            str(project.id),
-            str(source_backend_id),
-            [str(tid) for tid in body.task_ids] if body.task_ids else None,
-        ],
-        kwargs={
-            "prompt": body.prompt,
-            "output_mode": body.output_mode,
-            "batch_id": str(body.batch_id) if body.batch_id else None,
-            "user_id": str(current_user.id),
-            "params": body.params or None,
-            "predict_mode": body.predict_mode,
-            # v0.14.9 · 协议 v2: 多模型路由 + task 别名透传到 /predict context
-            "model_id": body.model_id,
-            "task_type": body.task_type,
-            # v0.14.17 · 协议 v2 结构化 variant 路径 (YOLO) + 类别白名单
-            "model_variants": body.model_variants,
-            "class_filter": body.class_filter,
-            # v0.18.1 · 多阶段预标注: 非空时 worker 走阶段化编排 (detect→ROI→classify)
-            "pipeline_stages": pipeline_stages_payload,
-            # v0.21.7 · 执行单位 (video/frame/scene): frame → 逐帧 fan-out。缺省=整段/逐题。
-            "execution_unit": execution_unit,
-        },
-        **apply_opts,
-    )
+    if precreated_job is not None:
+        apply_opts["task_id"] = str(precreated_job.id)
+    try:
+        job = batch_predict.apply_async(
+            args=[
+                str(project.id),
+                str(source_backend_id),
+                [str(tid) for tid in explicit_task_ids] if explicit_task_ids else None,
+            ],
+            kwargs={
+                "prompt": body.prompt,
+                "output_mode": body.output_mode,
+                "batch_id": str(body.batch_id) if body.batch_id else None,
+                "user_id": str(current_user.id),
+                "params": body.params or None,
+                "predict_mode": body.predict_mode,
+                # v0.14.9 · 协议 v2: 多模型路由 + task 别名透传到 /predict context
+                "model_id": body.model_id,
+                "task_type": body.task_type,
+                # v0.14.17 · 协议 v2 结构化 variant 路径 (YOLO) + 类别白名单
+                "model_variants": body.model_variants,
+                "class_filter": body.class_filter,
+                # v0.18.1 · 多阶段预标注: 非空时 worker 走阶段化编排 (detect→ROI→classify)
+                "pipeline_stages": pipeline_stages_payload,
+                # v0.21.7 · 执行单位 (video/frame/scene): frame → 逐帧 fan-out。缺省=整段/逐题。
+                "execution_unit": execution_unit,
+                # issue #121 · 执行场景透传 worker: workbench 单题允许 in_progress / draft,
+                # bulk 保持 pending + active 批次前置条件。
+                "execution_scope": body.execution_scope,
+                **(
+                    {"async_job_id": str(precreated_job.id)}
+                    if precreated_job is not None
+                    else {}
+                ),
+            },
+            **apply_opts,
+        )
+    except Exception as exc:
+        if precreated_job is not None:
+            await async_job_svc.mark_failed(
+                db,
+                precreated_job.id,
+                error=f"dispatch failed: {type(exc).__name__}: {exc}",
+            )
+            await db.commit()
+        raise
+    if precreated_job is not None:
+        # ``task_id`` above is the durable async job id; keep that identity even
+        # if a test broker returns a different result wrapper id.
+        precreated_job.celery_task_id = str(precreated_job.id)
     # B-5 · AI 预标注触发审计 — 让超管在 /audit 看到 谁/何时/对哪个 batch 跑了 AI
     await AuditService.log(
         db,
@@ -2262,10 +2907,12 @@ async def trigger_preannotation(
         request=request,
         status_code=200,
         detail={
-            "job_id": job.id,
+            "job_id": str(precreated_job.id) if precreated_job else job.id,
             "ml_backend_id": str(source_backend_id),
             "batch_id": str(body.batch_id) if body.batch_id else None,
-            "task_count": len(body.task_ids) if body.task_ids else total_tasks_hint,
+            "task_count": (
+                len(explicit_task_ids) if explicit_task_ids else total_tasks_hint
+            ),
             "prompt": (body.prompt or "")[:200],
             # output_mode 仅文本 prompt 路径生效; 几何路径不读它, 留 None 免误导 (与 job payload 一致)
             "output_mode": body.output_mode if body.prompt else None,
@@ -2289,10 +2936,11 @@ async def trigger_preannotation(
         warnings.append(msg)
         logger.warning("[ai-pre] %s", msg)
     return {
-        "job_id": job.id,
+        "job_id": str(precreated_job.id) if precreated_job else job.id,
         "status": "queued",
         "total_tasks": total_tasks_hint,
         "channel": f"project:{project.id}:preannotate",
+        **({"celery_task_id": job.id} if precreated_job else {}),
         "warnings": warnings,
     }
 

@@ -9,7 +9,7 @@ async function prepare(
   seed: SeedAPI,
   content = "原有规则",
 ) {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
   const url = `${API}/projects/${data.project_id}`;
   expect((await request.patch(url, { headers, data: { annotation_guide: content } })).ok()).toBe(

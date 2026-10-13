@@ -7,10 +7,10 @@ from app.config import Settings, settings
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.raster_mask_storage import build_rle_reference
+from tests.factory import create_membership
 
 
 FOREGROUND_RLE = {
@@ -70,13 +70,12 @@ async def _seed_image_mask(
     db.add(project)
     await db.flush()
     if user_id != owner_id:
-        db.add(
-            ProjectMember(
-                project_id=project.id,
-                user_id=user_id,
-                role="annotator",
-                assigned_by=owner_id,
-            )
+        await create_membership(
+            db,
+            project_id=project.id,
+            user_id=user_id,
+            role="annotator",
+            assigned_by=owner_id,
         )
     batch = None
     if batch_annotator_id is not None:
@@ -118,7 +117,7 @@ async def _seed_image_mask(
 
 
 async def test_image_mask_content_upload_checks_write_gate_before_storage(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     task, _annotation = await _seed_image_mask(
@@ -134,7 +133,7 @@ async def test_image_mask_content_upload_checks_write_gate_before_storage(
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle", store)
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/mask-content",
         json=FOREGROUND_RLE,
         headers=_headers(token),
@@ -169,7 +168,7 @@ def test_static_mask_openapi_has_typed_payload_and_304():
 
 
 async def test_static_mask_get_supports_etag_and_frame_alias(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     _task, annotation = await _seed_image_mask(
@@ -180,7 +179,7 @@ async def test_static_mask_get_supports_etag_and_frame_alias(
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     await db_session.commit()
 
-    first = await httpx_client_bound.get(
+    first = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content",
         headers=_headers(token),
     )
@@ -189,11 +188,11 @@ async def test_static_mask_get_supports_etag_and_frame_alias(
     assert first.headers["cache-control"] == "private, no-cache"
     etag = first.headers["etag"]
 
-    cached = await httpx_client_bound.get(
+    cached = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content",
         headers=_headers(token, **{"If-None-Match": f"W/{etag}"}),
     )
-    alias = await httpx_client_bound.get(
+    alias = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content/99",
         headers=_headers(token, **{"If-None-Match": etag}),
     )
@@ -211,7 +210,7 @@ async def test_static_mask_get_supports_etag_and_frame_alias(
     load.return_value = EMPTY_RLE
     await db_session.commit()
     for suffix in ("", "/99"):
-        changed = await httpx_client_bound.get(
+        changed = await httpx_client.get(
             f"/api/v1/annotations/{annotation.id}/mask-content{suffix}",
             headers=_headers(token, **{"If-None-Match": etag}),
         )
@@ -222,7 +221,7 @@ async def test_static_mask_get_supports_etag_and_frame_alias(
 
 
 async def test_single_frame_video_mask_get_is_bound_to_its_frame(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -246,15 +245,15 @@ async def test_single_frame_video_mask_get_is_bound_to_its_frame(
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     await db_session.commit()
 
-    static = await httpx_client_bound.get(
+    static = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content",
         headers=_headers(token),
     )
-    exact = await httpx_client_bound.get(
+    exact = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content/4",
         headers=_headers(token),
     )
-    outside = await httpx_client_bound.get(
+    outside = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content/5",
         headers=_headers(token),
     )
@@ -267,7 +266,7 @@ async def test_single_frame_video_mask_get_is_bound_to_its_frame(
 
 
 async def test_static_mask_get_returns_retryable_structured_corruption(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     _task, annotation = await _seed_image_mask(
@@ -279,7 +278,7 @@ async def test_static_mask_get_returns_retryable_structured_corruption(
     )
     await db_session.commit()
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content",
         headers=_headers(token),
     )
@@ -293,7 +292,7 @@ async def test_static_mask_get_returns_retryable_structured_corruption(
 
 
 async def test_static_mask_get_returns_structured_storage_unavailable(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     _task, annotation = await _seed_image_mask(
@@ -305,7 +304,7 @@ async def test_static_mask_get_returns_structured_storage_unavailable(
     )
     await db_session.commit()
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content",
         headers=_headers(token),
     )
@@ -319,7 +318,7 @@ async def test_static_mask_get_returns_structured_storage_unavailable(
 
 
 async def test_mask_get_enforces_task_assignment(
-    httpx_client_bound, db_session, super_admin, annotator, monkeypatch
+    httpx_client, db_session, super_admin, annotator, monkeypatch
 ):
     owner, _ = super_admin
     user, token = annotator
@@ -334,7 +333,7 @@ async def test_mask_get_enforces_task_assignment(
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     await db_session.commit()
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content",
         headers=_headers(token),
     )
@@ -343,7 +342,7 @@ async def test_mask_get_enforces_task_assignment(
 
 
 async def test_raster_mask_read_flag_fails_closed(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     _task, annotation = await _seed_image_mask(
@@ -354,7 +353,7 @@ async def test_raster_mask_read_flag_fails_closed(
     monkeypatch.setattr(settings, "raster_mask_read_enabled", False)
     await db_session.commit()
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/annotations/{annotation.id}/mask-content",
         headers=_headers(token),
     )
@@ -364,7 +363,7 @@ async def test_raster_mask_read_flag_fails_closed(
 
 
 async def test_raster_mask_create_flag_blocks_post_and_patch(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -379,12 +378,12 @@ async def test_raster_mask_create_flag_blocks_post_and_patch(
         "geometry": annotation.geometry,
     }
 
-    created = await httpx_client_bound.post(
+    created = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",
         json=payload,
         headers=_headers(token),
     )
-    patched = await httpx_client_bound.patch(
+    patched = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         json={"geometry": annotation.geometry},
         headers=_headers(token, **{"If-Match": 'W/"1"'}),
@@ -396,7 +395,7 @@ async def test_raster_mask_create_flag_blocks_post_and_patch(
 
 
 async def test_raster_mask_write_maps_size_and_empty_foreground_errors(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -411,7 +410,7 @@ async def test_raster_mask_write_maps_size_and_empty_foreground_errors(
         **annotation.geometry,
         "mask": {**annotation.geometry["mask"], "size": [3, 2]},
     }
-    mismatch = await httpx_client_bound.post(
+    mismatch = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",
         json={
             "annotation_type": "raster_mask",
@@ -421,7 +420,7 @@ async def test_raster_mask_write_maps_size_and_empty_foreground_errors(
         },
         headers=_headers(token),
     )
-    empty = await httpx_client_bound.post(
+    empty = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",
         json={
             "annotation_type": "raster_mask",
@@ -438,7 +437,7 @@ async def test_raster_mask_write_maps_size_and_empty_foreground_errors(
 
 
 async def test_raster_mask_replacement_requires_if_match(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -447,7 +446,7 @@ async def test_raster_mask_replacement_requires_if_match(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    response = await httpx_client_bound.patch(
+    response = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         json={"geometry": annotation.geometry},
         headers=_headers(token),
@@ -458,7 +457,7 @@ async def test_raster_mask_replacement_requires_if_match(
 
 
 async def test_invalid_mask_type_transition_rejects_before_storage_io(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -471,7 +470,7 @@ async def test_invalid_mask_type_transition_rejects_before_storage_io(
     )
     await db_session.commit()
 
-    response = await httpx_client_bound.patch(
+    response = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         json={
             "geometry": {
@@ -493,7 +492,7 @@ async def test_invalid_mask_type_transition_rejects_before_storage_io(
 
 
 async def test_locked_annotation_rejects_geometry_patch(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -503,7 +502,7 @@ async def test_locked_annotation_rejects_geometry_patch(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    response = await httpx_client_bound.patch(
+    response = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         json={"geometry": annotation.geometry},
         headers=_headers(token, **{"If-Match": 'W/"1"'}),
@@ -513,9 +512,7 @@ async def test_locked_annotation_rejects_geometry_patch(
     assert response.json()["detail"]["reason"] == "annotation_locked"
 
 
-async def test_locked_annotation_rejects_delete(
-    httpx_client_bound, db_session, super_admin
-):
+async def test_locked_annotation_rejects_delete(httpx_client, db_session, super_admin):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
         db_session, owner_id=user.id, user_id=user.id
@@ -523,7 +520,7 @@ async def test_locked_annotation_rejects_delete(
     annotation.is_locked = True
     await db_session.commit()
 
-    response = await httpx_client_bound.delete(
+    response = await httpx_client.delete(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         headers=_headers(token),
     )
@@ -535,7 +532,7 @@ async def test_locked_annotation_rejects_delete(
 
 
 async def test_raster_mask_to_polygon_syncs_type_and_allows_gate_off(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -544,7 +541,7 @@ async def test_raster_mask_to_polygon_syncs_type_and_allows_gate_off(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", False)
     await db_session.commit()
 
-    response = await httpx_client_bound.patch(
+    response = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         json={
             "geometry": {
@@ -562,7 +559,7 @@ async def test_raster_mask_to_polygon_syncs_type_and_allows_gate_off(
 
 
 async def test_polygon_to_raster_syncs_type_and_rejects_stale_version(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, annotation = await _seed_image_mask(
@@ -580,7 +577,7 @@ async def test_polygon_to_raster_syncs_type_and_rejects_stale_version(
     await db_session.refresh(annotation)
     current_version = annotation.version
 
-    stale = await httpx_client_bound.patch(
+    stale = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         json={
             "geometry": {
@@ -590,7 +587,7 @@ async def test_polygon_to_raster_syncs_type_and_rejects_stale_version(
         },
         headers=_headers(token, **{"If-Match": f'W/"{current_version - 1}"'}),
     )
-    converted = await httpx_client_bound.patch(
+    converted = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{annotation.id}",
         json={
             "geometry": {

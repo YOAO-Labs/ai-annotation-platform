@@ -41,6 +41,9 @@ async def _reconcile_async() -> dict:
     async with task_session() as db:
         result = await run_reconcile(db)
         await db.commit()
+        pending = result.pop("pending_notifications", [])
+        if pending:
+            await NotificationService(db).publish_committed(pending)
     return result
 
 
@@ -48,10 +51,12 @@ async def run_reconcile(db: AsyncSession) -> dict:
     """对账 + 告警核心逻辑（不管理 session 生命周期，便于单测注入 db）。
 
     drift>0 时写 audit_logs + notify 所有 superadmin；flush 但不 commit（由调用方
-    决定 commit/rollback）。返回 {total_missing, drift}。
+    决定 commit/rollback）。返回 {total_missing, drift, pending_notifications}；
+    通知行在调用方 commit 后经 publish_committed 发布。
     """
     drift = await compute_feedback_drift(db)
     total_missing = sum(len(v["missing_ids"]) for v in drift.values())
+    pending_notifications: list = []
 
     if total_missing > 0:
         await AuditService.log(
@@ -70,8 +75,9 @@ async def run_reconcile(db: AsyncSession) -> dict:
             .scalars()
             .all()
         )
+        pending_notifications = []
         if superadmin_ids:
-            await NotificationService(db).notify_many(
+            pending_notifications = await NotificationService(db).notify_many(
                 user_ids=superadmin_ids,
                 type="feedback.reconcile_drift",
                 target_type="feedback_reconcile",
@@ -91,4 +97,8 @@ async def run_reconcile(db: AsyncSession) -> dict:
     else:
         log.info("reconcile_annotation_feedback: drift=0 (consistent) %s", drift)
 
-    return {"total_missing": total_missing, "drift": drift}
+    return {
+        "total_missing": total_missing,
+        "drift": drift,
+        "pending_notifications": pending_notifications,
+    }

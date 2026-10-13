@@ -8,6 +8,7 @@ from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.display_id import next_display_id
+from tests.factory import build_tool_bindings
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -16,7 +17,7 @@ def _bearer(token: str) -> dict[str, str]:
 
 @pytest.mark.asyncio
 async def test_predictions_include_original_shape_index_after_confidence_filter(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
 ):
@@ -28,11 +29,9 @@ async def test_predictions_include_original_shape_index_after_confidence_filter(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner.id,
-        classes=["商品", "价签"],
-        classes_config={
-            "商品": {"alias": "person"},
-            "价签": {"alias": "car"},
-        },
+        tool_bindings=build_tool_bindings(
+            [{"name": "商品", "alias": "person"}, {"name": "价签", "alias": "car"}]
+        ),
     )
     db_session.add(project)
     await db_session.flush()
@@ -95,7 +94,7 @@ async def test_predictions_include_original_shape_index_after_confidence_filter(
     db_session.add(prediction)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/predictions?min_confidence=0.5",
         headers=_bearer(token),
     )
@@ -108,7 +107,7 @@ async def test_predictions_include_original_shape_index_after_confidence_filter(
 
 @pytest.mark.asyncio
 async def test_predictions_expose_source_for_ml_and_external_import(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
 ):
@@ -120,7 +119,7 @@ async def test_predictions_expose_source_for_ml_and_external_import(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db_session.add(project)
     await db_session.flush()
@@ -173,7 +172,7 @@ async def test_predictions_expose_source_for_ml_and_external_import(
     db_session.add_all([ml_prediction, imported_prediction])
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/predictions",
         headers=_bearer(token),
     )

@@ -12,6 +12,7 @@ from app.config import settings
 from app.core.ratelimit import limiter
 from app.deps import get_db, get_current_user, require_roles
 from app.db.enums import UserRole
+from app.db.models.notification import Notification
 from app.db.models.user import User
 from app.schemas.bug_report import (
     BugReportCreate,
@@ -303,12 +304,13 @@ async def update_bug_report(
         status_code=200,
         detail={"display_id": report.display_id, "new_status": report.status},
     )
+    pending_notifications = []
     if (
         new_status
         and new_status != old_status
         and current_user.id != report.reporter_id
     ):
-        await NotificationService(db).notify(
+        pending_notifications = await NotificationService(db).notify(
             user_id=report.reporter_id,
             type="bug_report.status_changed",
             target_type="bug_report",
@@ -323,6 +325,8 @@ async def update_bug_report(
             },
         )
     await db.commit()
+    if pending_notifications:
+        await NotificationService(db).publish_committed([pending_notifications])
     await db.refresh(report)
     return report
 
@@ -431,9 +435,10 @@ async def add_bug_comment(
             },
         )
 
-    # Notification fan-out
+    # Notification fan-out (published after the commit below)
     notif_svc = NotificationService(db)
     snippet = data.body[:120]
+    pending_notifications: list[Notification] = []
     if current_user.id == report.reporter_id:
         # 提交者评论 → 通知 assignee；若没有则通知所有 SUPER_ADMIN
         recipient_ids: list[uuid.UUID] = []
@@ -448,7 +453,7 @@ async def add_bug_comment(
             recipient_ids = [r[0] for r in admin_rows.all()]
         recipient_ids = [uid for uid in recipient_ids if uid != current_user.id]
         if recipient_ids:
-            await notif_svc.notify_many(
+            pending_notifications = await notif_svc.notify_many(
                 user_ids=recipient_ids,
                 type="bug_report.reopened" if was_reopened else "bug_report.commented",
                 target_type="bug_report",
@@ -466,7 +471,7 @@ async def add_bug_comment(
     else:
         # 管理员评论 → 通知 reporter
         if report.reporter_id != current_user.id:
-            await notif_svc.notify(
+            row = await notif_svc.notify(
                 user_id=report.reporter_id,
                 type="bug_report.commented",
                 target_type="bug_report",
@@ -480,8 +485,12 @@ async def add_bug_comment(
                     "reopen": False,
                 },
             )
+            if row is not None:
+                pending_notifications = [row]
 
     await db.commit()
+    if pending_notifications:
+        await NotificationService(db).publish_committed(pending_notifications)
     await db.refresh(comment)
     return BugCommentOut(
         id=comment.id,

@@ -1,4 +1,4 @@
-"""v0.9.14 · predictor mask 多连通域 / 空洞输出 shape 单测。
+"""predictor mask 多连通域 / 空洞输出 shape 单测。
 
 不加载 GPU, mock SAM mask → 验 _rings_to_polygon_label 智能选择三种字面:
 - 单连通无 hole → {points, polygonlabels}
@@ -66,7 +66,7 @@ def _two_circles(size: int = 256) -> np.ndarray:
 
 
 def test_single_connected_no_hole_emits_legacy_shape(predictor):
-    """单连通无 hole → 字面与 v0.9.13 之前 100% 一致 (无 holes / polygons 字段)."""
+    """单连通无 hole → 保持既有字面 (无 holes / polygons 字段)."""
     mask = _solid_circle(size=256, r=60)
     out = predictor._masks_to_results(
         mask[None, ...], np.array([0.9]), 256, 256, simplify_tolerance=1.0

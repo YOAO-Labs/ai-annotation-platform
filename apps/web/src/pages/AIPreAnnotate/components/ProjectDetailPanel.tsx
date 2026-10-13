@@ -33,6 +33,7 @@ import {
   type PipelineSource,
 } from "@/hooks/usePreannotation";
 import { useAsyncJob } from "@/hooks/useAsyncJob";
+import { batchPreannotationEligible } from "@/utils/batchPreannotation";
 import type { PreannotateArgs } from "./usePreannotateConfig";
 import { adminPreannotateApi } from "@/api/adminPreannotate";
 import type { ProjectPipeline, ProjectPipelineScope } from "@/api/projectPipelines";
@@ -280,13 +281,22 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
   // v0.18.6 · 运行态实时化: 订阅项目预标 WS, 拿 worker 跑批中途推的逐阶段累加快照。
   const { progress: liveProgress } = usePreannotationProgress(projectId);
 
-  const batchesQ = useBatches(projectId, "active");
-  const batches = (batchesQ.data ?? []) as unknown as Array<{
-    id: string;
-    display_id: string;
-    name: string;
-    total_tasks?: number | null;
-  }>;
+  // issue #124 · 可预标批次 = active 批次 + 未分派标注员与质检员的 draft 批次,
+  // 让管理员先跑 AI 再分派人工。准入规则与后端同源 (batchPreannotationEligible),
+  // 前端仅负责入口展示, 提交时后端仍会复校验。
+  // 查询限定 active,draft, 不再拉取 approved/rejected/archived 全量历史。
+  const batchesQ = useBatches(projectId, "active,draft");
+  const batches = (
+    (batchesQ.data ?? []) as unknown as Array<{
+      id: string;
+      display_id: string;
+      name: string;
+      status: string;
+      annotator_id?: string | null;
+      reviewer_id?: string | null;
+      total_tasks?: number | null;
+    }>
+  ).filter(batchPreannotationEligible);
 
   // pre_annotated 队列 (复用 /admin/preannotate-queue 端点 + 客户端按 project 过滤)
   const queueQ = useQuery({
@@ -763,7 +773,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
                 type="checkbox"
                 checked={allSelected}
                 onChange={toggleAll}
-                aria-label="全选 active"
+                aria-label="全选可预标批次"
               />
               全选
             </label>
@@ -774,7 +784,8 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
             <div className={styles.mutedText}>加载中…</div>
           ) : batches.length === 0 ? (
             <div className={styles.mutedText}>
-              暂无 active 批次。在项目设置中创建批次后再回到这里跑预标。
+              暂无可预标批次（active 批次，或未分派标注员与质检员的 draft
+              批次）。在项目设置中创建批次后再回到这里跑预标。
             </div>
           ) : (
             <ul className={styles.batchList}>
@@ -797,6 +808,13 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
                   <span className={styles.batchName}>
                     {b.name} <span className={styles.subtleText}>({b.display_id})</span>
                   </span>
+                  {/* issue #124 · 未分派人员的 draft 批次也可预标; 标注状态提醒管理员
+                      该批尚未激活, 跑完 AI 后仍需分派人员并激活才进入人工流程。 */}
+                  {b.status === "draft" && (
+                    <Badge variant="default" dot>
+                      草稿·未分派
+                    </Badge>
+                  )}
                   <span className={styles.taskCount}>{b.total_tasks ?? "—"} 任务</span>
                 </li>
               ))}

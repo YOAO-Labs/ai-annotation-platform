@@ -157,5 +157,5 @@ immutable base cache 同时服务 packed CPU 与 WebGPU；关闭 gate 后它仍�
 
 - [标注模块](../concepts/annotation-module)
 - [环境变量](../reference/env-vars)
-- [ADR-0056](/dev/adr/0056-raster-mask-persistent-client-compute-session)
-- [ADR-0061](/dev/adr/0061-raster-mask-packed-cpu-fallback-and-webgpu-circuit)
+- [ADR-0056](/dev/adr/archive/0056-raster-mask-persistent-client-compute-session)
+- [ADR-0061](/dev/adr/archive/0061-raster-mask-packed-cpu-fallback-and-webgpu-circuit)

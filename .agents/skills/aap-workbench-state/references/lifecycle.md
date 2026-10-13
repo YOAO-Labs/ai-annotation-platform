@@ -12,6 +12,10 @@
 ## Editing and playback
 
 - Trace keyboard, buttons, camera edits, numeric inputs, and propagation through the shared write guards. Disabled visible controls do not protect alternate entry points.
+- Task navigation is latest-wins. Keep the scheduler abort signal and recheck it after every asynchronous leave guard before committing URL/task state.
+- Native Mask mutations snapshot task/frame/tool/selection/generation and annotation version before submission. Recheck ownership after awaits; conflicts and network failures preserve the current draft for retry, while a late refresh must not repaint a retired session.
+- Video Mask correction owns its captured annotation/frame/session/segment and single-flight save. Context drift rejects the commit rather than applying it to the newly selected object.
+- Tracker seed collection owns the propagation dialog lifecycle. Opening a new propagation flow clears the previous brush range through the existing chapter-domain command; closing, switching task, or retiring the job clears only that flow's seed state. Do not duplicate these states in the shell model.
 - Keep pending/invalid/saving/error states meaningful. Invalid input must cancel an older scheduled commit; task-lock responses and releases must not leak across tasks.
 - Opening settings should pause video without snapping to a different frame when frame/draft stability is required. Inspect the existing playback controller's `snapToGrid` option.
 - Scene playback waits for the intended frame to be ready. During task resolution, a temporary null task is not necessarily a terminal failure. Retain timeout and failure handling.

@@ -59,7 +59,7 @@ def test_batch_predict_request_round_trip() -> None:
     assert req.context.params.conf == 0.4
 
 
-# ── v0.18.21 · 开集文本路径 (平台扁平 wire: type=text + model_variants + 顶层 conf) ──
+# ── 开集文本路径 (平台扁平 wire: type=text + model_variants + 顶层 conf) ──
 
 
 def test_context_text_path_flat_wire() -> None:
@@ -99,12 +99,12 @@ def test_context_text_accepts_yoloe_series() -> None:
     assert ctx.variants.series == "yoloe-11"
     # 无顶层 conf → 走默认.
     assert ctx.params.conf == 0.25
-    # output 缺省 → box (v0.18.21 检测态默认).
+    # output 缺省 → box (检测态默认).
     assert ctx.output == "box"
 
 
 def test_context_text_segment_output_mask() -> None:
-    """v0.18.22 · segment-yoloe 文本分割: output=mask 透传 (后端据此取 polygon)."""
+    """segment-yoloe 文本分割: output=mask 透传 (后端据此取 polygon)."""
     ctx = Context.model_validate(
         {
             "type": "text",
@@ -131,7 +131,7 @@ def test_context_text_output_rejects_unknown() -> None:
         )
 
 
-# ── v0.18.23 · exemplar 视觉提示路径 (平台交互 wire: 单数 task + type=exemplar) ──
+# ── exemplar 视觉提示路径 (平台交互 wire: 单数 task + type=exemplar) ──
 
 
 def test_context_exemplar_path() -> None:
@@ -158,7 +158,7 @@ def test_context_exemplar_path() -> None:
 
 
 def test_exemplar_defaults_variant_when_absent() -> None:
-    """v0.18.23 · 工作台 exemplar 拖框可能不带 model_variants (无变体选择器);
+    """工作台 exemplar 拖框可能不带 model_variants (无变体选择器);
     缺省回落 yoloe 默认档 (yoloe-11/s), 避免 variants 必填校验 422/502。"""
     ctx = Context.model_validate(
         {

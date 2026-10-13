@@ -357,7 +357,7 @@ async def test_unlink_cascades_legacy_default_batch(
 
 
 @pytest.mark.asyncio
-async def test_unclassified_count_endpoint(httpx_client_bound, db_session, super_admin):
+async def test_unclassified_count_endpoint(httpx_client, db_session, super_admin):
     """v0.7.3：未归类任务计数端点 — 给 BatchesSection 顶部横带用。"""
     user, token = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=5)
@@ -366,7 +366,7 @@ async def test_unclassified_count_endpoint(httpx_client_bound, db_session, super
     await svc.link_project(ds.id, project.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/projects/{project.id}/batches/unclassified-count",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -375,7 +375,7 @@ async def test_unclassified_count_endpoint(httpx_client_bound, db_session, super
 
 
 @pytest.mark.asyncio
-async def test_project_datasets_endpoint(httpx_client_bound, db_session, super_admin):
+async def test_project_datasets_endpoint(httpx_client, db_session, super_admin):
     """v0.7.3：项目侧 GET /projects/{id}/datasets — 列出已关联 dataset，含 task 数。"""
     user, token = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=3)
@@ -386,7 +386,7 @@ async def test_project_datasets_endpoint(httpx_client_bound, db_session, super_a
     await svc.link_project(ds.id, project.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/projects/{project.id}/datasets",
         headers={"Authorization": f"Bearer {token}"},
     )

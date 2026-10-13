@@ -8,6 +8,8 @@ import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/shadcn/ui/input";
 import { Captcha } from "@/components/Captcha";
 import { ApiError } from "@/api/client";
+import { defaultHomePath, sanitizeLoginRedirect, clearProactiveLogout } from "@/utils/authRedirect";
+import type { UserRole } from "@/types";
 
 // v0.9.3 · 与后端 settings.login_captcha_threshold 同值；前端阈值仅做"何时渲染 Captcha"判断
 const CAPTCHA_THRESHOLD = 5;
@@ -17,11 +19,15 @@ export function LoginPage() {
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
   const requestedNext = new URLSearchParams(location.search).get("next");
+  // Issue #123 · 返回目标排除 /unauthorized 等错误页,无效目标回落角色默认首页,
+  // 避免换账号登录后被带回上一个会话的拒绝提示页。MeResponse.role 为 string,
+  // 与 usePermissions 一致按 UserRole 收窄。
   const from =
-    requestedNext?.startsWith("/") && !requestedNext.startsWith("//")
-      ? requestedNext
-      : ((location.state as { from?: { pathname?: string } } | null)?.from?.pathname ??
-        "/dashboard");
+    sanitizeLoginRedirect(requestedNext) ??
+    sanitizeLoginRedirect(
+      (location.state as { from?: { pathname?: string } } | null)?.from?.pathname,
+    ) ??
+    defaultHomePath((user?.role ?? undefined) as UserRole | undefined);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
@@ -33,6 +39,13 @@ export function LoginPage() {
   const login = useLogin();
   const regStatus = useRegistrationStatus();
   const resend = useResendVerification();
+
+  useEffect(() => {
+    // Issue #123 · 登录页挂载即结束"主动退出"标记窗口:此后未登录直接打开业务
+    // 链接时,RequireAuth 仍正常携带 from。挂载时机在退出跳转的 <Navigate>
+    // 全部结束后,不会提前放行带 from 的覆盖跳转。
+    clearProactiveLogout();
+  }, []);
 
   useEffect(() => {
     if (login.isError) {

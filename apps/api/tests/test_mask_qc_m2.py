@@ -11,7 +11,6 @@ from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.schemas.mask_qc import MaskQCConfig, MaskQCRunRequest
@@ -28,6 +27,7 @@ from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.workers.mask_qc import _execute_scan
 from app.workers.cleanup import _referenced_raster_mask_keys
+from tests.factory import create_membership
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -47,8 +47,13 @@ async def _seed_mask(
     owner_id: uuid.UUID,
     config: MaskQCConfig | None = None,
     status: str = "in_progress",
+    annotator_id: uuid.UUID | None = None,
 ) -> tuple[Project, Task, Annotation, dict]:
     suffix = uuid.uuid4().hex[:8]
+    # The annotation author/effective annotator defaults to the owner; callers
+    # testing a manager review pass a distinct literal annotator so the frozen
+    # round evidence never names the reviewing actor.
+    worker_id = annotator_id or owner_id
     project = Project(
         display_id=f"P-QC-{suffix}",
         name=f"Mask QC {suffix}",
@@ -66,6 +71,14 @@ async def _seed_mask(
     )
     db.add(project)
     await db.flush()
+    evidence: dict = {}
+    if status == "review":
+        evidence = {
+            "annotation_contributor_ids": [str(worker_id)],
+            "review_contributor_ids": [str(worker_id)],
+            "review_submitter_id": worker_id,
+            "review_round_id": uuid.uuid4(),
+        }
     task = Task(
         project_id=project.id,
         display_id=f"T-QC-{suffix}",
@@ -73,7 +86,8 @@ async def _seed_mask(
         file_path="/tmp/mask.png",
         file_type="image",
         status=status,
-        assignee_id=owner_id,
+        assignee_id=worker_id,
+        **evidence,
     )
     db.add(task)
     await db.flush()
@@ -93,7 +107,7 @@ async def _seed_mask(
     annotation = Annotation(
         task_id=task.id,
         project_id=project.id,
-        user_id=owner_id,
+        user_id=worker_id,
         source="manual",
         annotation_type="mask",
         tool_unit_id="region",
@@ -374,13 +388,12 @@ async def test_mask_qc_project_issue_list_hides_invisible_tasks_from_reviewer(
     project, visible_task, annotation, _rle_payload = await _seed_mask(
         db_session, owner_id=owner.id
     )
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=review_user.id,
-            role="reviewer",
-            assigned_by=owner.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=review_user.id,
+        role="reviewer",
+        assigned_by=owner.id,
     )
     batch = TaskBatch(
         project_id=project.id,
@@ -449,15 +462,17 @@ async def test_mask_qc_project_issue_list_hides_invisible_tasks_from_reviewer(
 
 @pytest.mark.asyncio
 async def test_blocking_qc_prevents_approve_until_blocker_resolved(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, annotator, db_session
 ):
     user, token = super_admin
+    contrib, _ = annotator
     config = MaskQCConfig(blocking=True)
     project, task, annotation, _rle_payload = await _seed_mask(
         db_session,
         owner_id=user.id,
         config=config,
         status="review",
+        annotator_id=contrib.id,
     )
     snapshot, source_digest = await current_task_source_snapshot(
         db_session, task_id=task.id
@@ -532,6 +547,13 @@ async def test_non_privileged_reviewer_must_claim_before_approve(
     review_user, review_token = reviewer
     project, task, _annotation, _rle_payload = await _seed_mask(
         db_session, owner_id=owner.id, status="review"
+    )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=review_user.id,
+        role="reviewer",
+        assigned_by=owner.id,
     )
     batch = TaskBatch(
         project_id=project.id,

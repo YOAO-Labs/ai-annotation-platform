@@ -42,6 +42,10 @@ export function createDevSidebar(
           items: [
             { text: "架构地图", link: "/dev/concepts/" },
             { text: "系统全景", link: "/dev/concepts/overview" },
+            {
+              text: "仓库地图（模块归属与调用链）",
+              link: "/dev/concepts/repository-map",
+            },
           ],
         },
         {

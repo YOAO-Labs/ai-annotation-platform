@@ -1,6 +1,6 @@
 """Redis key layout and builders for the GPU arbitration ledger.
 
-Extracted verbatim from the legacy ``app.services.gpu_arbiter_store`` module. Depends on
+Owns the ledger's Redis key layout and builders. Depends on
 :mod:`gpu_arbitration.ledger.types` (constants, key dataclass inputs) and the
 ``_validate_nonempty`` helper from :mod:`gpu_arbitration.ledger.validation`.
 """

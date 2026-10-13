@@ -1,4 +1,4 @@
-"""v0.18.22 · 开集文本推理的 output 分支 (box / mask / both) 单测.
+"""开集文本推理的 output 分支 (box / mask / both) 单测.
 
 不依赖 ultralytics / GPU: 用 fake pool + fake YOLOE 模型 (带 boxes + masks) 注入,
 验证 ``_predict_open_text`` 按 ctx.output 取检测框 / 分割多边形 / 两者。
@@ -19,7 +19,7 @@ sys.modules.setdefault(
     "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
 )
 
-# v0.18.23 · stub ultralytics yoloe VP predictor 叶子模块 (测试环境无 ultralytics);
+# stub ultralytics yoloe VP predictor 叶子模块 (测试环境无 ultralytics);
 # predictor._predict_visual_prompt 内部 lazy `from ...yoloe.predict import YOLOEVPSegPredictor`。
 # 仅注册叶子模块: 叶子在 sys.modules 时 import 机制短路, 不触发父包导入, 故不覆盖其他测试
 # 对 "ultralytics" 根 (MagicMock) 的桩, 避免跨测试污染。
@@ -153,7 +153,7 @@ async def test_empty_text_returns_empty() -> None:
     assert infer_ms == 0
 
 
-# ── v0.18.23 · visual prompt exemplar 路径 ──
+# ── visual prompt exemplar 路径 ──
 
 
 def _ex_ctx(output: str, exemplars: list[dict], score_threshold=None):
@@ -228,7 +228,7 @@ async def test_exemplar_score_threshold_maps_to_conf() -> None:
 
 
 async def test_exemplar_box_coords_are_normalized_0_1() -> None:
-    """v0.18.24 · exemplar 是交互候选 → 坐标须归一化 0-1 (与 sam3/gsam2 一致),
+    """exemplar 是交互候选 → 坐标须归一化 0-1 (与 sam3/gsam2 一致),
     否则前端浮层 `coord * imgW` 把框画到画布外 (百分比 ×imgW = ×100 飞出)。
     fake box xyxy=[10,20,110,220] / 图 200×240 → x=0.05 w=0.5。"""
     p = YoloPredictor(_FakePool(_FakeYoloe(with_mask=False)))

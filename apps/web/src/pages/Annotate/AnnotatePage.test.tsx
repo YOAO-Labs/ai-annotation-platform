@@ -244,6 +244,44 @@ describe("AnnotatePage", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("reviewing 批次仍有未送审任务时保留整批提交入口", () => {
+    mockUseMyBatches.mockReturnValue({
+      data: [
+        {
+          ...batch,
+          status: "reviewing",
+          total_tasks: 3,
+          review_tasks: 2,
+          completed_tasks: 0,
+          rejected_tasks: 0,
+        },
+      ],
+      isLoading: false,
+      isError: false,
+    });
+    renderUI("/annotate?batch=b1");
+    expect(screen.getByText("提交质检")).toBeInTheDocument();
+  });
+
+  it("批次全部送审后隐藏整批提交入口", () => {
+    mockUseMyBatches.mockReturnValue({
+      data: [
+        {
+          ...batch,
+          status: "reviewing",
+          total_tasks: 3,
+          review_tasks: 3,
+          completed_tasks: 0,
+          rejected_tasks: 0,
+        },
+      ],
+      isLoading: false,
+      isError: false,
+    });
+    renderUI("/annotate?batch=b1");
+    expect(screen.queryByText("提交质检")).not.toBeInTheDocument();
+  });
+
   it("退回入口过滤批次和任务，切批次及返回后保留状态条件", () => {
     mockUseMyBatches.mockReturnValue({
       data: [{ ...batch, rejected_tasks: 2 }, secondBatch],

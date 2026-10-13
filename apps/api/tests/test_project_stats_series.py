@@ -12,7 +12,7 @@ from app.db.models.task import Task
 
 @pytest.mark.asyncio
 async def test_project_stats_returns_database_backed_series(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
 ):
@@ -99,7 +99,7 @@ async def test_project_stats_returns_database_backed_series(
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/projects/stats",
         headers={"Authorization": f"Bearer {token}"},
     )

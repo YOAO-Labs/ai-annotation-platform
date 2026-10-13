@@ -22,7 +22,7 @@ function fakeUser(theme?: ThemePref): MeResponse {
     id: "u1",
     email: "a@b.c",
     name: "A",
-    role: "annotator",
+    role: "employee",
     group_name: null,
     status: "active",
     created_at: "2026-01-01T00:00:00Z",

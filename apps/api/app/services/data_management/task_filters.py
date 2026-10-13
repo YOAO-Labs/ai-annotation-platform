@@ -52,7 +52,10 @@ from app.services.data_management.task_metrics import (  # noqa: F401
     pending_tracker_jobs_expr,
 )
 from app.services.project_kind import project_kind
-from app.services.scheduler import batch_visibility_clause, is_privileged_for_project
+from app.services.project_access import is_privileged_for_project
+from app.services.scheduler import task_visibility_clause
+from app.services.feedback import unresolved_issue_count_sq
+from app.services.task_discussion import task_comment_count_sq
 
 _STRING_OPS = {"eq", "ne", "in"}
 
@@ -68,8 +71,21 @@ _EXISTS_OPS = {"exists", "eq", "in"}
 
 _TASK_FIELD_MAP = {
     "task.status": Task.status,
-    "task.assignee": Task.assignee_id,
-    "task.reviewer": Task.reviewer_id,
+    # Filters also run in privileged queries without a TaskBatch join.
+    "task.assignee": func.coalesce(
+        Task.assignee_id,
+        select(TaskBatch.annotator_id)
+        .where(TaskBatch.id == Task.batch_id)
+        .correlate(Task)
+        .scalar_subquery(),
+    ),
+    "task.reviewer": func.coalesce(
+        Task.reviewer_id,
+        select(TaskBatch.reviewer_id)
+        .where(TaskBatch.id == Task.batch_id)
+        .correlate(Task)
+        .scalar_subquery(),
+    ),
     "task.batch_id": Task.batch_id,
     "task.created_at": Task.created_at,
     "task.updated_at": Task.updated_at,
@@ -225,7 +241,12 @@ def _compile_rule(
     if field == "prediction.avg_confidence":
         return _compare_scalar(_avg_prediction_confidence_sq(), op, value, _NUMERIC_OPS)
     if field == "feedback.unresolved_count":
+        # Compatibility alias: corrected to count unresolved root issues.
         return _compare_scalar(_unresolved_feedback_count_sq(), op, value, _NUMERIC_OPS)
+    if field == "issue.unresolved_count":
+        return _compare_scalar(_unresolved_issue_count_sq(), op, value, _NUMERIC_OPS)
+    if field == "discussion.comment_count":
+        return _compare_scalar(_comment_count_sq(), op, value, _NUMERIC_OPS)
     if field == "feedback.kind":
         return _compare_feedback_field(AnnotationFeedback.kind, op, value)
     if field == "feedback.severity":
@@ -450,6 +471,8 @@ def _validate_rule_value(
         "prediction.prediction_count",
         "prediction.avg_confidence",
         "feedback.unresolved_count",
+        "issue.unresolved_count",
+        "discussion.comment_count",
         "ai.pending_prediction_shape_count",
         "ai.low_confidence_prediction_shape_count",
         "ai.pending_tracker_job_count",
@@ -1049,23 +1072,41 @@ def _avg_prediction_confidence_sq() -> ColumnElement[float | None]:
     )
 
 
+def _unresolved_issue_count_sq() -> ColumnElement[int]:
+    # Owned by ``FeedbackService``'s root relation so Data Manager counts match
+    # the Workbench issue totals (root issues only; replies never count).
+    return unresolved_issue_count_sq()
+
+
 def _unresolved_feedback_count_sq() -> ColumnElement[int]:
-    return (
-        select(func.count(AnnotationFeedback.id))
-        .where(
-            AnnotationFeedback.task_id == Task.id,
-            AnnotationFeedback.is_active.is_(True),
-            AnnotationFeedback.status == "open",
-        )
-        .scalar_subquery()
-    )
+    """Compatibility alias: the legacy feedback column counts unresolved issues."""
+    return unresolved_issue_count_sq()
 
 
-def apply_task_visibility(stmt: Select, user: User, project: Project) -> Select:
-    """Apply the canonical project task visibility scope to an arbitrary Task query."""
+def _comment_count_sq() -> ColumnElement[int]:
+    # Owned by the task discussion read model so counts match the Workbench
+    # comment-feed total (annotation comments + native task comments).
+    return task_comment_count_sq()
+
+
+def apply_task_visibility(
+    stmt: Select,
+    user: User,
+    project: Project,
+    *,
+    project_role: str | None = None,
+) -> Select:
+    """Apply the canonical project task visibility scope to an arbitrary Task query.
+
+    ``project_role`` is the caller's *resolved* membership role.  Callers under
+    the project-scoped model must resolve it (for example through
+    ``resolve_project_access``) and pass it; when omitted a non-privileged query
+    fails closed.  The B3 export worker must pass the same value as the request
+    that enqueued the job.
+    """
     if not is_privileged_for_project(user, project):
-        stmt = stmt.join(TaskBatch, Task.batch_id == TaskBatch.id).where(
-            batch_visibility_clause(user)
+        stmt = stmt.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
+            task_visibility_clause(user, project_role=project_role)
         )
     return stmt
 
@@ -1075,7 +1116,17 @@ def visible_tasks_stmt(
     *,
     user: User,
     project: Project,
+    project_role: str | None = None,
 ) -> Select:
+    """Task-id statement visible to ``user``; pass the resolved ``project_role``.
+
+    Contract published for B3 ``workers/export.py``: resolve project access for
+    the initiating actor and pass ``project_role=access.project_role`` so the
+    worker applies the same predicate as the API request.
+    """
     return apply_task_visibility(
-        select(Task.id).where(Task.project_id == project_id), user, project
+        select(Task.id).where(Task.project_id == project_id),
+        user,
+        project,
+        project_role=project_role,
     )

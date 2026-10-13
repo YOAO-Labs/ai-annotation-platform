@@ -114,7 +114,10 @@ export function AnnotatorDashboard() {
   const statsRefreshPaused = isRefreshQueryPaused(statsQuery, hasStatsData);
   const statsInitialError = statsQuery.isError && !hasStatsData;
   const projectsQuery = useProjects();
-  const myProjects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
+  const myProjects = useMemo(
+    () => (projectsQuery.data ?? []).filter((project) => project.my_project_role === "annotator"),
+    [projectsQuery.data],
+  );
   const hasProjectData = projectsQuery.data !== undefined;
   const projectsLoading = projectsQuery.isLoading && !hasProjectData;
   const projectsInitialPaused = isInitialQueryPaused(projectsQuery, hasProjectData);

@@ -18,6 +18,9 @@ from app.services.management import fetch_group_page
 
 router = APIRouter()
 
+# Data groups are a platform-level catalog (organising accounts), not a project
+# resource: authorization stays on the platform role.  An employee/viewer with
+# no global administrative role never manages groups.
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
 

@@ -312,7 +312,7 @@ describe("VideoTrackerJobsPanel", () => {
   });
 
   it("视频任务查询按同一账号的 token epoch 分隔缓存", async () => {
-    const user = { id: "video-u1", role: "annotator" } as MeResponse;
+    const user = { id: "video-u1", role: "employee" } as MeResponse;
     useAuthStore.getState().setAuth("video-token-1", user);
     renderPanel();
     await screen.findByText("暂无视频追踪任务");
@@ -353,7 +353,7 @@ describe("VideoTrackerJobsPanel", () => {
   });
 
   it("切换同一账号 token epoch 时不会复用已有 cursor", async () => {
-    const user = { id: "video-u1", role: "annotator" } as MeResponse;
+    const user = { id: "video-u1", role: "employee" } as MeResponse;
     useAuthStore.getState().setAuth("video-token-1", user);
     mockListVideoJobs
       .mockResolvedValueOnce(response([makeJob("running", 1)], "cursor-1"))

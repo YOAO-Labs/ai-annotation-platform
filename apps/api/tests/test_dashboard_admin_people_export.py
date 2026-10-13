@@ -52,7 +52,7 @@ async def _seed_one_annotation(
 
 @pytest.mark.asyncio
 async def test_admin_people_export_csv(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """super_admin 导出 CSV：带 BOM、含表头、含成员行。"""
     admin_user, admin_token = super_admin
@@ -60,7 +60,7 @@ async def test_admin_people_export_csv(
     await _seed_one_annotation(db_session, admin_user.id, ann_user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/admin/people/export?period=4w",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -78,7 +78,7 @@ async def test_admin_people_export_csv(
 
 @pytest.mark.asyncio
 async def test_admin_people_export_requires_admin_role(
-    httpx_client_bound, db_session, project_admin, annotator
+    httpx_client, db_session, project_admin, annotator
 ):
     """RBAC 角色门(v0.12.6 起放行 project_admin,annotator 仍拒)。
 
@@ -88,14 +88,14 @@ async def test_admin_people_export_requires_admin_role(
     - project_admin 带自有项目 → 200(委托 admin_people_list 强制项目级聚合)
     """
     _, ann_token = annotator
-    r_ann = await httpx_client_bound.get(
+    r_ann = await httpx_client.get(
         "/api/v1/dashboard/admin/people/export",
         headers={"Authorization": f"Bearer {ann_token}"},
     )
     assert r_ann.status_code == 403
 
     pm_user, pm_token = project_admin
-    r_pm_no_proj = await httpx_client_bound.get(
+    r_pm_no_proj = await httpx_client.get(
         "/api/v1/dashboard/admin/people/export",
         headers={"Authorization": f"Bearer {pm_token}"},
     )
@@ -112,7 +112,7 @@ async def test_admin_people_export_requires_admin_role(
     )
     db_session.add(own)
     await db_session.commit()
-    r_pm_own = await httpx_client_bound.get(
+    r_pm_own = await httpx_client.get(
         f"/api/v1/dashboard/admin/people/export?project={own.id}",
         headers={"Authorization": f"Bearer {pm_token}"},
     )

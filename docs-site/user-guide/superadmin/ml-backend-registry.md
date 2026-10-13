@@ -74,7 +74,7 @@ POST   /admin/ml-integrations/registry/:registry_id/health   # 健康检查（�
 GET    /admin/ml-integrations/all                        # 全局列表（新建项目向导复用）
 ```
 
-每个全局 backend 注册后会自动得到一个 singleton 服务池（ADR-0050），池内含一个 active 成员指向该实例。off 模式下行为与单实例完全一致；当 `ML_BACKEND_ROUTER_MODE=observe|enforce` 时，路由器在该池内选择实例。详见 [ADR-0050 服务池与请求路由](../../dev/adr/0050-ml-backend-service-pools-and-request-routing)。
+每个全局 backend 注册后会自动得到一个 singleton 服务池（ADR-0050），池内含一个 active 成员指向该实例。off 模式下行为与单实例完全一致；当 `ML_BACKEND_ROUTER_MODE=observe|enforce` 时，路由器在该池内选择实例。详见 [ADR-0050 服务池与请求路由](../../dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
 
 ## 服务池管理（超管）
 

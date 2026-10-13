@@ -1,109 +1,28 @@
 /**
- * UsersPage 单测 — 成员列表 / tab 切换 / 导出 / 删除确认弹窗 主路径.
+ * UsersPage — URL-driven member list, filters/paging, export, delete and
+ * permission/lifecycle branches.
+ *
+ * The page's data dependencies run for real against MSW at the HTTP boundary
+ * (`installUsersApi`), with a fresh QueryClient, the real query hooks,
+ * permission table and seeded auth store per test. Only the heavy modal
+ * components and the sonner-backed toast store stay stubbed as narrow
+ * page-wiring stand-ins (the page's own contract is routing/URL/filters/query
+ * shaping, not each modal's body).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClientProvider, onlineManager } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockPushToast = vi.fn();
-const mockDeleteMutateAsync = vi.fn();
-const mockDeleteReset = vi.fn();
+import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
+import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
+import { createTestQueryClient } from "@/test/queryClient";
+import { renderWithProviders } from "@/test/renderWithProviders";
+import { DEFAULT_USERS, INACTIVE_USER, createUser, installUsersApi } from "@/test/usersApi";
 
-// --- useUsers / useUsersStats / useDeleteUser ---
-const mockUseUsers = vi.fn();
-const mockUseUsersStats = vi.fn();
-vi.mock("@/hooks/useUsers", () => ({
-  useUsers: () => ({ data: [] }),
-  useUserPage: (params: any) => {
-    const response = mockUseUsers(params);
-    const items = response.data?.filter(
-      (user: any) =>
-        (!params.role || user.role === params.role) &&
-        (!params.search ||
-          `${user.name} ${user.email}`.toLowerCase().includes(params.search.toLowerCase())),
-    );
-    return {
-      ...response,
-      data: items && {
-        items,
-        total: response.total ?? items.length,
-        page: params.page,
-        page_size: params.page_size,
-        pages: response.pages ?? 1,
-      },
-    };
-  },
-  useUsersStats: (params: unknown) => mockUseUsersStats(params),
-  useDeleteUser: () => ({
-    mutateAsync: mockDeleteMutateAsync,
-    isPending: false,
-    error: null,
-    reset: mockDeleteReset,
-  }),
-}));
-
-vi.mock("@/hooks/useProjects", () => ({
-  useProjects: () => ({ data: [{ id: "project-1", name: "Test project" }] }),
-}));
-
-// --- useGroups ---
-const mockUseGroups = vi.fn();
-vi.mock("@/hooks/useGroups", () => ({
-  useGroups: () => mockUseGroups(),
-}));
-
-// --- usePermissions ---
-vi.mock("@/hooks/usePermissions", () => ({
-  usePermissions: () => ({
-    role: "super_admin",
-    hasPermission: () => true,
-    hasAnyPermission: () => true,
-    canAccessPage: () => true,
-    allowedPages: [],
-  }),
-}));
-
-// --- authStore ---
-vi.mock("@/stores/authStore", () => ({
-  useAuthStore: (sel: (s: any) => any) =>
-    sel({
-      token: "tok",
-      user: { id: "me-id", name: "Admin", email: "admin@example.com", role: "super_admin" },
-    }),
-}));
-
-// --- usersApi (for exportUsers, adminResetPassword) ---
-const mockExportUsers = vi.fn();
-vi.mock("@/api/users", () => ({
-  usersApi: {
-    exportUsers: (...args: unknown[]) => mockExportUsers(...args),
-    adminResetPassword: vi.fn(),
-  },
-  ApiError: class ApiError extends Error {
-    status: number;
-    detailRaw: unknown;
-    constructor(msg: string, status: number, detailRaw?: unknown) {
-      super(msg);
-      this.status = status;
-      this.detailRaw = detailRaw;
-    }
-  },
-}));
-
-// --- api/client ApiError (imported directly in UsersPage) ---
-vi.mock("@/api/client", () => ({
-  ApiError: class ApiError extends Error {
-    status: number;
-    detailRaw: unknown;
-    constructor(msg: string, status: number, detailRaw?: unknown) {
-      super(msg);
-      this.status = status;
-      this.detailRaw = detailRaw;
-    }
-  },
-}));
-
-// --- modal sub-components: stub to avoid deep import chains ---
+// Heavy modal bodies are deliberate stand-ins: this suite protects the UsersPage
+// routing/filter/query/export/delete contract, not each modal's own flow. They
+// keep their own suites.
 vi.mock("@/components/users/InviteUserModal", () => ({
   InviteUserModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="invite-modal">InviteModal</div> : null,
@@ -133,56 +52,22 @@ vi.mock("@/components/users/OffboardingDialog", () => ({
     open ? <div data-testid="reactivate-dialog">ReactivateDialog</div> : null,
 }));
 
-// --- toast ---
+// The real store delegates to sonner and holds no toast list, so a narrow spy on
+// `push` is the page's observable contract without rendering the portal.
+const mockPushToast = vi.fn();
 vi.mock("@/components/ui/Toast", async () => {
-  const actual = await vi.importActual<any>("@/components/ui/Toast");
+  const actual =
+    await vi.importActual<typeof import("@/components/ui/Toast")>("@/components/ui/Toast");
   return {
     ...actual,
-    useToastStore: <T,>(sel: (s: any) => T) => sel({ push: mockPushToast }),
+    useToastStore: <T,>(sel: (s: { push: typeof mockPushToast }) => T) =>
+      sel({ push: mockPushToast }),
   };
 });
 
 import { UsersPage } from "./UsersPage";
 
-const SAMPLE_USERS = [
-  {
-    id: "u1",
-    name: "Alice",
-    email: "alice@example.com",
-    role: "annotator",
-    is_active: true,
-    status: "online",
-    group_id: null,
-    group_name: null,
-    created_at: "2026-01-01T00:00:00Z",
-  },
-  {
-    id: "u2",
-    name: "Bob",
-    email: "bob@example.com",
-    role: "reviewer",
-    is_active: true,
-    status: "offline",
-    group_id: null,
-    group_name: null,
-    created_at: "2026-02-01T00:00:00Z",
-  },
-];
-
-const INACTIVE_USER = {
-  id: "u3",
-  name: "Emergency Bob",
-  email: "emergency@example.com",
-  role: "annotator",
-  is_active: false,
-  disabled_kind: "emergency_suspended",
-  disabled_at: "2026-09-08T10:00:00Z",
-  disabled_reason: "账号疑似泄露",
-  status: "offline",
-  group_id: null,
-  group_name: null,
-  created_at: "2026-03-01T00:00:00Z",
-};
+const ACTOR_ID = "me-id";
 
 function LocationProbe() {
   const location = useLocation();
@@ -196,234 +81,393 @@ function LocationProbe() {
   );
 }
 
-function renderUI(initialEntries: string | string[] = "/users", initialIndex?: number) {
+function renderUsers(initialEntries: string | string[] = "/users") {
   const entries = Array.isArray(initialEntries) ? initialEntries : [initialEntries];
-  return render(
-    <MemoryRouter initialEntries={entries} initialIndex={initialIndex}>
-      <LocationProbe />
-      <UsersPage />
-    </MemoryRouter>,
-  );
+  return renderWithProviders(<UsersPage />, {
+    initialEntries: entries,
+    children: <LocationProbe />,
+  });
 }
 
-describe("UsersPage", () => {
-  beforeEach(() => {
-    mockPushToast.mockReset();
-    mockExportUsers.mockReset().mockResolvedValue(undefined);
-    mockDeleteMutateAsync.mockReset().mockResolvedValue(undefined);
-    mockDeleteReset.mockReset();
-    mockUseUsersStats.mockReturnValue({ data: { weekly_active: 5, online: 2 } });
-    mockUseGroups.mockReturnValue({ data: [] });
-    mockUseUsers.mockReturnValue({ data: SAMPLE_USERS, isLoading: false });
-  });
+/**
+ * `renderWithProviders` uses MemoryRouter's default initial index (the last
+ * entry); one regression needs an explicit first-entry start, so this variant
+ * composes the same fixtures with `initialIndex`.
+ */
+function renderUsersAt(initialEntries: string[], initialIndex: number) {
+  const queryClient = createTestQueryClient();
+  const result = render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries} initialIndex={initialIndex}>
+        <LocationProbe />
+        <UsersPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return { ...result, queryClient };
+}
 
-  it("渲染页面标题与成员表格", () => {
-    renderUI();
+const locationSearch = () => screen.getByTestId("location-search").textContent ?? "";
+const capturedQuery = (queries: URLSearchParams[]) => queries[queries.length - 1];
+
+beforeAll(() => {
+  // jsdom does not implement object URLs; the page's CSV download needs them.
+  URL.createObjectURL = (() => "blob:mock-export") as typeof URL.createObjectURL;
+  URL.revokeObjectURL = (() => undefined) as typeof URL.revokeObjectURL;
+});
+
+beforeEach(() => {
+  resetUnexpectedApiRequests();
+  mockPushToast.mockReset();
+  onlineManager.setOnline(true);
+  seedAuthUser(createTestUser({ id: ACTOR_ID, role: "super_admin" }));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  expectNoUnexpectedApiRequests();
+  onlineManager.setOnline(true);
+  resetAuthUser();
+});
+
+describe("UsersPage", () => {
+  it("渲染页面标题与成员表格", async () => {
+    installUsersApi();
+    renderUsers();
     expect(screen.getByText("用户与权限")).toBeInTheDocument();
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(await screen.findByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Bob")).toBeInTheDocument();
   });
 
-  it("isLoading=true → 显示「加载中...」", () => {
-    mockUseUsers.mockReturnValue({ data: [], isLoading: true });
-    renderUI();
+  it("isLoading=true → 显示「加载中...」", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    installUsersApi({ queryGate: gate });
+    renderUsers();
     expect(screen.getByText("加载中...")).toBeInTheDocument();
+    release();
+    expect(await screen.findByText("Alice")).toBeInTheDocument();
   });
 
   it("resumes search while a browser-navigation draft is still debouncing", async () => {
-    vi.useFakeTimers();
-    mockUseUsers.mockReturnValue({ data: SAMPLE_USERS, total: 1000, pages: 40, isLoading: false });
-    const view = renderUI([
+    const captured = installUsersApi({ total: 1000, pages: 40 });
+    const view = renderUsers([
       "/users?q=restored&page=3&status=all&role=annotator&keep=yes",
       "/users?q=old&status=all&role=annotator&keep=yes",
     ]);
-    const params = () =>
-      new URLSearchParams(screen.getByTestId("location-search").textContent ?? "");
     try {
+      // Let the initial URL-driven query settle with real timers before narrowly
+      // freezing time for the debounce boundary; freezing time freezes MSW.
+      await waitFor(() => expect(captured.pageQueries.length).toBeGreaterThan(0));
       fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
       const input = screen.getByPlaceholderText(/搜索姓名或邮箱/);
       expect(input).toHaveValue("restored");
-      await act(async () => vi.advanceTimersByTime(100));
+
+      vi.useFakeTimers();
       fireEvent.change(input, { target: { value: "Alice" } });
       fireEvent.change(screen.getByLabelText("账号状态"), { target: { value: "inactive" } });
       await act(async () => vi.advanceTimersByTime(249));
-      expect(params().get("q")).toBe("restored");
+      expect(new URLSearchParams(locationSearch()).get("q")).toBe("restored");
       await act(async () => vi.advanceTimersByTime(1));
-      expect(params().get("q")).toBe("Alice");
-      expect(params().get("page")).toBeNull();
-      expect(params().get("status")).toBe("inactive");
-      expect(params().get("role")).toBe("annotator");
-      expect(params().get("keep")).toBe("yes");
-      expect(mockUseUsers).toHaveBeenLastCalledWith(
-        expect.objectContaining({ search: "Alice", page: 1 }),
-      );
+      vi.useRealTimers();
+
+      await waitFor(() => {
+        const afterDebounce = new URLSearchParams(locationSearch());
+        expect(afterDebounce.get("q")).toBe("Alice");
+        expect(afterDebounce.get("page")).toBeNull();
+        expect(afterDebounce.get("status")).toBe("inactive");
+        expect(afterDebounce.get("role")).toBe("annotator");
+        expect(afterDebounce.get("keep")).toBe("yes");
+      });
+      await waitFor(() => expect(capturedQuery(captured.pageQueries).get("search")).toBe("Alice"));
+
       fireEvent.change(input, { target: { value: "Alice updated" } });
-      await act(async () => vi.advanceTimersByTime(250));
-      expect(params().get("q")).toBe("Alice updated");
-      expect(mockUseUsersStats).toHaveBeenLastCalledWith(
-        expect.objectContaining({ search: "Alice updated" }),
+      await waitFor(() =>
+        expect(new URLSearchParams(locationSearch()).get("q")).toBe("Alice updated"),
+      );
+      await waitFor(() =>
+        expect(capturedQuery(captured.statsQueries).get("search")).toBe("Alice updated"),
       );
     } finally {
-      view.unmount();
       vi.useRealTimers();
+      view.unmount();
     }
   });
 
   it("搜索框过滤：输入 'Alice' 后只显示 Alice", async () => {
-    renderUI();
+    const captured = installUsersApi();
+    renderUsers();
+    // Wait for the unfiltered page before typing so the assertion is about the
+    // debounced server query, not the initial empty frame.
+    expect(await screen.findByText("Bob")).toBeInTheDocument();
     const searchInput = screen.getByPlaceholderText(/搜索姓名或邮箱/);
     fireEvent.change(searchInput, { target: { value: "Alice" } });
     await waitFor(() => {
       expect(screen.getByText("Alice")).toBeInTheDocument();
       expect(screen.queryByText("Bob")).not.toBeInTheDocument();
     });
+    await waitFor(() => expect(capturedQuery(captured.pageQueries).get("search")).toBe("Alice"));
   });
 
   it("点击「角色」tab → 显示角色卡片", () => {
-    renderUI();
+    installUsersApi();
+    renderUsers();
     const roleTab = screen.getAllByRole("button").find((b) => b.textContent?.includes("角色"));
     fireEvent.click(roleTab!);
-    // 角色 tab 里应该显示 ROLE_LABELS 的角色名
-    expect(screen.getByText(/超级管理员|系统管理员|super/i)).toBeInTheDocument();
+    expect(screen.getAllByText("超级管理员").length).toBeGreaterThan(0);
   });
 
   it("点击「邀请记录」tab → 渲染 InvitationListPanel", () => {
-    renderUI();
+    installUsersApi();
+    renderUsers();
     const invTab = screen.getAllByRole("button").find((b) => b.textContent?.includes("邀请记录"));
     fireEvent.click(invTab!);
     expect(screen.getByTestId("invitation-panel")).toBeInTheDocument();
   });
 
-  it("点击「导出名单」→ 调用 exportUsers + toast 成功", async () => {
-    renderUI();
-    const exportBtn = screen.getByRole("button", { name: /导出名单/ });
-    fireEvent.click(exportBtn);
-    await waitFor(() => expect(mockExportUsers).toHaveBeenCalledTimes(1));
+  it("点击「导出名单」→ 以当前筛选请求 CSV + toast 成功", async () => {
+    const captured = installUsersApi();
+    renderUsers();
+    await screen.findByText("Alice");
+    fireEvent.click(screen.getByRole("button", { name: /导出名单/ }));
+    await waitFor(() => expect(captured.exports).toHaveLength(1));
+    const exported = capturedQuery(captured.exports);
+    expect(exported.get("format")).toBe("csv");
+    expect(exported.get("status")).toBe("active");
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ kind: "success" })),
     );
   });
 
   it("点击「邀请成员」→ 显示 InviteModal", () => {
-    renderUI();
-    const inviteBtn = screen.getByRole("button", { name: /邀请成员/ });
-    fireEvent.click(inviteBtn);
+    installUsersApi();
+    renderUsers();
+    fireEvent.click(screen.getByRole("button", { name: /邀请成员/ }));
     expect(screen.getByTestId("invite-modal")).toBeInTheDocument();
   });
 
-  it("点击删除按钮 → 显示确认弹窗", () => {
-    renderUI();
-    // 删除按钮 title="删除账号"
-    const deleteBtn = screen.getAllByTitle("删除账号")[0];
-    fireEvent.click(deleteBtn);
+  it("点击删除按钮 → 显示确认弹窗", async () => {
+    installUsersApi();
+    renderUsers();
+    await screen.findByText("Alice");
+    fireEvent.click(screen.getAllByTitle("删除账号")[0]);
     expect(screen.getByText(/确认删除以下账号/)).toBeInTheDocument();
   });
 
-  it("删除确认弹窗 → 点取消关闭弹窗", () => {
-    renderUI();
+  it("删除确认弹窗 → 点取消关闭弹窗", async () => {
+    installUsersApi();
+    renderUsers();
+    await screen.findByText("Alice");
     fireEvent.click(screen.getAllByTitle("删除账号")[0]);
     expect(screen.getByText(/确认删除以下账号/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(screen.queryByText(/确认删除以下账号/)).not.toBeInTheDocument();
   });
 
+  it("确认删除 → 发出 DELETE /users/:id、成功 toast 并关闭弹窗", async () => {
+    const captured = installUsersApi();
+    renderUsers();
+    await screen.findByText("Alice");
+    fireEvent.click(screen.getAllByTitle("删除账号")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    await waitFor(() => expect(captured.deletes).toEqual(["u1"]));
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "success", msg: expect.stringContaining("Alice") }),
+      ),
+    );
+    expect(screen.queryByText(/确认删除以下账号/)).not.toBeInTheDocument();
+  });
+
+  it("用户列表 403 → 显示无权查看文案（真实 ApiError 状态映射）", async () => {
+    installUsersApi({ queryStatus: 403 });
+    renderUsers();
+    expect(await screen.findByText("无权查看用户列表")).toBeInTheDocument();
+    expect(screen.getByText(/没有权限查看用户列表/)).toBeInTheDocument();
+  });
+
   it("数据组 tab 空态 → 显示暂无数据组提示", () => {
-    mockUseGroups.mockReturnValue({ data: [] });
-    renderUI();
+    installUsersApi({ groups: [] });
+    renderUsers();
     const groupTab = screen.getAllByRole("button").find((b) => b.textContent?.includes("数据组"));
     fireEvent.click(groupTab!);
     expect(screen.getByText(/暂无数据组/)).toBeInTheDocument();
   });
 
-  it("账号状态筛选显示已停用账号，并保留继续交接与恢复入口", () => {
-    mockUseUsers.mockReturnValue({ data: [INACTIVE_USER], isLoading: false });
-    renderUI();
+  it("账号状态筛选显示已停用账号，并保留继续交接与恢复入口", async () => {
+    installUsersApi({ users: [INACTIVE_USER] });
+    renderUsers();
     fireEvent.change(screen.getByLabelText("账号状态"), { target: { value: "inactive" } });
-    expect(screen.getByText("Emergency Bob")).toBeInTheDocument();
+    expect(await screen.findByText("Emergency Bob")).toBeInTheDocument();
     expect(screen.getByText("紧急停用")).toBeInTheDocument();
     expect(screen.getByTitle("继续交接")).toBeInTheDocument();
     expect(screen.getByTitle("恢复账号")).toBeInTheDocument();
     expect(screen.queryByTitle("删除账号")).not.toBeInTheDocument();
   });
 
-  it("初次离线且没有用户数据时显示等待网络恢复，而不是空列表", () => {
-    mockUseUsers.mockReturnValue({
-      data: [],
-      isLoading: false,
-      isError: false,
-      fetchStatus: "paused",
+  it("project_admin 可见并直接操作未分配标注员，超管行只读", async () => {
+    seedAuthUser(createTestUser({ id: ACTOR_ID, role: "project_admin" }));
+    installUsersApi({
+      users: [
+        ...DEFAULT_USERS.map((user) => ({ ...user, is_managed: true })),
+        createUser({
+          id: "u4",
+          name: "Free Annotator",
+          email: "free@example.com",
+          is_managed: true,
+        }),
+        createUser({
+          id: "u5",
+          name: "Root",
+          email: "root@example.com",
+          role: "super_admin",
+          status: "online",
+          is_managed: false,
+        }),
+      ],
     });
-    renderUI();
+    renderUsers();
+
+    expect(await screen.findByText("Free Annotator")).toBeInTheDocument();
+    expect(screen.getByText("Root")).toBeInTheDocument();
+
+    // Owned members plus the unassigned annotator keep their full actions.
+    expect(screen.getAllByTitle("编辑成员")).toHaveLength(3);
+    expect(screen.getAllByTitle("删除账号")).toHaveLength(3);
+
+    // Super-admin rows are read-only.
+    expect(screen.getByTitle("仅可查看：超级管理员账号")).toBeDisabled();
+    expect(screen.getAllByTitle(/编辑成员|仅可查看/)).toHaveLength(4);
+  });
+
+  it("跨项目行 is_lifecycle_managed=false：保留账号操作，隐藏离职/删除入口", async () => {
+    seedAuthUser(createTestUser({ id: ACTOR_ID, role: "project_admin" }));
+    installUsersApi({
+      users: [
+        createUser({
+          id: "u6",
+          name: "Cross Project",
+          email: "cross@example.com",
+          is_managed: true,
+          is_lifecycle_managed: false,
+        }),
+      ],
+    });
+    renderUsers();
+
+    expect(await screen.findByText("Cross Project")).toBeInTheDocument();
+    // Account-level actions stay.
+    expect(screen.getByTitle("编辑成员")).toBeInTheDocument();
+    expect(screen.getByTitle("重置密码")).toBeInTheDocument();
+    // Lifecycle writes are hidden so a click cannot 403.
+    expect(screen.queryByTitle("离职处理")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("删除账号")).not.toBeInTheDocument();
+  });
+
+  it("初次离线且没有用户数据时显示等待网络恢复，而不是空列表", () => {
+    onlineManager.setOnline(false);
+    installUsersApi();
+    renderUsers();
     expect(screen.getByText("暂时离线，等待网络恢复")).toBeInTheDocument();
     expect(screen.getByText(/网络恢复后会自动继续加载用户列表/)).toBeInTheDocument();
     expect(screen.queryByText(/暂无启用账号/)).not.toBeInTheDocument();
   });
 
-  it("已有用户数据但请求暂停时保留旧数据并显示离线提示", () => {
-    mockUseUsers.mockReturnValue({
-      data: SAMPLE_USERS,
-      isLoading: false,
-      isError: false,
-      fetchStatus: "paused",
-    });
-    renderUI();
+  it("已有用户数据但请求暂停时保留旧数据并显示离线提示", async () => {
+    installUsersApi();
+    const { queryClient } = renderUsers();
+    expect(await screen.findByText("Alice")).toBeInTheDocument();
+
+    onlineManager.setOnline(false);
+    void queryClient.invalidateQueries({ queryKey: ["users", "page"] });
+
+    expect(await screen.findByText(/当前离线，正在等待网络恢复/)).toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
-    expect(screen.getByText(/当前离线，正在等待网络恢复/)).toBeInTheDocument();
   });
+
   it("paginates 1000 members and passes the same project and role filters to stats and export", async () => {
-    mockUseUsers.mockReturnValue({ data: SAMPLE_USERS, total: 1000, pages: 40, isLoading: false });
-    renderUI();
+    const captured = installUsersApi({ total: 1000, pages: 40 });
+    renderUsers();
+    await screen.findByText("Alice");
+
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
-    expect(mockUseUsers).toHaveBeenLastCalledWith(
-      expect.objectContaining({ page: 2, page_size: 25 }),
-    );
+    await waitFor(() => {
+      const query = capturedQuery(captured.pageQueries);
+      expect(query.get("page")).toBe("2");
+      expect(query.get("page_size")).toBe("25");
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "筛选" }));
     fireEvent.change(screen.getByLabelText("项目筛选"), { target: { value: "project-1" } });
-    fireEvent.change(screen.getByLabelText("角色筛选"), { target: { value: "annotator" } });
-    expect(mockUseUsers).toHaveBeenLastCalledWith(
-      expect.objectContaining({ project_id: "project-1", role: "annotator", page: 1 }),
-    );
-    expect(mockUseUsersStats).toHaveBeenLastCalledWith(
-      expect.objectContaining({ project_id: "project-1", role: "annotator", status: "active" }),
-    );
+    fireEvent.change(screen.getByLabelText("角色筛选"), { target: { value: "employee" } });
+
+    await waitFor(() => {
+      const query = capturedQuery(captured.pageQueries);
+      expect(query.get("project_id")).toBe("project-1");
+      expect(query.get("role")).toBe("employee");
+      expect(query.get("page")).toBe("1");
+    });
+    await waitFor(() => {
+      const stats = capturedQuery(captured.statsQueries);
+      expect(stats.get("project_id")).toBe("project-1");
+      expect(stats.get("role")).toBe("employee");
+      expect(stats.get("status")).toBe("active");
+    });
+
     fireEvent.click(screen.getByRole("button", { name: /导出名单/ }));
-    await waitFor(() =>
-      expect(mockExportUsers).toHaveBeenCalledWith(
-        "csv",
-        expect.objectContaining({ project_id: "project-1", role: "annotator", status: "active" }),
-      ),
-    );
+    await waitFor(() => expect(captured.exports).toHaveLength(1));
+    const exported = capturedQuery(captured.exports);
+    expect(exported.get("project_id")).toBe("project-1");
+    expect(exported.get("role")).toBe("employee");
+    expect(exported.get("status")).toBe("active");
   });
 
   it("clears selected members when filters change and preserves them across pages", async () => {
-    mockUseUsers.mockReturnValue({ data: SAMPLE_USERS, total: 1000, pages: 40, isLoading: false });
-    renderUI("/users?page=2");
+    installUsersApi({ total: 1000, pages: 40 });
+    renderUsers("/users?page=2");
+    await screen.findByText("Alice");
 
     fireEvent.click(screen.getByLabelText("选择 Alice"));
     expect(screen.getByText(/已选择 1 名成员/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "筛选" }));
-    fireEvent.change(screen.getByLabelText("角色筛选"), { target: { value: "annotator" } });
+    fireEvent.change(screen.getByLabelText("角色筛选"), { target: { value: "employee" } });
     await waitFor(() =>
-      expect(screen.getByTestId("location-search")).toHaveTextContent("?role=annotator"),
+      expect(screen.getByTestId("location-search")).toHaveTextContent("?role=employee"),
     );
     expect(screen.queryByText(/已选择 1 名成员/)).not.toBeInTheDocument();
+    // Let the role-filtered page settle before paging again.
+    await screen.findByText("Alice");
 
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     await waitFor(() =>
-      expect(screen.getByTestId("location-search")).toHaveTextContent("?role=annotator&page=2"),
+      expect(screen.getByTestId("location-search")).toHaveTextContent("?role=employee&page=2"),
     );
+    await screen.findByText("Alice");
     fireEvent.click(screen.getByLabelText("选择 Alice"));
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     await waitFor(() =>
-      expect(screen.getByTestId("location-search")).toHaveTextContent("?role=annotator&page=3"),
+      expect(screen.getByTestId("location-search")).toHaveTextContent("?role=employee&page=3"),
     );
     expect(screen.getByText(/已选择 1 名成员/)).toBeInTheDocument();
   });
 
   it("rehydrates filter state on browser back and forward", async () => {
-    mockUseUsers.mockReturnValue({ data: SAMPLE_USERS, total: 1000, pages: 40, isLoading: false });
-    renderUI(["/users", "/users?status=inactive&page=2&q=Alice&project_id=project-1"], 1);
+    const captured = installUsersApi({
+      total: 1000,
+      pages: 40,
+      // The rehydrated URL filters to an inactive account, so the row the test
+      // selects must match that server filter.
+      users: [
+        createUser({ id: "u1", name: "Alice", email: "alice@example.com", is_active: false }),
+        createUser({ id: "u2", name: "Bob", email: "bob@example.com" }),
+      ],
+    });
+    renderUsers(["/users", "/users?status=inactive&page=2&q=Alice&project_id=project-1"]);
+    await screen.findByText("Alice");
+
     fireEvent.click(screen.getByRole("button", { name: "筛选" }));
     expect(screen.getByLabelText("账号状态")).toHaveValue("inactive");
     expect(screen.getByPlaceholderText(/搜索姓名或邮箱/)).toHaveValue("Alice");
@@ -446,21 +490,21 @@ describe("UsersPage", () => {
       expect(screen.getByTestId("location-search")).toHaveTextContent(
         "?status=inactive&page=2&q=Alice&project_id=project-1",
       );
-      expect(mockUseUsers).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          status: "inactive",
-          project_id: "project-1",
-          search: "Alice",
-          page: 2,
-          page_size: 25,
-        }),
-      );
+    });
+    await waitFor(() => {
+      const query = capturedQuery(captured.pageQueries);
+      expect(query.get("status")).toBe("inactive");
+      expect(query.get("project_id")).toBe("project-1");
+      expect(query.get("search")).toBe("Alice");
+      expect(query.get("page")).toBe("2");
+      expect(query.get("page_size")).toBe("25");
     });
   });
 
   it("records discrete member filter changes as browser history entries", async () => {
-    mockUseUsers.mockReturnValue({ data: SAMPLE_USERS, total: 1000, pages: 40, isLoading: false });
-    renderUI(["/users", "/users?status=inactive"], 0);
+    installUsersApi();
+    renderUsersAt(["/users", "/users?status=inactive"], 0);
+    await screen.findByText("Alice");
 
     fireEvent.change(screen.getByLabelText("账号状态"), { target: { value: "inactive" } });
     await waitFor(() => {

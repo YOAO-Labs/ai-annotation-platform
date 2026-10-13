@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""幂等下载 SAM 3 checkpoint + config (v0.10.0 / M0).
+"""幂等下载 SAM 3 checkpoint + config.
 
 启动容器时由 Dockerfile ENTRYPOINT 调用; 已下载则跳过, 缺失则从 HuggingFace 拉.
 图像模型 sam3.pt 下载失败 sys.exit(1) 让容器启动失败 (避免带半残模型上线);
@@ -11,7 +11,7 @@
   - facebook/sam3.1/sam3.1_multiplex.pt   (~3.2 GB; 视频追踪权重, 默认拉, 见 SAM3_DOWNLOAD_VIDEO)
   - facebook/sam3.1/config.json           (视频模型配置, 与 multiplex 同步)
 
-为什么图像侧用 sam3.pt 而非 sam3.1_multiplex.pt (v0.18.17):
+为什么图像侧用 sam3.pt 而非 sam3.1_multiplex.pt:
   sam3.1_multiplex.pt 本质是视频模型 (config.architectures=["Sam3VideoModel"]); vendored
   sam3 代码的 image + inst (SAM1-task: point / 单框单 mask) 路径是按 sam3.pt 写的
   (官方 sam3_for_sam1_task_example.ipynb 即 build_sam3_image_model(enable_inst_interactivity=

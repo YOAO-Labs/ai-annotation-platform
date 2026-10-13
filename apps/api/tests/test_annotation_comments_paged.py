@@ -87,7 +87,7 @@ async def _seed_with_comments(
 
 
 async def test_paged_returns_chunks_in_desc_order(
-    httpx_client_bound: httpx.AsyncClient,
+    httpx_client: httpx.AsyncClient,
     super_admin,
     db_session: AsyncSession,
 ):
@@ -96,7 +96,7 @@ async def test_paged_returns_chunks_in_desc_order(
     headers = {"Authorization": f"Bearer {token}"}
 
     # 第一页：5 条
-    r1 = await httpx_client_bound.get(
+    r1 = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comments/page?limit=5",
         headers=headers,
     )
@@ -109,7 +109,7 @@ async def test_paged_returns_chunks_in_desc_order(
     assert page1["items"][0]["id"] == str(comments[-1].id)
 
     # 第二页（cursor 是 base64-urlsafe，无需额外 encode）
-    r2 = await httpx_client_bound.get(
+    r2 = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comments/page?limit=5&cursor={page1['next_cursor']}",
         headers=headers,
     )
@@ -119,7 +119,7 @@ async def test_paged_returns_chunks_in_desc_order(
     assert page2["items"][0]["id"] == str(comments[-6].id)
 
     # 第三页：2 条 + next_cursor=None
-    r3 = await httpx_client_bound.get(
+    r3 = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comments/page?limit=5&cursor={page2['next_cursor']}",
         headers=headers,
     )
@@ -130,14 +130,14 @@ async def test_paged_returns_chunks_in_desc_order(
 
 
 async def test_paged_invalid_cursor_returns_400(
-    httpx_client_bound: httpx.AsyncClient,
+    httpx_client: httpx.AsyncClient,
     super_admin,
     db_session: AsyncSession,
 ):
     user, token = super_admin
     ann, _ = await _seed_with_comments(db_session, user.id, n=1)
 
-    r = await httpx_client_bound.get(
+    r = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comments/page?cursor=garbage",
         headers={"Authorization": f"Bearer {token}"},
     )

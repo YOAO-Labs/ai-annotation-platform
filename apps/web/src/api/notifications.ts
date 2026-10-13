@@ -24,10 +24,17 @@ export interface NotificationPreferenceItem {
   type: string;
   in_app: boolean;
   email: boolean;
+  /** 有效弹出选择：显式存储值优先，否则按类型默认重要程度。 */
+  toast: boolean;
 }
 
 export interface NotificationPreferencesResponse {
   items: NotificationPreferenceItem[];
+}
+
+export interface NotificationPreferencePatch {
+  in_app?: boolean;
+  toast?: boolean;
 }
 
 export const notificationsApi = {
@@ -52,6 +59,6 @@ export const notificationsApi = {
 
   getPreferences: () => apiClient.get<NotificationPreferencesResponse>("/notification-preferences"),
 
-  updatePreference: (type: string, in_app: boolean) =>
-    apiClient.put<{ ok: boolean }>("/notification-preferences", { type, in_app }),
+  updatePreference: (type: string, patch: NotificationPreferencePatch) =>
+    apiClient.put<{ ok: boolean }>("/notification-preferences", { type, ...patch }),
 };

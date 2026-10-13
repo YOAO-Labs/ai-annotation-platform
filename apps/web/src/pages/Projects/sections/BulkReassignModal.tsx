@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Icon } from "@/components/ui/Icon";
 import { Badge } from "@/components/ui/Badge";
 import { useProjectMembers } from "@/hooks/useProjects";
@@ -96,7 +96,15 @@ function Column({
   roleColor,
 }: {
   title: string;
-  members: { id: string; user_id: string; user_name: string; user_email: string; role: string }[];
+  members: {
+    id: string;
+    user_id: string;
+    user_name: string;
+    user_email: string;
+    role: string;
+    /** 头像引用；结构上是 ProjectMemberResponse 的子集，缺省 = 回退首字母。 */
+    avatar_ref?: string | null;
+  }[];
   choice: string | Sentinel;
   onChange: (v: string | Sentinel) => void;
   roleColor: "accent" | "warning";
@@ -161,7 +169,10 @@ function Column({
           m.user_name,
           m.user_id,
           m.user_email,
-          <Avatar initial={(m.user_name || "?").slice(0, 1).toUpperCase()} size="sm" />,
+          <UserAvatar
+            size="sm"
+            user={{ name: m.user_name, email: m.user_email, avatar_ref: m.avatar_ref }}
+          />,
         ),
       )}
     </div>

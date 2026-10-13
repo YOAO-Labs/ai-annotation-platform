@@ -20,7 +20,7 @@ describe("Users URL state", () => {
       tab: "members",
       q: " Alice ",
       status: "inactive",
-      role: "reviewer",
+      role: "employee",
       projectId: "p1",
       groupId: "g1",
       page: 2,
@@ -31,7 +31,7 @@ describe("Users URL state", () => {
     expect(parseUsersUrl(encoded).state).toMatchObject({
       q: "Alice",
       status: "inactive",
-      role: "reviewer",
+      role: "employee",
       projectId: "p1",
       groupId: "g1",
       page: 2,

@@ -4,6 +4,10 @@ import {
   type ProjectCreatePayload,
   type ProjectUpdatePayload,
   type ProjectListParams,
+  type ProjectPageParams,
+  type ProjectRole,
+  type ProjectMemberRolePreviewPayload,
+  type ProjectMemberRoleChangePayload,
 } from "../api/projects";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -13,6 +17,17 @@ export function useProjects(params?: ProjectListParams) {
   return useQuery({
     queryKey: ["projects", params, userId, tokenEpoch],
     queryFn: ({ signal }) => projectsApi.list(params, { signal }),
+    enabled: Boolean(userId),
+  });
+}
+
+export function useProjectPage(params: ProjectPageParams) {
+  const userId = useAuthStore((state) => state.user?.id ?? null);
+  const tokenEpoch = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["projects", "page", params, userId, tokenEpoch],
+    queryFn: ({ signal }) => projectsApi.page(params, { signal }),
+    staleTime: 0,
     enabled: Boolean(userId),
   });
 }
@@ -115,15 +130,54 @@ export function useProjectMembers(id: string) {
   });
 }
 
+/** 讨论区 @ 候选：负责人 + 超管 + 成员；仅需项目可见权限。
+ *  挂在 `["project", id]` 下，成员增删 / 负责人转移已有的项目失效会自动带上它。 */
+export function useProjectMentionCandidates(id: string) {
+  return useQuery({
+    queryKey: ["project", id, "mention-candidates"],
+    queryFn: () => projectsApi.mentionCandidates(id),
+    enabled: !!id,
+  });
+}
+
 export function useAddProjectMember(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { user_id: string; role: "annotator" | "reviewer" }) =>
+    mutationFn: (payload: { user_id: string; role: ProjectRole }) =>
       projectsApi.addMember(id, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["project-members", id] });
       qc.invalidateQueries({ queryKey: ["project", id] });
       qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["project-access", id] });
+    },
+  });
+}
+
+/**
+ * B1 · read-only role-change preview.  Returns blockers, the affected resource
+ * snapshot and an opaque token that the write must echo.
+ */
+export function usePreviewProjectMemberRole(id: string) {
+  return useMutation({
+    mutationFn: (vars: { memberId: string; payload: ProjectMemberRolePreviewPayload }) =>
+      projectsApi.previewMemberRole(id, vars.memberId, vars.payload),
+  });
+}
+
+export function useChangeProjectMemberRole(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { memberId: string; payload: ProjectMemberRoleChangePayload }) =>
+      projectsApi.changeMemberRole(id, vars.memberId, vars.payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-members", id] });
+      qc.invalidateQueries({ queryKey: ["project", id] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["project-access", id] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["batches"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

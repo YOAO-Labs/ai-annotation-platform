@@ -14,7 +14,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user, get_db
-from app.db.enums import UserRole
+from app.db.enums import PlatformRole
 from app.db.models.dataset import Dataset
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -97,8 +97,9 @@ async def global_search(
         for d in datasets
     ]
 
-    # 成员（仅可见项目里的成员）
-    if user.role == UserRole.SUPER_ADMIN:
+    # 成员（仅可见项目里的成员；平台角色只决定是否全局，项目内成员身份由
+    # project_members 决定）
+    if user.role == PlatformRole.SUPER_ADMIN.value:
         users_q = (
             select(User)
             .where(or_(User.name.ilike(pattern), User.email.ilike(pattern)))

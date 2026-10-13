@@ -1,0 +1,21 @@
+# Test-only dependency set for apps/yolo-backend.
+#
+# Deliberately NOT an editable install of the backend: its runtime dependency
+# `ultralytics>=8.4.0,<8.5` pulls torch (hundreds of MB), while every committed
+# yolo test either exercises predictor/model_registry/schemas only (no torch at
+# import time) or installs a committed `sys.modules` torch stub before importing
+# `main`. Keeping this list torch-free lets the CPU job run the full yolo suite
+# (224 tests) without the model stack.
+pytest>=8
+pytest-asyncio>=0.23
+fastapi>=0.110
+prometheus-client>=0.20
+httpx>=0.27
+pydantic>=2.5
+numpy>=1.24,<3.0
+pillow>=10.0
+opencv-python-headless>=4.9
+cryptography>=43.0.0
+PyJWT>=2.10,<3
+psutil>=5.9
+pynvml>=11.5

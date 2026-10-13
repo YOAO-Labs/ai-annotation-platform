@@ -3,7 +3,7 @@ audience: [dev]
 type: how-to
 since: v0.1.0
 status: stable
-last_reviewed: 2026-07-13
+last_reviewed: 2026-09-19
 ---
 
 # How-to：调试 WebSocket
@@ -14,16 +14,18 @@ last_reviewed: 2026-07-13
 
 后端 WS 端点全部注册在 `apps/api/app/api/v1/ws.py` 的 `router = APIRouter()`，由 `apps/api/app/main.py:108` `app.include_router(ws_router)` **无 prefix** 挂载。所以浏览器侧 URL 必须是 `/ws/<name>`，**不要写 `/api/v1/ws/<name>`**：
 
-| 端点                               | 用途                                  | 鉴权              | 前端 hook                       |
-| ---------------------------------- | ------------------------------------- | ----------------- | ------------------------------- |
-| `/ws/notifications`                | 单用户通知推送                        | JWT token         | `useNotificationSocket.ts`      |
-| `/ws/prediction-jobs`              | 全局预标 job 进度 (admin only)        | JWT + role        | `useGlobalPreannotationJobs.ts` |
-| `/ws/projects/{id}/preannotate`    | 单项目预标进度条                      | 无（路径绑项目）  | `usePreannotation.ts`           |
-| `/ws/batches/project/{project_id}` | 项目 batch 状态同步                   | 当前实现无 JWT    | `useBatchEventsSocket.ts`       |
-| `/ws/video-tracker-jobs/{job_id}`  | 视频 tracker 运行与候选审阅事件       | JWT + task 可见性 | `useVideoTrackerJobs.ts`        |
-| `/ws/ml-backend-stats`             | PerfHud GPU/容器实时指标 (admin only) | JWT + role        | `useMLBackendStats.ts`          |
+| 端点                               | 用途                                  | 鉴权                 | 前端 hook                       |
+| ---------------------------------- | ------------------------------------- | -------------------- | ------------------------------- |
+| `/ws/notifications`                | 单用户通知推送                        | JWT token            | `useNotificationSocket.ts`      |
+| `/ws/prediction-jobs`              | 全局预标 job 进度 (admin only)        | JWT + role           | `useGlobalPreannotationJobs.ts` |
+| `/ws/projects/{id}/preannotate`    | 单项目预标进度条                      | JWT/`ak_` + 项目访问 | `usePreannotation.ts`           |
+| `/ws/batches/project/{project_id}` | 项目 batch 状态同步                   | JWT/`ak_` + 项目访问 | `useBatchEventsSocket.ts`       |
+| `/ws/video-tracker-jobs/{job_id}`  | 视频 tracker 运行与候选审阅事件       | JWT + task 可见性    | `useVideoTrackerJobs.ts`        |
+| `/ws/ml-backend-stats`             | PerfHud GPU/容器实时指标 (admin only) | JWT + role           | `useMLBackendStats.ts`          |
 
 production：6 个端点都走 nginx `/ws/` location 反代到 `api:8000`（[infra/docker/nginx.conf](https://github.com/anthropics/ai-annotation-platform/blob/main/infra/docker/nginx.conf)）。
+
+> 项目作用域频道（`preannotate` / `batches`）以 query `token` 传 JWT 或 `ak_` API key，并要求当前账号在该 `project_id` 上有实际访问；凭据无效 / 撤销或无项目访问在 accept 前 close `1008`。每个受保护 payload 前都重新校验当前权限，撤销后立即停止该项目的受限投递，**没有 5 秒宽限**。直连排查时带上 `?token=...`，不要假设它们“无需鉴权”，也不要把 project UUID 当作访问控制。
 
 ## 常见问题
 

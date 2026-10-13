@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { ProjectTemplateOut } from "@/api/projectTemplates";
+import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 
 const mockUseProjectTemplates = vi.fn();
 const mockDuplicate = vi.fn();
@@ -106,6 +107,7 @@ function renderUI(initialPath = "/project-templates", navigateTo?: string) {
         {navigateTo ? <NavigateOnMount to={navigateTo} /> : null}
         <LocationProbe />
         <ProjectTemplatesPage />
+        <DecisionDialogHost />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -162,15 +164,21 @@ describe("ProjectTemplatesPage", () => {
     expect(screen.getByText(/使用 3 次/)).toBeInTheDocument();
   });
 
-  it("点击删除 → confirm + 调用 remove mutation", () => {
+  it("点击删除 → 决策对话框确认 + 调用 remove mutation", async () => {
     mockUseProjectTemplates.mockReturnValue({
-      data: [makeTemplate({ id: "t-1", created_by: "user-1" })],
+      data: [makeTemplate({ id: "t-1", created_by: "user-1", usage_count: 3 })],
       isLoading: false,
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     renderUI();
     fireEvent.click(screen.getByTestId("template-delete-t-1"));
-    expect(mockRemove).toHaveBeenCalledWith("t-1", expect.any(Object));
+    // 决策对话框先行,确认前不触发 mutation
+    const dialog = await screen.findByRole("alertdialog");
+    expect(screen.getByText("删除模板")).toBeInTheDocument();
+    expect(dialog.textContent).toContain("模板");
+    expect(dialog.textContent).toContain("已使用 3 次");
+    expect(mockRemove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    await waitFor(() => expect(mockRemove).toHaveBeenCalledWith("t-1", expect.any(Object)));
   });
 
   it("点击应用 → 打开 Wizard 并透传 templateId", async () => {

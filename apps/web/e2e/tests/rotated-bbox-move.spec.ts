@@ -2,7 +2,7 @@ import { expect, test } from "../fixtures/seed";
 
 test("图片旋转框选中后拖动、保存、撤销重做及刷新恢复", async ({ page, seed }, testInfo) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const taskId = data.task_ids[0];
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
   const projectPath = `/api/v1/projects/${data.project_id}`;

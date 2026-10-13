@@ -49,6 +49,19 @@ describe("COCO uncompressed RLE", () => {
     });
   }
 
+  it("counts area as the odd-index run sum, the contract E2E foregroundArea helpers assume", () => {
+    const pixels = [1, 1, 0, 0, 1, 0, 0, 0, 1];
+    const rle = encodeCocoRle(pixels, 3, 3);
+    const oddRunSum = rle.counts.reduce(
+      (area: number, count: number, index: number) => area + (index % 2 === 1 ? count : 0),
+      0,
+    );
+    const decodedForeground = Array.from(decodeCocoRle(rle)).filter((value) => value !== 0).length;
+    expect(cocoRleArea(rle)).toBe(4);
+    expect(cocoRleArea(rle)).toBe(oddRunSum);
+    expect(cocoRleArea(rle)).toBe(decodedForeground);
+  });
+
   it("accepts the structural 8K image envelope without decoding it", () => {
     expect(
       validateCocoRle({

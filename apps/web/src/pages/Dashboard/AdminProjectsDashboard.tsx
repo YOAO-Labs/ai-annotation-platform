@@ -1,21 +1,22 @@
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { StatCard } from "@/components/ui/StatCard";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useToastStore } from "@/components/ui/Toast";
-import { useProjects, useProjectStats } from "@/hooks/useProjects";
+import { useProjectPage, useProjectStats } from "@/hooks/useProjects";
 import type { ProjectResponse } from "@/api/projects";
 import { CreateProjectWizard } from "@/components/projects/CreateProjectWizard";
 import { ImportDatasetWizard } from "@/components/datasets/ImportDatasetWizard";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
 import { ProjectGrid } from "./ProjectGrid";
+import { ProjectPagination } from "./ProjectPagination";
 import { ProjectFilterControl } from "./ProjectFilterControl";
 import { ProjectFilterSummary } from "./ProjectFilterSummary";
 import type { DashboardFilters } from "./dashboardUrlState";
@@ -25,12 +26,12 @@ import {
   EMPTY_DASHBOARD_URL_STATE,
   type DashboardStatus,
 } from "./dashboardUrlState";
-import { buildWorkbenchUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
+import { buildProjectEntryUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
 import { projectDisplayType } from "@/utils/projectDisplay";
 import { statSeriesHint, statSparkValues, statTrendFromSeries } from "@/utils/projectStatsSeries";
 import { PageContainer } from "@/components/layout/PageContainer";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
+import { useDashboardQuerySync } from "./useDashboardQuerySync";
 
 const DATA_TYPE_ICONS: Record<string, IconName> = {
   image: "image",
@@ -72,7 +73,6 @@ function AdminProjectRow({
   );
   const due = p.due_date ?? "—";
   const updated = p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : "—";
-  const ownerInitial = p.owner_name?.slice(0, 1) ?? "?";
 
   return (
     <tr>
@@ -95,7 +95,7 @@ function AdminProjectRow({
       </td>
       <td className={TD_CLASS}>
         <div className="flex items-center gap-2">
-          <Avatar initial={ownerInitial} size="sm" />
+          <UserAvatar size="sm" user={{ name: p.owner_name, avatar_ref: p.owner_avatar_ref }} />
           <div>
             <div className="whitespace-nowrap text-sm">{p.owner_name ?? "—"}</div>
             <div className="text-xs text-muted-foreground">
@@ -200,29 +200,19 @@ export function AdminProjectsDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const pushToast = useToastStore((s) => s.push);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const urlState = useUrlFilterState({
     codec: dashboardUrlCodec,
     defaults: EMPTY_DASHBOARD_URL_STATE,
     ownedKeys: DASHBOARD_FILTER_KEYS,
   });
-  const currentUrl = urlState.state;
-  const [query, setQuery] = useState(currentUrl.query);
-  const [queryFlushKey, setQueryFlushKey] = useState(0);
-  const localQueryWriteRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (localQueryWriteRef.current === currentUrl.query) {
-      localQueryWriteRef.current = null;
-      return;
-    }
-    setQuery(currentUrl.query);
-    setQueryFlushKey((value) => value + 1);
-  }, [currentUrl.query]);
-  const debouncedQuery = useDebouncedValue(query, 250, queryFlushKey);
-  const queryForRequest =
-    localQueryWriteRef.current === null && query.trim() !== currentUrl.query
-      ? currentUrl.query
-      : debouncedQuery;
+  const {
+    currentUrl,
+    query,
+    setQuery: updateQuery,
+    patchUrl,
+    writeSearchParams,
+  } = useDashboardQuerySync(urlState);
   const filter =
     currentUrl.status === "in_progress"
       ? "进行中"
@@ -252,20 +242,41 @@ export function AdminProjectsDashboard() {
   const viewMode: "list" | "grid" = searchParams.get("layout") === "grid" ? "grid" : "list";
 
   const setViewMode = (mode: "list" | "grid") => {
-    const next = new URLSearchParams(searchParams);
+    const next = dashboardUrlCodec.encode(searchParams, {
+      ...currentUrl,
+      query: query.trim(),
+      page: query.trim() === currentUrl.query ? currentUrl.page : 1,
+    });
     if (mode === "grid") next.set("layout", "grid");
     else next.delete("layout");
-    setSearchParams(next, { replace: true });
+    writeSearchParams(next, { replace: true });
   };
 
-  const { data: projects = [], isLoading } = useProjects({
+  const {
+    data: projectPage,
+    isLoading: pageLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useProjectPage({
+    page: currentUrl.page,
+    page_size: currentUrl.page_size,
     status: currentUrl.status,
-    search: queryForRequest.trim() || undefined,
+    search: currentUrl.query || undefined,
     data_type: currentUrl.data_type.length > 0 ? currentUrl.data_type : undefined,
     member_id: currentUrl.member_id,
     created_from: currentUrl.created_from,
     created_to: currentUrl.created_to,
   });
+  const projects = projectPage?.items ?? [];
+  const lastPage = Math.max(1, projectPage?.pages ?? 1);
+  const pageOutOfRange = !isError && projectPage !== undefined && currentUrl.page > lastPage;
+  const isLoading = pageLoading || pageOutOfRange;
+  useEffect(() => {
+    if (pageOutOfRange && !isFetching && query.trim() === currentUrl.query) {
+      patchUrl({ page: lastPage });
+    }
+  }, [currentUrl.query, isFetching, lastPage, pageOutOfRange, query, patchUrl]);
 
   const advancedActiveCount = useMemo(() => {
     let n = 0;
@@ -276,8 +287,10 @@ export function AdminProjectsDashboard() {
   }, [advanced]);
 
   const applyFilters = (next: DashboardFilters) => {
-    urlState.patch(
+    patchUrl(
       {
+        query: query.trim(),
+        page: 1,
         status: next.status,
         data_type: next.data_type,
         member_id: next.member_id,
@@ -287,13 +300,8 @@ export function AdminProjectsDashboard() {
       { replace: false },
     );
   };
-  const updateQuery = (next: string) => {
-    setQuery(next);
-    localQueryWriteRef.current = next.trim();
-    urlState.patch({ query: next });
-  };
   const updateFilterTab = (next: string) => {
-    urlState.patch({ status: FILTER_STATUS_MAP[next] }, { replace: false });
+    patchUrl({ status: FILTER_STATUS_MAP[next], query: query.trim(), page: 1 }, { replace: false });
   };
 
   const { data: stats } = useProjectStats();
@@ -301,14 +309,14 @@ export function AdminProjectsDashboard() {
   const openWizard = () => {
     const next = new URLSearchParams(searchParams);
     next.set("new", "1");
-    setSearchParams(next);
+    writeSearchParams(next);
   };
 
   const closeWizard = () => {
     const next = new URLSearchParams(searchParams);
     next.delete("new");
     next.delete("from");
-    setSearchParams(next, { replace: true });
+    writeSearchParams(next, { replace: true });
   };
 
   const onSettings = (p: ProjectResponse, section?: string) =>
@@ -316,7 +324,11 @@ export function AdminProjectsDashboard() {
 
   const onOpenProject = (p: ProjectResponse) => {
     if (p.data_type && WORKBENCH_DATA_TYPES.has(p.data_type)) {
-      navigate(buildWorkbenchUrl(p.id, { returnTo: currentWorkbenchReturnTo(location) }));
+      navigate(
+        buildProjectEntryUrl(p.id, p.my_project_role, {
+          returnTo: currentWorkbenchReturnTo(location),
+        }),
+      );
     } else {
       pushToast({
         msg: `项目 "${p.name}" 已打开`,
@@ -399,7 +411,7 @@ export function AdminProjectsDashboard() {
         <div className="flex items-center justify-between border-b border-border px-4 py-3.5 max-[900px]:flex-col max-[900px]:items-start">
           <div className="flex items-center gap-3 max-[900px]:flex-wrap">
             <h3 className="text-sm font-semibold">全部项目</h3>
-            <FilterGroup label="状态">
+            <FilterGroup label="状态" hideLabel>
               {FILTERS.map((option) => (
                 <FilterToggle
                   key={option}
@@ -439,7 +451,28 @@ export function AdminProjectsDashboard() {
           onChange={applyFilters}
           onEdit={() => setFilterOpen(true)}
         />
-        {viewMode === "grid" ? (
+        {isError && projectPage && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 border-b border-border bg-status-caution-soft px-4 py-2 text-xs"
+          >
+            刷新失败，当前显示上次成功加载的项目
+            <Button size="xs" onClick={() => void refetch()}>
+              重新加载
+            </Button>
+          </div>
+        )}
+        {isError && !projectPage ? (
+          <div
+            role="alert"
+            className="flex items-center justify-center gap-3 p-10 text-sm text-muted-foreground"
+          >
+            项目列表暂时无法加载
+            <Button size="xs" onClick={() => void refetch()}>
+              重新加载
+            </Button>
+          </div>
+        ) : viewMode === "grid" ? (
           isLoading ? (
             <div className="p-10 text-center text-muted-foreground">加载中...</div>
           ) : (
@@ -489,6 +522,16 @@ export function AdminProjectsDashboard() {
               </tbody>
             </table>
           </div>
+        )}
+        {(!isError || projectPage) && (
+          <ProjectPagination
+            page={currentUrl.page}
+            pageSize={currentUrl.page_size}
+            total={projectPage?.total ?? 0}
+            loading={isLoading || query.trim() !== currentUrl.query}
+            onPageChange={(page) => patchUrl({ page }, { replace: false })}
+            onPageSizeChange={(page_size) => patchUrl({ page_size, page: 1 }, { replace: false })}
+          />
         )}
       </Card>
     </PageContainer>

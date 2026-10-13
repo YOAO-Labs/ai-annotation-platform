@@ -1,4 +1,4 @@
-"""SAM 3 ML Backend — FastAPI 入口 (v0.10.0 / M0).
+"""SAM 3 ML Backend — FastAPI 入口.
 
 实现 docs-site/dev/reference/ml-backend-protocol.md 规定的 4 个端点 + 2 个观测端点 +
 2 个运维端点 (与 grounded-sam2-backend 对齐):
@@ -11,14 +11,14 @@
     POST /unload        主动卸载模型释放显存
     POST /reload        主动重载模型
 
-prompt 类型 (v0.18.17 选项 B — 启用 inst_interactivity):
+prompt 类型 (启用 inst_interactivity):
     - context.type == "text"            → Sam3Processor.set_text_prompt → 全图所有匹配概念的 masks
     - context.type == "exemplar"        → Sam3Processor.add_geometric_prompt → 全图相似实例 (PCS)
     - context.type == "point"           → model.predict_inst(point_coords) → 单实例点交互 (SAM-style)
     - context.type == "interactive_box" → model.predict_inst(box) → 单框单 mask (SAM-style)
 
 "point" / "interactive_box" 与 "exemplar" 语义不同: 前两者是「点/框精修出单实例 mask」,
-后者是 PCS「找全图与示例框相似的所有实例」. "bbox" 已于 v0.18.17 退出交互 prompt 命名空间
+后者是 PCS「找全图与示例框相似的所有实例」. "bbox" 已退出交互 prompt 命名空间
 (仅作几何形状), 旧 type=bbox 请求落到 422.
 
 Idle Unload (双 backend 并存场景的显存让渡机制):
@@ -42,7 +42,11 @@ from typing import Any, Callable
 import httpx
 import torch
 from aap_backend_runtime import (
+    BuildArtifact,
     DeviceUnavailableError,
+    ManagedBuildTimeout,
+    ManagedLruPool,
+    ManagedPoolBusyError,
     TrackerSessionLost,
     TrackerSessionManager,
     deployment_verified_flag,
@@ -88,12 +92,6 @@ from pydantic import BaseModel, ValidationError
 
 from embedding_cache import EmbeddingCache, compute_cache_key
 from gpu_lifecycle import Sam3GpuLifecycle, WorkloadOperation
-from managed_pool import (
-    BuildArtifact,
-    ManagedBuildTimeout,
-    ManagedLruPool,
-    ManagedPoolBusyError,
-)
 from observability import (
     init_perfhud_collectors,
     record_cache,
@@ -126,9 +124,9 @@ logger = logging.getLogger("sam3-backend")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 
 MODEL_VERSION = MODEL_VARIANT  # "sam3" (图像模型即 facebook/sam3 单档)
-# v0.21.x · 视频追踪权重 (sam3.1_multiplex) 的展示名, 供前端「视频权重」条目 (与图像「SAM 3」对称)。
+# 视频追踪权重 (sam3.1_multiplex) 的展示名, 供前端「视频权重」条目 (与图像「SAM 3」对称)。
 _VIDEO_MODEL_VERSION = "SAM 3.1"
-# v0.10.1 · /setup 协议标准化暴露 backend 镜像版本 (与 FastAPI app.version 同源).
+# /setup 协议标准化暴露 backend 镜像版本 (与 FastAPI app.version 同源).
 BACKEND_VERSION = os.getenv("BACKEND_VERSION", "0.10.1")
 IMAGE_DOWNLOAD_TIMEOUT = float(os.getenv("IMAGE_DOWNLOAD_TIMEOUT", "30"))
 EMBEDDING_CACHE_SIZE = int(os.getenv("SAM3_EMBEDDING_CACHE_SIZE", "32"))
@@ -441,6 +439,7 @@ async def _load_models() -> None:
         build_timeout=MODEL_POOL_BUILD_TIMEOUT,
         build_serial_lock=build_serial_lock,
         pool_name="SAM3 image models",
+        logger_name="sam3-backend.managed-pool",
     )
     _multiplex_pool = ManagedLruPool(
         cap=1,
@@ -451,6 +450,7 @@ async def _load_models() -> None:
         build_timeout=MODEL_POOL_BUILD_TIMEOUT,
         build_serial_lock=build_serial_lock,
         pool_name="SAM3 multiplex video models",
+        logger_name="sam3-backend.managed-pool",
     )
     _pvs_pool = ManagedLruPool(
         cap=1,
@@ -461,6 +461,7 @@ async def _load_models() -> None:
         build_timeout=MODEL_POOL_BUILD_TIMEOUT,
         build_serial_lock=build_serial_lock,
         pool_name="SAM3 PVS video models",
+        logger_name="sam3-backend.managed-pool",
     )
     _pool_domain = Sam3Pools(_image_pool, _multiplex_pool, _pvs_pool)
     _gpu_lifecycle = Sam3GpuLifecycle(
@@ -600,9 +601,9 @@ async def health() -> dict:
         "cache": _cache.stats(),
         "model_version": MODEL_VERSION,
         "loaded": image_snapshot["current_size"] > 0,
-        # v0.14.14: 协议 §4.3 PoolStatus 统一格式; sam3 cap 永远 1.
+        # 协议 §4.3 PoolStatus 统一格式; sam3 cap 永远 1.
         "pool": _legacy_image_pool_status(image_snapshot),
-        # v0.21.x · 视频追踪池 (与图像池并存常驻); 前端据此显示视频追踪已加载 / 预热。
+        # 视频追踪池 (与图像池并存常驻); 前端据此显示视频追踪已加载 / 预热。
         "video_pool": _legacy_video_pool_status(
             multiplex_snapshot,
             pvs_snapshot,
@@ -622,7 +623,7 @@ async def health() -> dict:
 
 @app.get("/setup")
 def setup() -> dict:
-    # v0.10.1 · /setup 标准化为 JSON Schema 自描述协议:
+    # /setup 标准化为 JSON Schema 自描述协议:
     # - name / version / model_version: 必填三元组, 前端用于诊断与兼容判断
     # - supported_prompts: 决定 ToolDock 哪些 AI 工具可用 (M2 ToolDock 重构消费)
     # - params: JSON Schema (Draft-07 子集) — 前端 schema-form 自动渲染参数面板
@@ -632,13 +633,13 @@ def setup() -> dict:
         "name": "sam3-backend",
         "version": BACKEND_VERSION,
         "model_version": MODEL_VERSION,
-        # v0.21.x · 视频追踪权重展示名 (sam3.1_multiplex → "SAM 3.1"), 前端「视频权重」条目用。
+        # 视频追踪权重展示名 (sam3.1_multiplex → "SAM 3.1"), 前端「视频权重」条目用。
         "video_model_version": _VIDEO_MODEL_VERSION,
-        # v0.14.14: 声明本 backend 支持 POST /warmup (协议 §4.4).
+        # 声明本 backend 支持 POST /warmup (协议 §4.4).
         "warmup_endpoint": True,
         "labels": [],
         "is_interactive": True,
-        # v0.18.17 选项 B: 开 inst_interactivity 后宣称 point + interactive_box (SAM-style 单实例
+        # 开 inst_interactivity 后宣称 point + interactive_box (SAM-style 单实例
         # 点/框交互, 走 model.predict_inst). "bbox" 已退出交互 prompt 命名空间 (仅几何形状);
         # PCS「找全图相似」统一走 "exemplar" (add_geometric_prompt). text = PCS 文本概念.
         "supported_prompts": [
@@ -649,7 +650,7 @@ def setup() -> dict:
             "text",
             "exemplar",
         ],
-        # v0.18.19 · exemplar 升级为多正负框 + text 组合 + per-request 阈值重过滤的迭代会话.
+        # exemplar 支持多正负框 + text 组合 + per-request 阈值重过滤的迭代会话.
         # 前端据此把 exemplar 工具从「一发」升级为 refine 会话 (加正框/负框/拖阈值/叠 text).
         "exemplar_capabilities": {
             "multi_box": True,
@@ -660,12 +661,12 @@ def setup() -> dict:
         "supported_text_outputs": ["box", "mask", "both"],
         # exemplar 走 add_geometric_prompt; state 同时产出 boxes/masks, 三档都支持.
         "supported_geometric_outputs": ["bbox", "polygon", "mask"],
-        # v0.21.19 §PR3 · sam3.1_multiplex 视频文本追踪 (text-driven, 每帧按文本检测目标)。
+        # sam3.1_multiplex 视频文本追踪 (text-driven, 每帧按文本检测目标)。
         # 平台据 supported_trackers 判 backend 支持视频追踪; text_driven_trackers 让其区分
         # seed-bbox tracker(sam2) 与文本驱动 tracker(sam3, 需 text)。
         "supported_trackers": ["sam3_video", "sam3_video_interactive"],
         "text_driven_trackers": ["sam3_video"],
-        # v0.14.12 · 显式暴露单档 variant, 让模型市场能展示该具体权重 (此前 [] 导致
+        # 显式暴露单档 variant, 让模型市场能展示该具体权重 (此前 [] 导致
         # 卡片/列表无法显示「该 backend 加载的是 sam3」). 三个 task 共享同一份权重,
         # variants_shared_across_tasks 在每个 model 上设 True 让列表合并到 1 行。
         "supported_variants": [
@@ -724,8 +725,8 @@ def setup() -> dict:
             },
         },
     }
-    # v0.14.9 · 协议 v2: 顶层 infra + 多模型目录 (models[])。
-    # v0.14.11 · 把 SAM 3 的 3 条实际能力 (PCS 路径) 拆成独立 model 条目, 让平台
+    # 协议 v2: 顶层 infra + 多模型目录 (models[])。
+    # SAM 3 的 3 条实际能力 (PCS 路径) 拆成独立 model 条目, 让平台
     # 「协议能力目录」按 task 正确归类:
     #   - detection       (text → bbox, PCS 全图找类相似实例)
     #   - segmentation    (text → mask/polygon, PCS 出 mask 转 polygon)
@@ -734,7 +735,7 @@ def setup() -> dict:
     # 顶层 supported_prompts / supported_geometric_outputs 全部保留, 供未迁移平台
     # 向后兼容 (合成隐式单 model 路径)。
     base["infra"] = "pytorch"
-    # v0.14.13 · `default_variants`: 跨 backend 对称声明 (sam3 图像模型只有单档).
+    # `default_variants`: 跨 backend 对称声明 (sam3 图像模型只有单档).
     # 即便单值, 前端 VariantSelector 仍按统一规则消费 model.default_variants 拿初值,
     # 避免对"单档 backend"再走特殊分支.
     _default_variants = {"model_variant": MODEL_VARIANT}
@@ -746,7 +747,7 @@ def setup() -> dict:
             "model_family": "sam3",
             "infra": "pytorch",
             "is_interactive": False,
-            # v0.18.12 · 纯文本检测, 原子单元。
+            # 纯文本检测, 原子单元。
             "composition": "atom",
             "supported_prompts": ["text"],
             # 文本检测器: 整图 / 父框 crop 上检子物体 (crop-detect 下游)。
@@ -767,7 +768,7 @@ def setup() -> dict:
             "model_family": "sam3",
             "infra": "pytorch",
             "is_interactive": False,
-            # v0.18.12 · 文本→检测→分割一体的内置流程, 非原子。
+            # 文本→检测→分割一体的内置流程, 非原子。
             "composition": "composite",
             "supported_prompts": ["text"],
             # 文本→分割: 整图 / 父框 crop 上跑 (文本驱动, 内置流程)。
@@ -788,8 +789,8 @@ def setup() -> dict:
             "model_family": "sam3",
             "infra": "pytorch",
             "is_interactive": True,
-            # v0.18.12 · 单步交互分割, 原子单元。
-            # v0.18.17 · 开 inst 后并入 SAM-style point / interactive_box 单实例交互 (与 exemplar 的
+            # 单步交互分割, 原子单元。
+            # 开 inst 后并入 SAM-style point / interactive_box 单实例交互 (与 exemplar 的
             # PCS 全图相似并列; 三者均走整图、出 polygon)。
             "composition": "atom",
             "supported_prompts": [
@@ -816,7 +817,7 @@ def setup() -> dict:
             "params": base["params"],
         },
         {
-            # v0.21.19 §PR3 · 文本驱动视频追踪 (sam3.1_multiplex)。
+            # 文本驱动视频追踪 (sam3.1_multiplex)。
             "id": "sam3-video-tracker",
             "display_name": "SAM 3.1 · 视频文本追踪 (Multiplex)",
             "task": "tracker",
@@ -1015,7 +1016,7 @@ async def reload(request: Request) -> dict:
     return {"ok": True, "loaded": True, "reloaded": not cache_hit}
 
 
-# v0.14.14 协议 §4.4 · /warmup 端点 (sam3 单档, body 可空).
+# 协议 §4.4 · /warmup 端点 (sam3 单档, body 可空).
 
 
 class WarmupRequest(BaseModel):
@@ -1023,8 +1024,8 @@ class WarmupRequest(BaseModel):
     视频: task="tracker" 预热视频追踪模型 (sam3.1_multiplex, 单档无变体)。"""
 
     variants: dict[str, str] = {}
-    # v0.21.x · 平台按 taskType=video 下发 {task:"tracker"} → 预热 multiplex 文本追踪;
-    # v0.21.26 · {task:"interactive"} → 预热 PVS 交互 (点/框) 追踪。
+    # 平台按 taskType=video 下发 {task:"tracker"} → 预热 multiplex 文本追踪;
+    # {task:"interactive"} → 预热 PVS 交互 (点/框) 追踪。
     task: str | None = None
 
 
@@ -1033,10 +1034,10 @@ async def warmup(
     request: Request,
     req: WarmupRequest | None = None,
 ) -> WarmupResponse:
-    """v0.14.14: 加载权重到 GPU 不跑 forward。
+    """加载权重到 GPU 不跑 forward。
 
     默认预热图像模型 (SAM 3 单档, variants.model_variant 必须等于 sam3 或缺省);
-    task="tracker" 预热视频追踪模型 (sam3.1_multiplex)。v0.21.x 起图像 / 视频并存,
+    task="tracker" 预热视频追踪模型 (sam3.1_multiplex)。图像 / 视频可并存,
     预热其一不再卸另一。重复预热返回 cache_hit=true。
     """
     operation = _request_operation(request)
@@ -1151,7 +1152,7 @@ def _mask_prompt_payload(context: Context | None) -> dict[str, Any] | None:
 
 
 def _coerce_exemplars(ctx: dict) -> list[dict]:
-    """v0.18.19 · 归一 type=exemplar 的几何输入为 [{bbox, label}] 列表。
+    """归一 type=exemplar 的几何输入为 [{bbox, label}] 列表。
 
     优先读多框 `exemplars[]`; 缺省退化单 `bbox` 正框 (旧路径兼容)。每框 bbox 必须长度 4。
     """
@@ -1212,7 +1213,7 @@ def _run_prompt_sync(
 ) -> tuple[list[dict], bool, str | None]:
     """返回 (results, cache_hit, mask_input_next). 命中时 point/bbox/exemplar 跳过 image fetch.
 
-    mask_input_next (v0.18.18) 仅 point 精修单 mask 阶段非空, 其余 prompt 恒 None。
+    mask_input_next 仅 point 精修单 mask 阶段非空, 其余 prompt 恒 None。
     """
     ptype = ctx.get("type")
     mask_context = _validate_mask_context(ctx)
@@ -1238,7 +1239,7 @@ def _run_prompt_sync(
                 status_code=422, detail="context.points required for type=point"
             )
         output_geometry, prompt_revision = _coerce_interactive_output(ctx)
-        # v0.18.17 · inst 单实例点交互 (累加正负点; multimask 候选).
+        # inst 单实例点交互 (累加正负点; multimask 候选).
         points = [list(point) for point in mask_context.points]
         labels = list(mask_context.labels or [1] * len(points))
         multimask = mask_context.multimask_output
@@ -1273,7 +1274,7 @@ def _run_prompt_sync(
                 detail="context.bbox=[x1,y1,x2,y2] required for type=interactive_box",
             )
         output_geometry, prompt_revision = _coerce_interactive_output(ctx)
-        # v0.18.17 · inst 单框单 mask (≠ exemplar 的全图相似; bbox prompt 已退役).
+        # inst 单框单 mask (≠ exemplar 的全图相似; bbox prompt 已退役).
         box = list(mask_context.bbox)
         multimask = mask_context.multimask_output
         image = (
@@ -1397,7 +1398,7 @@ def _run_prompt_sync(
 
     if ptype == "exemplar":
         output_geometry, prompt_revision = _coerce_interactive_output(ctx)
-        # v0.18.19 · 多正负框 exemplars[] (+ 可选 text 组合) 优先; 缺省退化单 bbox 正框.
+        # 多正负框 exemplars[] (+ 可选 text 组合) 优先; 缺省退化单 bbox 正框.
         exemplars = _coerce_exemplars(ctx)
         text = (ctx.get("text") or "").strip() or None
         output_mode = _coerce_output(ctx)
@@ -1471,7 +1472,7 @@ def _observe(prompt_type: str, hit: bool, started: float) -> int:
     return int(elapsed * 1000)
 
 
-# ── v0.21.19 §PR3 · video_tracker 分支 (text-driven sam3_video) ────────
+# ── video_tracker 分支 (text-driven sam3_video) ─────────────────────────
 
 
 def _seed_bbox_from_geometry(geom: Any) -> dict[str, float] | None:
@@ -1704,7 +1705,7 @@ def _seeds_from_video_ctx(ctx: dict) -> list[dict]:
 
     seeds[] 每条: {obj_id?, prompts?/bbox?/points?/geometry?}; geometry 走
     _seed_bbox_from_video_ctx 取外接框。points 直接透传 [[x,y,label],...]。缺 obj_id 时按序补
-    1..N。prompts (v0.21.27 U-pvs-2 纠偏) = 多帧 [{frame_index, points?/bbox?}], 原样透传给
+    1..N。prompts = 多帧 [{frame_index, points?/bbox?}], 原样透传给
     wrapper 逐帧播种; 优先于单帧 bbox/points。
     """
     if ctx.get("type") == "correction_frame":
@@ -1919,8 +1920,8 @@ async def predict(request: Request):
     if isinstance(body, dict) and "task" in body and "context" in body:
         task = body["task"]
         ctx = _normalize_predict_context(body.get("context") or {})
-        # v0.21.19 §PR3 · video_tracker 走独立视频模型分支 (与图像 prompt 路径分流)。
-        # v0.21.26 · 按 model_key 分派: sam3_video_interactive → PVS 点/框 memory 追踪,
+        # video_tracker 走独立视频模型分支 (与图像 prompt 路径分流)。
+        # 按 model_key 分派: sam3_video_interactive → PVS 点/框 memory 追踪,
         # 否则 (sam3_video) → multiplex 文本追踪。
         if ctx.get("type") == "video_tracker":
             correction = (ctx.get("prompt") or {}).get("correction") or {}
@@ -2006,7 +2007,7 @@ async def predict(request: Request):
         ctx = _normalize_predict_context(
             body.get("context") or {"type": "text", "text": body.get("text", "")}
         )
-        # v0.18.12 · 文本批量按 model_id 路由输出形态 (统一 wire): detection→box, segmentation→
+        # 文本批量按 model_id 路由输出形态 (统一 wire): detection→box, segmentation→
         # ctx.output||mask。无 model_id 回落 ctx.output (老 wire 兼容)。type 强制 text 走文本分支。
         _mid = ctx.get("model_id")
         if _mid == "sam3-detection":

@@ -51,7 +51,7 @@ repos:
         files: ^apps/web/.+\.(ts|tsx)$
         pass_filenames: false
 
-      # v0.8.8 · 修改 schema/路由/auth 时自动重新生成 OpenAPI snapshot 并 git add，
+      # 修改 schema/路由/auth 时自动重新生成 OpenAPI snapshot 并 git add，
       # 避免 CI test_openapi_contract.py 红灯 + 让 PR 作者忘记 export 的事变成
       # 提交即修复唯一版本化 snapshot；docs build 再复制到 public/openapi.json。
       # config.py 也纳入 files: openapi info.version/title 源自 app_version 等 config 字段,
@@ -64,7 +64,7 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
-      # v0.18.30 · 改 capability registry 受控词表(或其响应 schema/序列化)时, 重导
+      # 改 capability registry 受控词表(或其响应 schema/序列化)时, 重导
       # capability-registry snapshot 并 git add。前端 codegen 读此 snapshot 生成受控词表
       # 常量(apps/web/scripts/gen-capability-vocab.mjs); CI test_capability_registry_contract
       # 兜底。把"忘了重导致前端 stale"变成提交即修复(与 regen-openapi-snapshot 同思路)。

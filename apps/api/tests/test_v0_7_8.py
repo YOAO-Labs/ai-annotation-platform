@@ -8,6 +8,7 @@ import httpx
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.factory import build_tool_bindings
 
 pytestmark = pytest.mark.asyncio
 
@@ -32,14 +33,14 @@ async def test_invitation_rate_limit_exceeded(
         for i in range(2):
             r = await httpx_client.post(
                 "/api/v1/users/invite",
-                json={"email": f"invite{i}@limit.test", "role": "annotator"},
+                json={"email": f"invite{i}@limit.test", "role": "employee"},
                 headers=headers,
             )
             assert r.status_code == 201, f"Invite {i} failed: {r.text}"
 
         r = await httpx_client.post(
             "/api/v1/users/invite",
-            json={"email": "over_limit@limit.test", "role": "annotator"},
+            json={"email": "over_limit@limit.test", "role": "employee"},
             headers=headers,
         )
         assert r.status_code == 429
@@ -129,7 +130,7 @@ async def test_project_export_creates_audit_log(
         data_type="video",
         owner_id=user.id,
         status="in_progress",
-        classes=["a"],
+        tool_bindings=build_tool_bindings(["a"]),
     )
     db_session.add(project)
     await db_session.flush()

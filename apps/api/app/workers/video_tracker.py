@@ -40,6 +40,28 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
             if job is not None:
                 task = await db.get(Task, job.task_id)
                 project_id = task.project_id if task else None
+                # Reauthorize the initiating actor before running inference: a
+                # revoked account/project must not keep producing tracker work.
+                if task is not None and project_id is not None:
+                    from fastapi import HTTPException
+                    from app.db.models.user import User
+                    from app.services.project_access import resolve_project_access
+
+                    actor = (
+                        await db.get(User, job.created_by)
+                        if job.created_by is not None
+                        else None
+                    )
+                    project = await db.get(Project, project_id)
+                    try:
+                        if actor is None or not actor.is_active or project is None:
+                            raise HTTPException(status_code=403, detail="revoked")
+                        await resolve_project_access(db, user=actor, project=project)
+                    except HTTPException:
+                        job.status = VideoTrackerJobStatus.FAILED.value
+                        job.error_message = "permission_revoked"
+                        await db.commit()
+                        return
                 try:
                     project = await db.get(Project, project_id) if project_id else None
                     aj = await async_job_svc.create_job(

@@ -125,7 +125,7 @@ async def test_pool_id_for_registry_returns_none_for_unknown(
 
 @pytest.mark.asyncio
 async def test_predict_frame_route_records_dual_id(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ) -> None:
     """The /predict-frame route records both pool + instance on the persisted Prediction.
 
@@ -169,7 +169,7 @@ async def test_predict_frame_route_records_dual_id(
         ),
     ):
         # predict-frame takes a multipart upload; build a tiny JPEG.
-        resp = await httpx_client_bound.post(
+        resp = await httpx_client.post(
             f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/predict-frame",
             headers={"Authorization": f"Bearer {token}"},
             files={

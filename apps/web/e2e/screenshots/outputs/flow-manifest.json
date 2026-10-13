@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-09-15T01:28:16.584Z",
+  "updated_at": "2026-10-12T06:16:21.069Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
       "role": "hero-image",
-      "generated_at": "2026-09-12T08:17:24.744Z",
-      "captured_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca",
+      "generated_at": "2026-09-14T02:06:28.389Z",
+      "captured_commit": "8f4d6dbffc64fe8b250c64255022d36813331085",
       "source_worktree_dirty": false,
-      "derived_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca",
+      "derived_commit": "8f4d6dbffc64fe8b250c64255022d36813331085",
       "derivation_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "docs-site/scripts/generate-home-hero-media.mjs",
@@ -18,8 +18,8 @@
         "docs-site/scripts/generate-home-hero-media.mjs",
         "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
       ],
-      "sha256": "7dbc9735fe2c9d68453f699049be80233ef1cd985274cf833028c7b1da407b89",
-      "bytes": 52872,
+      "sha256": "f44c7144ef9f9e91b14fcced41b93ff725d456f74ef0e0a2d057cd5e4ddc02b6",
+      "bytes": 52738,
       "media": {
         "codec": "webp",
         "width": 1440,
@@ -31,18 +31,18 @@
       },
       "source_asset": {
         "path": "docs-site/user-guide/images/projects/data-manager-overview.png",
-        "sha256": "ff723a42341d7e5646e71905516d30ecac42a2dcd84ae36d37c833f153fce128",
-        "captured_commit": "59216f75a8043fe76a4bec3b95a7aa3655c8f8ca"
+        "sha256": "a7657a3f51d8e59a0ca1f3ea397dba111f4c755c991ec34e7eda21ddd453c1a2",
+        "captured_commit": "8f4d6dbffc64fe8b250c64255022d36813331085"
       }
     },
     "docs-site/.vitepress/theme/assets/home/hero/pointcloud.webp": {
       "asset_id": "home-hero/pointcloud",
       "role": "hero-image",
-      "generated_at": "2026-09-07T10:21:30.775Z",
-      "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "source_worktree_dirty": true,
-      "derived_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "derivation_worktree_dirty": true,
+      "generated_at": "2026-09-13T18:36:17.252Z",
+      "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618",
+      "source_worktree_dirty": null,
+      "derived_commit": "7768ea35a9c4e0b6b44174768b347632bf8c44a7",
+      "derivation_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "docs-site/scripts/generate-home-hero-media.mjs",
       "watch_paths": [
@@ -51,8 +51,8 @@
         "docs-site/scripts/generate-home-hero-media.mjs",
         "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
       ],
-      "sha256": "040647b393d89f76a028f7c4b5fdd493d1dfa521ce6402b0f9aacc46d4d11b02",
-      "bytes": 109922,
+      "sha256": "bd2357c112feb1dd718c4d16b6378a718e17eb48315463d13e081b2b86c0c6a4",
+      "bytes": 110210,
       "media": {
         "codec": "webp",
         "width": 1440,
@@ -64,18 +64,18 @@
       },
       "source_asset": {
         "path": "docs-site/user-guide/images/workbench/pointcloud-real-scene.png",
-        "sha256": "ea37793ab57eb487f22c43494e3d50558e65793485453e17c7a8aede614fc334",
-        "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a"
+        "sha256": "b7c50cb8adc6d15ada0574015ea447ba552ed3880170703d6ea23f23d69c738b",
+        "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618"
       }
     },
     "docs-site/.vitepress/theme/assets/home/hero/review.webp": {
       "asset_id": "home-hero/review",
       "role": "hero-image",
-      "generated_at": "2026-09-07T10:21:31.003Z",
-      "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "source_worktree_dirty": true,
-      "derived_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "derivation_worktree_dirty": true,
+      "generated_at": "2026-09-13T18:36:17.506Z",
+      "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618",
+      "source_worktree_dirty": null,
+      "derived_commit": "7768ea35a9c4e0b6b44174768b347632bf8c44a7",
+      "derivation_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "docs-site/scripts/generate-home-hero-media.mjs",
       "watch_paths": [
@@ -84,8 +84,8 @@
         "docs-site/scripts/generate-home-hero-media.mjs",
         "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
       ],
-      "sha256": "ac689f4dfaed8136c50e0b27c9db8fa8645f485d4b2ef9d4ddae1f9461c68677",
-      "bytes": 111918,
+      "sha256": "6392f51d11c845e758bc4498e0fc22e536d39b2376bfa4b5daefb82f9f661c6c",
+      "bytes": 133928,
       "media": {
         "codec": "webp",
         "width": 1440,
@@ -97,18 +97,18 @@
       },
       "source_asset": {
         "path": "docs-site/user-guide/images/review/workbench.png",
-        "sha256": "4da3ee1be6e2b170a5b7a541a7b3a788873e58d4c4ca854f94fab2e5f456d1df",
-        "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a"
+        "sha256": "8ba6f1c5898c2778525dace225ecfce11fc419b3d95576f8a9870d89d5c95a1a",
+        "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618"
       }
     },
     "docs-site/.vitepress/theme/assets/home/hero/video-track.webp": {
       "asset_id": "home-hero/video-track",
       "role": "hero-image",
-      "generated_at": "2026-09-07T10:21:30.549Z",
-      "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "source_worktree_dirty": true,
-      "derived_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "derivation_worktree_dirty": true,
+      "generated_at": "2026-09-13T18:36:17.125Z",
+      "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618",
+      "source_worktree_dirty": null,
+      "derived_commit": "7768ea35a9c4e0b6b44174768b347632bf8c44a7",
+      "derivation_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "docs-site/scripts/generate-home-hero-media.mjs",
       "watch_paths": [
@@ -117,8 +117,8 @@
         "docs-site/scripts/generate-home-hero-media.mjs",
         "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
       ],
-      "sha256": "db5b01a03230e6f77c9a98eb6c36220427e4f394507446c9fe9912ecb0218714",
-      "bytes": 92828,
+      "sha256": "55870fea2dfa91bcf3966e280228ad1f12b2214a53371bd08134912419516e94",
+      "bytes": 110992,
       "media": {
         "codec": "webp",
         "width": 1440,
@@ -130,8 +130,8 @@
       },
       "source_asset": {
         "path": "docs-site/user-guide/images/workbench/video-real-scene.png",
-        "sha256": "9a761d5e8ab82cf561a338443c9989def385f0c500aa594a40c1449c998ce70f",
-        "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a"
+        "sha256": "3905c32acdadc846be4d93a1b7595f30bd33f9748d3f0e96448af8f9f94e1f41",
+        "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618"
       }
     },
     "docs-site/public/home/ai-assisted-annotation-poster.webp": {
@@ -2368,9 +2368,9 @@
     "docs-site/public/media/large-image/mask-limit-poster.webp": {
       "asset_id": "large-image-mask-limit",
       "role": "poster",
-      "generated_at": "2026-09-07T11:15:31.290Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:42.991Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › large-image-mask-limit",
@@ -2388,8 +2388,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "374720c2a5dbbbcc33f643cc3d176bc06a35f5ab8c9d9873ca9c877ad4b8dcb4",
-      "bytes": 81782,
+      "sha256": "bfae6878990df14b8e295000b8f50f883c2699b915d5e9dd56a48d410e541f51",
+      "bytes": 116028,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -2403,22 +2403,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-43-02-989Z-16326",
         "assetId": "large-image-mask-limit",
-        "sha256": "d68fd20c495c6642e78aba5d3aa96b62717851998126bcaab4948eac41a6a509",
+        "sha256": "b5630e69eeacade1ee52766901a62bce2bfc65c9cb37e51e73a11e6bcaff7033",
         "quality": "standard",
         "clip": {
-          "start": 66.7,
-          "duration": 12.8
+          "start": 11.5,
+          "duration": 12
         }
       }
     },
     "docs-site/public/media/large-image/mask-limit.mp4": {
       "asset_id": "large-image-mask-limit",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:15:31.204Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:42.944Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › large-image-mask-limit",
@@ -2436,37 +2436,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "85db124c4dc6d11c71989478311aaa5b3166d5c450c0c3f31c51b136fb7d51e7",
-      "bytes": 1273148,
+      "sha256": "3a57326389015827e6a8ce3b467f01a8274ba2f9ddeaa9110b1543f912428520",
+      "bytes": 1169167,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 12.84
+        "duration_seconds": 12
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-43-02-989Z-16326",
         "assetId": "large-image-mask-limit",
-        "sha256": "d68fd20c495c6642e78aba5d3aa96b62717851998126bcaab4948eac41a6a509",
+        "sha256": "b5630e69eeacade1ee52766901a62bce2bfc65c9cb37e51e73a11e6bcaff7033",
         "quality": "standard",
         "clip": {
-          "start": 66.7,
-          "duration": 12.8
+          "start": 11.5,
+          "duration": 12
         }
       }
     },
     "docs-site/public/media/large-image/progressive-poster.webp": {
       "asset_id": "large-image-progressive",
       "role": "poster",
-      "generated_at": "2026-09-07T11:10:32.142Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:37.228Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › large-image-progressive",
@@ -2484,8 +2484,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "d8a1db2e28c9885c98880d77698c9ac3aa127aff1ac5cdf4cfe347e4595f2e0b",
-      "bytes": 78648,
+      "sha256": "62ea85d60c3966f5731cf87a2aeedf79bde4cb517990f940db74c7a0cb54b352",
+      "bytes": 118268,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -2499,22 +2499,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-41-29-196Z-13558",
         "assetId": "large-image-progressive",
-        "sha256": "2f865c9bd668a866bb896c00b02a2f5affb4468aeef1a0d65bc65a51d94bed91",
+        "sha256": "57edd8c8d52b1e5014f14c457b44a02f06105533ef3ac3b2e0374a0fabd591de",
         "quality": "standard",
         "clip": {
-          "start": 69.5,
-          "duration": 13.5
+          "start": 11.5,
+          "duration": 12
         }
       }
     },
     "docs-site/public/media/large-image/progressive.mp4": {
       "asset_id": "large-image-progressive",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:10:32.052Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:37.178Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › large-image-progressive",
@@ -2532,37 +2532,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "5288ceaf3e9e12041c8b54fde97cef551ca5e94418579fc3f43078798838092c",
-      "bytes": 1550016,
+      "sha256": "80f68c94dfb73008b957d064eda86abb7d83fdda102a1ad854aae90a8f1f5fcb",
+      "bytes": 1612759,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 13.56
+        "duration_seconds": 12
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-41-29-196Z-13558",
         "assetId": "large-image-progressive",
-        "sha256": "2f865c9bd668a866bb896c00b02a2f5affb4468aeef1a0d65bc65a51d94bed91",
+        "sha256": "57edd8c8d52b1e5014f14c457b44a02f06105533ef3ac3b2e0374a0fabd591de",
         "quality": "standard",
         "clip": {
-          "start": 69.5,
-          "duration": 13.5
+          "start": 11.5,
+          "duration": 12
         }
       }
     },
     "docs-site/public/media/large-image/pyramid-recovery-poster.webp": {
       "asset_id": "large-image-pyramid-recovery",
       "role": "poster",
-      "generated_at": "2026-09-07T11:16:45.654Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:40.667Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › large-image-pyramid-recovery",
@@ -2580,8 +2580,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "7d5886217171fa9c0154e66e727e6e36af96c4498dfccf2cd1080e467e58e851",
-      "bytes": 64338,
+      "sha256": "8e4a6107d989edd3586d2452397af4a127b33b54cc7efb38dc683216ef06641b",
+      "bytes": 92800,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -2595,12 +2595,12 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-42-13-427Z-14813",
         "assetId": "large-image-pyramid-recovery",
-        "sha256": "f2c27bab15de8afaaa4b7d2f47e8b1188e4e3ecb82181121e115d7db3b2d8456",
+        "sha256": "58074a2ee8dd987fc6ebcd1b350d14ca40909f9e88b50fd34e4c903a78cde50b",
         "quality": "standard",
         "clip": {
-          "start": 69.2,
+          "start": 10.8,
           "duration": 17.6
         }
       }
@@ -2608,9 +2608,9 @@
     "docs-site/public/media/large-image/pyramid-recovery.mp4": {
       "asset_id": "large-image-pyramid-recovery",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:16:45.558Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:40.624Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › large-image-pyramid-recovery",
@@ -2628,8 +2628,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "52daceee678bc6d9fc5df7d81f94aceb0b2137b7d3a664bde9a0c745b2c2b912",
-      "bytes": 1951102,
+      "sha256": "82271c669116ddbc614c087163cad41a24b7ebeac7e21260c34ff6ebd6ab7d18",
+      "bytes": 1940388,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
@@ -2643,12 +2643,12 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-42-13-427Z-14813",
         "assetId": "large-image-pyramid-recovery",
-        "sha256": "f2c27bab15de8afaaa4b7d2f47e8b1188e4e3ecb82181121e115d7db3b2d8456",
+        "sha256": "58074a2ee8dd987fc6ebcd1b350d14ca40909f9e88b50fd34e4c903a78cde50b",
         "quality": "standard",
         "clip": {
-          "start": 69.2,
+          "start": 10.8,
           "duration": 17.6
         }
       }
@@ -2656,9 +2656,9 @@
     "docs-site/public/media/mask-brush/mask-draw-poster.webp": {
       "asset_id": "mask-draw",
       "role": "poster",
-      "generated_at": "2026-09-07T11:33:15.709Z",
-      "captured_commit": "73bfa5d2febbbd445417220d1126ebf66e311d41",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:48:47.832Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › mask-draw",
@@ -2677,8 +2677,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "3c4796880730e40bbdc9f255e6cf7a92e65fcdf1929e6827afe46cb7dad56156",
-      "bytes": 57522,
+      "sha256": "15a8c787da4191b19197e40d5e43698529d6cf92e1f8ccb8fb09410642a78630",
+      "bytes": 83160,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -2692,22 +2692,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T11-23-57-107Z-2321898",
+        "runId": "2026-09-13T08-34-10-001Z-33421",
         "assetId": "mask-draw",
-        "sha256": "8cda818ca50419439dd1f44798f2f1a7d278a82d397713204ce83cdd68c8a61b",
+        "sha256": "f58b5a3b212015f6a09a7e4d7922e57423a9c750e2fde51bfbfa0c7d805932f0",
         "quality": "standard",
         "clip": {
-          "start": 72.4,
-          "duration": 8.5
+          "start": 12,
+          "duration": 12.3
         }
       }
     },
     "docs-site/public/media/mask-brush/mask-draw.mp4": {
       "asset_id": "mask-draw",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:33:15.628Z",
-      "captured_commit": "73bfa5d2febbbd445417220d1126ebf66e311d41",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:48:47.786Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › mask-draw",
@@ -2726,28 +2726,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "73c04bcc3706ffb76e451a3ecf3b07c268ca80eab0906c4d5b5d243b59ddf275",
-      "bytes": 234361,
+      "sha256": "a8d6a279b0c5d832e492b3692189fe0c9eb1c768b25c152f0eece95deb5e1845",
+      "bytes": 537953,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8.52
+        "duration_seconds": 12.32
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T11-23-57-107Z-2321898",
+        "runId": "2026-09-13T08-34-10-001Z-33421",
         "assetId": "mask-draw",
-        "sha256": "8cda818ca50419439dd1f44798f2f1a7d278a82d397713204ce83cdd68c8a61b",
+        "sha256": "f58b5a3b212015f6a09a7e4d7922e57423a9c750e2fde51bfbfa0c7d805932f0",
         "quality": "standard",
         "clip": {
-          "start": 72.4,
-          "duration": 8.5
+          "start": 12,
+          "duration": 12.3
         }
       }
     },
@@ -3536,9 +3536,9 @@
     "docs-site/public/media/polygon/draw-poster.webp": {
       "asset_id": "polygon-draw",
       "role": "poster",
-      "generated_at": "2026-09-07T11:03:52.206Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:29.528Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › polygon-draw",
@@ -3557,8 +3557,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "08d7ba0477a0790ca77eff3b078af8b09e4619808f2f824be75df8b8a3aceb80",
-      "bytes": 55336,
+      "sha256": "54091197d22a4d35d2bed23c88772f2266e048e5bbcf7bd30a30205b7174a24c",
+      "bytes": 60678,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -3572,22 +3572,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T08-22-39-854Z-26649",
         "assetId": "polygon-draw",
-        "sha256": "fd87e6b1168ed3016f32fbd714132e62a0868c98bad2602b8ae1637b0e232fce",
+        "sha256": "cc407f98dae42bcb6e0a7dc1dd1623a42bfca77ebea079b2a4e4e535df39cf2a",
         "quality": "standard",
         "clip": {
-          "start": 65.4,
-          "duration": 14.3
+          "start": 15.5,
+          "duration": 12.2
         }
       }
     },
     "docs-site/public/media/polygon/draw.mp4": {
       "asset_id": "polygon-draw",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:03:52.123Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:29.482Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › polygon-draw",
@@ -3606,28 +3606,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "986bab45b6d904d2051c52e5ef3e31de9303a00927b9b8f7f97f4b18f09fd2bc",
-      "bytes": 444328,
+      "sha256": "bd93020ed38e037ff55e9c7e6be75f6bd8ac5a660bd7e227f231beefd9f98d79",
+      "bytes": 533070,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 14.32
+        "duration_seconds": 12.2
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T08-22-39-854Z-26649",
         "assetId": "polygon-draw",
-        "sha256": "fd87e6b1168ed3016f32fbd714132e62a0868c98bad2602b8ae1637b0e232fce",
+        "sha256": "cc407f98dae42bcb6e0a7dc1dd1623a42bfca77ebea079b2a4e4e535df39cf2a",
         "quality": "standard",
         "clip": {
-          "start": 65.4,
-          "duration": 14.3
+          "start": 15.5,
+          "duration": 12.2
         }
       }
     },
@@ -3712,9 +3712,9 @@
     "docs-site/public/media/polyline/draw-poster.webp": {
       "asset_id": "polyline-draw",
       "role": "poster",
-      "generated_at": "2026-09-07T11:02:00.134Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:27.749Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › polyline-draw",
@@ -3733,8 +3733,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "2570b0d17b2b6157092b418cd39b4c7a6dfdeed20d2c98256e190721817e4d12",
-      "bytes": 56220,
+      "sha256": "a39e89889b5e38bdf5448a3f51dcfa3904f7cedca7e0ca4aa3202c7f5590446f",
+      "bytes": 82358,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -3748,22 +3748,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T08-21-54-578Z-25045",
         "assetId": "polyline-draw",
-        "sha256": "133219256847fd215fb24db52eae0a68c38248588b16fb4e646fa416589e3be1",
+        "sha256": "47cb97ed6eba4d74ddbddb0af8dca23d24deac3d476afaecba8a2048e5f96c61",
         "quality": "standard",
         "clip": {
-          "start": 66.2,
-          "duration": 13
+          "start": 14.5,
+          "duration": 11.7
         }
       }
     },
     "docs-site/public/media/polyline/draw.mp4": {
       "asset_id": "polyline-draw",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:02:00.051Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:27.703Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › polyline-draw",
@@ -3782,28 +3782,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "5149d280a96c76d7749a67f8f9f8bad2c23268c1313d3788b5f5382e2c6b378e",
-      "bytes": 444344,
+      "sha256": "515f06fa86c6ac599bc510cc46af897ae6748e5462d95843ffba81068c98aad8",
+      "bytes": 480847,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 13
+        "duration_seconds": 11.72
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T08-21-54-578Z-25045",
         "assetId": "polyline-draw",
-        "sha256": "133219256847fd215fb24db52eae0a68c38248588b16fb4e646fa416589e3be1",
+        "sha256": "47cb97ed6eba4d74ddbddb0af8dca23d24deac3d476afaecba8a2048e5f96c61",
         "quality": "standard",
         "clip": {
-          "start": 66.2,
-          "duration": 13
+          "start": 14.5,
+          "duration": 11.7
         }
       }
     },
@@ -3872,20 +3872,28 @@
     "docs-site/public/media/projects/batch-bulk-actions-poster.webp": {
       "asset_id": "batch-bulk-actions",
       "role": "poster",
-      "generated_at": "2026-08-16T09:28:10.112Z",
-      "captured_commit": "435b32ac23d6a8d48d935a68fe9ee2478491cfd9",
-      "source_worktree_dirty": true,
-      "seed_revision": "screenshots-2026-08-e",
-      "source": "apps/web/scripts/derive-doc-media.mjs",
-      "test_title": "derive docs media › batch-bulk-actions",
+      "generated_at": "2026-09-13T15:47:32.443Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › batch-bulk-actions",
       "watch_paths": [
-        "apps/web/e2e/screenshots/_helpers/marketing-assets.ts",
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
+        "apps/web/e2e/screenshots/flows/batch-bulk-actions.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
-        "docs-site/.vitepress/theme/components/DocsVideo.vue"
+        "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "2f19609166e5153faec62810c084761eee6fb99b82193ad0d3e69b91736e822d",
-      "bytes": 42100,
+      "sha256": "f00d3939841c28fb8287cb7afb47d9cbe47c94d5701ba11c0686d8b9d3547dad",
+      "bytes": 43134,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -3894,41 +3902,67 @@
         "fps": "25/1",
         "duration_seconds": null
       },
+      "capture": {
+        "source_quality": "standard",
+        "source_inference": "none"
+      },
       "source_asset": {
-        "runId": "20260815T001709Z-435b32ac23d6",
+        "runId": "2026-09-13T14-37-47-196Z-36867",
         "assetId": "batch-bulk-actions",
-        "sha256": "ea2a9f557fdf97872c5d5fdc4652f0acc3827848e02994f3ee25a596f384354c"
+        "sha256": "03e354f299c7fc512aba5211f59f8dcc826a1436304af4a90965864c58e9e576",
+        "quality": "standard",
+        "clip": {
+          "start": 12.2,
+          "duration": 5.4
+        }
       }
     },
     "docs-site/public/media/projects/batch-bulk-actions.mp4": {
       "asset_id": "batch-bulk-actions",
       "role": "docs-video",
-      "generated_at": "2026-08-16T09:28:10.051Z",
-      "captured_commit": "435b32ac23d6a8d48d935a68fe9ee2478491cfd9",
-      "source_worktree_dirty": true,
-      "seed_revision": "screenshots-2026-08-e",
-      "source": "apps/web/scripts/derive-doc-media.mjs",
-      "test_title": "derive docs media › batch-bulk-actions",
+      "generated_at": "2026-09-13T15:47:32.399Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › batch-bulk-actions",
       "watch_paths": [
-        "apps/web/e2e/screenshots/_helpers/marketing-assets.ts",
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
+        "apps/web/e2e/screenshots/flows/batch-bulk-actions.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
-        "docs-site/.vitepress/theme/components/DocsVideo.vue"
+        "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "44d23ffe5fbb9b8cc61fa3f59663753527fcf4b399975b1445414b531802389b",
-      "bytes": 169860,
+      "sha256": "1cdfd50ff8bdd1f2cdde0301b6d6b8f3d5640c860da3bb4ba49276789cdd0652",
+      "bytes": 160460,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "30/1",
-        "duration_seconds": 7.734
+        "fps": "25/1",
+        "duration_seconds": 5.4
+      },
+      "capture": {
+        "source_quality": "standard",
+        "source_inference": "none"
       },
       "source_asset": {
-        "runId": "20260815T001709Z-435b32ac23d6",
+        "runId": "2026-09-13T14-37-47-196Z-36867",
         "assetId": "batch-bulk-actions",
-        "sha256": "ea2a9f557fdf97872c5d5fdc4652f0acc3827848e02994f3ee25a596f384354c"
+        "sha256": "03e354f299c7fc512aba5211f59f8dcc826a1436304af4a90965864c58e9e576",
+        "quality": "standard",
+        "clip": {
+          "start": 12.2,
+          "duration": 5.4
+        }
       }
     },
     "docs-site/public/media/projects/create-existing-resources-poster.webp": {
@@ -4169,6 +4203,106 @@
         "clip": {
           "start": 86,
           "duration": 24.6
+        }
+      }
+    },
+    "docs-site/public/media/projects/onboarding-poster.webp": {
+      "asset_id": "project-onboarding",
+      "role": "poster",
+      "generated_at": "2026-10-12T06:16:21.069Z",
+      "captured_commit": "28e2b75b33c09ae697bf7c16faae284e4faeacf4",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive webp › project-onboarding",
+      "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/project-create-existing-resources.ts",
+        "apps/web/e2e/screenshots/flows/project-onboarding.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs",
+        "apps/web/src/components/projects/CreateProjectWizard.tsx",
+        "apps/web/src/components/projects/steps/Step7Success.tsx",
+        "apps/web/src/pages/Login/LoginPage.tsx"
+      ],
+      "sha256": "4978032e296aec4aab1e9643cd0dcff01e9708d63e68d3ff767c290e0749a2ef",
+      "bytes": 90434,
+      "media": {
+        "container": "webp_pipe",
+        "codec": "webp",
+        "width": 1280,
+        "height": 720,
+        "fps": "25/1",
+        "duration_seconds": null
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20261012T061201Z-28e2b75b33c0",
+        "assetId": "project-onboarding",
+        "sha256": "d21c32ff87c92bf968fb184a6e09e1df2bcdd8a8a35ba4db695e173218eb90b5",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 22.7
+        }
+      }
+    },
+    "docs-site/public/media/projects/onboarding.mp4": {
+      "asset_id": "project-onboarding",
+      "role": "docs-video",
+      "generated_at": "2026-10-12T06:16:21.041Z",
+      "captured_commit": "28e2b75b33c09ae697bf7c16faae284e4faeacf4",
+      "source_worktree_dirty": true,
+      "seed_revision": "screenshots-2026-08-g",
+      "source": "apps/web/scripts/media-derivation.mjs",
+      "test_title": "derive mp4 › project-onboarding",
+      "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
+        "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/project-create-existing-resources.ts",
+        "apps/web/e2e/screenshots/flows/project-onboarding.ts",
+        "apps/web/scripts/derive-doc-media.mjs",
+        "apps/web/scripts/media-derivation.mjs",
+        "apps/web/src/components/projects/CreateProjectWizard.tsx",
+        "apps/web/src/components/projects/steps/Step7Success.tsx",
+        "apps/web/src/pages/Login/LoginPage.tsx"
+      ],
+      "sha256": "2fb7d21954e88b744e116dd0a5960fe5181980468b0a0cbb74ff87733251bc68",
+      "bytes": 535251,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "30/1",
+        "duration_seconds": 22.7
+      },
+      "capture": {
+        "source_quality": "marketing",
+        "source_inference": "unverified"
+      },
+      "source_asset": {
+        "runId": "20261012T061201Z-28e2b75b33c0",
+        "assetId": "project-onboarding",
+        "sha256": "d21c32ff87c92bf968fb184a6e09e1df2bcdd8a8a35ba4db695e173218eb90b5",
+        "quality": "marketing",
+        "clip": {
+          "start": 0,
+          "duration": 22.7
         }
       }
     },
@@ -5366,9 +5500,9 @@
     "docs-site/public/media/video/mask-track-edit-poster.webp": {
       "asset_id": "video-mask-track-edit",
       "role": "poster",
-      "generated_at": "2026-09-07T16:43:18.479Z",
-      "captured_commit": "7c13fb7ab678404e0d9037481b495e17d925076b",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T17:07:58.070Z",
+      "captured_commit": "e4a2824fac51491da52f821c80cb1471afb88ff6",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › video-mask-track-edit",
@@ -5388,8 +5522,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "a4c7870cdaa78988d92526dd12e5c85f416fdc98a18ead0d06b99d447d559824",
-      "bytes": 57070,
+      "sha256": "632bfdc547736214da4e977f0d41a24db87385eeb584b67a15e68ca44725e8a7",
+      "bytes": 92982,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -5403,22 +5537,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T16-38-03-493Z-3202218",
+        "runId": "2026-09-13T17-04-13-356Z-80917",
         "assetId": "video-mask-track-edit",
-        "sha256": "d9ccd787061eaa486ad56b4501b4b4462ba5fd335afbd4e7eec85908bfe9625e",
+        "sha256": "5338f81c62473c9c43a99e22b658daa7e18a09956e782d6b0f3fef33b82af08a",
         "quality": "standard",
         "clip": {
-          "start": 70.2,
-          "duration": 20
+          "start": 15,
+          "duration": 19.8
         }
       }
     },
     "docs-site/public/media/video/mask-track-edit.mp4": {
       "asset_id": "video-mask-track-edit",
       "role": "docs-video",
-      "generated_at": "2026-09-07T16:43:18.394Z",
-      "captured_commit": "7c13fb7ab678404e0d9037481b495e17d925076b",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T17:07:58.021Z",
+      "captured_commit": "e4a2824fac51491da52f821c80cb1471afb88ff6",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › video-mask-track-edit",
@@ -5438,28 +5572,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "c9f4738da87be0f524c2d7dc46e3ca351b65c14afd78866cc1eedf443c7611b0",
-      "bytes": 665544,
+      "sha256": "afc28b6f3cbbb1ae2e474ceb1b88d37af0cc5f9759de3df5ca578d5c9c2536ac",
+      "bytes": 876060,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 20
+        "duration_seconds": 19.8
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T16-38-03-493Z-3202218",
+        "runId": "2026-09-13T17-04-13-356Z-80917",
         "assetId": "video-mask-track-edit",
-        "sha256": "d9ccd787061eaa486ad56b4501b4b4462ba5fd335afbd4e7eec85908bfe9625e",
+        "sha256": "5338f81c62473c9c43a99e22b658daa7e18a09956e782d6b0f3fef33b82af08a",
         "quality": "standard",
         "clip": {
-          "start": 70.2,
-          "duration": 20
+          "start": 15,
+          "duration": 19.8
         }
       }
     },
@@ -6330,9 +6464,9 @@
     "docs-site/public/media/video/video-chapter-poster.webp": {
       "asset_id": "video-chapter",
       "role": "poster",
-      "generated_at": "2026-09-07T16:08:51.012Z",
-      "captured_commit": "0372bf9c13c1107d2ef1de96c3d557ac04e00e43",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:34.453Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › video-chapter",
@@ -6351,8 +6485,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "3b4939f8e777fda2301e23994e487d0af1e34761589216468a4a795bc650617b",
-      "bytes": 57194,
+      "sha256": "6aa6f273412447686965bbd71772e9750071bdf37ee2e1fc0044073f79b466e6",
+      "bytes": 92288,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6366,22 +6500,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T15-54-13-477Z-3049078",
+        "runId": "2026-09-13T15-19-41-479Z-83576",
         "assetId": "video-chapter",
-        "sha256": "637ad726620a6327d2883beadf7f7e28f23c6a1273126e80bd8703967dae8c17",
+        "sha256": "158acdfda8e1d0d483fe944ad5891ffd7275ba0b727e67500054b77cd5c611e7",
         "quality": "standard",
         "clip": {
-          "start": 71.5,
-          "duration": 15.1
+          "start": 13,
+          "duration": 18.1
         }
       }
     },
     "docs-site/public/media/video/video-chapter.mp4": {
       "asset_id": "video-chapter",
       "role": "docs-video",
-      "generated_at": "2026-09-07T16:08:50.930Z",
-      "captured_commit": "0372bf9c13c1107d2ef1de96c3d557ac04e00e43",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:34.406Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › video-chapter",
@@ -6400,37 +6534,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "859f5e3f24e894bc9b75c33219dfb438cf21f2341fb8d828d377610fe2f58bfe",
-      "bytes": 387422,
+      "sha256": "834039fadee3ddc07500834ac642b4e36bff0dd4fa2f5f8806cef7127cb87089",
+      "bytes": 649690,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 15.16
+        "duration_seconds": 18.12
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T15-54-13-477Z-3049078",
+        "runId": "2026-09-13T15-19-41-479Z-83576",
         "assetId": "video-chapter",
-        "sha256": "637ad726620a6327d2883beadf7f7e28f23c6a1273126e80bd8703967dae8c17",
+        "sha256": "158acdfda8e1d0d483fe944ad5891ffd7275ba0b727e67500054b77cd5c611e7",
         "quality": "standard",
         "clip": {
-          "start": 71.5,
-          "duration": 15.1
+          "start": 13,
+          "duration": 18.1
         }
       }
     },
     "docs-site/public/media/video/video-draw-poster.webp": {
       "asset_id": "video-draw",
       "role": "poster",
-      "generated_at": "2026-09-07T16:25:40.808Z",
-      "captured_commit": "7c13fb7ab678404e0d9037481b495e17d925076b",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:42.747Z",
+      "captured_commit": "e21d60ff2191912479a246ae64111d9b3347e1ce",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › video-draw",
@@ -6450,8 +6584,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "f9f66dde2319634045e0a6e1fd5ec522cb9746e717c1269c6391cf325e614302",
-      "bytes": 60058,
+      "sha256": "6a630872c31a97b9a1def68b102cb8a7fbe40bf0b29c916f01c961a19c325cb6",
+      "bytes": 97258,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6465,22 +6599,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T16-13-03-694Z-3128330",
+        "runId": "2026-09-13T16-23-27-217Z-47655",
         "assetId": "video-draw",
-        "sha256": "6e2e3d4bf608a2ba708d536d5becfbde2dd054b3e1ed5edeb943eb7872522816",
+        "sha256": "065a4741c0ecaff771f45bdae0c6d3665c2461d736443bf3748565c38510155d",
         "quality": "standard",
         "clip": {
-          "start": 70,
-          "duration": 17.6
+          "start": 13.5,
+          "duration": 19.3
         }
       }
     },
     "docs-site/public/media/video/video-draw.mp4": {
       "asset_id": "video-draw",
       "role": "docs-video",
-      "generated_at": "2026-09-07T16:25:40.726Z",
-      "captured_commit": "7c13fb7ab678404e0d9037481b495e17d925076b",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:42.701Z",
+      "captured_commit": "e21d60ff2191912479a246ae64111d9b3347e1ce",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › video-draw",
@@ -6500,37 +6634,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "81f86688f7b680829326b14561103cd07eaea9e9069e3ea04b3853f511789009",
-      "bytes": 772197,
+      "sha256": "e3d26525cf8311438e28567f8eed4297f28fd1b19be6deee207cebdeb5e26bda",
+      "bytes": 1161856,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 17.6
+        "duration_seconds": 19.32
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T16-13-03-694Z-3128330",
+        "runId": "2026-09-13T16-23-27-217Z-47655",
         "assetId": "video-draw",
-        "sha256": "6e2e3d4bf608a2ba708d536d5becfbde2dd054b3e1ed5edeb943eb7872522816",
+        "sha256": "065a4741c0ecaff771f45bdae0c6d3665c2461d736443bf3748565c38510155d",
         "quality": "standard",
         "clip": {
-          "start": 70,
-          "duration": 17.6
+          "start": 13.5,
+          "duration": 19.3
         }
       }
     },
     "docs-site/public/media/video/video-timeline-zoom-poster.webp": {
       "asset_id": "video-timeline-zoom",
       "role": "poster",
-      "generated_at": "2026-09-07T16:08:19.885Z",
-      "captured_commit": "0372bf9c13c1107d2ef1de96c3d557ac04e00e43",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:36.184Z",
+      "captured_commit": "4209f57f1b2f6aa877c7a807b3ea92be46925d60",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › video-timeline-zoom",
@@ -6549,8 +6683,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "fd209778a1e354b45344988b6e218d7e1b7fa7ff19036704aeda0033b5ffc8d3",
-      "bytes": 58336,
+      "sha256": "852b35487d275c57eabe1dd06dbd3f9faa07d9f84d2fad51a590f2d112dbb9b0",
+      "bytes": 94916,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6564,22 +6698,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T15-54-13-477Z-3049078",
+        "runId": "2026-09-13T16-21-38-720Z-43029",
         "assetId": "video-timeline-zoom",
-        "sha256": "f24bee82df07c73c1bc0526aab8f421c887563770bc5d5bf4426625c3ec15f37",
+        "sha256": "b1d30698a380fd35316759af7b9843c6d93703d38ece36e6ee744def8ed7cfef",
         "quality": "standard",
         "clip": {
-          "start": 69.4,
-          "duration": 10.2
+          "start": 13,
+          "duration": 13.6
         }
       }
     },
     "docs-site/public/media/video/video-timeline-zoom.mp4": {
       "asset_id": "video-timeline-zoom",
       "role": "docs-video",
-      "generated_at": "2026-09-07T16:08:19.807Z",
-      "captured_commit": "0372bf9c13c1107d2ef1de96c3d557ac04e00e43",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:36.137Z",
+      "captured_commit": "4209f57f1b2f6aa877c7a807b3ea92be46925d60",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › video-timeline-zoom",
@@ -6598,37 +6732,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "c8a83cacaa537df72760e8741fb359997ecc6c81037b76e26e47a4a6d990098d",
-      "bytes": 278302,
+      "sha256": "bc7960b553d77ca856cee88baa6d7ec493405781bd673a6eb965108251aa363c",
+      "bytes": 506554,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 10.2
+        "duration_seconds": 13.6
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T15-54-13-477Z-3049078",
+        "runId": "2026-09-13T16-21-38-720Z-43029",
         "assetId": "video-timeline-zoom",
-        "sha256": "f24bee82df07c73c1bc0526aab8f421c887563770bc5d5bf4426625c3ec15f37",
+        "sha256": "b1d30698a380fd35316759af7b9843c6d93703d38ece36e6ee744def8ed7cfef",
         "quality": "standard",
         "clip": {
-          "start": 69.4,
-          "duration": 10.2
+          "start": 13,
+          "duration": 13.6
         }
       }
     },
     "docs-site/public/media/video/video-track-carryover-poster.webp": {
       "asset_id": "video-track-carryover",
       "role": "poster",
-      "generated_at": "2026-09-07T16:46:31.220Z",
-      "captured_commit": "7c13fb7ab678404e0d9037481b495e17d925076b",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:39.504Z",
+      "captured_commit": "4209f57f1b2f6aa877c7a807b3ea92be46925d60",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › video-track-carryover",
@@ -6648,8 +6782,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "dded2a6a0d98b8221cb7b3b0a399e2a8df8509d38737469af1ba7179ca5437ea",
-      "bytes": 60648,
+      "sha256": "5bbd981342de891233da27ab61d503e74b6fb22e5c9c709fb73a604bac4b0a5d",
+      "bytes": 97138,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6663,22 +6797,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T16-27-01-025Z-3168703",
+        "runId": "2026-09-13T16-22-26-148Z-45045",
         "assetId": "video-track-carryover",
-        "sha256": "6abd7bea9c763d8893499670b0fe4d73b08e215fc603ddc032e924afcad01497",
+        "sha256": "8d743b137d78c20ef2afd56a2346d65d291037fc2754ad3d8c42693a68639933",
         "quality": "standard",
         "clip": {
-          "start": 74.8,
-          "duration": 10.9
+          "start": 13.5,
+          "duration": 12.7
         }
       }
     },
     "docs-site/public/media/video/video-track-carryover.mp4": {
       "asset_id": "video-track-carryover",
       "role": "docs-video",
-      "generated_at": "2026-09-07T16:46:31.137Z",
-      "captured_commit": "7c13fb7ab678404e0d9037481b495e17d925076b",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:39.456Z",
+      "captured_commit": "4209f57f1b2f6aa877c7a807b3ea92be46925d60",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › video-track-carryover",
@@ -6698,37 +6832,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "46fd0a96e1a808a8dbe923077a59908e25b95d7bc4335115e0bebff9b8f983df",
-      "bytes": 426756,
+      "sha256": "59a4c480dbdd9e444c077bd358859d51f82a855c4587db2311d51df42b56fe5d",
+      "bytes": 694446,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 10.92
+        "duration_seconds": 12.72
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T16-27-01-025Z-3168703",
+        "runId": "2026-09-13T16-22-26-148Z-45045",
         "assetId": "video-track-carryover",
-        "sha256": "6abd7bea9c763d8893499670b0fe4d73b08e215fc603ddc032e924afcad01497",
+        "sha256": "8d743b137d78c20ef2afd56a2346d65d291037fc2754ad3d8c42693a68639933",
         "quality": "standard",
         "clip": {
-          "start": 74.8,
-          "duration": 10.9
+          "start": 13.5,
+          "duration": 12.7
         }
       }
     },
     "docs-site/public/media/video/workbench-overview-poster.webp": {
       "asset_id": "video-track",
       "role": "poster",
-      "generated_at": "2026-09-07T10:19:25.345Z",
-      "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:33.583Z",
+      "captured_commit": "4209f57f1b2f6aa877c7a807b3ea92be46925d60",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › video-track",
@@ -6737,6 +6871,7 @@
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
         "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
@@ -6745,8 +6880,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "5ba13d9db19a22163888e7f96483ef3070e8ed3b3d5de4c6a5459fa26834459c",
-      "bytes": 61212,
+      "sha256": "cd4bfb130aab5434993d3b5669034096281706a2c0910be4b5c2a44db7cad697",
+      "bytes": 93024,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6760,22 +6895,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T09-59-57-917Z-2050993",
+        "runId": "2026-09-13T16-20-37-982Z-40323",
         "assetId": "video-track",
-        "sha256": "8a43c6e6463a12fbfb56315ded7ad24e803a33e43f5506bd8c71c9635a56fa1d",
+        "sha256": "5dfcacff1c6b65ac9120705eb186860b5a4e4d1fdebdc0e7161b70cb6080f4bb",
         "quality": "standard",
         "clip": {
-          "start": 111.2,
-          "duration": 21.2
+          "start": 14,
+          "duration": 24.7
         }
       }
     },
     "docs-site/public/media/video/workbench-overview.mp4": {
       "asset_id": "video-track",
       "role": "docs-video",
-      "generated_at": "2026-09-07T10:19:25.260Z",
-      "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T16:32:33.527Z",
+      "captured_commit": "4209f57f1b2f6aa877c7a807b3ea92be46925d60",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › video-track",
@@ -6784,6 +6919,7 @@
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
         "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
@@ -6792,37 +6928,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "366f3ee2c1563980403486bf95b4562771d7ea1c4096fc5ee57b52bfd0b9a50c",
-      "bytes": 982427,
+      "sha256": "f3a1502329ecba8df3bfc9fa5f40f8a0b43617efc9839028e50c35a01e9bdb6d",
+      "bytes": 1675425,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 21.2
+        "duration_seconds": 24.72
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T09-59-57-917Z-2050993",
+        "runId": "2026-09-13T16-20-37-982Z-40323",
         "assetId": "video-track",
-        "sha256": "8a43c6e6463a12fbfb56315ded7ad24e803a33e43f5506bd8c71c9635a56fa1d",
+        "sha256": "5dfcacff1c6b65ac9120705eb186860b5a4e4d1fdebdc0e7161b70cb6080f4bb",
         "quality": "standard",
         "clip": {
-          "start": 111.2,
-          "duration": 21.2
+          "start": 14,
+          "duration": 24.7
         }
       }
     },
     "docs-site/public/media/workbench/bbox-draw-poster.webp": {
       "asset_id": "bbox-draw",
       "role": "poster",
-      "generated_at": "2026-09-07T11:01:40.058Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:23.666Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › bbox-draw",
@@ -6841,8 +6977,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "f9c24e21f69a87b9f73c519381137c51bff965c5cb49c91f8b1ea6ece7a66545",
-      "bytes": 54158,
+      "sha256": "df9fc09df68eb3e20e299aa85d4bdc079569ebaa06240c392593f6d28af75828",
+      "bytes": 79822,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6856,22 +6992,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T07-25-10-182Z-84392",
         "assetId": "bbox-draw",
-        "sha256": "ab07521e131fc46b77a2f26c70ae5bed540a6019dae78e8ef9098bbb4167f0dc",
+        "sha256": "9ae5b375311ae1f903bb32930056172109cf1cb85f287c71f7330a6755a119b3",
         "quality": "standard",
         "clip": {
-          "start": 72.2,
-          "duration": 8
+          "start": 13,
+          "duration": 9
         }
       }
     },
     "docs-site/public/media/workbench/bbox-draw.mp4": {
       "asset_id": "bbox-draw",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:01:39.974Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:23.621Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › bbox-draw",
@@ -6890,37 +7026,37 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "2c73e09e9af6c17fb8d79876c05e1745826be34284431c62a4cb86299f36090d",
-      "bytes": 232853,
+      "sha256": "804a3cddd20d46732d95c6166b6caac9efc7e264201b55d6ea75ace331698b4e",
+      "bytes": 252618,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8
+        "duration_seconds": 9
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T07-25-10-182Z-84392",
         "assetId": "bbox-draw",
-        "sha256": "ab07521e131fc46b77a2f26c70ae5bed540a6019dae78e8ef9098bbb4167f0dc",
+        "sha256": "9ae5b375311ae1f903bb32930056172109cf1cb85f287c71f7330a6755a119b3",
         "quality": "standard",
         "clip": {
-          "start": 72.2,
-          "duration": 8
+          "start": 13,
+          "duration": 9
         }
       }
     },
     "docs-site/public/media/workbench/hotkey-cheatsheet-poster.webp": {
       "asset_id": "hotkey-cheatsheet",
       "role": "poster",
-      "generated_at": "2026-09-07T11:15:31.703Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:44.467Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › hotkey-cheatsheet",
@@ -6938,8 +7074,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "f2a6a8528f4e728b1bd83ee1cb90e6ea8aa7af47f253a9ae5f806511bc55e91a",
-      "bytes": 38482,
+      "sha256": "09e58358f47212ed6b84d3b46c4e027865766901f2ac126eadcdc6cdec962237",
+      "bytes": 27752,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6953,22 +7089,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-43-46-283Z-17596",
         "assetId": "hotkey-cheatsheet",
-        "sha256": "737400b6f783a52887c659538d91c481a5dc69f16d523af580d0c356083aaac4",
+        "sha256": "36e714e4e20209b2a788d1d84e60d089c823ba0627b037ca26fc3f071bea885b",
         "quality": "standard",
         "clip": {
-          "start": 68.1,
-          "duration": 11.1
+          "start": 12.3,
+          "duration": 8.2
         }
       }
     },
     "docs-site/public/media/workbench/hotkey-cheatsheet.mp4": {
       "asset_id": "hotkey-cheatsheet",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:15:31.617Z",
-      "captured_commit": "d72e5b21f6a8dd425fcfe65112f79f075f098c8a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:44.425Z",
+      "captured_commit": "9350a29b1e3c90fab94f94d70c60f4c40dcd83a3",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › hotkey-cheatsheet",
@@ -6986,28 +7122,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "aaad60f4fb33337de82d475de24e07ee5d1ae1e3b8a17561c4342c8035b6502e",
-      "bytes": 508677,
+      "sha256": "fc5e76482ec0bee5cbce136c07f8e36af640afff2406e3dc84076d6cec474927",
+      "bytes": 416034,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 11.16
+        "duration_seconds": 8.2
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-48-02-433Z-2190341",
+        "runId": "2026-09-13T15-43-46-283Z-17596",
         "assetId": "hotkey-cheatsheet",
-        "sha256": "737400b6f783a52887c659538d91c481a5dc69f16d523af580d0c356083aaac4",
+        "sha256": "36e714e4e20209b2a788d1d84e60d089c823ba0627b037ca26fc3f071bea885b",
         "quality": "standard",
         "clip": {
-          "start": 68.1,
-          "duration": 11.1
+          "start": 12.3,
+          "duration": 8.2
         }
       }
     },
@@ -7284,9 +7420,9 @@
     "docs-site/public/media/workbench/rotated-bbox-poster.webp": {
       "asset_id": "rotated-bbox",
       "role": "poster",
-      "generated_at": "2026-09-07T11:31:18.215Z",
-      "captured_commit": "73bfa5d2febbbd445417220d1126ebf66e311d41",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:25.920Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › rotated-bbox",
@@ -7305,8 +7441,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "60b238a3c31d0198452072b491c5d8e0c63e10694c1077cd15482db0a58690c7",
-      "bytes": 54040,
+      "sha256": "249472636f79e62dfd383fb668b95c7484fdc91aa1f9cacd955d555e20183dd0",
+      "bytes": 79242,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -7320,22 +7456,22 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T11-23-57-107Z-2321898",
+        "runId": "2026-09-13T08-21-07-895Z-23603",
         "assetId": "rotated-bbox",
-        "sha256": "8f70143ade17a74636c6ae50cef5aa2e74e97cb06993cbc6af1f50ee785a87a9",
+        "sha256": "806a75199005413b955a3a0f1964a6f921b4cd0c06ed33b2ec5d850a85c9e477",
         "quality": "standard",
         "clip": {
-          "start": 6.1,
-          "duration": 9.9
+          "start": 14,
+          "duration": 13
         }
       }
     },
     "docs-site/public/media/workbench/rotated-bbox.mp4": {
       "asset_id": "rotated-bbox",
       "role": "docs-video",
-      "generated_at": "2026-09-07T11:31:18.121Z",
-      "captured_commit": "73bfa5d2febbbd445417220d1126ebf66e311d41",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-09-13T15:47:25.873Z",
+      "captured_commit": "8adc14a8bc1a6998387469d9f630b8d8a8ecfb55",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › rotated-bbox",
@@ -7354,28 +7490,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "2a1d6ba9ebd72768026829dd7c5bb904c74b2448d6d720bf9f6473470a8012f0",
-      "bytes": 275043,
+      "sha256": "bea4a1da66b733a219d8ae0091227abde879636b7a457e0d6f6bc335edd8cea7",
+      "bytes": 532648,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 9.96
+        "duration_seconds": 13
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-07T11-23-57-107Z-2321898",
+        "runId": "2026-09-13T08-21-07-895Z-23603",
         "assetId": "rotated-bbox",
-        "sha256": "8f70143ade17a74636c6ae50cef5aa2e74e97cb06993cbc6af1f50ee785a87a9",
+        "sha256": "806a75199005413b955a3a0f1964a6f921b4cd0c06ed33b2ec5d850a85c9e477",
         "quality": "standard",
         "clip": {
-          "start": 6.1,
-          "duration": 9.9
+          "start": 14,
+          "duration": 13
         }
       }
     },

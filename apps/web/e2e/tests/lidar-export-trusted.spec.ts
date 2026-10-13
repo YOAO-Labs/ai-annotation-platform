@@ -1,10 +1,24 @@
 import { expect, test } from "../fixtures/seed";
 
+const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
+
 test.describe("trusted LiDAR export", () => {
-  test("Chromium 实际页面要求显式相机并展示严格预检", async ({ page, seed }) => {
-    await seed.reset();
+  test("Chromium 实际页面要求显式相机并展示严格预检", async ({ page, seed, request }) => {
+    const data = await seed.owned();
     const lidar = await seed.seedLidar();
-    await seed.injectToken(page, "admin@e2e.test");
+    await seed.injectToken(page, data.admin_email);
+
+    // seed.owned() scopes this fixture to the test namespace, so the lidar
+    // project's display name is namespaced as well. Resolve that exact
+    // project through the API boundary and target its own list row, rather
+    // than matching a prefix shared with neighboring owned fixtures.
+    const token = await seed.accessToken(data.admin_email);
+    const projectResponse = await request.get(
+      `${API_BASE}/api/v1/projects/${lidar.lidar_project_id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(projectResponse.ok()).toBe(true);
+    const { name: lidarProjectName } = (await projectResponse.json()) as { name: string };
 
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
@@ -13,7 +27,7 @@ test.describe("trusted LiDAR export", () => {
     page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
     await page.goto("/projects");
-    const row = page.locator("tr", { hasText: "E2E Lidar Project" });
+    const row = page.locator("tr", { hasText: lidarProjectName });
     await expect(row).toBeVisible({ timeout: 10_000 });
     await row.getByTitle("更多操作").click();
     await page.getByRole("menuitem", { name: "导出标注数据" }).click();

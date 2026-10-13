@@ -8,10 +8,10 @@ import { useInviteUser } from "@/hooks/useInvitation";
 import { useSendInvitationEmail } from "@/hooks/useInvitations";
 import { groupsApi, type GroupResponse } from "@/api/groups";
 import { projectsApi, type ProjectResponse } from "@/api/projects";
-import { ROLE_LABELS } from "@/constants/roles";
+import { ROLE_LABELS, PROJECT_ROLE_LABELS } from "@/constants/roles";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { InvitationCreated } from "@/api/users";
-import type { UserRole } from "@/types";
+import type { PlatformRole, ProjectRole } from "@/types";
 import styles from "./InviteUserModal.module.css";
 
 interface Props {
@@ -19,21 +19,32 @@ interface Props {
   onClose: () => void;
 }
 
-const INVITABLE_ROLES_BY_ACTOR: Record<UserRole, UserRole[]> = {
-  super_admin: ["super_admin", "project_admin", "reviewer", "annotator", "viewer"],
-  project_admin: ["reviewer", "annotator", "viewer"],
-  reviewer: [],
-  annotator: [],
+/**
+ * Platform identity and project responsibility are separate invitation fields.
+ * A project invitation carries a compatible pair (`role` + `project_member_role`);
+ * a non-project invitation only creates the platform account.
+ */
+const INVITABLE_PLATFORM_ROLES_BY_ACTOR: Record<PlatformRole, PlatformRole[]> = {
+  super_admin: ["super_admin", "project_admin", "employee", "viewer"],
+  project_admin: ["employee", "viewer"],
+  employee: [],
   viewer: [],
 };
 
-const PROJECT_MEMBER_ROLES = new Set<UserRole>(["annotator", "reviewer", "viewer"]);
+const ALL_PROJECT_ROLES: ProjectRole[] = ["annotator", "reviewer", "viewer"];
+
+function compatibleProjectRoles(platformRole: PlatformRole): ProjectRole[] {
+  return platformRole === "viewer" ? ["viewer"] : ALL_PROJECT_ROLES;
+}
 
 export function InviteUserModal({ open, onClose }: Props) {
   const { role } = usePermissions();
-  const allowedRoles = INVITABLE_ROLES_BY_ACTOR[role] ?? [];
+  const allowedPlatformRoles = INVITABLE_PLATFORM_ROLES_BY_ACTOR[role] ?? [];
   const [email, setEmail] = useState("");
-  const [roleVal, setRoleVal] = useState<UserRole>(allowedRoles[0] ?? "annotator");
+  const [platformRole, setPlatformRole] = useState<PlatformRole>(
+    allowedPlatformRoles[0] ?? "employee",
+  );
+  const [projectRole, setProjectRole] = useState<ProjectRole>("annotator");
   const [groupName, setGroupName] = useState("");
   const [projectId, setProjectId] = useState("");
   const [projectQuery, setProjectQuery] = useState("");
@@ -44,15 +55,13 @@ export function InviteUserModal({ open, onClose }: Props) {
   const sendEmail = useSendInvitationEmail();
   const pushToast = useToastStore((s) => s.push);
 
-  const selectableRoles = projectId
-    ? allowedRoles.filter((candidate) => PROJECT_MEMBER_ROLES.has(candidate))
-    : allowedRoles;
+  const projectRoleOptions = compatibleProjectRoles(platformRole);
 
   useEffect(() => {
-    if (projectId && !PROJECT_MEMBER_ROLES.has(roleVal)) {
-      setRoleVal(selectableRoles[0] ?? "annotator");
+    if (!projectRoleOptions.includes(projectRole)) {
+      setProjectRole(projectRoleOptions[0] ?? "annotator");
     }
-  }, [projectId, roleVal, selectableRoles]);
+  }, [projectRole, projectRoleOptions]);
 
   useEffect(() => {
     if (!open) return;
@@ -84,7 +93,8 @@ export function InviteUserModal({ open, onClose }: Props) {
       setGroupName("");
       setProjectId("");
       setProjectQuery("");
-      setRoleVal(allowedRoles[0] ?? "annotator");
+      setPlatformRole(allowedPlatformRoles[0] ?? "employee");
+      setProjectRole("annotator");
       setResult(null);
       invite.reset();
     }
@@ -93,13 +103,13 @@ export function InviteUserModal({ open, onClose }: Props) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !roleVal) return;
+    if (!email.trim() || !platformRole) return;
     invite.mutate(
       {
         email: email.trim().toLowerCase(),
-        role: roleVal,
+        role: platformRole,
+        ...(projectId ? { project_id: projectId, project_member_role: projectRole } : {}),
         group_name: groupName.trim() || undefined,
-        project_id: projectId || undefined,
       },
       {
         onSuccess: (data) => setResult(data),
@@ -151,14 +161,14 @@ export function InviteUserModal({ open, onClose }: Props) {
             />
           </Field>
 
-          <Field label="角色">
+          <Field label="账号角色（平台身份）">
             <select
               required
-              value={roleVal}
-              onChange={(e) => setRoleVal(e.target.value as UserRole)}
+              value={platformRole}
+              onChange={(e) => setPlatformRole(e.target.value as PlatformRole)}
               className={styles.input}
             >
-              {selectableRoles.map((r) => (
+              {allowedPlatformRoles.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABELS[r]}
                 </option>
@@ -209,9 +219,26 @@ export function InviteUserModal({ open, onClose }: Props) {
               ))}
             </datalist>
             <div className={styles.fieldHint}>
-              留空表示接受后再分配项目。指定项目时，邀请角色会同时成为项目成员；项目管理员和超级管理员属于全局角色，不能作为项目成员职责。
+              留空表示接受后再分配项目。指定项目时需同时选择项目职责；平台观察者只能是观察者，管理员通过项目负责人身份管理项目而非成员职责。
             </div>
           </Field>
+
+          {projectId && (
+            <Field label="项目职责">
+              <select
+                required
+                value={projectRole}
+                onChange={(e) => setProjectRole(e.target.value as ProjectRole)}
+                className={styles.input}
+              >
+                {projectRoleOptions.map((r) => (
+                  <option key={r} value={r}>
+                    {PROJECT_ROLE_LABELS[r]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
 
           {invite.isError && (
             <div className={styles.errorBox}>
@@ -259,7 +286,8 @@ export function InviteUserModal({ open, onClose }: Props) {
           </Field>
 
           <div className={styles.metaRow}>
-            <Badge variant="outline">{ROLE_LABELS[roleVal]}</Badge>
+            <Badge variant="outline">{ROLE_LABELS[platformRole]}</Badge>
+            {projectId && <Badge variant="outline">{PROJECT_ROLE_LABELS[projectRole]}</Badge>}
             {groupName && <Badge variant="outline">{groupName}</Badge>}
             {result.project_name && <Badge variant="outline">项目：{result.project_name}</Badge>}
             <span className={`mono ${styles.expiresAt}`}>

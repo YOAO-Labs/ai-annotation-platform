@@ -51,7 +51,7 @@ async def _invitation(
     *,
     invited_by: User,
     email: str,
-    role: str = "annotator",
+    role: str = "employee",
     group_name: str | None = None,
     revoked: bool = False,
 ) -> UserInvitation:
@@ -91,7 +91,7 @@ async def test_project_admin_cannot_invite_privileged_roles(
     assert count == 0
 
 
-@pytest.mark.parametrize("role", ["reviewer", "annotator", "viewer"])
+@pytest.mark.parametrize("role", ["employee", "viewer"])
 async def test_project_admin_can_invite_supported_roles(
     httpx_client: httpx.AsyncClient,
     project_admin,
@@ -137,7 +137,7 @@ async def test_project_admin_does_not_expire_another_inviter_record(
 
     response = await httpx_client.post(
         "/api/v1/users/invite",
-        json={"email": invitation.email, "role": "annotator"},
+        json={"email": invitation.email, "role": "employee"},
         headers=_headers(project_admin),
     )
 
@@ -284,7 +284,7 @@ async def test_project_admin_can_manage_own_supported_invitation(
         db_session,
         invited_by=project_admin[0],
         email=f"own-{operation}@invite.test",
-        role="reviewer",
+        role="employee",
     )
     original_token = invitation.token
     path = f"/api/v1/invitations/{invitation.id}"
@@ -351,6 +351,72 @@ async def test_project_admin_cannot_resend_legacy_privileged_invitation(
     assert invitation.token == original_token
 
 
+async def test_resend_normalizes_legacy_staff_role(
+    httpx_client: httpx.AsyncClient,
+    super_admin,
+    db_session: AsyncSession,
+):
+    """Resending a pre-cutover staff invitation normalizes the role like
+    migration 0174 does, so acceptance creates a usable employee account."""
+
+    invitation = await _invitation(
+        db_session,
+        invited_by=super_admin[0],
+        email="legacy-resend@invite.test",
+        role="annotator",
+    )
+
+    response = await httpx_client.post(
+        f"/api/v1/invitations/{invitation.id}/resend",
+        headers=_headers(super_admin),
+    )
+    assert response.status_code == 200, response.text
+
+    await db_session.refresh(invitation)
+    assert invitation.role == "employee"
+
+    accept = await httpx_client.post(
+        "/api/v1/auth/register",
+        json={
+            "token": invitation.token,
+            "name": "Legacy Resend User",
+            "password": "Strong123",
+        },
+    )
+    assert accept.status_code == 201, accept.text
+    user = await db_session.scalar(select(User).where(User.email == invitation.email))
+    assert user is not None
+    assert user.role == "employee"
+
+
+async def test_accept_refuses_unconverted_legacy_role(
+    httpx_client: httpx.AsyncClient,
+    super_admin,
+    db_session: AsyncSession,
+):
+    """An unconverted legacy invitation fails closed instead of creating an
+    account the authorization model rejects."""
+
+    invitation = await _invitation(
+        db_session,
+        invited_by=super_admin[0],
+        email="legacy-accept@invite.test",
+        role="annotator",
+    )
+
+    accept = await httpx_client.post(
+        "/api/v1/auth/register",
+        json={
+            "token": invitation.token,
+            "name": "Legacy Accept User",
+            "password": "Strong123",
+        },
+    )
+    assert accept.status_code == 410
+    user = await db_session.scalar(select(User).where(User.email == invitation.email))
+    assert user is None
+
+
 async def test_legacy_privileged_invitation_requires_active_super_admin_issuer(
     httpx_client: httpx.AsyncClient,
     project_admin,
@@ -378,7 +444,7 @@ async def test_accept_invitation_creates_and_assigns_group(
         "/api/v1/users/invite",
         json={
             "email": "new-group@invite.test",
-            "role": "annotator",
+            "role": "employee",
             "group_name": "  New Group  ",
         },
         headers=_headers(super_admin),
@@ -448,7 +514,7 @@ async def test_invitation_normalizes_blank_group_to_none(
         "/api/v1/users/invite",
         json={
             "email": "blank-group@invite.test",
-            "role": "annotator",
+            "role": "employee",
             "group_name": "   ",
         },
         headers=_headers(super_admin),
@@ -469,7 +535,7 @@ async def test_invitation_rejects_group_name_over_100_characters(
         "/api/v1/users/invite",
         json={
             "email": "long-group@invite.test",
-            "role": "annotator",
+            "role": "employee",
             "group_name": "x" * 101,
         },
         headers=_headers(super_admin),

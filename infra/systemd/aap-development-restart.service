@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart isolated development application services
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/ai-annotation-platform-dev-restart
+TimeoutStartSec=25min
+UMask=0077

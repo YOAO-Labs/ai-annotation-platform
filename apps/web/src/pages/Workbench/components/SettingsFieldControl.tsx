@@ -1,5 +1,6 @@
 // 共享值控件，个人页保持紧凑布局，工作台窗口直接展示说明。
 import { useEffect, useId, useRef, useState } from "react";
+import { HighlightText } from "@/components/ui/HighlightText";
 import { Icon } from "@/components/ui/Icon";
 import { Switch } from "@/components/shadcn/ui/switch";
 import { Badge } from "@/components/shadcn/ui/badge";
@@ -29,6 +30,8 @@ interface SettingsFieldControlProps {
   layout?: "compact" | "settings";
   previewing?: boolean;
   onPreviewChange?: (active: boolean) => void;
+  /** 搜索结果高亮词;空串时不高亮(个人设置页不传)。 */
+  highlightQuery?: string;
   onCommit: (value: WorkbenchSettingValue) => void;
 }
 
@@ -42,6 +45,7 @@ export function SettingsFieldControl({
   onCommit,
   previewing,
   onPreviewChange,
+  highlightQuery = "",
 }: SettingsFieldControlProps) {
   const { control } = field;
   const detailed = layout === "settings";
@@ -85,7 +89,7 @@ export function SettingsFieldControl({
             htmlFor={isColumn ? undefined : id}
             className={cn("min-w-0", !detailed && "text-xs text-muted-foreground")}
           >
-            {field.label}
+            <HighlightText text={field.label} query={highlightQuery} />
             {!detailed && control.type === "slider" ? `：${formatted}` : ""}
           </FieldLabel>
           {!detailed && field.description && !locked && (
@@ -101,7 +105,7 @@ export function SettingsFieldControl({
         </div>
         {detailed && field.description && (
           <FieldDescription id={descriptionId} className="text-xs leading-relaxed">
-            {field.description}
+            <HighlightText text={field.description} query={highlightQuery} />
           </FieldDescription>
         )}
       </FieldContent>

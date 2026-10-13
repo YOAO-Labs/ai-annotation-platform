@@ -10,6 +10,7 @@ import type {
 } from "@/hooks/useVideoTrackerJobs";
 import { ContextToolbar } from "../shell/ContextToolbar";
 import { Button } from "@/components/ui/Button";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 
 export interface VideoTrackerReviewBarProps {
   review: TrackerReviewProjection | null;
@@ -100,14 +101,18 @@ export function VideoTrackerReviewBar({
     setPendingIntents(new Set(pendingIntentsRef.current));
     try {
       const outcome = await decide(selection);
-      if (
-        decision === "accept" &&
-        outcome.reason === "manual_keyframe_protected" &&
-        isCurrent() &&
-        window.confirm("选区包含受保护的人工关键帧，确认用追踪候选覆盖这些帧吗？") &&
-        isCurrent()
-      ) {
-        await decide({ ...selection, override_manual: true });
+      if (decision === "accept" && outcome.reason === "manual_keyframe_protected" && isCurrent()) {
+        // 覆盖受保护的人工关键帧是破坏性决定;确认前后都以 isCurrent 重验,
+        // 等待期间审阅上下文已切换则放弃 override。
+        const override = await confirmDialog({
+          tone: "danger",
+          title: "用追踪候选覆盖受保护的人工关键帧？",
+          description: "选区包含受保护的人工关键帧，确认后这些帧将被追踪候选覆盖。",
+          confirmLabel: "覆盖",
+        });
+        if (override && isCurrent()) {
+          await decide({ ...selection, override_manual: true });
+        }
       }
     } finally {
       pendingIntentsRef.current.delete(intentKey);

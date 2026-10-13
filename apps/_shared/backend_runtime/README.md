@@ -1,6 +1,6 @@
 # aap-backend-runtime
 
-ML backend 运行时共享的**无状态叶子函数**。单一来源, 避免跨 backend 复制漂移。
+ML backend 运行时共享组件 (无状态叶子函数 + 取消安全的 LRU 池内核)。单一来源, 避免跨 backend 复制漂移。
 
 被 `apps/yolo-backend` / `apps/sam3-backend` / `apps/grounded-sam2-backend` /
 `apps/onnxtools-backend` / `apps/rapidocr-backend` 编辑安装复用。
@@ -26,10 +26,18 @@ ML backend 运行时共享的**无状态叶子函数**。单一来源, 避免跨
   必做故障合同、最终空池状态和运行时中间产物，并从 blockers 自动推导 `passed`。
 - `artifact_evidence()` / `memory_cycle_evidence()` — 生成不含本地路径的权重/fixture 摘要，
   以及 64 MiB 稳定窗口与 90% 工作集回收率指标。
+- `ManagedLruPool` / `BuildArtifact` / `ManagedBuildTimeout` / `ManagedPoolBusyError` /
+  `ResourceLease` — 取消安全的 LRU 所有权内核 (builder 单飞、borrower 串行、租约、
+  quarantine 清理与强制回收)。每个消费方通过 `logger_name` 传入自己的 logger 名称,
+  保持日志身份与 backend 一致 (如 `grounded-sam2-backend.managed-pool`)。
+  之前 `grounded-sam2-backend/managed_pool.py` 与 `sam3-backend/managed_pool.py` 仅差
+  docstring 与 logger 名, 现由本包统一提供。
 
 **不包含** (见 `docs/plans/archive/2026-06-29-v0.20.3-ml-backend-shared-layer-extraction.md`):
 
-- `model_pool.py` / `observability.py` / FastAPI app 骨架 —— 已各自漂移, 留作复制模板而非共享 import。
+- 各 backend 的池包装 (`model_pool.py` / `video_pool.py` / `pool_domain.py`) / `observability.py` /
+  FastAPI app 骨架 —— 各有 per-model / per-vendor 语义, 留作本地实现而非共享 import;
+  它们复用上面的 `ManagedLruPool` 内核。
 - 各 backend 的 `/health` `gpu_info`: 多叠加 pynvml 整卡视角 + util/温度/功耗 + 协议嵌套形状，
   与 `gpu_info_snapshot` 的通用版差异大，仍由各自 observability 构造；物理卡 token 则统一复用
   `physical_gpu_identity()`。

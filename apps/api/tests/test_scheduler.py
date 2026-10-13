@@ -18,10 +18,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.display_id import next_display_id
+from tests.factory import create_membership, build_tool_bindings
 
 
 # ── 共用 seed helper ─────────────────────────────────────────────────────────
@@ -45,18 +45,13 @@ async def _seed(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner_id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db.add(p)
     await db.flush()
 
-    db.add(
-        ProjectMember(
-            project_id=pid,
-            user_id=annotator_id,
-            role="annotator",
-            assigned_by=owner_id,
-        )
+    await create_membership(
+        db, project_id=pid, user_id=annotator_id, role="annotator", assigned_by=owner_id
     )
 
     batch = TaskBatch(
@@ -403,7 +398,7 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session)
+        result = await get_next_task(user, p.id, db_session, project_role="annotator")
         assert result is not None
         assert result.batch_id == batch.id
 
@@ -424,7 +419,7 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session)
+        result = await get_next_task(user, p.id, db_session, project_role="annotator")
         assert result is not None
         assert result.batch_id == batch.id
 
@@ -443,7 +438,7 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session)
+        result = await get_next_task(user, p.id, db_session, project_role="annotator")
         assert result is None
 
     @pytest.mark.asyncio
@@ -462,7 +457,7 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session)
+        result = await get_next_task(user, p.id, db_session, project_role="annotator")
         assert result is None
 
     @pytest.mark.asyncio
@@ -480,5 +475,5 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session)
+        result = await get_next_task(user, p.id, db_session, project_role="annotator")
         assert result is None

@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { DataManagerTask } from "@/api/taskViews";
@@ -16,9 +17,14 @@ import {
 import { useDataManagerMatches } from "@/hooks/useTaskViews";
 import { buildWorkbenchUrl } from "@/utils/workbenchNavigation";
 
+// Lazy: opening the Data list must not initialize a workbench canvas stack.
+const DataManagerAnnotationPreview = lazy(() =>
+  import("./DataManagerAnnotationPreview").then((m) => ({ default: m.default })),
+);
+
 interface TaskMatchesSheetProps {
   projectId: string;
-  task: DataManagerTask | null;
+  task: Pick<DataManagerTask, "id" | "display_id" | "file_name"> | null;
   filterJson: Record<string, unknown>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,7 +56,12 @@ export function TaskMatchesSheet({
           </SheetDescription>
         </SheetHeader>
         <ScrollArea className="min-h-0 flex-1 px-4">
-          <div className="flex flex-col gap-2 pb-4">
+          <div className="flex flex-col gap-3 pb-4">
+            {task && (
+              <Suspense fallback={<Skeleton className="h-[320px] w-full" />}>
+                <DataManagerAnnotationPreview projectId={projectId} taskId={task.id} />
+              </Suspense>
+            )}
             {matchesQ.isLoading &&
               Array.from({ length: 4 }, (_, index) => (
                 <Skeleton key={index} className="h-24 w-full" />

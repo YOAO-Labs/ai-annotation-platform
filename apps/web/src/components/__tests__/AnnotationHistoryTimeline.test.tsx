@@ -10,7 +10,7 @@ const baseActor = {
   id: "u1",
   name: "Alice",
   email: "alice@local",
-  role: "annotator",
+  role: "employee",
   avatar_initial: "A",
 };
 

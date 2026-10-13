@@ -17,6 +17,7 @@ import {
   parkVideoPointer,
   readVideoWindow,
 } from "./_video-timeline";
+import { collapseVideoSelectionCard } from "./_video-keyframe-recording";
 
 export interface VideoTimelineZoomRecordingWindow extends DrawWindow {
   evidence: {
@@ -39,6 +40,7 @@ export async function runVideoTimelineZoom(
   const stage = page.getByTestId("video-konva-stage");
   const rows = page.getByTestId("video-track-row");
   await expect(rows).toHaveCount(0);
+  await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
   await page.getByTestId("video-tool-btn-track").click();
   const anchor = recordingAnchor(catalog, "video_demo", "tracking", "front_truck_f0", 0);
   await selectVideoRecordingClass(page, stage, anchor.label);
@@ -53,6 +55,8 @@ export async function runVideoTimelineZoom(
     onCreated,
   });
   await expect(rows).toHaveCount(1);
+  // 新建轨迹会同时打开选中浮窗，浮窗覆盖右栏轨道行会让点击无限等待。
+  await collapseVideoSelectionCard(page);
   await rows.click();
   await expect(rows).toHaveAttribute("aria-selected", "true");
   await page.getByTestId("video-tool-btn-select").click();

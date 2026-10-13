@@ -8,11 +8,15 @@ from uuid import UUID
 
 SEED_REVISION = "screenshots-2026-08-g"
 SEED_MANAGED_BY = "screenshot-seed"
+# Persona keys are logical roles consumed by the screenshot seeder; the second
+# element is the platform account role, which is employee for project staff so
+# they can hold explicit project duties (migration 0174 cut over the old
+# platform annotator/reviewer values).
 USER_SPECS = {
     "admin": ("admin", "super_admin"),
     "project_admin": ("pm", "project_admin"),
-    "annotator": ("anno", "annotator"),
-    "reviewer": ("qa", "reviewer"),
+    "annotator": ("anno", "employee"),
+    "reviewer": ("qa", "employee"),
 }
 
 

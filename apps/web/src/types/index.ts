@@ -1,6 +1,26 @@
 // ── Role & Status Enums ─────────────────────────────────────────────────────
 
-export type UserRole = "super_admin" | "project_admin" | "reviewer" | "annotator" | "viewer";
+/**
+ * Platform (account) role.  This is the only global identity: an account may
+ * annotate in one project, review in another and hold a read-only membership in
+ * a third.  Annotation/review authority comes from the *project membership*
+ * (`ProjectRole`), never from this value.
+ */
+export type PlatformRole = "super_admin" | "project_admin" | "employee" | "viewer";
+
+/**
+ * Project responsibility from `project_members.role`.
+ * `reviewer` is the code value behind the 质检员 label.
+ */
+export type ProjectRole = "annotator" | "reviewer" | "viewer";
+
+/**
+ * Account role as returned by `/auth/me`.  Alias of {@link PlatformRole}; the
+ * name is retained for existing imports.  Legacy global `annotator`/`reviewer`
+ * values are migrated to `employee` by the server and are never an
+ * authorization source here.
+ */
+export type UserRole = PlatformRole;
 export type ProjectStatus = "in_progress" | "completed" | "pending_review" | "archived";
 export type TaskStatus =
   | "uploading"
@@ -66,6 +86,8 @@ export interface UserBrief {
   email: string;
   role: string | null;
   avatar_initial: string;
+  /** 头像引用(`preset:<slug>` / `upload:<token>`);空 = 前端回退 avatar_initial。 */
+  avatar_ref?: string | null;
 }
 
 export interface TaskResponse {
@@ -583,6 +605,12 @@ export interface AnnotationResponse {
   updated_at: string | null;
   // 前端内部字段：乐观 tmp 标注被真实 id 替换时保留,避免画布 shape 因 key 改变闪烁。
   render_key?: string;
+}
+
+/** `/tasks/{id}/annotations/page` keyset-paged saved annotations (limit ≤ 1000, default 200)。 */
+export interface AnnotationPageResponse {
+  items: AnnotationResponse[];
+  next_cursor: string | null;
 }
 
 // ── Prediction ──────────────────────────────────────────────────────────────

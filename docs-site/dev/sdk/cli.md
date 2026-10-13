@@ -123,14 +123,20 @@ aap batches list P-1 --status reviewing --json
 
 ```text
 aap members list <project-id> [--json]
-aap members add <project-id> --user-id <user-id> --role <annotator|reviewer> [--json]
+aap members add <project-id> --user-id <user-id> --role <annotator|reviewer|viewer> [--json]
+aap members preview-role <project-id> <member-id> --role <annotator|reviewer|viewer> [--replacement-annotator-id <id>] [--replacement-reviewer-id <id>] [--json]
+aap members change-role <project-id> <member-id> --role <r> --expected-version <n> --preview-token <t> --reason <text> [--replacement-annotator-id <id>] [--replacement-reviewer-id <id>] [--yes] [--json]
 aap members remove <project-id> <member-id> [--yes] [--json]
 ```
 
-列出、添加或移除项目成员。添加时的用户角色一致性和管理权限由服务端校验。
+列出、添加、移除项目成员并变更项目角色。`--role` 是**项目角色**(`annotator` / `reviewer` / `viewer`);`list` 会分列展示项目角色与平台角色。添加时的账号状态、平台 / 项目角色兼容性与管理权限由服务端校验。
+
+`preview-role` 是只读预检,返回当前 / 目标角色、版本、阻塞项、受影响资源快照与一次性 `preview_token`;`change-role` 需要带上预检的 `--expected-version` 与 `--preview-token` 以及 `--reason`,属变更操作,JSON 模式必须显式 `--yes`。版本 / 快照失效或资源占用时服务端返回 409,需重新预检。变更规则见[可见性与权限](../concepts/visibility-and-permissions#成员角色变更与交接)。
 
 ```bash
 aap members list P-1
+aap members preview-role P-1 0199ab... --role reviewer
+aap members change-role P-1 0199ab... --role reviewer --expected-version 2 --preview-token <tok> --reason "重新分配职责" --yes
 ```
 
 ### aap me
@@ -139,7 +145,7 @@ aap members list P-1
 aap me [--json]
 ```
 
-显示当前认证主体(用户 / 邮箱 / 角色),用于自检凭据与确认权限边界。
+显示当前认证主体(用户 / 邮箱 / 平台角色),用于自检凭据与确认权限边界;项目职责用 `aap members list` 或 `GET /projects/{id}/access` 查看。
 
 ```bash
 aap me
@@ -345,8 +351,10 @@ aap tui
 | `batches distribute`              | BatchDistributeResult 对象                                                                                       |
 | `batches bulk-*`                  | BulkBatchActionResult 对象                                                                                       |
 | `batches export`                  | `{"job_id": "..."}`                                                                                              |
-| `members list`                    | Member 对象数组                                                                                                  |
+| `members list`                    | Member 对象数组(含 `role` / `platform_role` / `version`)                                                         |
 | `members add`                     | Member 对象                                                                                                      |
+| `members preview-role`            | ProjectMemberRolePreview 对象(阻塞项 / 资源快照 / `preview_token`)                                               |
+| `members change-role`             | Member 对象                                                                                                      |
 | `members remove`                  | `{"removed": true, "project_id": "...", "member_id": "..."}`                                                     |
 | `me`                              | Me 对象(`id` / `email` / `name` / `role` …)                                                                      |
 | `datasets create`                 | Dataset 对象                                                                                                     |

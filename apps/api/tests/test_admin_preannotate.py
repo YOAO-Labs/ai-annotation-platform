@@ -284,3 +284,48 @@ async def test_preannotate_summary_includes_all_modalities_with_data_type(
     assert "video-proj" in by_name  # 不再被过滤
     assert by_name["img-proj"]["data_type"] == "image"
     assert by_name["video-proj"]["data_type"] == "video"
+
+
+@pytest.mark.asyncio
+async def test_preannotate_summary_counts_active_and_unassigned_draft(
+    httpx_client, db_session, super_admin
+):
+    """issue #124 · 卡片「可预标」要与详情页准入同源: active + 未分派人员的 draft.
+
+    已分派人员的 draft 与其它状态不计入; 否则卡片会显示 0 而详情页仍列有草稿。
+    """
+    from app.db.models.ml_backend_registry import ProjectMLBackendPool
+    from tests.conftest import create_registry_with_pool
+
+    user, token = super_admin
+    proj = await create_project(db_session, owner_id=user.id, name="eligible-proj")
+    _reg, pool = await create_registry_with_pool(
+        db_session, name="bk", url=f"http://x-{uuid.uuid4().hex[:8]}/"
+    )
+    db_session.add(
+        ProjectMLBackendPool(project_id=proj.id, pool_id=pool.id, enabled=True)
+    )
+    await create_batch(db_session, project_id=proj.id, name="act", status="active")
+    await create_batch(
+        db_session, project_id=proj.id, name="draft-free", status="draft"
+    )
+    await create_batch(
+        db_session, project_id=proj.id, name="draft-free-2", status="draft"
+    )
+    assigned = await create_batch(
+        db_session, project_id=proj.id, name="draft-assigned", status="draft"
+    )
+    assigned.annotator_id = user.id
+    await create_batch(db_session, project_id=proj.id, name="arch", status="archived")
+    await db_session.commit()
+
+    res = await httpx_client.get(
+        "/api/v1/admin/preannotate-summary",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200, res.text
+    item = next(
+        it for it in res.json()["items"] if it["project_name"] == "eligible-proj"
+    )
+    # active(1) + 未分派 draft(2); 已分派 draft 与 archived 不计入
+    assert item["active_batches"] == 3

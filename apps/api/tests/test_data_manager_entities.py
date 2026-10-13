@@ -5,10 +5,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.dataset import Dataset, DatasetItem, Scene
-from app.db.models.project_member import ProjectMember
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
-from tests.factory import create_batch, create_project, create_task
+from tests.factory import create_membership, create_batch, create_project, create_task
 
 
 pytestmark = pytest.mark.asyncio
@@ -16,6 +16,114 @@ pytestmark = pytest.mark.asyncio
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.parametrize(
+    "field", ["feedback.unresolved_count", "issue.unresolved_count"]
+)
+@pytest.mark.parametrize("grain", ["objects", "compact_tracks", "scene_tracks"])
+async def test_issue_filter_keeps_annotation_grain_and_complete_scene_tracks(
+    httpx_client: httpx.AsyncClient,
+    project_admin,
+    db_session: AsyncSession,
+    field: str,
+    grain: str,
+):
+    owner, token = project_admin
+    project = await create_project(db_session, owner_id=owner.id, type_key="image-det")
+    project.data_type = "video" if grain == "compact_tracks" else "image"
+    project.scene_mode = grain == "scene_tracks"
+    project.tool_bindings = {"bbox": {"enabled": True, "classes": ["car"]}}
+    task = await create_task(db_session, project_id=project.id)
+    if grain == "compact_tracks":
+        task.file_type = "video"
+    annotations = []
+    for track_id in ["has_issue", "no_issue"]:
+        bbox = {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+        geometry = (
+            {
+                "type": "video_track_bbox",
+                "track_id": track_id,
+                "keyframes": [{"frame_index": 0, "bbox": bbox, "source": "manual"}],
+            }
+            if grain == "compact_tracks"
+            else {"type": "bbox", **bbox}
+        )
+        annotations.append(
+            Annotation(
+                task_id=task.id,
+                project_id=project.id,
+                user_id=owner.id,
+                source="manual",
+                annotation_type=geometry["type"],
+                tool_unit_id="bbox",
+                class_name="car",
+                geometry=geometry,
+                track_id=track_id,
+            )
+        )
+    db_session.add_all(annotations)
+    await db_session.flush()
+    for kind, annotation_id, anchor_type in [
+        ("issue", annotations[0].id, "annotation"),
+        ("comment", annotations[1].id, "annotation"),
+        ("issue", None, "task"),
+    ]:
+        db_session.add(
+            AnnotationFeedback(
+                project_id=project.id,
+                task_id=task.id,
+                annotation_id=annotation_id,
+                author_id=owner.id,
+                kind=kind,
+                anchor_type=anchor_type,
+                status="open",
+                body="Entity-grain regression",
+            )
+        )
+    if grain == "scene_tracks":
+        second_task = await create_task(db_session, project_id=project.id)
+        db_session.add(
+            Annotation(
+                task_id=second_task.id,
+                project_id=project.id,
+                user_id=owner.id,
+                source="manual",
+                annotation_type="bbox",
+                tool_unit_id="bbox",
+                class_name="car",
+                geometry={"type": "bbox", **bbox},
+                track_id="has_issue",
+            )
+        )
+    await db_session.flush()
+
+    scope = "objects" if grain == "objects" else "tracks"
+    for operator, index in [("gt", 0), ("eq", 1)]:
+        response = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/data-manager/{scope}/query",
+            headers=_auth(token),
+            json={"filter_json": {"field": field, "op": operator, "value": 0}},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        if grain == "scene_tracks" and operator == "eq":
+            # A Scene track matches when any member matches; its second,
+            # issue-free occurrence can therefore match eq=0 as well.
+            assert {item["track_id"] for item in body["items"]} == {
+                "has_issue",
+                "no_issue",
+            }
+            continue
+        assert body["total"] == 1
+        row = body["items"][0]
+        if grain == "objects":
+            assert row["annotation_id"] == str(annotations[index].id)
+            assert row["unresolved_feedback_count"] == (1 if index == 0 else 0)
+        else:
+            assert row["track_id"] == annotations[index].track_id
+            if grain == "scene_tracks":
+                assert row["occurrence_count"] == 2
 
 
 async def test_object_query_uses_annotation_grain_cursor_and_location(
@@ -142,12 +250,8 @@ async def test_object_query_facets_and_detail_share_batch_visibility(
     project.tool_bindings = {
         "bbox": {"enabled": True, "classes": ["visible", "hidden"]}
     }
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator_user.id,
-            role="annotator",
-        )
+    await create_membership(
+        db_session, project_id=project.id, user_id=annotator_user.id, role="annotator"
     )
     visible_batch = await create_batch(
         db_session, project_id=project.id, status="active"

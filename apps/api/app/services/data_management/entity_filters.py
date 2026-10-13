@@ -19,6 +19,7 @@ from app.services.data_management.filter_tree import (
 )
 from app.services.data_management.schema import build_data_manager_schema
 from app.services.project_kind import project_kind
+from app.services.feedback import annotation_unresolved_issue_count_sq
 from app.services.data_management.task_filters import (
     _compile_annotation_object_condition,
     _compare_column,
@@ -94,17 +95,10 @@ def _compile_entity_node(
         return _compile_annotation_object_condition(
             annotation, field, op, value, project
         )
-    if field == "feedback.unresolved_count":
-        count = (
-            select(func.count(AnnotationFeedback.id))
-            .where(
-                AnnotationFeedback.annotation_id == annotation.id,
-                AnnotationFeedback.is_active.is_(True),
-                AnnotationFeedback.status == "open",
-            )
-            .correlate(annotation)
-            .scalar_subquery()
-        )
+    if field in {"feedback.unresolved_count", "issue.unresolved_count"}:
+        # Corrected to the Workbench root-issue definition restricted to the
+        # annotation: replies and non-issue feedback never count.
+        count = annotation_unresolved_issue_count_sq(annotation)
         return _compare_column(count, op, value, _NUMERIC_OPS)
     if field == "feedback.status":
         if op not in {"eq", "in"}:
@@ -290,12 +284,13 @@ async def count_entity_filters(
     filters: list[dict[str, Any]],
     user: User,
     project: Project,
+    project_role: str | None = None,
 ) -> list[int]:
     if not filters:
         return []
-    visible = visible_tasks_stmt(project_id, user=user, project=project).subquery(
-        f"dm_{entity_scope}_view_visible"
-    )
+    visible = visible_tasks_stmt(
+        project_id, user=user, project=project, project_role=project_role
+    ).subquery(f"dm_{entity_scope}_view_visible")
     conditions = [
         compile_entity_filter(item, Annotation, project=project, user=user)
         for item in filters

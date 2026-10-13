@@ -96,7 +96,7 @@
 
 **子方向**：
 
-- **L4.1 3D / LiDAR**：`ThreeDWorkbench` 占位已就位（lidar），需要 Three.js / babylon.js / OpenSeadragon3D 选型 + 点云 viewer + cuboid 编辑。**等真实客户**。
+- **L4.1 3D / LiDAR** ✅ 已落地（`ThreeDWorkbench`、点云质检与多相机成员；跨厂商 GPU 资格与 polygon / mask 成员仍开放）：`ThreeDWorkbench` 占位已就位（lidar），需要 Three.js / babylon.js / OpenSeadragon3D 选型 + 点云 viewer + cuboid 编辑。**等真实客户**。
 - **L4.2 音频 / 语音转写**：waveform viewer + 时间区间标注 + ASR 模型集成。借鉴视频 R4 时间轴。
 - **L4.3 文本 NER / 情感**：纯前端 token span 标注，可走 Label Studio 风格 UI。
 - **L4.4 多模态对话评估**：HRLF / RLHF 偏好排序界面（A vs B 投票），与现有标注流不冲突，新独立 stage。
@@ -115,12 +115,12 @@
 
 **子方向**：
 
-- **L5.1 Segment 级协同**：见 `archive/2026-05-12-video-backend-frame-service.md` B4。
+- **L5.1 Segment 级协同** ✅ 已落地（视频 roadmap Phase 5：segment fragment、claim / lease 与分段提交）：见 `archive/2026-05-12-video-backend-frame-service.md` B4。
 - **L5.2 任务自动分发策略**：按熟练度 / 历史质量 / 类别经验自动分配（已部分由 batch scheduler 实现，需要细化）。
 - **L5.3 共识合并算法**：多人对同一 task 的标注，取交集 / 投票 / 加权融合（已列 §A 批次延伸）。
 - **L5.4 众包平台对接**：MTurk / Scale 外发，结果回流到本平台 review 流。
 - **L5.5 实时聊天 / 评论**：标注员在 task 上下文里讨论，超出单纯审核评论。
-- **L5.6 标注员激励 / 排行榜**：可选模块，按工时 / 准确率 / 速度统计。
+- **L5.6 标注员激励 / 排行榜** ✅ 个人 / 团队绩效看板已落地：可选模块，按工时 / 准确率 / 速度统计。
 
 **触发条件**：单项目并发标注员 ≥10。
 **关联**：R11（前端 segment UI）、B4（后端 segment 模型）。
@@ -154,10 +154,10 @@
 **子方向**：
 
 - **L7.1 OpenAPI 完整性 review**：现有 `apps/api/app/api/` 不少接口的 response model 不严格，先补齐。
-- **L7.2 Python SDK**：`pip install annotation-platform`，封装鉴权 + dataset CRUD + annotation push/pull + training trigger。
+- **L7.2 Python SDK** ✅ 已落地（`packages/python-sdk`）：`pip install annotation-platform`，封装鉴权 + dataset CRUD + annotation push/pull + training trigger。
 - **L7.3 TypeScript SDK**：复用前端 codegen，导出独立 npm 包。
-- **L7.4 API token 管理**：当前是 session cookie，需要 long-lived token + 权限粒度（read-only / dataset-scoped）。
-- **L7.5 文档站「集成示例」专区**：notebook + curl + Python 示例并列。
+- **L7.4 API token 管理** ◑ 长寿命 token 与能力 scopes 已落地（`api_keys`）；按资源细分（read-only / dataset-scoped）的权限粒度仍未实现。
+- **L7.5 文档站「集成示例」专区** ✅ 已落地（`docs-site/dev/sdk/`）：notebook + curl + Python 示例并列。
 
 **触发条件**：第一个客户写自动化脚本。
 **关联**：现有 OpenAPI codegen 已在 `apps/web/src/codegen/`。

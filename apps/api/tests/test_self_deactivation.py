@@ -88,8 +88,9 @@ async def test_execute_due_processes_overdue_users(db_session: AsyncSession, ann
     user.deactivation_scheduled_at = datetime.now(timezone.utc) - timedelta(seconds=10)
     await db_session.flush()
 
-    n = await DeactivationService.execute_due(db_session)
+    n, pending = await DeactivationService.execute_due(db_session)
     assert n == 1
+    assert isinstance(pending, list)
 
     refreshed = await db_session.get(User, user.id)
     await db_session.refresh(refreshed)
@@ -119,8 +120,9 @@ async def test_execute_due_skips_not_yet_due(db_session: AsyncSession, annotator
     user.deactivation_scheduled_at = datetime.now(timezone.utc) + timedelta(days=3)
     await db_session.flush()
 
-    n = await DeactivationService.execute_due(db_session)
+    n, pending = await DeactivationService.execute_due(db_session)
     assert n == 0
+    assert isinstance(pending, list)
     refreshed = await db_session.get(User, user.id)
     await db_session.refresh(refreshed)
     assert refreshed.is_active is True

@@ -12,6 +12,8 @@ export function useNotifications(enabled = true, limit = 30) {
       return nextOffset < lastPage.total ? nextOffset : undefined;
     },
     refetchInterval: enabled ? 30_000 : false,
+    refetchOnWindowFocus: enabled,
+    refetchOnReconnect: enabled,
     enabled,
     retry: false,
   });
@@ -22,6 +24,9 @@ export function useUnreadCount() {
     queryKey: ["notifications", "unread-count"],
     queryFn: () => notificationsApi.unreadCount(),
     refetchInterval: 30_000,
+    // 断线期间错过的事件在回到前台时立即补偿；后台节流由浏览器决定。
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     retry: false,
   });
 }

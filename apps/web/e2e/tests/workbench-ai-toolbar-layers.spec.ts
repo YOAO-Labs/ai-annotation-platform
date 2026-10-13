@@ -114,7 +114,7 @@ async function routeML(page: Page, response: unknown) {
   return state;
 }
 async function fixtureFor(seed: SeedAPI, media: Media) {
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.configureRasterMask(data.project_id, true);
   const taskId =
     media === "video" ? (await seed.videoTask(data.project_id)).task_id : data.task_ids[0];

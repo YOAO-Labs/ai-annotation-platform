@@ -25,7 +25,7 @@ TASK_DETECTION: Final[str] = "detection"
 TASK_SEGMENTATION: Final[str] = "segmentation"
 TASK_KEYPOINT: Final[str] = "keypoint"
 TASK_OBB: Final[str] = "obb"
-# v0.21.1 · 检测式视频追踪: 不是独立权重, 而是 detection 权重的 video 推理模式 (ultralytics
+# 检测式视频追踪: 不是独立权重, 而是 detection 权重的 video 推理模式 (ultralytics
 # 原生 ByteTrack/BoT-SORT)。故权重矩阵别名到 detection (见 MODEL_MATRIX 下方), 文件名后缀空。
 TASK_TRACKER: Final[str] = "tracker"
 
@@ -60,7 +60,7 @@ MODEL_MATRIX: Final[dict[str, dict[str, tuple[str, ...]]]] = {
     },
 }
 
-# v0.21.1 · tracker 复用 detection 权重 (追踪不换权重, 只在推理时外挂关联算法)。别名共享同一
+# tracker 复用 detection 权重 (追踪不换权重, 只在推理时外挂关联算法)。别名共享同一
 # series→sizes 对象, 保证与 det 矩阵零漂移; /setup 的 tracker 条目、is_supported、
 # resolve_weight_filename 因此对 tracker 一致工作 (task=tracker → 解出 detection 权重文件名)。
 MODEL_MATRIX[TASK_TRACKER] = MODEL_MATRIX[TASK_DETECTION]
@@ -70,7 +70,7 @@ RECOMMENDED_SERIES: Final[str] = "yolo11"
 RECOMMENDED_SIZE: Final[str] = "s"
 
 # size 元信息. tier 按 size 字母分档为「快速 / 均衡 / 精度」, 协议中性, 跨 series 通用。
-# v0.14.12 移除 vram_gb: 之前是粗估占位 (n=2GB 等), 但 yolov8n .pt 实际加载 ~300MB,
+# 移除 vram_gb: 之前是粗估占位 (n=2GB 等), 但 yolov8n .pt 实际加载 ~300MB,
 # yolov8x ~500MB, 推理峰值还取决于 batch / 输入分辨率 / FP16/32, 暴露统一数字会误导。
 # 等真有按 (series, size, task) 维度的官方 params/FLOPs 表再补。
 SIZE_META: Final[dict[str, dict[str, object]]] = {
@@ -102,7 +102,7 @@ _TASK_SUFFIX: Final[dict[str, str]] = {
     TASK_SEGMENTATION: "-seg",
     TASK_KEYPOINT: "-pose",
     TASK_OBB: "-obb",
-    # v0.21.1 · tracker 解出 detection 权重文件名 (无后缀), 与 MODEL_MATRIX 别名一致。
+    # tracker 解出 detection 权重文件名 (无后缀), 与 MODEL_MATRIX 别名一致。
     TASK_TRACKER: "",
 }
 
@@ -152,16 +152,16 @@ def sizes_for(task: str, series: str) -> list[str]:
     return list(MODEL_MATRIX.get(task, {}).get(series, ()))
 
 
-# ── 开集 (open-vocabulary) 文本提示模型 (v0.18.21) ─────────────────────────
+# ── 开集 (open-vocabulary) 文本提示模型 ─────────────────────────────────────
 # 与闭集 MODEL_MATRIX 并列, 独立 series 命名空间. 权重名按 ultralytics assets
 # release v8.4.0 核对 (2026-06-25, 容器内 get_github_assets 实测可下载).
 #   - YOLO-World (YOLOWorld 类): 仅检测, 文本 prompt 经 CLIP 文本编码.
-#   - YOLOE (YOLOE 类): -seg 权重, 检测取 box / 分割取 mask (分割留 v0.18.22),
+#   - YOLOE (YOLOE 类): -seg 权重, 检测取 box / 分割取 mask,
 #     文本 prompt 经 MobileCLIP. -seg-pf (prompt-free 内置词表) 非目标, 不纳入.
 # pool key 的 task 分量统一用 POOL_TASK_OPENVOCAB: yoloe 的 det/seg 同权重共用一份.
 
 POOL_TASK_OPENVOCAB: Final[str] = "openvocab"
-# v0.18.23 · YOLOE visual prompt exemplar 用独立 pool key (与文本句柄隔离):
+# YOLOE visual prompt exemplar 用独立 pool key (与文本句柄隔离):
 # VP 推理经 YOLOEVPSegPredictor 改写 model.names / 嵌入状态, 若与文本路径共用同一句柄会
 # 污染 _aap_classes 文本 PE 缓存 (set_classes 被误判已设而跳过) → 单独一份 YOLOE 实例。
 POOL_TASK_OPENVOCAB_VP: Final[str] = "openvocab_vp"

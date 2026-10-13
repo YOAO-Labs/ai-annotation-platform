@@ -41,8 +41,10 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/datasets/{dataset_id}/link/{project_id}/preview-unlink" = { status = "covered" }
 "GET /api/v1/datasets/{dataset_id}/projects" = { status = "covered" }
 "GET /api/v1/projects" = { status = "covered" }
+"GET /api/v1/projects/query" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/stats" = { status = "covered" }
 "GET /api/v1/projects/{project_id}" = { status = "covered" }
+"GET /api/v1/projects/{project_id}/access" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/batches" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/batches/unclassified-count" = { status = "excluded", reason = "no-external-demand" }
 "GET /api/v1/projects/{project_id}/batches/{batch_id}" = { status = "covered" }
@@ -50,6 +52,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/projects/{project_id}/class-usage" = { status = "excluded", reason = "no-external-demand" }
 "GET /api/v1/projects/{project_id}/datasets" = { status = "excluded", reason = "no-external-demand" }
 "GET /api/v1/projects/{project_id}/members" = { status = "covered" }
+"GET /api/v1/projects/{project_id}/mention-candidates" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/projects/{project_id}/readiness" = { status = "excluded", reason = "no-external-demand" }
 "GET /api/v1/projects/{project_id}/ml-backends" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/ml-backends/available" = { status = "covered" }
@@ -92,6 +95,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "PATCH /api/v1/admin/ml-integrations/service-pools/{pool_id}" = { status = "covered" }
 "PATCH /api/v1/projects/{project_id}" = { status = "covered" }
 "PATCH /api/v1/projects/{project_id}/batches/{batch_id}" = { status = "covered" }
+"PATCH /api/v1/projects/{project_id}/members/{member_id}/role" = { status = "covered" }
 "PATCH /api/v1/tasks/{task_id}/annotations/{annotation_id}" = { status = "covered" }
 "PATCH /api/v1/tasks/{task_id}/point-cloud/camera-members/{member_id}" = { status = "excluded", reason = "workbench-internal" }
 "PATCH /api/v1/tasks/{task_id}/point-cloud/cameras/{camera_role}/calibration" = { status = "excluded", reason = "workbench-internal" }
@@ -140,12 +144,14 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/projects/{project_id}/batches/{batch_id}/exports/lidar:preflight" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/projects/{project_id}/batches/{batch_id}/reject" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/batches/{batch_id}/reset" = { status = "covered" }
+"POST /api/v1/projects/{project_id}/batches/{batch_id}/submit-review" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/batches/{batch_id}/transition" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/classes/rename" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/projects/{project_id}/cleanup-orphans" = { status = "excluded", reason = "maintenance-risk" }
 "POST /api/v1/projects/{project_id}/export" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/exports/lidar:preflight" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/projects/{project_id}/members" = { status = "covered" }
+"POST /api/v1/projects/{project_id}/members/{member_id}/role/preview" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/ml-backends" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/projects/{project_id}/ml-backends/{backend_id}/capabilities/refresh" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/projects/{project_id}/ml-backends/{backend_id}/health" = { status = "covered" }

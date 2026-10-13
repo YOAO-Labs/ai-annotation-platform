@@ -18,7 +18,8 @@ from app.db.models.annotation import Annotation
 from app.db.models.audit_log import AuditLog
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_event import TaskEvent
-from app.db.enums import UserRole
+from app.db.enums import ProjectRole, UserRole
+from app.services.project_aggregates import ANNOTATOR_ROLE, REVIEWER_ROLE
 from app.schemas.dashboard import (
     AdminDashboardStats,
     RegistrationDayPoint,
@@ -219,16 +220,22 @@ async def admin_people_list(
     week_start = week_start - timedelta(days=week_start.weekday())
     last_week_start = week_start - timedelta(days=7)
 
-    # 拉用户
+    # 拉用户：标注 / 审核分组由 project_members.role 决定，平台账号角色不再
+    # 参与分组（避免 employee 同时在不同项目承担不同职责时被错误归类）。
+    # project 给定时只保留该项目内持有对应职责的成员。
     user_q = select(User).where(User.is_active.is_(True))
-    if role == "annotator":
-        user_q = user_q.where(User.role.in_([UserRole.ANNOTATOR, UserRole.SUPER_ADMIN]))
-    elif role == "reviewer":
-        user_q = user_q.where(
-            User.role.in_(
-                [UserRole.REVIEWER, UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN]
-            )
+    if role in {"annotator", "reviewer"}:
+        target_role = (
+            ProjectRole.ANNOTATOR.value
+            if role == "annotator"
+            else ProjectRole.REVIEWER.value
         )
+        membership_scope = select(ProjectMember.user_id).where(
+            ProjectMember.role == target_role
+        )
+        if pid:
+            membership_scope = membership_scope.where(ProjectMember.project_id == pid)
+        user_q = user_q.where(User.id.in_(membership_scope))
     if q:
         like = f"%{q}%"
         user_q = user_q.where(or_(User.name.ilike(like), User.email.ilike(like)))
@@ -238,6 +245,20 @@ async def admin_people_list(
         return AdminPeopleList(items=[], total=0, period=period)
 
     user_ids = [u.id for u in users]
+
+    # Per-user project roles for this scope (single query, no N+1): drives the
+    # annotator/reviewer metric classification below.
+    role_rows = (
+        await db.execute(
+            select(ProjectMember.user_id, ProjectMember.role).where(
+                ProjectMember.user_id.in_(user_ids),
+                *([ProjectMember.project_id == pid] if pid else []),
+            )
+        )
+    ).all()
+    user_roles_map: dict[uuid.UUID, set[str]] = {}
+    for member_user_id, member_role in role_rows:
+        user_roles_map.setdefault(member_user_id, set()).add(member_role)
 
     # 项目隶属计数
     pm_rows = (
@@ -374,18 +395,28 @@ async def admin_people_list(
     active_minutes_map = {r.user_id: int((r.ms or 0) // 60000) for r in active_rows}
 
     # 计算分位
-    def _is_reviewer_role(u: User) -> bool:
-        return u.role in (
-            UserRole.REVIEWER,
-            UserRole.PROJECT_ADMIN,
-            UserRole.SUPER_ADMIN,
-        )
+    def _is_reviewer(u: User) -> bool:
+        roles = user_roles_map.get(u.id, set())
+        if role == "reviewer":
+            # The request explicitly asks for reviewers; a mixed employee is
+            # reported by review throughput so the filter and metric agree.
+            return REVIEWER_ROLE in roles
+        if role == "annotator":
+            return False
+        if roles:
+            # Unfiltered "both" view: a reviewer membership classifies the row
+            # as review work, while an account that also annotates stays in the
+            # annotation cohort (the previous "reviewer and not annotator" rule).
+            return REVIEWER_ROLE in roles and ANNOTATOR_ROLE not in roles
+        # Manager accounts without a membership row keep their review-side
+        # label.  This is metric labeling only; authority is never derived here.
+        return u.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
     throughputs = []
     quality_scores = []
     activity_minutes_list = []
     for u in users:
-        if _is_reviewer_role(u) and u.role != UserRole.ANNOTATOR:
+        if _is_reviewer(u):
             throughputs.append(rev_count_map.get(u.id, 0))
         else:
             throughputs.append(ann_count_map.get(u.id, 0))
@@ -396,7 +427,7 @@ async def admin_people_list(
 
     items: list[AdminPersonItem] = []
     for idx, u in enumerate(users):
-        is_reviewer = u.role in (UserRole.REVIEWER, UserRole.PROJECT_ADMIN)
+        is_reviewer = _is_reviewer(u)
         main_metric = throughputs[idx]
         main_label = (
             f"本周{period if period != '7d' else ''}审核数"
@@ -432,6 +463,7 @@ async def admin_people_list(
                 role=u.role,
                 status=u.status,
                 project_count=pm_count_map.get(u.id, 0),
+                avatar_ref=u.avatar_ref,
                 main_metric=main_metric,
                 main_metric_label=main_label,
                 weekly_compare_pct=wcp,

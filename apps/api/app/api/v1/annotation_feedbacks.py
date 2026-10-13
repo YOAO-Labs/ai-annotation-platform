@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks._shared import _assert_task_visible, _visible_task_ids
 from app.api.v1.annotation_comments import _validate_project_members
-from app.db.enums import UserRole
+from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.mask_qc import MaskQCIssue
@@ -51,18 +51,19 @@ from app.services.discussion_actions import discussion_actions
 from app.services.feedback import FeedbackService
 from app.services.mask_qc.service import effective_issue_status
 from app.services.point_cloud_quality.service import refresh_issue_staleness
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import resolve_project_access_by_id
 from app.services.notification import NotificationService
 from app.services.user_brief import resolve_briefs
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 logger = logging.getLogger(__name__)
 
+#: Platform roles allowed to use feedback endpoints.  Project responsibility is
+#: resolved from the membership; legacy global staff roles are not allowed.
 _ALL = (
-    UserRole.SUPER_ADMIN,
-    UserRole.PROJECT_ADMIN,
-    UserRole.REVIEWER,
-    UserRole.ANNOTATOR,
+    PlatformRole.SUPER_ADMIN,
+    PlatformRole.PROJECT_ADMIN,
+    PlatformRole.EMPLOYEE,
 )
 
 
@@ -71,6 +72,8 @@ async def _to_out(
     entry: AnnotationFeedback,
     *,
     user: User | None = None,
+    project_role: str | None = None,
+    is_manager: bool = False,
     is_accessible: bool = True,
     can_reply: bool = False,
     briefs: dict[str, UserBrief] | None = None,
@@ -82,8 +85,8 @@ async def _to_out(
         "feedback",
         entry.kind,
         is_author=user is not None and entry.author_id == user.id,
-        is_admin=user is not None and user.role in _ADMIN_ROLES,
-        is_reviewer=user is not None and user.role == UserRole.REVIEWER,
+        is_admin=is_manager,
+        is_reviewer=project_role == ProjectRole.REVIEWER.value,
         is_accessible=is_accessible and entry.is_active,
         can_reply=can_reply,
     )
@@ -114,7 +117,19 @@ async def _to_out(
     )
 
 
-_ADMIN_ROLES = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+async def _project_action_context(
+    db: AsyncSession, project_id: uuid.UUID, user: User
+) -> tuple[bool, str | None]:
+    """Return ``(is_manager, project_role)`` from current project access.
+
+    Used for feedback actions so moderators are the project's legitimate
+    managers/reviewers rather than holders of a legacy global staff role.
+    """
+
+    _project, access = await resolve_project_access_by_id(
+        db, user=user, project_id=project_id
+    )
+    return access.is_manager, access.project_role
 
 
 def _same_task_id(left: uuid.UUID | None, right: uuid.UUID | None) -> bool:
@@ -318,7 +333,9 @@ async def list_feedbacks(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(*_ALL)),
 ):
-    project = await assert_project_visible(project_id, db, user)
+    project, access = await resolve_project_access_by_id(
+        db, user=user, project_id=project_id
+    )
     if task_id is not None:
         task = await db.get(Task, task_id)
         if task is None or task.project_id != project_id:
@@ -340,7 +357,7 @@ async def list_feedbacks(
             await assert_project_visible(task.project_id, db, user)
             await _assert_task_visible(db, task, user)
     allowed_task_ids: set[uuid.UUID] | None = None
-    if not is_privileged_for_project(user, project):
+    if not access.is_manager:
         project_task_ids = list(
             (
                 await db.execute(select(Task.id).where(Task.project_id == project_id))
@@ -416,8 +433,8 @@ async def list_feedbacks(
                     "feedback",
                     r.kind,
                     is_author=r.author_id == user.id,
-                    is_admin=user.role in _ADMIN_ROLES,
-                    is_reviewer=user.role == UserRole.REVIEWER,
+                    is_admin=access.is_manager,
+                    is_reviewer=access.project_role == ProjectRole.REVIEWER.value,
                     is_accessible=True,
                     can_reply=(
                         r.kind == "issue" and await _quality_anchor_is_current(db, r)
@@ -461,10 +478,15 @@ async def get_feedback_thread(
     )
     author_ids = {root.author_id, *(reply.author_id for reply in replies)}
     briefs = await resolve_briefs(db, author_ids)
+    thread_is_manager, thread_project_role = await _project_action_context(
+        db, root.project_id, user
+    )
     root_out = await _to_out(
         db,
         root,
         user=user,
+        project_role=thread_project_role,
+        is_manager=thread_is_manager,
         can_reply=(root.kind == "issue" and await _quality_anchor_is_current(db, root)),
         briefs=briefs,
     )
@@ -473,6 +495,8 @@ async def get_feedback_thread(
             db,
             reply,
             user=user,
+            project_role=thread_project_role,
+            is_manager=thread_is_manager,
             can_reply=(
                 reply.kind == "issue" and await _quality_anchor_is_current(db, reply)
             ),
@@ -661,10 +685,15 @@ async def create_feedback(
     await db.commit()
     await NotificationService(db).publish_committed(pending_notifications)
     await db.refresh(entry)
+    create_is_manager, create_project_role = await _project_action_context(
+        db, entry.project_id, user
+    )
     return await _to_out(
         db,
         entry,
         user=user,
+        project_role=create_project_role,
+        is_manager=create_is_manager,
         can_reply=(
             entry.kind == "issue" and await _quality_anchor_is_current(db, entry)
         ),
@@ -687,8 +716,10 @@ async def patch_feedback(
     # Reviewers may change an Issue status, but a mixed request is rejected as
     # a whole.  Checking model_fields_set also catches explicit nulls.
     is_author = entry.author_id == user.id
-    is_admin = user.role in _ADMIN_ROLES
-    is_reviewer = user.role == UserRole.REVIEWER
+    is_admin, action_project_role = await _project_action_context(
+        db, entry.project_id, user
+    )
+    is_reviewer = action_project_role == ProjectRole.REVIEWER.value
     fields = payload.model_fields_set
     forbidden_reviewer_fields = fields & {"severity", "title", "body", "mentions"}
     reviewer_status_only = is_reviewer and not (is_author or is_admin)
@@ -792,6 +823,8 @@ async def patch_feedback(
         db,
         updated,
         user=user,
+        project_role=action_project_role,
+        is_manager=is_admin,
         can_reply=(root.kind == "issue" and await _quality_anchor_is_current(db, root)),
     )
 
@@ -809,13 +842,15 @@ async def delete_feedback(
     svc = FeedbackService(db)
     await _assert_feedback_scope(db, entry, user, service=svc)
     is_author = entry.author_id == user.id
-    is_admin = user.role in _ADMIN_ROLES
+    delete_is_manager, delete_project_role = await _project_action_context(
+        db, entry.project_id, user
+    )
     capabilities = discussion_actions(
         "feedback",
         entry.kind,
         is_author=is_author,
-        is_admin=is_admin,
-        is_reviewer=user.role == UserRole.REVIEWER,
+        is_admin=delete_is_manager,
+        is_reviewer=delete_project_role == ProjectRole.REVIEWER.value,
         is_accessible=True,
         can_reply=False,
     )
@@ -920,4 +955,13 @@ async def reply_feedback(
     await db.commit()
     await NotificationService(db).publish_committed(pending_notifications)
     await db.refresh(reply)
-    return await _to_out(db, reply, user=user)
+    reply_is_manager, reply_project_role = await _project_action_context(
+        db, root.project_id, user
+    )
+    return await _to_out(
+        db,
+        reply,
+        user=user,
+        project_role=reply_project_role,
+        is_manager=reply_is_manager,
+    )

@@ -236,6 +236,19 @@ class TaskLockService:
         )
         return result.scalars().first()
 
+    async def active_locks(self, task_id: uuid.UUID) -> list[TaskLock]:
+        """同一 task 的全部未过期锁。
+
+        unique 约束是 ``(task_id, user_id)``, 并不阻止历史/并发残留产生多行
+        (见 ``acquire`` 的清理说明), 因此「是否有他人持锁」必须逐行判断, 不能只看
+        ``active_lock`` 返回的最新一行 (issue #121)。
+        """
+        await self._cleanup_expired(task_id)
+        result = await self.db.execute(
+            select(TaskLock).where(TaskLock.task_id == task_id)
+        )
+        return list(result.scalars().all())
+
     async def _cleanup_expired(self, task_id: uuid.UUID | None = None) -> int:
         # 收窄到单个 task_id：全表 DELETE 会跨任务锁住大量行，与并发 acquire 的
         # INSERT/UPDATE 交错时是死锁主因。按 task 清理后，不同任务的 acquire 互不争用，

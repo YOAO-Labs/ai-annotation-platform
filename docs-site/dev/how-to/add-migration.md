@@ -32,16 +32,46 @@ uv run alembic current             # 查看当前版本
 uv run alembic history             # 查看版本历史
 ```
 
-## CI 校验（已在 ci.yml 中）
+## CI 校验
+
+`scripts/validate_migrations.py` 在一次性数据库上执行真实验证，不使用 `alembic stamp`：
+
+1. `fresh`：新库完整 `upgrade head`（174 步）。
+2. `reversible`：新库先 `upgrade <floor>`（真实 schema，不是 stamp），再真实
+   `downgrade base`（173 步）并重新 `upgrade head`；`<floor>` 是唯一不可逆迁移之下
+   的最新版本，因此不可逆迁移的 `downgrade()` 从不执行。
+3. `forward`：在 `<floor>` 播种真实历史行，做前向数据断言（角色转换、历史行保留、
+   新 server default、不伪造成员关系），并证明不可逆迁移的 `downgrade()` 会拒绝。
+4. `restore`：把转换前的 `pg_dump` 快照恢复到独立数据库，证明恢复路径真实可用。
 
 ```yaml
-- name: alembic round-trip (upgrade-then-downgrade-then-upgrade)
-  run: |
-    uv run alembic downgrade base
-    uv run alembic upgrade head
+# ci.yml（pytest job，Postgres service 已就绪）
+- name: Migration validation (fresh / reversible / forward / restore)
+  working-directory: apps/api
+  env:
+    AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
+    MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
+  run: uv run python ../../scripts/validate_migrations.py
 ```
 
-确保所有迁移可双向。如果 downgrade 实现不全，就在 PR 里写明并标注「无回滚」。
+运行要求：目标是一次性本地库且连接角色可 `CREATE DATABASE`；宿主机有
+`pg_dump`/`pg_restore`，或 Postgres 运行在可被 `docker ps` 发现的容器中（
+容器镜像自带客户端）。脚本只创建/删除 `<库名>__mv_{fresh,reversible,forward,restore}`
+并做归属标记，成功与失败都会清理，绝不改动基础库 schema。
+
+确实无法无损回滚的迁移（如 `0174` 员工角色切换）在迁移文件里声明模块级
+`IRREVERSIBLE = True` 并让 `downgrade()` 抛错。`scripts/alembic_reversible_floor.py`
+只用于**报告**可逆边界：默认打印 floor，`--json` 输出完整策略；它不授权 `stamp`。
+修订图出现多 head、merge、孤儿分支、多个不可逆迁移、基线处不可逆，或在不可逆迁移之上还有
+可逆版本（后缀段验证尚未实现）时，脚本会 fail closed（非零退出），而不是给出一个会漏检的 floor。
+
+本地验证：
+
+```bash
+pnpm dev:worktree -- init --mode test
+pnpm dev:worktree -- exec --mode test -- \
+  bash -lc 'cd apps/api && .venv/bin/python ../../scripts/validate_migrations.py'
+```
 
 ## 同步数据修复
 

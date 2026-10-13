@@ -1,17 +1,17 @@
 """Request / response Pydantic schemas, aligned with docs-site/dev/reference/ml-backend-protocol.md §2.
 
-v0.10.0 起 `Context.type` 在 grounded-sam2 的 point/bbox/polygon/text 基础上新增
+`Context.type` 在 grounded-sam2 的 point/bbox/polygon/text 基础上新增
 `"exemplar"`: 取图中已有一个 bbox 作为视觉示例, 由 SAM 3 PCS 一步出全图相似实例的 masks.
 
 `exemplar` 复用 `bbox` 字段承载 [x1, y1, x2, y2] (归一化 [0,1]), 语义靠 `type` 区分,
 避免协议字段爆炸; apps/api 仅在项目挂了 sam3-backend 时才允许前端发起 exemplar 请求.
 
-⚠️ v0.10.0 sam3-backend 实际只实现 bbox/text/exemplar 三种 (选项 A 放弃 point).
+⚠️ sam3-backend 实际只实现 bbox/text/exemplar 三种 (放弃 point).
 `Literal` 保留 "point" 是为了协议层一致性 (apps/api 同一 schema 跨多个 backend);
 sam3-backend main.py 收到 type=point 时返回 400. /setup.supported_prompts 也明确
 不含 "point", 前端按此动态启用工具.
 
-v0.14.12 · 通用部分 (TaskItem / PredictionResult / BatchPredictResponse) 抽到
+通用部分 (TaskItem / PredictionResult / BatchPredictResponse) 来自
 `apps/_shared/protocol_v2/` 共享包, 单一来源避免与 grounded-sam2-backend / yolo-backend
 之间漂移. 本仓继续维护 sam3 特有的 Context + 请求壳.
 """
@@ -50,7 +50,7 @@ __all__ = [
 
 
 class Exemplar(BaseModel):
-    """v0.18.19 · PCS 多正负框中的单个视觉示例。
+    """PCS 多正负框中的单个视觉示例。
 
     bbox: 归一化 xyxy [x1, y1, x2, y2]; label: True=正框(扩召回) / False=负框(排误检)。
     backend 顺序累加 (add_geometric_prompt), 每请求重发全量 (无状态)。
@@ -75,7 +75,7 @@ class Exemplar(BaseModel):
 
 
 class Context(BaseModel):
-    # v0.18.17 · "interactive_box" = SAM-style 单框单 mask (开 inst 后); "bbox" 退役为纯几何形状,
+    # "interactive_box" = SAM-style 单框单 mask (开 inst 后); "bbox" 为纯几何形状,
     # 不再作交互 prompt (PCS 全图相似统一走 "exemplar"). "point" 升级为 inst 单实例点交互 (累加).
     type: Literal[
         "point",
@@ -96,7 +96,7 @@ class Context(BaseModel):
     )
     # bbox: type=interactive_box 时是单框 prompt; type=exemplar 时是单视觉示例框 (兼容旧单框路径)
     bbox: list[float] | None = None
-    # v0.18.19 · type=exemplar 多正负框累加 (扩召回 / 去误检); 非空时优先于单 bbox.
+    # type=exemplar 多正负框累加 (扩召回 / 去误检); 非空时优先于单 bbox.
     # 可与 text 同时传 (text 概念 + 几何示例组合)。
     exemplars: list[Exemplar] | None = None
     text: str | None = None
@@ -109,14 +109,14 @@ class Context(BaseModel):
         default=None,
         max_length=MAX_LOW_RES_MASK_INPUT_CHARS,
     )
-    # v0.9.4 phase 2 (与 grounded-sam2 协议一致): text 路径输出形态
+    # (与 grounded-sam2 协议一致): text 路径输出形态
     output: Literal["box", "mask", "both"] = "mask"
-    # v0.9.4 phase 3: shapely.simplify 像素级覆盖 (mask/both/exemplar 路径生效)
+    # shapely.simplify 像素级覆盖 (mask/both/exemplar 路径生效)
     simplify_tolerance: float | None = None
-    # v0.10.0 · SAM 3 PCS exemplar / text 路径可选 score 阈值;
+    # SAM 3 PCS exemplar / text 路径可选 score 阈值;
     # 缺省走 backend env SAM3_SCORE_THRESHOLD (默认 0.5). claude[bot] P2 · [0,1] 范围守卫。
     score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
-    # v0.18.17 · point / interactive_box 单点歧义时出 3 候选 (按 iou 降序); 缺省单 mask.
+    # point / interactive_box 单点歧义时出 3 候选 (按 iou 降序); 缺省单 mask.
     multimask_output: bool = False
     output_geometry: Literal["polygon", "mask"] = "polygon"
     prompt_revision: str | None = Field(default=None, max_length=256)
@@ -128,7 +128,7 @@ class Context(BaseModel):
                 "context.prompt_revision required for output_geometry=mask"
             )
         if self.type == "exemplar":
-            # v0.18.19 · 多框 exemplars 优先; 缺省退化单 bbox (旧路径兼容)。两者皆缺则报错。
+            # 多框 exemplars 优先; 缺省退化单 bbox (旧路径兼容)。两者皆缺则报错。
             if not self.exemplars and (self.bbox is None or len(self.bbox) != 4):
                 raise ValueError(
                     "type=exemplar requires non-empty context.exemplars[] "

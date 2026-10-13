@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { authApi, type LoginPayload } from "../api/auth";
 import { tasksApi } from "../api/tasks";
 import {
@@ -10,6 +11,7 @@ import {
   type OfflineQueueScope,
 } from "../pages/Workbench/state/offlineQueue";
 import { isCurrentAuthOwner, useAuthStore } from "../stores/authStore";
+import { clearProactiveLogout, markProactiveLogout } from "../utils/authRedirect";
 
 export function useLogin() {
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -23,6 +25,8 @@ export function useLogin() {
         throw err;
       });
       setAuth(access_token, user);
+      // Issue #123 · 新会话建立,结束主动退出窗口,之后的过期跳转恢复正常 from。
+      clearProactiveLogout();
       return user;
     },
   });
@@ -81,6 +85,7 @@ async function flushLogoutOperation(op: OfflineOp, scope: OfflineQueueScope): Pr
  */
 export function useLogout(): LogoutController {
   const clearLocal = useAuthStore((s) => s.logout);
+  const navigate = useNavigate();
   const [prompt, setPrompt] = useState<LogoutPrompt | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -88,26 +93,38 @@ export function useLogout(): LogoutController {
   const completeLogout = useCallback(
     async (ownerId?: string) => {
       const currentUserId = useAuthStore.getState().user?.id;
-      const requestToken = useAuthStore.getState().token;
       if (ownerId && !isCurrentAuthOwner(ownerId)) return;
+      // Issue #123 · 主动退出不沿用旧会话的登录返回地址:置粘性标记,让 RequireAuth
+      // 的兜底跳转(可能在 navigate 生效前后多次发生)始终不带 state.from,并显式
+      // 回到 /login。标记由登录成功 / 登录页挂载 / 恢复认证时清除;会话过期仍由
+      // RequireAuth 携带 from,保留登录后返回原业务页的能力。
+      // 必须在等待服务端退出前置位:退出请求可能因令牌已过期返回 401,API 客户端
+      // 随即清空本地凭证,之后的令牌校验不再通过;此时仍要完成干净跳转,不能让
+      // RequireAuth 把当前受限页写回 state.from。
+      markProactiveLogout();
       if (currentUserId) await authApi.logout().catch(() => {});
-      if (
-        (ownerId && !isCurrentAuthOwner(ownerId)) ||
-        useAuthStore.getState().token !== requestToken ||
-        (!ownerId && useAuthStore.getState().user?.id !== currentUserId)
-      )
-        return;
+      // 等待期间被其它标签页/会话换成新账号则放弃清理;凭证被本次退出清空
+      // (token 变为 null)时继续完成跳转。
+      const next = useAuthStore.getState();
+      if (ownerId && next.token !== null && !isCurrentAuthOwner(ownerId)) return;
+      if (!ownerId && next.token !== null && next.user?.id !== currentUserId) return;
       clearLocal();
+      navigate("/login", { replace: true });
     },
-    [clearLocal],
+    [clearLocal, navigate],
   );
 
   const requestLogout = useCallback(async () => {
     const ownerId = useAuthStore.getState().user?.id;
     if (!ownerId) {
+      markProactiveLogout();
       clearLocal();
+      navigate("/login", { replace: true });
       return;
     }
+    // Issue #123 · 读取离线队列期间也可能收到 401 清空凭证;提前置位,保证任何
+    // 时序下的兜底跳转都不带 from。取消退出时清除标记。
+    markProactiveLogout();
     setIsLoggingOut(true);
     try {
       const pendingCount = await offlineQueueCount(scopeForUser(ownerId));
@@ -128,7 +145,7 @@ export function useLogout(): LogoutController {
     } finally {
       setIsLoggingOut(false);
     }
-  }, [clearLocal, completeLogout]);
+  }, [clearLocal, completeLogout, navigate]);
 
   const confirmLogout = useCallback(
     async (decision: LogoutDecision) => {
@@ -188,6 +205,8 @@ export function useLogout(): LogoutController {
     if (!isLoggingOut) {
       setPrompt(null);
       setSyncError(null);
+      // 放弃退出:撤销 requestLogout 提前置位的主动退出标记。
+      clearProactiveLogout();
     }
   }, [isLoggingOut]);
 

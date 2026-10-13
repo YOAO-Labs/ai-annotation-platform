@@ -1,0 +1,11 @@
+[Unit]
+Description=Restart development applications daily at 04:00 Shanghai time
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Asia/Shanghai
+Persistent=false
+AccuracySec=1s
+Unit=aap-development-restart.service
+
+[Install]
+WantedBy=timers.target

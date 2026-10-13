@@ -22,7 +22,7 @@ beforeEach(() => {
 describe("management API endpoint contracts", () => {
   it("串联用户分页、统计过滤条件与批量操作", () => {
     usersApi.page({
-      role: "annotator",
+      role: "employee",
       project_id: "p1",
       group_id: "g1",
       status: "active",
@@ -31,15 +31,15 @@ describe("management API endpoint contracts", () => {
       page_size: 25,
     });
     expect(get).toHaveBeenCalledWith(
-      "/users/query?role=annotator&project_id=p1&group_id=g1&status=active&search=alice%40example.com&page=2&page_size=25",
+      "/users/query?role=employee&project_id=p1&group_id=g1&status=active&search=alice%40example.com&page=2&page_size=25",
     );
 
     usersApi.stats({ status: "inactive", search: "bob" });
     expect(get).toHaveBeenCalledWith("/users/stats?status=inactive&search=bob");
 
-    usersApi.bulkInvite([{ email: "alice@example.com", role: "annotator" }]);
+    usersApi.bulkInvite([{ email: "alice@example.com", role: "employee" }]);
     expect(post).toHaveBeenCalledWith("/users/bulk-invite", {
-      items: [{ email: "alice@example.com", role: "annotator" }],
+      items: [{ email: "alice@example.com", role: "employee" }],
     });
 
     usersApi.previewBulkGroup({ user_ids: ["u1"], group_id: "g1" });

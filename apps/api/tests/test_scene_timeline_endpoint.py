@@ -8,7 +8,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from tests.factory import create_batch, create_project, create_user
+from tests.factory import create_membership, create_batch, create_project, create_user
 
 
 def _box3d():
@@ -199,6 +199,13 @@ async def test_scene_timeline_hides_cross_batch_task_details(
     anno, token = annotator
     project, _, _, tasks = await _seed_scene(
         db_session, owner_id=admin.id, frame_indexes=[0, 1, 2]
+    )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=anno.id,
+        role="annotator",
+        assigned_by=admin.id,
     )
     other_anno = await create_user(
         db_session, "annotator", f"other-{uuid.uuid4().hex[:6]}@test.local", "Other"

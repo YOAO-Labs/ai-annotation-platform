@@ -8,6 +8,7 @@ from app.api.v1 import (
     api_keys,
     async_jobs,
     auth,
+    avatars,
     internal,
     audit_logs,
     annotation_comments,
@@ -33,6 +34,7 @@ from app.api.v1 import (
     notifications,
     predictions,
     projects,
+    project_performance,
     project_pipelines,
     project_templates,
     task_views,
@@ -55,6 +57,8 @@ api_router.include_router(
 )
 api_router.include_router(me.router, prefix="/auth/me", tags=["me"])
 api_router.include_router(api_keys.router, prefix="/me/api-keys", tags=["api-keys"])
+# 头像图片读取。免鉴权(浏览器 <img> 不带 Authorization 头),详见 avatars.py 模块注释。
+api_router.include_router(avatars.router, prefix="/avatars", tags=["avatars"])
 api_router.include_router(
     admin_ml_integrations.router,
     prefix="/admin/ml-integrations",
@@ -73,6 +77,7 @@ api_router.include_router(
     tags=["admin-alias-freq"],
 )
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
+api_router.include_router(project_performance.router, tags=["project-performance"])
 api_router.include_router(task_views.router, tags=["task-views"])
 api_router.include_router(data_manager.router, tags=["data-manager"])
 # v0.10.13 · E1 · 项目标注指引图片资源端点 (与 datasets items upload 独立, 不污染 dataset_items 表)

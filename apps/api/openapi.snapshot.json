@@ -423,6 +423,17 @@
             "title": "Alerts",
             "type": "array"
           },
+          "avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Ref"
+          },
           "email": {
             "title": "Email",
             "type": "string"
@@ -4603,6 +4614,25 @@
         "title": "AuditSummaryTotals",
         "type": "object"
       },
+      "AvatarRefUpdate": {
+        "additionalProperties": false,
+        "description": "头像引用写入契约（``PATCH /auth/me/avatar``）。\n\n``avatar_ref`` 只接受 ``preset:<slug>`` 或 null（= 恢复首字母）；``upload:`` 由上传\n端点独占写入，客户端提交会被拒。省略字段等价于清空。",
+        "properties": {
+          "avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Ref"
+          }
+        },
+        "title": "AvatarRefUpdate",
+        "type": "object"
+      },
       "BackendCapabilities": {
         "description": "v0.10.37 · backend `/setup` 能力快照 (epic 阶段 1).\n\n由 services/ml_backend.check_health 探 `/setup` 后落进 health_meta[\"capabilities\"];\n`modalities` 为派生视图 (image / video / lidar), 见 services/ml_capabilities.derive_modalities.\n\nv0.14.9 · 能力声明协议 v2: 新增 `infra` (backend 默认基础设施) + `models` (多模型目录);\n其余顶层字段为各 model 的「扁平并集」, 供未迁移消费方继续读 (向后兼容)。",
         "properties": {
@@ -5572,6 +5602,41 @@
         "title": "BatchSplitRequest",
         "type": "object"
       },
+      "BatchSubmitResult": {
+        "description": "整批送审结果：把批次内所有未送审任务（pending / in_progress）提交质检。",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "remaining_tasks": {
+            "default": 0,
+            "title": "Remaining Tasks",
+            "type": "integer"
+          },
+          "skipped_tasks": {
+            "default": 0,
+            "title": "Skipped Tasks",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_tasks": {
+            "default": 0,
+            "title": "Submitted Tasks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batch_id",
+          "status"
+        ],
+        "title": "BatchSubmitResult",
+        "type": "object"
+      },
       "BatchTransition": {
         "properties": {
           "reason": {
@@ -5864,6 +5929,20 @@
           "frame_index"
         ],
         "title": "Body_predict_frame_api_v1_projects__project_id__ml_backends__backend_id__predict_frame_post",
+        "type": "object"
+      },
+      "Body_upload_avatar_api_v1_auth_me_avatar_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_avatar_api_v1_auth_me_avatar_post",
         "type": "object"
       },
       "Body_upload_zip_api_v1_datasets__dataset_id__items_upload_zip_post": {
@@ -7272,6 +7351,18 @@
               }
             ],
             "title": "Project Id"
+          },
+          "project_member_role": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Member Role"
           },
           "role": {
             "maxLength": 100,
@@ -9984,6 +10075,427 @@
         "title": "DataManagerSummaryResponse",
         "type": "object"
       },
+      "DataManagerTaskAssignmentApplyRequest": {
+        "properties": {
+          "annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotator Id"
+          },
+          "preview_version": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Preview Version",
+            "type": "string"
+          },
+          "reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Id"
+          },
+          "task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Task Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "task_ids",
+          "preview_version"
+        ],
+        "title": "DataManagerTaskAssignmentApplyRequest",
+        "type": "object"
+      },
+      "DataManagerTaskAssignmentItem": {
+        "properties": {
+          "after_annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Annotator Id"
+          },
+          "after_reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Reviewer Id"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "before_annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Annotator Id"
+          },
+          "before_reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Reviewer Id"
+          },
+          "effective_after_annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective After Annotator Id"
+          },
+          "effective_after_reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective After Reviewer Id"
+          },
+          "effective_before_annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Before Annotator Id"
+          },
+          "effective_before_reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Before Reviewer Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "task_display_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Display Id"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Updated At"
+          },
+          "will_change": {
+            "default": false,
+            "title": "Will Change",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "title": "DataManagerTaskAssignmentItem",
+        "type": "object"
+      },
+      "DataManagerTaskAssignmentRequest": {
+        "properties": {
+          "annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotator Id"
+          },
+          "reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Id"
+          },
+          "task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Task Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "task_ids"
+        ],
+        "title": "DataManagerTaskAssignmentRequest",
+        "type": "object"
+      },
+      "DataManagerTaskAssignmentResponse": {
+        "properties": {
+          "eligible_count": {
+            "default": 0,
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "failed_count": {
+            "default": 0,
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DataManagerTaskAssignmentItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "preview_version": {
+            "title": "Preview Version",
+            "type": "string"
+          },
+          "skipped_count": {
+            "default": 0,
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "succeeded": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Succeeded",
+            "type": "array"
+          },
+          "task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Task Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "task_ids",
+          "preview_version"
+        ],
+        "title": "DataManagerTaskAssignmentResponse",
+        "type": "object"
+      },
+      "DataManagerTaskExportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "axis_frame": {
+            "default": "iso",
+            "enum": [
+              "iso",
+              "source"
+            ],
+            "title": "Axis Frame",
+            "type": "string"
+          },
+          "include_attributes": {
+            "default": true,
+            "title": "Include Attributes",
+            "type": "boolean"
+          },
+          "indexed_overlap_policy": {
+            "default": "error",
+            "enum": [
+              "error",
+              "z_order",
+              "larger_area",
+              "smaller_area"
+            ],
+            "title": "Indexed Overlap Policy",
+            "type": "string"
+          },
+          "lidar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LidarExportOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mots_frame_base": {
+            "default": 0,
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Mots Frame Base",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoExportScopeRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Targets",
+            "type": "array"
+          },
+          "task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Task Ids",
+            "type": "array"
+          },
+          "video_frame_mode": {
+            "default": "keyframes",
+            "enum": [
+              "keyframes",
+              "all_frames"
+            ],
+            "title": "Video Frame Mode",
+            "type": "string"
+          },
+          "video_overlap_policy": {
+            "default": "error",
+            "enum": [
+              "error",
+              "z_order",
+              "larger_area",
+              "smaller_area"
+            ],
+            "title": "Video Overlap Policy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_ids",
+          "targets"
+        ],
+        "title": "DataManagerTaskExportRequest",
+        "type": "object"
+      },
       "DataManagerTaskOut": {
         "properties": {
           "annotation_count": {
@@ -10064,6 +10576,11 @@
             "title": "Camera Count",
             "type": "integer"
           },
+          "comment_count": {
+            "default": 0,
+            "title": "Comment Count",
+            "type": "integer"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -10072,6 +10589,26 @@
           "display_id": {
             "title": "Display Id",
             "type": "string"
+          },
+          "effective_assignee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effective_reviewer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "file_name": {
             "title": "File Name",
@@ -10396,6 +10933,11 @@
           "unresolved_feedback_count": {
             "default": 0,
             "title": "Unresolved Feedback Count",
+            "type": "integer"
+          },
+          "unresolved_issue_count": {
+            "default": 0,
+            "title": "Unresolved Issue Count",
             "type": "integer"
           },
           "updated_at": {
@@ -14869,6 +15411,17 @@
             ],
             "title": "Project Id"
           },
+          "project_member_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Member Role"
+          },
           "role": {
             "title": "Role",
             "type": "string"
@@ -19287,6 +19840,47 @@
         "title": "Mention",
         "type": "object"
       },
+      "MentionCandidateOut": {
+        "description": "讨论区 @ 提及候选：项目成员 + 项目负责人 + 启用的平台超管。\n\n后端提及校验本就放行 owner / project_admin / super_admin，这里只补齐可发现性。",
+        "properties": {
+          "kind": {
+            "default": "member",
+            "enum": [
+              "member",
+              "owner",
+              "super_admin"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "user_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Email"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "user_name": {
+            "title": "User Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "user_name"
+        ],
+        "title": "MentionCandidateOut",
+        "type": "object"
+      },
       "ModelCapability": {
         "additionalProperties": true,
         "description": "v0.14.9 · 能力声明协议 v2 — 单个 model 条目 (一个 backend 暴露 N 个).\n\n由 services/ml_capabilities._normalize_model 规范化后存入\nBackendCapabilities.models; `task` 是条目边界 (决定输出几何与项目兼容性),\n`infra` 缺省继承 backend 默认, `modality` 为派生视图。",
@@ -20231,6 +20825,11 @@
             "title": "In App",
             "type": "boolean"
           },
+          "toast": {
+            "default": false,
+            "title": "Toast",
+            "type": "boolean"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -20245,8 +20844,26 @@
       "NotificationPreferenceUpdate": {
         "properties": {
           "in_app": {
-            "title": "In App",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In App"
+          },
+          "toast": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Toast"
           },
           "type": {
             "title": "Type",
@@ -20254,8 +20871,7 @@
           }
         },
         "required": [
-          "type",
-          "in_app"
+          "type"
         ],
         "title": "NotificationPreferenceUpdate",
         "type": "object"
@@ -21118,6 +21734,719 @@
         "title": "PasswordChange",
         "type": "object"
       },
+      "PerformanceBreakdown": {
+        "properties": {
+          "class_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          },
+          "reason_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Type"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "PerformanceBreakdown",
+        "type": "object"
+      },
+      "PerformanceCoverage": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "complete",
+              "partial",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "source"
+        ],
+        "title": "PerformanceCoverage",
+        "type": "object"
+      },
+      "PerformanceEventsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceEvidenceItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PerformanceScope"
+          }
+        },
+        "required": [
+          "scope",
+          "items"
+        ],
+        "title": "PerformanceEventsResponse",
+        "type": "object"
+      },
+      "PerformanceEvidenceItem": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "contributor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contributor Name"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "task_display_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Display Id"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "action"
+        ],
+        "title": "PerformanceEvidenceItem",
+        "type": "object"
+      },
+      "PerformanceGeometryBreakdown": {
+        "properties": {
+          "annotation_type": {
+            "title": "Annotation Type",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          }
+        },
+        "required": [
+          "annotation_type",
+          "count"
+        ],
+        "title": "PerformanceGeometryBreakdown",
+        "type": "object"
+      },
+      "PerformanceMember": {
+        "properties": {
+          "account_status": {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "title": "Account Status",
+            "type": "string"
+          },
+          "avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Ref"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "is_current_member": {
+            "title": "Is Current Member",
+            "type": "boolean"
+          },
+          "is_owner": {
+            "title": "Is Owner",
+            "type": "boolean"
+          },
+          "member_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Since"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/PerformanceMemberMetrics"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Role"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "email",
+          "project_role",
+          "account_status",
+          "is_owner",
+          "is_current_member",
+          "member_since",
+          "metrics"
+        ],
+        "title": "PerformanceMember",
+        "type": "object"
+      },
+      "PerformanceMemberDetailResponse": {
+        "properties": {
+          "class_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceBreakdown"
+            },
+            "title": "Class Distribution",
+            "type": "array"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/PerformanceCoverage"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceEvidenceItem"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "evidence_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Next Cursor"
+          },
+          "geometry_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceGeometryBreakdown"
+            },
+            "title": "Geometry Distribution",
+            "type": "array"
+          },
+          "member": {
+            "$ref": "#/components/schemas/PerformanceMember"
+          },
+          "reject_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceBreakdown"
+            },
+            "title": "Reject Reasons",
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PerformanceScope"
+          },
+          "source_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceSourceBreakdown"
+            },
+            "title": "Source Distribution",
+            "type": "array"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceTrendPoint"
+            },
+            "title": "Trend",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "coverage",
+          "member",
+          "trend",
+          "reject_reasons",
+          "class_distribution",
+          "source_distribution",
+          "geometry_distribution",
+          "evidence"
+        ],
+        "title": "PerformanceMemberDetailResponse",
+        "type": "object"
+      },
+      "PerformanceMemberMetrics": {
+        "properties": {
+          "annotated_images": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "approvals": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "approved_task_outcomes": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "contributed_tasks": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "current_backlog": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "first_review_pass_rate": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "recorded_review_minutes": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "recorded_time_minutes": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "rejections": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "resubmissions": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "retained_objects": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "review_backlog": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "review_decisions": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "reviewed_tasks": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "submitted_tasks": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          }
+        },
+        "required": [
+          "submitted_tasks",
+          "resubmissions",
+          "contributed_tasks",
+          "annotated_images",
+          "retained_objects",
+          "approved_task_outcomes",
+          "first_review_pass_rate",
+          "recorded_time_minutes",
+          "current_backlog",
+          "review_decisions",
+          "approvals",
+          "rejections",
+          "reviewed_tasks",
+          "recorded_review_minutes",
+          "review_backlog"
+        ],
+        "title": "PerformanceMemberMetrics",
+        "type": "object"
+      },
+      "PerformanceMembersResponse": {
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/PerformanceCoverage"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceMember"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "project_totals": {
+            "$ref": "#/components/schemas/PerformanceTotals"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PerformanceScope"
+          }
+        },
+        "required": [
+          "scope",
+          "coverage",
+          "project_totals",
+          "items"
+        ],
+        "title": "PerformanceMembersResponse",
+        "type": "object"
+      },
+      "PerformanceMetric": {
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "unit": {
+            "enum": [
+              "tasks",
+              "objects",
+              "images",
+              "decisions",
+              "minutes",
+              "percent"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit"
+        ],
+        "title": "PerformanceMetric",
+        "type": "object"
+      },
+      "PerformanceScope": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "title": "From",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "to": {
+            "format": "date-time",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "timezone",
+          "as_of"
+        ],
+        "title": "PerformanceScope",
+        "type": "object"
+      },
+      "PerformanceSourceBreakdown": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "count"
+        ],
+        "title": "PerformanceSourceBreakdown",
+        "type": "object"
+      },
+      "PerformanceTotals": {
+        "properties": {
+          "annotated_images": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "approvals": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "approved_task_outcomes": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "current_backlog": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "first_review_pass_rate": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "recorded_time_minutes": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "rejections": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "retained_objects": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "review_backlog": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "review_decisions": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "submitted_tasks": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          }
+        },
+        "required": [
+          "submitted_tasks",
+          "approved_task_outcomes",
+          "first_review_pass_rate",
+          "recorded_time_minutes",
+          "current_backlog",
+          "review_decisions",
+          "approvals",
+          "rejections",
+          "review_backlog",
+          "annotated_images",
+          "retained_objects"
+        ],
+        "title": "PerformanceTotals",
+        "type": "object"
+      },
+      "PerformanceTrendPoint": {
+        "properties": {
+          "approved_task_outcomes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved Task Outcomes"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "review_decisions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Decisions"
+          },
+          "submitted_tasks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted Tasks"
+          }
+        },
+        "required": [
+          "date",
+          "submitted_tasks",
+          "approved_task_outcomes",
+          "review_decisions"
+        ],
+        "title": "PerformanceTrendPoint",
+        "type": "object"
+      },
       "PipelineStage": {
         "additionalProperties": false,
         "description": "v0.18.1 · 多阶段预标注的单个阶段声明 (路径 B).\n\nstage 0 (parent_stage=None) 是源检测阶段, 吃整图产框; 下游阶段 (parent_stage 指向源阶段)\n平台按父框 bbox 裁 ROI crop 喂入, 把返回的 attributes 合并进父框 (write.target=attributes)。\nv0.18.2 (M2): 支持单层并行扇出 (多个下游共享同一 parent_stage)、按类别路由\n(parent_class_filter)、阶段级失败策略 (on_failure)。深度≥3 / new_shape 留 M3。",
@@ -21293,6 +22622,17 @@
         ],
         "title": "PipelineStage",
         "type": "object"
+      },
+      "PlatformRole": {
+        "description": "Account-level role.  The database/account field stays named ``role``.",
+        "enum": [
+          "super_admin",
+          "project_admin",
+          "employee",
+          "viewer"
+        ],
+        "title": "PlatformRole",
+        "type": "string"
       },
       "PointCloudCameraOut": {
         "properties": {
@@ -23144,6 +24484,15 @@
             ],
             "title": "Class Filter"
           },
+          "execution_scope": {
+            "default": "bulk",
+            "enum": [
+              "bulk",
+              "workbench"
+            ],
+            "title": "Execution Scope",
+            "type": "string"
+          },
           "ml_backend_id": {
             "anyOf": [
               {
@@ -23254,6 +24603,8 @@
                   "format": "uuid",
                   "type": "string"
                 },
+                "maxItems": 200,
+                "minItems": 1,
                 "type": "array"
               },
               {
@@ -23806,6 +25157,86 @@
         "title": "ProfileUpdate",
         "type": "object"
       },
+      "ProjectAccessOut": {
+        "description": "Resolved project access for the current account (``GET .../access``).",
+        "properties": {
+          "access_kind": {
+            "enum": [
+              "super_admin",
+              "owner",
+              "member"
+            ],
+            "title": "Access Kind",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectCapability"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "is_manager": {
+            "default": false,
+            "title": "Is Manager",
+            "type": "boolean"
+          },
+          "membership_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Membership Id"
+          },
+          "membership_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Membership Version"
+          },
+          "platform_role": {
+            "$ref": "#/components/schemas/PlatformRole"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "user_id",
+          "platform_role",
+          "access_kind"
+        ],
+        "title": "ProjectAccessOut",
+        "type": "object"
+      },
       "ProjectBatchSummary": {
         "properties": {
           "assigned": {
@@ -23826,6 +25257,22 @@
         },
         "title": "ProjectBatchSummary",
         "type": "object"
+      },
+      "ProjectCapability": {
+        "description": "Fixed capability set for a project request context.",
+        "enum": [
+          "project.read",
+          "project.manage",
+          "member.read",
+          "member.manage",
+          "task.read",
+          "annotation.write",
+          "review.write",
+          "export.annotations",
+          "performance.read"
+        ],
+        "title": "ProjectCapability",
+        "type": "string"
       },
       "ProjectClassUsageOut": {
         "properties": {
@@ -24341,14 +25788,39 @@
             "title": "Assigned At",
             "type": "string"
           },
+          "avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Ref"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
+          "platform_role": {
+            "$ref": "#/components/schemas/PlatformRole"
+          },
           "role": {
-            "title": "Role",
-            "type": "string"
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
           },
           "user_email": {
             "title": "User Email",
@@ -24362,6 +25834,11 @@
           "user_name": {
             "title": "User Name",
             "type": "string"
+          },
+          "version": {
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -24370,9 +25847,177 @@
           "user_name",
           "user_email",
           "role",
+          "platform_role",
           "assigned_at"
         ],
         "title": "ProjectMemberOut",
+        "type": "object"
+      },
+      "ProjectMemberRoleChangeRequest": {
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "preview_token": {
+            "minLength": 1,
+            "title": "Preview Token",
+            "type": "string"
+          },
+          "project_role": {
+            "enum": [
+              "annotator",
+              "reviewer",
+              "viewer"
+            ],
+            "title": "Project Role",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "replacement_annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Annotator Id"
+          },
+          "replacement_reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Reviewer Id"
+          }
+        },
+        "required": [
+          "project_role",
+          "expected_version",
+          "preview_token",
+          "reason"
+        ],
+        "title": "ProjectMemberRoleChangeRequest",
+        "type": "object"
+      },
+      "ProjectMemberRolePreviewOut": {
+        "properties": {
+          "blocker_details": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Blocker Details",
+            "type": "array"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "current_role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "current_version": {
+            "title": "Current Version",
+            "type": "integer"
+          },
+          "member_id": {
+            "format": "uuid",
+            "title": "Member Id",
+            "type": "string"
+          },
+          "preview_token": {
+            "title": "Preview Token",
+            "type": "string"
+          },
+          "requires_handoff": {
+            "default": false,
+            "title": "Requires Handoff",
+            "type": "boolean"
+          },
+          "resource_snapshot": {
+            "additionalProperties": true,
+            "title": "Resource Snapshot",
+            "type": "object"
+          },
+          "target_role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id",
+          "user_id",
+          "current_role",
+          "current_version",
+          "target_role",
+          "preview_token"
+        ],
+        "title": "ProjectMemberRolePreviewOut",
+        "type": "object"
+      },
+      "ProjectMemberRolePreviewRequest": {
+        "description": "Input for the read-only role-change preview (no writes).",
+        "properties": {
+          "project_role": {
+            "enum": [
+              "annotator",
+              "reviewer",
+              "viewer"
+            ],
+            "title": "Project Role",
+            "type": "string"
+          },
+          "replacement_annotator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Annotator Id"
+          },
+          "replacement_reviewer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Reviewer Id"
+          }
+        },
+        "required": [
+          "project_role"
+        ],
+        "title": "ProjectMemberRolePreviewRequest",
         "type": "object"
       },
       "ProjectOut": {
@@ -24551,6 +26196,16 @@
             ],
             "title": "Model Version"
           },
+          "my_project_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -24566,6 +26221,17 @@
               }
             ],
             "title": "Organization Id"
+          },
+          "owner_avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Avatar Ref"
           },
           "owner_id": {
             "format": "uuid",
@@ -24709,6 +26375,42 @@
           "updated_at"
         ],
         "title": "ProjectOut",
+        "type": "object"
+      },
+      "ProjectPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "pages": {
+            "title": "Pages",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages"
+        ],
+        "title": "ProjectPage",
         "type": "object"
       },
       "ProjectPipelineApplyRequest": {
@@ -25180,6 +26882,16 @@
         },
         "title": "ProjectRenderingConfig",
         "type": "object"
+      },
+      "ProjectRole": {
+        "description": "Per-project responsibility stored on ``project_members.role``.",
+        "enum": [
+          "annotator",
+          "reviewer",
+          "viewer"
+        ],
+        "title": "ProjectRole",
+        "type": "string"
       },
       "ProjectStats": {
         "properties": {
@@ -30077,6 +31789,36 @@
         "title": "ServicePoolPatchRequest",
         "type": "object"
       },
+      "ShortcutBinding": {
+        "additionalProperties": false,
+        "description": "v0.24 · 单条结构化快捷键绑定。\n\n``key`` 是规范化的 ``KeyboardEvent.key``：单个字符（任意字符，如 ``/``）或\n小写命名键（如 ``arrowright``）。``modifiers`` 是显式修饰键集合，匹配时要求\n完全一致（``mod`` = 平台主修饰键，Ctrl/⌘）。",
+        "properties": {
+          "key": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^(?:.{1}|[a-z][a-z0-9]{0,31})$",
+            "title": "Key",
+            "type": "string"
+          },
+          "modifiers": {
+            "items": {
+              "enum": [
+                "mod",
+                "alt",
+                "shift"
+              ],
+              "type": "string"
+            },
+            "title": "Modifiers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "ShortcutBinding",
+        "type": "object"
+      },
       "SkipTaskRequest": {
         "properties": {
           "note": {
@@ -31325,6 +33067,13 @@
             "title": "Accepted",
             "type": "integer"
           },
+          "discarded": {
+            "items": {
+              "$ref": "#/components/schemas/TaskEventDiscarded"
+            },
+            "title": "Discarded",
+            "type": "array"
+          },
           "queued_async": {
             "title": "Queued Async",
             "type": "boolean"
@@ -31337,11 +33086,46 @@
         "title": "TaskEventBatchOut",
         "type": "object"
       },
+      "TaskEventDiscarded": {
+        "description": "One permanently invalid event from an otherwise usable batch.",
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "index": {
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "reason"
+        ],
+        "title": "TaskEventDiscarded",
+        "type": "object"
+      },
       "TaskEventIn": {
-        "description": "单条事件 payload。client_id 可选；若未传，后端用 uuid4 生成。",
+        "description": "A closed, client-deduplicated Workbench interval.\n\n``project_id`` stays in the wire contract for old clients, but the API and\nworker always derive the stored project from ``task_id``.",
         "properties": {
           "annotation_count": {
             "default": 0,
+            "maximum": 1000000.0,
             "minimum": 0.0,
             "title": "Annotation Count",
             "type": "integer"
@@ -31357,6 +33141,27 @@
               }
             ],
             "title": "Client Id"
+          },
+          "collection_coverage": {
+            "default": "qualified",
+            "enum": [
+              "qualified",
+              "partial"
+            ],
+            "title": "Collection Coverage",
+            "type": "string"
+          },
+          "collector_version": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collector Version"
           },
           "duration_ms": {
             "maximum": 14400000.0,
@@ -32989,8 +34794,13 @@
       },
       "UIPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.25 · 全局 UI 偏好（工作台之外）。当前仅主题；跟随账号跨设备。\n\n主题原先只存 localStorage（仅本机），升级到服务端偏好后换设备登录即保持。\n'system' = 跟随操作系统 prefers-color-scheme。",
+        "description": "v0.15.25 · 全局 UI 偏好（工作台之外）；跟随账号跨设备。\n\n主题原先只存 localStorage（仅本机），升级到服务端偏好后换设备登录即保持。\n'system' = 跟随操作系统 prefers-color-scheme。",
         "properties": {
+          "changelog_seen_version": {
+            "default": "",
+            "title": "Changelog Seen Version",
+            "type": "string"
+          },
           "secondary_bar_hidden": {
             "default": false,
             "title": "Secondary Bar Hidden",
@@ -33078,6 +34888,17 @@
             "title": "Avatar Initial",
             "type": "string"
           },
+          "avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Ref"
+          },
           "email": {
             "title": "Email",
             "type": "string"
@@ -33114,6 +34935,17 @@
       },
       "UserOut": {
         "properties": {
+          "avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Ref"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -33308,7 +35140,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/UserOut"
+              "$ref": "#/components/schemas/UserPageItem"
             },
             "title": "Items",
             "type": "array"
@@ -33338,6 +35170,220 @@
           "pages"
         ],
         "title": "UserPage",
+        "type": "object"
+      },
+      "UserPageItem": {
+        "description": "User row plus request-relative capability flags.\n\n``is_managed`` tells the frontend whether the current actor may run\naccount-management actions on the row (role change, password reset,\ngroup assignment).  Read visibility can be wider than the manage scope\n(project admins see enabled annotators/reviewers incl. unassigned ones,\nand read-only super admins), so visible rows are not necessarily\nmanageable.\n\n``is_lifecycle_managed`` further gates the work-handover writes\n(offboarding, deactivate, delete, reactivate): project admins may only\nhand over users whose derived projects (memberships, batches, tasks,\nlocks, owned projects) all sit inside projects they own.  A foreign\nenabled annotator therefore lists ``is_managed=true`` but\n``is_lifecycle_managed=false``; lifecycle buttons must be hidden so\nthey cannot surface actions the API rejects with 403.",
+        "properties": {
+          "avatar_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Ref"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deactivation_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deactivation Requested At"
+          },
+          "deactivation_scheduled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deactivation Scheduled At"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "disabled_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled By"
+          },
+          "disabled_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled Kind"
+          },
+          "disabled_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled Reason"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "email_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Verified At"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_lifecycle_managed": {
+            "default": true,
+            "title": "Is Lifecycle Managed",
+            "type": "boolean"
+          },
+          "is_managed": {
+            "default": true,
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "password_admin_reset_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password Admin Reset At"
+          },
+          "preferences": {
+            "additionalProperties": true,
+            "title": "Preferences",
+            "type": "object"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "role",
+          "group_name",
+          "status",
+          "created_at"
+        ],
+        "title": "UserPageItem",
         "type": "object"
       },
       "UserPreferencesRead": {
@@ -38093,6 +40139,7 @@
       },
       "WorkbenchPreferencesRead": {
         "additionalProperties": false,
+        "description": "Read shape with opaque fallbacks for rolling upgrades.\n\n``workspace`` keeps stored layout envelopes verbatim; ``shortcuts`` tolerates\ncorrupt or newer shortcut subtrees so one bad bucket cannot fail the whole\npreference GET. The route strips and re-inserts both around validation.",
         "properties": {
           "common": {
             "$ref": "#/components/schemas/WorkbenchCommonPreferences"
@@ -38106,11 +40153,91 @@
           "pointcloud": {
             "$ref": "#/components/schemas/WorkbenchPointcloudPreferences"
           },
+          "shortcuts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkbenchShortcutPreferences"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shortcuts"
+          },
           "video": {
             "$ref": "#/components/schemas/WorkbenchVideoPreferences"
           }
         },
         "title": "WorkbenchPreferencesRead",
+        "type": "object"
+      },
+      "WorkbenchShortcutPreferences": {
+        "additionalProperties": false,
+        "description": "v0.24 · 账号级快捷键覆盖。\n\n每个桶（common / image / video）将命令 ID 映射到该命令的完整组合列表：\n缺失或 ``null`` = 用默认组合；空列表 = 停用；非空列表（≤2 条，一主一备）=\n整体替换默认组合。PATCH 只提交变更的命令条目（深合并按命令生效）。",
+        "properties": {
+          "common": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/ShortcutBinding"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Common",
+            "type": "object"
+          },
+          "image": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/ShortcutBinding"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Image",
+            "type": "object"
+          },
+          "schemaVersion": {
+            "const": 1,
+            "default": 1,
+            "title": "Schemaversion",
+            "type": "integer"
+          },
+          "video": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/ShortcutBinding"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Video",
+            "type": "object"
+          }
+        },
+        "title": "WorkbenchShortcutPreferences",
         "type": "object"
       },
       "WorkbenchVideoPreferences": {
@@ -38841,7 +40968,7 @@
   },
   "info": {
     "title": "AI 标注平台 API",
-    "version": "0.25.3"
+    "version": "0.26.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -42406,6 +44533,123 @@
         ]
       }
     },
+    "/api/v1/auth/me/avatar": {
+      "delete": {
+        "description": "恢复默认头像（= 回退首字母圆片）。",
+        "operationId": "clear_avatar_api_v1_auth_me_avatar_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clear Avatar",
+        "tags": [
+          "me"
+        ]
+      },
+      "patch": {
+        "description": "选择内置头像（``preset:<slug>``）或清除头像（``avatar_ref: null``）。\n\n``upload:`` 前缀一律拒绝,否则用户可以把别人的 token 挂到自己名下。",
+        "operationId": "set_avatar_ref_api_v1_auth_me_avatar_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarRefUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Avatar Ref",
+        "tags": [
+          "me"
+        ]
+      },
+      "post": {
+        "description": "上传自定义头像。\n\n服务端是唯一可信方:客户端声明的 MIME 只作早退,真实格式 / 像素规模由 Pillow 判定,\n产物统一为 256×256 方形 WebP 后写入 ``avatars`` 桶。请求体另有中间件级上限\n(``middleware/upload_body_limits``),此处再按文件字节复核一次。",
+        "operationId": "upload_avatar_api_v1_auth_me_avatar_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_avatar_api_v1_auth_me_avatar_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Avatar",
+        "tags": [
+          "me"
+        ]
+      }
+    },
     "/api/v1/auth/me/deactivation-request": {
       "delete": {
         "description": "v0.8.1 · 冷静期内撤销自助注销申请。",
@@ -42616,7 +44860,7 @@
     },
     "/api/v1/auth/me/task-events:batch": {
       "post": {
-        "description": "v0.8.4 · 工作台 useSessionStats 每 N 条 flush 此端点。\nuser_id 强制设为当前登录用户（即使前端误传也覆盖）。",
+        "description": "Accept only closed intervals for tasks the current account can access.\n\nThe task relation is authoritative for project attribution.  The validated\nrows are also rechecked by the worker after an async handoff.",
         "operationId": "submit_task_events_api_v1_auth_me_task_events_batch_post",
         "requestBody": {
           "content": {
@@ -42905,6 +45149,52 @@
         "summary": "Verify Email",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/avatars/{token}": {
+      "get": {
+        "operationId": "get_avatar_api_v1_avatars__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "头像 WebP 字节。"
+          },
+          "304": {
+            "description": "`If-None-Match` 命中，客户端缓存仍然新鲜。"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Avatar",
+        "tags": [
+          "avatars"
         ]
       }
     },
@@ -47564,7 +49854,7 @@
     },
     "/api/v1/notification-preferences": {
       "get": {
-        "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。",
+        "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 是 v0.15 计划新增的有效弹出选择：显式存储值优先，未存储时按类型的\n默认重要程度（services/notification_preferences.py）。",
         "operationId": "get_preferences_api_v1_notification_preferences_get",
         "responses": {
           "200": {
@@ -47589,7 +49879,7 @@
         ]
       },
       "put": {
-        "description": "v0.7.0：upsert 单条偏好。channels.email 字段保留但 v0.7.0 不消费。",
+        "description": "Upsert 单条偏好；v0.7.0 起 in_app/toast 至少提供一个。\n\n只合并请求中出现的键（JSONB ``channels || patch``），保留未提供的\nin_app/toast/email 及其它字段；并发标签页写不同键互不覆盖。\nchannels.email 字段保留但当前不消费。提交成功后发布\n``notifications.sync reason=preferences``，让其它会话刷新偏好而不产生通知。",
         "operationId": "update_preference_api_v1_notification_preferences_put",
         "requestBody": {
           "content": {
@@ -48676,6 +50966,22 @@
           },
           {
             "in": "query",
+            "name": "project_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Role"
+            }
+          },
+          {
+            "in": "query",
             "name": "created_from",
             "required": false,
             "schema": {
@@ -48783,6 +51089,202 @@
           }
         ],
         "summary": "Create Project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/query": {
+      "get": {
+        "operationId": "query_projects_api_v1_projects_query_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "data_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Data Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "member_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Member Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Role"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Query Projects",
         "tags": [
           "projects"
         ]
@@ -48952,6 +51454,55 @@
           }
         ],
         "summary": "Update Project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/access": {
+      "get": {
+        "description": "Resolved project access for the current account.\n\nManagers may have null membership fields; ordinary members expose their\nmembership identity/version and fixed capability set.",
+        "operationId": "get_project_access_api_v1_projects__project_id__access_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectAccessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Project Access",
         "tags": [
           "projects"
         ]
@@ -50653,6 +53204,65 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/batches/{batch_id}/submit-review": {
+      "post": {
+        "description": "整批送审：把批次内所有未送审任务（pending / in_progress）提交质检。\n\n与单任务提交共用 `perform_task_submit`，因此审核轮次、任务锁释放、Mask QC\n自动运行与 contributor 快照语义完全一致；结束后由 `check_auto_transitions`\n把批次推进到 reviewing。`rejected` 任务需先 accept-rejection 重做，不在此\n批量集合内（会通过 remaining_tasks 暴露）。\n\n只接受 `annotating` / `reviewing` 两种来源状态（与 Web 入口一致），并按固定\n分块提交/提交，避免大批次一次性物化全部 task 行锁与事务。",
+        "operationId": "submit_batch_review_api_v1_projects__project_id__batches__batch_id__submit_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSubmitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Submit Batch Review",
+        "tags": [
+          "batches"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/batches/{batch_id}/transition": {
       "post": {
         "operationId": "transition_batch_api_v1_projects__project_id__batches__batch_id__transition_post",
@@ -51181,6 +53791,196 @@
           }
         ],
         "summary": "Get Data Manager Summary",
+        "tags": [
+          "data-manager"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/data-manager/tasks/assignment-apply": {
+      "post": {
+        "operationId": "apply_data_manager_task_assignment_api_v1_projects__project_id__data_manager_tasks_assignment_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataManagerTaskAssignmentApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataManagerTaskAssignmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply Data Manager Task Assignment",
+        "tags": [
+          "data-manager"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/data-manager/tasks/assignment-preview": {
+      "post": {
+        "operationId": "preview_data_manager_task_assignment_api_v1_projects__project_id__data_manager_tasks_assignment_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataManagerTaskAssignmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataManagerTaskAssignmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Data Manager Task Assignment",
+        "tags": [
+          "data-manager"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/data-manager/tasks/export": {
+      "post": {
+        "operationId": "export_data_manager_tasks_api_v1_projects__project_id__data_manager_tasks_export_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional durable identity for retrying this scoped export.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional durable identity for retrying this scoped export.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataManagerTaskExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Data Manager Tasks",
         "tags": [
           "data-manager"
         ]
@@ -52713,6 +55513,197 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/members/{member_id}/role": {
+      "patch": {
+        "description": "Role change with expected version, preview token and explicit handoff.",
+        "operationId": "change_member_role_api_v1_projects__project_id__members__member_id__role_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Member Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberRoleChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Member Role",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/members/{member_id}/role/preview": {
+      "post": {
+        "description": "Read-only role-change preview: blockers, resource snapshot and token.",
+        "operationId": "preview_member_role_change_api_v1_projects__project_id__members__member_id__role_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Member Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberRolePreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMemberRolePreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Member Role Change",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/mention-candidates": {
+      "get": {
+        "description": "讨论区 @ 提及候选：项目负责人、启用的平台超管、项目成员，按 user_id 去重。\n\n顺序固定为 负责人 → 超管 → 成员，前端据此展示「项目负责人 / 超级管理员」标签。",
+        "operationId": "list_mention_candidates_api_v1_projects__project_id__mention_candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MentionCandidateOut"
+                  },
+                  "title": "Response List Mention Candidates Api V1 Projects  Project Id  Mention Candidates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Mention Candidates",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/ml-backends": {
       "get": {
         "operationId": "list_ml_backends_api_v1_projects__project_id__ml_backends_get",
@@ -54035,6 +57026,812 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/performance/export": {
+      "get": {
+        "operationId": "export_project_members_performance_api_v1_projects__project_id__performance_export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timezone"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_type",
+            "required": false,
+            "schema": {
+              "default": "annotation",
+              "enum": [
+                "annotation",
+                "review"
+              ],
+              "title": "Work Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "active",
+                "inactive"
+              ],
+              "title": "Account Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_historical",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Historical",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "+name",
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Project Members Performance",
+        "tags": [
+          "project-performance"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/performance/members": {
+      "get": {
+        "operationId": "get_members_performance_api_v1_projects__project_id__performance_members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timezone"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_type",
+            "required": false,
+            "schema": {
+              "default": "annotation",
+              "enum": [
+                "annotation",
+                "review"
+              ],
+              "title": "Work Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "active",
+                "inactive"
+              ],
+              "title": "Account Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_historical",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Historical",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "+name",
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceMembersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Members Performance",
+        "tags": [
+          "project-performance"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/performance/members/{member_id}": {
+      "get": {
+        "operationId": "get_member_performance_detail_api_v1_projects__project_id__performance_members__member_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Member Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timezone"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_type",
+            "required": false,
+            "schema": {
+              "default": "annotation",
+              "enum": [
+                "annotation",
+                "review"
+              ],
+              "title": "Work Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "active",
+                "inactive"
+              ],
+              "title": "Account Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_historical",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Historical",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "+name",
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceMemberDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Member Performance Detail",
+        "tags": [
+          "project-performance"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/performance/members/{member_id}/events": {
+      "get": {
+        "operationId": "get_member_performance_events_api_v1_projects__project_id__performance_members__member_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Member Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timezone"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_type",
+            "required": false,
+            "schema": {
+              "default": "annotation",
+              "enum": [
+                "annotation",
+                "review"
+              ],
+              "title": "Work Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "active",
+                "inactive"
+              ],
+              "title": "Account Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_historical",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Historical",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "+name",
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceEventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Member Performance Events",
+        "tags": [
+          "project-performance"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/pipelines/apply": {
       "post": {
         "operationId": "apply_project_pipeline_api_v1_projects__project_id__pipelines_apply_post",
@@ -54679,6 +58476,24 @@
               "format": "uuid",
               "title": "Project Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional durable identity for retrying a scoped preannotation request.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional durable identity for retrying a scoped preannotation request.",
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -62525,7 +66340,7 @@
     },
     "/api/v1/users": {
       "get": {
-        "description": "用户列表。\n- super_admin：默认全量；可选 `project_id` 过滤到该项目成员。\n- project_admin：\n  * `role=annotator|reviewer`：放开限制返回全量候选（用于指派 modal 选人）。\n  * 其他场景：限定到 `Project.owner_id == actor.id` 的项目成员（actor 自身始终可见）。",
+        "description": "用户列表。\n- super_admin：默认全量；可选 `project_id` 过滤到该项目成员。\n- project_admin：\n  * `role=employee`：放开限制返回全量候选（用于指派 modal 选人）。\n  * 其他场景：限定到 `Project.owner_id == actor.id` 的项目成员（actor 自身始终可见）。",
         "operationId": "list_users_api_v1_users_get",
         "parameters": [
           {
@@ -63244,7 +67059,7 @@
     },
     "/api/v1/users/{user_id}": {
       "delete": {
-        "description": "软删除（is_active=False）。super_admin 可删任意（除自己/最后一名超管）；\nproject_admin 仅可删其项目内、且仅在其项目里出现的 annotator / reviewer / viewer。\n\n若 target 仍持有未完成任务（assignee_id + status in pending/in_progress/review）或 task_lock，\n返回 409，要求传入 `transfer_to_user_id`；前端弹\"先转交\"二次 Modal。",
+        "description": "软删除（is_active=False）。super_admin 可删任意（除自己/最后一名超管）；\nproject_admin 可删启用的标注员/审核员，但目标的派生项目（成员、批次、\n任务、锁、名下项目）一旦出现在其他人的项目里（跨项目交接需上级处理）\n则拒绝；未分配账号无项目归属，可直接删除。\n\n若 target 仍持有未完成任务（assignee_id + status in pending/in_progress/review）或 task_lock，\n返回 409，要求传入 `transfer_to_user_id`；前端弹\"先转交\"二次 Modal。\nproject_admin 的转交接收人必须是每个待转交任务所在项目的成员。",
         "operationId": "delete_user_api_v1_users__user_id__delete",
         "parameters": [
           {
@@ -63635,6 +67450,7 @@
     },
     "/api/v1/users/{user_id}/role": {
       "patch": {
+        "description": "Platform-role mutation.  Super administrator only (plan AUTH-04).\n\nA platform-role edit never cascades into any project's membership; project\nresponsibility is changed through the project member role endpoints.",
         "operationId": "change_user_role_api_v1_users__user_id__role_patch",
         "parameters": [
           {
@@ -63692,6 +67508,7 @@
     },
     "/api/v1/users/{user_id}/role/preview": {
       "get": {
+        "description": "Platform-role preview.  Super administrator only (plan AUTH-04).",
         "operationId": "preview_user_role_change_api_v1_users__user_id__role_preview_get",
         "parameters": [
           {

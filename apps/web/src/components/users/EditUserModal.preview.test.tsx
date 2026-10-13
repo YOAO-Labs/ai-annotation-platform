@@ -11,14 +11,14 @@ const user = {
   id: "a",
   name: "A",
   email: "a@test.local",
-  role: "annotator",
+  role: "employee",
   group_id: null,
 } as UserResponse;
 const preview: RoleImpactPreview = {
   user_id: "a",
   email: user.email,
-  current_role: "annotator",
-  requested_role: "annotator",
+  current_role: "employee",
+  requested_role: "employee",
   can_change: true,
   blockers: [],
   projects: [],
@@ -62,7 +62,7 @@ it("discards a late preview for a previous target", async () => {
       other_project_count: 0,
     });
   const { rerender } = render(wrap(user));
-  await waitFor(() => expect(api.previewRoleChange).toHaveBeenCalledWith("a", "annotator"));
+  await waitFor(() => expect(api.previewRoleChange).toHaveBeenCalledWith("a", "employee"));
   rerender(wrap({ ...user, id: "b", name: "B" }));
   await screen.findByText("B 的角色影响");
   await act(async () => {
@@ -78,14 +78,32 @@ it("shows anonymous cross-project impact and waits for the selected role preview
       resolve = done;
     }),
   );
-  api.changeRole.mockResolvedValue({ ...user, role: "reviewer" });
+  api.changeRole.mockResolvedValue({ ...user, role: "viewer" });
   render(wrap(user));
   await screen.findByText(/另涉及 2 个管理范围外/);
-  fireEvent.change(screen.getByLabelText("角色"), { target: { value: "reviewer" } });
+  fireEvent.change(screen.getByLabelText("角色"), { target: { value: "viewer" } });
   expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   await act(async () => {
-    resolve({ ...preview, requested_role: "reviewer" });
+    resolve({ ...preview, requested_role: "viewer" });
   });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(api.changeRole).toHaveBeenCalledWith("a", "reviewer"));
+  await waitFor(() => expect(api.changeRole).toHaveBeenCalledWith("a", "viewer"));
+});
+
+it("hides platform-role editing from project administrators and points them to project member management", async () => {
+  useAuthStore.getState().setAuth("token", {
+    id: "pa",
+    name: "PA",
+    email: "pa@test.local",
+    role: "project_admin",
+    status: "active",
+    group_name: null,
+    created_at: "2026-09-09",
+  });
+  render(wrap(user));
+  // 平台角色预览/变更接口为 super_admin-only：项目管理员不应触发任何预览请求。
+  expect(api.previewRoleChange).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("角色")).not.toBeInTheDocument();
+  expect(screen.getByText(/平台角色由超级管理员管理/)).toBeVisible();
+  expect(screen.getByLabelText("数据组")).toBeEnabled();
 });

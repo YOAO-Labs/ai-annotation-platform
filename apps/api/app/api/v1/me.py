@@ -1,31 +1,44 @@
+import asyncio
 from datetime import datetime, timezone
 from math import isfinite
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ratelimit import limiter
 from app.core.security import hash_password, verify_password
 from app.deps import get_current_user, get_db
 from app.db.models.user import User
-from app.schemas.me import PasswordChange, ProfileUpdate
+from app.schemas.me import AvatarRefUpdate, PasswordChange, ProfileUpdate
 from app.schemas.user import (
     NamedPresetsRevision,
+    ShortcutBinding,
     UserOut,
     UserPreferences,
     UserPreferencesRead,
+    WorkbenchShortcutPreferences,
+    shortcut_command_domain,
 )
 from app.schemas.workbench_workspace import (
     MAX_NAMED_PRESETS,
     NamedWorkspacePreset,
     PresetId,
 )
+from app.services import avatar as avatar_service
+from app.services.avatar_image import (
+    ALLOWED_CONTENT_TYPES as ALLOWED_IMAGE_CONTENT_TYPES,
+    MAX_AVATAR_FILE_BYTES,
+    AvatarImageError,
+    normalize_avatar,
+)
 from app.services.audit import AuditAction, AuditService
 from app.services.deactivation_service import DeactivationService
+from app.services.notification import NotificationService
 
 router = APIRouter()
 
@@ -82,6 +95,113 @@ async def update_profile(
     return user
 
 
+async def _apply_avatar_ref(
+    db: AsyncSession,
+    user: User,
+    new_ref: str | None,
+    request: Request,
+    *,
+    detail: dict,
+) -> User:
+    """写入新头像引用、提交、再清理旧上传对象。
+
+    顺序有意如此:先提交 DB 再删对象。反过来的话,一旦提交失败就会出现「DB 仍指向已删
+    对象」的破图;本顺序最坏只留下一个无引用的几十 KB 孤儿对象。
+    """
+    previous_ref = user.avatar_ref
+    if previous_ref == new_ref:
+        return user
+
+    user.avatar_ref = new_ref
+    await AuditService.log(
+        db,
+        actor=user,
+        action=AuditAction.USER_PROFILE_UPDATE,
+        target_type="user",
+        target_id=str(user.id),
+        request=request,
+        status_code=200,
+        detail={"field": "avatar", "avatar_ref": new_ref, **detail},
+    )
+    await db.commit()
+    await db.refresh(user)
+    await asyncio.to_thread(avatar_service.delete_ref_object, previous_ref)
+    return user
+
+
+@router.post("/avatar", response_model=UserOut)
+@limiter.limit("10/minute")
+async def upload_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """上传自定义头像。
+
+    服务端是唯一可信方:客户端声明的 MIME 只作早退,真实格式 / 像素规模由 Pillow 判定,
+    产物统一为 256×256 方形 WebP 后写入 ``avatars`` 桶。请求体另有中间件级上限
+    (``middleware/upload_body_limits``),此处再按文件字节复核一次。
+    """
+    declared = (file.content_type or "").lower()
+    if declared and declared not in {
+        "application/octet-stream",
+        *ALLOWED_IMAGE_CONTENT_TYPES,
+    }:
+        raise HTTPException(status_code=415, detail="仅支持 PNG / JPEG / WebP 格式")
+
+    raw = await file.read(MAX_AVATAR_FILE_BYTES + 1)
+    # ``normalize_avatar`` 同步解码 / 裁剪 / 重编码，最坏可处理 4000 万像素的压缩图；
+    # ``write_avatar_object`` 是同步 boto3 PUT。都放进线程池，避免单 worker 生产配置下
+    # 一次上传阻塞整个事件循环。
+    try:
+        normalized = await asyncio.to_thread(normalize_avatar, raw)
+    except AvatarImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    token = avatar_service.new_upload_token()
+    await asyncio.to_thread(avatar_service.write_avatar_object, token, normalized)
+    return await _apply_avatar_ref(
+        db,
+        user,
+        avatar_service.build_upload_ref(token),
+        request,
+        detail={"kind": "upload", "bytes": len(normalized)},
+    )
+
+
+@router.patch("/avatar", response_model=UserOut)
+async def set_avatar_ref(
+    payload: AvatarRefUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """选择内置头像（``preset:<slug>``）或清除头像（``avatar_ref: null``）。
+
+    ``upload:`` 前缀一律拒绝,否则用户可以把别人的 token 挂到自己名下。
+    """
+    try:
+        new_ref = avatar_service.validate_client_ref(payload.avatar_ref)
+    except avatar_service.InvalidAvatarRef as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _apply_avatar_ref(
+        db, user, new_ref, request, detail={"kind": "preset_or_clear"}
+    )
+
+
+@router.delete("/avatar", response_model=UserOut)
+async def clear_avatar(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """恢复默认头像（= 回退首字母圆片）。"""
+    return await _apply_avatar_ref(
+        db, user, None, request, detail={"kind": "preset_or_clear"}
+    )
+
+
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     payload: PasswordChange,
@@ -119,10 +239,12 @@ async def request_self_deactivation(
     user: User = Depends(get_current_user),
 ):
     """v0.8.1 · 自助注销申请。7 天冷静期，期间可撤销。"""
-    await DeactivationService.request(
+    pending_notifications = await DeactivationService.request(
         db, user=user, reason=payload.reason, request=request
     )
     await db.commit()
+    if pending_notifications:
+        await NotificationService(db).publish_committed(pending_notifications)
     await db.refresh(user)
     return user
 
@@ -185,6 +307,86 @@ _NAMED_PRESETS_REVISION_KEY = "namedPresetsRevision"
 _INITIAL_NAMED_PRESETS_REVISION = "0"
 _NAMED_PRESET_ADAPTER = TypeAdapter(dict[PresetId, NamedWorkspacePreset])
 _NAMED_PRESETS_REVISION_ADAPTER = TypeAdapter(NamedPresetsRevision)
+
+# v0.24 · 快捷键覆盖：按命令条目深合并；GET 对损坏 / 更新版本子树走 opaque 兜底。
+_SHORTCUTS_PATH = ("workbench", "shortcuts")
+_SHORTCUTS_DOMAINS = ("common", "image", "video")
+_SHORTCUT_ENTRY_ADAPTER = TypeAdapter(list[ShortcutBinding] | None)
+
+
+def _shortcuts_value(prefs: dict) -> dict | None:
+    value = prefs
+    for key in _SHORTCUTS_PATH:
+        if not isinstance(value, dict) or key not in value:
+            return None
+        value = value[key]
+    return value if isinstance(value, dict) else None
+
+
+def _with_shortcuts(prefs: dict, shortcuts: dict) -> dict:
+    workbench = dict(prefs.get("workbench") or {})
+    workbench["shortcuts"] = shortcuts
+    return {**prefs, "workbench": workbench}
+
+
+def _prepare_shortcuts_validation(payload: dict, existing: dict) -> tuple[dict, dict]:
+    """Strictly validate changed shortcut entries; untouched stored entries stay opaque.
+
+    Mirrors the workspace-envelope contract: an unrelated preference PATCH never
+    revalidates the stored subtree as a new shortcut write, an unchanged entry
+    that no longer validates keeps its stored value verbatim, and explicitly
+    resetting an affected entry to null still passes strict validation.
+    """
+    incoming = _shortcuts_value(payload)
+    if incoming is None:
+        return payload, {}
+    stored = _shortcuts_value(existing) or {}
+    opaque: dict[str, dict[str, object]] = {}
+    # Preserve submitted metadata and field presence: omitted buckets must not
+    # become writes, and malformed metadata / explicit null buckets must still
+    # reach the normal model validation below.
+    validation = dict(incoming)
+    for domain in _SHORTCUTS_DOMAINS:
+        if domain not in incoming:
+            continue
+        incoming_bucket = incoming[domain]
+        if not isinstance(incoming_bucket, dict):
+            # Leave malformed buckets in the payload so Pydantic reports the normal 422.
+            continue
+        stored_bucket = (
+            stored.get(domain) if isinstance(stored.get(domain), dict) else {}
+        )
+        strict_bucket: dict[str, object] = {}
+        for command_id, value in incoming_bucket.items():
+            stored_value = stored_bucket.get(command_id)
+            if (
+                value is not None
+                and command_id in stored_bucket
+                and _same_json_value(value, stored_value)
+            ):
+                try:
+                    # Include command IDs and per-command binding limits in the
+                    # compatibility decision, not just the binding shape.
+                    WorkbenchShortcutPreferences.model_validate(
+                        {domain: {command_id: value}}
+                    )
+                except ValidationError:
+                    opaque.setdefault(domain, {})[command_id] = stored_value
+                    continue
+            # 预归一化：defaulted 字段（如缺省 modifiers）在此补全，避免 exclude_unset
+            # 把半截绑定写进 JSONB。校验失败时保留原值，让整模型给出常规 422。
+            try:
+                normalized = _SHORTCUT_ENTRY_ADAPTER.validate_python(value)
+            except ValidationError:
+                strict_bucket[command_id] = value
+            else:
+                strict_bucket[command_id] = (
+                    [b.model_dump(mode="json", by_alias=True) for b in normalized]
+                    if normalized is not None
+                    else None
+                )
+        validation[domain] = strict_bucket
+    return _with_shortcuts(payload, validation), opaque
 
 
 def _becomes_null_in_javascript(value) -> bool:
@@ -416,17 +618,52 @@ def _strip_removed_workbench_keys(prefs: dict) -> dict:
     return {**prefs, "workbench": {**workbench, "layout": clean_layout}}
 
 
-def _preferences_response(prefs: dict) -> JSONResponse:
-    """Keep stored workspace envelopes intact for client recovery/version detection.
+def _strip_unknown_shortcut_resets(prefs: dict) -> dict:
+    """删除指向已注销命令的 null 重置条目。
 
-    Incoming workspace writes are strict. Reading must also tolerate corrupt or
-    future layouts without failing the whole workbench or silently overwriting
-    them with today's defaults. Other preferences keep their existing validation.
+    客户端用 ``null`` 清除损坏 / 历史遗留的快捷键覆盖；深合并只会把该键的值写成
+    ``null``，命令 ID 仍在，读路径会继续报 unknown-command。这里直接移除这些键，
+    让「重置」真正生效。带绑定值的未知条目仍然保留，供客户端识别与修正。
+    """
+    workbench = prefs.get("workbench")
+    if not isinstance(workbench, dict):
+        return prefs
+    shortcuts = workbench.get("shortcuts")
+    if not isinstance(shortcuts, dict):
+        return prefs
+    changed = False
+    cleaned: dict[str, object] = {}
+    for domain, bucket in shortcuts.items():
+        if not isinstance(bucket, dict):
+            cleaned[domain] = bucket
+            continue
+        kept = {
+            command_id: value
+            for command_id, value in bucket.items()
+            if not (value is None and shortcut_command_domain(command_id) is None)
+        }
+        changed = changed or len(kept) != len(bucket)
+        cleaned[domain] = kept
+    if not changed:
+        return prefs
+    return {**prefs, "workbench": {**workbench, "shortcuts": cleaned}}
+
+
+def _preferences_response(prefs: dict) -> JSONResponse:
+    """Keep stored workspace envelopes and shortcut subtrees intact for client recovery.
+
+    Incoming workspace / shortcut writes are strict. Reading must also tolerate
+    corrupt or future subtrees without failing the whole workbench or silently
+    overwriting them with today's defaults. Other preferences keep their
+    existing validation.
     """
     prefs = _strip_removed_workbench_keys(prefs)
+    prefs = _strip_unknown_shortcut_resets(prefs)
     workbench = prefs.get("workbench", {})
     layout = workbench.get("layout", {}) if isinstance(workbench, dict) else {}
     has_workspace = isinstance(layout, dict) and "workspace" in layout
+    shortcuts_raw = workbench.get("shortcuts") if isinstance(workbench, dict) else None
+    has_shortcuts = shortcuts_raw is not None
     if has_workspace:
         prefs = {
             **prefs,
@@ -437,6 +674,8 @@ def _preferences_response(prefs: dict) -> JSONResponse:
                 },
             },
         }
+    if has_shortcuts:
+        prefs = _with_shortcuts(prefs, {})
     content = UserPreferences.model_validate(prefs).model_dump(
         mode="json", by_alias=True
     )
@@ -444,6 +683,17 @@ def _preferences_response(prefs: dict) -> JSONResponse:
         content["workbench"]["layout"]["workspace"] = layout["workspace"]
     else:
         content["workbench"]["layout"].pop("workspace", None)
+    if has_shortcuts:
+        try:
+            content["workbench"]["shortcuts"] = (
+                WorkbenchShortcutPreferences.model_validate(shortcuts_raw).model_dump(
+                    mode="json", by_alias=True
+                )
+            )
+        except ValidationError:
+            # Corrupt or newer shortcut subtree: pass it through verbatim so the
+            # client can identify the affected overrides instead of losing them.
+            content["workbench"]["shortcuts"] = shortcuts_raw
     return JSONResponse(content)
 
 
@@ -513,6 +763,9 @@ async def update_preferences(
     validation_payload, opaque_presets, engine_supplied, had_stored_workspace = (
         _prepare_workspace_validation(promoted, existing)
     )
+    validation_payload, opaque_shortcuts = _prepare_shortcuts_validation(
+        validation_payload, existing
+    )
     try:
         validated = UserPreferences.model_validate(validation_payload)
     except ValidationError as exc:
@@ -544,6 +797,15 @@ async def update_preferences(
                 **opaque_presets,
             }
         incoming = _with_workspace(incoming, incoming_workspace)
+    # v0.24 · 快捷键：把未变更但不再通过校验的存量条目原样放回，保证深合并后
+    # 存量值不被默认值静默覆盖（保留给客户端识别与修正）。
+    if opaque_shortcuts:
+        incoming_shortcuts = dict(_shortcuts_value(incoming) or {})
+        for domain, entries in opaque_shortcuts.items():
+            bucket = dict(incoming_shortcuts.get(domain) or {})
+            bucket.update(entries)
+            incoming_shortcuts[domain] = bucket
+        incoming = _with_shortcuts(incoming, incoming_shortcuts)
     # 通用深度合并: dict 递归合并子键, 其它类型 (list/scalar) 直接覆盖。
     # 覆盖历史上按需增加的两层浅合并 (ai.* / ui.*): 现在 workbench 子树 (layout / common /
     # image / video / pointcloud) 与 ai.secondary_by_model (深度 2) 都能守住"单键 PATCH
@@ -558,6 +820,7 @@ async def update_preferences(
             raise HTTPException(status_code=409, detail="layout_schema_downgrade")
     merged = _deep_merge_preferences(existing, incoming)
     merged = _strip_removed_workbench_keys(merged)
+    merged = _strip_unknown_shortcut_resets(merged)
     if named_presets_supplied:
         merged[_NAMED_PRESETS_REVISION_KEY] = uuid4().hex
     response = _preferences_response(merged)
@@ -579,9 +842,19 @@ async def cancel_self_deactivation(
     return user
 
 
-# v0.8.4 · 工作台 task_events 批量写入
+# Workbench task-event ingestion
 from app.config import settings  # noqa: E402
-from app.schemas.task_event import TaskEventBatchIn, TaskEventBatchOut  # noqa: E402
+from app.schemas.task_event import (  # noqa: E402
+    TaskEventBatchIn,
+    TaskEventBatchOut,
+    TaskEventDiscarded,
+)
+from app.services.task_event_ingestion import (  # noqa: E402
+    TaskEventRejection,
+    insert_task_events,
+    task_event_rejection_reason,
+    validate_api_events,
+)
 
 
 def _enqueue_task_events(payload_list: list[dict]) -> bool:
@@ -601,49 +874,67 @@ async def submit_task_events(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """v0.8.4 · 工作台 useSessionStats 每 N 条 flush 此端点。
-    user_id 强制设为当前登录用户（即使前端误传也覆盖）。"""
-    import uuid as _uuid
+    """Accept only closed intervals for tasks the current account can access.
 
-    payload_list: list[dict] = []
-    for ev in payload.events:
-        payload_list.append(
-            {
-                "id": str(ev.client_id or _uuid.uuid4()),
-                "task_id": str(ev.task_id),
-                "user_id": str(user.id),
-                "project_id": str(ev.project_id),
-                "kind": ev.kind,
-                "started_at": ev.started_at.isoformat(),
-                "ended_at": ev.ended_at.isoformat(),
-                "duration_ms": ev.duration_ms,
-                "annotation_count": ev.annotation_count,
-                "was_rejected": ev.was_rejected,
-            }
-        )
+    The task relation is authoritative for project attribution.  The validated
+    rows are also rechecked by the worker after an async handoff.
+    """
+
+    rows, rejected = await validate_api_events(db, user=user, events=payload.events)
+    # Preserve the single-event HTTP contract for direct callers. The browser
+    # collector drops this one permanently invalid event; mixed batches use the
+    # per-row response below so valid events continue through the same request.
+    if len(payload.events) == 1 and rejected:
+        raise rejected[0].error
+    payload_list = [
+        {
+            **row,
+            "id": str(row["id"]),
+            "task_id": str(row["task_id"]),
+            "user_id": str(row["user_id"]),
+            "project_id": str(row["project_id"]),
+            "started_at": row["started_at"].isoformat(),
+            "ended_at": row["ended_at"].isoformat(),
+        }
+        for row in rows
+    ]
 
     queued = False
     if settings.task_events_async:
         queued = _enqueue_task_events(payload_list)
 
     if not queued:
-        from app.db.models.task_event import TaskEvent
+        result = await insert_task_events(db, rows)
+        if result.conflicts:
+            rejected_indexes = {item.index for item in rejected}
+            for index, event in enumerate(payload.events):
+                if (
+                    event.client_id in result.conflicts
+                    and index not in rejected_indexes
+                ):
+                    rejected.append(
+                        TaskEventRejection(
+                            index=index,
+                            client_id=event.client_id,
+                            error=HTTPException(
+                                status_code=409,
+                                detail={"reason": "duplicate_client_event_conflict"},
+                            ),
+                        )
+                    )
+            rows = [row for row in rows if row["id"] not in result.conflicts]
+            if len(payload.events) == 1:
+                raise rejected[0].error
 
-        for ev in payload.events:
-            db.add(
-                TaskEvent(
-                    id=ev.client_id or _uuid.uuid4(),
-                    task_id=ev.task_id,
-                    user_id=user.id,
-                    project_id=ev.project_id,
-                    kind=ev.kind,
-                    started_at=ev.started_at,
-                    ended_at=ev.ended_at,
-                    duration_ms=ev.duration_ms,
-                    annotation_count=ev.annotation_count,
-                    was_rejected=ev.was_rejected,
-                )
+    return TaskEventBatchOut(
+        accepted=len(rows),
+        queued_async=queued,
+        discarded=[
+            TaskEventDiscarded(
+                index=item.index,
+                client_id=item.client_id,
+                reason=task_event_rejection_reason(item.error),
             )
-        await db.commit()
-
-    return TaskEventBatchOut(accepted=len(payload_list), queued_async=queued)
+            for item in rejected
+        ],
+    )

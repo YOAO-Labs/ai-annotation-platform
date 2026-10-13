@@ -4,7 +4,6 @@ import asyncio
 import uuid
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import delete, select, text
@@ -14,6 +13,7 @@ from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
+from tests.test_migration_0173_project_role_preparation import _replay
 
 
 def test_empty_downgrade_upgrade_and_used_ledger_refuses_downgrade(
@@ -21,8 +21,24 @@ def test_empty_downgrade_upgrade_and_used_ledger_refuses_downgrade(
 ):
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", test_db_url)
-    command.downgrade(config, "0160")
-    command.upgrade(config, "head")
+    migration = ScriptDirectory.from_config(config).get_revision("0161").module
+
+    async def roundtrip(*, used: bool = False):
+        # Replay this revision only; never traverse irreversible 0174.
+        engine = create_async_engine(test_db_url)
+        try:
+            async with engine.connect() as connection:
+                transaction = await connection.begin()
+                try:
+                    await connection.run_sync(_replay, migration, "downgrade")
+                    if not used:
+                        await connection.run_sync(_replay, migration, "upgrade")
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(roundtrip())
     actor_id, project_id, task_id, operation_id = [uuid.uuid4() for _ in range(4)]
 
     async def inspect(action):
@@ -116,7 +132,7 @@ def test_empty_downgrade_upgrade_and_used_ledger_refuses_downgrade(
     asyncio.run(inspect("seed"))
     try:
         with pytest.raises(RuntimeError, match="Slice audit data exists"):
-            command.downgrade(config, "0160")
+            asyncio.run(roundtrip(used=True))
         asyncio.run(inspect("verify"))
     finally:
         asyncio.run(inspect("cleanup"))

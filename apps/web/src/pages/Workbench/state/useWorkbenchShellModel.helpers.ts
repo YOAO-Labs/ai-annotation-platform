@@ -1,5 +1,6 @@
-// v0.16.10 · 从 useWorkbenchShellModel.tsx 抽出的模块级纯函数(无 React hook、无闭包),
-// 逐字搬运,行为零变化。主 hook 文件 import 回这些函数使用。
+// useWorkbenchShellModel 的模块级纯函数(无 React hook、无闭包):显示派生、浮窗定位、
+// pipeline 载荷构造等。主 hook 文件与相关领域模块 import 这些函数使用。
+// 任务导航域的 scheduler / leave guards / URL 同步已归属 taskNavigation.ts。
 import { VARIANT_FIELD_KEYS } from "../components/SchemaForm";
 import { polygonBounds } from "./transforms";
 import { TOOL_REGISTRY, type ToolId } from "../stage/tools";
@@ -8,15 +9,28 @@ import type { FloatingPanelRect } from "../shell/FloatingPanelShell";
 import {
   FLOATING_SELECTION_MAX_SIZE,
   FLOATING_SELECTION_MIN_SIZE,
-  SIDE_FLOATING_PANEL_MAX_SIZE,
-  SIDE_FLOATING_PANEL_MIN_SIZE,
 } from "../shell/floatingPanelSizing";
-import type { FloatingPanelState, FloatingSelectionState } from "@/api/auth";
+import type { FloatingSelectionState } from "@/api/auth";
 import type { Viewport } from "./useViewportTransform";
 import type { PipelineStagePayload, TriggerPreannotationPayload } from "@/hooks/usePreannotation";
 import { videoIntrinsicSize } from "../stage/videoKonvaCoordinates";
 import type { TimelineRangePurpose } from "../stage/VideoPlaybackOverlay";
 import { cocoRleBounds, type CocoRle } from "../stage/shared/geometry/maskRle";
+import { ApiError } from "@/api/client";
+
+/**
+ * Classify a `/projects/{id}/access` preflight failure for the offline drain.
+ * On this endpoint 404 is the affirmative "project hidden / membership revoked"
+ * signal and 403 an explicit refusal — both are authority denials.  A transport
+ * failure (TypeError) or a server error is indeterminate: the drain must retry
+ * instead of recording a permanent permission change.
+ */
+export function classifyAccessLookupError(error: unknown): "denied" | "indeterminate" {
+  if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+    return "denied";
+  }
+  return "indeterminate";
+}
 
 export function resolveVideoSelectionCardCollapsed(
   preferredCollapsed: boolean,
@@ -37,104 +51,6 @@ export function resolveVideoTimelineRangePurpose(
 export const VARIANT_FIELD_SET = new Set<string>(VARIANT_FIELD_KEYS);
 
 export const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
-
-export async function commitAfterNavigationGuard(
-  guard: () => Promise<boolean>,
-  signal: AbortSignal | readonly (AbortSignal | undefined)[] | undefined,
-  commit: () => void,
-): Promise<boolean> {
-  const allowed = await guard();
-  const aborted = signal
-    ? "aborted" in signal
-      ? signal.aborted
-      : signal.some((candidate) => candidate?.aborted)
-    : false;
-  if (!allowed || aborted) return false;
-  commit();
-  return true;
-}
-
-type LatestTaskNavigationRun = (signal: AbortSignal) => Promise<boolean>;
-
-interface PendingTaskNavigation {
-  taskId: string;
-  run: LatestTaskNavigationRun;
-  resolve: (allowed: boolean) => void;
-}
-
-/**
- * 首次任务导航立即执行；冷却窗口内的连续输入只保留最后一个目标。
- * 普通单击无额外延迟，高速点选则从“每次都加载”降为“首次 + 最终”。
- */
-export class LatestTaskNavigationScheduler {
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private pending: PendingTaskNavigation | null = null;
-  private activeController: AbortController | null = null;
-  private disposed = false;
-
-  constructor(private readonly settleMs: number) {}
-
-  activate(): void {
-    this.disposed = false;
-  }
-
-  schedule(taskId: string, run: LatestTaskNavigationRun): Promise<boolean> {
-    if (this.disposed) return Promise.resolve(false);
-    return new Promise<boolean>((resolve) => {
-      if (this.timer === null && this.pending === null && this.activeController === null) {
-        this.runNow({ taskId, run, resolve });
-        this.armTimer();
-        return;
-      }
-      this.activeController?.abort();
-      this.pending?.resolve(false);
-      this.pending = { taskId, run, resolve };
-      this.armTimer();
-    });
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
-    this.activeController?.abort();
-    this.activeController = null;
-    this.pending?.resolve(false);
-    this.pending = null;
-  }
-
-  private armTimer(): void {
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      this.flushPending();
-    }, this.settleMs);
-  }
-
-  private flushPending(): void {
-    if (this.disposed || this.activeController !== null) return;
-    const pending = this.pending;
-    this.pending = null;
-    if (!pending) return;
-    this.runNow(pending);
-    this.armTimer();
-  }
-
-  private runNow(pending: PendingTaskNavigation): void {
-    const controller = new AbortController();
-    this.activeController = controller;
-    void Promise.resolve()
-      .then(() => pending.run(controller.signal))
-      .then((allowed) => pending.resolve(controller.signal.aborted ? false : allowed))
-      .catch(() => pending.resolve(false))
-      .finally(() => {
-        if (this.activeController !== controller) return;
-        this.activeController = null;
-        if (this.pending && this.timer === null) this.flushPending();
-      });
-  }
-}
 
 export function videoAnnotationQueriesEnabled(
   isVideoTask: boolean,
@@ -178,9 +94,7 @@ export function shouldShowInManualAnnotationSection(
   return geometryType !== "video_track_bbox" && geometryType !== "video_track_mask";
 }
 
-export function omitVariantFields(
-  value: Record<string, unknown> | undefined,
-): Record<string, unknown> {
+function omitVariantFields(value: Record<string, unknown> | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!value) return out;
   for (const [key, v] of Object.entries(value)) {
@@ -200,70 +114,7 @@ export function buildPredictParams(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-export function resolveFloatingPanelRect(
-  state: FloatingPanelState,
-  defaults: {
-    w: number;
-    h: number;
-    x: (viewportW: number, w: number) => number;
-    y: (viewportH: number, h: number) => number;
-  },
-): FloatingPanelRect {
-  const w = Math.max(
-    SIDE_FLOATING_PANEL_MIN_SIZE.w,
-    Math.min(SIDE_FLOATING_PANEL_MAX_SIZE.w, state.w ?? defaults.w),
-  );
-  const h = Math.max(
-    SIDE_FLOATING_PANEL_MIN_SIZE.h,
-    Math.min(SIDE_FLOATING_PANEL_MAX_SIZE.h, state.h ?? defaults.h),
-  );
-  const viewportW = typeof window === "undefined" ? 1280 : window.innerWidth;
-  const viewportH = typeof window === "undefined" ? 800 : window.innerHeight;
-  return {
-    x: state.x ?? Math.max(24, defaults.x(viewportW, w)),
-    y: state.y ?? Math.max(24, defaults.y(viewportH, h)),
-    w,
-    h,
-  };
-}
-
-export function resolveFloatingTaskQueueRect(state: FloatingPanelState): FloatingPanelRect {
-  return resolveFloatingPanelRect(state, {
-    w: 320,
-    h: 620,
-    x: () => 24,
-    y: () => 72,
-  });
-}
-
-export function resolveFloatingClassPaletteRect(state: FloatingPanelState): FloatingPanelRect {
-  return resolveFloatingPanelRect(state, {
-    w: 320,
-    h: 420,
-    x: () => 24,
-    y: (viewportH, h) => viewportH - h - 40,
-  });
-}
-
-export function resolveFloatingInspectorRect(state: FloatingPanelState): FloatingPanelRect {
-  return resolveFloatingPanelRect(state, {
-    w: 360,
-    h: 600,
-    x: (viewportW, w) => viewportW - w - 40,
-    y: (viewportH, h) => Math.min(80, viewportH - h - 24),
-  });
-}
-
-export function resolveFloatingDiscussionRect(state: FloatingPanelState): FloatingPanelRect {
-  return resolveFloatingPanelRect(state, {
-    w: 420,
-    h: 560,
-    x: (viewportW, w) => viewportW - w - 40,
-    y: (viewportH, h) => Math.min(260, viewportH - h - 40),
-  });
-}
-
-// v0.16.8 · 选中标注浮动信息卡:默认贴画布右上(避开右栏);clamp 用选中卡专属尺寸界。
+// 选中标注浮动信息卡:默认贴画布右上(避开右栏);clamp 用选中卡专属尺寸界。
 export function resolveFloatingSelectionRect(state: FloatingSelectionState): FloatingPanelRect {
   const w = Math.max(
     FLOATING_SELECTION_MIN_SIZE.w,
@@ -282,14 +133,14 @@ export function resolveFloatingSelectionRect(state: FloatingSelectionState): Flo
   };
 }
 
-// v0.14.18 · 工具 → 交互 prompt (text 已归批量线, 映射为 null = 非交互)。供交互后端路由解析。
+// 工具 → 交互 prompt (text 已归批量线, 映射为 null = 非交互)。供交互后端路由解析。
 export function promptOfTool(tool: ToolId): InteractivePrompt | null {
   const rp = TOOL_REGISTRY[tool]?.requiredPrompt;
   return rp && rp !== "text" ? rp : null;
 }
 
-// v0.18.28 · popover「运行当前题（按项目编排）」的 mutation 载荷构造 (纯函数, 供 hook 与单测复用)。
-// 项目编排 (v0.18.27 存的 pipeline_stages) + 当前 taskId → preannotate 载荷; 守卫不满足返回 null。
+// popover「运行当前题（按项目编排）」的 mutation 载荷构造 (纯函数, 供 hook 与单测复用)。
+// 项目编排(项目存了 pipeline_stages) + 当前 taskId → preannotate 载荷; 守卫不满足返回 null。
 // 顶层 ml_backend_id 取源阶段 (parent_stage 为 null/undefined) 的 backend, 满足后端「源阶段
 // backend == 顶层」校验; 找不到源阶段则回落首个阶段。on_key_conflict=last_wins: 保存态未持久化
 // 键冲突选择, last_wins 对无冲突编排无副作用、对有冲突的也能直接跑。
@@ -314,6 +165,8 @@ export function buildPipelineRunPayload(
   return {
     ml_backend_id: rootBackendId,
     task_ids: [taskId],
+    // Issue #121 · 工作台当前题执行语义 (允许 in_progress / draft 批次)。
+    execution_scope: "workbench",
     pipeline_stages: stages,
     predict_mode: "overwrite",
     on_key_conflict: "last_wins",
@@ -348,8 +201,8 @@ export function missingBackendIdsForStages(
   return Array.from(missing);
 }
 
-// v0.16.x 拆分(第 2 批)· 图钉聚焦视口平移:把 anchor(0-1 归一坐标)对应像素点平移到
-// 视口中心,保留当前 scale 及其它视口字段。从 useWorkbenchShellModel 的 issueFocus effect 逐式提炼。
+// 图钉聚焦视口平移:把 anchor(0-1 归一坐标)对应像素点平移到
+// 视口中心,保留当前 scale 及其它视口字段。
 export function resolvePinViewport(
   cur: Viewport,
   anchor: { x: number; y: number },
@@ -365,7 +218,7 @@ export function resolvePinViewport(
 }
 
 /**
- * v0.21.23 · SAM 候选的外接框（归一化）—— 类选择器 popover 的定位依据。
+ * SAM 候选的外接框（归一化）—— 类选择器 popover 的定位依据。
  * 矩形候选取其 bbox，多边形候选取顶点外接框；顶点不足以成面则返回 null（不该弹 popover）。
  * 图片与视频两侧共用，避免各写一份而在几何类型上分叉。
  */

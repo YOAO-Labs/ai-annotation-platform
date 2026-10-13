@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { MeResponse } from "../api/auth";
+import { markProactiveLogout } from "../utils/authRedirect";
 
 interface AuthStore {
   token: string | null;
@@ -55,6 +56,10 @@ export function bindAuthStorage(): () => void {
       // Login writes its token before fetching the user. Wait for the complete
       // persisted identity; authenticated requests reject this intermediate pair.
       if ((stored?.state?.token ?? null) !== token) return;
+      // Issue #123 · 另一个标签页主动退出(令牌被清除)时,把"主动退出"意图同步到
+      // 本标签页,避免本页 RequireAuth 把当前受限页写回 state.from。同标签页的
+      // logout 已在 useLogout 中置位;storage 事件不会回到发起页。
+      if (!token && useAuthStore.getState().token) markProactiveLogout();
       void useAuthStore.persist.rehydrate();
     } catch {
       // Malformed storage cannot be adopted as an authenticated identity.

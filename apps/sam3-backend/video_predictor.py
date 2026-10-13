@@ -1,4 +1,4 @@
-"""SAM 3.1 multiplex video tracker 推理封装 (v0.21.19 §PR3).
+"""SAM 3.1 multiplex video tracker 推理封装.
 
 平行于 grounded-sam2 的 video_predictor.py, 但走 **text-driven** 视频追踪:
     build_sam3_multiplex_video_predictor
@@ -16,7 +16,7 @@
     响应 result 每条: {frame_index(源帧号), geometry:{type:"polygon"|"bbox", ...},
                         confidence, outside}, 坐标归一化到 [0,1]。
 
-显存: 图像 sam3.pt(~5.8GB) + 视频 multiplex(~3.2GB) 约 9GB。v0.21.x 起取消二者互斥常驻
+显存: 图像 sam3.pt(~5.8GB) + 视频 multiplex(~3.2GB) 约 9GB。二者可并存常驻
 (24GB 卡容得下并存), 各自独立懒加载 / idle 卸载; 小显存部署若不需视频设 SAM3_DOWNLOAD_VIDEO=0。
 """
 
@@ -217,7 +217,7 @@ class SAM3MultiplexVideoTracker:
                 ]
                 prompt_request["bounding_box_labels"] = [1] * len(seed_bboxes)
             seed_out = self._predictor.handle_request(prompt_request)["outputs"]
-            # v0.21.28 · B-mx · 多目标批量吐: 不再 _pick_target_obj 收敛单目标, 逐帧把**全部**
+            # 多目标批量吐: 不收敛单目标, 逐帧把**全部**
             # 检测对象各出一条结果 (instance_id = 窗内 obj_id)。仅在种子帧挑出与 seed_bbox /
             # 最高分对应的**主实例** (primary), 供平台回填源轨迹; 其余各成新轨迹。窗内 obj_id
             # 稳定, 跨窗身份由平台按边界帧 IoU 关联 (见 video_tracker_runner)。

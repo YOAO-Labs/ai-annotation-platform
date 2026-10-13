@@ -3,6 +3,12 @@
 
 export type RejectReasonType = "missing" | "extra" | "wrong_label" | "wrong_geometry";
 
+// 退回提交 payload（modal 与 decisionDialog 两步流共用的单点定义）
+export interface RejectPayload {
+  reason_type: RejectReasonType;
+  reason?: string;
+}
+
 export const REJECT_REASON_TYPE_LABELS: Record<RejectReasonType, string> = {
   missing: "漏标",
   extra: "多标",

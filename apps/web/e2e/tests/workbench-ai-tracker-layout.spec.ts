@@ -23,7 +23,7 @@ test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, se
     if (response.url().includes("/api/") && response.status() >= 400)
       errors.push(`${response.status()} ${new URL(response.url()).pathname}`);
   });
-  const data = await seed.reset();
+  const data = await seed.owned();
   const video = await seed.videoTask(data.project_id);
   // The shared seed binds an unreachable mock backend; this layout test needs no inference.
   const token = await seed.accessToken(data.admin_email);
@@ -89,7 +89,7 @@ test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, se
 });
 
 test("图片 AI 审阅预设显示单例面板，图片上下文不暴露视频追踪", async ({ page, seed }) => {
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
@@ -121,7 +121,7 @@ test("图片 AI 审阅预设显示单例面板，图片上下文不暴露视频�
 
 test("AI 与视频追踪使用同一 Dockview 工作区，隐藏和预设不重建业务内容", async ({ page, seed }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const video = await seed.videoTask(data.project_id);
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize({ width: 1366, height: 900 });

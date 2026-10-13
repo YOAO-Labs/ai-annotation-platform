@@ -9,7 +9,7 @@ test("3D 本地树等待首次权威回灌，复用原生画布与 WebGL context
   seed,
 }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const lidar = await seed.seedLidar();
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize(DESKTOP);

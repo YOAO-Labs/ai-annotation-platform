@@ -42,27 +42,29 @@ export function loadAbortableImage(url: string, signal: AbortSignal): Promise<HT
 
 export function useAbortableImage(
   url: string,
+  retryKey: number = 0,
 ): [HTMLImageElement | undefined, AbortableImageStatus] {
   const [state, setState] = useState<{
     url: string;
+    retryKey: number;
     image: HTMLImageElement | undefined;
     status: AbortableImageStatus;
-  }>({ url: "", image: undefined, status: "loading" });
+  }>({ url: "", retryKey, image: undefined, status: "loading" });
 
   useLayoutEffect(() => {
     if (!url) return;
     const controller = new AbortController();
     void loadAbortableImage(url, controller.signal).then(
-      (image) => setState({ url, image, status: "loaded" }),
+      (image) => setState({ url, retryKey, image, status: "loaded" }),
       () => {
         if (!controller.signal.aborted) {
-          setState({ url, image: undefined, status: "failed" });
+          setState({ url, retryKey, image: undefined, status: "failed" });
         }
       },
     );
     return () => controller.abort();
-  }, [url]);
+  }, [retryKey, url]);
 
-  if (state.url !== url) return [undefined, "loading"];
+  if (state.url !== url || state.retryKey !== retryKey) return [undefined, "loading"];
   return [state.image, state.status];
 }

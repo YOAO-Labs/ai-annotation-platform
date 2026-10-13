@@ -14,6 +14,7 @@ from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.display_id import next_display_id
+from tests.factory import build_tool_bindings
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -28,7 +29,7 @@ async def _seed_prediction(db, owner_id):
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner_id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db.add(project)
     await db.flush()
@@ -72,11 +73,11 @@ async def _seed_prediction(db, owner_id):
 
 @pytest.mark.asyncio
 async def test_accept_without_overrides_keeps_predicted_attrs(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     owner, token = super_admin
     _proj, task, pred = await _seed_prediction(db_session, owner.id)
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/predictions/{pred.id}/accept?shape_index=0",
         headers=_bearer(token),
     )
@@ -92,11 +93,11 @@ async def test_accept_without_overrides_keeps_predicted_attrs(
 
 @pytest.mark.asyncio
 async def test_accept_with_overrides_applies_edited_values(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     owner, token = super_admin
     _proj, task, pred = await _seed_prediction(db_session, owner.id)
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/predictions/{pred.id}/accept?shape_index=0",
         headers=_bearer(token),
         # 审阅时把 color 改 blue→white; vehicle_type 保持

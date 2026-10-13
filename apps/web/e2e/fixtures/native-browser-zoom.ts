@@ -3,6 +3,23 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * Chromium creates its POSIX singleton socket at
+ * `<TMPDIR>/org.chromium.Chromium.XXXXXX/SingletonSocket`, bounded by
+ * `sockaddr_un.sun_path` (108 bytes on this Linux host). The long worktree e2e
+ * `TMPDIR` overruns it, so the full Chromium build the MV3 zoom extension
+ * requires aborts with SIGTRAP before any page loads: measured here, a 77-byte
+ * TMPDIR produces a 122-byte socket path and fails, while an owned 39-byte
+ * `/tmp` TMPDIR produces an 84-byte path and passes with the same arguments.
+ * Give the browser process an owned short temp directory; `close` removes it on
+ * launch failure and normal close. Windows uses named pipes without this limit
+ * and keeps the inherited environment.
+ */
+async function makeBrowserTempDirectory(): Promise<string | undefined> {
+  if (process.platform === "win32") return undefined;
+  return mkdtemp(join("/tmp", "aap-native-browser-zoom-tmp-"));
+}
+
 interface ZoomExtensionScope {
   chrome: {
     tabs: {
@@ -55,6 +72,15 @@ export async function launchNativeBrowserZoom(
   }
 
   const directory = await mkdtemp(join(tmpdir(), "aap-native-browser-zoom-"));
+  const browserTempDirectory = await makeBrowserTempDirectory();
+  const browserEnv = browserTempDirectory
+    ? {
+        ...process.env,
+        TMPDIR: browserTempDirectory,
+        TMP: browserTempDirectory,
+        TEMP: browserTempDirectory,
+      }
+    : process.env;
   let context: BrowserContext | undefined;
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
@@ -63,6 +89,9 @@ export async function launchNativeBrowserZoom(
         await context?.close();
       } finally {
         await rm(directory, { recursive: true, force: true });
+        if (browserTempDirectory) {
+          await rm(browserTempDirectory, { recursive: true, force: true });
+        }
       }
     })();
     return closing;
@@ -92,6 +121,7 @@ export async function launchNativeBrowserZoom(
       viewport: null,
       // Clear a Playwright Test project's inherited device preset for native zoom.
       deviceScaleFactor: undefined,
+      env: browserEnv,
       args: [
         `--window-size=${windowSize.width},${windowSize.height}`,
         `--disable-extensions-except=${extensionPath}`,

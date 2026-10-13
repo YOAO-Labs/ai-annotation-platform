@@ -9,6 +9,7 @@ from app.api.v1.tasks._shared import (
     _assert_task_editable,
     _assert_task_visible,
     _load_task_or_404,
+    _resolve_task_access,
 )
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -36,7 +37,8 @@ async def get_mask_capabilities(
     current_user: User = Depends(get_current_user),
 ) -> TaskMaskCapabilitiesResponse:
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    access = await _resolve_task_access(db, task, current_user)
+    await _assert_task_visible(db, task, current_user, access=access)
 
     project = await db.get(Project, task.project_id)
     if project is None:
@@ -47,7 +49,7 @@ async def get_mask_capabilities(
     legacy_polygon_commit_enabled = capabilities.legacy_polygon_commit_enabled
     reason = capabilities.reason
     try:
-        _assert_task_editable(task, current_user)
+        _assert_task_editable(task, current_user, access=access)
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         if exc.status_code != 409 or detail.get("reason") != "task_locked":

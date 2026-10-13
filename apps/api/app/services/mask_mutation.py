@@ -32,6 +32,7 @@ from app.schemas.mask_mutation import (
     MaskUpdateMutation,
 )
 from app.services.annotation import AnnotationService
+from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_slice import SLICE_RESTORE_TTL
 from app.schemas.annotation_slice import AnnotationSliceResponse
 from app.services.mask_slice import slice_mask_rle
@@ -47,7 +48,7 @@ from app.services.raster_mask_storage import (
     load_coco_rle,
     prepare_mask_payload_for_write,
 )
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
     collaboration_config,
@@ -1221,17 +1222,33 @@ class MaskMutationService:
         actor: User,
         *,
         request: Any = None,
+        access: Any = None,
     ) -> MaskMutationCommitResponse:
         digest = request_digest(payload)
         task = await self._lock_task(task_id)
 
-        from app.api.v1.tasks._shared import _assert_task_editable, _assert_task_visible
+        from app.api.v1.tasks._shared import (
+            _assert_review_adjustment_evidence,
+            _assert_task_editable,
+            _assert_task_visible,
+            _resolve_task_access,
+            assert_annotation_write_allowed,
+        )
 
-        await _assert_task_visible(self.db, task, actor)
+        if access is None:
+            access = await _resolve_task_access(
+                self.db, task, actor, lock_membership=True
+            )
+        await _assert_task_visible(self.db, task, actor, access=access)
+        assert_annotation_write_allowed(task, access)
+        # The FastAPI dependency precheck is not authoritative: re-read the
+        # freshly locked task and revalidate the round's frozen non-self
+        # evidence before an idempotent replay or any mutation.
+        await _assert_review_adjustment_evidence(self.db, task, actor, access)
         replay = await self._idempotent_replay(task_id, actor.id, payload, digest)
         if replay is not None:
             return replay
-        _assert_task_editable(task, actor)
+        _assert_task_editable(task, actor, access=access)
 
         if payload.operation == "slice_mask" and task.file_type != "image":
             raise MaskMutationError(
@@ -1647,6 +1664,7 @@ class MaskMutationService:
             rle_cache,
             algebra_budget,
         )
+        await record_annotation_actor(self.db, task, actor.id)
         await AnnotationService(self.db)._update_task_stats(task_id)
         await heartbeat_task_lock_for_legacy_video(self.db, task, actor.id)
 

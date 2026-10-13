@@ -8,7 +8,7 @@ import { ProjectFilterSummary } from "./ProjectFilterSummary";
 import { EMPTY_FILTERS, type DashboardFilters } from "./dashboardUrlState";
 
 const users = vi.hoisted(() => ({
-  data: [{ id: "alice", name: "Alice", role: "annotator" }],
+  data: [{ id: "alice", name: "Alice", role: "employee" }],
   isLoading: false,
   isError: false,
   refetch: vi.fn(),

@@ -17,6 +17,17 @@ import { projectsApi } from "./projects";
 beforeEach(() => get.mockClear());
 
 describe("projectsApi.list", () => {
+  it("requests a server page with filters and cancellation", () => {
+    const signal = new AbortController().signal;
+    projectsApi.page(
+      { page: 3, page_size: 20, data_type: ["image", "video"], search: "car" },
+      { signal },
+    );
+    expect(get).toHaveBeenCalledWith(
+      "/projects/query?page=3&page_size=20&data_type=image&data_type=video&search=car",
+      { signal },
+    );
+  });
   it("serializes repeated project data types and forwards AbortSignal", () => {
     const signal = new AbortController().signal;
     projectsApi.list(

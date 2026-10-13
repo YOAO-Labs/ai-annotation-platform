@@ -120,6 +120,8 @@ export interface AdminPersonItem {
   role: string;
   status: string;
   project_count: number;
+  /** 头像引用(`preset:<slug>` / `upload:<token>`);空 = 回退首字母。 */
+  avatar_ref?: string | null;
   main_metric: number;
   main_metric_label: string;
   weekly_compare_pct?: number | null;

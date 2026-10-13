@@ -79,13 +79,13 @@ def _stages(detect_id, classify_id):
 
 @pytest.mark.asyncio
 async def test_patch_persists_and_get_returns_pipeline(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
 
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": stages},
@@ -93,19 +93,17 @@ async def test_patch_persists_and_get_returns_pipeline(
     assert resp.status_code == 200, resp.text
     assert resp.json()["preannotate_pipeline"] == stages
 
-    got = await httpx_client_bound.get(
-        f"/api/v1/projects/{proj.id}", headers=_bearer(token)
-    )
+    got = await httpx_client.get(f"/api/v1/projects/{proj.id}", headers=_bearer(token))
     assert got.status_code == 200, got.text
     assert got.json()["preannotate_pipeline"] == stages
 
 
 @pytest.mark.asyncio
-async def test_patch_single_stage_pipeline(httpx_client_bound, super_admin, db_session):
+async def test_patch_single_stage_pipeline(httpx_client, super_admin, db_session):
     owner, token = super_admin
     proj, detect, _ = await _seed(db_session, owner.id)
     stages = [{"stage": 0, "ml_backend_id": str(detect.id), "model_id": "detect"}]
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": stages},
@@ -115,15 +113,15 @@ async def test_patch_single_stage_pipeline(httpx_client_bound, super_admin, db_s
 
 
 @pytest.mark.asyncio
-async def test_patch_null_clears_pipeline(httpx_client_bound, super_admin, db_session):
+async def test_patch_null_clears_pipeline(httpx_client, super_admin, db_session):
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
-    await httpx_client_bound.patch(
+    await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": _stages(detect.id, classify.id)},
     )
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": None},
@@ -133,17 +131,17 @@ async def test_patch_null_clears_pipeline(httpx_client_bound, super_admin, db_se
 
 
 @pytest.mark.asyncio
-async def test_patch_omit_keeps_pipeline(httpx_client_bound, super_admin, db_session):
+async def test_patch_omit_keeps_pipeline(httpx_client, super_admin, db_session):
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
-    await httpx_client_bound.patch(
+    await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": stages},
     )
     # 不传 preannotate_pipeline, 改别的字段 → 编排保持不变。
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"name": "renamed"},
@@ -153,14 +151,12 @@ async def test_patch_omit_keeps_pipeline(httpx_client_bound, super_admin, db_ses
 
 
 @pytest.mark.asyncio
-async def test_patch_rejects_duplicate_stage(
-    httpx_client_bound, super_admin, db_session
-):
+async def test_patch_rejects_duplicate_stage(httpx_client, super_admin, db_session):
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
     stages[1]["stage"] = 0  # 重复 stage 序号
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": stages},
@@ -169,12 +165,12 @@ async def test_patch_rejects_duplicate_stage(
 
 
 @pytest.mark.asyncio
-async def test_patch_rejects_no_root_stage(httpx_client_bound, super_admin, db_session):
+async def test_patch_rejects_no_root_stage(httpx_client, super_admin, db_session):
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
     stages[0]["parent_stage"] = 1  # 无 parent_stage=None 的源阶段
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": stages},
@@ -183,11 +179,11 @@ async def test_patch_rejects_no_root_stage(httpx_client_bound, super_admin, db_s
 
 
 @pytest.mark.asyncio
-async def test_patch_rejects_bad_uuid(httpx_client_bound, super_admin, db_session):
+async def test_patch_rejects_bad_uuid(httpx_client, super_admin, db_session):
     owner, token = super_admin
     proj, _, _ = await _seed(db_session, owner.id)
     stages = [{"stage": 0, "ml_backend_id": "not-a-uuid", "model_id": "detect"}]
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": stages},
@@ -206,7 +202,7 @@ async def _set_caps(db: AsyncSession, backend, models: list[dict]):
 
 @pytest.mark.asyncio
 async def test_patch_emits_capability_warnings_not_blocked(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     # 源模型自报 batchable=false → 保存仍 200 (软提示), 响应回带 capability_warnings。
     owner, token = super_admin
@@ -214,7 +210,7 @@ async def test_patch_emits_capability_warnings_not_blocked(
     await _set_caps(
         db_session, detect, [{"id": "detect", "resource_profile": {"batchable": False}}]
     )
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": _stages(detect.id, classify.id)},
@@ -225,13 +221,11 @@ async def test_patch_emits_capability_warnings_not_blocked(
 
 
 @pytest.mark.asyncio
-async def test_patch_no_warnings_when_capable(
-    httpx_client_bound, super_admin, db_session
-):
+async def test_patch_no_warnings_when_capable(httpx_client, super_admin, db_session):
     # 零退化: 无能力快照 (老 backend) → 保存 200 且 capability_warnings 为空。
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
         json={"preannotate_pipeline": _stages(detect.id, classify.id)},

@@ -26,6 +26,7 @@ class AuditAction(str, Enum):
     PROJECT_DELETE = "project.delete"
     PROJECT_MEMBER_ADD = "project.member_add"
     PROJECT_MEMBER_REMOVE = "project.member_remove"
+    PROJECT_MEMBER_ROLE_CHANGE = "project.member_role_change"
     DATASET_CREATE = "dataset.create"
     DATASET_DELETE = "dataset.delete"
     DATASET_LINK = "dataset.link"

@@ -12,9 +12,17 @@ function render(ui: Parameters<typeof rtlRender>[0]) {
 }
 
 import type { VideoTrackerJobPreview } from "@/api/videoTracker";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import type { TrackerReviewDecisionOutcome } from "@/hooks/useVideoTrackerJobs";
 import { projectTrackerReview, type TrackerReviewScope } from "@/hooks/videoTrackerReviewScope";
 import { VideoTrackerReviewBar, type VideoTrackerReviewBarProps } from "./VideoTrackerReviewBar";
+
+/** 结算当前排队的 decisionDialog,模拟用户点下某个按钮。 */
+function settleDecisionDialog(value: boolean | string | null) {
+  const head = useDecisionDialogStore.getState().queue[0];
+  if (!head) throw new Error("decisionDialog 队列为空");
+  useDecisionDialogStore.getState().settle(value);
+}
 
 const preview: VideoTrackerJobPreview = {
   job_id: "job-1",
@@ -82,7 +90,13 @@ function deferredOutcome() {
   return { promise, resolve };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  // decisionDialog store 是模块级单例,清空队列避免跨测试残留。
+  act(() => {
+    useDecisionDialogStore.setState({ queue: [] });
+  });
+});
 
 describe("VideoTrackerReviewBar", () => {
   it("keeps selected scope and decisions visible when collapsed without clearing pending work", async () => {
@@ -98,9 +112,8 @@ describe("VideoTrackerReviewBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "收起" }));
     expect(screen.getByTestId("tracker-review-accept")).toBeDisabled();
     view.rerender(<VideoTrackerReviewBar {...initial} presentationHidden />);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await act(async () => deferred.resolve({ ok: false, reason: "manual_keyframe_protected" }));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
     expect(initial.onDecide).toHaveBeenCalledOnce();
     view.rerender(<VideoTrackerReviewBar {...initial} />);
     expect(screen.getByTestId("tracker-review-accept")).toBeEnabled();
@@ -202,7 +215,6 @@ describe("VideoTrackerReviewBar", () => {
   });
 
   it("选区含 manual 时在 409 后二次确认覆盖", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const onDecide = vi
       .fn()
       .mockResolvedValueOnce({ ok: false, reason: "manual_keyframe_protected" })
@@ -212,8 +224,10 @@ describe("VideoTrackerReviewBar", () => {
     expect(screen.getByTestId("tracker-review-accept")).not.toBeDisabled();
     expect(screen.getByTestId("tracker-review-discard")).not.toBeDisabled();
     fireEvent.click(screen.getByTestId("tracker-review-accept"));
+    // 409 后弹应用内覆盖确认;确认 → 同 selector 以 override_manual=true 重试。
+    await waitFor(() => expect(useDecisionDialogStore.getState().queue[0]).toBeDefined());
+    act(() => settleDecisionDialog(true));
     await waitFor(() => expect(onDecide).toHaveBeenCalledTimes(2));
-    expect(confirm).toHaveBeenCalledOnce();
     expect(onDecide).toHaveBeenNthCalledWith(1, {
       instance_ids: ["A", "B"],
       from_frame: 10,
@@ -271,7 +285,6 @@ describe("VideoTrackerReviewBar", () => {
     async (change) => {
       const first = deferredOutcome();
       const second = deferredOutcome();
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
       const initial = props({ onDecide: vi.fn(() => first.promise) });
       const { rerender } = render(<VideoTrackerReviewBar {...initial} />);
       fireEvent.click(screen.getByTestId("tracker-review-accept"));
@@ -287,7 +300,7 @@ describe("VideoTrackerReviewBar", () => {
       fireEvent.click(screen.getByTestId("tracker-review-discard"));
       expect(onNextDecide).toHaveBeenCalledOnce();
       await act(async () => first.resolve({ ok: false, reason: "manual_keyframe_protected" }));
-      expect(confirm).not.toHaveBeenCalled();
+      expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
       expect(initial.onDecide).toHaveBeenCalledOnce();
       expect(screen.getByTestId("tracker-review-accept")).toBeDisabled();
       expect(screen.getByTestId("tracker-review-discard")).toBeDisabled();
@@ -300,7 +313,6 @@ describe("VideoTrackerReviewBar", () => {
     "%s 已变化时不展示旧请求的人工帧确认",
     async (change) => {
       const deferred = deferredOutcome();
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
       const initial = props({ onDecide: vi.fn(() => deferred.promise) });
       const { rerender } = render(<VideoTrackerReviewBar {...initial} />);
       fireEvent.click(screen.getByTestId("tracker-review-accept"));
@@ -320,42 +332,40 @@ describe("VideoTrackerReviewBar", () => {
         />,
       );
       await act(async () => deferred.resolve({ ok: false, reason: "manual_keyframe_protected" }));
-      expect(confirm).not.toHaveBeenCalled();
+      expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
       expect(initial.onDecide).toHaveBeenCalledOnce();
     },
   );
 
   it("卸载后不弹出人工帧确认", async () => {
     const deferred = deferredOutcome();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const initial = props({ onDecide: vi.fn(() => deferred.promise) });
     const { unmount } = render(<VideoTrackerReviewBar {...initial} />);
     fireEvent.click(screen.getByTestId("tracker-review-accept"));
     unmount();
     await act(async () => deferred.resolve({ ok: false, reason: "manual_keyframe_protected" }));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
     expect(initial.onDecide).toHaveBeenCalledOnce();
   });
 
   it("人工帧确认返回后再次检查当前意图", async () => {
     let current = true;
-    vi.spyOn(window, "confirm").mockImplementation(() => {
-      current = false;
-      return true;
-    });
     const initial = props({
       onDecide: vi.fn().mockResolvedValue({ ok: false, reason: "manual_keyframe_protected" }),
       isIntentCurrent: () => current,
     });
     render(<VideoTrackerReviewBar {...initial} />);
     fireEvent.click(screen.getByTestId("tracker-review-accept"));
-    await waitFor(() => expect(window.confirm).toHaveBeenCalledOnce());
+    await waitFor(() => expect(useDecisionDialogStore.getState().queue[0]).toBeDefined());
+    // 确认对话框返回前意图已过期 → 不再 override。
+    current = false;
+    act(() => settleDecisionDialog(true));
+    await act(async () => {});
     expect(initial.onDecide).toHaveBeenCalledOnce();
   });
 
   it("人工帧重试使用点击时的 selector 和决定回调", async () => {
     const deferred = deferredOutcome();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const onDecide = vi.fn().mockReturnValueOnce(deferred.promise).mockResolvedValue({ ok: true });
     const replacementDecide = vi.fn().mockResolvedValue({ ok: true });
     const initial = props({
@@ -366,6 +376,9 @@ describe("VideoTrackerReviewBar", () => {
     fireEvent.click(screen.getByTestId("tracker-review-accept"));
     rerender(<VideoTrackerReviewBar {...initial} onDecide={replacementDecide} />);
     await act(async () => deferred.resolve({ ok: false, reason: "manual_keyframe_protected" }));
+    await waitFor(() => expect(useDecisionDialogStore.getState().queue[0]).toBeDefined());
+    act(() => settleDecisionDialog(true));
+    await waitFor(() => expect(onDecide).toHaveBeenCalledTimes(2));
     expect(onDecide).toHaveBeenNthCalledWith(2, {
       instance_ids: ["A"],
       from_frame: 12,

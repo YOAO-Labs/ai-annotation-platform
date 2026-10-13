@@ -24,6 +24,19 @@ describe("inline filter controls", () => {
     expect(onClick).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "已完成" })).toBeDisabled();
   });
+  it("can drop the decorative funnel label while keeping the group name", () => {
+    render(
+      <FilterGroup label="通知类型筛选" hideLabel compact>
+        <FilterToggle active={false} onClick={vi.fn()}>
+          全部
+        </FilterToggle>
+      </FilterGroup>,
+    );
+    const group = screen.getByRole("group", { name: "通知类型筛选" });
+    expect(group.querySelectorAll(".lucide-funnel")).toHaveLength(0);
+    expect(screen.queryByText("通知类型筛选")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部" })).toBeInTheDocument();
+  });
   it("keeps native empty/default values and change events", async () => {
     const onChange = vi.fn();
     render(

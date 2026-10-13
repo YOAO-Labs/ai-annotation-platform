@@ -1,11 +1,14 @@
 /**
  * v0.23.4 P3 · registry "服务池" tab.
  *
- * Plan §6.1 (ServicePools table spec) is the source of truth. Each row renders
- * name + stable id (tooltip/copy), routable/total members, capacity (inflight /
- * limit — limit null → "未声明"; metrics_available=false → "暂无路由指标"),
- * project count, GPU max severity (super only), split health+routing+freshness
- * status, and a DropdownMenu of risk-ordered actions (super only).
+ * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: the pool table keeps its
+ * 身份/成员/容量/关联项目/状态/操作 columns, but now owns the toolbar that
+ * actually applies to it — pool-or-member search (`pool_q`) + health filter
+ * (`pool_health`) both URL-backed, 新建服务池 as the primary action and
+ * 注册实例 kept as the secondary entry. Row ids render as 名称 + 短 ID with
+ * copy/tooltip (full value in detail views). 「查看实例」navigates via the URL
+ * (`registry_view=instances&instance_pool=<id>`) instead of the removed
+ * registry:focus-tab event. `pool_id` deep-links expand + scroll to the pool.
  *
  * Project Admin: routing_policy is hidden (server returns "unknown"), no GPU
  * column, no actions, no expansion of internal reason — read-only.
@@ -14,7 +17,7 @@
  * queries; mutations come from `useGlobalRegistry` and invalidate the shared
  * keys.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -55,14 +58,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/shadcn/ui/select";
+import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { useToastStore } from "@/components/ui/Toast";
 
 import { NO_LIMIT, NO_METRICS } from "./registryShared";
 import { CapabilityDriftReviewDialog } from "./CapabilityDriftReviewDialog";
-import { AffectedCountChip, CopyableId, EmptyState, NullCell } from "./registryUi";
-import type { RegistryFilters, RegistryScope } from "./registryTypes";
+import {
+  AffectedCountChip,
+  EmptyState,
+  NullCell,
+  ShortCopyableId,
+  UrlIssueChips,
+} from "./registryUi";
+import type { RegistryScope, RegistrySectionProps } from "./registryTypes";
 import type { PoolViewModel } from "../runtimeTopology";
-import { sortPoolsBySeverity } from "../runtimeTopology";
+import { derivePoolEffectiveRouting, sortPoolsBySeverity } from "../runtimeTopology";
+import { instancesForPoolPatch, urlIssuesForView } from "../marketUrlState";
 import { FreshnessIndicator } from "../runtime/FreshnessIndicator";
 import { RuntimeStatusBadge } from "../runtime/RuntimeStatusBadge";
 import { poolStatusToken } from "../runtime/StateTokens";
@@ -141,17 +152,33 @@ function gpuSeverityBadge(sev: GpuSeverity): ReactNode {
 
 export function ServicePoolsSection({
   scope,
-  filters,
-}: {
-  scope: RegistryScope;
-  filters: RegistryFilters;
-}): ReactNode {
+  url,
+  patchUrl,
+  urlIssues,
+  onOpenRegister,
+}: RegistrySectionProps & { onOpenRegister?: () => void }): ReactNode {
   const { isSuperAdmin, vm } = scope;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = useState(false);
   const [poolName, setPoolName] = useState("");
   const createPool = useCreateServicePool();
   const pushToast = useToastStore((s) => s.push);
+
+  // pool_id 定位键（plan §5）：池存在 → 展开成员并滚动到该行；对象不存在或
+  // 当前不可访问 → 明确提示，不静默清掉条件。
+  const focusPoolId = url.poolId;
+  const focusPoolExists = vm.pools.some((p) => p.id === focusPoolId);
+  useEffect(() => {
+    if (!focusPoolId || !focusPoolExists) return;
+    setExpanded((prev) => {
+      if (prev.has(focusPoolId)) return prev;
+      const next = new Set(prev);
+      next.add(focusPoolId);
+      return next;
+    });
+    const row = document.querySelector<HTMLElement>(`[data-pool-row="${focusPoolId}"]`);
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, [focusPoolId, focusPoolExists]);
 
   const submitCreate = () => {
     const name = poolName.trim();
@@ -179,30 +206,87 @@ export function ServicePoolsSection({
     });
   };
 
+  // 搜索池名/池 ID/策略以及成员名/成员 ID（plan §4.3：搜索池或成员）。
   const rows = useMemo(() => {
     const filtered = vm.pools.filter((p) => {
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
-        const hay = `${p.name} ${p.id} ${p.routing_policy}`.toLowerCase();
+      if (url.poolQ) {
+        const q = url.poolQ.trim().toLowerCase();
+        const memberHay = p.members.map((m) => `${m.name} ${m.registry_id}`).join(" ");
+        const hay = `${p.name} ${p.id} ${p.routing_policy} ${memberHay}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
-      if (filters.statusFilter !== "all" && p.status !== filters.statusFilter) return false;
+      if (url.poolHealth !== "all" && p.status !== url.poolHealth) return false;
       return true;
     });
     return sortPoolsBySeverity(filtered);
-  }, [vm.pools, filters.search, filters.statusFilter]);
+  }, [vm.pools, url.poolQ, url.poolHealth]);
+
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative">
+        <Icon
+          name="search"
+          size={12}
+          className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          aria-label="搜索服务池或成员"
+          placeholder="搜索池名 / 池 ID / 成员"
+          value={url.poolQ}
+          onChange={(e) => patchUrl({ poolQ: e.target.value })}
+          className="h-8 w-56 pl-7 text-xs"
+        />
+      </div>
+      <FilterGroup label="健康" hideLabel compact>
+        <FilterSelect
+          aria-label="按健康状态筛选服务池"
+          value={url.poolHealth}
+          onChange={(e) => patchUrl({ poolHealth: e.target.value as typeof url.poolHealth })}
+          className="h-8 text-xs"
+        >
+          <option value="all">全部</option>
+          <option value="healthy">健康</option>
+          <option value="degraded">降级</option>
+          <option value="offline">离线</option>
+          <option value="unknown">未知</option>
+        </FilterSelect>
+      </FilterGroup>
+      {url.poolHealth !== "all" && (
+        <button
+          type="button"
+          onClick={() => patchUrl({ poolHealth: "all" })}
+          className="text-2xs text-brand no-underline hover:underline"
+        >
+          清除条件
+        </button>
+      )}
+      <div className="ml-auto flex items-center gap-2">
+        {isSuperAdmin && onOpenRegister && (
+          <Button size="sm" variant="ghost" onClick={onOpenRegister} title="注册新的推理实例">
+            <Icon name="plus" size={11} />
+            注册实例
+          </Button>
+        )}
+        {isSuperAdmin && (
+          <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)}>
+            <Icon name="plus" size={11} />
+            新建服务池
+          </Button>
+        )}
+      </div>
+      <UrlIssueChips
+        issues={urlIssuesForView(urlIssues, "pools")}
+        onDismiss={(key) => {
+          if (key === "pool_health") patchUrl({ poolHealth: "all" });
+        }}
+      />
+    </div>
+  );
 
   if (vm.pools.length === 0) {
     return (
       <div className="flex flex-col gap-3">
-        {isSuperAdmin && (
-          <div className="flex justify-end">
-            <Button onClick={() => setCreateOpen(true)}>
-              <Icon name="plus" size={12} />
-              新建服务池
-            </Button>
-          </div>
-        )}
+        {toolbar}
         <EmptyState icon="layers" message="尚无服务池" />
         <CreatePoolDialog
           open={createOpen}
@@ -218,15 +302,16 @@ export function ServicePoolsSection({
 
   return (
     <div className="flex flex-col gap-3">
-      {isSuperAdmin && (
-        <div className="flex justify-end">
-          <Button onClick={() => setCreateOpen(true)}>
-            <Icon name="plus" size={12} />
-            新建服务池
+      {toolbar}
+      {focusPoolId && !focusPoolExists && (
+        <div className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+          <span>对象不存在或当前不可访问（pool_id={focusPoolId}）</span>
+          <Button size="sm" variant="ghost" onClick={() => patchUrl({ poolId: "" })}>
+            移除定位
           </Button>
         </div>
       )}
-      <Table>
+      <Table containerClassName="overflow-hidden rounded-lg border border-border bg-card">
         <TableHeader>
           <TableRow>
             <TableHead className="w-8" />
@@ -245,13 +330,15 @@ export function ServicePoolsSection({
               key={pool.id}
               pool={pool}
               scope={scope}
+              patchUrl={patchUrl}
               expanded={expanded.has(pool.id)}
+              focused={pool.id === focusPoolId}
               onToggle={() => togglePool(pool.id)}
             />
           ))}
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={isSuperAdmin ? 7 : 5}>
+              <TableCell colSpan={isSuperAdmin ? 8 : 6}>
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   没有匹配的服务池
                 </div>
@@ -321,12 +408,16 @@ function CreatePoolDialog({
 function PoolRow({
   pool,
   scope,
+  patchUrl,
   expanded,
+  focused,
   onToggle,
 }: {
   pool: PoolViewModel;
   scope: RegistryScope;
+  patchUrl: RegistrySectionProps["patchUrl"];
   expanded: boolean;
+  focused: boolean;
   onToggle: () => void;
 }): ReactNode {
   const { isSuperAdmin, vm } = scope;
@@ -345,7 +436,11 @@ function PoolRow({
 
   return (
     <>
-      <TableRow aria-expanded={expanded} className={expanded ? "bg-muted/40" : undefined}>
+      <TableRow
+        data-pool-row={pool.id}
+        aria-expanded={expanded}
+        className={expanded || focused ? "bg-muted/40" : undefined}
+      >
         <TableCell className="align-middle">
           <button
             type="button"
@@ -369,7 +464,7 @@ function PoolRow({
               {affectedCount > 0 && <AffectedCountChip count={affectedCount} />}
             </div>
             <div className="flex items-center gap-2">
-              <CopyableId value={pool.id} label="服务池 ID" />
+              <ShortCopyableId value={pool.id} label="服务池 ID" />
               {/* routing_policy: Super Admin only; Project Admin server-projection is "unknown". */}
               {isSuperAdmin && (
                 <span className="text-2xs text-muted-foreground">
@@ -429,7 +524,7 @@ function PoolRow({
         </TableCell>
         {isSuperAdmin && (
           <TableCell className="text-right">
-            <PoolActionsMenu pool={pool} scope={scope} />
+            <PoolActionsMenu pool={pool} scope={scope} patchUrl={patchUrl} />
           </TableCell>
         )}
       </TableRow>
@@ -474,20 +569,6 @@ function PoolStatusCell({
   );
 }
 
-/** Pool-level effective routing axis, derived from member routing rollup. */
-function derivePoolEffectiveRouting(
-  pool: PoolViewModel,
-): "routable" | "draining" | "blocked" | "bypassed" | "unknown" {
-  if (pool.routing_policy === "unknown") return "unknown";
-  if (pool.availability.routable > 0) {
-    // If some routable + some draining, the pool is routable.
-    return "routable";
-  }
-  if (pool.availability.draining > 0 && pool.availability.routable === 0) return "draining";
-  if (pool.status === "offline") return "blocked";
-  return "unknown";
-}
-
 function PoolMembersSubRows({
   pool,
   scope,
@@ -499,7 +580,7 @@ function PoolMembersSubRows({
     return (
       <TableRow className="bg-muted/20">
         <TableCell />
-        <TableCell colSpan={scope.isSuperAdmin ? 6 : 4}>
+        <TableCell colSpan={scope.isSuperAdmin ? 7 : 5}>
           <div className="py-2 text-xs text-muted-foreground">该池暂无成员实例</div>
         </TableCell>
       </TableRow>
@@ -510,7 +591,7 @@ function PoolMembersSubRows({
       {pool.members.map((m) => (
         <TableRow key={m.registry_id} className="bg-muted/20">
           <TableCell />
-          <TableCell colSpan={scope.isSuperAdmin ? 6 : 4}>
+          <TableCell colSpan={scope.isSuperAdmin ? 7 : 5}>
             <div className="flex flex-wrap items-center gap-3 py-1 text-xs">
               <span className="font-medium">{m.name}</span>
               <Badge variant="outline" className="text-2xs">
@@ -519,9 +600,11 @@ function PoolMembersSubRows({
               <span className="text-muted-foreground">
                 权重 {scope.isSuperAdmin && m.weight != null ? m.weight : "—"}
               </span>
-              <CopyableId value={m.registry_id} label="实例 ID" />
+              <ShortCopyableId value={m.registry_id} label="实例 ID" />
               {m.gpu_resource_id && scope.isSuperAdmin && (
-                <span className="text-muted-foreground">GPU · {m.gpu_resource_id}</span>
+                <span className="mono text-2xs text-muted-foreground" title={m.gpu_resource_id}>
+                  GPU · {m.gpu_resource_id}
+                </span>
               )}
               {scope.isSuperAdmin && <PoolMemberActions pool={pool} member={m} />}
             </div>
@@ -548,9 +631,11 @@ function trafficStateLabel(state: string): string {
 function PoolActionsMenu({
   pool,
   scope,
+  patchUrl,
 }: {
   pool: PoolViewModel;
   scope: RegistryScope;
+  patchUrl: RegistrySectionProps["patchUrl"];
 }): ReactNode {
   const pushToast = useToastStore((s) => s.push);
   const drain = useDrainPoolMember();
@@ -612,10 +697,9 @@ function PoolActionsMenu({
       label: "查看实例",
       icon: "layers",
       onSelect: () => {
-        /* Tab-level focus is owned by the orchestrator; emit a custom event. */
-        window.dispatchEvent(
-          new CustomEvent("registry:focus-tab", { detail: { tab: "instances", poolId: pool.id } }),
-        );
+        // 子 TAB 与对象定位由 URL 承载（plan §5）：切到实例子视图并按池过滤，
+        // 显式跳转 push 浏览器历史，刷新/前进后退可恢复。
+        patchUrl(instancesForPoolPatch(pool.id), { replace: false });
       },
     },
     {

@@ -11,7 +11,7 @@ def _bearer(token: str) -> dict[str, str]:
 
 @pytest.mark.asyncio
 async def test_admin_system_health_super_admin_only(
-    httpx_client_bound, annotator, super_admin, monkeypatch
+    httpx_client, annotator, super_admin, monkeypatch
 ):
     from app.api.v1 import admin_system_health
 
@@ -47,13 +47,13 @@ async def test_admin_system_health_super_admin_only(
     )
 
     _, annotator_token = annotator
-    forbidden = await httpx_client_bound.get(
+    forbidden = await httpx_client.get(
         "/api/v1/admin/system-health", headers=_bearer(annotator_token)
     )
     assert forbidden.status_code == 403
 
     _, admin_token = super_admin
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/admin/system-health", headers=_bearer(admin_token)
     )
     assert resp.status_code == 200
@@ -75,7 +75,7 @@ async def test_admin_system_health_super_admin_only(
 
 @pytest.mark.asyncio
 async def test_admin_system_health_marks_stale_worker_degraded(
-    httpx_client_bound, super_admin, monkeypatch
+    httpx_client, super_admin, monkeypatch
 ):
     from app.api.v1 import admin_system_health
 
@@ -108,7 +108,7 @@ async def test_admin_system_health_marks_stale_worker_degraded(
     )
 
     _, admin_token = super_admin
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/admin/system-health", headers=_bearer(admin_token)
     )
 

@@ -99,15 +99,16 @@ function roundPanelRect<T>(panel: T): T {
 /** 持久化前对 layout 浮窗坐标取整，避免小数像素触发后端 int 校验 422。 */
 export function sanitizeForPersist(wb: WorkbenchPreferences): Omit<
   WorkbenchPreferences,
-  "layout"
+  "layout" | "shortcuts"
 > & {
   layout: Omit<WorkbenchPreferences["layout"], "workspace" | "triViewFloat">;
 } {
-  // Docking snapshots have their own writer; this legacy full-tree PATCH must never
-  // carry a stale workspace copied from an earlier preferences response.
+  // Docking snapshots and shortcuts have their own writers; this legacy PATCH
+  // must never carry stale data copied from another preferences response.
+  const { shortcuts: _shortcuts, ...settings } = wb;
   const { workspace: _workspace, triViewFloat: _triViewFloat, ...l } = wb.layout;
   return {
-    ...wb,
+    ...settings,
     layout: {
       ...l,
       floatingTaskQueue: roundPanelRect(l.floatingTaskQueue),
@@ -126,12 +127,14 @@ function cachePreferences(
 ): void {
   client.setQueryData<UserPreferences>(userPreferencesQueryKey(userId), (previous) => {
     const workspace = previous?.workbench?.layout?.workspace;
-    if (workspace === undefined) return response;
+    const shortcuts = previous?.workbench?.shortcuts;
+    if (workspace === undefined && shortcuts === undefined) return response;
     return {
       ...response,
       workbench: {
         ...response.workbench,
-        layout: { ...response.workbench.layout, workspace },
+        ...(shortcuts === undefined ? {} : { shortcuts }),
+        ...(workspace === undefined ? {} : { layout: { ...response.workbench.layout, workspace } }),
       },
     };
   });

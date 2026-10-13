@@ -5,6 +5,15 @@
 
 ---
 
+## 落地状态（更新于 2026-09-18）
+
+- **方案 A（`task.batch_label` 字符串）**：未按原样实施，已被方案 B 取代。
+- **方案 B（`task_batches` 表 + `BatchService`）✅ 已落地**（v0.6.1 起持续演进）：`task_batches` 模型与 `Task.batch_id`、批次创建 / 拆分 / 状态流转 / 批量分配 / 优先级与 deadline、scheduler 按批次过滤、进度聚合（`batch_summary`）、按批次导出，以及前端批次管理与看板均已上线。
+- **仍缺（未随 B 一起落地）**：批次级 IAA / 共识合并、按难度 / 不确定性智能切批、批次 approved 触发的主动学习闭环。
+- **§6.4 独立工程项**：`link_project` 异步 / 分块建任务、dataset items 分页缩略图、task 列表虚拟滚动均已落地。
+
+---
+
 ## 1. 摘要（结论先行）
 
 - **结论：v0.6 内不做完整分包；只做「最轻方案」（task 加 `batch_label` 字符串字段 + 列表过滤）解燃眉之急；中量方案（独立 `task_batch` 表）放到 v0.7、与「审核流」「主动学习」绑定一起做才划算。**
@@ -184,7 +193,7 @@ CVAT 的批次是**强制的**——你不能不切 job，因为视频几千帧�
 | 可逆性（做错能改） | 高             | 中                       | 低                          |
 | 适用项目阶段       | v0.5-v0.6      | v0.7-v0.8                | v1.0+                       |
 
-### 5.2 方案 A：轻量（推荐立刻做）
+### 5.2 方案 A：轻量（推荐立刻做）— 已被方案 B 取代，未单独实施 ✅ 由 B 覆盖
 
 **核心**：不引入新表，task 加一个 `batch_label: String` 字符串字段，前端在任务列表加 batch 筛选器。
 
@@ -226,7 +235,7 @@ batch_label: Mapped[str | None] = mapped_column(String(64), nullable=True, index
 - 前端：~200 行（DatasetsPage 加输入框 + 任务列表加 dropdown）
 - 数据迁移：1 个 alembic migration（加列，可空）
 
-### 5.3 方案 B：中量（v0.7 候选）
+### 5.3 方案 B：中量（v0.7 候选）✅ 已落地
 
 **核心**：新建 `task_batch` 表，作为分配 + 审核 + 导出 + 进度展示的最小单位。
 

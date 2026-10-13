@@ -195,7 +195,7 @@ async def test_bulk_delete_force_guard(db_session: AsyncSession, super_admin):
 
 @pytest.mark.asyncio
 async def test_delete_route_force_param_and_audit(
-    db_session: AsyncSession, super_admin, httpx_client_bound
+    db_session: AsyncSession, super_admin, httpx_client
 ):
     """HTTP 层：非 force → 409(affected_tasks)；force=true → 204 + 审计 forced=True。"""
     user, token = super_admin
@@ -208,7 +208,7 @@ async def test_delete_route_force_param_and_audit(
     tasks[0].status = "review"
     await db_session.flush()
 
-    r409 = await httpx_client_bound.delete(
+    r409 = await httpx_client.delete(
         f"/api/v1/projects/{project.id}/batches/{batch_id}",
         headers=_bearer(token),
     )
@@ -217,7 +217,7 @@ async def test_delete_route_force_param_and_audit(
     assert detail["requires_force"] is True
     assert detail["affected_tasks"] == 1
 
-    r = await httpx_client_bound.delete(
+    r = await httpx_client.delete(
         f"/api/v1/projects/{project.id}/batches/{batch_id}?force=true",
         headers=_bearer(token),
     )
@@ -236,7 +236,7 @@ async def test_delete_route_force_param_and_audit(
 
 @pytest.mark.asyncio
 async def test_bulk_delete_route_force_audit(
-    db_session: AsyncSession, super_admin, httpx_client_bound
+    db_session: AsyncSession, super_admin, httpx_client
 ):
     """HTTP 层 bulk-delete：force=true 删除成功且审计 detail 写入 forced 标记。"""
     user, token = super_admin
@@ -249,7 +249,7 @@ async def test_bulk_delete_route_force_audit(
     tasks[0].status = "completed"
     await db_session.flush()
 
-    r = await httpx_client_bound.post(
+    r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/batches/bulk-delete?force=true",
         headers=_bearer(token),
         json={"batch_ids": [str(batch_id)]},

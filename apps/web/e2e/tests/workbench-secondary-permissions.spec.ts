@@ -8,7 +8,7 @@ test("secondary inference is available to annotators and absent from review work
   seed,
 }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const taskId = data.task_ids[0];
   const leaveWorkbench = async (email: string) => {
     await page.goto("about:blank");
@@ -44,8 +44,9 @@ test("secondary inference is available to annotators and absent from review work
         },
       }),
   );
-  await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
-  const parent = await seed.createTaskAnnotation(taskId, data.admin_email, {
+  // The base fixture already assigns this task to the annotator through its
+  // batch, so create the parent annotation as the real author.
+  const parent = await seed.createTaskAnnotation(taskId, data.annotator_email, {
     annotation_type: "bbox",
     tool_unit_id: "bbox",
     class_name: "car",
@@ -59,12 +60,15 @@ test("secondary inference is available to annotators and absent from review work
   await expect(page.getByTestId("selection-toggle-secondary-bar")).toBeVisible();
   await leaveWorkbench(data.annotator_email);
 
-  await seed.advanceTask({
-    taskId,
-    toStatus: "review",
-    annotatorEmail: data.annotator_email,
-    reviewerEmail: data.reviewer_email,
+  // Submit through the real workflow as the effective annotator so the review
+  // round freezes complete contributor evidence.  advance_task cannot be used
+  // here: it leaves review evidence unknown and blocks reviewer adjustments.
+  const annotatorToken = await seed.accessToken(data.annotator_email);
+  const submitted = await request.post(`${API_BASE}/api/v1/tasks/${taskId}/submit`, {
+    headers: { Authorization: `Bearer ${annotatorToken}` },
   });
+  expect(submitted.ok(), await submitted.text()).toBe(true);
+
   // Administrators also lose the inference entry when they enter review mode.
   for (const email of [data.reviewer_email, data.admin_email]) {
     await seed.injectToken(page, email);

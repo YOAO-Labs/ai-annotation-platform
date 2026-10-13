@@ -83,16 +83,12 @@ export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
     collapsed: true,
     items: [
       { text: "AI 能力总览", link: "/user-guide/ai/" },
-      { text: "图片交互式 AI", link: "/user-guide/workbench/sam-tool" },
       { text: "当前题 AI 与二次推理", link: "/user-guide/ai/current-task-inference" },
       { text: "审阅 AI 候选", link: "/user-guide/ai/candidate-review" },
+      { text: "交互式智能工具 (SAM)", link: "/user-guide/workbench/sam-tool" },
       { text: "批量与多阶段预标", link: "/user-guide/projects/ai-preannotate" },
       { text: "视频 AI 追踪", link: "/user-guide/workbench/video-propagate" },
-      { text: "外部预测导入 / 导出", link: "/user-guide/datasets/prediction-import-export" },
-      { text: "项目 ML 模型", link: "/user-guide/projects/ml-backends" },
-      { text: "全局编排库", link: "/user-guide/projects/pipeline-library" },
-      { text: "AI 任务与失败恢复", link: "/user-guide/workflows/failed-prediction-recovery" },
-      { text: "模型市场", link: "/user-guide/superadmin/model-market" },
+      { text: "失败预测恢复", link: "/user-guide/workflows/failed-prediction-recovery" },
     ],
   },
   {

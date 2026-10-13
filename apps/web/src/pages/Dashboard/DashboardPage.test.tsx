@@ -15,7 +15,7 @@ type OpenModalProps = {
   open?: boolean;
 };
 
-const mockUseProjects = vi.fn();
+const mockUseProjectPage = vi.fn();
 const mockUseProjectStats = vi.fn();
 const mockUseAuditLogs = vi.fn();
 const mockPushToast = vi.fn();
@@ -23,7 +23,7 @@ const mockBuildWorkbenchUrl = vi.hoisted(() => vi.fn((id: string) => `/workbench
 const mockAuthStore = vi.fn(<T,>(sel: (s: MockAuthState) => T) => sel({ user: null }));
 
 vi.mock("@/hooks/useProjects", () => ({
-  useProjects: (...args: unknown[]) => mockUseProjects(...args),
+  useProjectPage: (...args: unknown[]) => mockUseProjectPage(...args),
   useProjectStats: () => mockUseProjectStats(),
 }));
 
@@ -61,7 +61,7 @@ vi.mock("@/components/guards/Can", () => ({
 }));
 
 vi.mock("@/utils/workbenchNavigation", () => ({
-  buildWorkbenchUrl: (id: string) => mockBuildWorkbenchUrl(id),
+  buildProjectEntryUrl: (id: string) => mockBuildWorkbenchUrl(id),
   currentWorkbenchReturnTo: () => "/dashboard",
 }));
 
@@ -74,6 +74,10 @@ vi.mock("@/components/ui/Toast", async () => {
       sel({ push: mockPushToast }),
   };
 });
+
+function pageResult(items: unknown[] = [], total = items.length, page = 1, pageSize = 20) {
+  return { items, total, page, page_size: pageSize, pages: Math.ceil(total / pageSize) };
+}
 
 import { DashboardPage } from "./DashboardPage";
 
@@ -109,7 +113,7 @@ describe("DashboardPage", () => {
     mockAuthStore.mockImplementation(<T,>(sel: (s: MockAuthState) => T) => sel({ user: baseUser }));
     mockUseProjectStats.mockReturnValue({ data: undefined });
     mockUseAuditLogs.mockReturnValue({ data: { items: [] } });
-    mockUseProjects.mockReturnValue({ data: [], isLoading: false });
+    mockUseProjectPage.mockReturnValue({ data: pageResult([]), isLoading: false });
   });
 
   afterEach(() => {
@@ -117,7 +121,7 @@ describe("DashboardPage", () => {
   });
 
   it("isLoading=true → 显示加载中", () => {
-    mockUseProjects.mockReturnValue({ data: [], isLoading: true });
+    mockUseProjectPage.mockReturnValue({ data: pageResult([]), isLoading: true });
     renderUI();
     expect(screen.getAllByText("加载中...").length).toBeGreaterThan(0);
   });
@@ -128,8 +132,8 @@ describe("DashboardPage", () => {
   });
 
   it("有项目 → 渲染项目行", () => {
-    mockUseProjects.mockReturnValue({
-      data: [
+    mockUseProjectPage.mockReturnValue({
+      data: pageResult([
         {
           id: "p1",
           display_id: "P-1",
@@ -149,7 +153,7 @@ describe("DashboardPage", () => {
           ai_enabled: false,
           updated_at: "2026-01-01T00:00:00Z",
         },
-      ],
+      ]),
       isLoading: false,
     });
     renderUI();
@@ -161,8 +165,8 @@ describe("DashboardPage", () => {
   });
 
   it("项目已解绑 backend 时显示未接入模型", () => {
-    mockUseProjects.mockReturnValue({
-      data: [
+    mockUseProjectPage.mockReturnValue({
+      data: pageResult([
         {
           id: "p1",
           display_id: "P-1",
@@ -183,7 +187,7 @@ describe("DashboardPage", () => {
           ml_backend_id: null,
           updated_at: "2026-05-22T00:00:00Z",
         },
-      ],
+      ]),
       isLoading: false,
     });
     renderUI();
@@ -193,8 +197,8 @@ describe("DashboardPage", () => {
   });
 
   it("列表行空白点击不进入工作台，只有打开按钮进入", () => {
-    mockUseProjects.mockReturnValue({
-      data: [
+    mockUseProjectPage.mockReturnValue({
+      data: pageResult([
         {
           id: "p1",
           display_id: "P-1",
@@ -212,7 +216,7 @@ describe("DashboardPage", () => {
           in_progress_tasks: 0,
           ai_enabled: false,
         },
-      ],
+      ]),
       isLoading: false,
     });
     renderUI();
@@ -268,7 +272,7 @@ describe("DashboardPage", () => {
   });
 
   it("点击视图切换按钮 → URL 追加 layout=grid 并渲染 ProjectGrid", () => {
-    mockUseProjects.mockReturnValue({ data: [], isLoading: false });
+    mockUseProjectPage.mockReturnValue({ data: pageResult([]), isLoading: false });
     renderUI();
     // 切换到网格视图
     const toggleBtn = screen.getByTitle(/切换到网格视图/);
@@ -287,7 +291,7 @@ describe("DashboardPage", () => {
     );
     expect(screen.getByPlaceholderText("搜索项目...")).toHaveValue("car");
     await waitFor(() => {
-      expect(mockUseProjects).toHaveBeenLastCalledWith(
+      expect(mockUseProjectPage).toHaveBeenLastCalledWith(
         expect.objectContaining({
           status: "pending_review",
           search: "car",
@@ -301,36 +305,56 @@ describe("DashboardPage", () => {
     expect(screen.getByTestId("location-search").textContent).toContain("status=in_progress");
     expect(screen.getByTestId("location-search").textContent).toContain("new=1");
     expect(screen.getByTestId("location-search").textContent).toContain("layout=grid");
-    expect(mockUseProjects).toHaveBeenLastCalledWith(
+    expect(mockUseProjectPage).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: "in_progress" }),
     );
   });
 
-  it("debounces project q requests while updating the URL immediately", async () => {
+  it("applies debounced search and page reset to the URL together", async () => {
     vi.useFakeTimers();
     renderUI();
     const input = screen.getByPlaceholderText("搜索项目...");
     fireEvent.change(input, { target: { value: "car" } });
-    expect(mockUseProjects).toHaveBeenLastCalledWith(
+    expect(mockUseProjectPage).toHaveBeenLastCalledWith(
       expect.objectContaining({ search: undefined }),
     );
-    expect(screen.getByTestId("location-search").textContent).toContain("q=car");
+    expect(screen.getByTestId("location-search").textContent).not.toContain("q=car");
 
     await act(async () => {
       vi.advanceTimersByTime(250);
     });
-    expect(mockUseProjects).toHaveBeenLastCalledWith(expect.objectContaining({ search: "car" }));
+    expect(mockUseProjectPage).toHaveBeenLastCalledWith(expect.objectContaining({ search: "car" }));
+  });
+
+  it("keeps the pending search draft when the wizard opens before debounce", async () => {
+    vi.useFakeTimers();
+    renderUI();
+    const input = screen.getByPlaceholderText("搜索项目...");
+    fireEvent.change(input, { target: { value: "car" } });
+    fireEvent.click(screen.getByRole("button", { name: /新建项目/ }));
+    expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
+    expect(input).toHaveValue("car");
+    expect(screen.getByTestId("location-search").textContent).toContain("new=1");
+
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(input).toHaveValue("car");
+    expect(mockUseProjectPage).toHaveBeenLastCalledWith(expect.objectContaining({ search: "car" }));
+    const search = screen.getByTestId("location-search").textContent ?? "";
+    expect(search).toContain("q=car");
+    expect(search).toContain("new=1");
   });
 
   it("applies q and status together after external URL navigation", async () => {
     renderUI("/dashboard?q=old&status=in_progress", "/dashboard?q=new&status=pending_review");
     await waitFor(() => {
-      expect(mockUseProjects).toHaveBeenLastCalledWith(
+      expect(mockUseProjectPage).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: "pending_review", search: "new" }),
       );
     });
     expect(
-      mockUseProjects.mock.calls.some(
+      mockUseProjectPage.mock.calls.some(
         ([params]) => params.status === "pending_review" && params.search === "old",
       ),
     ).toBe(false);

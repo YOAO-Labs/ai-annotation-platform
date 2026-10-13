@@ -26,7 +26,7 @@ afterEach(() => {
 it("stops resolving a consumed invitation before login clears the anonymous cache", async () => {
   mocks.resolve.mockResolvedValue({
     email: "new@example.test",
-    role: "annotator",
+    role: "employee",
     project_id: "p1",
     project_name: "Road QA",
     expires_at: "2030-01-01",
@@ -35,7 +35,7 @@ it("stops resolving a consumed invitation before login clears the anonymous cach
     mocks.resolve.mockRejectedValue(new Error("邀请已使用"));
     return {
       access_token: "registered-token",
-      user: { id: "new", email: "new@example.test", role: "annotator" },
+      user: { id: "new", email: "new@example.test", role: "employee" },
       acceptance: {
         project_id: "p1",
         project_name: "Road QA",

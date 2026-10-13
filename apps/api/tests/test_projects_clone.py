@@ -62,9 +62,7 @@ async def _seed_backend(
     return b
 
 
-async def test_clone_copies_all_cloneable_fields(
-    httpx_client_bound, super_admin, db_session
-):
+async def test_clone_copies_all_cloneable_fields(httpx_client, super_admin, db_session):
     user, token = super_admin
     src = await _seed_project(
         db_session,
@@ -107,7 +105,7 @@ async def test_clone_copies_all_cloneable_fields(
         "type_key": "image-det",
         "source_project_id": str(src.id),
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
@@ -136,7 +134,7 @@ async def test_clone_copies_all_cloneable_fields(
 
 
 async def test_clone_explicit_field_overrides_source(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     src = await _seed_project(
@@ -157,7 +155,7 @@ async def test_clone_explicit_field_overrides_source(
         "ai_enabled": False,
         "box_threshold": 0.6,
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     # 显式字段优先
@@ -166,7 +164,7 @@ async def test_clone_explicit_field_overrides_source(
 
 
 async def test_clone_auto_derives_ml_backend_from_source(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     src = await _seed_project(db_session, user.id, ai_enabled=True)
@@ -186,7 +184,7 @@ async def test_clone_auto_derives_ml_backend_from_source(
         "type_key": "image-det",
         "source_project_id": str(src.id),
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     # v0.19.0 ADR-0044 · clone 复用同一全局 registry id (不再复制新 backend row)
@@ -200,7 +198,7 @@ async def test_clone_auto_derives_ml_backend_from_source(
 
 
 async def test_clone_without_view_permission_returns_404(
-    httpx_client_bound, project_admin, db_session
+    httpx_client, project_admin, db_session
 ):
     """project_admin 复制别人 (非 self 所有) 的源项目 -> 404 (隐藏存在性)."""
     pm_user, pm_token = project_admin
@@ -229,12 +227,12 @@ async def test_clone_without_view_permission_returns_404(
         "type_key": "image-det",
         "source_project_id": str(src.id),
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     # assert_project_visible 隐藏存在性, 返回 404 (project_admin 只能看 owner=self)
     assert resp.status_code == 404, resp.text
 
 
-async def test_create_project_without_source_unchanged(httpx_client_bound, super_admin):
+async def test_create_project_without_source_unchanged(httpx_client, super_admin):
     """回归: 不带 source_project_id 时, 走原路径, 不报错."""
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
@@ -243,7 +241,7 @@ async def test_create_project_without_source_unchanged(httpx_client_bound, super
         "type_label": "图像-检测",
         "type_key": "image-det",
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["name"] == "普通新建"
@@ -252,7 +250,7 @@ async def test_create_project_without_source_unchanged(httpx_client_bound, super
 
 
 async def test_clone_skips_annotation_guide_by_default(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """v0.10.13 · E1 · annotation_guide / guide_assets 不在默认克隆白名单."""
     user, token = super_admin
@@ -279,7 +277,7 @@ async def test_clone_skips_annotation_guide_by_default(
         "type_key": "image-det",
         "source_project_id": str(src.id),
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["annotation_guide"] is None
@@ -287,7 +285,7 @@ async def test_clone_skips_annotation_guide_by_default(
 
 
 async def test_clone_with_copy_annotation_guide_flag(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """v0.10.13 · E1 · copy_annotation_guide=true 时同时复制 guide + assets."""
     user, token = super_admin
@@ -314,7 +312,7 @@ async def test_clone_with_copy_annotation_guide_flag(
         "source_project_id": str(src.id),
         "copy_annotation_guide": True,
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["annotation_guide"] == "# 源指引"
@@ -323,7 +321,7 @@ async def test_clone_with_copy_annotation_guide_flag(
 
 
 async def test_copy_annotation_guide_without_source_returns_400(
-    httpx_client_bound, super_admin
+    httpx_client, super_admin
 ):
     """v0.10.13 · E1 · copy_annotation_guide 必须配合 source_project_id."""
     _, token = super_admin
@@ -334,12 +332,12 @@ async def test_copy_annotation_guide_without_source_returns_400(
         "type_key": "image-det",
         "copy_annotation_guide": True,
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 400, resp.text
 
 
 async def test_apply_template_with_explicit_field_override(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """v0.10.14 · E2 · template_id 路径: 显式给字段优先于模板载荷."""
     from app.db.models.project_template import ProjectTemplate
@@ -372,14 +370,14 @@ async def test_apply_template_with_explicit_field_override(
         "ai_enabled": False,
         "classes": ["pedestrian"],
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["ai_enabled"] is False
     assert data["classes"] == ["pedestrian"]
 
 
-async def test_apply_nonexistent_template_404(httpx_client_bound, super_admin):
+async def test_apply_nonexistent_template_404(httpx_client, super_admin):
     """v0.10.14 · E2 · template_id 指向不存在记录 → 404."""
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
@@ -389,11 +387,11 @@ async def test_apply_nonexistent_template_404(httpx_client_bound, super_admin):
         "type_key": "image-det",
         "template_id": str(uuid.uuid4()),
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 404, resp.text
 
 
-async def test_clone_jsonb_is_deep_copied(httpx_client_bound, super_admin, db_session):
+async def test_clone_jsonb_is_deep_copied(httpx_client, super_admin, db_session):
     """修改新项目的 tool_bindings 不应该污染源项目 (避免共享 JSONB 引用)."""
     user, token = super_admin
     src = await _seed_project(
@@ -416,12 +414,12 @@ async def test_clone_jsonb_is_deep_copied(httpx_client_bound, super_admin, db_se
         "type_key": "image-det",
         "source_project_id": str(src_id),
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200
     new_id = resp.json()["id"]
 
     # 走 PATCH 改新项目 classes_config
-    patch = await httpx_client_bound.patch(
+    patch = await httpx_client.patch(
         f"/api/v1/projects/{new_id}",
         json={"classes_config": {"a": {"color": "#999999", "order": 0}}},
         headers=headers,

@@ -244,4 +244,38 @@ describe("ContextToolbar", () => {
     await user.click(screen.getByRole("button", { name: "更多 示例 工具" }));
     expect(screen.getByText("工具提供的内容")).toBeVisible();
   });
+
+  it("keeps the expanded panel when a pointerdown lands inside a stacked modal dialog", async () => {
+    const user = userEvent.setup();
+    function Owner() {
+      return (
+        <>
+          <ContextToolbar
+            id="guarded"
+            label="示例"
+            summary="◇"
+            summaryLabel="示例常用工具"
+            quickActions={[]}
+          >
+            {() => <p>工具提供的内容</p>}
+          </ContextToolbar>
+          {/* Stacked decision dialogs mark themselves with data-modal; Radix can
+              reach the outside check after such a dialog already closed, so the
+              toolbar must ignore interactions owned by it. */}
+          <div role="alertdialog" data-modal>
+            <button type="button">覆盖</button>
+          </div>
+        </>
+      );
+    }
+    render(<Owner />);
+    await user.click(screen.getByRole("button", { name: "示例常用工具" }));
+    await user.click(screen.getByRole("button", { name: "更多 示例 工具" }));
+    expect(screen.getByText("工具提供的内容")).toBeVisible();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "覆盖" }));
+    await waitFor(() => expect(screen.queryByTestId("guarded-toolbar")).not.toBeNull());
+    // Genuine outside interactions still collapse the panel.
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(screen.queryByTestId("guarded-toolbar")).toBeNull());
+  });
 });

@@ -10,8 +10,7 @@ import pytest
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.project_member import ProjectMember
-from tests.factory import create_batch, create_project, create_task
+from tests.factory import create_membership, create_batch, create_project, create_task
 
 
 @pytest.fixture
@@ -201,13 +200,12 @@ async def test_video_feedback_uses_real_batch_permission_for_create_list_and_rep
     data = video_feedback_data
     user, token = annotator
     project, task = data["project"], data["task"]
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=user.id,
-            role="annotator",
-            assigned_by=data["owner"].id,
-        )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=user.id,
+        role="annotator",
+        assigned_by=data["owner"].id,
     )
     batch = await create_batch(db_session, project_id=project.id, status="active")
     batch.annotator_id = data["owner"].id

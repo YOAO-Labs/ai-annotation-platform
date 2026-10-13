@@ -34,7 +34,7 @@ from app.schemas.management import (
 from app.services.audit import AuditService, export_detail, export_metadata_header
 from app.services.email import SmtpConfigError, send_invitation_email
 from app.services.csv_export import csv_literal
-from app.services.invitation import InvitationService
+from app.services.invitation import InvitationService, invitation_project_role
 from app.services.management import (
     fetch_invitation_page,
     invitation_stats,
@@ -60,7 +60,7 @@ def _to_out(
         group_name=inv.group_name,
         project_id=inv.project_id,
         project_name=project_name,
-        project_member_role=inv.role if inv.project_id else None,
+        project_member_role=invitation_project_role(inv),
         status=inv.status,
         expires_at=inv.expires_at,
         invited_by=inv.invited_by,
@@ -434,7 +434,7 @@ async def send_invitation_email_endpoint(
             invitation.email,
             invite_url,
             project_name=project_name,
-            role=invitation.role if invitation.project_id else None,
+            role=invitation_project_role(invitation),
             expires_at=invitation.expires_at,
         )
     except SmtpConfigError as exc:

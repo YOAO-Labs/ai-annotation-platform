@@ -68,7 +68,7 @@ function renderCard(ui: ReactElement) {
 }
 
 describe("ProtocolCapabilityCard", () => {
-  it("0 model 时显示「暂无接入」徽标 + 推荐 backend 列表", () => {
+  it("0 model 时显示「暂无接入」徽标 + 一行典型模型说明; 推荐后端收进展开区", async () => {
     renderCard(
       <ProtocolCapabilityCard
         task={makeTask()}
@@ -78,9 +78,13 @@ describe("ProtocolCapabilityCard", () => {
       />,
     );
     expect(screen.getByText("暂无接入")).toBeInTheDocument();
-    expect(screen.getByText("PaddleOCR")).toBeInTheDocument();
-    expect(screen.getByText("Paddle 系 OCR。")).toBeInTheDocument();
+    // 首层一行说明：典型模型。
     expect(screen.getByText(/PaddleOCR \/ RapidOCR/)).toBeInTheDocument();
+    // 推荐后端在展开区域列出（plan §4.1）。
+    expect(screen.queryByText("Paddle 系 OCR。")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /推荐后端/ }));
+    expect(await screen.findByText("PaddleOCR")).toBeInTheDocument();
+    expect(screen.getByText("Paddle 系 OCR。")).toBeInTheDocument();
   });
 
   it("N model 时显示「N 个模型已接入」并渲染 model 卡", () => {

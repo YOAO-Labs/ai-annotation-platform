@@ -280,7 +280,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
         value: undefined,
       });
     });
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -325,7 +325,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -382,7 +382,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
     seed,
   }) => {
     test.setTimeout(60_000);
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -458,7 +458,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
     const fixture = await seed.nativeMaskCandidate(taskId);
@@ -489,7 +489,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
     seed,
   }) => {
     test.setTimeout(60_000);
-    const data = await seed.reset();
+    const data = await seed.owned();
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
     const fixture = await seed.nativeMaskCandidate(taskId);
@@ -735,7 +735,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
     request,
     seed,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });

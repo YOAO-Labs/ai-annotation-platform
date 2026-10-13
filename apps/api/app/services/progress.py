@@ -34,6 +34,34 @@ class ProgressPublisher:
         await self.redis.close()
 
 
+async def _publish_batch_event(
+    project_id: str,
+    payload: dict,
+    *,
+    log_context: str,
+) -> None:
+    """向 `project:{project_id}:batch` 频道推一条 batch 事件.
+
+    复用一次性 instance + close 模式（无连接池复用）；batch 事件频率远低于预标进度帧，
+    这点开销可接受。广播失败不能阻塞业务事务, 只记 warning。
+    """
+    redis = aioredis.from_url(settings.redis_url)
+    try:
+        await redis.publish(f"project:{project_id}:batch", json.dumps(payload))
+    except Exception as e:
+        log.warning(
+            "publish batch event failed project=%s ctx=%s err=%s",
+            project_id,
+            log_context,
+            e,
+        )
+    finally:
+        try:
+            await redis.close()
+        except Exception:
+            pass
+
+
 async def publish_batch_status_change(
     project_id: str,
     batch_id: str,
@@ -46,9 +74,6 @@ async def publish_batch_status_change(
     频道: `project:{project_id}:batch`. 消费方: 前端 useBatchEventsSocket → invalidate
     ["batches", projectId]. 即便外层事务 commit 失败也只导致一次无效重拉, 不会数据
     不一致 (客户端拉到的是真实 DB 状态).
-
-    复用 ProgressPublisher 一次性 instance + close 模式 (无连接池复用), 状态变更频率
-    远低于预标进度帧, 这点开销可接受; 后续如压力上来再迁到 ws._get_redis_pool().
     """
     payload = {
         "type": "batch.status_changed",
@@ -57,19 +82,29 @@ async def publish_batch_status_change(
         "to": to_status,
         "at": datetime.now(timezone.utc).isoformat(),
     }
-    redis = aioredis.from_url(settings.redis_url)
-    try:
-        await redis.publish(f"project:{project_id}:batch", json.dumps(payload))
-    except Exception as e:
-        # 广播失败不能阻塞业务事务; 客户端 30s 心跳 + 用户操作触发的查询会兜底
-        log.warning(
-            "publish_batch_status_change failed project=%s batch=%s err=%s",
-            project_id,
-            batch_id,
-            e,
-        )
-    finally:
-        try:
-            await redis.close()
-        except Exception:
-            pass
+    await _publish_batch_event(
+        project_id, payload, log_context=f"status batch={batch_id}"
+    )
+
+
+async def publish_batch_assignment_change(
+    project_id: str,
+    batch_ids: list[str],
+) -> None:
+    """issue #124 · batch 标注员 / 质检员分派变更广播.
+
+    issue #124 起「未分派人员的 draft 批次」也进入可预标列表，其准入依赖
+    `annotator_id` / `reviewer_id`。改派不改变 `batch.status`，因此不会触发
+    `batch.status_changed`；若不单独广播，另一名管理员打开的面板会保留过期的
+    可预标项，提交时才被后端 409 拒绝。此处对齐 transition 的实时刷新语义。
+    """
+    if not batch_ids:
+        return
+    payload = {
+        "type": "batch.assignment_changed",
+        "batch_ids": [str(b) for b in batch_ids],
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    await _publish_batch_event(
+        project_id, payload, log_context=f"assignment batches={len(batch_ids)}"
+    )

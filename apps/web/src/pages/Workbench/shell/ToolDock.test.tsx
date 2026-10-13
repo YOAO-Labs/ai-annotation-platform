@@ -5,6 +5,28 @@ import { ToolDock } from "./ToolDock";
 import { dispatchKey, type DispatchCtx } from "../state/hotkeys";
 
 const resizeCallbacks = new Set<() => void>();
+
+it.each([false, true])(
+  "does not advertise disabled tool bindings (video=%s)",
+  async (videoMode) => {
+    const user = userEvent.setup();
+    render(
+      <ToolDock
+        tool="box"
+        onSetTool={vi.fn()}
+        videoMode={videoMode}
+        toolHotkeys={{ [`${videoMode ? "video" : "image"}.tool.box`]: null }}
+      />,
+    );
+    const box = screen.getByTestId(videoMode ? "video-tool-btn-box" : "tool-btn-box");
+    expect(box).toBeVisible();
+    expect(box).not.toHaveTextContent("B");
+    await user.hover(box);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("矩形");
+    expect(tooltip).not.toHaveTextContent("Alt+1");
+  },
+);
 beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",

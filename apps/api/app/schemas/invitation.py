@@ -15,9 +15,15 @@ def _normalize_email(v: str) -> str:
 
 class InvitationCreate(BaseModel):
     email: str
+    #: Account/platform role (employee | viewer | ...).  Legacy staff aliases
+    #: are normalized to ``employee`` by the service.
     role: str
     group_name: str | None = Field(default=None, max_length=100)
     project_id: UUID | None = None
+    #: Project responsibility for a project invitation (annotator | reviewer |
+    #: viewer).  Mapped to the database ``project_role`` column.  Optional for
+    #: legacy callers that put the project role in ``role``.
+    project_member_role: str | None = None
 
     @field_validator("email")
     @classmethod

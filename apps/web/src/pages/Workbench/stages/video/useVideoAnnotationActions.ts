@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import type { QueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { tasksApi, type AnnotationPayload } from "@/api/tasks";
@@ -911,8 +912,14 @@ export function useVideoAnnotationActions({
     async (ann: AnnotationResponse, options: VideoConvertOptions) => {
       if (!taskId || ann.geometry.type !== "video_track_bbox") return;
       if (options.frameMode === "all_frames") {
-        const ok = window.confirm("将按插值结果展开所有可见帧，长视频可能生成大量独立框。继续？");
-        if (!ok) return;
+        const confirmed = await confirmDialog({
+          title: "按插值结果展开所有可见帧？",
+          description: "长视频可能生成大量独立框。",
+          confirmLabel: "继续",
+        });
+        if (!confirmed) return;
+        // 等待决定期间轨迹可能已被删除;目标不存在则放弃本次转换。
+        if (!annotationsRef.current.some((item) => item.id === ann.id)) return;
       }
       try {
         const result = await tasksApi.convertVideoTrackToBboxes(taskId, ann.id, {
@@ -966,7 +973,7 @@ export function useVideoAnnotationActions({
         pushToast({ msg: "轨迹转换失败", sub: String(err), kind: "error" });
       }
     },
-    [annotationQueryKey, history, pushToast, queryClient, s, taskId],
+    [annotationQueryKey, annotationsRef, history, pushToast, queryClient, s, taskId],
   );
 
   const handleVideoComposeTracks = useCallback(

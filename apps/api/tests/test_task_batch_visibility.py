@@ -9,10 +9,10 @@ import uuid
 import pytest
 
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.display_id import next_display_id
+from tests.factory import create_membership, build_tool_bindings
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -31,18 +31,13 @@ async def _seed_project_with_two_batches(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner_id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db.add(p)
     await db.flush()
 
-    db.add(
-        ProjectMember(
-            project_id=pid,
-            user_id=annotator_id,
-            role="annotator",
-            assigned_by=owner_id,
-        )
+    await create_membership(
+        db, project_id=pid, user_id=annotator_id, role="annotator", assigned_by=owner_id
     )
 
     # 创建一个真实的"别人"作为 b_other 的 annotator（FK 约束需要 user 存在）
@@ -54,7 +49,7 @@ async def _seed_project_with_two_batches(
         email=f"other-{uuid.uuid4().hex[:6]}@test.local",
         name="OtherAnnotator",
         password_hash=hash_password("Test1234"),
-        role="annotator",
+        role="employee",
         is_active=True,
     )
     db.add(other_user)
@@ -111,7 +106,7 @@ async def _seed_project_with_two_batches(
 
 @pytest.mark.asyncio
 async def test_annotator_list_only_sees_assigned_batch(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     owner, _ = super_admin
     user, token = annotator
@@ -122,7 +117,7 @@ async def test_annotator_list_only_sees_assigned_batch(
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}&limit=200",
         headers=_bearer(token),
     )
@@ -136,7 +131,7 @@ async def test_annotator_list_only_sees_assigned_batch(
 
 @pytest.mark.asyncio
 async def test_annotator_get_other_batch_task_404(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     owner, _ = super_admin
     user, token = annotator
@@ -147,19 +142,19 @@ async def test_annotator_get_other_batch_task_404(
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{t_other.id}",
         headers=_bearer(token),
     )
     assert resp.status_code == 404
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{t_other.id}/annotations",
         headers=_bearer(token),
     )
     assert resp.status_code == 404
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{t_other.id}/predictions",
         headers=_bearer(token),
     )
@@ -168,7 +163,7 @@ async def test_annotator_get_other_batch_task_404(
 
 @pytest.mark.asyncio
 async def test_annotator_can_get_assigned_batch_task(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     owner, _ = super_admin
     user, token = annotator
@@ -179,7 +174,7 @@ async def test_annotator_can_get_assigned_batch_task(
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{t_mine.id}",
         headers=_bearer(token),
     )
@@ -189,7 +184,7 @@ async def test_annotator_can_get_assigned_batch_task(
 
 @pytest.mark.asyncio
 async def test_super_admin_sees_all_batches(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """B-16 修复后 super_admin 仍能越权看全部任务（owner / 监管视角）。"""
     owner, owner_token = super_admin
@@ -201,7 +196,7 @@ async def test_super_admin_sees_all_batches(
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}&limit=200",
         headers=_bearer(owner_token),
     )
@@ -214,7 +209,7 @@ async def test_super_admin_sees_all_batches(
 
 @pytest.mark.asyncio
 async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """B-16 P-4 复现：draft 批次 + assigned_user_ids=[] 不应对标注员可见。
     历史 BUG：unassigned 规则未限制 batch.status，导致草稿批次也被当成开放批次。"""
@@ -229,17 +224,16 @@ async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db_session.add(p)
     await db_session.flush()
-    db_session.add(
-        ProjectMember(
-            project_id=pid,
-            user_id=user.id,
-            role="annotator",
-            assigned_by=owner.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=pid,
+        user_id=user.id,
+        role="annotator",
+        assigned_by=owner.id,
     )
 
     b_active_mine = TaskBatch(
@@ -287,7 +281,7 @@ async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
     await db_session.flush()
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}&limit=200",
         headers=_bearer(token),
     )
@@ -299,7 +293,7 @@ async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
     assert data["total"] == 1
 
     # 单独 GET 也应 404
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{t_draft.id}",
         headers=_bearer(token),
     )
@@ -308,7 +302,7 @@ async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
 
 @pytest.mark.asyncio
 async def test_unassigned_batch_visible_to_all_members(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """assigned_user_ids = [] 且 status=active 的批次对所有成员可见（开放标注池）。"""
     owner, _ = super_admin
@@ -322,17 +316,16 @@ async def test_unassigned_batch_visible_to_all_members(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db_session.add(p)
     await db_session.flush()
-    db_session.add(
-        ProjectMember(
-            project_id=pid,
-            user_id=user.id,
-            role="annotator",
-            assigned_by=owner.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=pid,
+        user_id=user.id,
+        role="annotator",
+        assigned_by=owner.id,
     )
 
     b_open = TaskBatch(
@@ -360,7 +353,7 @@ async def test_unassigned_batch_visible_to_all_members(
     await db_session.flush()
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}&limit=200",
         headers=_bearer(token),
     )
@@ -371,7 +364,7 @@ async def test_unassigned_batch_visible_to_all_members(
 
 @pytest.mark.asyncio
 async def test_unbatched_filter_returns_only_orphan_tasks(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """v0.12.0 B5 · list_tasks?unbatched=true 仅返回 batch_id IS NULL 的未归类任务。
 
@@ -400,7 +393,7 @@ async def test_unbatched_filter_returns_only_orphan_tasks(
     await db_session.flush()
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}&unbatched=true&limit=200",
         headers=_bearer(owner_token),
     )

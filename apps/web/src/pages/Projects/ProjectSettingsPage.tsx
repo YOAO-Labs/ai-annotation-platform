@@ -208,7 +208,7 @@ export function ProjectSettingsPage() {
               </Button>
             )}
             <Button onClick={() => navigate(`/projects/${project.id}/data-manager`)}>
-              <Icon name="filter" size={12} />
+              <Icon name="dataManager" size={12} />
               Data Manager
             </Button>
             {canOpenWorkbench && (

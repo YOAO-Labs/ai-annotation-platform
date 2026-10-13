@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
-import { useProjectMembers } from "@/hooks/useProjects";
+import { useProjectMentionCandidates } from "@/hooks/useProjects";
 import { CanvasDrawingPreview } from "@/components/CanvasDrawingEditor";
 import { useHoveredCommentStore } from "../state/useHoveredCommentStore";
 import {
@@ -23,6 +23,7 @@ import {
 import { useAnnotationAuditHistory, useTaskAuditHistory } from "@/hooks/useAnnotationAuditHistory";
 import { AnnotationHistoryTimeline } from "@/components/AnnotationHistoryTimeline";
 import { CommentInput, renderCommentBody } from "./CommentInput";
+import type { UserPickerOption } from "@/components/UserPicker";
 import {
   commentsApi,
   type AnnotationCommentAnchor,
@@ -469,12 +470,23 @@ export function CommentsPanel({
   ]);
   const total = taskContext ? taskDiscussionQuery.data?.pages[0]?.total : discussionItems.length;
 
-  const { data: members } = useProjectMembers(projectId ?? "");
-  const memberOptions = (members ?? []).map((member) => ({
-    id: member.user_id,
-    name: member.user_name,
-    email: member.user_email,
-  }));
+  // 后端按 owner → super_admin → member 去重返回，前端只负责展示标签。
+  const { data: mentionCandidates } = useProjectMentionCandidates(projectId ?? "");
+  const memberOptions = useMemo<UserPickerOption[]>(
+    () =>
+      (mentionCandidates ?? []).map((candidate) => ({
+        id: candidate.user_id,
+        name: candidate.user_name,
+        email: candidate.user_email ?? null,
+        hint:
+          candidate.kind === "owner"
+            ? "项目负责人"
+            : candidate.kind === "super_admin"
+              ? "超级管理员"
+              : undefined,
+      })),
+    [mentionCandidates],
+  );
 
   const feedbackParams = useMemo(
     () => ({

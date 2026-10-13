@@ -424,6 +424,40 @@ describe("useWorkbenchConfig · v0.15.3 setFields + 多实例广播", () => {
     vi.useRealTimers();
   });
 
+  it("a late settings response preserves shortcuts confirmed by their own writer", async () => {
+    const old = { workbench: { shortcuts: { schemaVersion: 1, image: {} } } };
+    mockGetPreferences.mockResolvedValue(old);
+    let resolve!: (response: typeof old) => void;
+    mockUpdatePreferences.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result, unmount } = renderHook(() => useWorkbenchConfig(), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    vi.useFakeTimers();
+    act(() => result.current.setFields({ image: { controlPointsSize: 12 } }));
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(mockUpdatePreferences.mock.calls[0][0].workbench).not.toHaveProperty("shortcuts");
+    const shortcuts = {
+      schemaVersion: 1,
+      image: { "image.tool.box": [{ key: "i", modifiers: [] }] },
+    };
+    act(() => client.setQueryData(userPreferencesQueryKey("u1"), { workbench: { shortcuts } }));
+    await act(async () => resolve(old));
+    expect(client.getQueryData(userPreferencesQueryKey("u1"))).toMatchObject({
+      workbench: { shortcuts },
+    });
+    unmount();
+    client.clear();
+    vi.useRealTimers();
+  });
+
   it("一个实例 setFields 后，另一实例(画布)同步收到新值 —— 抽屉实时预览链路", async () => {
     mockGetPreferences.mockResolvedValue({ workbench: {} });
     mockUpdatePreferences.mockImplementation(async (payload) => payload);

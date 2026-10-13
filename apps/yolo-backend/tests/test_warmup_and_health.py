@@ -1,4 +1,4 @@
-"""v0.14.14 端点契约: POST /warmup + /health.pool 统一 PoolStatus 格式.
+"""端点契约: POST /warmup + /health.pool 统一 PoolStatus 格式.
 
 stub torch + ultralytics, 用 FastAPI TestClient 直接打 app, mock predictor 与 pool 的
 回调点验证响应 body 形状.
@@ -83,7 +83,7 @@ def test_warmup_invalid_variant_returns_422(client) -> None:
 
 
 def test_health_pool_uses_pool_status_format(client) -> None:
-    """v0.14.14: /health.pool 必须用统一 PoolStatus 格式 (cap/current_size/loaded_keys/last_evict)."""
+    """/health.pool 必须用统一 PoolStatus 格式 (cap/current_size/loaded_keys/last_evict)."""
     # 先 warmup 一个让 pool 有内容
     client.post(
         "/warmup",

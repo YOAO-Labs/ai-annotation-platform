@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { expect, it } from "vitest";
 import type { MeResponse } from "@/api/auth";
+import { clearProactiveLogout, isProactiveLogout } from "@/utils/authRedirect";
 import { bindAuthQueryCache } from "./authQueryCache";
 import { bindAuthStorage, useAuthStore } from "./authStore";
 
@@ -50,6 +51,29 @@ it("adopts another tab's complete identity and clears the previous account cache
   unbindStorage();
   client.clear();
   useAuthStore.getState().logout();
+});
+
+it("adopts another tab's proactive logout intent (Issue #123)", () => {
+  useAuthStore.getState().setAuth("alice-token", { id: "alice" } as MeResponse);
+  const unbindStorage = bindAuthStorage();
+  clearProactiveLogout();
+
+  localStorage.removeItem("token");
+  localStorage.setItem(
+    "auth-storage",
+    JSON.stringify({ state: { token: null, user: null }, version: 0 }),
+  );
+  window.dispatchEvent(
+    new StorageEvent("storage", { key: "auth-storage", storageArea: localStorage }),
+  );
+
+  expect(useAuthStore.getState().token).toBeNull();
+  // 其它标签页主动退出 → 本标签页兜底跳转不带 from。
+  expect(isProactiveLogout()).toBe(true);
+
+  unbindStorage();
+  useAuthStore.getState().logout();
+  clearProactiveLogout();
 });
 
 it("clears and cancels private queries when the same account rotates its token", async () => {

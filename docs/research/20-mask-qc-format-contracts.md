@@ -19,7 +19,7 @@
 5. “可导出”不等于“格式完成”。完成门是目标事实标准 consumer 可读，且 canonical→artifact→consumer 后按
    像素、class、instance、frame 和 track identity 比较；无法保持的维度必须报告稳定 loss code。
 
-相关架构决策：[ADR-0055](../adr/0055-mask-quality-and-format-contracts.md)。
+相关架构决策：[ADR-0055](../adr/archive/0055-mask-quality-and-format-contracts.md)。
 
 ## 1. 仓库基线
 
@@ -260,9 +260,9 @@ warning codes 和 canonical plan digest。execute 复核全部 digest；不能�
 
 ## 9. 参考资料
 
-- [ADR-0052：共享栅格 Mask 与图片 geometry](../adr/0052-shared-raster-mask-and-image-geometry.md)
-- [ADR-0053：原生 Mask AI 候选生命周期与视频局部纠错](../adr/0053-native-mask-ai-candidate-lifecycle-and-video-correction.md)
-- [ADR-0054：Raster Mask 大画布资源预算](../adr/0054-raster-mask-large-canvas-memory-and-tiles.md)
+- [ADR-0052：共享栅格 Mask 与图片 geometry](../adr/archive/0052-shared-raster-mask-and-image-geometry.md)
+- [ADR-0053：原生 Mask AI 候选生命周期与视频局部纠错](../adr/archive/0053-native-mask-ai-candidate-lifecycle-and-video-correction.md)
+- [ADR-0054：Raster Mask 大画布资源预算](../adr/archive/0054-raster-mask-large-canvas-memory-and-tiles.md)
 - [COCO API](https://github.com/cocodataset/cocoapi)
 - [Label Studio BrushLabels](https://labelstud.io/tags/brushlabels)
 - [DAVIS dataset reader](https://interactive.davischallenge.org/docs/dataset.davis/)

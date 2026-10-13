@@ -51,17 +51,30 @@ export function Modal({
     >
       <DialogPrimitive.Portal container={portalContainer}>
         <DialogPrimitive.Overlay
+          data-modal=""
           data-testid="modal-overlay"
           className={cn(
             "fixed inset-0 z-modal bg-black/40 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
-            backdropBlur && "backdrop-blur-[2px]",
+            backdropBlur && "backdrop-blur-overlay",
           )}
         />
         <DialogPrimitive.Content
+          data-modal=""
           ref={contentRef}
           aria-describedby={undefined}
           onEscapeKeyDown={(event) => {
             if (stopEscapePropagation) event.stopPropagation();
+          }}
+          onPointerDownOutside={(event) => {
+            // Radix can defer outside dismissal until click, after a sibling
+            // confirmation has closed. Its action still belongs to that dialog.
+            const target = event.detail.originalEvent.target;
+            if (
+              target instanceof Element &&
+              target.closest('[role="dialog"], [role="alertdialog"]')
+            ) {
+              event.preventDefault();
+            }
           }}
           className="fixed left-1/2 top-1/2 z-modal flex max-h-[calc(100vh-48px)] w-full max-w-[calc(100%-48px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         >

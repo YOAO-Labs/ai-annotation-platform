@@ -12,10 +12,11 @@ import { cn } from "@/lib/utils";
 export function FilterGroup({
   label = "筛选",
   compact = false,
+  hideLabel = false,
   className,
   children,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { label?: string; compact?: boolean }) {
+}: HTMLAttributes<HTMLDivElement> & { label?: string; compact?: boolean; hideLabel?: boolean }) {
   return (
     <div
       role="group"
@@ -24,15 +25,18 @@ export function FilterGroup({
       className={cn("flex min-w-0 flex-wrap items-center gap-2", compact && "gap-1.5", className)}
       {...props}
     >
-      <span
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground",
-          compact && "text-2xs",
-        )}
-      >
-        <Icon name="filter" className={compact ? "size-3" : "size-4"} />
-        {label}
-      </span>
+      {/* `hideLabel` 用于省去纯装饰的漏斗图标 + 文字，`label` 仍作为 group 的无障碍名称。 */}
+      {!hideLabel && (
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground",
+            compact && "text-2xs",
+          )}
+        >
+          <Icon name="filter" className={compact ? "size-3" : "size-4"} />
+          {label}
+        </span>
+      )}
       {children}
     </div>
   );

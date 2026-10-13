@@ -53,6 +53,8 @@
   用户为什么能看到某个 project / batch / task
 - [计数与派生字段](./counters-and-derived-fields)：
   聚合字段如何回写、哪些页面依赖它们
+- [项目成员绩效数据](./project-performance)：
+  贡献归属、首次审核事实、计时覆盖与项目权限
 - [审计与通知](./audit-and-notifications)：
   业务动作如何落审计、怎样 fan-out 到在线用户
 

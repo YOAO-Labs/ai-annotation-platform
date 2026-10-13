@@ -1,8 +1,11 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { createElement, useState } from "react";
+import { Modal } from "@/components/ui/Modal";
 import { describe, expect, it, vi } from "vitest";
 import { isWorkbenchInputFocused, useWorkbenchHotkeys } from "./useWorkbenchHotkeys";
 import type { UseMaskEditorReturn } from "./useMaskEditor";
 import { isSamCandidateHotkeyBlocked } from "./hotkeys";
+import { resolveEffectiveCommands } from "./hotkeyBindings";
 
 function makeArgs(overrides: Partial<Parameters<typeof useWorkbenchHotkeys>[0]> = {}) {
   return {
@@ -51,6 +54,36 @@ function makeArgs(overrides: Partial<Parameters<typeof useWorkbenchHotkeys>[0]> 
     ...overrides,
   } as unknown as Parameters<typeof useWorkbenchHotkeys>[0];
 }
+
+describe("notification detail modal input isolation", () => {
+  it.each(["后台任务详情", "打开通知目标"])(
+    "%s shields selected annotations until closed",
+    (title) => {
+      const args = makeArgs();
+      args.s.selectedId = "box";
+      args.s.selectedIds = ["box"];
+      args.annotationsRef.current = [{ id: "box" }] as never;
+      renderHook(() => useWorkbenchHotkeys(args));
+      function Detail() {
+        const [open, setOpen] = useState(true);
+        return createElement(Modal, {
+          open,
+          title,
+          onClose: () => setOpen(false),
+          children: createElement("p", null, "通知详情"),
+        });
+      }
+      render(createElement(Detail));
+      const close = screen.getByRole("button", { name: "关闭" });
+      close.focus();
+      fireEvent.keyDown(close, { key: "Delete" });
+      expect(args.handleDeleteBox).not.toHaveBeenCalled();
+      fireEvent.click(close);
+      fireEvent.keyDown(window, { key: "Delete" });
+      expect(args.handleDeleteBox).toHaveBeenCalledWith("box");
+    },
+  );
+});
 
 function makeMaskArgs(
   editorOverrides: Partial<UseMaskEditorReturn> = {},
@@ -671,5 +704,29 @@ describe("useWorkbenchHotkeys module", () => {
     settings.remove();
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })));
     expect(args.submitPolygon).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("3D 命令域隔离", () => {
+  it("图片隐藏键不修改 3D 选中对象，common 改绑仍可切题", () => {
+    const args = makeArgs({
+      stage: "threed",
+      shortcutsEffective: resolveEffectiveCommands({
+        common: { "common.task.next": [{ key: "x", modifiers: [] }] },
+        image: { "image.selection.hide": [{ key: "i", modifiers: [] }] },
+        video: {},
+      }),
+      handlePatchShapeFlag: vi.fn(),
+    });
+    args.s.selectedId = "box-3d";
+    args.annotationsRef.current = [
+      { id: "box-3d", is_hidden: false },
+    ] as typeof args.annotationsRef.current;
+    const view = renderHook(() => useWorkbenchHotkeys(args));
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "i", bubbles: true })));
+    expect(args.handlePatchShapeFlag).not.toHaveBeenCalled();
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true })));
+    expect(args.navigateTask).toHaveBeenCalledWith("next");
+    view.unmount();
   });
 });

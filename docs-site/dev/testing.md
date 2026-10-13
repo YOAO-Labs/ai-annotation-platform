@@ -22,6 +22,30 @@ last_reviewed: 2026-07-23
 
 按这个比例分配精力。**不要**为单一函数写 E2E、也不要为页面跳转写单元测试。
 
+### 分层归属与运行入口
+
+| 层           | 保护什么                                    | 运行入口                                                                                        | 真值来源                      |
+| ------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
+| 后端纯规则   | 授权谓词、作业终态分派、schema 归一等纯函数 | `cd apps/api && uv run pytest <file>`                                                           | 无需数据库                    |
+| 后端集成     | 事务、行锁、成员并发、通知顺序              | `pnpm dev:worktree -- exec --mode test -- bash -lc 'cd apps/api && .venv/bin/python -m pytest'` | worktree 自有 `aap_wt_*_test` |
+| 前端纯规则   | URL 编解码、几何、状态机                    | `pnpm --filter @anno/web test <file>`                                                           | 无                            |
+| 前端页面集成 | 页面装配与 API 边界契约                     | 同上（页面目录）                                                                                | MSW                           |
+| 浏览器       | 真实画布、渲染、长链路                      | `pnpm test:e2e`（见下文）                                                                       | 隔离服务                      |
+| SDK / 示例   | 对外契约与文档示例                          | `packages/python-sdk`、`docs-site/dev/examples/*`                                               | OpenAPI snapshot              |
+
+两条当前事实：
+
+- 全部 8 个 ML CPU 契约套件已接入 CI：PR 触及 `apps/_shared/**`（`backend_runtime` /
+  `mask_utils` / `protocol_v2`）或任一 `apps/*-backend/` 路径时，`ML CPU contract tests`
+  检查（`.github/workflows/ml-cpu-test.yml`，`suites: "all"`）会在每套件独立的一次性 venv 中
+  运行对应 pytest（纯 CPU：`grounded-sam2` 与 `sam3` 需 CPU torch wheel，其余 torch-free；
+  `onnxtools` 额外补装 `opencv-python-headless`，3 个上游 `importorskip` 跳过为预期）。
+  各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，共享包无需 editable
+  安装；注意各 backend 可解析的共享包**并不相同**（图像/视频 backend 含 `mask_utils`）。
+- 页面测试优先在 MSW API 边界描述响应（`src/test/renderWithProviders.tsx` 与
+  `src/test/dataManagerApi.ts` 是样板）；同一纯规则不要在页面测试里重复断言，
+  已下沉的规则写在对应 `*UrlState.test.ts`。
+
 ## 后端：pytest
 
 ### 跑
@@ -45,6 +69,11 @@ uv run pytest --cov=app --cov-report=html    # 看覆盖率
 | `db_session`                                               | function-scoped，SAVEPOINT 隔离的 DB 会话 |
 | `httpx_client`                                             | ASGI 客户端，依赖注入了 db_session        |
 | `super_admin` / `project_admin` / `annotator` / `reviewer` | 4 角色 fixture，带 JWT token              |
+
+测试库连接解析规则：显式 `TEST_DATABASE_URL` 优先，否则跟随本环境迁移连接并固定到
+`annotation_test`；解析失败会直接报错，不会回退到任何默认连接串。无论来源，目标都必须是
+postgresql 且库名以 `_test` 结尾的一次性测试库（如 worktree 启动器分配的 `aap_wt_*_test`），
+指向开发/生产库的配置会在迁移/写入前被拒绝。
 
 ### 写一个 API 测试
 
@@ -163,11 +192,24 @@ Playwright 会自动准备专用逻辑库 `annotation_e2e`、执行迁移，并�
 | 视觉基线  | `pnpm test:e2e:visual`                                                             | 应用与共享依赖相关 PR、主分支、夜间和手动                    |
 | 布局压力  | `pnpm test:e2e:stress`                                                             | 相同触发范围；保留六种上下文各 54 次重排                     |
 
-普通功能配置排除 `@visual` / `@stress`，扩展配置复用相同 Playwright 项目并单独选择这些标签。外观比较使用既有截图基线与容差，预期视觉变更必须审阅差异后更新；功能用例检查可操作性、状态与真实保存。新增压力测试时同步保留覆盖关键状态转换的短流程，不能只在夜间检查画布丢失、草稿丢失或任务切换写入问题。
+普通功能配置排除 `@visual` / `@stress`。外观比较使用既有截图基线与容差，预期视觉变更必须审阅差异后更新；功能用例检查可操作性、状态与真实保存。新增压力测试时同步保留覆盖关键状态转换的短流程，不能只在夜间检查画布丢失、草稿丢失或任务切换写入问题。
 
-路由脚本 `scripts/plan-e2e-suites.mjs` 保守地将前后端应用、共享包、依赖、容器及相关 CI 配置变更选入扩展检查。因此布局 PR 仍执行完整压力矩阵，获得独立的结果与超时边界。主分支执行全部套件；`E2E extended` 工作流每天北京时间 03:00 和手动执行视觉、压力两套检查。路径分析失败或已选套件失败都会使必需的 `Frontend E2E` 汇总失败。
+布局矩阵按画布类型拆分 Playwright 项目：`workbench-pointcloud-layout-matrix.spec.ts` 只保留 3D 场景（pointcloud 项目，SwiftShader 软渲染 WebGL）；图片 / 视频场景在 `workbench-layout-matrix.spec.ts`，走 chromium 项目——它们的 Konva 画布不需要 WebGL，软渲染只会让 CI 压力重载时主线程更易被饿死。两份 spec 的用例注册共用 `e2e/helpers/workbench-layout-matrix.ts`，标题保持一致以稳定分片与扩展套件选集。
 
-功能用例最多重试一次，扩展用例不重试；CI 首个最终失败终止当前分片，每个进程/测试步骤/job 分别限时 15/20/30 分钟。每次失败保留 trace 与截图，Actions 摘要区分通过、失败、flaky 与跳过，避免把重试后通过误认为已消除不稳定性。HTML、原始测试产物及 `e2e-results.json` 随套件上传。
+路由脚本 `scripts/plan-e2e-suites.mjs` 是套件选择的单一入口，当前执行 **P9 计划选择**（plan §6.2/§6.3）：
+PR 运行有界核心 smoke + 按路径触发的领域专项（Mask×3、video-pipeline、pointcloud），共享依赖/运行时/未映射路径/空 diff/多域/重命名删除等无法分类的输入保守放大到全量；纯文档（白名单 `.md`）显式跳过应用 E2E 并记录原因。每次运行都会同时输出冻结的旧全量选集作为对照（`legacy=`），便于比较与回退。
+
+有界核心 smoke 以 `--retries=0` 运行，且被标记为 `flakyPolicy=forbid`：重试后通过的核心会阻塞必需套件审计（非核心专项保留一次诊断重试，重试后通过仍单独计为 flaky）。必需套件审计（`scripts/audit-e2e-requirements.mjs`）按计划 manifest 校验每个选中套件的结果产物，缺失、取消、setup 失败、suite 名不匹配、格式错误或核心 flaky 都会使汇总失败。
+
+准备失败导致 Playwright 未执行时，汇总仍写出 `setup-failure` 状态产物；运行失败或取消但无报告也保留对应失败证据。声称成功却没有报告会使汇总步骤失败，并写出失败状态，不会把缺失报告或未执行当作通过。
+
+顶层入口与范围（§6.7-5 显式区分，不用事件名隐含）：`push` 与夜间 `E2E extended` 工作流（每天北京时间 03:00，`E2E_SCHEDULE_SCOPE=full`）执行全量（smoke + 全部分片 + 全部专项 + visual/layout-stress）；该工作流手动触发时用 `scope` 输入显式选择 `extended` 或 `full`；`ci.yml` 的 `Frontend E2E` 手动触发用 `e2e_scope` 输入做同样选择。所有入口都运行同一必需套件审计。
+
+**回退**：设置仓库变量 `E2E_SELECTION_MODE=legacy`（未设置或为空即计划模式）即可恢复 P8 前冻结的旧全量矩阵与对应必需清单，无需改代码；回退模式仍执行审计，但只要求它实际执行的 9 个旧套件。
+
+**最终验收证据**：门禁切换与影子对照的逐项证据见 `docs/research/43-repository-optimization-p9-shadow-comparison.md`，P10 最终验收记录见 `docs/research/45-repository-optimization-final-acceptance.md`。冻结 `898505469` 的 full-12 campaign 是**失败历史**（default-four 13P/1F/53 not-run，实跑审计 exit 1）；集成根 `13d274326` 的 composed 审计才退出 0（`layout-stress`/`default-four` 在修正构建重跑替换，其余 10 套件按**变更影响范围**复用，不是全应用逐字节等价）。
+
+功能用例最多重试一次；扩展用例中视觉基线（`playwright.extended.config.ts`）不重试，压力用例（`playwright.stress.config.ts`）最多重试一次——压力重载在高负载 runner 上可能把渲染主线程冻结数十秒，重试用于区分确定性损坏（两次都失败仍红）与资源饥饿，重试后通过仍标记 flaky，不掩盖问题。CI 首个最终失败终止当前分片，每个进程/测试步骤/job 分别限时 15/20/30 分钟。每次失败保留 trace 与截图，Actions 摘要区分通过、失败、flaky 与跳过，避免把重试后通过误认为已消除不稳定性。HTML、原始测试产物及 `e2e-results.json` 随套件上传。
 
 核心绘制流程必须验证实际提交请求、落库内容与刷新恢复。测试接口只能造前置状态，不能在 UI 保存失败后补写状态来使测试通过。Canvas 坐标按实际媒体尺寸计算并验证命中；组件细节、纯状态组合优先使用 Vitest。
 
@@ -201,7 +243,7 @@ test("注入 token 跳 UI 登录", async ({ page, seed }) => {
 `current_database()`，数据库名不以 `_e2e` 或 `_test` 结尾时拒绝所有
 seed/login/cleanup 请求。production 即使设置开关也不挂载路由。
 
-**fixture 用法**：`reset()` 返回固定结构（admin/annotator/reviewer 三个邮箱 + 项目 id + 5 个任务 id）；密码统一 `Test1234`。新增数据用 `apps/api/tests/factory.py` 的 `create_user / create_project / create_task / create_batch`。
+**fixture 用法**：`reset()` 返回固定结构（admin/annotator/reviewer 三个邮箱 + 项目 id + 5 个任务 id）；密码统一 `Test1234`。新增数据用 `apps/api/tests/factory.py` 的 `create_user / create_project / create_task / create_batch / create_membership`。用户工厂只创建平台身份；`create_membership` 显式创建项目成员与职责，两者分开，工厂不会从平台角色推断 membership。批量 `add_all`、需要跨会话并发 seed 或固定 `id` / `version` 的场景仍按需内联构造。
 
 筛选验收使用 `seed.filtering()`，它先重置基础 fixture，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据。`e2e/fixtures/filtering.ts` 提供同一入口。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。
 

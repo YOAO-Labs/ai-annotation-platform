@@ -18,7 +18,7 @@ last_reviewed: 2026-09-09
 | Web        | Caddy 的 HTTPS 3030 → Nginx 静态站点；同源代理 `/api/`、`/ws/`、`/minio/` |
 | API        | Caddy 的 HTTPS 8080 → Uvicorn 容器 8000；不发布原生 HTTP 端口             |
 | PostgreSQL | 复用实例，新库 `annotation_production`；不复制旧业务表内容                |
-| MinIO      | 复用实例，七个独立 `prod-` 桶与受限访问凭据                               |
+| MinIO      | 复用实例，八个独立 `prod-` 桶与受限访问凭据                               |
 | Redis      | 独立 `redis-production` 容器与 AOF 卷；无宿主端口                         |
 | 异步任务   | 七类 Worker 与一个 Beat，全部连接生产库和生产 Redis                       |
 | 模型       | 复用运行中的实例及权重，在新库重新注册和探测能力                          |
@@ -59,7 +59,7 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 
 在同一目录创建 `known_hosts` 文件，并只读挂载给 API 和消费 `media` 的通用 Worker。未配置 SFTP 时可以为空；接入 SFTP 前必须通过可信渠道核验目标主机公钥并写入该文件，不能自动信任扫描结果。新生产环境使用独立 `CONNECTOR_ENCRYPTION_KEY` 保存连接器凭据；该值与数据库一起备份，不能随重建轮换。
 
-七个桶变量固定为：
+八个桶变量固定为：
 
 | 变量                         | 桶                   |
 | ---------------------------- | -------------------- |
@@ -70,8 +70,9 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 | `MINIO_AUDIT_ARCHIVE_BUCKET` | `prod-audit-archive` |
 | `MINIO_IMPORT_BUCKET`        | `prod-import`        |
 | `MINIO_EXPORT_BUCKET`        | `prod-export`        |
+| `MINIO_AVATARS_BUCKET`       | `prod-avatars`       |
 
-边缘代理使用上述七个桶的明确路径列表。改变桶名时同时更新变量、MinIO 权限策略及 `infra/docker/Caddyfile.lan-prod`，不能只改其中一处。
+边缘代理使用上述八个桶的明确路径列表。改变桶名时同时更新变量、MinIO 权限策略及 `infra/docker/Caddyfile.lan-prod`，不能只改其中一处。
 
 ## 初始化独立数据库和存储
 
@@ -90,9 +91,9 @@ GRANT CONNECT ON DATABASE annotation_production TO anno_prod_app;
 
 通过交互式 `psql` 的 `\password anno_prod_owner` 和 `\password anno_prod_app` 分别设置新密码，并写入对应的本机配置文件，避免把密码放进命令历史。迁移需要安装 `pgcrypto` 和 `btree_gist` 扩展；当前 PostgreSQL 镜像支持由新库 owner 安装这些受信任扩展。
 
-由 MinIO 管理员预建七个空桶及一个新的应用账号，附加仓库中的 `infra/docker/lan-production-minio-policy.json`。该策略只授予这些桶的对象操作及当前应用实际使用的生命周期设置权限，不授予旧桶访问或 MinIO 管理权限。
+由 MinIO 管理员预建八个空桶及一个新的应用账号，附加仓库中的 `infra/docker/lan-production-minio-policy.json`。该策略只授予这些桶的对象操作及当前应用实际使用的生命周期设置权限，不授予旧桶访问或 MinIO 管理权限。
 
-API 启动会设置五个桶的生命周期：评论附件前缀 90 天、反馈附件 180 天、媒体缓存的 `videos/` 前缀 30 天、导入和导出桶 7 天。数据集和审计归档桶没有自动过期。必须确认这些配置全部指向新桶。
+API 启动会设置五个桶的生命周期：评论附件前缀 90 天、反馈附件 180 天、媒体缓存的 `videos/` 前缀 30 天、导入和导出桶 7 天。数据集、审计归档与头像桶没有自动过期（头像不可重生，过期会造成破图）。必须确认这些配置全部指向新桶。
 
 ## 构建、迁移和启动
 
@@ -168,4 +169,59 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml stop
 
 保留持久卷和上一个镜像标识；不要使用 `down -v`。有不兼容数据库迁移时，镜像回退必须配合新库及对象存储的恢复方案，不能自动 downgrade 或恢复整个共享实例覆盖旧环境。
 
-备份范围包括生产数据库、七个桶、生产配置、迁移凭据与 Caddy CA 卷。CA 丢失后重新生成会要求全部客户端重新信任。Redis AOF 可降低队列丢失概率，但异常中断的作业仍应按数据库任务状态核对和恢复。
+备份范围包括生产数据库、八个桶、生产配置、迁移凭据与 Caddy CA 卷。CA 丢失后重新生成会要求全部客户端重新信任。Redis AOF 可降低队列丢失概率，但异常中断的作业仍应按数据库任务状态核对和恢复。
+
+## 容器健康恢复与定时维护
+
+该独立 Compose 的常驻服务使用 `restart: unless-stopped`，处理进程退出和 Docker 启动后的恢复；Docker 不会仅因为容器变为 `unhealthy` 自动重启它。宿主机的开发服务仍使用 3000/8000，生产入口使用 HTTPS 3030/8080。
+
+`scripts/production-health-recover.py` 配合 `infra/systemd/aap-production-health.{service,timer}` 每两分钟检查生产环境：
+
+- 固定使用本机 Docker `default` context，校验 `aap-production` 项目、服务、Compose 文件及工作目录标签。只操作当前已有容器 ID，不执行 Compose 部署、构建、迁移或共享基础设施重启，也不向宿主进程发送信号。
+- 连续三次异常后，恢复一个已停止或不健康的容器；单服务两次恢复至少间隔 15 分钟，每小时最多三次。恢复后由下一轮检查确认状态，启动中、Docker 正在重启或人工暂停的容器不会被抢先操作。
+- API 的无外部依赖路由能返回 HTTP 响应时，依赖检查失败只记录降级；Redis 异常时不连带重启 worker。数据库、MinIO 和共享模型服务需要按各自运维流程处理。
+- 通过容器实际绑定 IP，使用导出的 Caddy 公共根证书校验 HTTPS `/healthz` 和 `/health/db`，不跳过证书检查，不使用代理环境变量。仅在 API、Web 均健康时尝试恢复入口。
+- 缺失容器、标签冲突或重复副本会停止自动恢复并记录错误，需要人工核对部署。迁移容器不在恢复范围内。beat 当前只有运行状态检查，无法据此证明定时任务持续调度。
+
+### 本机安装与检查
+
+将脚本复制到 `~/.local/lib/ai-annotation-platform/production-health-recover.py`，将公共根证书保存到 `~/.local/state/ai-annotation-platform/production-health/root.crt`。脚本仅依赖 Python 标准库及 Docker CLI。保留现有 crontab 和旧脚本备份，再将 `~/.local/bin/ai-annotation-platform-restart` 替换为调用该副本的入口，传入以下参数（路径需替换为本机实际值）：
+
+```bash
+/usr/bin/python3 ~/.local/lib/ai-annotation-platform/production-health-recover.py \
+  --project-dir /absolute/path/to/ai-annotation-platform \
+  --state-dir ~/.local/state/ai-annotation-platform/production-health \
+  --ca-file ~/.local/state/ai-annotation-platform/production-health/root.crt \
+  --check
+```
+
+`--check` 不改变容器或失败计数；退出码 0 表示检查通过或维护暂停，1 表示异常、恢复待确认或检查失败。定时入口省略 `--check` 并透传手动参数。安装到用户目录的副本避免工作区切换分支直接改变运行中的维护程序；更新源码后应重新安装并验证。
+
+复制两个 systemd 单元到 `~/.config/systemd/user/` 后启用：
+
+```bash
+loginctl enable-linger "$USER"
+systemctl --user daemon-reload
+systemctl --user start aap-production-health.service
+systemctl --user enable --now aap-production-health.timer
+systemctl --user list-timers aap-production-health.timer
+journalctl --user -u aap-production-health.service -n 40 --no-pager
+```
+
+`Linger=yes` 保证退出登录后用户定时器仍运行，并可随系统启动。确认首次运行成功后，移除旧的每日全栈重启 cron 条目，保留其他任务。不要保留会按 3000/8000 杀进程、执行默认 Compose 全量重启或自动迁移的旧入口。检查其他用户及 root 的 crontab 需要相应权限，当前用户的检查不能替代它们。
+
+开发环境如需每天定时重启，应另设 `aap-development-restart.timer`，仅重启开发 Web/API 与开发专用 worker/beat；不要重新启用旧的全栈 cron。其配置和暂停方式见仓库 `DEV.md` 的“本机开发服务定时重启”。两个定时器使用独立入口、锁和维护开关。
+
+### 暂停、升级和回退
+
+计划停止生产、部署或人工诊断前，先暂停恢复；否则已经停止但仍存在的生产容器会被视为待恢复：
+
+```bash
+touch ~/.local/state/ai-annotation-platform/production-health/maintenance
+flock ~/.local/state/ai-annotation-platform/production-health/health.lock true
+# 在此执行本项目的部署或 stop 操作。
+rm ~/.local/state/ai-annotation-platform/production-health/maintenance
+~/.local/bin/ai-annotation-platform-restart --check
+```
+
+彻底停用使用 `systemctl --user disable --now aap-production-health.timer`，并等待正在执行的 service 完成。故障记录保存在同目录的 `health-state.json`，执行日志进入用户 journal。回退健康恢复程序时保留旧程序备份；不要重新启用会影响开发端口的旧 cron。CA 发生更换时重新导出公共根证书，再验证两个 HTTPS 入口。

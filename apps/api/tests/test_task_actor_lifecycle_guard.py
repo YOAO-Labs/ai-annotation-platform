@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import update
 
-from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.deps import get_current_user
 from tests.test_task_lock import _create_annotation, _seed_project_and_task
@@ -26,13 +25,11 @@ from tests.test_task_lock import _create_annotation, _seed_project_and_task
     ],
 )
 async def test_suspended_actor_is_rechecked_before_task_handler(
-    operation, httpx_client_bound, app_module, db_session, annotator
+    operation, httpx_client, app_module, db_session, annotator
 ):
     user, token = annotator
-    project, task = await _seed_project_and_task(db_session, user.id, user.id)
-    db_session.add(
-        ProjectMember(project_id=project.id, user_id=user.id, role="annotator")
-    )
+    # _seed_project_and_task adds the explicit annotator membership for the worker.
+    _, task = await _seed_project_and_task(db_session, user.id, user.id)
     annotation = await _create_annotation(db_session, task, user.id)
     stale_principal = SimpleNamespace(id=user.id, role=user.role, is_active=True)
     await db_session.execute(
@@ -49,18 +46,18 @@ async def test_suspended_actor_is_rechecked_before_task_handler(
     app_module.dependency_overrides[get_current_user] = previously_authenticated_user
     try:
         if operation == "submit":
-            response = await httpx_client_bound.post(
+            response = await httpx_client.post(
                 f"/api/v1/tasks/{task.id}/submit",
                 headers={"Authorization": f"Bearer {token}"},
             )
         elif operation == "bulk_update":
-            response = await httpx_client_bound.post(
+            response = await httpx_client.post(
                 "/api/v1/annotations/bulk-update",
                 json={"ids": [str(annotation.id)], "patch": {"class_name": "person"}},
                 headers={"Authorization": f"Bearer {token}"},
             )
         elif operation == "api_key":
-            response = await httpx_client_bound.post(
+            response = await httpx_client.post(
                 "/api/v1/me/api-keys",
                 json={"name": "No stale key", "scopes": ["annotations:write"]},
                 headers={"Authorization": f"Bearer {token}"},
@@ -69,7 +66,7 @@ async def test_suspended_actor_is_rechecked_before_task_handler(
             prefix = (
                 "point-cloud-quality" if operation == "point_quality" else "mask-qc"
             )
-            response = await httpx_client_bound.patch(
+            response = await httpx_client.patch(
                 f"/api/v1/{prefix}/issues/{annotation.id}",
                 json={"status": "resolved"},
                 headers={"Authorization": f"Bearer {token}"},
@@ -81,7 +78,7 @@ async def test_suspended_actor_is_rechecked_before_task_handler(
                 "chapter": f"/api/v1/videos/{task.id}/chapters/{annotation.id}",
                 "comment": f"/api/v1/comments/{annotation.id}",
             }
-            response = await httpx_client_bound.delete(
+            response = await httpx_client.delete(
                 paths[operation], headers={"Authorization": f"Bearer {token}"}
             )
         assert response.status_code == 401, response.text

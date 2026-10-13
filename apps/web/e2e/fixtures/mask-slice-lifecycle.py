@@ -8,10 +8,80 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "api"))
+_APP_DIR = Path(__file__).resolve().parents[3]
+_REPO_ROOT = _APP_DIR.parent
+sys.path.insert(0, str(_APP_DIR / "api"))
+_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
+from worktree_runtime import WorktreeError, require_owner  # noqa: E402
+
+OWNER_TAG = "aap-worktree-owner"
+
+
+class GuardError(AssertionError):
+    """Rejected bucket/resource identity before any GC work runs."""
+
+
+def assert_owned_disposable_bucket(
+    *,
+    mode: str | None,
+    resources: dict | None,
+    database: str,
+    bucket: str,
+    owner_tag: str | None,
+) -> None:
+    """Fail closed unless ``bucket`` is an exclusively owned disposable test bucket.
+
+    Worktree modes (``AAP_WORKTREE_MODE=test|e2e``) must declare this exact
+    database and ``MINIO_BUCKET`` slot in the active resources manifest and
+    carry the manifest owner tag (``scripts/worktree_runtime.require_owner``
+    semantics: foreign owner raises, missing tag is rejected). Without a
+    worktree mode only the legacy isolated-CI bucket naming is accepted, and an
+    unrecognized ``aap-wt-*`` bucket is rejected instead of falling back to it.
+    """
+    if mode is not None:
+        if mode not in {"test", "e2e"}:
+            raise GuardError(f"worktree GC helper refuses mode {mode!r}")
+        if not resources:
+            raise GuardError("worktree mode requires the active resources manifest")
+        if resources.get("mode") != mode:
+            raise GuardError("resources manifest was created for another mode")
+        if resources.get("root") != str(_REPO_ROOT):
+            raise GuardError("resources manifest belongs to another checkout")
+        owner = resources.get("owner")
+        if not owner:
+            raise GuardError("resources manifest has no owner tag")
+        if database != resources.get("database"):
+            raise GuardError("database does not match the active worktree resource")
+        if bucket != (resources.get("buckets") or {}).get("MINIO_BUCKET"):
+            raise GuardError("MINIO_BUCKET must be the active worktree resource slot")
+        try:
+            owned = require_owner(
+                "MINIO_BUCKET",
+                {"owner": owner_tag} if owner_tag is not None else None,
+                str(owner),
+            )
+        except WorktreeError as exc:
+            raise GuardError(str(exc)) from exc
+        if not owned:
+            raise GuardError("MINIO_BUCKET has no owner tag for this worktree")
+        return
+    if bucket.startswith("aap-wt-"):
+        raise GuardError("aap-wt-* bucket requires an active worktree mode")
+    if not bucket.endswith(("-e2e", "_e2e", "-test", "_test")):
+        raise GuardError("legacy isolated CI bucket naming required")
+
+
+def _bucket_owner_tag(storage: object, bucket: str) -> str | None:
+    try:
+        tags = storage.client.get_bucket_tagging(Bucket=bucket).get("TagSet", [])
+    except Exception:
+        return None
+    return next((tag["Value"] for tag in tags if tag["Key"] == OWNER_TAG), None)
 
 
 async def main():
@@ -23,15 +93,24 @@ async def main():
     assert os.environ.get("ENVIRONMENT") == "development"
     # A disposable DB alone is insufficient: GC must never scan a shared bucket.
     bucket = os.environ.get("MINIO_BUCKET", "")
-    assert bucket.endswith(("-e2e", "_e2e", "-test", "_test")), (
-        "MINIO_BUCKET must name an exclusively owned disposable test bucket"
-    )
+    mode = os.environ.get("AAP_WORKTREE_MODE")
+    resources = None
+    if mode is not None:
+        manifest = _REPO_ROOT / ".worktree" / mode / "resources.json"
+        resources = json.loads(manifest.read_text())["resources"]
     from app.workers._db import task_session
     from app.services.storage import storage_service
     from app.services.raster_mask_storage import store_coco_rle
     from app.workers.cleanup import _purge_unreferenced_raster_masks_async
 
     assert storage_service.bucket == bucket
+    assert_owned_disposable_bucket(
+        mode=mode,
+        resources=resources,
+        database=url.database,
+        bucket=bucket,
+        owner_tag=_bucket_owner_tag(storage_service, bucket),
+    )
     async with task_session() as db:
         operation = (
             (
@@ -124,4 +203,5 @@ async def main():
     )
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,15 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/DropdownMenu";
 import { AssigneeAvatarStack } from "@/components/ui/AssigneeAvatarStack";
 import { SkipTaskModal, type SkipReason } from "./SkipTaskModal";
 import { BatchStatusBadge } from "@/components/badges/BatchStatusBadge";
+import { useWhatsNewStore } from "@/components/shell/WhatsNewDialog";
+import { appVersion } from "@/utils/releaseNotes";
 import { useTheme } from "@/hooks/useTheme";
 import { useBugDrawerStore } from "@/stores/bugDrawerStore";
 import type { TaskResponse } from "@/types";
 import type { VideoSegment } from "@/api/videoTracker";
+import type { GuardedNavigate } from "@/utils/workbenchNavigation";
 import type { WorkspaceSide, WorkspaceSideState } from "../layout/workbenchLayoutExecutor";
+
+// 与主界面 TopBar 共用同一懒加载通知入口；工作台传入自己的导航回调。
+const NotificationsPopover = lazy(() =>
+  import("@/components/shell/NotificationsPopover").then((m) => ({
+    default: m.NotificationsPopover,
+  })),
+);
 
 interface TopbarProps {
   /** 项目名 + 展示 ID（如 P-0001）；显示在左侧 task id 前作为项目上下文。 */
@@ -69,6 +79,11 @@ interface TopbarProps {
   activeVideoSegmentId?: string | null;
   onSelectVideoSegment?: (segmentId: string | null) => void;
   submitLabel?: string;
+  /**
+   * 通知面板导航回调：工作台在真正改路由前跑视频/Mask 离开检查。
+   * 缺省时不渲染通知入口（测试/故事用 Topbar 时保持原行为）。
+   */
+  onNotificationNavigate?: GuardedNavigate;
 }
 
 function cn(...xs: Array<string | false | null | undefined>): string {
@@ -131,6 +146,7 @@ export function Topbar({
   activeVideoSegmentId,
   onSelectVideoSegment,
   submitLabel = "提交",
+  onNotificationNavigate,
 }: TopbarProps) {
   const { resolved, setTheme } = useTheme();
   const openBugDrawer = useBugDrawerStore((state) => state.openDrawer);
@@ -184,7 +200,7 @@ export function Topbar({
           event.stopPropagation();
         }
       }}
-      className="h-7 min-w-0 w-32 max-w-full rounded border border-border bg-card px-2 text-xs text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      className="h-7 min-w-0 w-32 max-w-full rounded border border-border bg-card px-2 text-xs text-foreground focus-visible:ring-2 focus-visible:ring-ring @max-[1000px]:hidden"
     >
       <option value="">选择分段</option>
       {videoSegments.map((segment) => (
@@ -247,8 +263,10 @@ export function Topbar({
           </span>
         </div>
 
-        {/* 中：任务标识 + 任务导航 + 状态相关主操作（整体居中） */}
-        <div className="flex flex-1 items-center justify-center gap-1.5 min-w-0 [&>button]:shrink-0 @max-[700px]:gap-0.5 @max-[700px]:[&>button]:w-7 @max-[700px]:[&>button]:p-0">
+        {/* 中：任务标识 + 任务导航 + 状态相关主操作（整体居中）。
+             `min-w-max` 让中段永不压缩到内容以下；空间不足时由左侧项目名先收缩，
+             避免 shrink-0 的元数据/按钮溢出压到相邻控件（见 workbench-topbar.spec）。 */}
+        <div className="flex flex-1 min-w-max items-center justify-center gap-1.5 [&>button]:shrink-0 @max-[1000px]:[&>button]:w-7 @max-[1000px]:[&>button]:p-0 @max-[700px]:gap-0.5">
           <div className="flex items-center gap-2.5 min-w-0 @max-[700px]:hidden">
             <span className="mono shrink-0 text-xs text-muted-foreground @max-[1400px]:hidden">
               {projectDisplayId}
@@ -264,7 +282,7 @@ export function Topbar({
               {task?.file_name ?? "—"}
             </span>
             {indexLabel && (
-              <span className="mono shrink-0 px-2 py-0.5 text-xs font-medium text-muted-foreground tracking-[0.2px] bg-muted border border-border rounded-full">
+              <span className="mono shrink-0 px-2 py-0.5 text-xs font-medium text-muted-foreground tracking-[0.2px] bg-muted border border-border rounded-full @max-[900px]:hidden">
                 {indexLabel}
               </span>
             )}
@@ -306,7 +324,7 @@ export function Topbar({
                 title="通过 (A)"
               >
                 <Icon name="check" size={13} />
-                <span className="@max-[700px]:hidden">通过</span>
+                <span className="@max-[1000px]:hidden">通过</span>
               </Button>
               <Button
                 variant="danger"
@@ -318,7 +336,7 @@ export function Topbar({
                 title="退回 (R)"
               >
                 <Icon name="x" size={12} />
-                <span className="@max-[700px]:hidden">退回</span>
+                <span className="@max-[1000px]:hidden">退回</span>
               </Button>
             </>
           ) : isReview ? (
@@ -331,7 +349,7 @@ export function Topbar({
               title={canWithdraw ? "撤回提交，回到编辑态" : "审核员已介入，无法撤回"}
             >
               <Icon name="chevLeft" size={13} />
-              <span className="@max-[700px]:hidden">撤回提交</span>
+              <span className="@max-[1000px]:hidden">撤回提交</span>
             </Button>
           ) : isCompleted ? (
             <Button
@@ -343,7 +361,7 @@ export function Topbar({
               title="重开任务，回到编辑态"
             >
               <Icon name="edit" size={13} />
-              <span className="@max-[700px]:hidden">继续编辑</span>
+              <span className="@max-[1000px]:hidden">继续编辑</span>
             </Button>
           ) : (
             <>
@@ -357,7 +375,7 @@ export function Topbar({
                 data-testid="workbench-submit"
               >
                 <Icon name="check" size={13} />
-                <span className="@max-[700px]:hidden">{submitLabel}</span>
+                <span className="@max-[1000px]:hidden">{submitLabel}</span>
               </Button>
               {onSkip && (
                 <Button
@@ -369,7 +387,7 @@ export function Topbar({
                   data-testid="workbench-skip"
                 >
                   <Icon name="x" size={12} />
-                  <span className="@max-[700px]:hidden">跳过</span>
+                  <span className="@max-[1000px]:hidden">跳过</span>
                 </Button>
               )}
             </>
@@ -384,7 +402,7 @@ export function Topbar({
             <Icon name="chevRight" size={13} />
           </Button>
 
-          <div className="flex shrink-0 items-center gap-1.5 @max-[700px]:hidden">
+          <div className="flex shrink-0 items-center gap-1.5 @max-[1000px]:hidden">
             {smartItems.length > 0 && (
               <DropdownMenu
                 items={smartItems}
@@ -407,6 +425,7 @@ export function Topbar({
               size="sm"
               onClick={onShowHotkeys}
               title="快捷键 (?)"
+              aria-label="快捷键"
               className="mono px-1 py-1 text-muted-foreground"
             >
               ?
@@ -478,7 +497,26 @@ export function Topbar({
             </>
           )}
           {guideSlot && <div className="flex shrink-0 items-center">{guideSlot}</div>}
-          <div className="flex items-center gap-1.5 @max-[700px]:hidden">
+          {onNotificationNavigate && (
+            <Suspense fallback={null}>
+              <NotificationsPopover navigate={onNotificationNavigate} />
+            </Suspense>
+          )}
+          <div className="flex items-center gap-1.5 @max-[1000px]:hidden">
+            {/* 与主界面 TopBar 一致:版本号可点击,随时查看当前版本更新内容。
+                窄屏工作台顶栏已无横向余量(见 workbench-topbar.spec 的防重叠断言),
+                故随中段压缩一并收起;<1000px 时改由「更多工具」菜单提供入口。 */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => useWhatsNewStore.getState().openManually()}
+              title="查看本次更新内容"
+              aria-label={`查看 v${appVersion} 更新内容`}
+              data-testid="workbench-whats-new"
+              className="mono px-1.5 py-1 text-muted-foreground @max-[900px]:hidden"
+            >
+              v{appVersion}
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -514,13 +552,18 @@ export function Topbar({
               </Button>
             )}
           </div>
-          <div className="hidden @max-[700px]:block">
+          <div className="hidden @max-[1000px]:block">
             <DropdownMenu
               footer={videoSegmentSelect}
               items={[
                 ...smartItems,
                 { id: "hotkeys", label: "快捷键", onSelect: onShowHotkeys },
                 { id: "theme", label: themeActionLabel, onSelect: () => setTheme(nextTheme) },
+                {
+                  id: "whats-new",
+                  label: `本次更新 (v${appVersion})`,
+                  onSelect: () => useWhatsNewStore.getState().openManually(),
+                },
                 { id: "bug-report", label: "报告 Bug / 提交反馈", onSelect: openBugDrawer },
                 ...(onOpenWorkbenchSettings
                   ? [{ id: "settings", label: "工作台设置", onSelect: onOpenWorkbenchSettings }]

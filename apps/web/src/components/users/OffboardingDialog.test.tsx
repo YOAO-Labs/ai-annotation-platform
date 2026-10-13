@@ -46,7 +46,7 @@ const USER = {
   id: "user-1",
   name: "离职成员",
   email: "leaver@example.com",
-  role: "annotator",
+  role: "employee",
   group_name: null,
   group_id: null,
   status: "online",
@@ -87,7 +87,7 @@ const PREVIEW: OffboardingPreview = {
               id: "receiver-annotator",
               name: "接收标注",
               email: "annotator@example.com",
-              role: "annotator",
+              role: "employee",
               project_member_role: "annotator",
             },
           ],
@@ -187,7 +187,7 @@ describe("OffboardingDialog", () => {
       unresolved: [
         {
           project_id: "project-1",
-          role: "annotator",
+          role: "employee",
           reason: "emergency_suspension_requires_later_handoff",
           batch_ids: ["batch-1"],
           task_count: 2,

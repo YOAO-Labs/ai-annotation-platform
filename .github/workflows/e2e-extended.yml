@@ -2,8 +2,19 @@ name: E2E extended
 
 on:
   schedule:
+    # Nightly full verification (plan §6.2). The scope is passed explicitly
+    # below instead of being implied by the event name.
     - cron: "0 19 * * *" # 03:00 Asia/Shanghai
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "E2E scope for the manual run"
+        required: false
+        default: extended
+        type: choice
+        options:
+          - extended
+          - full
 
 permissions:
   contents: read
@@ -18,13 +29,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      required: ${{ steps.plan.outputs.required }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-      - name: Select extended suites
+          node-version: "22"
+      - name: Select suites for the requested scope
         id: plan
+        env:
+          E2E_SCHEDULE_SCOPE: ${{ github.event_name == 'schedule' && 'full' || '' }}
+          E2E_DISPATCH_SCOPE: ${{ inputs.scope }}
         run: node scripts/plan-e2e-suites.mjs >> "$GITHUB_OUTPUT"
 
   suites:
@@ -33,3 +48,32 @@ jobs:
     uses: ./.github/workflows/e2e-run.yml
     with:
       matrix: ${{ needs.plan.outputs.matrix }}
+
+  audit:
+    name: Frontend extended audit
+    runs-on: ubuntu-latest
+    needs: [plan, suites]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect per-suite status artifacts
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-report-*
+          path: suite-status-raw
+          merge-multiple: true
+      - name: Audit planned suites against actual results
+        if: needs.plan.outputs.required != ''
+        env:
+          E2E_REQUIRED: ${{ needs.plan.outputs.required }}
+        run: |
+          printf '%s' "$E2E_REQUIRED" > required-suites.json
+          node scripts/audit-e2e-requirements.mjs required-suites.json suite-status-raw/suite-status
+      - name: Require every planned E2E suite to pass
+        env:
+          E2E_PLAN_RESULT: ${{ needs.plan.result }}
+          E2E_SUITES_RESULT: ${{ needs.suites.result }}
+        run: |
+          test "$E2E_PLAN_RESULT" = success
+          test "$E2E_SUITES_RESULT" = success

@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { AnnotationResponse } from "@/types";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import { maskRefineBlockReason, promptEmptyRasterMaskChoice } from "./useImageAnnotationActions";
+
+/** 结算当前排队的 decisionDialog 并清空队列,模拟用户点下某个选项。 */
+function settleDialog(value: boolean | string | null) {
+  const head = useDecisionDialogStore.getState().queue[0];
+  if (!head) throw new Error("decisionDialog 队列为空");
+  useDecisionDialogStore.getState().settle(value);
+  useDecisionDialogStore.getState().dispose();
+}
 
 function annotation(
   geometry: AnnotationResponse["geometry"],
@@ -59,11 +68,16 @@ describe("maskRefineBlockReason", () => {
 });
 
 describe("promptEmptyRasterMaskChoice", () => {
-  it("三态选择依次映射删除、撤销和继续编辑", () => {
-    expect(promptEmptyRasterMaskChoice(vi.fn(() => true))).toBe("delete");
-    expect(
-      promptEmptyRasterMaskChoice(vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true)),
-    ).toBe("undo");
-    expect(promptEmptyRasterMaskChoice(vi.fn(() => false))).toBe("continue");
+  it("三态选择依次映射删除、撤销和继续编辑", async () => {
+    let choice = promptEmptyRasterMaskChoice();
+    settleDialog("delete");
+    await expect(choice).resolves.toBe("delete");
+    choice = promptEmptyRasterMaskChoice();
+    settleDialog("undo");
+    await expect(choice).resolves.toBe("undo");
+    // 取消 / Esc / 点遮罩 → null → 保持空白继续编辑
+    choice = promptEmptyRasterMaskChoice();
+    settleDialog(null);
+    await expect(choice).resolves.toBe("continue");
   });
 });

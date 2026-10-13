@@ -1,0 +1,35 @@
+.actionLabel {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-columns 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.actionLabelClip {
+  overflow: hidden;
+}
+
+.actionButton:hover .actionLabel,
+.actionButton:focus-visible .actionLabel {
+  grid-template-columns: 1fr;
+  opacity: 1;
+}
+
+.actionButton:focus-visible .actionLabel {
+  transition: none;
+}
+
+@media (hover: none) {
+  .actionLabel {
+    grid-template-columns: 1fr;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actionLabel {
+    transition: none;
+  }
+}

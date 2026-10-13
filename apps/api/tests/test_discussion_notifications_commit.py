@@ -118,13 +118,13 @@ async def _seed_committed_fixture(
         )
         root_author = await create_user(
             db,
-            "annotator",
+            "employee",
             f"n1-author-{uuid.uuid4().hex}@test.local",
             "N1 author",
         )
         actor = await create_user(
             db,
-            "reviewer",
+            "employee",
             f"n1-actor-{uuid.uuid4().hex}@test.local",
             "N1 actor",
         )

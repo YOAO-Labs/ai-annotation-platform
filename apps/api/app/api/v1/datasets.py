@@ -9,9 +9,17 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_current_user, require_roles, require_scopes
+from app.deps import (
+    get_db,
+    get_current_user,
+    require_project_owner,
+    require_roles,
+    require_scopes,
+)
 from app.db.enums import UserRole
+from app.db.models.project import Project
 from app.db.models.user import User
+from app.services.project_access import resolve_project_access_by_id
 from app.schemas.dataset import (
     DatasetCreate,
     DatasetUpdate,
@@ -840,12 +848,22 @@ async def link_project(
     data: DatasetLinkRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: User = Depends(get_current_user),
 ):
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    # Linking materializes this project's tasks: it is a project-management
+    # action, not a platform-catalog action.  A project administrator without
+    # ownership of the target project receives no management authority.
+    _project, access = await resolve_project_access_by_id(
+        db, user=current_user, project_id=data.project_id
+    )
+    if not access.is_manager:
+        raise HTTPException(
+            status_code=403, detail="仅项目负责人或超级管理员可关联数据集"
+        )
     link_result = await svc.link_project(dataset_id, data.project_id)
     await AuditService.log(
         db,
@@ -885,8 +903,9 @@ async def link_project(
 async def preview_unlink_project(
     dataset_id: uuid.UUID,
     project_id: uuid.UUID,
+    _project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: User = Depends(get_current_user),
 ):
     """v0.6.7 B-10 v2：取消关联前的预览数字（will be deleted）。前端拿来做二次确认文案。
     v0.7.3：补 will_delete_batches —— 与 service 层一致：失去 task 后变空壳的 batch（B-DEFAULT 除外）。
@@ -955,8 +974,9 @@ async def unlink_project(
     dataset_id: uuid.UUID,
     project_id: uuid.UUID,
     request: Request,
+    _project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: User = Depends(get_current_user),
 ):
     svc = DatasetService(db)
     info = await svc.unlink_project(dataset_id, project_id)

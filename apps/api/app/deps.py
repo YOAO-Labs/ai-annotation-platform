@@ -6,12 +6,11 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.db.base import async_session
-from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.core.security import decode_access_token
 from app.core.token_blacklist import is_blacklisted, get_user_generation
+from app.services.project_access import ProjectAccess, resolve_project_access_by_id
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -176,29 +175,13 @@ async def assert_project_visible(
     user: User,
 ) -> Project:
     """
-    可见性规则：
-      - super_admin：全部可见
-      - project_admin：仅 owner_id == self
-      - 其他角色：仅当存在 ProjectMember(project_id, user_id=self)
-    返回 Project 实体；不可见则 404 隐藏存在性。
+    统一可见性：超级管理员、合法的管理型负责人，或校验通过的成员。
+    非管理型 owner 不再有隐式可见性；平台 project_admin 若只是他人项目的成员，
+    按成员可见性处理（不获得管理权）。不可见则 404 隐藏存在性。
     """
-    project = await db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
-
-    if user.role == UserRole.SUPER_ADMIN:
-        return project
-    if user.role == UserRole.PROJECT_ADMIN and project.owner_id == user.id:
-        return project
-
-    member = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user.id,
-        )
+    project, _access = await resolve_project_access_by_id(
+        db, user=user, project_id=project_id
     )
-    if member.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
     return project
 
 
@@ -215,10 +198,50 @@ async def require_project_owner(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Project:
-    """super_admin 或项目 owner 可执行写操作。"""
-    project = await db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if user.role == UserRole.SUPER_ADMIN or project.owner_id == user.id:
-        return project
-    raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可执行")
+    """super_admin 或具备合法管理身份的负责人可执行写操作。
+
+    通过统一访问解析器判定，确保停用账号、被转移项目与非管理型 owner 不会
+    仅凭旧字段获得管理权。
+    """
+    project, access = await resolve_project_access_by_id(
+        db, user=user, project_id=project_id
+    )
+    if not access.is_manager:
+        raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可执行")
+    return project
+
+
+async def project_access_for_path(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProjectAccess:
+    """Resolve the immutable project access context for the path project.
+
+    Downstream routes depend on this (or ``require_project_capability``) instead
+    of re-deriving authority from a global role.
+    """
+
+    _, access = await resolve_project_access_by_id(db, user=user, project_id=project_id)
+    return access
+
+
+def require_project_capability(*capabilities: str) -> Callable:
+    """Factory: require every listed :class:`ProjectCapability` value.
+
+    Returns the resolved :class:`ProjectAccess` so handlers can read the
+    membership identity/version without a second lookup.
+    """
+
+    async def checker(
+        access: ProjectAccess = Depends(project_access_for_path),
+    ) -> ProjectAccess:
+        missing = sorted(cap for cap in capabilities if cap not in access.capabilities)
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"缺少项目权限: {', '.join(missing)}",
+            )
+        return access
+
+    return checker

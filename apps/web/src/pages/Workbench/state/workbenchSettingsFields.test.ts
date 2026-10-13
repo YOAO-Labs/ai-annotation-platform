@@ -142,12 +142,15 @@ describe("settings presentation", () => {
         ).toBe(field.section);
     }
   });
-  it("all settings share six purpose groups without missing or duplicating fields", () => {
+  it("all settings share the field-backed purpose groups without missing or duplicating fields", () => {
     const fields = getVisibleWorkbenchSettingFields();
     expect(fields).toHaveLength(48);
     expect(fields.some((field) => field.hidden)).toBe(false);
     const groups = groupWorkbenchSettings(fields);
-    expect(groups.map((group) => group.key)).toEqual(Object.keys(WORKBENCH_SETTING_GROUPS));
+    // notifications 分组由共享通知偏好面板渲染，不承载偏好字段
+    expect(groups.map((group) => group.key)).toEqual(
+      Object.keys(WORKBENCH_SETTING_GROUPS).filter((key) => key !== "notifications"),
+    );
     const groupedKeys = groups.flatMap((group) =>
       group.sections.flatMap((section) => section.fields.map((field) => field.key)),
     );

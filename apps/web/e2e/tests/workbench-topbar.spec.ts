@@ -45,7 +45,7 @@ test("topbar stays compact and does not overlap as its container narrows", async
   page,
   seed,
 }) => {
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.injectToken(page, data.annotator_email);
   await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
   const bar = page.getByTestId("workbench-topbar");

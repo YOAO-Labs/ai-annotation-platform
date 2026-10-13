@@ -10,12 +10,15 @@ last_reviewed: 2026-07-11
 
 ## 前置依赖
 
-- Node.js >= 20
+- Node.js >= 22
 - pnpm >= 10
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/)
 - Docker & Docker Compose
 - 可选：[pre-commit](https://pre-commit.com/)（推荐装上）
+
+仓库提供 `.nvmrc`（Node 22）；`.npmrc` 开启了 `engine-strict`，低于基线的
+运行时会在 `pnpm install` 阶段直接失败（Node 20 已于 2026-04-30 EOL）。
 
 ## 一次性 setup
 

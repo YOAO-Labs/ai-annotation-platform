@@ -1,10 +1,18 @@
 import { apiClient } from "./client";
 import type {
   ProjectOut,
+  ProjectPage as GenProjectPage,
   ProjectCreate,
   ProjectUpdate,
   ProjectStats,
   ProjectMemberOut,
+  ProjectAccessOut,
+  ProjectMemberRoleChangeRequest,
+  ProjectMemberRolePreviewOut,
+  ProjectMemberRolePreviewRequest,
+  PlatformRole,
+  ProjectRole,
+  MentionCandidateOut,
   AttributeField as GenAttributeField,
   AttributeFieldOption as GenAttributeFieldOption,
   AttributeSchema as GenAttributeSchema,
@@ -66,6 +74,17 @@ export type ProjectResponse = Omit<ProjectOut, "preannotate_pipeline"> & {
 };
 export type ProjectStatsResponse = ProjectStats;
 export type ProjectMemberResponse = ProjectMemberOut;
+export type ProjectAccessResponse = ProjectAccessOut;
+export type { PlatformRole, ProjectRole };
+export type ProjectMemberRolePreviewResponse = ProjectMemberRolePreviewOut;
+export type ProjectMemberRoleChangePayload = ProjectMemberRoleChangeRequest;
+export type ProjectMemberRolePreviewPayload = ProjectMemberRolePreviewRequest;
+
+/** Fixed capability set returned by `GET /projects/{id}/access`. */
+export type ProjectCapability = NonNullable<ProjectAccessOut["capabilities"]>[number];
+
+/** @ 提及候选：项目负责人 / 平台超管 / 项目成员，`kind` 用于输入区展示标签。 */
+export type MentionCandidateResponse = MentionCandidateOut;
 
 export interface ProjectReadinessSummary {
   project_id: string;
@@ -239,28 +258,53 @@ export interface ProjectListParams {
   created_to?: string;
 }
 
+export interface ProjectPageParams extends ProjectListParams {
+  page: number;
+  page_size: number;
+}
+
+export type ProjectPage = Omit<GenProjectPage, "items"> & {
+  items: ProjectResponse[];
+};
+
+function projectQueryString(params?: ProjectListParams | ProjectPageParams) {
+  const q = new URLSearchParams();
+  Object.entries(params ?? {}).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    if (Array.isArray(v)) {
+      v.forEach((vi) => q.append(k, String(vi)));
+    } else {
+      q.append(k, String(v));
+    }
+  });
+  return q.toString();
+}
+
 export const projectsApi = {
   list: (params?: ProjectListParams, init?: RequestInit) => {
-    const q = new URLSearchParams();
-    Object.entries(params ?? {}).forEach(([k, v]) => {
-      if (v === undefined || v === null) return;
-      if (Array.isArray(v)) {
-        v.forEach((vi) => q.append(k, String(vi)));
-      } else {
-        q.append(k, String(v));
-      }
-    });
-    const qs = q.toString();
+    const qs = projectQueryString(params);
     const path = `/projects${qs ? `?${qs}` : ""}`;
     return init
       ? apiClient.get<ProjectResponse[]>(path, init)
       : apiClient.get<ProjectResponse[]>(path);
   },
 
+  page: (params: ProjectPageParams, init?: RequestInit) =>
+    apiClient.get<ProjectPage>(`/projects/query?${projectQueryString(params)}`, init),
+
   stats: () => apiClient.get<ProjectStatsResponse>("/projects/stats"),
 
   get: (id: string) => apiClient.get<ProjectResponse>(`/projects/${id}`),
   getReadiness: (id: string) => apiClient.get<ProjectReadinessSummary>(`/projects/${id}/readiness`),
+
+  /**
+   * B1 · resolved project access (platform + project role, membership version and
+   * fixed capability set).  Server authoritative; local guards are presentation.
+   */
+  getAccess: (id: string, init?: RequestInit) =>
+    init
+      ? apiClient.get<ProjectAccessResponse>(`/projects/${id}/access`, init)
+      : apiClient.get<ProjectAccessResponse>(`/projects/${id}/access`),
 
   create: (payload: ProjectCreatePayload) => apiClient.post<ProjectResponse>("/projects", payload),
 
@@ -289,8 +333,22 @@ export const projectsApi = {
 
   listMembers: (id: string) => apiClient.get<ProjectMemberResponse[]>(`/projects/${id}/members`),
 
-  addMember: (id: string, payload: { user_id: string; role: "annotator" | "reviewer" }) =>
+  /** 讨论区 @ 候选：项目负责人 + 平台超管 + 项目成员（按 user_id 去重）。 */
+  mentionCandidates: (id: string) =>
+    apiClient.get<MentionCandidateResponse[]>(`/projects/${id}/mention-candidates`),
+
+  addMember: (id: string, payload: { user_id: string; role: ProjectRole }) =>
     apiClient.post<ProjectMemberResponse>(`/projects/${id}/members`, payload),
+
+  // B1 · member role change is a preview → CAS write flow (see plan §6).
+  previewMemberRole: (id: string, memberId: string, payload: ProjectMemberRolePreviewPayload) =>
+    apiClient.post<ProjectMemberRolePreviewResponse>(
+      `/projects/${id}/members/${memberId}/role/preview`,
+      payload,
+    ),
+
+  changeMemberRole: (id: string, memberId: string, payload: ProjectMemberRoleChangePayload) =>
+    apiClient.patch<ProjectMemberResponse>(`/projects/${id}/members/${memberId}/role`, payload),
 
   removeMember: (id: string, memberId: string) =>
     apiClient.delete<void>(`/projects/${id}/members/${memberId}`),

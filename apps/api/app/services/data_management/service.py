@@ -48,7 +48,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -66,7 +65,8 @@ from app.schemas.data_manager import (
 )
 from app.services.project_kind import project_kind
 from app.services.prediction import to_internal_shape
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import is_privileged_for_project
+from app.services.feedback import unresolved_issue_count_sq
 from app.services.data_management.views import (
     compile_filter,
     visible_tasks_stmt,
@@ -117,11 +117,14 @@ class DataManagerService:
         filter_json: dict[str, Any],
         user: User,
         project: Project,
+        project_role: str | None = None,
     ) -> DataManagerSummaryResponse:
-        visible_stmt = visible_tasks_stmt(project_id, user=user, project=project)
-        matched_stmt = visible_tasks_stmt(project_id, user=user, project=project).where(
-            compile_filter(filter_json, project=project, user=user)
+        visible_stmt = visible_tasks_stmt(
+            project_id, user=user, project=project, project_role=project_role
         )
+        matched_stmt = visible_tasks_stmt(
+            project_id, user=user, project=project, project_role=project_role
+        ).where(compile_filter(filter_json, project=project, user=user))
         visible_ids = visible_stmt.subquery("dm_visible_tasks")
         matched_ids = matched_stmt.subquery("dm_matched_tasks")
 
@@ -247,11 +250,9 @@ class DataManagerService:
         )
         unresolved_feedback = int(
             await self.db.scalar(
-                select(func.count(AnnotationFeedback.id)).where(
-                    AnnotationFeedback.task_id.in_(select(matched_ids.c.id)),
-                    AnnotationFeedback.is_active.is_(True),
-                    AnnotationFeedback.status == "open",
-                )
+                select(func.sum(unresolved_issue_count_sq()))
+                .select_from(Task)
+                .join(matched_ids, matched_ids.c.id == Task.id)
             )
             or 0
         )
@@ -498,16 +499,19 @@ class DataManagerService:
         offset: int,
         user: User,
         project: Project,
+        project_role: str | None = None,
     ) -> DataManagerMatchesResponse:
         visible = await self.db.scalar(
-            visible_tasks_stmt(project_id, user=user, project=project).where(
-                Task.id == task_id
-            )
+            visible_tasks_stmt(
+                project_id, user=user, project=project, project_role=project_role
+            ).where(Task.id == task_id)
         )
         if visible is None:
             raise HTTPException(status_code=404, detail="Task not found")
         matched = await self.db.scalar(
-            visible_tasks_stmt(project_id, user=user, project=project).where(
+            visible_tasks_stmt(
+                project_id, user=user, project=project, project_role=project_role
+            ).where(
                 Task.id == task_id,
                 compile_filter(filter_json, project=project, user=user),
             )

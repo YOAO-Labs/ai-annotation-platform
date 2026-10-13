@@ -8,6 +8,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { SearchInput } from "@/components/ui/SearchInput";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import { useAuthStore } from "@/stores/authStore";
 import {
@@ -116,11 +117,15 @@ export function ProjectTemplatesPage() {
     setEditOpen(true);
   };
 
-  const handleDelete = (t: ProjectTemplateOut) => {
+  const handleDelete = async (t: ProjectTemplateOut) => {
     if (
-      !confirm(
-        `确定删除模板「${t.name}」?\n已使用 ${t.usage_count} 次, 删除不会影响历史已创建的项目.`,
-      )
+      !(await confirmDialog({
+        tone: "danger",
+        title: "删除模板",
+        description: `将删除模板「${t.name}」, 删除不会影响历史已创建的项目.`,
+        details: `已使用 ${t.usage_count} 次`,
+        confirmLabel: "删除",
+      }))
     ) {
       return;
     }
@@ -173,7 +178,7 @@ export function ProjectTemplatesPage() {
       </div>
 
       <div className={styles.toolbar}>
-        <FilterGroup label="范围">
+        <FilterGroup label="范围" hideLabel aria-label="模板范围">
           {TABS.map((option) => (
             <FilterToggle
               key={option}

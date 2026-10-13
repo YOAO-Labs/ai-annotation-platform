@@ -67,8 +67,27 @@ function loadMap() {
   return JSON.parse(readFileSync(mapPath, "utf8"));
 }
 
+const globCache = new Map();
+
+// 支持三种 matcher：目录前缀（以 `/` 结尾）、`*` / `**` 通配、精确文件路径。
+// `*` 只跨路径段内字符，`**` 跨 `/`。这样文件改名 / 拆分后 map 不易失效。
+function globToRegExp(glob) {
+  let regexp = globCache.get(glob);
+  if (regexp) return regexp;
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const source = escaped
+    .replace(/\*\*/g, "\u0000")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\u0000/g, ".*");
+  regexp = new RegExp(`^${source}$`);
+  globCache.set(glob, regexp);
+  return regexp;
+}
+
 function matches(file, matcher) {
-  return matcher.endsWith("/") ? file.startsWith(matcher) : file === matcher;
+  if (matcher.endsWith("/")) return file.startsWith(matcher);
+  if (matcher.includes("*")) return globToRegExp(matcher).test(file);
+  return file === matcher;
 }
 
 function uniq(values) {
@@ -112,8 +131,7 @@ function buildReport(changedFiles, impactMap) {
 }
 
 function toMarkdown(report) {
-  const marker = "<!-- docs-impact-check -->";
-  const lines = [marker, "## Docs Impact Check", ""];
+  const lines = ["## Docs Impact Check", ""];
 
   if (report.matchedRules.length === 0) {
     lines.push("- No docs-impact rules matched this diff.");

@@ -15,6 +15,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../../..");
 
 const POSTER_AT_SECONDS = new Map([
+  ["project-onboarding", 21.5],
   ["ai-preannotate", 12.5],
   ["video-tracker-range", 32.8],
   ["video-tracker-cross-frame-points", 26],
@@ -122,6 +123,7 @@ const TARGETS = new Map(
     ["project-ml-routing", "projects/ml-routing"],
     ["background-export-download", "datasets/background-export-download"],
     ["project-create-existing-resources", "projects/create-existing-resources"],
+    ["project-onboarding", "projects/onboarding"],
     ["ai-pre-variant-selector", "projects/ai-pre-variant-selector"],
     ["batch-bulk-actions", "projects/batch-bulk-actions"],
     ["hotkey-cheatsheet", "workbench/hotkey-cheatsheet"],

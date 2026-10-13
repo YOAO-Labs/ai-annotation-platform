@@ -646,7 +646,7 @@ async def test_lidar_preflight_reports_axis_size_and_calibration_issues(
 async def test_failed_lidar_preflight_creates_no_async_job(
     db_session,
     super_admin,
-    httpx_client_bound,
+    httpx_client,
     monkeypatch,
 ):
     user, token = super_admin
@@ -666,22 +666,22 @@ async def test_failed_lidar_preflight_creates_no_async_job(
 
     monkeypatch.setattr("app.workers.export.run_export.delay", _dispatch)
 
-    preflight_response = await httpx_client_bound.post(
+    preflight_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/exports/lidar:preflight",
         json={"targets": ["kitti"], "lidar": {}},
         headers={"Authorization": f"Bearer {token}"},
     )
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export?targets=kitti",
         json={"lidar": {"kitti_camera_role": "camera_front"}},
         headers={"Authorization": f"Bearer {token}"},
     )
-    coco_preflight_response = await httpx_client_bound.post(
+    coco_preflight_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/exports/lidar:preflight",
         json={"targets": ["coco-multicamera"]},
         headers={"Authorization": f"Bearer {token}"},
     )
-    coco_response = await httpx_client_bound.post(
+    coco_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export?targets=coco-multicamera",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -709,7 +709,7 @@ async def test_failed_lidar_preflight_creates_no_async_job(
 async def test_lidar_export_zip_writes_standard_targets(
     db_session,
     super_admin,
-    httpx_client_bound,
+    httpx_client,
     monkeypatch,
 ):
     monkeypatch.setattr(
@@ -952,7 +952,7 @@ async def test_lidar_export_zip_writes_standard_targets(
         "app.workers.export.run_export.delay",
         lambda **kwargs: dispatched.update(kwargs),
     )
-    preflight_response = await httpx_client_bound.post(
+    preflight_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/exports/lidar:preflight",
         json={
             "targets": ["kitti", "pointmask"],
@@ -960,7 +960,7 @@ async def test_lidar_export_zip_writes_standard_targets(
         },
         headers={"Authorization": f"Bearer {token}"},
     )
-    batch_preflight_response = await httpx_client_bound.post(
+    batch_preflight_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/batches/{batch.id}/exports/lidar:preflight",
         json={
             "targets": ["kitti"],
@@ -968,7 +968,7 @@ async def test_lidar_export_zip_writes_standard_targets(
         },
         headers={"Authorization": f"Bearer {token}"},
     )
-    export_response = await httpx_client_bound.post(
+    export_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export?targets=kitti&targets=pointmask",
         json={"lidar": {"kitti_camera_role": "camera_front"}},
         headers={"Authorization": f"Bearer {token}"},

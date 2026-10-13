@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import Integer, case, select, func, update, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import BatchStatus, UserRole
+from app.db.enums import BatchStatus
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
@@ -19,7 +19,11 @@ from app.db.models.project import Project
 from app.db.models.user import User
 from app.schemas.batch import BatchCreate, BatchUpdate, BatchSplitRequest
 from app.services.display_id import next_display_id
-from app.services.progress import publish_batch_status_change
+from app.services.progress import (
+    publish_batch_assignment_change,
+    publish_batch_status_change,
+)
+from app.services.project_access import membership_role_compatible
 from app.services.scene import resolve_task_scene_frames
 
 # v0.16.x 拆分：角色权限守卫已抽到 batch_permissions.py，此处冗余别名 re-export，
@@ -122,12 +126,10 @@ class BatchService:
         )
         members_by_user_id = {member.user_id: member for member in members}
 
-        expected_roles = {
-            "annotator": UserRole.ANNOTATOR.value,
-            "reviewer": UserRole.REVIEWER.value,
-        }
+        # Responsibility is project-scoped: the membership role is the
+        # authority and the account only needs a compatible platform role
+        # (employee/legacy staff).  The old global role equality is gone.
         for assignment_role, user_id in targets:
-            expected_role = expected_roles[assignment_role]
             user = users_by_id.get(user_id)
             if user is None or not user.is_active:
                 raise HTTPException(
@@ -137,17 +139,6 @@ class BatchService:
                         "message": "接收账号已停用或不存在，请刷新成员列表后重新分派",
                         "assignment_role": assignment_role,
                         "user_id": str(user_id),
-                    },
-                )
-            if user.role != expected_role:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "reason": "assignment_role_mismatch",
-                        "message": "接收账号的角色与分派职责不匹配",
-                        "assignment_role": assignment_role,
-                        "user_id": str(user_id),
-                        "user_role": user.role,
                     },
                 )
             member = members_by_user_id.get(user_id)
@@ -161,6 +152,17 @@ class BatchService:
                         "user_id": str(user_id),
                     },
                 )
+            if not membership_role_compatible(user.role, assignment_role):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "reason": "assignment_role_mismatch",
+                        "message": "接收账号的平台角色与分派职责不匹配",
+                        "assignment_role": assignment_role,
+                        "user_id": str(user_id),
+                        "user_role": user.role,
+                    },
+                )
 
     # ── Queries ────────────────────────────────────────────────────────────
 
@@ -171,7 +173,11 @@ class BatchService:
     ) -> list[TaskBatch]:
         q = select(TaskBatch).where(TaskBatch.project_id == project_id)
         if status:
-            q = q.where(TaskBatch.status == status)
+            # issue #124 · 允许逗号分隔多状态（如 "active,draft"），让调用方只取
+            # 需要的批次而不是全量历史；单状态（"active"）行为不变。
+            statuses = [s.strip() for s in status.split(",") if s.strip()]
+            if statuses:
+                q = q.where(TaskBatch.status.in_(statuses))
         q = q.order_by(TaskBatch.priority.desc(), TaskBatch.created_at)
         result = await self.db.execute(q)
         return list(result.scalars().all())
@@ -292,6 +298,12 @@ class BatchService:
             await self._cascade_task_assignee(batch.id, batch.annotator_id)
         if reviewer_changed:
             await self._cascade_task_reviewer(batch.id, batch.reviewer_id)
+        # issue #124 · 改派不改变 batch.status，不会触发 status_changed；单独广播让
+        # 其它管理员的「可预标」列表实时收敛（draft 的分派会改变准入资格）。
+        if annotator_changed or reviewer_changed:
+            await publish_batch_assignment_change(
+                str(batch.project_id), [str(batch.id)]
+            )
         return batch
 
     @staticmethod
@@ -311,13 +323,19 @@ class BatchService:
         batch_id: uuid.UUID,
         user_id: uuid.UUID | None,
     ) -> None:
-        """v0.7.2：batch 改 annotator → 该 batch 下所有 task.assignee_id 跟随。
-        v0.8.4：同步写 assigned_at = now()（user_id 非空时）/ 清空（user_id 为空时）。
-        """
-        values: dict[str, Any] = {"assignee_id": user_id}
+        """Update inherited assignments without overwriting selected tasks."""
+        values: dict[str, Any] = {
+            "assignee_id": user_id,
+            "assignee_is_override": False,
+        }
         values["assigned_at"] = func.now() if user_id is not None else None
         await self.db.execute(
-            update(Task).where(Task.batch_id == batch_id).values(**values)
+            update(Task)
+            .where(
+                Task.batch_id == batch_id,
+                or_(Task.assignee_is_override.is_(False), Task.assignee_id.is_(None)),
+            )
+            .values(**values)
         )
 
     async def _cascade_task_reviewer(
@@ -325,9 +343,14 @@ class BatchService:
         batch_id: uuid.UUID,
         user_id: uuid.UUID | None,
     ) -> None:
-        """v0.7.2：batch 改 reviewer → 该 batch 下所有 task.reviewer_id 跟随。"""
+        """Update inherited reviewers without overwriting selected tasks."""
         await self.db.execute(
-            update(Task).where(Task.batch_id == batch_id).values(reviewer_id=user_id)
+            update(Task)
+            .where(
+                Task.batch_id == batch_id,
+                or_(Task.reviewer_is_override.is_(False), Task.reviewer_id.is_(None)),
+            )
+            .values(reviewer_id=user_id, reviewer_is_override=False)
         )
 
     async def transition(
@@ -336,7 +359,12 @@ class BatchService:
         target_status: str,
         actor_id: uuid.UUID | None = None,
     ) -> TaskBatch:
-        batch = await self.db.get(TaskBatch, batch_id)
+        is_decision = target_status in (BatchStatus.APPROVED, BatchStatus.REJECTED)
+        if is_decision:
+            locked = await self._lock_decision_scope(actor_id, [batch_id])
+            batch = locked.get(batch_id)
+        else:
+            batch = await self.db.get(TaskBatch, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
@@ -363,6 +391,8 @@ class BatchService:
 
         # v0.7.3：approved → reviewing 重开审核 — 清空原审核元数据（reviewed_at / reviewed_by / review_feedback）
         # rejected → reviewing 不清反馈：复审时 reviewer 需要看到上次原因
+        if is_decision:
+            await self._assert_locked_batch_evidence(batch, actor_id)
         from_status = batch.status
         if (from_status, target_status) == (
             BatchStatus.APPROVED,
@@ -406,7 +436,13 @@ class BatchService:
         ).one()
         return int(row.non_pending), int(row.predicted), int(row.affected)
 
-    async def delete(self, batch_id: uuid.UUID, *, force: bool = False) -> bool:
+    async def delete(
+        self,
+        batch_id: uuid.UUID,
+        *,
+        force: bool = False,
+        actor_id: uuid.UUID | None = None,
+    ) -> bool:
         batch = await self.db.get(TaskBatch, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
@@ -439,7 +475,7 @@ class BatchService:
         # v0.11.23：解绑前先重置非 pending task 为 pending、清 AI 预标（保留人工标注），
         # 否则 review/completed task 解绑后成孤儿、AI 预标残留会在重分包再预标时叠加重复标注。
         # 必须在改写 batch_id 之前调用（清理靠 Task.batch_id==batch_id 子查询定位）。
-        await self._reset_and_clean_batch_tasks(batch_id)
+        await self._reset_and_clean_batch_tasks(batch_id, actor_id=actor_id)
 
         # v0.6.8 B-14：老项目仍走「回收到 B-DEFAULT」路径；新项目无 B-DEFAULT 时把任务回退为
         # batch_id=NULL（成为「未归类任务」），由 split 流程兜底，避免删完所有批次后死锁。
@@ -831,6 +867,7 @@ class BatchService:
         annotator_per_batch: dict[str, str | None] = {}
         reviewer_per_batch: dict[str, str | None] = {}
         affected = 0
+        changed_ids: list[uuid.UUID] = []
         for item in plan.items:
             b = batches_by_id[item.batch_id]
             if item.before_annotator_id != item.after_annotator_id:
@@ -848,8 +885,15 @@ class BatchService:
             if item.will_change:
                 self._sync_assigned_user_ids(b)
                 affected += 1
+                changed_ids.append(b.id)
 
         await self.db.flush()
+
+        # issue #124 · 分派不改变 batch.status, 单独广播让可预标列表实时收敛。
+        if changed_ids:
+            await publish_batch_assignment_change(
+                str(project_id), [str(b) for b in changed_ids]
+            )
 
         return {
             "distributed_batches": affected,
@@ -996,36 +1040,208 @@ class BatchService:
 
     # ── Batch rejection ────────────────────────────────────────────────────
 
+    async def _lock_decision_scope(
+        self,
+        actor_id: uuid.UUID | None,
+        batch_ids: list[uuid.UUID],
+        *,
+        statuses: tuple[str, ...] = ("review", "completed"),
+        project_id: uuid.UUID | None = None,
+    ) -> dict[uuid.UUID, TaskBatch]:
+        """Lock actor, membership, batches and affected tasks before mutation.
+
+        Account-first: the actor row (``assert_task_user_active``) and the
+        project membership (``FOR SHARE``) are locked, then the batches
+        (``FOR UPDATE NOWAIT``), then the affected Task rows in stable id order
+        with bounded ``NOWAIT``.  A busy batch/task rolls back as a retryable
+        409 *before* any mutation, so callers never continue after a global
+        rollback and a failing item is never partially mutated.  ``actor_id=None``
+        fails closed.
+        """
+
+        from sqlalchemy.exc import DBAPIError
+
+        from app.db.models.project import Project
+        from app.db.models.user import User
+        from app.services.annotation_evidence import lock_tasks_for_evidence
+        from app.services.project_access import (
+            ProjectCapability,
+            resolve_project_access,
+        )
+        from app.services.task_lock import assert_task_user_active
+
+        if actor_id is None:
+            raise HTTPException(
+                status_code=403,
+                detail={"reason": "review_evidence_actor_required"},
+            )
+        if not batch_ids:
+            return {}
+        if not await assert_task_user_active(self.db, actor_id):
+            raise HTTPException(status_code=401, detail="账号已停用")
+        actor = await self.db.get(User, actor_id, populate_existing=True)
+        if actor is None:
+            raise HTTPException(status_code=401, detail="账号已停用")
+
+        project_ids_stmt = (
+            select(TaskBatch.project_id).where(TaskBatch.id.in_(batch_ids)).distinct()
+        )
+        if project_id is not None:
+            project_ids_stmt = project_ids_stmt.where(
+                TaskBatch.project_id == project_id
+            )
+        project_ids = sorted((await self.db.execute(project_ids_stmt)).scalars().all())
+        if project_ids:
+            # Lock the project authority rows before authorizing: an ownership
+            # transfer takes the same rows FOR UPDATE, so a transfer committing
+            # mid-decision cannot strand an unauthorized actor inside batch and
+            # task locks.  Lock order stays account -> project -> membership ->
+            # batches -> tasks, matching the lifecycle model.
+            try:
+                await self.db.execute(
+                    select(Project.id)
+                    .where(Project.id.in_(project_ids))
+                    .order_by(Project.id)
+                    .with_for_update(nowait=True)
+                )
+            except DBAPIError as exc:
+                if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+                    await self.db.rollback()
+                    raise HTTPException(
+                        status_code=409, detail={"reason": "batch_decision_busy"}
+                    ) from exc
+                raise
+        for scope_project_id in project_ids:
+            project = await self.db.get(
+                Project, scope_project_id, populate_existing=True
+            )
+            if project is None:
+                raise HTTPException(status_code=404, detail="Batch not found")
+            access = await resolve_project_access(
+                self.db, user=actor, project=project, lock_membership=True
+            )
+            if not (
+                access.is_manager or access.has(ProjectCapability.REVIEW_WRITE.value)
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail={"reason": "review_capability_required"},
+                )
+
+        batch_stmt = select(TaskBatch).where(TaskBatch.id.in_(batch_ids))
+        if project_id is not None:
+            batch_stmt = batch_stmt.where(TaskBatch.project_id == project_id)
+        try:
+            rows = (
+                (
+                    await self.db.execute(
+                        batch_stmt.order_by(TaskBatch.id)
+                        .with_for_update(nowait=True)
+                        .execution_options(populate_existing=True)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+                await self.db.rollback()
+                raise HTTPException(
+                    status_code=409, detail={"reason": "batch_decision_busy"}
+                ) from exc
+            raise
+
+        locked_ids = [batch.id for batch in rows]
+        task_ids = list(
+            (
+                await self.db.execute(
+                    select(Task.id)
+                    .where(
+                        Task.batch_id.in_(locked_ids),
+                        Task.status.in_(list(statuses)),
+                    )
+                    .order_by(Task.id)
+                )
+            ).scalars()
+        )
+        await lock_tasks_for_evidence(self.db, task_ids, nowait=True)
+        return {batch.id: batch for batch in rows}
+
+    async def _assert_locked_batch_evidence(
+        self,
+        batch: TaskBatch,
+        actor_id: uuid.UUID | None,
+        *,
+        statuses: tuple[str, ...] = ("review", "completed"),
+    ) -> None:
+        """Validate frozen non-self evidence on already-locked Task rows."""
+
+        from app.services.annotation_evidence import assert_review_evidence_current
+
+        rows = (
+            (
+                await self.db.execute(
+                    select(Task)
+                    .where(Task.batch_id == batch.id, Task.status.in_(list(statuses)))
+                    .order_by(Task.id)
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for task in rows:
+            effective_annotator_id = (
+                task.assignee_id if task.assignee_id is not None else batch.annotator_id
+            )
+            assert_review_evidence_current(
+                task, actor_id, effective_annotator_id=effective_annotator_id
+            )
+
     async def reject_batch(
         self,
         batch_id: uuid.UUID,
         *,
         feedback: str,
         reviewer_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
     ) -> tuple[TaskBatch, int]:
         """v0.7.0 方案 A · 软重置语义：
         - 仅把 review/completed 任务回退到 pending（让标注员可继续动它们）
         - **不**改 is_labeled，**不**清 annotations.is_active（保留历史标注）
         - 批次写入 review_feedback / reviewed_at / reviewed_by
         """
-        batch = await self.db.get(TaskBatch, batch_id)
+        locked = await self._lock_decision_scope(actor_id or reviewer_id, [batch_id])
+        batch = locked.get(batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
-        allowed = VALID_TRANSITIONS.get(batch.status, set())
-        if BatchStatus.REJECTED not in allowed:
+        # v0.24.x：整批退回允许从 active / annotating / reviewing 发起——审核页会列出
+        # 部分送审（review_tasks > 0）但批次状态尚未推进到 reviewing 的批次，此时也应
+        # 能把整批打回重做。语义仍是软重置：review/completed → pending，写反馈并置 rejected。
+        rejectable = {
+            BatchStatus.ACTIVE,
+            BatchStatus.ANNOTATING,
+            BatchStatus.REVIEWING,
+        }
+        if batch.status not in rejectable:
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot reject batch in status '{batch.status}'",
             )
 
+        await self._assert_locked_batch_evidence(batch, actor_id or reviewer_id)
         result = await self.db.execute(
             update(Task)
             .where(
                 Task.batch_id == batch_id,
                 Task.status.in_(["review", "completed"]),
             )
-            .values(status="pending")
+            .values(
+                status="pending",
+                review_contributor_ids=None,
+                review_submitter_id=None,
+            )
         )
         affected = result.rowcount
 
@@ -1040,7 +1256,7 @@ class BatchService:
     # ── Reset to draft (v0.7.6) ────────────────────────────────────────────
 
     async def reset_to_draft(
-        self, batch_id: uuid.UUID
+        self, batch_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
     ) -> tuple[TaskBatch, int, dict[str, int]]:
         """v0.7.6 · 终极重置：任意状态 → draft.
 
@@ -1064,7 +1280,7 @@ class BatchService:
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
-        counts = await self._reset_and_clean_batch_tasks(batch_id)
+        counts = await self._reset_and_clean_batch_tasks(batch_id, actor_id=actor_id)
         affected = counts.pop("tasks_reset")
 
         batch.status = BatchStatus.DRAFT
@@ -1076,7 +1292,9 @@ class BatchService:
         await self.recalculate_counters(batch_id)
         return batch, affected, counts
 
-    async def _reset_and_clean_batch_tasks(self, batch_id: uuid.UUID) -> dict[str, int]:
+    async def _reset_and_clean_batch_tasks(
+        self, batch_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+    ) -> dict[str, int]:
         """把批次内所有非 pending task 重置为 pending, 并清理 AI 预标产物, 保留人工标注.
 
         供 reset_to_draft (v0.7.6) 与 delete / bulk_delete (v0.11.23) 复用. 删除批次若
@@ -1089,6 +1307,7 @@ class BatchService:
         Returns: cascade_counts (含 tasks_reset / predictions / failed_predictions /
                  prediction_jobs / ai_annotations_deactivated).
         """
+        from app.db.models.project_member import ProjectMember
         from app.db.models.task_lock import TaskLock
         from app.db.models.async_job import AsyncJob
 
@@ -1098,9 +1317,47 @@ class BatchService:
                 Task.batch_id == batch_id,
                 Task.status != "pending",
             )
-            .values(status="pending")
+            .values(
+                status="pending",
+                review_contributor_ids=None,
+                review_submitter_id=None,
+            )
         )
         tasks_reset = result.rowcount
+
+        # Role-change handoffs materialize the old batch default onto terminal
+        # history (non-override explicit columns) to freeze attribution.  This
+        # reset reactivates those rows as pending work, where a stale explicit
+        # assignment would keep overriding the batch default with a user who no
+        # longer holds the matching project role, leaving the task unworkable.
+        # Restore inheritance for exactly those rows; genuine manual overrides
+        # (override flags) and current members keep their assignment.
+        for role_value, column, override_column, extra_values in (
+            ("annotator", Task.assignee_id, Task.assignee_is_override, {}),
+            (
+                "reviewer",
+                Task.reviewer_id,
+                Task.reviewer_is_override,
+                {"reviewer_claimed_at": None},
+            ),
+        ):
+            await self.db.execute(
+                update(Task)
+                .where(
+                    Task.batch_id == batch_id,
+                    Task.status == "pending",
+                    column.is_not(None),
+                    override_column.is_(False),
+                    ~select(ProjectMember.id)
+                    .where(
+                        ProjectMember.project_id == Task.project_id,
+                        ProjectMember.user_id == column,
+                        ProjectMember.role == role_value,
+                    )
+                    .exists(),
+                )
+                .values({column.key: None, **extra_values})
+            )
 
         await self.db.execute(
             delete(TaskLock).where(
@@ -1122,7 +1379,7 @@ class BatchService:
                 await self.db.execute(select(Task.id).where(Task.batch_id == batch_id))
             ).all()
         ]
-        pred_counts = await self.clean_task_predictions(task_ids)
+        pred_counts = await self.clean_task_predictions(task_ids, actor_id=actor_id)
 
         return {
             "tasks_reset": tasks_reset,
@@ -1130,7 +1387,12 @@ class BatchService:
             **pred_counts,
         }
 
-    async def clean_task_predictions(self, task_ids: list[uuid.UUID]) -> dict[str, int]:
+    async def clean_task_predictions(
+        self,
+        task_ids: list[uuid.UUID],
+        *,
+        actor_id: uuid.UUID | None = None,
+    ) -> dict[str, int]:
         """按 task_id 清理 AI 预标产物 (不动 task 状态 / 锁 / job): 软删 prediction_based
         annotation (保留 source='manual')、NULL parent_prediction_id、删 prediction_metas
         / predictions / failed_predictions、total_predictions 归 0 并按存活人工标注重算
@@ -1138,6 +1400,11 @@ class BatchService:
 
         供 _reset_and_clean_batch_tasks (删批次/重置) 与 batch_predict overwrite 模式
         (v0.11.24) 复用. task_ids 为空时 no-op.
+
+        A2 · 软删 AI 标注是内容删除, 需要证据: 用户触发的调用传入 ``actor_id`` 并记为该
+        actor 的贡献; 系统触发且无 actor 时, 已记录的贡献会漏掉删除者, 因此把这些 task 的
+        累积集合置回 NULL(未知), 不冒充 owner。``parent_prediction_id`` 清理只是元数据,
+        不算人工编辑, 不记贡献。
 
         Returns: {"predictions": N, "failed_predictions": N, "ai_annotations_deactivated": N}
         """
@@ -1147,6 +1414,10 @@ class BatchService:
             PredictionMeta,
         )
         from app.db.models.annotation import Annotation
+        from app.services.annotation_evidence import (
+            lock_tasks_for_evidence,
+            record_annotation_actors_for_tasks,
+        )
         from sqlalchemy import text, bindparam
 
         if not task_ids:
@@ -1155,6 +1426,38 @@ class BatchService:
                 "failed_predictions": 0,
                 "ai_annotations_deactivated": 0,
             }
+
+        # Serialize the content snapshot with producers before determining which
+        # tasks lose AI content. Multi-batch callers can already hold other locks.
+        await lock_tasks_for_evidence(self.db, task_ids, nowait=True)
+
+        # A2 · capture which tasks actually lose accepted AI content, and record
+        # the deletion actor before the soft-delete. A system cleanup without an
+        # attributable actor conservatively drops known evidence to unknown.
+        ai_affected_task_ids = list(
+            (
+                await self.db.execute(
+                    select(Annotation.task_id)
+                    .where(
+                        Annotation.task_id.in_(task_ids),
+                        Annotation.source == "prediction_based",
+                        Annotation.is_active.is_(True),
+                    )
+                    .distinct()
+                )
+            ).scalars()
+        )
+        if ai_affected_task_ids:
+            if actor_id is not None:
+                await record_annotation_actors_for_tasks(
+                    self.db, ai_affected_task_ids, actor_id
+                )
+            else:
+                await self.db.execute(
+                    update(Task)
+                    .where(Task.id.in_(ai_affected_task_ids))
+                    .values(annotation_contributor_ids=None)
+                )
 
         # B-33 · 软删 AI 采纳的 annotation. 保留 source='manual' 的人工标注 (不丢工作量).
         ai_anno_result = await self.db.execute(
@@ -1284,6 +1587,7 @@ class BatchService:
         batch_ids: list[uuid.UUID],
         *,
         force: bool = False,
+        actor_id: uuid.UUID | None = None,
     ) -> dict[str, list[dict]]:
         loaded = await self._list_batches_in_project(project_id, batch_ids)
         succeeded: list[uuid.UUID] = []
@@ -1317,7 +1621,7 @@ class BatchService:
                     )
                     continue
             # v0.11.23：与单删一致——解绑前先重置非 pending task + 清 AI 预标（保留人工标注）
-            await self._reset_and_clean_batch_tasks(bid)
+            await self._reset_and_clean_batch_tasks(bid, actor_id=actor_id)
             # 复用单个删除路径里的 task 接管逻辑（按 default 是否存在二选一）
             if default is not None:
                 await self.db.execute(
@@ -1377,6 +1681,11 @@ class BatchService:
             self._sync_assigned_user_ids(batch)
             succeeded.append(bid)
         await self.db.flush()
+        # issue #124 · 批量改派后广播, 让其它管理员的「可预标」列表实时收敛。
+        if succeeded:
+            await publish_batch_assignment_change(
+                str(project_id), [str(b) for b in succeeded]
+            )
         return {"succeeded": succeeded, "skipped": [], "failed": failed}
 
     async def bulk_activate(
@@ -1461,8 +1770,12 @@ class BatchService:
         self,
         project_id: uuid.UUID,
         batch_ids: list[uuid.UUID],
+        *,
+        actor_id: uuid.UUID | None = None,
     ) -> dict[str, list]:
-        loaded = await self._load_batches_for_bulk(project_id, batch_ids)
+        loaded = await self._lock_decision_scope(
+            actor_id, batch_ids, project_id=project_id
+        )
         succeeded: list[uuid.UUID] = []
         skipped: list[dict] = []
         failed: list[dict] = []
@@ -1482,6 +1795,20 @@ class BatchService:
                     {"batch_id": bid, "reason": f"cannot approve from '{batch.status}'"}
                 )
                 continue
+            try:
+                await self._assert_locked_batch_evidence(batch, actor_id)
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                reason = detail.get("reason")
+                if reason not in {
+                    "review_contributors_unknown",
+                    "self_review_denied",
+                }:
+                    # Lock/capability failures are request-level and may have
+                    # rolled the transaction back; do not continue a bulk.
+                    raise
+                failed.append({"batch_id": bid, "reason": reason})
+                continue
             batch.status = BatchStatus.APPROVED
             succeeded.append(bid)
         await self.db.flush()
@@ -1494,8 +1821,11 @@ class BatchService:
         *,
         feedback: str,
         reviewer_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
     ) -> dict[str, list]:
-        loaded = await self._load_batches_for_bulk(project_id, batch_ids)
+        loaded = await self._lock_decision_scope(
+            actor_id or reviewer_id, batch_ids, project_id=project_id
+        )
         succeeded: list[uuid.UUID] = []
         skipped: list[dict] = []
         failed: list[dict] = []
@@ -1512,14 +1842,36 @@ class BatchService:
                     {"batch_id": bid, "reason": f"cannot reject from '{batch.status}'"}
                 )
                 continue
+            try:
+                await self._assert_locked_batch_evidence(batch, actor_id or reviewer_id)
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                reason = detail.get("reason")
+                if reason not in {
+                    "review_contributors_unknown",
+                    "self_review_denied",
+                }:
+                    # Lock/capability failures are request-level and may have
+                    # rolled the transaction back; do not continue a bulk.
+                    raise
+                failed.append({"batch_id": bid, "reason": reason})
+                continue
             # soft reset: review/completed tasks → pending
+            # The current round's frozen evidence is cleared with the reset,
+            # matching single-batch rejection, so stale evidence from a
+            # completed round is never mistaken for current review authority.
             await self.db.execute(
                 update(Task)
                 .where(
                     Task.batch_id == bid,
                     Task.status.in_(["review", "completed"]),
                 )
-                .values(status="pending", is_labeled=False)
+                .values(
+                    status="pending",
+                    is_labeled=False,
+                    review_contributor_ids=None,
+                    review_submitter_id=None,
+                )
             )
             batch.status = BatchStatus.REJECTED
             batch.review_feedback = feedback

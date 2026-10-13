@@ -159,7 +159,7 @@ def _mock_mask_storage(monkeypatch, *, loaded_rle: dict = MASK_RLE) -> None:
 
 
 async def test_polygon_mask_dry_run_does_not_store_or_reserve_content(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -181,12 +181,12 @@ async def test_polygon_mask_dry_run_does_not_store_or_reserve_content(
         "operation": "copy",
         "scope": "image",
     }
-    first = await httpx_client_bound.post(
+    first = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json=payload,
         headers=_headers(token),
     )
-    second = await httpx_client_bound.post(
+    second = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json=payload,
         headers=_headers(token),
@@ -221,7 +221,7 @@ async def test_polygon_mask_dry_run_does_not_store_or_reserve_content(
 
 
 async def test_polygon_mask_quota_is_reserved_only_during_execute(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -241,7 +241,7 @@ async def test_polygon_mask_quota_is_reserved_only_during_execute(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    dry_run = await httpx_client_bound.post(
+    dry_run = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -253,7 +253,7 @@ async def test_polygon_mask_quota_is_reserved_only_during_execute(
     )
     assert dry_run.status_code == 200, dry_run.text
 
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": dry_run.json()["plan_token"],
@@ -274,7 +274,7 @@ async def test_polygon_mask_quota_is_reserved_only_during_execute(
 
 
 async def test_conversion_rejects_raster_work_above_request_budget(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -294,7 +294,7 @@ async def test_conversion_rejects_raster_work_above_request_budget(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -316,7 +316,7 @@ async def test_conversion_rejects_raster_work_above_request_budget(
 
 
 async def test_image_polygon_replace_dry_run_execute_and_replay(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -334,7 +334,7 @@ async def test_image_polygon_replace_dry_run_execute_and_replay(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    dry_run = await httpx_client_bound.post(
+    dry_run = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -356,12 +356,12 @@ async def test_image_polygon_replace_dry_run_execute_and_replay(
         "idempotency_key": f"convert-{uuid.uuid4().hex}",
         "confirm_replace": True,
     }
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json=payload,
         headers=_headers(token),
     )
-    replay = await httpx_client_bound.post(
+    replay = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json=payload,
         headers=_headers(token),
@@ -379,7 +379,7 @@ async def test_image_polygon_replace_dry_run_execute_and_replay(
     ).scalar_one()
     await db_session.delete(plan_row)
     await db_session.commit()
-    replay_after_plan_cleanup = await httpx_client_bound.post(
+    replay_after_plan_cleanup = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json=payload,
         headers=_headers(token),
@@ -409,7 +409,7 @@ async def test_image_polygon_replace_dry_run_execute_and_replay(
 
 
 async def test_lossy_mask_to_bbox_requires_confirmation_and_copies_source(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -422,7 +422,7 @@ async def test_lossy_mask_to_bbox_requires_confirmation_and_copies_source(
     _mock_mask_storage(monkeypatch)
     await db_session.commit()
 
-    dry_run = await httpx_client_bound.post(
+    dry_run = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -438,13 +438,13 @@ async def test_lossy_mask_to_bbox_requires_confirmation_and_copies_source(
         "plan_token": dry_run.json()["plan_token"],
         "idempotency_key": f"convert-{uuid.uuid4().hex}",
     }
-    rejected = await httpx_client_bound.post(
+    rejected = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json=execute_payload,
         headers=_headers(token),
     )
     execute_payload["confirm_lossy"] = True
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json=execute_payload,
         headers=_headers(token),
@@ -460,7 +460,7 @@ async def test_lossy_mask_to_bbox_requires_confirmation_and_copies_source(
 
 
 async def test_batch_execute_rejects_snapshot_drift_without_partial_results(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -480,7 +480,7 @@ async def test_batch_execute_rejects_snapshot_drift_without_partial_results(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    dry_run = await httpx_client_bound.post(
+    dry_run = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(first.id), str(second.id)],
@@ -494,7 +494,7 @@ async def test_batch_execute_rejects_snapshot_drift_without_partial_results(
     second.version = 2
     await db_session.commit()
 
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": dry_run.json()["plan_token"],
@@ -515,7 +515,7 @@ async def test_batch_execute_rejects_snapshot_drift_without_partial_results(
 
 
 async def test_large_image_conversion_rejects_before_raster_allocation(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -531,7 +531,7 @@ async def test_large_image_conversion_rejects_before_raster_allocation(
     )
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -547,7 +547,7 @@ async def test_large_image_conversion_rejects_before_raster_allocation(
 
 
 async def test_execute_rejects_conversion_report_drift_before_storage(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -563,7 +563,7 @@ async def test_execute_rejects_conversion_report_drift_before_storage(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    dry_run = await httpx_client_bound.post(
+    dry_run = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -587,7 +587,7 @@ async def test_execute_rejects_conversion_report_drift_before_storage(
         "app.services.annotation_conversion.region_to_mask_conversion",
         drifted_conversion,
     )
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": dry_run.json()["plan_token"],
@@ -602,7 +602,7 @@ async def test_execute_rejects_conversion_report_drift_before_storage(
 
 
 async def test_video_polygon_track_materializes_held_frame_only_when_explicit(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id, video=True)
@@ -638,12 +638,12 @@ async def test_video_polygon_track_materializes_held_frame_only_when_explicit(
         "frame_index": 5,
     }
 
-    rejected = await httpx_client_bound.post(
+    rejected = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json=base_payload,
         headers=_headers(token),
     )
-    accepted = await httpx_client_bound.post(
+    accepted = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={**base_payload, "materialize_held": True},
         headers=_headers(token),
@@ -653,7 +653,7 @@ async def test_video_polygon_track_materializes_held_frame_only_when_explicit(
     assert rejected.json()["detail"]["reason"] == "held_materialization_required"
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["summary"]["materialized_held_frames"] == 1
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": accepted.json()["plan_token"],
@@ -671,7 +671,7 @@ async def test_video_polygon_track_materializes_held_frame_only_when_explicit(
 
 
 async def test_video_mask_replace_with_bbox_suppresses_only_current_frame(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id, video=True)
@@ -693,7 +693,7 @@ async def test_video_mask_replace_with_bbox_suppresses_only_current_frame(
     _mock_mask_storage(monkeypatch)
     await db_session.commit()
 
-    dry_run = await httpx_client_bound.post(
+    dry_run = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -705,7 +705,7 @@ async def test_video_mask_replace_with_bbox_suppresses_only_current_frame(
         headers=_headers(token),
     )
     assert dry_run.status_code == 200, dry_run.text
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": dry_run.json()["plan_token"],
@@ -731,7 +731,7 @@ async def test_video_mask_replace_with_bbox_suppresses_only_current_frame(
 
 
 async def test_conversion_plan_rejects_tampered_and_expired_tokens(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -744,7 +744,7 @@ async def test_conversion_plan_rejects_tampered_and_expired_tokens(
     _mock_mask_storage(monkeypatch)
     await db_session.commit()
 
-    dry_run = await httpx_client_bound.post(
+    dry_run = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -757,7 +757,7 @@ async def test_conversion_plan_rejects_tampered_and_expired_tokens(
     assert dry_run.status_code == 200, dry_run.text
     plan_token = dry_run.json()["plan_token"]
 
-    tampered = await httpx_client_bound.post(
+    tampered = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": f"{plan_token}x",
@@ -772,7 +772,7 @@ async def test_conversion_plan_rejects_tampered_and_expired_tokens(
     assert plan is not None
     plan.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     await db_session.commit()
-    expired = await httpx_client_bound.post(
+    expired = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": plan_token,
@@ -785,7 +785,7 @@ async def test_conversion_plan_rejects_tampered_and_expired_tokens(
 
 
 async def test_conversion_rejects_annotation_and_task_locks_before_storage(
-    httpx_client_bound,
+    httpx_client,
     db_session,
     super_admin,
     annotator,
@@ -813,7 +813,7 @@ async def test_conversion_rejects_annotation_and_task_locks_before_storage(
         "operation": "copy",
         "scope": "image",
     }
-    annotation_locked = await httpx_client_bound.post(
+    annotation_locked = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json=payload,
         headers=_headers(token),
@@ -832,7 +832,7 @@ async def test_conversion_rejects_annotation_and_task_locks_before_storage(
         )
     )
     await db_session.commit()
-    task_locked = await httpx_client_bound.post(
+    task_locked = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json=payload,
         headers=_headers(token),
@@ -843,7 +843,7 @@ async def test_conversion_rejects_annotation_and_task_locks_before_storage(
 
 
 async def test_video_single_polygon_and_track_keyframes_convert_to_masks(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id, video=True)
@@ -882,7 +882,7 @@ async def test_video_single_polygon_and_track_keyframes_convert_to_masks(
     _mock_mask_storage(monkeypatch)
     await db_session.commit()
 
-    single_plan = await httpx_client_bound.post(
+    single_plan = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(single.id)],
@@ -896,7 +896,7 @@ async def test_video_single_polygon_and_track_keyframes_convert_to_masks(
     assert single_plan.status_code == 200, single_plan.text
     assert single_plan.json()["items"][0]["frame_indexes"] == [3]
 
-    track_plan = await httpx_client_bound.post(
+    track_plan = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(track.id)],
@@ -908,7 +908,7 @@ async def test_video_single_polygon_and_track_keyframes_convert_to_masks(
     )
     assert track_plan.status_code == 200, track_plan.text
     assert track_plan.json()["items"][0]["frame_indexes"] == [0]
-    executed = await httpx_client_bound.post(
+    executed = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:execute",
         json={
             "plan_token": track_plan.json()["plan_token"],
@@ -925,7 +925,7 @@ async def test_video_single_polygon_and_track_keyframes_convert_to_masks(
 
 
 async def test_empty_polygon_conversion_returns_validation_error_before_storage(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -941,7 +941,7 @@ async def test_empty_polygon_conversion_returns_validation_error_before_storage(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],
@@ -996,7 +996,7 @@ async def test_video_segment_lease_is_checked_before_mask_storage(
 
 
 async def test_polygon_to_mask_requires_project_native_mask_opt_in(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
     task = await _seed_task(db_session, user.id)
@@ -1015,7 +1015,7 @@ async def test_polygon_to_mask_requires_project_native_mask_opt_in(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotation-conversions:dry-run",
         json={
             "annotation_ids": [str(source.id)],

@@ -244,18 +244,19 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
               已启用 {enabledBackends.length} / {items.length}
             </span>
           </h3>
-          <div className="mt-0.5 text-xs text-muted-foreground">
+          <div className="mt-1 text-xs text-muted-foreground">
             本表仅显示本项目已启用的 ML backend；点「管理 backend」可启用/停用全局
             backend。推理参数在工作台 / 预标运行时按 backend 自报的 /setup 调。
           </div>
         </div>
         {canManage && (
           <Button
-            variant="primary"
+            size="sm"
+            variant="ghost"
             onClick={() => setManageOpen(true)}
             disabled={isLoading || isError}
           >
-            <Icon name="plus" size={13} />
+            <Icon name="plus" />
             管理 backend
           </Button>
         )}

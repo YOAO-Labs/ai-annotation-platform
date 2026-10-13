@@ -29,6 +29,7 @@ def _to_brief(u: User, role: str | None = None) -> UserBrief:
         email=u.email,
         role=role or u.role,
         avatar_initial=_initial(u.name, u.email),
+        avatar_ref=u.avatar_ref,
     )
 
 

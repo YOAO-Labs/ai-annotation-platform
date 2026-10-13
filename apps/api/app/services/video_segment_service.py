@@ -313,6 +313,12 @@ async def submit_segment(
     *,
     privileged: bool,
 ) -> VideoSegmentOut:
+    if ctx.task is not None:
+        from app.services.annotation_evidence import refresh_task_evidence
+
+        # A2 · lock the task (and refresh its evidence) before the segment lock
+        # so the entry into review freezes under the same task lock.
+        await refresh_task_evidence(db, ctx.task)
     row = await _load_segment_for_update(db, ctx, segment_id)
     now = _now()
     _normalize_lock(row, now)
@@ -333,6 +339,13 @@ async def submit_segment(
                 status_code=409,
                 detail={"reason": "video_segment_lease_required"},
             )
+    if ctx.task is not None:
+        # A2 · every successful segment submitter is a contributor even when the
+        # segment kept no surviving annotation. This uses the actual actor, not
+        # the shared dataset-item segment assignee.
+        from app.services.annotation_evidence import record_annotation_actor
+
+        await record_annotation_actor(db, ctx.task, user.id)
     row.status = "completed"
     row.locked_by = None
     row.locked_at = None
@@ -352,11 +365,24 @@ async def submit_segment(
             ).scalar_one()
         )
         if remaining == 0:
+            if ctx.task.status != "review":
+                ctx.task.review_round_id = uuid.uuid4()
             ctx.task.status = "review"
             ctx.task.submitted_at = now
             ctx.task.reviewer_id = None
+            ctx.task.reviewer_is_override = False
             ctx.task.reviewer_claimed_at = None
             ctx.task.reviewed_at = None
+            # A2 · freeze the round evidence when the video task enters review.
+            from app.api.v1.tasks._shared import _task_contributor_snapshot
+            from app.services.annotation_evidence import (
+                freeze_review_contributor_evidence,
+            )
+
+            contributor_ids = await _task_contributor_snapshot(db, ctx.task)
+            freeze_review_contributor_evidence(
+                ctx.task, submitter_id=user.id, contributor_ids=contributor_ids
+            )
     await db.flush()
     return await _segment_out_for_context(db, ctx, row)
 
@@ -366,6 +392,10 @@ async def reopen_segment(
     ctx: VideoContext,
     segment_id: uuid.UUID,
 ) -> VideoSegmentOut:
+    if ctx.task is not None:
+        from app.services.annotation_evidence import refresh_task_evidence
+
+        await refresh_task_evidence(db, ctx.task)
     row = await _load_segment_for_update(db, ctx, segment_id)
     row.status = "assigned" if row.assignee_id else "open"
     row.locked_by = None
@@ -375,6 +405,11 @@ async def reopen_segment(
         ctx.task.status = "in_progress"
         ctx.task.submitted_at = None
         ctx.task.reviewed_at = None
+        from app.services.annotation_evidence import (
+            clear_review_contributor_evidence,
+        )
+
+        clear_review_contributor_evidence(ctx.task)
     await db.flush()
     return await _segment_out_for_context(db, ctx, row)
 

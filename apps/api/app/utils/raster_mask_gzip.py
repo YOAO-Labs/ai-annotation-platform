@@ -5,7 +5,7 @@ The gzip transport layer keeps wire / object-storage size under control while
 remaining backward compatible with the legacy uncompressed ``.json`` path.
 
 Two boundaries are enforced on decompression to close the zip-bomb vector
-(`ADR-0052 §D6 <docs/adr/0052-shared-raster-mask-and-image-geometry.md>`__):
+(`ADR-0052 §D6 <docs/adr/archive/0052-shared-raster-mask-and-image-geometry.md>`__):
 
 - ``MAX_COMPRESSED_BYTES`` — total compressed bytes consumed.
 - ``MAX_UNCOMPRESSED_BYTES`` — total decompressed bytes produced.

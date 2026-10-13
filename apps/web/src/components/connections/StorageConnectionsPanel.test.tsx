@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import type { StorageConnection } from "@/api/storageConnections";
+import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 
 const mocks = vi.hoisted(() => ({
   role: "super_admin",
@@ -149,8 +150,12 @@ describe("StorageConnectionsPanel", () => {
     mocks.remove.mutate.mockImplementation((_id: string, options: any) => {
       options.onError(new Error("删除冲突"));
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<StorageConnectionsPanel />);
+    render(
+      <>
+        <StorageConnectionsPanel />
+        <DecisionDialogHost />
+      </>,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "测试" }));
     expect(mocks.pushToast).toHaveBeenCalledWith({
@@ -159,11 +164,17 @@ describe("StorageConnectionsPanel", () => {
       kind: "warning",
     });
 
+    // 删除走决策对话框:确认前不触发,点确认后才发起删除
     fireEvent.click(screen.getByRole("button", { name: /删除/ }));
-    expect(mocks.pushToast).toHaveBeenCalledWith({
-      msg: "连接器删除失败",
-      sub: "删除冲突",
-      kind: "warning",
-    });
+    const dialog = await screen.findByRole("alertdialog");
+    expect(mocks.remove.mutate).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
+    await waitFor(() =>
+      expect(mocks.pushToast).toHaveBeenCalledWith({
+        msg: "连接器删除失败",
+        sub: "删除冲突",
+        kind: "warning",
+      }),
+    );
   });
 });

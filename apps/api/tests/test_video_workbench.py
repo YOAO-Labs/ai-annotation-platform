@@ -35,6 +35,7 @@ from app.workers.media import (
     probe_video_frame_timetable,
     transcode_video_for_browser,
 )
+from tests.factory import create_membership, build_tool_bindings
 
 
 def test_parse_ffprobe_video_metadata_computes_fps_and_frame_count():
@@ -600,7 +601,7 @@ def test_video_track_geometry_rejects_invalid_keyframes(geometry):
 
 async def test_get_task_exposes_video_metadata(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     monkeypatch,
 ):
@@ -611,7 +612,7 @@ async def test_get_task_exposes_video_metadata(
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=user.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     dataset = Dataset(
         display_id=f"D-VID-{uuid.uuid4().hex[:6]}",
@@ -660,7 +661,7 @@ async def test_get_task_exposes_video_metadata(
         lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -673,7 +674,7 @@ async def test_get_task_exposes_video_metadata(
 
 async def test_video_manifest_returns_signed_urls(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     monkeypatch,
 ):
@@ -684,7 +685,7 @@ async def test_video_manifest_returns_signed_urls(
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=user.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     dataset = Dataset(
         display_id=f"D-VID-{uuid.uuid4().hex[:6]}",
@@ -734,7 +735,7 @@ async def test_video_manifest_returns_signed_urls(
         fake_generate_download_url,
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/manifest",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -752,7 +753,7 @@ async def test_video_manifest_returns_signed_urls(
 
 async def test_video_frame_timetable_returns_ffprobe_rows(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -762,7 +763,7 @@ async def test_video_frame_timetable_returns_ffprobe_rows(
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=user.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     dataset = Dataset(
         display_id=f"D-VID-{uuid.uuid4().hex[:6]}",
@@ -821,7 +822,7 @@ async def test_video_frame_timetable_returns_ffprobe_rows(
     )
     await db_session.flush()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frame-timetable?from=1&to=2",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -851,7 +852,7 @@ async def test_video_frame_timetable_returns_ffprobe_rows(
 
 async def test_video_frame_timetable_falls_back_to_estimated(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -861,7 +862,7 @@ async def test_video_frame_timetable_falls_back_to_estimated(
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=user.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     dataset = Dataset(
         display_id=f"D-VID-{uuid.uuid4().hex[:6]}",
@@ -892,7 +893,7 @@ async def test_video_frame_timetable_falls_back_to_estimated(
     db_session.add(task)
     await db_session.flush()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frame-timetable",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -907,7 +908,7 @@ async def test_video_frame_timetable_falls_back_to_estimated(
 
 async def test_video_manifest_returns_503_when_metadata_not_ready(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     monkeypatch,
 ):
@@ -918,7 +919,7 @@ async def test_video_manifest_returns_503_when_metadata_not_ready(
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=user.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db_session.add(project)
     await db_session.flush()
@@ -938,7 +939,7 @@ async def test_video_manifest_returns_503_when_metadata_not_ready(
         lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/manifest",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -949,7 +950,7 @@ async def test_video_manifest_returns_503_when_metadata_not_ready(
 
 async def test_video_manifest_rejects_non_video(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -959,7 +960,7 @@ async def test_video_manifest_rejects_non_video(
         type_key="image-det",
         type_label="图像目标检测",
         owner_id=user.id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db_session.add(project)
     await db_session.flush()
@@ -974,7 +975,7 @@ async def test_video_manifest_rejects_non_video(
     db_session.add(task)
     await db_session.flush()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/manifest",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -991,12 +992,14 @@ async def _create_video_export_fixture(db_session, user):
         type_label="视频 · 时序追踪",
         data_type="video",
         owner_id=user.id,
-        classes=["car", "person"],
-        attribute_schema={
-            "fields": [
-                {"key": "speed", "label": "Speed", "type": "number"},
-            ]
-        },
+        tool_bindings=build_tool_bindings(
+            ["car", "person"],
+            attribute_schema={
+                "fields": [
+                    {"key": "speed", "label": "Speed", "type": "number"},
+                ]
+            },
+        ),
     )
     dataset = Dataset(
         display_id=f"D-VID-{suffix}",
@@ -1299,14 +1302,14 @@ async def test_video_export_preserves_and_applies_outside_ranges(
 
 async def test_video_track_convert_frame_copy_preserves_source(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/{track.id}/video/convert-to-bboxes",
         json={"operation": "copy", "scope": "frame", "frame_index": 1},
         headers={"Authorization": f"Bearer {token}"},
@@ -1331,7 +1334,7 @@ async def test_video_track_convert_frame_copy_preserves_source(
 
 async def test_video_track_convert_frame_copy_rejects_outside_frame(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1340,7 +1343,7 @@ async def test_video_track_convert_frame_copy_rejects_outside_frame(
     track.geometry = {**track.geometry, "outside": [{"from": 1, "to": 1}]}
     await db_session.flush()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/{track.id}/video/convert-to-bboxes",
         json={"operation": "copy", "scope": "frame", "frame_index": 1},
         headers={"Authorization": f"Bearer {token}"},
@@ -1352,14 +1355,14 @@ async def test_video_track_convert_frame_copy_rejects_outside_frame(
 
 async def test_video_track_convert_frame_split_removes_exact_keyframe(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/{track.id}/video/convert-to-bboxes",
         json={"operation": "split", "scope": "frame", "frame_index": 2},
         headers={"Authorization": f"Bearer {token}"},
@@ -1377,14 +1380,14 @@ async def test_video_track_convert_frame_split_removes_exact_keyframe(
 
 async def test_video_track_convert_track_split_all_frames_deletes_source(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/{track.id}/video/convert-to-bboxes",
         json={
             "operation": "split",
@@ -1409,14 +1412,14 @@ async def test_video_track_convert_track_split_all_frames_deletes_source(
 
 async def test_video_track_convert_track_copy_keeps_removed_frames_empty(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/{track.id}/video/convert-to-bboxes",
         json={
             "operation": "copy",
@@ -1440,7 +1443,7 @@ async def test_video_track_convert_track_copy_keeps_removed_frames_empty(
 
 async def test_video_track_convert_rejects_non_track_annotation(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1461,7 +1464,7 @@ async def test_video_track_convert_rejects_non_track_annotation(
         )
     ).scalar_one()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/{bbox.id}/video/convert-to-bboxes",
         json={"operation": "copy", "scope": "frame", "frame_index": 1},
         headers={"Authorization": f"Bearer {token}"},
@@ -1473,16 +1476,26 @@ async def test_video_track_convert_rejects_non_track_annotation(
 
 async def test_video_track_convert_requires_task_visibility(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     annotator,
 ):
     user, _ = super_admin
-    _, annotator_token = annotator
+    annotator_user, annotator_token = annotator
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
+    # Valid membership so the account passes project access, while the
+    # unassigned task must still be hidden from this annotator.
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=annotator_user.id,
+        role="annotator",
+        assigned_by=user.id,
+    )
+    await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/{track.id}/video/convert-to-bboxes",
         json={"operation": "copy", "scope": "frame", "frame_index": 1},
         headers={"Authorization": f"Bearer {annotator_token}"},
@@ -1494,7 +1507,7 @@ async def test_video_track_convert_requires_task_visibility(
 
 async def test_video_track_composition_aggregate_bboxes_deletes_sources(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1532,7 +1545,7 @@ async def test_video_track_composition_aggregate_bboxes_deletes_sources(
     db_session.add(second)
     await db_session.flush()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "aggregate_bboxes",
@@ -1557,7 +1570,7 @@ async def test_video_track_composition_aggregate_bboxes_deletes_sources(
 
 async def test_video_track_composition_aggregate_rejects_mixed_classes(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1595,7 +1608,7 @@ async def test_video_track_composition_aggregate_rejects_mixed_classes(
     db_session.add(car)
     await db_session.flush()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "aggregate_bboxes",
@@ -1610,7 +1623,7 @@ async def test_video_track_composition_aggregate_rejects_mixed_classes(
 
 async def test_video_track_composition_aggregate_rejects_duplicate_frames(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1648,7 +1661,7 @@ async def test_video_track_composition_aggregate_rejects_duplicate_frames(
     db_session.add(second)
     await db_session.flush()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "aggregate_bboxes",
@@ -1665,14 +1678,14 @@ async def test_video_track_composition_aggregate_rejects_duplicate_frames(
 
 async def test_video_track_composition_split_visible_frame_creates_tail_track(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "split_track",
@@ -1694,14 +1707,14 @@ async def test_video_track_composition_split_visible_frame_creates_tail_track(
 
 async def test_video_track_composition_split_rejects_absent_frame(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "split_track",
@@ -1717,7 +1730,7 @@ async def test_video_track_composition_split_rejects_absent_frame(
 
 async def test_video_track_composition_merge_tracks_adds_outside_gap(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1749,7 +1762,7 @@ async def test_video_track_composition_merge_tracks_adds_outside_gap(
     db_session.add(second)
     await db_session.flush()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "merge_tracks",
@@ -1777,7 +1790,7 @@ async def test_video_track_composition_merge_tracks_adds_outside_gap(
 
 async def test_video_track_composition_merge_rejects_overlap_and_mixed_classes(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1822,7 +1835,7 @@ async def test_video_track_composition_merge_rejects_overlap_and_mixed_classes(
     db_session.add_all([overlap, mixed])
     await db_session.flush()
 
-    overlap_resp = await httpx_client_bound.post(
+    overlap_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "merge_tracks",
@@ -1830,7 +1843,7 @@ async def test_video_track_composition_merge_rejects_overlap_and_mixed_classes(
         },
         headers={"Authorization": f"Bearer {token}"},
     )
-    mixed_resp = await httpx_client_bound.post(
+    mixed_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "merge_tracks",
@@ -1878,7 +1891,7 @@ async def _add_car_tail_track(db_session, task, project, user, *, frame_index=6)
 
 async def test_video_track_composition_join_interpolate_no_gap_outside(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1890,7 +1903,7 @@ async def test_video_track_composition_join_interpolate_no_gap_outside(
     await db_session.flush()
     tail = await _add_car_tail_track(db_session, task, project, user)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "join_tracks",
@@ -1915,7 +1928,7 @@ async def test_video_track_composition_join_interpolate_no_gap_outside(
 
 async def test_video_track_composition_join_outside_marks_gap(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1925,7 +1938,7 @@ async def test_video_track_composition_join_outside_marks_gap(
     await db_session.flush()
     tail = await _add_car_tail_track(db_session, task, project, user)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "join_tracks",
@@ -1947,7 +1960,7 @@ async def test_video_track_composition_join_outside_marks_gap(
 
 async def test_video_track_composition_join_default_gap_mode_is_interpolate(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -1957,7 +1970,7 @@ async def test_video_track_composition_join_default_gap_mode_is_interpolate(
     await db_session.flush()
     tail = await _add_car_tail_track(db_session, task, project, user)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "join_tracks",
@@ -1973,7 +1986,7 @@ async def test_video_track_composition_join_default_gap_mode_is_interpolate(
 
 async def test_video_track_composition_join_rejects_overlap_and_mixed_classes(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -2018,7 +2031,7 @@ async def test_video_track_composition_join_rejects_overlap_and_mixed_classes(
     db_session.add_all([overlap, mixed])
     await db_session.flush()
 
-    overlap_resp = await httpx_client_bound.post(
+    overlap_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "join_tracks",
@@ -2026,7 +2039,7 @@ async def test_video_track_composition_join_rejects_overlap_and_mixed_classes(
         },
         headers={"Authorization": f"Bearer {token}"},
     )
-    mixed_resp = await httpx_client_bound.post(
+    mixed_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "join_tracks",
@@ -2047,7 +2060,7 @@ async def test_video_track_composition_join_rejects_overlap_and_mixed_classes(
 
 async def test_video_track_composition_rejects_annotation_from_other_task(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
 ):
     user, token = super_admin
@@ -2063,7 +2076,7 @@ async def test_video_track_composition_rejects_annotation_from_other_task(
         )
     ).scalar_one()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "merge_tracks",
@@ -2078,16 +2091,26 @@ async def test_video_track_composition_rejects_annotation_from_other_task(
 
 async def test_video_track_composition_requires_task_visibility(
     db_session,
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     annotator,
 ):
     user, _ = super_admin
-    _, annotator_token = annotator
+    annotator_user, annotator_token = annotator
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
+    # Valid membership so the account passes project access, while the
+    # unassigned task must still be hidden from this annotator.
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=annotator_user.id,
+        role="annotator",
+        assigned_by=user.id,
+    )
+    await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/video/track-compositions",
         json={
             "operation": "split_track",

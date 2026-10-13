@@ -1,5 +1,7 @@
 import { http, HttpResponse } from "msw";
 
+import pixelAvatarManifest from "../../public/avatars/pixel/manifest.json";
+
 /**
  * MSW 默认 handlers。
  *
@@ -15,6 +17,10 @@ const API = "*/api/v1";
 
 export const handlers = [
   http.get("*/health", () => HttpResponse.json({ status: "ok" })),
+
+  // 内置像素头像目录：直接回放构建期生成的真实 manifest（public/avatars/pixel），
+  // 避免单测里出现「目录加载失败」的假失败。
+  http.get("*/avatars/pixel/manifest.json", () => HttpResponse.json(pixelAvatarManifest)),
 
   http.post(`${API}/auth/login`, async () =>
     HttpResponse.json({

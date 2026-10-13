@@ -74,27 +74,27 @@ describe("InviteUserModal", () => {
     expect(screen.queryByText("邀请新成员")).not.toBeInTheDocument();
   });
 
-  it("super_admin → 角色 select 含 5 个选项", async () => {
+  it("super_admin → 账号角色 select 含 4 个平台角色", async () => {
     setRole("super_admin");
     await act(async () => {
       render(<InviteUserModal open={true} onClose={() => {}} />);
     });
     const select = screen.getByDisplayValue(/超管|超级|管理员/) as HTMLSelectElement;
-    expect(select.options.length).toBe(5);
+    expect(select.options.length).toBe(4);
   });
 
-  it("project_admin → 角色 select 仅 3 个选项（无 super_admin / project_admin）", async () => {
+  it("project_admin → 只能邀请员工 / 观察者账号", async () => {
     setRole("project_admin");
     await act(async () => {
       render(<InviteUserModal open={true} onClose={() => {}} />);
     });
     const selects = document.querySelectorAll("select");
     expect(selects.length).toBe(1);
-    expect((selects[0] as HTMLSelectElement).options.length).toBe(3);
+    expect((selects[0] as HTMLSelectElement).options.length).toBe(2);
   });
 
-  it("annotator → 角色 select 0 选项（虽允许打开但无可邀请角色）", async () => {
-    setRole("annotator");
+  it("employee → 角色 select 0 选项（虽允许打开但无可邀请角色）", async () => {
+    setRole("employee");
     await act(async () => {
       render(<InviteUserModal open={true} onClose={() => {}} />);
     });
@@ -111,21 +111,21 @@ describe("InviteUserModal", () => {
     expect(mockMutate).not.toHaveBeenCalled();
   });
 
-  it("有效填写后提交 → 调用 invite.mutate(规范化 email + role)", async () => {
+  it("有效填写后提交 → 调用 invite.mutate(规范化 email + 平台角色)", async () => {
     await act(async () => {
       render(<InviteUserModal open={true} onClose={() => {}} />);
     });
     const email = screen.getByPlaceholderText("newuser@your-org.com") as HTMLInputElement;
     fireEvent.change(email, { target: { value: "  Tom@Example.COM  " } });
     fireEvent.change(screen.getByDisplayValue(/超管|超级|管理员/), {
-      target: { value: "annotator" },
+      target: { value: "employee" },
     });
     fireEvent.change(screen.getByPlaceholderText("例如：标注组A"), {
       target: { value: "  群组1  " },
     });
     fireEvent.click(screen.getByText("生成邀请链接"));
     expect(mockMutate).toHaveBeenCalledWith(
-      { email: "tom@example.com", role: "annotator", group_name: "群组1" },
+      { email: "tom@example.com", role: "employee", group_name: "群组1" },
       expect.any(Object),
     );
   });

@@ -10,6 +10,8 @@ COPY scripts/install-git-hooks.sh scripts/
 RUN CI=1 pnpm install --frozen-lockfile
 COPY apps/api/openapi.snapshot.json apps/api/capability-registry.snapshot.json apps/api/
 COPY apps/web apps/web
+# 版本更新提醒:release-notes 插件在构建期读取根 CHANGELOG.md 注入当前版本段落。
+COPY CHANGELOG.md ./
 ARG VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU=true
 ENV VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU=${VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU}
 ARG VITE_EXPERIMENTAL_LARGE_IMAGE_TILES=true

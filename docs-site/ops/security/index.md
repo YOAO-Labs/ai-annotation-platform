@@ -3,7 +3,7 @@ audience: [ops]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-09-19
 ---
 
 # 安全模型
@@ -16,59 +16,75 @@ last_reviewed: 2026-07-29
 
 ## 1. 威胁模型摘要
 
-| 威胁                    | 缓解                                                                           | 实现位置                                                                                       |
-| ----------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| 凭证泄露（撞库 / 钓鱼） | 密码强度 8+ 大小写数字 + 失败登录限流 + JWT 黑名单                             | `apps/api/app/core/password.py`、`auth.py:48`（5/min）、`apps/api/app/core/token_blacklist.py` |
-| 越权访问                | RBAC 5 级 + project_members 表细粒度授权                                       | `apps/api/app/core/permissions.py`、各路由 `Depends(require_roles(...))`                       |
-| 邀请滥用 / 注册刷号     | `MAX_INVITATIONS_PER_DAY` + 开放注册 3/min 限流 + viewer 默认零权限            | `apps/api/app/services/invitation.py`、`auth.py:173`                                           |
-| 审计日志篡改            | PG `BEFORE UPDATE/DELETE` 触发器拒写                                           | `alembic/versions/0032_audit_log_immutability.py`                                              |
-| 数据泄露（导出滥用）    | 导出端点写审计 + 计划中下载者签名水印                                          | `audit.py:AuditAction.PROJECT_EXPORT/BATCH_EXPORT`                                             |
-| CSRF                    | JWT 走 `Authorization: Bearer` + CORS 白名单 + production methods/headers 收紧 | `main.py:71-83`                                                                                |
-| XSS                     | React 默认转义 + 不允许 `dangerouslySetInnerHTML` 用户输入                     | （前端约定）                                                                                   |
-| 拒绝服务                | 请求级 SlowAPI 限流 + ML 调用超时 + Redis ConnectionPool 上限                  | `core/ratelimit.py`、`config.py:54-55`、`api/v1/ws.py:26`                                      |
-| 敏感字段进日志          | Sentry `before_send` 屏蔽 Authorization                                        | `main.py:28-36`                                                                                |
+| 威胁                    | 缓解                                                                           | 实现位置                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| 凭证泄露（撞库 / 钓鱼） | 密码强度 8+ 大小写数字 + 失败登录限流 + JWT 黑名单                             | `apps/api/app/core/password.py`、`auth.py:48`（5/min）、`apps/api/app/core/token_blacklist.py`       |
+| 越权访问                | 平台角色 + 项目成员角色双层授权，项目能力集统一解析                            | `apps/api/app/services/project_access.py`、`apps/api/app/core/permissions.py`、各路由 `Depends(...)` |
+| 邀请滥用 / 注册刷号     | `MAX_INVITATIONS_PER_DAY` + 开放注册 3/min 限流 + viewer 默认零权限            | `apps/api/app/services/invitation.py`、`auth.py:173`                                                 |
+| 审计日志篡改            | PG `BEFORE UPDATE/DELETE` 触发器拒写                                           | `alembic/versions/0032_audit_log_immutability.py`                                                    |
+| 数据泄露（导出滥用）    | 导出端点写审计 + 计划中下载者签名水印                                          | `audit.py:AuditAction.PROJECT_EXPORT/BATCH_EXPORT`                                                   |
+| CSRF                    | JWT 走 `Authorization: Bearer` + CORS 白名单 + production methods/headers 收紧 | `main.py:71-83`                                                                                      |
+| XSS                     | React 默认转义 + 不允许 `dangerouslySetInnerHTML` 用户输入                     | （前端约定）                                                                                         |
+| 拒绝服务                | 请求级 SlowAPI 限流 + ML 调用超时 + Redis ConnectionPool 上限                  | `core/ratelimit.py`、`config.py:54-55`、`api/v1/ws.py:26`                                            |
+| 敏感字段进日志          | Sentry `before_send` 屏蔽 Authorization                                        | `main.py:28-36`                                                                                      |
 
 威胁模型不包含：物理访问 PG、root SSH 入侵 API 主机——这些走部署侧的访问控制。
 
 ---
 
-## 2. 角色与权限矩阵
+## 2. 平台角色、项目角色与权限
 
-`UserRole` 5 级（`apps/api/app/db/enums.py:4-9`）：
+平台把**账号身份**与**项目职责**分开。账号级 `PlatformRole` 4 级（`apps/api/app/db/enums.py:22`）：
 
 ```
-super_admin  > project_admin > reviewer > annotator > viewer
+super_admin > project_admin > employee > viewer
 ```
 
-### 2.1 全局能力矩阵
+项目级 `ProjectRole`（存储在 `project_members.role`）：`annotator` / `reviewer` / `viewer`。
 
-| 能力                      | super_admin |               project_admin                | reviewer | annotator | viewer |
-| ------------------------- | :---------: | :----------------------------------------: | :------: | :-------: | :----: |
-| 创建项目                  |     ✅      |                     ✅                     |    ❌    |    ❌     |   ❌   |
-| 删除项目                  |     ✅      |                  仅 owner                  |    ❌    |    ❌     |   ❌   |
-| 邀请用户                  | ✅（全部）  | reviewer / annotator / viewer（≤ MAX/day） |    ❌    |    ❌     |   ❌   |
-| 改他人角色                |     ✅      |            annotator ↔ reviewer            |    ❌    |    ❌     |   ❌   |
-| 查看审计日志              |    全部     |                  项目相关                  |    ❌    |    ❌     |   ❌   |
-| 系统设置（`/settings/*`） |    读+写    |                    仅读                    |    ❌    |    ❌     |   ❌   |
-| 导出数据                  |     ✅      |                     ✅                     |    ❌    |    ❌     |   ❌   |
-| 标注任务                  | ✅（演示）  |                     ✅                     |    ✅    |    ✅     |   ❌   |
-| 审核 / 通过-退回          |     ✅      |                     ✅                     |    ✅    |    ❌     |   ❌   |
-| 看 Dashboard              |   全平台    |                  项目相关                  | 项目相关 |   自己    | 受邀的 |
+项目访问与写权限来自**资源所属项目的有效成员关系与项目角色**，集中解析在 `apps/api/app/services/project_access.py::resolve_project_access`。历史全局 `annotator` / `reviewer`（`UserRole`，`db/enums.py:4`）只用于迁移适配与历史读取，**不**参与新授权，也不再作为 fallback。
 
-> 注：`project_admin` 不能邀请 `project_admin` / `super_admin`，也不能把现有用户改为 `viewer`；邀请与编辑使用不同的服务端角色白名单。
+### 2.1 平台能力
+
+| 能力                      |    super_admin     |         project_admin          | employee | viewer |
+| ------------------------- | :----------------: | :----------------------------: | :------: | :----: |
+| 创建项目                  |         ✅         |               ✅               |    ❌    |   ❌   |
+| 删除项目                  |         ✅         |            仅 owner            |    ❌    |   ❌   |
+| 邀请用户                  | ✅（全部平台角色） | employee / viewer（≤ MAX/day） |    ❌    |   ❌   |
+| 平台角色变更（含预览）    |         ✅         |               ❌               |    ❌    |   ❌   |
+| 项目成员角色变更          |         ✅         |   ✅（仅自己 owner 的项目）    |    ❌    |   ❌   |
+| 查看审计日志              |        全部        |            项目相关            |    ❌    |   ❌   |
+| 系统设置（`/settings/*`） |       读+写        |              仅读              |    ❌    |   ❌   |
+| 项目绩效明细 / CSV        |         ✅         |            仅 owner            |    ❌    |   ❌   |
+
+### 2.2 项目能力（由项目角色决定）
+
+`resolve_project_access` 产出固定能力集：`project.read` / `project.manage` / `member.read` / `member.manage` / `task.read` / `annotation.write` / `review.write` / `export.annotations` / `performance.read`。
+
+| 能力                  |   annotator    |   reviewer   | viewer |     合法管理者      |
+| --------------------- | :------------: | :----------: | :----: | :-----------------: |
+| 项目 / 指引读取       |       ✅       |      ✅      |   ✅   |         ✅          |
+| 标注写 / AI 接受      | ✅（任务检查） |      ❌      |   ❌   | 既有管理路径 + 检查 |
+| 审核 / 通过-退回      |       ❌       | ✅（非自审） |   ❌   |  既有路径 + 非自审  |
+| 全项目 / 选定任务导出 |       ❌       |      ✅      |   ❌   |         ✅          |
+| 成员 / 配置管理       |       ❌       |      ❌      |   ❌   |   ✅（所管项目）    |
+
+能力是**必要非充分**条件：任务级指派、批次默认、开放池、预留审核、管理员锁、乐观版本、Mask QC 与视频边界检查全部保留。API key scope 只做附加交集，`*` 不授予项目访问。JWT 里的 `role` 不直接授权；Socket 与异步作业在各自边界重新解析当前数据库权限。
+
+> 邀请角色与编辑角色使用不同的服务端白名单；`project_admin` 不能邀请 `project_admin` / `super_admin`，平台角色变更只限超级管理员。
 >
 > `annotator_id` 单值绑定到 `batch.annotator_id`，同一 batch 内任务都派给该一人；reviewer 通过 `task.reviewer_id` 锁定。
 
-### 2.2 项目级 RBAC
+### 2.3 项目访问解析
 
-`project_members(project_id, user_id, role)` 表给予某用户在指定项目内**临时角色覆盖**——例如全局是 `annotator`、但在某项目里被设为 `reviewer`。
+`project_members(project_id, user_id, role)` 是项目职责的唯一来源，保留 `UNIQUE(project_id, user_id)`。解析顺序（`services/project_access.py`）：
 
-权限解析顺序（`core/permissions.py`）：
+1. 有效 `super_admin` 放行；
+2. 项目 owner / 合法 `project_admin` 按管理路径；
+3. 命中 `ProjectMember`：按项目角色映射固定能力集；
+4. 无成员关系即拒绝——**不再**回退到全局 `User.role`，未知 / 非法角色 fail closed。
 
-1. `super_admin` 直接放行
-2. project owner 放行
-3. project_members 角色覆盖
-4. 全局 `User.role` fallback
+成员角色变更走“预检 → CAS 写入 + 原子交接”，见 [可见性与权限](../../dev/concepts/visibility-and-permissions#成员角色变更与交接)。完整迁移、回滚与已签发 URL 限制见[员工项目角色迁移与回滚 runbook](../runbooks/project-role-migration.md)。
 
 ---
 
@@ -270,7 +286,7 @@ production 收紧的目的：避免误把 dev regex 上线放任何 localhost �
 
 ### 7.1 导出端点
 
-`GET /api/v1/projects/{id}/export?format=...` 和 `GET /api/v1/projects/{id}/batches/{bid}/export` 都会写 `audit_logs.action = project.export / batch.export`，detail 含 `format` + `task_count`。审计页可按 `action ILIKE '%.export'` 筛查异常导出。
+项目 / 批次与选定任务导出均要求显式 `export.annotations` 能力：仅项目 `reviewer` 与合法管理者，项目 `annotator` / `viewer` 被拒。这是相对“项目可见即可导出”的**故意收紧**，并在导出创建、worker 执行、缓存命中与结果访问四个时点都校验（缓存命中不等于已授权）。`GET /api/v1/projects/{id}/export?format=...` 和 `GET /api/v1/projects/{id}/batches/{bid}/export` 都会写 `audit_logs.action = project.export / batch.export`，detail 含 `format` + `task_count`。审计页可按 `action ILIKE '%.export'` 筛查异常导出。
 
 下载者签名水印（PDF/zip 内嵌发起人邮箱）仍在路线图中，当前导出审计依赖 audit log 和对象存储访问日志。
 
@@ -281,6 +297,8 @@ Mask 格式 staged upload 只能使用服务端为当前项目和用户生成的
 拒绝路径穿越、绝对路径、重复或大小写折叠路径、symlink、压缩炸弹和悬空 manifest 引用，不使用 `extractall`。
 
 MinIO 的 presigned **GET / download URL** 默认 1 小时 TTL（`apps/api/app/services/storage.py`）。下载签名会把过期时刻对齐到 10 分钟网格，让同一对象在一个窗口内签出完全相同的 URL——浏览器据此缓存缩略图与原图，避免列表刷新后整批重下。代价是实际有效期在 1 小时到 1 小时 10 分之间浮动。presigned PUT / upload URL 仍使用调用方传入的原始 `expires_in`，不做网格对齐。每个 URL 只授权单文件，不含目录列表能力。
+
+**已签发 URL 是撤销的已知边界**：撤销成员 / 角色后不再签发新 URL，也不允许新的结果交付，但**已签发的直接存储 URL 在到期前仍可使用**。当前默认有效期保持不变——下载 1 小时（含 10 分钟对齐）、评论附件 5 分钟（无对齐）、导出 7 天（同样受调用方的 10 分钟对齐约束）。立即失效旧 URL 需要单独的存储 / 代理改造，不在本次角色迁移范围内；运维侧的完整边界与演练见[员工项目角色迁移与回滚 runbook](../runbooks/project-role-migration.md)。
 
 ### 7.3 Sentry 数据脱敏
 
@@ -306,6 +324,8 @@ MinIO 的 presigned **GET / download URL** 默认 1 小时 TTL（`apps/api/app/s
 | 主题                       | 路径                                                       |
 | -------------------------- | ---------------------------------------------------------- |
 | 角色枚举                   | `apps/api/app/db/enums.py`                                 |
+| 项目授权解析               | `apps/api/app/services/project_access.py`                  |
+| 成员角色变更 / 交接        | `apps/api/app/services/project_membership.py`              |
 | 路由权限装饰器             | `apps/api/app/core/permissions.py`                         |
 | 密码策略                   | `apps/api/app/core/password.py`                            |
 | JWT 编解码                 | `apps/api/app/core/security.py`                            |

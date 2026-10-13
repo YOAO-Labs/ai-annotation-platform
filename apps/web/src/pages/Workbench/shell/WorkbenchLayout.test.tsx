@@ -1,6 +1,6 @@
 // v0.10.18 · WorkbenchLayout focused render tests.
 // 验证布局 shell 把七个稳定面板交给工作区,
-// 可选模块 (rejectModal / deleteConfirm / guidePanel) 不传时不渲染.
+// 可选模块 (deleteConfirm / guidePanel) 不传时不渲染.
 
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -93,9 +93,6 @@ vi.mock("./WorkbenchSettingsDialog", () => ({
 vi.mock("@/components/workbench/ConflictModal", () => ({
   ConflictModal: () => <div data-testid="conflict" />,
 }));
-vi.mock("@/pages/Review/RejectReasonModal", () => ({
-  RejectReasonModal: () => <div data-testid="reject-modal" />,
-}));
 vi.mock("./DeleteConfirmModal", () => ({
   DeleteConfirmModal: () => <div data-testid="delete-confirm-modal" />,
 }));
@@ -164,22 +161,13 @@ describe("WorkbenchLayout", () => {
     expect(screen.getByTestId("conflict")).toBeTruthy();
 
     // 可选项缺省时不渲染
-    expect(screen.queryByTestId("reject-modal")).toBeNull();
     expect(screen.queryByTestId("delete-confirm-modal")).toBeNull();
     expect(screen.queryByTestId("guide-panel")).toBeNull();
   });
 
   it("renders optional modals and guidePanel in the topbar slot when provided", () => {
-    render(
-      <WorkbenchLayout
-        {...baseProps}
-        rejectModal={{} as never}
-        deleteConfirm={{} as never}
-        guidePanel={{} as never}
-      />,
-    );
+    render(<WorkbenchLayout {...baseProps} deleteConfirm={{} as never} guidePanel={{} as never} />);
 
-    expect(screen.getByTestId("reject-modal")).toBeTruthy();
     expect(screen.getByTestId("delete-confirm-modal")).toBeTruthy();
     expect(screen.getByTestId("guide-panel")).toBeTruthy();
     expect(screen.getByTestId("guide-panel").parentElement).toBe(screen.getByTestId("topbar"));

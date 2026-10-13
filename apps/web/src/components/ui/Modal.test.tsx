@@ -48,13 +48,13 @@ describe("<Modal />", () => {
         <p>canvas dialog</p>
       </Modal>,
     );
-    expect(screen.getByTestId("modal-overlay")).toHaveClass("backdrop-blur-[2px]");
+    expect(screen.getByTestId("modal-overlay")).toHaveClass("backdrop-blur-overlay");
     rerender(
       <Modal open onClose={() => {}} backdropBlur={false}>
         <p>canvas dialog</p>
       </Modal>,
     );
-    expect(screen.getByTestId("modal-overlay")).not.toHaveClass("backdrop-blur-[2px]");
+    expect(screen.getByTestId("modal-overlay")).not.toHaveClass("backdrop-blur-overlay");
     expect(screen.getByTestId("modal-overlay")).toHaveAttribute("data-state", "open");
     expect(screen.getByTestId("modal-overlay")).toHaveClass("bg-black/40");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -98,5 +98,24 @@ describe("<Modal />", () => {
     );
     fireEvent.click(screen.getByLabelText("关闭"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat another dialog's action as a backdrop click", async () => {
+    const onClose = vi.fn();
+    render(
+      <>
+        <Modal open onClose={onClose} title="任务详情">
+          <p>Keep the detail available after cancellation.</p>
+        </Modal>
+        <div role="alertdialog" aria-label="离开确认">
+          <button>继续绘制</button>
+        </div>
+      </>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const cancel = screen.getByRole("button", { name: "继续绘制", hidden: true });
+    fireEvent.pointerDown(cancel);
+    fireEvent.click(cancel);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

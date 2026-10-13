@@ -1,6 +1,6 @@
 """Redis Lua scripts for the GPU arbitration ledger.
 
-Every string below is extracted verbatim from the legacy ``gpu_arbiter_store`` module.
+Every string below is one of the ledger's atomic Redis scripts.
 The composition graph (preamble + body) is preserved exactly so the 15 final scripts
 registered by ``GPUArbiterStore`` produce identical SHA-256 digests. No de-duplication,
 re-chunking or reordering is performed.

@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import (
     get_db,
     get_current_user,
-    require_roles,
     require_scopes,
 )
 from app.db.models.user import User
@@ -40,8 +39,9 @@ from app.api.v1.tasks._shared import (
     _assert_task_editable,
     _load_task_or_404,
     _assert_task_visible,
-    _ANNOTATORS,
+    require_task_annotation_write,
 )
+from app.services.project_access import ProjectAccess
 
 router = APIRouter()
 
@@ -246,10 +246,12 @@ async def accept_prediction(
         ),
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    _assert_task_editable(task)
+    await _assert_task_visible(db, task, current_user, access=access)
+    _assert_task_editable(task, current_user, access=access)
     await assert_video_annotation_write_scope(
         db,
         task=task,
@@ -300,14 +302,17 @@ async def reject_prediction(
         description="可选: 仅驳回指定下标的 shape; 不传则驳回该 Prediction 全部 shape.",
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     """B-37 · 驳回 AI 预测候选 shape, 持久化到 predictions.rejected_shape_indexes.
 
     后续 GET /tasks/{id}/predictions 会跳过这些下标, 刷新页面后 AI 待审框不会重现.
     驳回是软操作: prediction 行仍在库中, 仅在该数组追加被拒下标 (去重).
     """
-    _assert_task_editable(await _load_task_or_404(db, task_id))
+    task = await _load_task_or_404(db, task_id)
+    await _assert_task_visible(db, task, current_user, access=access)
+    _assert_task_editable(task, current_user, access=access)
     # v0.10.25 · predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
     pred = (
         await db.execute(select(Prediction).where(Prediction.id == prediction_id))

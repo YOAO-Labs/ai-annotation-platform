@@ -186,9 +186,9 @@ test.describe("workbench point-cloud quality", () => {
     request,
     seed,
   }) => {
-    await seed.reset();
+    const data = await seed.owned();
     const lidar = await seed.seedLidar();
-    const token = await seed.accessToken("admin@e2e.test");
+    const token = await seed.accessToken(data.admin_email);
     const taskId = lidar.lidar_task_ids[0];
     const context = await fixtureContext(request, taskId, token);
     const headers = { Authorization: `Bearer ${token}` };
@@ -201,7 +201,7 @@ test.describe("workbench point-cloud quality", () => {
       if (req.url().includes("/point-cloud-quality/") && req.method() !== "GET")
         writes.push(req.url());
     });
-    await seed.injectToken(page, "admin@e2e.test");
+    await seed.injectToken(page, data.admin_email);
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate?task=${taskId}`);
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("scene-timeline-toggle").click();
@@ -232,9 +232,9 @@ test.describe("workbench point-cloud quality", () => {
   });
 
   test("nuScenes 时间轴标记、定位、处置与 3D 讨论锚点形成闭环", async ({ page, request, seed }) => {
-    await seed.reset();
+    const data = await seed.owned();
     const lidar = await seed.seedLidar();
-    const token = await seed.accessToken("admin@e2e.test");
+    const token = await seed.accessToken(data.admin_email);
     const taskId = lidar.lidar_task_ids[0];
     const context = await fixtureContext(request, taskId, token);
     const routes = await installQualityRoutes(page, {
@@ -242,7 +242,7 @@ test.describe("workbench point-cloud quality", () => {
       taskId,
       ...context,
     });
-    await seed.injectToken(page, "admin@e2e.test");
+    await seed.injectToken(page, data.admin_email);
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate?task=${taskId}`);

@@ -17,6 +17,18 @@ class ProfileUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class AvatarRefUpdate(BaseModel):
+    """头像引用写入契约（``PATCH /auth/me/avatar``）。
+
+    ``avatar_ref`` 只接受 ``preset:<slug>`` 或 null（= 恢复首字母）；``upload:`` 由上传
+    端点独占写入，客户端提交会被拒。省略字段等价于清空。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    avatar_ref: StrictStr | None = None
+
+
 class PasswordChange(BaseModel):
     old_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)

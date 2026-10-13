@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
@@ -543,6 +543,106 @@ async def test_run_batch_stops_on_cooperative_cancel(
 
 
 @pytest.mark.asyncio
+async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
+    db_session: AsyncSession, monkeypatch, super_admin
+):
+    """推理是长耗时操作：账号在推理期间被停用时，本条任务的 Prediction
+    写入必须被回滚，job 以 preannotation_actor_revoked 终止，不再继续后续任务。"""
+    from app.db.models.prediction import Prediction
+    from app.db.models.task import Task
+    from app.db.models.user import User
+    from app.services.ml_client import PredictionResult
+    from app.workers import tasks as worker_tasks
+
+    user, _ = super_admin
+    proj, backend = await _seed_project_and_backend(db_session, user.id)
+
+    tasks = [
+        Task(
+            id=uuid.uuid4(),
+            project_id=proj.id,
+            display_id=f"T-REVOKE-{i}",
+            file_name=f"{i}.jpg",
+            file_path=f"http://x/{i}.jpg",
+            file_type="image",
+            status="pending",
+        )
+        for i in range(2)
+    ]
+    db_session.add_all(tasks)
+    await db_session.flush()
+
+    class _StubClient:
+        calls = 0
+
+        def __init__(self, _backend, **_kwargs):
+            self._backend = _backend
+
+        async def predict(self, tasks_payload, context=None):
+            self.__class__.calls += 1
+            if self.__class__.calls == 1:
+                # Mid-inference revocation: disable the initiating account.
+                row = await db_session.get(User, user.id)
+                row.is_active = False
+                await db_session.flush()
+            return [
+                PredictionResult(
+                    task_id=tasks_payload[0]["id"],
+                    result=[],
+                    score=0.9,
+                    model_version="stub-v1",
+                    inference_time_ms=10,
+                    meta=None,
+                )
+            ]
+
+    monkeypatch.setattr(
+        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
+    )
+
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+
+    # The worker's rollback path expires shared-session ORM state; capture ids
+    # before running so post-run asserts stay plain column queries.
+    proj_id = proj.id
+
+    await worker_tasks._run_batch(
+        project_id=str(proj.id),
+        ml_backend_id=str(backend.id),
+        task_ids=[str(t.id) for t in tasks],
+        prompt="x",
+        user_id=str(user.id),
+    )
+
+    row = (
+        await db_session.execute(
+            select(AsyncJob.status, AsyncJob.error_message).where(
+                AsyncJob.kind == "batch_predict",
+                AsyncJob.project_id == proj_id,
+            )
+        )
+    ).one()
+    assert _StubClient.calls == 1
+    assert row.status == AsyncJobStatus.FAILED.value
+    assert row.error_message == "preannotation_actor_revoked"
+
+    # The mid-run revocation rolls back the staged predictions; the second
+    # task never runs, so nothing was written for this project.
+    pred_count = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(Prediction)
+            .where(Prediction.project_id == proj_id)
+        )
+    ).scalar_one()
+    assert pred_count == 0
+
+
+@pytest.mark.asyncio
 async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
@@ -873,6 +973,224 @@ async def test_delete_backend_blocked_by_running_batch_predict(
     job.status = AsyncJobStatus.COMPLETED.value
     await db_session.flush()
     assert await MLBackendService(db_session).delete(backend.id) is True
+
+
+@pytest.mark.asyncio
+async def test_run_batch_workbench_scope_runs_in_progress_task(
+    db_session: AsyncSession, monkeypatch, super_admin
+):
+    """Issue #121 · workbench 单题允许 in_progress + 本人编辑锁, 且不被 pending 过滤掉。"""
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models.task import Task
+    from app.db.models.task_lock import TaskLock
+    from app.services.ml_client import PredictionResult
+    from app.workers import tasks as worker_tasks
+
+    user, _ = super_admin
+    proj, backend = await _seed_project_and_backend(db_session, user.id)
+    t1 = Task(
+        id=uuid.uuid4(),
+        project_id=proj.id,
+        display_id="T-WB-1",
+        file_name="a.jpg",
+        file_path="http://x/a.jpg",
+        file_type="image",
+        status="in_progress",
+    )
+    db_session.add(t1)
+    await db_session.flush()
+    db_session.add(
+        TaskLock(
+            task_id=t1.id,
+            user_id=user.id,
+            expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+    )
+    await db_session.flush()
+
+    predicted: list[list[dict]] = []
+
+    class _StubClient:
+        def __init__(self, _backend, **_kwargs):
+            self._backend = _backend
+
+        async def predict(self, tasks_payload, context=None):
+            predicted.append(tasks_payload)
+            return [
+                PredictionResult(
+                    task_id=tasks_payload[0]["id"],
+                    result=[],
+                    score=0.9,
+                    model_version="stub-v1",
+                    inference_time_ms=10,
+                    meta={},
+                )
+            ]
+
+    monkeypatch.setattr(
+        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
+    )
+
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+
+    await worker_tasks._run_batch(
+        project_id=str(proj.id),
+        ml_backend_id=str(backend.id),
+        task_ids=[str(t1.id)],
+        prompt="x",
+        user_id=str(user.id),
+        predict_mode="overwrite",
+        execution_scope="workbench",
+    )
+
+    assert len(predicted) == 1
+    job = (
+        await db_session.execute(
+            select(AsyncJob).where(
+                AsyncJob.kind == "batch_predict", AsyncJob.project_id == proj.id
+            )
+        )
+    ).scalar_one()
+    assert job.status == "completed"
+    assert job.result["success_count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["uploading", "review", "completed"])
+async def test_run_batch_workbench_scope_rejects_non_editable_status(
+    status, db_session: AsyncSession, monkeypatch, super_admin
+):
+    """review #121 · workbench 白名单外状态 (uploading / 终态) 一律拒绝。"""
+    from app.db.models.task import Task
+    from app.workers import tasks as worker_tasks
+
+    user, _ = super_admin
+    proj, backend = await _seed_project_and_backend(db_session, user.id)
+    t1 = Task(
+        id=uuid.uuid4(),
+        project_id=proj.id,
+        display_id=f"T-WB-{status}",
+        file_name="a.jpg",
+        file_path="http://x/a.jpg",
+        file_type="image",
+        status=status,
+    )
+    db_session.add(t1)
+    await db_session.flush()
+
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+
+    with pytest.raises(ValueError, match="not editable"):
+        await worker_tasks._run_batch(
+            project_id=str(proj.id),
+            ml_backend_id=str(backend.id),
+            task_ids=[str(t1.id)],
+            prompt="x",
+            user_id=str(user.id),
+            execution_scope="workbench",
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_batch_workbench_scope_rejects_foreign_lock_alongside_own(
+    db_session: AsyncSession, monkeypatch, super_admin, annotator
+):
+    """review #121 · 同 task 多行锁时, 他人锁不能被本人更新的锁掩盖。"""
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models.task import Task
+    from app.db.models.task_lock import TaskLock
+    from app.workers import tasks as worker_tasks
+
+    user, _ = super_admin
+    other, _ = annotator
+    proj, backend = await _seed_project_and_backend(db_session, user.id)
+    t1 = Task(
+        id=uuid.uuid4(),
+        project_id=proj.id,
+        display_id="T-WB-LOCK",
+        file_name="a.jpg",
+        file_path="http://x/a.jpg",
+        file_type="image",
+        status="in_progress",
+    )
+    db_session.add(t1)
+    await db_session.flush()
+    now = datetime.now(timezone.utc)
+    db_session.add_all(
+        [
+            TaskLock(
+                task_id=t1.id, user_id=other.id, expire_at=now + timedelta(minutes=5)
+            ),
+            TaskLock(
+                task_id=t1.id, user_id=user.id, expire_at=now + timedelta(minutes=10)
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+
+    with pytest.raises(ValueError, match="locked for editing"):
+        await worker_tasks._run_batch(
+            project_id=str(proj.id),
+            ml_backend_id=str(backend.id),
+            task_ids=[str(t1.id)],
+            prompt="x",
+            user_id=str(user.id),
+            execution_scope="workbench",
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_batch_bulk_scope_rejects_in_progress_task(
+    db_session: AsyncSession, monkeypatch, super_admin
+):
+    """Issue #121 · bulk 路径仍拒绝非 pending 任务 (防止批量前置条件退化)。"""
+    from app.db.models.task import Task
+    from app.workers import tasks as worker_tasks
+
+    user, _ = super_admin
+    proj, backend = await _seed_project_and_backend(db_session, user.id)
+    t1 = Task(
+        id=uuid.uuid4(),
+        project_id=proj.id,
+        display_id="T-BULK-1",
+        file_name="a.jpg",
+        file_path="http://x/a.jpg",
+        file_type="image",
+        status="in_progress",
+    )
+    db_session.add(t1)
+    await db_session.flush()
+
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+
+    with pytest.raises(ValueError, match="no longer pending"):
+        await worker_tasks._run_batch(
+            project_id=str(proj.id),
+            ml_backend_id=str(backend.id),
+            task_ids=[str(t1.id)],
+            prompt="x",
+            user_id=str(user.id),
+        )
 
 
 def test_batch_predict_task_on_failure_dispatches_mark_helper(monkeypatch):

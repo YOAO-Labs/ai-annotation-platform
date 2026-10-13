@@ -11,8 +11,10 @@ from app.schemas._jsonb_types import (
     ToolBindings,
     validate_tool_bindings_keys,
 )
+from app.db.enums import PlatformRole, ProjectRole
 from app.schemas.mask_qc import MaskQCConfig
 from app.schemas.point_cloud_quality import PointCloudQualityConfig
+from app.services.project_access import ProjectCapability
 from pydantic import field_validator
 
 
@@ -245,7 +247,11 @@ class ProjectOut(BaseModel):
     data_type: str = "image"
     owner_id: UUID
     owner_name: str | None = None
+    owner_avatar_ref: str | None = None
     member_count: int = 0
+    #: Project role of the *requesting* account (None for managers / viewers
+    #: without a membership).  Filled by the list/query/detail serializers.
+    my_project_role: ProjectRole | None = None
     status: str
     ai_enabled: bool
     ml_backend_id: UUID | None = None
@@ -328,6 +334,14 @@ class ProjectOut(BaseModel):
         from_attributes = True
 
 
+class ProjectPage(BaseModel):
+    items: list[ProjectOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
 class ProjectStats(BaseModel):
     total_data: int
     completed: int
@@ -360,8 +374,33 @@ class ProjectMemberOut(BaseModel):
     user_id: UUID
     user_name: str
     user_email: str
-    role: str
+    #: Project responsibility.  Flat by design; invitation DTOs keep the
+    #: ``project_member_role`` name.  Required, so a missed serializer fails
+    #: loudly instead of returning an untyped string.
+    role: ProjectRole
+    #: Account/platform role, added so clients no longer conflate the two.
+    platform_role: PlatformRole
+    #: Membership CAS version; increments on role change.
+    version: int = 1
     assigned_at: datetime
+    updated_at: datetime | None = None
+    # 头像引用（preset:<slug> / upload:<token>）；None = 前端回退姓名首字母。
+    avatar_ref: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class MentionCandidateOut(BaseModel):
+    """讨论区 @ 提及候选：项目成员 + 项目负责人 + 启用的平台超管。
+
+    后端提及校验本就放行 owner / project_admin / super_admin，这里只补齐可发现性。
+    """
+
+    user_id: UUID
+    user_name: str
+    user_email: str | None = None
+    kind: Literal["member", "owner", "super_admin"] = "member"
 
     class Config:
         from_attributes = True
@@ -370,6 +409,56 @@ class ProjectMemberOut(BaseModel):
 class ProjectMemberCreate(BaseModel):
     user_id: UUID
     role: Literal["annotator", "reviewer", "viewer"]
+
+
+class ProjectAccessOut(BaseModel):
+    """Resolved project access for the current account (``GET .../access``)."""
+
+    project_id: UUID
+    user_id: UUID
+    platform_role: PlatformRole
+    project_role: ProjectRole | None = None
+    membership_id: UUID | None = None
+    membership_version: int | None = None
+    access_kind: Literal["super_admin", "owner", "member"]
+    is_manager: bool = False
+    capabilities: list[ProjectCapability] = Field(default_factory=list)
+
+
+class ProjectMemberRolePreviewRequest(BaseModel):
+    """Input for the read-only role-change preview (no writes)."""
+
+    project_role: Literal["annotator", "reviewer", "viewer"]
+    #: Explicit replacement responsibilities for outstanding work handoff.
+    replacement_annotator_id: UUID | None = None
+    replacement_reviewer_id: UUID | None = None
+
+
+class ProjectMemberRolePreviewOut(BaseModel):
+    member_id: UUID
+    user_id: UUID
+    current_role: ProjectRole
+    current_version: int
+    target_role: ProjectRole
+    #: True when the target role needs an explicit, valid handoff first.
+    requires_handoff: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    blocker_details: list[dict] = Field(default_factory=list)
+    #: Canonical snapshot of affected work/locks/claims at preview time.
+    resource_snapshot: dict = Field(default_factory=dict)
+    #: Opaque token covering the snapshot; must be echoed on the write.
+    preview_token: str
+
+
+class ProjectMemberRoleChangeRequest(BaseModel):
+    project_role: Literal["annotator", "reviewer", "viewer"]
+    #: CAS guard against a stale membership.
+    expected_version: int = Field(ge=1)
+    #: Token returned by the preview; revalidated under locks.
+    preview_token: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=500)
+    replacement_annotator_id: UUID | None = None
+    replacement_reviewer_id: UUID | None = None
 
 
 class ProjectTransferRequest(BaseModel):

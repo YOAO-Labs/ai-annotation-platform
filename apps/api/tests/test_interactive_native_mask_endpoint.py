@@ -111,7 +111,7 @@ def _url(project, backend) -> str:
 
 
 async def test_native_endpoint_rejects_when_only_tracker_supports_mask(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
@@ -130,7 +130,7 @@ async def test_native_endpoint_rejects_when_only_tracker_supports_mask(
     monkeypatch.setattr(
         "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
     )
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         _url(project, backend),
         json={
             "task_id": str(task.id),
@@ -149,12 +149,12 @@ async def test_native_endpoint_rejects_when_only_tracker_supports_mask(
 
 
 async def test_mask_prompt_source_requires_annotations_read_scope(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
-    created = await httpx_client_bound.post(
+    created = await httpx_client.post(
         "/api/v1/me/api-keys",
         json={"name": "mask-scope-test", "scopes": ["datasets:read"]},
         headers={"Authorization": f"Bearer {token}"},
@@ -167,7 +167,7 @@ async def test_mask_prompt_source_requires_annotations_read_scope(
         resolver,
     )
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         _url(project, backend),
         json={
             "task_id": str(task.id),
@@ -220,7 +220,7 @@ async def test_mask_prompt_source_requires_annotations_read_scope(
     ],
 )
 async def test_native_endpoint_normalizes_error_and_empty_contracts(
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     db_session,
     monkeypatch,
@@ -248,7 +248,7 @@ async def test_native_endpoint_normalizes_error_and_empty_contracts(
     monkeypatch.setattr(
         "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
     )
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         _url(project, backend),
         json={
             "task_id": str(task.id),
@@ -270,7 +270,7 @@ async def test_native_endpoint_normalizes_error_and_empty_contracts(
 
 
 async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
@@ -292,7 +292,7 @@ async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
     monkeypatch.setattr(
         "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
     )
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         _url(project, backend),
         json={
             "task_id": str(task.id),
@@ -333,7 +333,7 @@ async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
 
 
 async def test_native_endpoint_receipt_counts_positive_and_negative_scribbles(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
@@ -353,7 +353,7 @@ async def test_native_endpoint_receipt_counts_positive_and_negative_scribbles(
     monkeypatch.setattr(
         "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
     )
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         _url(project, backend),
         json={
             "task_id": str(task.id),

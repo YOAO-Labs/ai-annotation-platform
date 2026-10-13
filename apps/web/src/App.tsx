@@ -1,19 +1,21 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, useRef, Suspense } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { TopBar } from "@/components/shell/TopBar";
+import { WhatsNewDialog } from "@/components/shell/WhatsNewDialog";
 import { PerfHud, usePerfHudStore } from "@/components/PerfHud";
 import { useNotificationSocket } from "@/hooks/useNotificationSocket";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { SidebarDrawer } from "@/components/shell/SidebarDrawer";
 import { ToastRack, useToastStore } from "@/components/ui/Toast";
+import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 // 仪表盘 / 登录 类首屏关键路径：保持同步加载（避免 Suspense 闪烁）
 import { DashboardPage } from "@/pages/Dashboard/DashboardPage";
 import { AdminDashboard } from "@/pages/Dashboard/AdminDashboard";
 import { AdminProjectsDashboard } from "@/pages/Dashboard/AdminProjectsDashboard";
-import { ReviewerDashboard } from "@/pages/Dashboard/ReviewerDashboard";
-import { AnnotatorDashboard } from "@/pages/Dashboard/AnnotatorDashboard";
 import { ViewerDashboard } from "@/pages/Dashboard/ViewerDashboard";
+import { EmployeeDashboard } from "@/pages/Dashboard/EmployeeDashboard";
 import { LoginPage } from "@/pages/Login/LoginPage";
 import { ForgotPasswordPage } from "@/pages/Login/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/pages/Login/ResetPasswordPage";
@@ -92,7 +94,8 @@ const MyPerformancePage = lazy(() =>
 );
 import { RequireAuth } from "@/components/routing/RequireAuth";
 import { RequirePagePermission } from "@/components/routing/RequirePagePermission";
-import { RequireProjectMember } from "@/components/routing/RequireProjectMember";
+import { RequireProjectAccess } from "@/components/routing/RequireProjectAccess";
+import { useAuthStore } from "@/stores/authStore";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAppStore } from "@/stores/appStore";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -101,6 +104,7 @@ import { useFabAutoHideDriver } from "@/stores/fabRevealStore";
 import { initBugReportCapture, patchFetchForBugCapture } from "@/utils/bugReportCapture";
 import { PageLoader } from "@/components/PageLoader";
 import { useBugDrawerStore } from "@/stores/bugDrawerStore";
+import { defaultHomePath } from "@/utils/authRedirect";
 import { DiscussionDraftProvider } from "@/pages/Workbench/state/DiscussionDraftProvider";
 import { useAuthenticatedDiscussionSession } from "@/pages/Workbench/state/useAuthenticatedDiscussionSession";
 import styles from "./App.module.css";
@@ -112,10 +116,8 @@ function DashboardRouter() {
       return <AdminProjectsDashboard />;
     case "project_admin":
       return <DashboardPage />;
-    case "reviewer":
-      return <ReviewerDashboard />;
-    case "annotator":
-      return <AnnotatorDashboard />;
+    case "employee":
+      return <EmployeeDashboard />;
     case "viewer":
       return <ViewerDashboard />;
     default:
@@ -139,7 +141,7 @@ function RedirectWithSearch({ to }: { to: string }) {
 // super_admin 默认主页是「平台概览」(/overview);其余角色进 /dashboard。
 function DefaultLandingRedirect() {
   const { role } = usePermissions();
-  return <Navigate to={role === "super_admin" ? "/overview" : "/dashboard"} replace />;
+  return <Navigate to={defaultHomePath(role)} replace />;
 }
 
 function AppShell() {
@@ -158,7 +160,6 @@ function AppShell() {
     initBugReportCapture();
   }, []);
 
-  useNotificationSocket();
   useHeartbeat();
   // v0.9.11 PerfHud · 全局快捷键 Ctrl+Shift+P 切换性能监控浮窗 (super_admin/project_admin only).
   // 权限 gating 在 PerfHud 组件内做; 此 listener 只负责 toggle store.
@@ -200,6 +201,8 @@ function AppShell() {
         </Suspense>
       </main>
       <ToastRack />
+      {/* 决策对话框宿主:与 ToastRack 同位双挂载,全屏工作台路由也覆盖 */}
+      <DecisionDialogHost />
       <BugReportFAB onClick={() => openBugDrawer()} />
       {bugDrawerOpen && (
         <Suspense fallback={null}>
@@ -226,6 +229,23 @@ function PlaceholderPage({ title }: { title: string }) {
   );
 }
 
+/**
+ * decisionDialog 队列的认证归属边界:队列是全局 Zustand,而挂载 Host 的壳在登出时
+ * 会被 RequireAuth 拆掉,排队中的请求却残留下来;换账号再登录后旧对话框会重新出现,
+ * 确认它可能用新凭据执行旧调用方捕获的变更。这里在认证归属变化(登出/换人)时
+ * 以取消值结算并清空整条队列(plan 1789527942 评审意见,Codex P1)。
+ */
+function DecisionQueueAuthBoundary() {
+  const ownerId = useAuthStore((s) => s.user?.id ?? null);
+  const prevOwnerRef = useRef(ownerId);
+  useEffect(() => {
+    if (prevOwnerRef.current === ownerId) return;
+    prevOwnerRef.current = ownerId;
+    useDecisionDialogStore.getState().cancelAll();
+  }, [ownerId]);
+  return null;
+}
+
 function FullScreenWorkbench({ mode }: { mode?: "annotate" | "review" }) {
   const tooNarrow = useMediaQuery("(max-width: 767px)");
   const bugDrawerOpen = useBugDrawerStore((s) => s.open);
@@ -246,6 +266,7 @@ function FullScreenWorkbench({ mode }: { mode?: "annotate" | "review" }) {
         <WorkbenchPage mode={mode} />
       </Suspense>
       <ToastRack />
+      <DecisionDialogHost />
       {bugDrawerOpen && (
         <Suspense fallback={null}>
           <BugReportDrawer
@@ -276,8 +297,14 @@ function MobileWorkbenchBlock() {
 
 export function App() {
   const discussionSession = useAuthenticatedDiscussionSession();
+  // v0.9 · 通知 WS 挂在 App 生命周期：主界面与全屏标注/审核工作台共用一条
+  // 个人通知连接，路由切换不拆链；登出/换账号由 hook 清理（token/userId 依赖）。
+  useNotificationSocket();
   return (
     <DiscussionDraftProvider {...discussionSession}>
+      <DecisionQueueAuthBoundary />
+      {/* 版本更新提醒:登录/会话恢复后每版本弹一次,内部按账号已读版本(服务端)gate。 */}
+      <WhatsNewDialog />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -289,9 +316,9 @@ export function App() {
           path="/projects/:id/annotate"
           element={
             <RequireAuth>
-              <RequireProjectMember>
+              <RequireProjectAccess capability="annotation.write">
                 <FullScreenWorkbench />
-              </RequireProjectMember>
+              </RequireProjectAccess>
             </RequireAuth>
           }
         />
@@ -299,9 +326,9 @@ export function App() {
           path="/projects/:id/review"
           element={
             <RequireAuth>
-              <RequireProjectMember>
+              <RequireProjectAccess capability="review.write">
                 <FullScreenWorkbench mode="review" />
-              </RequireProjectMember>
+              </RequireProjectAccess>
             </RequireAuth>
           }
         />
@@ -309,9 +336,9 @@ export function App() {
           path="/projects/:id/data-manager"
           element={
             <RequireAuth>
-              <RequireProjectMember>
+              <RequireProjectAccess capability="project.read">
                 <AppShell />
-              </RequireProjectMember>
+              </RequireProjectAccess>
             </RequireAuth>
           }
         >
@@ -461,7 +488,14 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          <Route path="/projects/:id/settings" element={<ProjectSettingsPage />} />
+          <Route
+            path="/projects/:id/settings"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ProjectSettingsPage />
+              </RequireProjectAccess>
+            }
+          />
           <Route
             path="/project-templates"
             element={

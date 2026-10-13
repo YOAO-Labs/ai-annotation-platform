@@ -7,33 +7,30 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
-from app.db.models.project_member import ProjectMember
 from app.db.models.task_batch import TaskBatch
 from app.schemas.batch import BatchCreate, BatchUpdate
 from app.services.batch import BatchService
-from tests.factory import create_project
+from tests.factory import create_membership, create_project, create_user
 
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _add_member(db, *, project_id, user_id, role, assigned_by):
-    db.add(
-        ProjectMember(
-            project_id=project_id,
-            user_id=user_id,
-            role=role,
-            assigned_by=assigned_by,
-        )
+    await create_membership(
+        db,
+        project_id=project_id,
+        user_id=user_id,
+        role=role,
+        assigned_by=assigned_by,
     )
-    await db.flush()
 
 
-async def test_create_rejects_inactive_assignment_target(
-    db_session, super_admin, annotator
-):
+async def test_create_rejects_inactive_assignment_target(db_session, super_admin):
     owner, _ = super_admin
-    target, _ = annotator
+    target = await create_user(
+        db_session, "employee", "guard-anno@e.test", "Guard Anno"
+    )
     project = await create_project(db_session, owner_id=owner.id)
     await _add_member(
         db_session,
@@ -57,10 +54,10 @@ async def test_create_rejects_inactive_assignment_target(
 
 
 async def test_update_rejects_assignment_target_without_project_role(
-    db_session, super_admin, reviewer
+    db_session, super_admin
 ):
     owner, _ = super_admin
-    target, _ = reviewer
+    target = await create_user(db_session, "employee", "guard-rev@e.test", "Guard Rev")
     project = await create_project(db_session, owner_id=owner.id)
     batch = TaskBatch(
         id=uuid.uuid4(),
@@ -86,10 +83,12 @@ async def test_update_rejects_assignment_target_without_project_role(
 
 
 async def test_bulk_reassign_rejects_inactive_target_before_batch_write(
-    db_session, super_admin, reviewer
+    db_session, super_admin
 ):
     owner, _ = super_admin
-    target, _ = reviewer
+    target = await create_user(
+        db_session, "employee", "guard-bulk@e.test", "Guard Bulk"
+    )
     project = await create_project(db_session, owner_id=owner.id)
     await _add_member(
         db_session,

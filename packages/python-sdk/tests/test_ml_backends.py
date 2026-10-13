@@ -70,7 +70,7 @@ def test_get_ml_backend(client, respx_mock):
 
 
 def test_list_ml_backends_global_project_id_none(client, respx_mock):
-    # v0.19.1 · 全局注册表: 全局/admin 场景 backend 无项目归属, project_id 可缺省/为 None;
+    # 全局注册表: 全局/admin 场景 backend 无项目归属, project_id 可缺省/为 None;
     # MLBackend 必须容忍, 不因 project_id 缺失而 validation error。
     payload = _backend()
     payload.pop("project_id")

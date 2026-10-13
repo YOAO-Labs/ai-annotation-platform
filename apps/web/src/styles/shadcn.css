@@ -52,6 +52,18 @@
   --color-status-info-alt: var(--sc-status-info-alt);
   --color-status-info-alt-soft: var(--sc-status-info-alt-soft);
 
+  /* 搜索命中高亮(设置 / 快捷键等列表搜索) */
+  --color-mark: var(--sc-mark);
+  --color-mark-foreground: var(--sc-mark-foreground);
+
+  /* 工作台阶段色(图片/视频/点云):跨阶段视图区分用,语义独立于状态色 */
+  --color-stage-image: var(--sc-stage-image);
+  --color-stage-image-soft: var(--sc-stage-image-soft);
+  --color-stage-video: var(--sc-stage-video);
+  --color-stage-video-soft: var(--sc-stage-video-soft);
+  --color-stage-threed: var(--sc-stage-threed);
+  --color-stage-threed-soft: var(--sc-stage-threed-soft);
+
   /* recharts / 图表取色 */
   --color-chart-1: var(--sc-chart-1);
   --color-chart-2: var(--sc-chart-2);
@@ -128,6 +140,21 @@
   --sc-status-info-soft: color-mix(in oklab, var(--color-violet-500) 10%, transparent);
   --sc-status-info-alt: var(--color-sky-600);
   --sc-status-info-alt-soft: color-mix(in oklab, var(--color-sky-500) 10%, transparent);
+
+  /* 搜索命中高亮:实心暖色 + 深色字,保证浅/深色下都醒目(非状态色) */
+  --sc-mark: #fde047;
+  --sc-mark-foreground: #422006;
+
+  /* 工作台阶段色(图片/视频/点云):仅用于跨阶段视图区分,不代表状态 */
+  --sc-stage-image: var(--color-sky-600);
+  --sc-stage-image-soft: color-mix(in oklab, var(--color-sky-500) 12%, transparent);
+  --sc-stage-video: var(--color-violet-600);
+  --sc-stage-video-soft: color-mix(in oklab, var(--color-violet-500) 12%, transparent);
+  --sc-stage-threed: var(--color-amber-600);
+  --sc-stage-threed-soft: color-mix(in oklab, var(--color-amber-500) 12%, transparent);
+
+  /* 居中悬浮面板/模态遮罩的统一背景模糊程度 */
+  --sc-overlay-blur: 4px;
 
   --sc-z-local-1: 1;
   --sc-z-local-2: 2;
@@ -219,6 +246,13 @@
   --sc-status-info-alt: var(--color-sky-400);
   --sc-status-info-alt-soft: color-mix(in oklab, var(--color-sky-500) 10%, transparent);
 
+  --sc-stage-image: var(--color-sky-400);
+  --sc-stage-image-soft: color-mix(in oklab, var(--color-sky-500) 16%, transparent);
+  --sc-stage-video: var(--color-violet-400);
+  --sc-stage-video-soft: color-mix(in oklab, var(--color-violet-500) 16%, transparent);
+  --sc-stage-threed: var(--color-amber-400);
+  --sc-stage-threed-soft: color-mix(in oklab, var(--color-amber-500) 16%, transparent);
+
   --sc-chart-1: #60a5fa;
   --sc-chart-2: #3fb950;
   --sc-chart-3: #d29922;
@@ -237,6 +271,16 @@
 @layer base {
   * {
     box-sizing: border-box;
+  }
+
+  /* Tailwind v4 leaves an unset border color at `currentColor`, so a bare
+     `border` / `border-t` / `divide-*` inherits the text color: near-white on
+     the dark theme, near-black on light. Restore the semantic border token as
+     the global default; explicit `border-*` color utilities still win. */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--sc-border);
   }
 
   html,
@@ -318,6 +362,11 @@
 
   .bg-status-info-alt-soft {
     background-color: var(--sc-status-info-alt-soft);
+  }
+
+  .backdrop-blur-overlay {
+    -webkit-backdrop-filter: blur(var(--sc-overlay-blur));
+    backdrop-filter: blur(var(--sc-overlay-blur));
   }
 
   .z-local-1 {

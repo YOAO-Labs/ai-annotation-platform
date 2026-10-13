@@ -35,6 +35,7 @@ from app.services.raster_mask_storage import (
     build_rle_reference,
     prepare_mask_payload_for_write,
 )
+from tests.factory import create_membership
 
 
 RLE_A = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
@@ -613,6 +614,13 @@ async def test_video_segment_lease_must_belong_to_non_privileged_actor(
     owner, _ = super_admin
     actor, token = annotator
     task, segment = await _seed_video_task(db_session, owner.id)
+    await create_membership(
+        db_session,
+        project_id=task.project_id,
+        user_id=actor.id,
+        role="annotator",
+        assigned_by=owner.id,
+    )
     batch = TaskBatch(
         project_id=task.project_id,
         display_id=f"B-MMV-{uuid.uuid4().hex[:8]}",

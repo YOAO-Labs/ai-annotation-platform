@@ -141,6 +141,7 @@ export function ImageSelectionCardContent({
             readOnly={readOnly || locked}
             context="image"
             hideHeading
+            shortcutRegion
           />
         </div>
       )}

@@ -7,10 +7,10 @@ from app.db.base import Base
 
 
 class TaskEvent(Base):
-    """v0.8.4 · 标注/审核耗时事件，工作台埋点批量写入。
+    """Closed Workbench annotation/review session interval.
 
-    用作 mv_user_perf_daily 物化视图源表 + 详情页耗时直方图原始数据。
-    单条事件 = 一次 task 切换之间的耗时窗口。
+    ``legacy``/``unverified_collection`` values keep pre-qualified rows out of
+    effective-time metrics while retaining them for audit and migration.
     """
 
     __tablename__ = "task_events"
@@ -45,6 +45,18 @@ class TaskEvent(Base):
     )
     was_rejected: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
+    )
+    collector_version: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default=None
+    )
+    collection_source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="legacy", server_default="legacy"
+    )
+    collection_coverage: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="unverified_collection",
+        server_default="unverified_collection",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

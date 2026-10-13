@@ -50,7 +50,14 @@ const mocks = vi.hoisted(() => {
       error: null,
       refetch: vi.fn(),
     },
-    members: { data: [] },
+    mentionCandidates: {
+      data: [] as Array<{
+        user_id: string;
+        user_name: string;
+        user_email?: string | null;
+        kind: "member" | "owner" | "super_admin";
+      }>,
+    },
     store: null as DiscussionDraftStore | null,
     snapshot: null,
   };
@@ -73,7 +80,9 @@ vi.mock("@/hooks/useFeedbacks", () => ({
   usePatchFeedback: () => mocks.patchFeedback,
   useDeleteFeedback: () => mocks.deleteFeedback,
 }));
-vi.mock("@/hooks/useProjects", () => ({ useProjectMembers: () => mocks.members }));
+vi.mock("@/hooks/useProjects", () => ({
+  useProjectMentionCandidates: () => mocks.mentionCandidates,
+}));
 vi.mock("@/api/comments", () => ({
   commentsApi: { attachmentDownloadUrl: mocks.attachmentDownloadUrl },
 }));
@@ -120,6 +129,7 @@ vi.mock("./CommentInput", () => ({
     backgroundUrl,
     liveCanvas,
     onReturnToTask,
+    members,
   }: {
     target?: { kind: string; annotationId?: string };
     annotationId?: string | null;
@@ -130,6 +140,7 @@ vi.mock("./CommentInput", () => ({
     backgroundUrl?: string | null;
     liveCanvas?: unknown;
     onReturnToTask?: () => void;
+    members?: Array<{ id: string; name: string; hint?: string }>;
   }) => (
     <div
       data-testid="mock-composer"
@@ -142,6 +153,10 @@ vi.mock("./CommentInput", () => ({
       data-canvas-enabled={String(Boolean(enableCanvasDrawing))}
       data-background={backgroundUrl ?? ""}
       data-has-return={onReturnToTask ? "true" : "false"}
+      data-members={(members ?? []).map((member) => member.id).join(",")}
+      data-member-hints={(members ?? [])
+        .map((member) => `${member.id}:${member.hint ?? ""}`)
+        .join(",")}
     />
   ),
   renderCommentBody: (body: string) => body,
@@ -277,6 +292,7 @@ beforeEach(() => {
   mocks.taskQuery.error = null;
   mocks.taskQuery.hasNextPage = false;
   mocks.legacyQuery.data = undefined;
+  mocks.mentionCandidates = { data: [] };
   mocks.store = null;
   mocks.snapshot = null;
   mocks.useTaskDiscussion.mockClear();
@@ -336,6 +352,39 @@ describe("CommentsPanel discussion feed", () => {
     expect(screen.getByTestId("mock-composer")).toHaveAttribute("data-canvas-enabled", "true");
     expect(screen.getByTestId("mock-composer")).toHaveAttribute("data-background", "/task-a.png");
     expect(screen.getByTestId("drawing-preview")).toBeInTheDocument();
+  });
+
+  it("labels owner, super admin and member @ mention candidates", () => {
+    mocks.mentionCandidates = {
+      data: [
+        {
+          user_id: "user-owner",
+          user_name: "Owner Name",
+          user_email: "owner@example.com",
+          kind: "owner",
+        },
+        {
+          user_id: "user-root",
+          user_name: "Root Admin",
+          user_email: "root@example.com",
+          kind: "super_admin",
+        },
+        {
+          user_id: "user-b",
+          user_name: "Priya Mehta",
+          user_email: "priya@example.com",
+          kind: "member",
+        },
+      ],
+    };
+    renderPanel();
+
+    const composer = screen.getByTestId("mock-composer");
+    expect(composer).toHaveAttribute("data-members", "user-owner,user-root,user-b");
+    expect(composer).toHaveAttribute(
+      "data-member-hints",
+      "user-owner:项目负责人,user-root:超级管理员,user-b:",
+    );
   });
 
   it("admits a new verified comment focus before falling back from a cleared selection", () => {

@@ -110,14 +110,14 @@ def patched_client():
 
 
 async def test_text_prompt_does_not_inject_project_thresholds(
-    httpx_client_bound, super_admin, db_session, patched_client
+    httpx_client, super_admin, db_session, patched_client
 ):
     """自 59dfffa 起平台不再注入项目级阈值; 客户端未给阈值时 context 里就没有。"""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id, box=0.42, text=0.18)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/interactive-annotating",
         json={"task_id": str(task.id), "context": {"type": "text", "text": "person"}},
         headers={"Authorization": f"Bearer {token}"},
@@ -130,14 +130,14 @@ async def test_text_prompt_does_not_inject_project_thresholds(
 
 
 async def test_text_prompt_respects_explicit_client_thresholds(
-    httpx_client_bound, super_admin, db_session, patched_client
+    httpx_client, super_admin, db_session, patched_client
 ):
     """客户端显式传值则尊重客户端，不被 project 默认覆盖。"""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id, box=0.5, text=0.5)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/interactive-annotating",
         json={
             "task_id": str(task.id),
@@ -157,14 +157,14 @@ async def test_text_prompt_respects_explicit_client_thresholds(
 
 
 async def test_point_prompt_does_not_inject_thresholds(
-    httpx_client_bound, super_admin, db_session, patched_client
+    httpx_client, super_admin, db_session, patched_client
 ):
     """point/bbox 不走 DINO，不应注入阈值（避免污染缓存键 / 协议噪声）。"""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/interactive-annotating",
         json={
             "task_id": str(task.id),

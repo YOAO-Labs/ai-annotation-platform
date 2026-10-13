@@ -1,10 +1,10 @@
-"""v0.15.12 · ML Backend 实时统计 WS 消费器（仅 TUI 用）。
+"""ML Backend 实时统计 WS 消费器（仅 TUI 用）。
 
 订阅后端 `/api/v1/ws/ml-backend-stats`（每 1s 推 `{"backends": [...], "timestamp": ...}`），
 反序列化为 `MLBackendStatsSnapshot` 列表后回调给 TUI。跑在 Textual 的 asyncio loop 里，
 **不**碰同步 `Client` / httpx；连接失败 / 断线时指数退避重连，由调用方 cancel 停止。
 
-后端 WS 鉴权自 v0.15.12 起接受 `ak_` api_key（见 ws.py），故这里直接用 SDK 的 api_key。
+后端 WS 鉴权接受 `ak_` api_key（见 ws.py），故这里直接用 SDK 的 api_key。
 """
 
 from __future__ import annotations

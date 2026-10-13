@@ -1,7 +1,12 @@
 """A task-level rejection must remain reachable during batch review."""
 
-from app.db.models.project_member import ProjectMember
-from tests.factory import create_batch, create_project, create_task, create_user
+from tests.factory import (
+    create_membership,
+    create_batch,
+    create_project,
+    create_task,
+    create_user,
+)
 
 
 async def test_assignee_can_resume_rejected_task_while_peers_remain_in_review(
@@ -11,9 +16,10 @@ async def test_assignee_can_resume_rejected_task_while_peers_remain_in_review(
     review_user, review_token = reviewer
     admin, _ = super_admin
     project = await create_project(db_session, owner_id=admin.id)
-    for user in (assignee, review_user):
-        db_session.add(
-            ProjectMember(project_id=project.id, user_id=user.id, role=user.role)
+    # Literal employees: project roles are explicit, never derived from account role.
+    for user, role in ((assignee, "annotator"), (review_user, "reviewer")):
+        await create_membership(
+            db_session, project_id=project.id, user_id=user.id, role=role
         )
     batch = await create_batch(db_session, project_id=project.id, status="reviewing")
     batch.annotator_id, batch.reviewer_id = assignee.id, review_user.id
@@ -55,10 +61,10 @@ async def test_assignee_can_resume_rejected_task_while_peers_remain_in_review(
     assert batch.status == "reviewing"
 
     outsider = await create_user(
-        db_session, "annotator", "rework-outsider@test.local", "Outsider"
+        db_session, "employee", "rework-outsider@test.local", "Outsider"
     )
-    db_session.add(
-        ProjectMember(project_id=project.id, user_id=outsider.id, role="annotator")
+    await create_membership(
+        db_session, project_id=project.id, user_id=outsider.id, role="annotator"
     )
     await db_session.flush()
     from app.core.security import create_access_token

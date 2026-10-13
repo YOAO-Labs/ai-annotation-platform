@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { clsx } from "clsx";
 import { Card } from "@/components/ui/Card";
 import { Icon } from "@/components/ui/Icon";
@@ -11,10 +11,21 @@ import {
   useUpdateProfile,
   useRequestDeactivation,
   useCancelDeactivation,
+  useSetAvatarRef,
+  useClearAvatar,
+  useUploadAvatar,
 } from "@/hooks/useMe";
+import { UserAvatar } from "@/components/ui/UserAvatar";
+
+// 选择器(含内置头像目录请求)只在用户点开时按需加载,避免给入口 chunk 增加预算压力。
+const AvatarPickerDialog = lazy(() =>
+  import("@/components/users/AvatarPickerDialog").then((module) => ({
+    default: module.AvatarPickerDialog,
+  })),
+);
 import { ROLE_LABELS } from "@/constants/roles";
 import { bugReportsApi, type BugReportResponse } from "@/api/bug-reports";
-import { notificationsApi, type NotificationPreferenceItem } from "@/api/notifications";
+import { NotificationPreferencesPanel } from "@/components/notifications/NotificationPreferencesPanel";
 import { useWorkbenchConfig } from "@/pages/Workbench/state/useWorkbenchConfig";
 import { SettingsFieldControl } from "@/pages/Workbench/components/SettingsFieldControl";
 import { ApiKeysPanel } from "@/components/users/ApiKeysPanel";
@@ -53,7 +64,8 @@ export function SettingsPage() {
   const isAdmin = role === "super_admin";
   const [section, setSection] = useState<SectionKey>("profile");
   const [systemDirty, setSystemDirty] = useState(false);
-  useUnsavedSettingsGuard(systemDirty);
+  // 与路由级离开守卫共用同一确认 (文案 + 防重入),分区切换也不再弹原生 confirm。
+  const confirmLeaveSystemSettings = useUnsavedSettingsGuard(systemDirty);
 
   const sections: {
     key: SectionKey;
@@ -87,11 +99,8 @@ export function SettingsPage() {
                   <li key={s.key}>
                     <button
                       onClick={() => {
-                        if (
-                          section === "system" &&
-                          systemDirty &&
-                          !window.confirm("系统设置有未保存修改，确定离开吗？")
-                        ) {
+                        if (section === "system" && systemDirty) {
+                          confirmLeaveSystemSettings(() => setSection(s.key));
                           return;
                         }
                         setSection(s.key);
@@ -141,7 +150,6 @@ function ProfileSection() {
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [newPwd2, setNewPwd2] = useState("");
-
   if (!user) return null;
 
   const submitName = (e: React.FormEvent) => {
@@ -185,6 +193,9 @@ function ProfileSection() {
     <div className="flex flex-col gap-4">
       <Card>
         <SectionHeader title="基本资料" />
+        <div className={FORM_CLASS}>
+          <AvatarField />
+        </div>
         <form onSubmit={submitName} className={FORM_CLASS}>
           <ReadOnly label="邮箱" value={user.email} mono />
           <ReadOnly label="角色" value={ROLE_LABELS[user.role as UserRole] ?? user.role} />
@@ -669,6 +680,153 @@ function ReadOnly({
   );
 }
 
+/** 头像可通过的 MIME 与上限，与后端 services/avatar_image.py 保持一致。 */
+const AVATAR_ACCEPT = "image/png,image/jpeg,image/webp";
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+/**
+ * 客户端声明的类型白名单。空串 / `application/octet-stream` 表示浏览器无从判断，
+ * 后端会按字节真实格式校验，因此这里放行而不是把合法图片挡在门前。
+ */
+const AVATAR_DECLARED_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "",
+  "application/octet-stream",
+]);
+
+/**
+ * 头像：预览 + 上传 / 选择内置像素头像 / 恢复默认。
+ *
+ * 客户端只做「格式与大小」的早退提示，真正的校验与方形裁剪在服务端完成；三个动作共用
+ * hooks 里的成功处理（写回 auth store），因此顶栏与预览会一起更新。
+ */
+function AvatarField() {
+  const user = useAuthStore((s) => s.user);
+  const pushToast = useToastStore((s) => s.push);
+  const setAvatarRef = useSetAvatarRef();
+  const clearAvatar = useClearAvatar();
+  const uploadAvatar = useUploadAvatar();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
+
+  if (!user) return null;
+
+  const pending = uploadAvatar.isPending || setAvatarRef.isPending || clearAvatar.isPending;
+  const failed = uploadAvatar.isError || setAvatarRef.isError || clearAvatar.isError;
+  const failureMessage = (
+    (uploadAvatar.error ?? setAvatarRef.error ?? clearAvatar.error) as Error | null
+  )?.message;
+
+  const handleFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // 清空 value，否则连续选择同一个文件不会触发 change。
+    event.target.value = "";
+    if (!file) return;
+    if (!AVATAR_DECLARED_TYPES.has(file.type)) {
+      pushToast({ msg: "仅支持 PNG / JPEG / WebP 图片", kind: "warning" });
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      pushToast({ msg: "图片不能超过 2 MB", kind: "warning" });
+      return;
+    }
+    // 三个动作共享同一处错误横幅，开始新一轮前清掉旧动作的陈旧报错。
+    setAvatarRef.reset();
+    clearAvatar.reset();
+    setProgress(0);
+    uploadAvatar.mutate(
+      { file, onProgress: setProgress },
+      {
+        onSuccess: () => pushToast({ msg: "头像已更新", kind: "success" }),
+        onSettled: () => setProgress(null),
+      },
+    );
+  };
+
+  const selectPreset = (ref: string) => {
+    uploadAvatar.reset();
+    clearAvatar.reset();
+    setAvatarRef.mutate(ref, {
+      onSuccess: () => {
+        pushToast({ msg: "头像已更新", kind: "success" });
+        setPickerOpen(false);
+      },
+    });
+  };
+
+  const restoreDefault = () => {
+    uploadAvatar.reset();
+    setAvatarRef.reset();
+    clearAvatar.mutate(undefined, {
+      onSuccess: () => {
+        pushToast({ msg: "已恢复默认头像", kind: "success" });
+        setPickerOpen(false);
+      },
+    });
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-4">
+        <UserAvatar user={user} size="lg" className="size-14 text-lg" />
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={INPUT_BUTTON_CLASS}
+              disabled={pending}
+              onClick={() => inputRef.current?.click()}
+            >
+              {progress === null ? "上传图片" : `上传中 ${Math.round(progress)}%`}
+            </button>
+            <button
+              type="button"
+              className={INPUT_BUTTON_CLASS}
+              disabled={pending}
+              onClick={() => setPickerOpen(true)}
+            >
+              选择内置头像
+            </button>
+            <button
+              type="button"
+              className={INPUT_BUTTON_CLASS}
+              disabled={pending || !user.avatar_ref}
+              onClick={restoreDefault}
+            >
+              恢复默认
+            </button>
+          </div>
+          <p className="m-0 text-xs text-muted-foreground">
+            PNG / JPEG / WebP，不超过 2 MB；上传后自动居中裁成方形。未设置头像时显示姓名首字母。
+          </p>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={AVATAR_ACCEPT}
+          className="hidden"
+          onChange={handleFile}
+        />
+      </div>
+      {failed && failureMessage && <ErrorBanner msg={failureMessage} />}
+      {pickerOpen && (
+        <Suspense fallback={null}>
+          <AvatarPickerDialog
+            open
+            onOpenChange={setPickerOpen}
+            currentRef={user.avatar_ref}
+            pending={pending}
+            onSelect={selectPreset}
+            onClear={restoreDefault}
+          />
+        </Suspense>
+      )}
+    </>
+  );
+}
+
 function ErrorBanner({ msg }: { msg: string }) {
   return (
     <div className="flex items-center gap-2 rounded-md border border-rose-500 bg-status-danger-soft px-3 py-2 text-sm text-status-danger">
@@ -700,103 +858,12 @@ function severityClassName(severity: string) {
   }
 }
 
-const NOTIF_TYPE_LABELS: Record<string, string> = {
-  "bug_report.commented": "BUG 反馈：有新评论",
-  "bug_report.reopened": "BUG 反馈：被重新打开",
-  "bug_report.status_changed": "BUG 反馈：状态变更",
-  "feedback.reply_created": "问题收到新回复",
-  "feedback.status_changed": "问题状态变更",
-  "feedback.comment_mentioned": "任务留言提到了你",
-  "annotation.comment_mentioned": "标注评论提到了你",
-  "batch.rejected": "批次被驳回",
-  "batch.review_reopened": "批次重新进入审核",
-  "batch.admin_locked": "批次被管理员锁定",
-  "batch.admin_unlocked": "批次解除管理员锁定",
-  "batch.unarchived": "批次取消归档",
-  "task.approved": "任务审核通过",
-  "task.rejected": "任务被退回",
-  "task.reopened": "任务被重新打开",
-  "failed_prediction.retry.started": "失败预测：开始重试",
-  "failed_prediction.retry.succeeded": "失败预测：重试成功",
-  "failed_prediction.retry.failed": "失败预测：重试失败",
-  "export.ready": "导出完成",
-  "export.failed": "导出失败",
-  "job.completed": "后台任务完成",
-  "job.failed": "后台任务失败",
-  "job.cancelled": "后台任务取消",
-  "user.deactivation_requested": "账号注销申请",
-  "user.deactivation_completed": "账号注销完成",
-};
-
 function NotificationPreferencesSection() {
-  const pushToast = useToastStore((s) => s.push);
-  const [items, setItems] = useState<NotificationPreferenceItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [savingType, setSavingType] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    notificationsApi
-      .getPreferences()
-      .then((r) => {
-        if (mounted) setItems(r.items);
-      })
-      .catch(() => {
-        if (mounted) pushToast({ msg: "加载偏好失败", kind: "warning" });
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [pushToast]);
-
-  const toggle = async (type: string, next: boolean) => {
-    setSavingType(type);
-    setItems((prev) => prev.map((it) => (it.type === type ? { ...it, in_app: next } : it)));
-    try {
-      await notificationsApi.updatePreference(type, next);
-    } catch (e) {
-      // 回滚 UI
-      setItems((prev) => prev.map((it) => (it.type === type ? { ...it, in_app: !next } : it)));
-      pushToast({ msg: "保存失败", sub: (e as Error).message, kind: "warning" });
-    } finally {
-      setSavingType(null);
-    }
-  };
-
   return (
     <Card>
       <SectionHeader title="通知偏好" />
       <div className="px-4 pb-4 pt-3">
-        <p className="mb-2.5 text-xs text-muted-foreground">
-          关闭某类通知后，新事件不会进入站内通知中心；已存档通知不受影响。邮件 digest 暂未开启。
-        </p>
-        {loading && <div className="text-xs text-muted-foreground">加载中…</div>}
-        {!loading &&
-          items.map((it) => (
-            <div
-              key={it.type}
-              className="flex items-center justify-between border-b border-border py-2.5 text-sm"
-            >
-              <div>
-                <div className="font-medium">{NOTIF_TYPE_LABELS[it.type] ?? it.type}</div>
-                <div className="mono text-xs text-muted-foreground">{it.type}</div>
-              </div>
-              <label className="inline-flex cursor-pointer items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={it.in_app}
-                  disabled={savingType === it.type}
-                  onChange={(e) => toggle(it.type, e.target.checked)}
-                />
-                <span className="text-xs text-muted-foreground">
-                  站内通知 {it.in_app ? "已开启" : "已静音"}
-                </span>
-              </label>
-            </div>
-          ))}
+        <NotificationPreferencesPanel />
       </div>
     </Card>
   );

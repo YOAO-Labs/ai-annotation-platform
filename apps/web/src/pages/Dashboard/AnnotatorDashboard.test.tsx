@@ -173,6 +173,7 @@ describe("AnnotatorDashboard", () => {
       data: [
         {
           id: "p1",
+          my_project_role: "annotator",
           display_id: "P-1",
           name: "项目一",
           type_label: "图像检测",
@@ -267,6 +268,7 @@ describe("AnnotatorDashboard", () => {
     const projects = [
       {
         id: "a",
+        my_project_role: "annotator",
         display_id: "P-A",
         name: "A",
         type_label: "图像检测",
@@ -275,6 +277,7 @@ describe("AnnotatorDashboard", () => {
       }, // 剩 2
       {
         id: "b",
+        my_project_role: "annotator",
         display_id: "P-B",
         name: "B",
         type_label: "图像检测",
@@ -283,6 +286,7 @@ describe("AnnotatorDashboard", () => {
       }, // 剩 10
       {
         id: "c",
+        my_project_role: "annotator",
         display_id: "P-C",
         name: "C",
         type_label: "图像检测",
@@ -297,5 +301,23 @@ describe("AnnotatorDashboard", () => {
     expect(rows[0].textContent).toBe("B"); // 剩 10
     expect(rows[1].textContent).toBe("C"); // 剩 5
     expect(rows[2].textContent).toBe("A"); // 剩 2
+  });
+
+  it("only offers annotation entries for annotator memberships", () => {
+    mockUseAnnotatorStats.mockReturnValue({ data: fullStats, isLoading: false });
+    mockUseProjects.mockReturnValue({
+      data: ["annotator", "reviewer", "viewer", null].map((role, i) => ({
+        id: `p${i}`,
+        name: `Project ${role}`,
+        display_id: `P-${i}`,
+        my_project_role: role,
+        type_label: "图像检测",
+      })),
+    });
+    renderUI();
+    expect(screen.getByText("Project annotator")).toBeInTheDocument();
+    expect(screen.queryByText("Project reviewer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Project viewer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Project null")).not.toBeInTheDocument();
   });
 });

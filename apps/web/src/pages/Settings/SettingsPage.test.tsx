@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { DEFAULT_WORKBENCH_PREFERENCES } from "@/api/auth";
 
@@ -15,6 +16,7 @@ const mockSettingsUser = vi.hoisted(() => ({
   email: "alice@example.com",
   role: "super_admin",
   group_name: null,
+  avatar_ref: null as string | null,
   password_admin_reset_at: null as string | null,
   deactivation_scheduled_at: null,
   deactivation_requested_at: null,
@@ -48,11 +50,17 @@ const mockUpdateProfile = { mutate: vi.fn(), isPending: false, isError: false };
 const mockChangePassword = { mutate: vi.fn(), isPending: false, isError: false };
 const mockRequestDeactivation = { mutate: vi.fn(), isPending: false, isError: false };
 const mockCancelDeactivation = { mutate: vi.fn(), isPending: false, isError: false };
+const mockSetAvatarRef = { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false };
+const mockClearAvatar = { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false };
+const mockUploadAvatar = { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false };
 vi.mock("@/hooks/useMe", () => ({
   useUpdateProfile: () => mockUpdateProfile,
   useChangePassword: () => mockChangePassword,
   useRequestDeactivation: () => mockRequestDeactivation,
   useCancelDeactivation: () => mockCancelDeactivation,
+  useSetAvatarRef: () => mockSetAvatarRef,
+  useClearAvatar: () => mockClearAvatar,
+  useUploadAvatar: () => mockUploadAvatar,
 }));
 
 // --- session control ---
@@ -112,17 +120,30 @@ vi.mock("@/api/notifications", () => ({
   notificationsApi: {
     getPreferences: vi.fn().mockResolvedValue({
       items: [
-        { type: "batch.rejected", in_app: true },
-        { type: "bug_report.status_changed", in_app: false },
-        { type: "feedback.reply_created", in_app: true },
-        { type: "feedback.status_changed", in_app: true },
-        { type: "feedback.comment_mentioned", in_app: true },
-        { type: "annotation.comment_mentioned", in_app: true },
-        { type: "job.completed", in_app: true },
+        { type: "batch.rejected", in_app: true, email: false, toast: true },
+        { type: "bug_report.status_changed", in_app: false, email: false, toast: false },
+        { type: "feedback.reply_created", in_app: true, email: false, toast: true },
+        { type: "feedback.status_changed", in_app: true, email: false, toast: false },
+        { type: "feedback.comment_mentioned", in_app: true, email: false, toast: true },
+        { type: "annotation.comment_mentioned", in_app: true, email: false, toast: true },
+        { type: "job.completed", in_app: true, email: false, toast: false },
       ],
     }),
     updatePreference: vi.fn().mockResolvedValue(undefined),
   },
+}));
+
+// --- 通知偏好共享面板（真实组件在 NotificationPreferencesPanel.test 覆盖）---
+const preferencesMock = vi.hoisted(() => ({
+  data: null as { items: { type: string; in_app: boolean; email: false; toast: boolean }[] } | null,
+  isPending: false,
+  isError: false,
+  isSuccess: true,
+  refetch: vi.fn(),
+}));
+vi.mock("@/hooks/useNotificationPreferences", () => ({
+  useNotificationPreferences: () => preferencesMock,
+  useUpdateNotificationPreference: () => ({ mutateAsync: vi.fn().mockResolvedValue({ ok: true }) }),
 }));
 
 // --- toast ---
@@ -141,20 +162,32 @@ vi.mock("@/components/connections/ConnectorAllowlistSettings", () => ({
 import { SettingsPage } from "./SettingsPage";
 
 function renderUI() {
+  // 头像选择器读取内置头像目录（react-query），因此页面必须有 QueryClientProvider；
+  // 线上由 App 根提供，这里补上同一层。
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <SettingsPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
 describe("SettingsPage", () => {
   beforeEach(() => {
     mockSettingsUser.password_admin_reset_at = null;
+    mockSettingsUser.avatar_ref = null;
     mockPushToast.mockReset();
     mockUpdateProfile.mutate.mockReset();
     mockLogoutAll.mutate.mockReset();
     mockChangePassword.mutate.mockReset();
+    mockSetAvatarRef.mutate.mockReset();
+    mockSetAvatarRef.reset.mockReset();
+    mockClearAvatar.mutate.mockReset();
+    mockClearAvatar.reset.mockReset();
+    mockUploadAvatar.mutate.mockReset();
+    mockUploadAvatar.reset.mockReset();
     mockUpdateSystemSettings.mutate.mockReset();
     mockResetSystemSettings.mutate.mockReset();
     mockTestSmtp.mutate.mockReset();
@@ -190,22 +223,50 @@ describe("SettingsPage", () => {
     expect(mockUpdateProfile.mutate.mock.calls[0][0]).toEqual({ name: "Alice New" });
   });
 
+  it("头像：浏览器无法判断 MIME（空字符串）时仍允许上传，交给服务端校验", () => {
+    renderUI();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "a.png", { type: "" })] },
+    });
+    expect(mockUploadAvatar.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("头像：明确不支持的 MIME 直接拒绝，不发起上传", () => {
+    renderUI();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "a.gif", { type: "image/gif" })] },
+    });
+    expect(mockUploadAvatar.mutate).not.toHaveBeenCalled();
+    expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ kind: "warning" }));
+  });
+
+  it("头像：发起另一个动作前清除旧动作的错误状态", () => {
+    mockSettingsUser.avatar_ref = "preset:pixel-01";
+    renderUI();
+    fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    expect(mockUploadAvatar.reset).toHaveBeenCalled();
+    expect(mockSetAvatarRef.reset).toHaveBeenCalled();
+    expect(mockClearAvatar.mutate).toHaveBeenCalled();
+  });
+
   it("修改密码：两次密码不一致时显示错误提示", () => {
     renderUI();
-    fireEvent.change(screen.getAllByDisplayValue("")[0], { target: { value: "oldpass" } });
-    const pwdInputs = screen.getAllByDisplayValue("");
-    // 填入新密码
-    fireEvent.change(pwdInputs[0], { target: { value: "newpass1" } });
-    fireEvent.change(pwdInputs[1], { target: { value: "different2" } });
+    // 按 label 定位（页面里还有头像的文件选择框，不能用「空值 input」的下标选择）。
+    fireEvent.change(screen.getByLabelText("原密码"), { target: { value: "oldpass" } });
+    fireEvent.change(screen.getByLabelText(/^新密码/), { target: { value: "newpass1" } });
+    fireEvent.change(screen.getByLabelText("再次输入新密码"), {
+      target: { value: "different2" },
+    });
     expect(screen.getByText("两次密码不一致")).toBeInTheDocument();
   });
 
   it("修改密码：与服务端规则不一致时禁用提交", () => {
     renderUI();
-    const pwdInputs = screen.getAllByDisplayValue("");
-    fireEvent.change(pwdInputs[0], { target: { value: "oldpass" } });
-    fireEvent.change(pwdInputs[1], { target: { value: "abc12345" } });
-    fireEvent.change(pwdInputs[2], { target: { value: "abc12345" } });
+    fireEvent.change(screen.getByLabelText("原密码"), { target: { value: "oldpass" } });
+    fireEvent.change(screen.getByLabelText(/^新密码/), { target: { value: "abc12345" } });
+    fireEvent.change(screen.getByLabelText("再次输入新密码"), { target: { value: "abc12345" } });
     expect(screen.getByText(/还需：.*含大写字母/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "修改密码" })).toBeDisabled();
     expect(mockChangePassword.mutate).not.toHaveBeenCalled();
@@ -272,15 +333,30 @@ describe("SettingsPage", () => {
     expect(screen.queryAllByTestId(/^setting-field-experiment\./)).toHaveLength(0);
   });
 
-  it("点击「通知偏好」tab → 异步加载后显示通知类型", async () => {
+  it("点击「通知偏好」tab → 显示共享偏好面板（每类接收+弹出两开关）", async () => {
+    preferencesMock.data = {
+      items: [
+        { type: "batch.rejected", in_app: true, email: false, toast: true },
+        { type: "bug_report.status_changed", in_app: false, email: false, toast: false },
+        { type: "feedback.reply_created", in_app: true, email: false, toast: true },
+        { type: "annotation.comment_mentioned", in_app: true, email: false, toast: true },
+        { type: "job.completed", in_app: true, email: false, toast: false },
+      ],
+    };
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /通知偏好/ }));
-    await waitFor(() => expect(screen.getByText("batch.rejected")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("notification-preferences-panel")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("批次被驳回")).toBeInTheDocument();
     expect(screen.getByText("问题收到新回复")).toBeInTheDocument();
-    expect(screen.getByText("问题状态变更")).toBeInTheDocument();
-    expect(screen.getByText("任务留言提到了你")).toBeInTheDocument();
     expect(screen.getByText("标注评论提到了你")).toBeInTheDocument();
     expect(screen.getByText("后台任务完成")).toBeInTheDocument();
+    // 两开关 + 接收关闭时弹出禁用
+    expect(screen.getByRole("checkbox", { name: "批次被驳回 接收通知" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "批次被驳回 弹出提示" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "BUG 反馈：状态变更 接收通知" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "BUG 反馈：状态变更 弹出提示" })).toBeDisabled();
   });
 
   it("点击「我的反馈」tab → 显示空态提示", async () => {

@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import type {
   TaskResponse,
   AnnotationResponse,
+  AnnotationPageResponse,
   TaskLockResponse,
   ReviewClaimResponse,
   Geometry,
@@ -527,6 +528,26 @@ export const tasksApi = {
   getAnnotations: (id: string, videoSegmentId?: string | null, init?: RequestInit) => {
     const query = videoSegmentId ? `?video_segment_id=${videoSegmentId}` : "";
     return apiClient.get<AnnotationResponse[]>(`/tasks/${id}/annotations${query}`, init);
+  },
+
+  /**
+   * Keyset-paged saved annotations (200 per page). Read-only surfaces such as
+   * the Data Manager preview use this instead of the one-shot list so large
+   * tasks can render progressively; `init` carries the AbortSignal.
+   */
+  getAnnotationsPage: (
+    id: string,
+    params: { cursor?: string | null; limit?: number } = {},
+    init?: RequestInit,
+  ) => {
+    const search = new URLSearchParams();
+    if (params.limit != null) search.set("limit", String(params.limit));
+    if (params.cursor) search.set("cursor", params.cursor);
+    const query = search.toString();
+    return apiClient.get<AnnotationPageResponse>(
+      `/tasks/${id}/annotations/page${query ? `?${query}` : ""}`,
+      init,
+    );
   },
 
   createAnnotation: (id: string, payload: AnnotationPayload, idempotencyKey?: string) => {

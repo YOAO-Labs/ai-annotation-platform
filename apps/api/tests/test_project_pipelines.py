@@ -69,7 +69,7 @@ def _stages(detect_id: uuid.UUID, classify_id: uuid.UUID) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_create_private_pipeline_and_switch_default(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     project = await _seed_project(db_session, user.id)
@@ -86,13 +86,13 @@ async def test_create_private_pipeline_and_switch_default(
         "stages": _stages(detect.id, classify.id),
         "is_default": True,
     }
-    first = await httpx_client_bound.post(
+    first = await httpx_client.post(
         "/api/v1/project-pipelines", json=body, headers=_auth(token)
     )
     assert first.status_code == 201, first.text
     assert first.json()["is_default"] is True
 
-    second = await httpx_client_bound.post(
+    second = await httpx_client.post(
         "/api/v1/project-pipelines",
         json={**body, "name": "车辆属性 v2"},
         headers=_auth(token),
@@ -109,7 +109,7 @@ async def test_create_private_pipeline_and_switch_default(
 
 @pytest.mark.asyncio
 async def test_update_pipeline_scope_validation_returns_422(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     project = await _seed_project(db_session, user.id)
@@ -129,7 +129,7 @@ async def test_update_pipeline_scope_validation_returns_422(
     db_session.add(pipeline)
     await db_session.commit()
 
-    resp = await httpx_client_bound.put(
+    resp = await httpx_client.put(
         f"/api/v1/project-pipelines/{pipeline.id}",
         json={"scope": "public"},
         headers=_auth(token),
@@ -140,7 +140,7 @@ async def test_update_pipeline_scope_validation_returns_422(
 
 @pytest.mark.asyncio
 async def test_apply_public_pipeline_copies_private_and_bumps_usage(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     target = await _seed_project(db_session, user.id, name="target")
@@ -158,7 +158,7 @@ async def test_apply_public_pipeline_copies_private_and_bumps_usage(
     db_session.add(template)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/projects/{target.id}/pipelines/apply",
         json={"pipeline_id": str(template.id), "set_default": True},
         headers=_auth(token),
@@ -176,7 +176,7 @@ async def test_apply_public_pipeline_copies_private_and_bumps_usage(
 
 @pytest.mark.asyncio
 async def test_apply_pipeline_with_unenabled_backend_returns_ids(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     target = await _seed_project(db_session, user.id, name="target")
@@ -193,7 +193,7 @@ async def test_apply_pipeline_with_unenabled_backend_returns_ids(
     db_session.add(template)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/projects/{target.id}/pipelines/apply",
         json={"pipeline_id": str(template.id), "set_default": True},
         headers=_auth(token),

@@ -25,6 +25,7 @@ describe("buildPipelineRunPayload", () => {
     expect(out).toEqual({
       ml_backend_id: "be-detect",
       task_ids: ["T-1"],
+      execution_scope: "workbench",
       pipeline_stages: STAGES,
       predict_mode: "overwrite",
       on_key_conflict: "last_wins",

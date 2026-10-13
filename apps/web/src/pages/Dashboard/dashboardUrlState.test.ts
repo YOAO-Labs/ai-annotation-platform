@@ -7,10 +7,36 @@ import {
 } from "./dashboardUrlState";
 
 describe("Dashboard URL filter state", () => {
+  it("restores valid pagination and falls back for invalid values", () => {
+    expect(parseDashboardUrlWithIssues("page=3&page_size=50").state).toMatchObject({
+      page: 3,
+      page_size: 50,
+    });
+    for (const query of [
+      "page=0&page_size=0",
+      "page=-1&page_size=500",
+      "page=Infinity&page_size=bad",
+    ]) {
+      const parsed = parseDashboardUrlWithIssues(query);
+      expect(parsed.state).toMatchObject({ page: 1, page_size: 20 });
+      expect(parsed.issues.map((issue) => issue.key)).toEqual(["page", "page_size"]);
+    }
+    const encoded = dashboardUrlCodec.encode(new URLSearchParams("layout=grid"), {
+      ...EMPTY_DASHBOARD_URL_STATE,
+      page: 3,
+      page_size: 100,
+    });
+    expect(encoded.toString()).toBe("layout=grid&page=3&page_size=100");
+    expect(dashboardUrlCodec.clear!(encoded, EMPTY_DASHBOARD_URL_STATE).toString()).toBe(
+      "layout=grid",
+    );
+  });
+
   it("round-trips approved keys and preserves wizard/layout parameters", () => {
     const encoded = dashboardUrlCodec.encode(
       new URLSearchParams("new=1&from=p1&layout=grid&keep=1"),
       {
+        ...EMPTY_DASHBOARD_URL_STATE,
         query: " car ",
         status: "pending_review",
         data_type: ["video", "image", "video"],
@@ -29,6 +55,7 @@ describe("Dashboard URL filter state", () => {
 
     expect(parseDashboardUrlWithIssues(encoded)).toEqual({
       state: {
+        ...EMPTY_DASHBOARD_URL_STATE,
         query: "car",
         status: "pending_review",
         data_type: ["image", "video"],

@@ -60,18 +60,24 @@ def fixture_manifest():
                 "saved_view_ids": {},
             },
             "operations": {
-                key: []
-                for key in (
-                    "project_ids",
-                    "dataset_ids",
-                    "template_ids",
-                    "user_ids",
-                    "user_emails",
-                    "invitation_ids",
-                    "job_ids",
-                    "bug_ids",
-                    "audit_ids",
-                )
+                **{
+                    key: []
+                    for key in (
+                        "project_ids",
+                        "dataset_ids",
+                        "template_ids",
+                        "user_ids",
+                        "user_emails",
+                        "invitation_ids",
+                        "job_ids",
+                        "bug_ids",
+                        "audit_ids",
+                    )
+                },
+                "display_names": {},
+                "invitation_emails": {},
+                "search_keys": {},
+                "audit_scopes": {},
             },
         }
     )

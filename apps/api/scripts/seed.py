@@ -30,12 +30,16 @@ from seed_screenshot_assets import (  # noqa: E402
     ensure_screenshot_assets,
 )
 from seed_screenshot_profile import (  # noqa: E402
+    finalize_screenshot_seed_timestamps,
     prepare_screenshot_seed,
+    prepare_screenshot_seed_media,
     reconcile_screenshot_seed,
 )
 
 from app.config import settings
 from app.core.security import hash_password
+from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.services.screenshot_seed_catalog import (
     ScreenshotSeedCatalogError,
@@ -77,14 +81,14 @@ USERS = [
         "email": "qa",
         "name": "李晓华",
         "password": "123456",
-        "role": "reviewer",
+        "role": "employee",
         "group_name": "质检组",
     },
     {
         "email": "anno",
         "name": "王芳",
         "password": "123456",
-        "role": "annotator",
+        "role": "employee",
         "group_name": "标注组A",
     },
     {
@@ -98,17 +102,107 @@ USERS = [
         "email": "anno2",
         "name": "刘洋",
         "password": "123456",
-        "role": "annotator",
+        "role": "employee",
         "group_name": "标注组A",
     },
     {
         "email": "anno3",
         "name": "陈思远",
         "password": "123456",
-        "role": "annotator",
+        "role": "employee",
         "group_name": "标注组B",
     },
 ]
+
+# Demo 夹具创建的固定项目: 非 owner 的 persona 通过显式项目职责获取访问权,
+# 平台角色一律 employee / viewer (迁移 0174 后不再有 annotator / reviewer 平台身份).
+DEMO_PROJECT_DISPLAY_IDS = (
+    "P-COCO8",
+    "P-VIDEO-DEV",
+    "P-PC-DEV",
+    "P-PC-MULTI",
+    "P-OCR",
+)
+# (persona email, project duty) — 只授予 persona 声明用途所需的最小职责.
+# anno/anno2/anno3 是 seed.py 自述的标注员 (标注组A/B), qa 是质检员, viewer 只读;
+# pm / admin 通过项目负责人身份 (或超管) 管项目, 不写成员行.
+DEMO_PROJECT_MEMBERS = (
+    ("anno", "annotator"),
+    ("anno2", "annotator"),
+    ("anno3", "annotator"),
+    ("qa", "reviewer"),
+    ("viewer", "viewer"),
+)
+
+
+async def _ensure_demo_memberships(
+    db: AsyncSession,
+    *,
+    members: tuple[tuple[str, str], ...] = DEMO_PROJECT_MEMBERS,
+    display_ids: tuple[str, ...] = DEMO_PROJECT_DISPLAY_IDS,
+    assigner_emails: tuple[str, ...] = ("pm", "admin"),
+) -> int:
+    """Idempotently grant the demo personas their project duties.
+
+    Platform identity never authorizes project access on its own; a member row
+    with an explicit duty is required.  Managers (``project_admin``) and the
+    super administrator act through ownership, so they are deliberately not
+    given member rows.
+
+    Users are re-read here instead of reusing the ORM instances created above:
+    a fixture ``rollback()`` expires those instances, and touching an expired
+    attribute inside an async session raises ``MissingGreenlet``.  ``members``
+    and ``display_ids`` default to the seeded demo contract; tests pass their
+    own values because persona emails are globally unique.
+    """
+
+    wanted_emails = {email for email, _ in members} | set(assigner_emails)
+    by_email = {
+        user.email: user
+        for user in (
+            await db.execute(select(User).where(User.email.in_(wanted_emails)))
+        ).scalars()
+    }
+    assigner = next(
+        (by_email.get(email) for email in assigner_emails if by_email.get(email)), None
+    )
+    if assigner is None:
+        return 0
+    projects = list(
+        (
+            await db.execute(select(Project).where(Project.display_id.in_(display_ids)))
+        ).scalars()
+    )
+    changed = 0
+    for project in projects:
+        for email, role in members:
+            user = by_email.get(email)
+            if user is None:
+                continue
+            member = await db.scalar(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == project.id,
+                    ProjectMember.user_id == user.id,
+                )
+            )
+            if member is None:
+                db.add(
+                    ProjectMember(
+                        project_id=project.id,
+                        user_id=user.id,
+                        role=role,
+                        assigned_by=assigner.id,
+                    )
+                )
+                changed += 1
+            elif member.role != role:
+                member.role = role
+                member.assigned_by = assigner.id
+                changed += 1
+    if changed:
+        await db.commit()
+    return changed
+
 
 # ── 主逻辑 ────────────────────────────────────────────────────────────────────
 # 示例项目不再造假数据:图片项目由 seed_coco8(真实 coco8) 单独建, 点云项目由
@@ -316,24 +410,36 @@ async def seed(
                         f"multi-camera point-cloud fixture failed: {e}"
                     ) from e
 
+        member_count = await _ensure_demo_memberships(db)
+        if member_count:
+            print(f"  add   project memberships={member_count}")
+
         if strict:
             if preparation is None or generated_assets is None:
                 raise RuntimeError("screenshots profile preparation is missing")
+            screenshot_digests = {
+                "image_demo": generated_assets.content_sha256,
+                "video_demo": generated_assets.content_sha256,
+                "pointcloud_demo": generated_assets.content_sha256,
+                "pointcloud_multicam_demo": generated_assets.content_sha256,
+                "ocr_demo": assets["rapidocr-image"].asset.sha256,
+            }
             report = await reconcile_screenshot_seed(
                 db,
                 preparation=preparation,
-                asset_sha256={
-                    "image_demo": generated_assets.content_sha256,
-                    "video_demo": generated_assets.content_sha256,
-                    "pointcloud_demo": generated_assets.content_sha256,
-                    "pointcloud_multicam_demo": generated_assets.content_sha256,
-                    "ocr_demo": assets["rapidocr-image"].asset.sha256,
-                },
+                asset_sha256=screenshot_digests,
             )
             print(
                 "  ready screenshots desired-state "
                 f"projects={report['projects']} tasks={report['tasks']} "
                 f"batches={report['batches']}"
+            )
+            media_report = await prepare_screenshot_seed_media(
+                db, asset_sha256=screenshot_digests
+            )
+            print(
+                "  ready screenshots media "
+                f"datasets={media_report['datasets']} items={media_report['items']}"
             )
             backend_report = await reconcile_screenshot_backends(
                 db,
@@ -348,6 +454,9 @@ async def seed(
             print(
                 f"  ready screenshots ML binding mode={ml_backend_mode} {binding_names}"
             )
+            await finalize_screenshot_seed_timestamps(
+                db, asset_sha256=screenshot_digests
+            )
             try:
                 await build_screenshot_seed_catalog(
                     db, backend_requirements=backend_requirements
@@ -358,26 +467,21 @@ async def seed(
                 ) from exc
             print("  ready screenshots catalog preflight")
 
-    # 缩略图回填:seed 直接写 DatasetItem,绕过了上传路径的 enqueue_media_for_items,
-    # 故图片/视频的 thumbnail_path / blurhash 一直为 NULL(视频还缺 poster)。这里按
-    # data_type 选出全部图片/视频数据集派发 backfill_media,由 media worker 异步生成。
-    # 按 data_type 动态筛选而非硬编码 display_id 列表 → 后续新增图片/视频夹具自动纳入、
-    # 不会漏回填。点云数据集(data_type=point_cloud)虽含相机图(file_type=image)也不在
-    # 此列,保持原行为不回填其相机缩略图(backfill_media 内部本就只处理 image/video item)。
-    # 幂等(只补缺失的),且无条件执行 → 既补新建,也修复历史已存在但缺缩略图的 seed 数据。
-    # 依赖 media worker 在跑;无匹配数据集则查询为空、静默跳过。
-    from app.db.models.dataset import Dataset
-    from app.workers.media import backfill_media
+    if not strict:
+        # Demo keeps asynchronous backfill for all image/video datasets. The
+        # screenshots profile has already verified its owned media synchronously.
+        from app.db.models.dataset import Dataset
+        from app.workers.media import backfill_media
 
-    async with Session() as db:
-        ds_rows = await db.execute(
-            select(Dataset.id, Dataset.display_id).where(
-                Dataset.data_type.in_(["image", "video"])
+        async with Session() as db:
+            ds_rows = await db.execute(
+                select(Dataset.id, Dataset.display_id).where(
+                    Dataset.data_type.in_(["image", "video"])
+                )
             )
-        )
-        for ds_id, disp in ds_rows.all():
-            backfill_media.delay(str(ds_id))
-            print(f"  media  enqueue 缩略图回填 → {disp}")
+            for ds_id, disp in ds_rows.all():
+                backfill_media.delay(str(ds_id))
+                print(f"  media  enqueue 缩略图回填 → {disp}")
 
     await engine.dispose()
 

@@ -1,19 +1,24 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, and_, or_
 from app.deps import (
     get_db,
     require_roles,
 )
 from app.db.models.user import User
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.dataset import DatasetItem
 from app.db.models.task_batch import TaskBatch
 from app.services.storage import storage_service
 from app.services.scheduler import batch_visibility_clause
+from app.services.project_access import platform_role_is_manager
+from app.services.project_aggregates import (
+    DASHBOARD_PLATFORM_ROLES,
+    REVIEWER_ROLE,
+    project_scope_clause,
+)
 from app.db.enums import UserRole, TaskStatus
 from app.schemas.dashboard import (
     ReviewerDashboardStats,
@@ -28,34 +33,44 @@ router = APIRouter()
 
 
 def _visible_project_clause(user: User):
-    """Dashboard scope matching project visibility and task authorization."""
-    if user.role == UserRole.SUPER_ADMIN:
-        return None
-    return or_(
-        (Project.owner_id == user.id) if user.role == UserRole.PROJECT_ADMIN else False,
-        Project.id.in_(
-            select(ProjectMember.project_id).where(
-                ProjectMember.user_id == user.id,
-            )
-        ),
-    )
+    """Reviewer scope: reviewer memberships plus legitimately managed projects.
+
+    A super administrator sees every project.  An employee who reviews in B but
+    only annotates in A therefore sees B's review queue and not A's.  A missing
+    reviewer membership fails closed (no legacy global-role fallback).
+    """
+    return project_scope_clause(user, Project.id, project_roles=(REVIEWER_ROLE,))
 
 
 def _reviewable_claim_clause(user: User):
-    """Match workbench task visibility and prevent taking another claim."""
+    """Actual actionable-review visibility plus the "do not steal a claim" rule.
+
+    Project authority is applied separately by ``_visible_project_clause``.  A
+    task is actionable only when its batch is in a reviewer-visible state (or it
+    is a collaborative video task), an unbatched task is only visible to its
+    assigned reviewer, and it is not already claimed by someone else.  The owner
+    bypass requires an administrative platform role, so an anomalous employee
+    owner does not gain management scope.
+    """
     if user.role == UserRole.SUPER_ADMIN:
         return None
+    manager_owner = and_(
+        platform_role_is_manager(user.role), Project.owner_id == user.id
+    )
     visible_batch = Task.batch_id.in_(
-        select(TaskBatch.id).where(batch_visibility_clause(user)).correlate(None)
+        select(TaskBatch.id)
+        .where(batch_visibility_clause(user, project_role=REVIEWER_ROLE))
+        .correlate(None)
     )
     collaborative_video = and_(
         Task.file_type == "video",
         Project.video_collaboration["enabled"].as_boolean().is_(True),
     )
+    unbatched_assigned = and_(Task.batch_id.is_(None), Task.reviewer_id == user.id)
     return and_(
-        or_(Project.owner_id == user.id, visible_batch, collaborative_video),
+        or_(manager_owner, unbatched_assigned, visible_batch, collaborative_video),
         or_(
-            Project.owner_id == user.id,
+            manager_owner,
             Task.reviewer_claimed_at.is_(None),
             Task.reviewer_id == user.id,
         ),
@@ -65,9 +80,7 @@ def _reviewable_claim_clause(user: User):
 @router.get("/reviewer", response_model=ReviewerDashboardStats)
 async def reviewer_dashboard(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN, UserRole.REVIEWER)
-    ),
+    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
 ):
     project_scope = _visible_project_clause(current_user)
     claim_scope = _reviewable_claim_clause(current_user)
@@ -403,9 +416,7 @@ async def reviewer_dashboard(
 @router.get("/reviewer/today-mini", response_model=ReviewerMiniStats)
 async def reviewer_today_mini(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN, UserRole.REVIEWER)
-    ),
+    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
 ):
     """v0.8.7 F5.3 · ReviewWorkbench 右侧栏 mini 仪表轻量端点。
 
@@ -463,9 +474,7 @@ async def reviewer_today_mini(
 async def my_recent_reviews(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN, UserRole.REVIEWER)
-    ),
+    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
 ):
     """v0.6.6 · 当前 reviewer 最近审核过的任务（已 approve / reject 落定的）。
 

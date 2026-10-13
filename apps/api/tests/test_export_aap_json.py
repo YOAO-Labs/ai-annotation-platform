@@ -29,6 +29,7 @@ from app.services.display_id import next_display_id
 from app.services.exporting.service import ExportService
 from tests.factory import create_project
 from tests.test_track_operations import _add_box, _seed_scene
+from tests.factory import build_tool_bindings
 
 pytestmark = pytest.mark.asyncio
 
@@ -45,7 +46,7 @@ async def _seed(
         type_label="测试",
         owner_id=owner_id,
         status="in_progress",
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
         annotation_guide="# 测试指引\n请标注所有车辆.",
     )
     db.add(project)
@@ -178,7 +179,7 @@ async def test_export_aap_json_empty_project(
         type_label="t",
         owner_id=user.id,
         status="in_progress",
-        classes=[],
+        tool_bindings=build_tool_bindings([]),
     )
     db_session.add(project)
     await db_session.flush()
@@ -391,7 +392,7 @@ async def test_export_aap_json_video_project_task_block(
         type_label="视频跟踪",
         owner_id=user.id,
         status="in_progress",
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
         data_type="video",
         video_sampling={"mode": "fps", "value": 5},
     )

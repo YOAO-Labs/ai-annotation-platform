@@ -40,7 +40,7 @@ async function json<T>(response: APIResponse): Promise<T> {
 }
 
 test("AAP JSON 视频预测可预检、审阅并持久化采纳/忽略", async ({ page, request, seed }) => {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const { task_id: taskId } = await seed.videoTask(data.project_id);
   await seed.configureRasterMask(data.project_id, true);
   const token = await seed.accessToken(data.admin_email);

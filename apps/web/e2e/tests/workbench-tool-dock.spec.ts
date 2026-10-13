@@ -6,7 +6,7 @@ import { launchNativeBrowserZoom } from "../fixtures/native-browser-zoom";
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 
 async function prepare(request: APIRequestContext, seed: SeedAPI) {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const { task_id: videoTaskId } = await seed.videoTask(data.project_id);
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
   const projectResponse = await request.get(`${API_BASE}/api/v1/projects/${data.project_id}`, {

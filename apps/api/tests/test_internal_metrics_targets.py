@@ -46,7 +46,7 @@ def test_check_token_valid_and_invalid(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_metrics_targets_excludes_disconnected_and_dedupes(
-    httpx_client_bound, db_session, monkeypatch
+    httpx_client, db_session, monkeypatch
 ) -> None:
     from app.api.v1 import internal
     from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -81,7 +81,7 @@ async def test_metrics_targets_excludes_disconnected_and_dedupes(
     )
     await db_session.flush()
 
-    res = await httpx_client_bound.get("/api/v1/internal/metrics-targets")
+    res = await httpx_client.get("/api/v1/internal/metrics-targets")
     assert res.status_code == 200
     body = res.json()
 
@@ -94,22 +94,22 @@ async def test_metrics_targets_excludes_disconnected_and_dedupes(
 
 @pytest.mark.asyncio
 async def test_metrics_targets_token_gate(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ) -> None:
     from app.api.v1 import internal
 
     monkeypatch.setattr(internal.settings, "metrics_sd_token", "tk-1")
 
-    no_auth = await httpx_client_bound.get("/api/v1/internal/metrics-targets")
+    no_auth = await httpx_client.get("/api/v1/internal/metrics-targets")
     assert no_auth.status_code == 401
 
-    wrong = await httpx_client_bound.get(
+    wrong = await httpx_client.get(
         "/api/v1/internal/metrics-targets",
         headers={"Authorization": "Bearer nope"},
     )
     assert wrong.status_code == 401
 
-    ok = await httpx_client_bound.get(
+    ok = await httpx_client.get(
         "/api/v1/internal/metrics-targets",
         headers={"Authorization": "Bearer tk-1"},
     )

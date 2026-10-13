@@ -116,7 +116,7 @@ class MaintenanceTests(unittest.TestCase):
                         )
                         self.assertEqual(
                             worker["environment"]["ALEMBIC_AUTO_UPGRADE"],
-                            "true" if len(files) == 1 else "false",
+                            "false",
                         )
                     else:
                         self.assertNotIn("secrets", worker)

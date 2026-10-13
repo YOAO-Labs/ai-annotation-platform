@@ -512,6 +512,8 @@ async def test_idempotency_content_conflict_and_unexpected_failure_roll_back(
                 await service.commit(task.id, payload, actor)
     await db_session.refresh(source)
     assert source.geometry == CONCAVE and source.version == 1
+    await db_session.refresh(task)
+    assert task.annotation_contributor_ids == []
     assert (
         await db_session.scalar(select(func.count()).select_from(AnnotationOperation))
         == 0

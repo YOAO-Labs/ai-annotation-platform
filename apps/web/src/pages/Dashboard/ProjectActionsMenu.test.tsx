@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProjectResponse } from "@/api/projects";
@@ -33,14 +33,20 @@ const project = {
   data_type: "image",
 } as ProjectResponse;
 
-function renderMenu() {
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname + location.search}</output>;
+}
+
+function renderMenu(canManage = true) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <ProjectActionsMenu project={project} canManage />
+        <LocationProbe />
+        <ProjectActionsMenu project={project} canManage={canManage} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -49,6 +55,26 @@ function renderMenu() {
 describe("ProjectActionsMenu", () => {
   beforeEach(() => {
     vi.mocked(maskFormatsApi.list).mockReset();
+  });
+
+  it("opens project data directly and limits the team entry to managers", () => {
+    renderMenu(false);
+    fireEvent.click(screen.getByRole("button", { name: "数据管理" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/projects/project-1/data-manager?section=overview",
+    );
+    fireEvent.click(screen.getByTitle("更多操作"));
+    expect(screen.queryByRole("menuitem", { name: "成员绩效" })).not.toBeInTheDocument();
+  });
+
+  it("opens member performance in the selected project", async () => {
+    vi.mocked(maskFormatsApi.list).mockResolvedValue([]);
+    renderMenu();
+    await act(async () => fireEvent.click(screen.getByTitle("更多操作")));
+    fireEvent.click(screen.getByRole("menuitem", { name: "成员绩效" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/projects/project-1/data-manager?section=members",
+    );
   });
 
   it("菜单打开后按 registry 已验证能力暴露标注导入", async () => {

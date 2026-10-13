@@ -63,4 +63,4 @@ useEffect(() => {
 ## 相关
 
 - commit: `8949455` fix(v0.9.5): SamTextPanel TDZ
-- 代码：`apps/web/src/pages/Workbench/SamTextPanel.tsx`
+- 代码：`apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx`（当时的 `SamTextPanel` 组件内嵌于此文件；该组件现已移除）

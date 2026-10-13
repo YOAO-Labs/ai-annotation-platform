@@ -1,8 +1,16 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import type { MaskQcIssue } from "@/api/maskQc";
 import type { MaskQcTrackerCandidate } from "../state/useMaskQcReview";
 import type { FeedbackAnchorPosition } from "@/api/feedbacks";
+
+/** 结算当前排队的 decisionDialog,模拟用户点下某个按钮。 */
+function settleDecisionDialog(value: boolean | string | null) {
+  const head = useDecisionDialogStore.getState().queue[0];
+  if (!head) throw new Error("decisionDialog 队列为空");
+  useDecisionDialogStore.getState().settle(value);
+}
 
 const mocks = vi.hoisted(() => ({
   useIssues: vi.fn(),
@@ -117,6 +125,13 @@ function props(overrides: Partial<MaskQcPanelProps> = {}): MaskQcPanelProps {
     ...overrides,
   };
 }
+
+afterEach(() => {
+  // decisionDialog store 是模块级单例,清空队列避免跨测试残留。
+  act(() => {
+    useDecisionDialogStore.setState({ queue: [] });
+  });
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -286,7 +301,6 @@ describe("MaskQcPanel", () => {
   });
 
   it("对精确 Tracker 候选提交区域决定", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const onDecideTrackerRegion = vi.fn().mockResolvedValue({ ok: true });
     render(
       <MaskQcPanel
@@ -342,6 +356,9 @@ describe("MaskQcPanel", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "区域接受" }));
+    // 区域决定前弹应用内确认;确认后才提交。
+    await waitFor(() => expect(useDecisionDialogStore.getState().queue[0]).toBeDefined());
+    act(() => settleDecisionDialog(true));
     await waitFor(() => {
       expect(onDecideTrackerRegion).toHaveBeenCalledWith(
         expect.objectContaining({ id: "issue-1" }),

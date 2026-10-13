@@ -65,10 +65,10 @@ async def _seed_annotation(
 
 
 @pytest.mark.asyncio
-async def test_my_performance_zeros_when_no_data(httpx_client_bound, annotator):
+async def test_my_performance_zeros_when_no_data(httpx_client, annotator):
     """无数据时任意已认证用户拿到全 0 结构。"""
     _, token = annotator
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/me/performance",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -86,7 +86,7 @@ async def test_my_performance_zeros_when_no_data(httpx_client_bound, annotator):
 
 @pytest.mark.asyncio
 async def test_my_performance_counts_own_throughput(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """统计本人本周标注产出，trend 本周桶反映出来。"""
     admin_user, _ = super_admin
@@ -99,7 +99,7 @@ async def test_my_performance_counts_own_throughput(
         )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/me/performance",
         headers={"Authorization": f"Bearer {ann_token}"},
     )
@@ -113,7 +113,7 @@ async def test_my_performance_counts_own_throughput(
 
 @pytest.mark.asyncio
 async def test_my_performance_is_self_scoped(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """强制 self：annotator 的标注不计入 super_admin 自己的 /me。"""
     admin_user, admin_token = super_admin
@@ -125,7 +125,7 @@ async def test_my_performance_is_self_scoped(
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/me/performance",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -136,7 +136,7 @@ async def test_my_performance_is_self_scoped(
 
 @pytest.mark.asyncio
 async def test_my_performance_quality_attribution(
-    httpx_client_bound, db_session, super_admin, annotator
+    httpx_client, db_session, super_admin, annotator
 ):
     """v0.12.4 · 类别覆盖 / reject 原因细分 / 首过率(A1)。"""
     admin_user, _ = super_admin
@@ -167,7 +167,7 @@ async def test_my_performance_quality_attribution(
         t.reject_reason_type = reason
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/dashboard/me/performance",
         headers={"Authorization": f"Bearer {ann_token}"},
     )
@@ -181,7 +181,7 @@ async def test_my_performance_quality_attribution(
 
 
 @pytest.mark.asyncio
-async def test_my_performance_requires_auth(httpx_client_bound):
+async def test_my_performance_requires_auth(httpx_client):
     """未认证返回 401/403。"""
-    resp = await httpx_client_bound.get("/api/v1/dashboard/me/performance")
+    resp = await httpx_client.get("/api/v1/dashboard/me/performance")
     assert resp.status_code in (401, 403)

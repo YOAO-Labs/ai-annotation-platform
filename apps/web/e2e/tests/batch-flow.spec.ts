@@ -12,7 +12,7 @@ import { test, expect } from "../fixtures/seed";
 
 test.describe("batch lifecycle", () => {
   test("super_admin 登录 → 项目设置页 200（smoke）", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.injectToken(page, data.admin_email);
     await page.goto(`/projects/${data.project_id}/settings`);
     await expect(page).toHaveURL(new RegExp(`/projects/${data.project_id}/settings`));
@@ -20,7 +20,7 @@ test.describe("batch lifecycle", () => {
   });
 
   test("annotator 提交 → reviewer 待审 → admin 设置页 batches tab", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
 
     // 1. annotator 提交一个 task；另一个推到 review，reviewer 双绑定
     await seed.advanceTask({

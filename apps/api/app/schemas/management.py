@@ -17,8 +17,31 @@ from app.schemas.invitation import InvitationOut
 from app.schemas.user import UserOut
 
 
+class UserPageItem(UserOut):
+    """User row plus request-relative capability flags.
+
+    ``is_managed`` tells the frontend whether the current actor may run
+    account-management actions on the row (role change, password reset,
+    group assignment).  Read visibility can be wider than the manage scope
+    (project admins see enabled annotators/reviewers incl. unassigned ones,
+    and read-only super admins), so visible rows are not necessarily
+    manageable.
+
+    ``is_lifecycle_managed`` further gates the work-handover writes
+    (offboarding, deactivate, delete, reactivate): project admins may only
+    hand over users whose derived projects (memberships, batches, tasks,
+    locks, owned projects) all sit inside projects they own.  A foreign
+    enabled annotator therefore lists ``is_managed=true`` but
+    ``is_lifecycle_managed=false``; lifecycle buttons must be hidden so
+    they cannot surface actions the API rejects with 403.
+    """
+
+    is_managed: bool = True
+    is_lifecycle_managed: bool = True
+
+
 class UserPage(BaseModel):
-    items: list[UserOut]
+    items: list[UserPageItem]
     total: int
     page: int
     page_size: int
@@ -70,6 +93,7 @@ class BulkInviteItem(BaseModel):
     role: str = Field(max_length=100)
     group_name: str | None = Field(default=None, max_length=1000)
     project_id: UUID | None = None
+    project_member_role: str | None = Field(default=None, max_length=100)
 
 
 class BulkInviteRequest(BaseModel):

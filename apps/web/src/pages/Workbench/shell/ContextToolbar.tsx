@@ -39,6 +39,21 @@ interface ContextToolbarProps {
   children: (close: () => void) => ReactNode;
 }
 
+/**
+ * A stacked modal decision dialog owns pointer and focus interactions that land
+ * inside it. Radix's outside detection can otherwise retire this toolbar
+ * mid-flow: when the dialog closes between the interaction and the deferred
+ * outside check, the interaction is misattributed as an outside click and the
+ * expanded panel collapses (observed as the tracker review bar vanishing right
+ * after a manual-keyframe override confirm on slow machines).
+ */
+function isWithinModalDialog(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    !!target.closest('[data-modal], [role="dialog"], [role="alertdialog"]')
+  );
+}
+
 /** Presentation only: drafts, settings, commands and persistence stay with the tool owner. */
 export function ContextToolbar({
   id,
@@ -267,8 +282,11 @@ export function ContextToolbar({
         onEscapeKeyDown={(event) => {
           if (event.isComposing || event.keyCode === 229) event.preventDefault();
         }}
-        onInteractOutside={() => {
+        onInteractOutside={(event) => {
           interactedOutsideRef.current = true;
+          // Interactions owned by a stacked modal decision dialog must not
+          // collapse the toolbar; see isWithinModalDialog for the rationale.
+          if (isWithinModalDialog(event.target)) event.preventDefault();
         }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();

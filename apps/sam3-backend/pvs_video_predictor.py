@@ -1,4 +1,4 @@
-"""SAM 3 PVS (Promptable Visual Segmentation) 视频追踪封装 (v0.21.26 · 阶段 B-pvs).
+"""SAM 3 PVS (Promptable Visual Segmentation) 视频追踪封装.
 
 平行于 multiplex 的 video_predictor.py, 但走 **点/框 seed + memory 传播**(SAM2 式),
 而非 text 开集检测:

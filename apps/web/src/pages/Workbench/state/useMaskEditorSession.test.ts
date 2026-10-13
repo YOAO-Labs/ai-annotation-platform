@@ -6,8 +6,17 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import { promptMaskLeaveChoice, useMaskEditorSession } from "./useMaskEditorSession";
 import type { MaskSessionKey } from "./useMaskEditorSession";
+
+/** 结算当前排队的 decisionDialog 并清空队列,模拟用户点下某个选项。 */
+function settleDialog(value: boolean | string | null) {
+  const head = useDecisionDialogStore.getState().queue[0];
+  if (!head) throw new Error("decisionDialog 队列为空");
+  useDecisionDialogStore.getState().settle(value);
+  useDecisionDialogStore.getState().dispose();
+}
 
 const KEY_A: MaskSessionKey = {
   taskId: "t1",
@@ -204,12 +213,17 @@ describe("useMaskEditorSession · dirty leave guard", () => {
     expect(result.current.phase).toBe("loading");
   });
 
-  it("三段选择结果明确", () => {
-    expect(promptMaskLeaveChoice(vi.fn(() => true))).toBe("save");
-    expect(
-      promptMaskLeaveChoice(vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true)),
-    ).toBe("discard");
-    expect(promptMaskLeaveChoice(vi.fn(() => false))).toBe("continue");
+  it("三段选择结果明确", async () => {
+    let choice = promptMaskLeaveChoice();
+    settleDialog("save");
+    await expect(choice).resolves.toBe("save");
+    choice = promptMaskLeaveChoice();
+    settleDialog("discard");
+    await expect(choice).resolves.toBe("discard");
+    // 取消 / Esc / 点遮罩 → null → 继续编辑
+    choice = promptMaskLeaveChoice();
+    settleDialog(null);
+    await expect(choice).resolves.toBe("continue");
   });
 
   it("区域预览尚未应用时仍属于旧会话，切换取消保留预览", async () => {

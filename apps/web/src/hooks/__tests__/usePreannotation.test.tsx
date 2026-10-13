@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
+import { useAuthStore } from "@/stores/authStore";
 import { usePreannotationProgress } from "../usePreannotation";
 
 class MockWebSocket {
@@ -50,6 +51,8 @@ beforeEach(() => {
     writable: true,
     configurable: true,
   });
+  // Auth hydration: a token is required before the root WS URL is built.
+  useAuthStore.setState({ token: "test-token", user: { id: "u1" } as never });
 });
 
 afterEach(() => {
@@ -62,14 +65,21 @@ afterEach(() => {
 });
 
 describe("usePreannotationProgress", () => {
-  it("projectId 存在时拼 /ws/projects/{id}/preannotate", () => {
+  it("projectId 存在时拼 /ws/projects/{id}/preannotate（带 token）", () => {
     renderHook(() => usePreannotationProgress("p-abc"));
     expect(MockWebSocket.instances.length).toBe(1);
-    expect(MockWebSocket.instances[0].url).toMatch(/\/ws\/projects\/p-abc\/preannotate$/);
+    expect(MockWebSocket.instances[0].url).toContain("/ws/projects/p-abc/preannotate");
+    expect(MockWebSocket.instances[0].url).toContain("token=test-token");
   });
 
   it("projectId 为空不建连", () => {
     renderHook(() => usePreannotationProgress(undefined));
+    expect(MockWebSocket.instances.length).toBe(0);
+  });
+
+  it("未 hydration（无 token）不建无鉴权连接", () => {
+    useAuthStore.setState({ token: null });
+    renderHook(() => usePreannotationProgress("p-abc"));
     expect(MockWebSocket.instances.length).toBe(0);
   });
 

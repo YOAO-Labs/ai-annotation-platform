@@ -1,12 +1,20 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RefObject } from "react";
 
 import { EntityDataManagerLens } from "./EntityDataManagerLens";
 
+const scrollRef: RefObject<HTMLDivElement | null> = { current: null };
+
+const state = vi.hoisted(() => ({
+  schemaError: false,
+  schemaRefetch: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePermissions", () => ({
-  usePermissions: () => ({ role: "annotator" }),
+  usePermissions: () => ({ role: "employee" }),
 }));
 
 vi.mock("@/stores/authStore", () => ({
@@ -20,7 +28,9 @@ vi.mock("@/components/ui/Toast", () => ({
 }));
 
 vi.mock("./EntityDetailSheet", () => ({
-  EntityDetailSheet: () => null,
+  EntityDetailSheet: ({ selected }: { selected: string | null }) => (
+    <output data-testid="entity-selected">{selected ?? ""}</output>
+  ),
 }));
 
 function LocationProbe() {
@@ -53,6 +63,16 @@ vi.mock("@/hooks/useTaskViews", () => {
     key: null,
     name: "第二对象视图",
     filter_json: { field: "annotation.annotation_count", op: "eq", value: 2 },
+    builtin: false,
+    owner_id: "u1",
+    visibility: "private",
+  };
+  const keywordView = {
+    ...view,
+    id: "keyword",
+    key: null,
+    name: "关键字视图",
+    filter_json: { field: "task.keyword", op: "contains", value: "needle" },
     builtin: false,
     owner_id: "u1",
     visibility: "private",
@@ -157,8 +177,13 @@ vi.mock("@/hooks/useTaskViews", () => {
     refetch: vi.fn(),
   });
   return {
-    useTaskViews: () => ({ data: { items: [view, secondView] }, isLoading: false }),
-    useDataManagerSchema: () => ({ data: schema, isLoading: false }),
+    useTaskViews: () => ({ data: { items: [view, secondView, keywordView] }, isLoading: false }),
+    useDataManagerSchema: () => ({
+      data: schema,
+      isLoading: false,
+      isError: state.schemaError,
+      refetch: state.schemaRefetch,
+    }),
     useDataManagerObjects: query,
     useDataManagerTracks: query,
     useCreateTaskView: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -170,6 +195,11 @@ vi.mock("@/hooks/useTaskViews", () => {
 });
 
 describe("EntityDataManagerLens", () => {
+  beforeEach(() => {
+    state.schemaError = false;
+    state.schemaRefetch.mockReset();
+  });
+
   it("keeps an incomplete numeric condition out of the applied URL filter", async () => {
     const user = userEvent.setup();
     render(
@@ -182,6 +212,7 @@ describe("EntityDataManagerLens", () => {
           scope="objects"
           availableScopes={["tasks", "objects"]}
           onScopeChange={vi.fn()}
+          scrollContainerRef={scrollRef}
         />
       </MemoryRouter>,
     );
@@ -211,6 +242,7 @@ describe("EntityDataManagerLens", () => {
           scope="objects"
           availableScopes={["tasks", "objects"]}
           onScopeChange={vi.fn()}
+          scrollContainerRef={scrollRef}
         />
         <LocationProbe />
       </MemoryRouter>,
@@ -236,6 +268,7 @@ describe("EntityDataManagerLens", () => {
           scope="objects"
           availableScopes={["tasks", "objects"]}
           onScopeChange={vi.fn()}
+          scrollContainerRef={scrollRef}
         />
         <LocationProbe />
       </MemoryRouter>,
@@ -248,5 +281,83 @@ describe("EntityDataManagerLens", () => {
         .searchParams;
       expect(search.get("view")).toBe("saved:v2");
     });
+  });
+
+  it("clears a selected entity when its project identity changes", async () => {
+    const view = render(
+      <MemoryRouter initialEntries={["/projects/p1?lens=objects&selected=a1"]}>
+        <EntityDataManagerLens
+          projectId="p1"
+          projectName="Project"
+          projectDisplayId="P-1"
+          projectOwnerId="u1"
+          scope="objects"
+          availableScopes={["tasks", "objects"]}
+          onScopeChange={vi.fn()}
+          scrollContainerRef={scrollRef}
+        />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("entity-selected")).toHaveTextContent("a1"));
+
+    view.rerender(
+      <MemoryRouter initialEntries={["/projects/p1?lens=objects&selected=a1"]}>
+        <EntityDataManagerLens
+          projectId="p2"
+          projectName="Other Project"
+          projectDisplayId="P-2"
+          projectOwnerId="u2"
+          scope="objects"
+          availableScopes={["tasks", "objects"]}
+          onScopeChange={vi.fn()}
+          scrollContainerRef={scrollRef}
+        />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("entity-selected")).toHaveTextContent(""));
+  });
+
+  it("offers a retry action when the entity schema request fails", () => {
+    state.schemaError = true;
+    render(
+      <MemoryRouter initialEntries={["/projects/p1?lens=objects"]}>
+        <EntityDataManagerLens
+          projectId="p1"
+          projectName="Project"
+          projectDisplayId="P-1"
+          projectOwnerId="u1"
+          scope="objects"
+          availableScopes={["tasks", "objects"]}
+          onScopeChange={vi.fn()}
+          scrollContainerRef={scrollRef}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(state.schemaRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a saved keyword when a URL sort override is present", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={[
+          "/projects/p1?lens=objects&view=saved:keyword&sort=%7B%22v%22%3A1%2C%22value%22%3A%5B%7B%22field%22%3A%22annotation.updated_at%22%2C%22direction%22%3A%22asc%22%7D%5D%7D",
+        ]}
+      >
+        <EntityDataManagerLens
+          projectId="p1"
+          projectName="Project"
+          projectDisplayId="P-1"
+          projectOwnerId="u1"
+          scope="objects"
+          availableScopes={["tasks", "objects"]}
+          onScopeChange={vi.fn()}
+          scrollContainerRef={scrollRef}
+        />
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "搜索任务、文件或 Scene" })).toHaveValue("needle"),
+    );
   });
 });

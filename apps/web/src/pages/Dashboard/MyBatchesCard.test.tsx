@@ -15,6 +15,31 @@ vi.mock("@/components/ui/Toast", () => ({
 
 import { MyBatchesCard } from "./MyBatchesCard";
 
+const batch = {
+  batch_id: "b1",
+  batch_display_id: "B-1",
+  batch_name: "批次一",
+  project_id: "p1",
+  project_name: "项目一",
+  status: "annotating",
+  total_tasks: 3,
+  completed_tasks: 0,
+  review_tasks: 0,
+  in_progress_tasks: 0,
+  approved_tasks: 0,
+  rejected_tasks: 0,
+  progress_pct: 0,
+  thumbnail_url: null,
+  cover_blurhash: null,
+  review_feedback: null,
+  reviewed_at: null,
+  reviewer: null,
+};
+
+function batchesQuery(data: unknown[]) {
+  return { data, isLoading: false, isError: false };
+}
+
 function renderUI() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -41,5 +66,21 @@ describe("MyBatchesCard", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "网络连接已断开，分派批次会在恢复后自动继续",
     );
+  });
+
+  it("reviewing 批次仍有未送审任务时显示整批提交", () => {
+    mockUseMyBatches.mockReturnValue(
+      batchesQuery([{ ...batch, status: "reviewing", review_tasks: 2 }]),
+    );
+    renderUI();
+    expect(screen.getByText("提交质检")).toBeInTheDocument();
+  });
+
+  it("批次全部送审后隐藏整批提交", () => {
+    mockUseMyBatches.mockReturnValue(
+      batchesQuery([{ ...batch, status: "reviewing", review_tasks: 3 }]),
+    );
+    renderUI();
+    expect(screen.queryByText("提交质检")).not.toBeInTheDocument();
   });
 });

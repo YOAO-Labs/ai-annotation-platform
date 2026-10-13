@@ -88,6 +88,8 @@ export interface RasterMaskRecordDescriptor<TSource extends string = string> {
   selected: boolean;
   /** Higher-value work enters the queue first; selection still outranks current/prefetch. */
   loadPriority?: "editing" | "current" | "prefetch";
+  /** Disable global request sharing when the loader owns a cancellable lifecycle. */
+  deduplicateLoad?: boolean;
   load: () => Promise<CocoRle>;
 }
 
@@ -263,6 +265,7 @@ function descriptorResourcePriority(
 }
 
 function loadRleSingleFlight(descriptor: RasterMaskRecordDescriptor): Promise<CocoRle> {
+  if (descriptor.deduplicateLoad === false) return descriptor.load();
   const key = descriptor.ref.sha256;
   const existing = rleLoadSingleFlights.get(key);
   if (existing) {

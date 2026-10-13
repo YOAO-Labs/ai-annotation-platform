@@ -90,7 +90,10 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     route: (catalog) => `/projects/${catalog.projects.image_demo.id}/data-manager`,
     prepare: async (page) => {
       await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(600); // 视图列表 + 过滤条件栏 + 任务表格
+      await page
+        .getByRole("checkbox", { name: /^选择任务 / })
+        .first()
+        .waitFor();
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/projects/data-manager-overview.png",
@@ -102,14 +105,27 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     route: (catalog) => `/projects/${catalog.projects.image_demo.id}/data-manager`,
     prepare: async (page) => {
       await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(400);
       // 展开/新增一条过滤条件行（字段选择器展开）
       const addRule = page.getByRole("button", { name: "筛选", exact: true });
       await addRule.click();
-      await page.waitForTimeout(300);
+      await page.getByRole("textbox", { name: "搜索筛选字段" }).waitFor();
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/projects/data-manager-filter-rules.png",
+  },
+  {
+    name: "projects/data-manager-members",
+    role: "admin",
+    clock: "live",
+    fixture: { project: "image_demo" },
+    route: (catalog) => `/projects/${catalog.projects.image_demo.id}/data-manager?section=members`,
+    prepare: async (page) => {
+      await page.getByRole("heading", { name: "成员绩效", exact: true }).waitFor();
+      await page.getByRole("table").getByRole("row").nth(1).getByRole("button").first().waitFor();
+    },
+    capture: { kind: "fullPage" },
+    matrix: { themes: ["light", "dark"] },
+    target: "docs-site/user-guide/images/projects/data-manager-members.png",
   },
   {
     name: "projects/template-library-overview",

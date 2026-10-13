@@ -36,7 +36,7 @@ test("empty Markdown prompts differ from authored text in both themes", async ({
   request,
 }, info) => {
   test.setTimeout(60_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
   const changed = await request.patch(`${API}/projects/${data.project_id}`, {
     headers,
@@ -78,7 +78,7 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
   request,
 }, info) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
   expect(
     (

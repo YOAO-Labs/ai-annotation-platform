@@ -269,7 +269,7 @@ def test_cancelled_image_inference_holds_lease_until_thread_finishes(
     monkeypatch,
 ) -> None:
     main = _load_main()
-    from managed_pool import BuildArtifact, ManagedLruPool, ManagedPoolBusyError
+    from aap_backend_runtime import BuildArtifact, ManagedLruPool, ManagedPoolBusyError
 
     started = threading.Event()
     release = threading.Event()
@@ -324,7 +324,7 @@ def test_cancelled_video_keeps_source_and_borrower_until_thread_finishes(
     kind: str,
 ) -> None:
     main = _load_main()
-    from managed_pool import BuildArtifact, ManagedLruPool, ManagedPoolBusyError
+    from aap_backend_runtime import BuildArtifact, ManagedLruPool, ManagedPoolBusyError
 
     started = threading.Event()
     release = threading.Event()

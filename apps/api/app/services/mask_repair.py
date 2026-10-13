@@ -42,7 +42,7 @@ from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_dige
 from app.services.mask_qc.service import effective_issue_status
 from app.services.mask_qc.topology import rle_and_not, rle_or, rle_xor
 from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import is_privileged_for_project
 from app.services.task_lock import TaskLockConflictError, TaskLockService
 from app.services.video_tracks import (
     remove_frame_from_outside_ranges,

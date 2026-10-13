@@ -3,7 +3,7 @@ audience: [dev]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-09-19
 ---
 
 # 认证
@@ -35,11 +35,21 @@ GET /api/v1/auth/me
 Authorization: Bearer <access_token>
 ```
 
+## 工作台时长上报
+
+`POST /api/v1/auth/me/task-events:batch` 接收当前账号的 1–200 条任务区间，包含 `task_id`、`project_id`、`kind=annotate|review`、带时区的起止时间、`duration_ms` 和幂等 `client_id`。新采集器使用 `collector_version=session-v2`；本地队列丢失区间时附带 `collection_coverage=partial`，普通合格区间可省略该字段。
+
+服务端校验账号、任务可见性、项目和时间区间。混合批次返回 `accepted`、`queued_async` 及 `discarded`（原索引、`client_id`、原因）；永久失效的一条记录不阻塞其他有效记录。单事件请求保留错误 HTTP 状态。同一客户端 ID 的冲突内容不会覆盖已有记录；异步 worker 再次校验并去重。时长仅用于项目管理参考，采集与覆盖含义见[项目成员绩效数据](../../dev/concepts/project-performance.md)。
+
 ## 账号偏好与命名布局预设
+
+`ui` 子树保存工作台之外的全局界面偏好，随账号跨设备同步：`theme`（`light|dark|system`，`system` 跟随操作系统 `prefers-color-scheme`）、`secondary_bar_hidden`（二次推理工具条显隐）与 `changelog_seen_version`（登录后「本次更新」提醒已确认的版本）。`changelog_seen_version` 为空串表示从未确认；客户端按 `x.y.z` 比较，仅在当前构建版本更高时提醒一次，点「知道了」写回本键，跨设备与跨浏览器去重。
 
 `workbench.common.showAnnotationComments` 控制图片和视频画布的标注评论提示，默认 `true`。通过下面的账号偏好接口提交 `{ "workbench": { "common": { "showAnnotationComments": false } } }` 可关闭；显式 `false` 会保留，历史偏好缺少字段时按开启处理。该设置不影响评论读取、写入或通知。
 
 `GET /api/v1/auth/me/preferences` 读取当前账号偏好，`PATCH /api/v1/auth/me/preferences` 只提交要修改的子树。工作台布局位于 `workbench.layout.workspace`：`contexts` 是可选 map，每个 key 是 `annotate|review × image|video|3d` 中的一项，只提交某个 context 时会原子替换该快照，不会删除其他 context。写入 `contexts` 必须同时携带当前 `engine`；只有下述预设专用 PATCH 可以省略它。
+
+`workbench.shortcuts` 承载账号级快捷键覆盖：`schemaVersion: 1` 加 `common` / `image` / `video` 三个命令桶，每桶把命令 ID 映射到该命令的完整组合列表（`null` = 恢复默认，`[]` = 停用，非空列表 = 一主一备整体替换）。PATCH 只提交变更的命令条目（按命令深合并），不要携带 `schemaVersion`。写路径对变更条目严格校验：命令 ID 必须在可编辑集合内、键为单字符或小写命名键且不能是修饰键名、修饰键只能是 `mod|alt|shift`、每条命令最多 2 条组合。未触碰的存量条目（包括损坏或来自更新版本的条目）原样保留，不会被默认值覆盖；GET 对无法识别的 shortcuts 子树原样透出，由客户端宽容解析并把受影响覆盖排除出执行。 未提交的命令桶保持原值；显式提交 `null` 命令桶、未知信封字段或类型错误的 `schemaVersion` 返回 `422`。恢复默认应提交命令条目的 `null`，不能用 `null` 替代整个命令桶。
 
 `namedPresets` 与 `contexts` 并列，是最多 5 条的命名布局 map。每条值在布局快照信封上增加 `name`（1–40 个字符）和 `context`，名称在账号内唯一。该 map 与 `contexts` 的合并规则不同：只要 PATCH 中出现 `namedPresets`，服务端就用它整份替换存量 map，省略某个 ID 即删除该预设。因此客户端增加、重命名或删除一条时，必须带上所有需保留的条目，但不带 `contexts`，也不需要重写 `engine`。
 
@@ -73,7 +83,7 @@ Content-Type: application/json
 
 ## 项目邀请与注册
 
-管理角色通过 `POST /api/v1/users/invite` 提交 `email`、`role`、可选 `group_name` 和 `project_id`。省略项目时保留原有新账号邀请；指定项目时只允许标注员、审核员或观察者角色，已有账号的全局角色必须一致。响应中的 `invite_url` 可直接复制使用。
+管理角色通过 `POST /api/v1/users/invite` 提交 `email`、平台角色 `role`（项目管理员可邀请 `employee` / `viewer`，超级管理员可选全部平台角色）、可选 `group_name`、可选目标 `project_id` 与项目角色 `project_member_role`（`annotator` / `reviewer` / `viewer`）。平台角色与项目角色分别保存，互不代填；目标项目的角色兼容性（例如平台 `viewer` 只能获得只读项目角色）在接受时校验。响应中的 `invite_url` 可直接复制使用。
 
 公开的 `GET /api/v1/auth/invitations/{token}` 校验邀请并返回目标项目摘要。新账号通过 `POST /api/v1/auth/register` 提交 `token`、`name`、`password`，账号、用户组和项目成员关系在同一事务内建立。已有账号先登录，再调用：
 
@@ -85,7 +95,7 @@ Content-Type: application/json
 { "token": "<invitation-token>" }
 ```
 
-接口核对登录邮箱、账号启用状态、全局角色、邀请人当前管理权限及目标项目；不会静默合并账号或更改角色。项目删除、邀请过期、撤销或重复接受返回可解释的错误，失败不留下半完成的账号和项目关系。
+接口核对登录邮箱、账号启用状态、平台角色、邀请人当前管理权限及目标项目；不会静默合并账号或更改角色。项目删除、邀请过期、撤销或重复接受返回可解释的错误，失败不留下半完成的账号和项目关系。
 
 接受响应的 `acceptance` 包含 `project_id`、`project_name`、`project_member_role`、`next_action`、`next_action_label`、`responsible_person_name` 和 `active_batch_count`。客户端据此显示开始工作或等待分派；加入项目不代表已有激活批次。
 
@@ -152,17 +162,17 @@ Content-Type: application/json
 
 ## 管理查询与批量操作
 
-超级管理员可以查看全局数据；项目管理员的管理接口只返回自己负责项目中的成员和自己账号。分页、统计、导出和批量操作使用同一范围规则。旧的用户、数据组和邀请数组接口保持兼容。
+超级管理员可以查看全局数据。项目管理员的只读查询返回自己负责项目中的成员、自己账号，以及所有启用的标注员 / 质检员（含未分配账号与加入他人项目的账号）；启用的超级管理员会额外出现在只读结果中，便于联系核对。分页、统计、导出和批量操作使用同一范围规则。旧的用户、数据组和邀请数组接口保持兼容。
 
-| 方法与路径                                                                                | 行为                                                                                          |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `GET /api/v1/users/query?page=1&page_size=50&project_id=&group_id=&role=&status=&search=` | 返回 `{items,total,page,page_size,pages}`；`status` 为 `active`、`inactive` 或 `all`          |
-| `GET /api/v1/users/stats`                                                                 | 接受与用户分页相同的过滤参数，返回 `total`、`online`、`weekly_active`                         |
-| `GET /api/v1/users/export?format=csv\|json`                                               | 按同一过滤和权限范围导出并写入审计                                                            |
-| `GET /api/v1/groups/query?page=1&page_size=50&search=`                                    | 分页返回数据组及启用成员数                                                                    |
-| `GET /api/v1/invitations/query`                                                           | 支持 `status`、`scope`、`project_id`、`role`、`email`、`search`、`created_from`、`created_to` |
-| `GET /api/v1/invitations/stats` / `GET /api/v1/invitations/export`                        | 使用邀请列表的同一过滤和权限范围                                                              |
-| `POST /api/v1/invitations/{id}/send-email`                                                | 使用当前有效 token 发送邀请邮件；不轮换链接，SMTP 失败返回 `502` 且邀请保持有效               |
+| 方法与路径                                                                                | 行为                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/users/query?page=1&page_size=50&project_id=&group_id=&role=&status=&search=` | 返回 `{items,total,page,page_size,pages}`；每个 `items` 条目带请求相关的 `is_managed`（项目管理员可执行的账号级操作：编辑、重置密码、分配数据组、角色切换）与 `is_lifecycle_managed`（涉及工作交接的操作：离职处理、停用、删除、恢复；要求目标关联项目全部落在自己的项目内，跨项目行为 `false`）。`status` 为 `active`、`inactive` 或 `all` |
+| `GET /api/v1/users/stats`                                                                 | 接受与用户分页相同的过滤参数，返回 `total`、`online`、`weekly_active`                                                                                                                                                                                                                                                                       |
+| `GET /api/v1/users/export?format=csv\|json`                                               | 按同一过滤和权限范围导出并写入审计                                                                                                                                                                                                                                                                                                          |
+| `GET /api/v1/groups/query?page=1&page_size=50&search=`                                    | 分页返回数据组及启用成员数                                                                                                                                                                                                                                                                                                                  |
+| `GET /api/v1/invitations/query`                                                           | 支持 `status`、`scope`、`project_id`、`role`、`email`、`search`、`created_from`、`created_to`                                                                                                                                                                                                                                               |
+| `GET /api/v1/invitations/stats` / `GET /api/v1/invitations/export`                        | 使用邀请列表的同一过滤和权限范围                                                                                                                                                                                                                                                                                                            |
+| `POST /api/v1/invitations/{id}/send-email`                                                | 使用当前有效 token 发送邀请邮件；不轮换链接，SMTP 失败返回 `502` 且邀请保持有效                                                                                                                                                                                                                                                             |
 
 批量邀请先调用 `POST /api/v1/users/bulk-invite/preview`，确认每行的校验结果后调用 `POST /api/v1/users/bulk-invite`。批量接口为每行建立独立保存点；成功行提交，失败行返回 `retryable` 和错误信息，客户端可以只重试失败行。数据组批量替换使用 `POST /api/v1/users/groups/bulk/preview` 和 `POST /api/v1/users/groups/bulk`，`group_id=null` 表示清除数据组。
 
@@ -170,7 +180,7 @@ Content-Type: application/json
 
 任务负载按条数计算：标注待办包括待开始、进行中和退回，审核待办只包括审核中，已通过任务不计入待办；已有待办汇总该成员在各项目中的分派。任务类型、难度和工时不在这一数字中折算。
 
-用户角色变更前可调用 `GET /api/v1/users/{user_id}/role/preview?role=reviewer` 查看项目、批次和任务影响。平台角色对全部项目生效，已有成员身份和负责人不自动改写；项目管理员仅看到自己负责项目的详情，其他项目只返回数量和提醒。预览不向权限范围外的目标回显用户信息。
+平台角色变更前可调用 `GET /api/v1/users/{user_id}/role/preview?role=<platform-role>` 查看项目、批次和任务影响：`role` 使用平台角色 `super_admin` / `project_admin` / `employee` / `viewer`，历史值 `annotator` / `reviewer` 不再接受；平台角色预览 / 变更仅超级管理员可做。平台角色对全部项目生效，已有成员身份和负责人不自动改写；降级会阻止不兼容的成员关系、项目所有权或未完成工作，且不级联改动其他项目。预览不向权限范围外的目标回显用户信息。项目内的职责变更使用项目成员角色预检 / 变更端点（见[项目 API](./projects#成员管理)）。
 
 ## 刷新
 

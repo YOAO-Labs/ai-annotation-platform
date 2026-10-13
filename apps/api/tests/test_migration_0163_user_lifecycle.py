@@ -3,15 +3,17 @@
 import asyncio
 import uuid
 
-from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from tests.test_migration_0173_project_role_preparation import _replay
 
 
 def test_legacy_history_classification(test_db_url, apply_migrations):
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", test_db_url)
+    migration = ScriptDirectory.from_config(config).get_revision("0163").module
     cases = {
         name: uuid.uuid4()
         for name in (
@@ -65,6 +67,10 @@ def test_legacy_history_classification(test_db_url, apply_migrations):
                             },
                         )
                 elif step == "verify":
+                    # Exercise the historical classifier without traversing
+                    # irreversible 0174 or persisting changes to unrelated rows.
+                    await db.run_sync(_replay, migration, "downgrade")
+                    await db.run_sync(_replay, migration, "upgrade")
                     for name, expected in (
                         ("suspended", "suspended"),
                         ("deleted", "deleted"),
@@ -89,6 +95,7 @@ def test_legacy_history_classification(test_db_url, apply_migrations):
                         else:
                             assert row.disabled_at is None
                             assert row.disabled_by is None
+                    await db.rollback()
                 else:
                     await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
                     await db.execute(
@@ -102,12 +109,8 @@ def test_legacy_history_classification(test_db_url, apply_migrations):
         finally:
             await engine.dispose()
 
-    command.downgrade(config, "0162")
     try:
         asyncio.run(database_step("seed"))
-        command.upgrade(config, "head")
         asyncio.run(database_step("verify"))
     finally:
-        # Restore the current schema even if an assertion or upgrade failed.
-        command.upgrade(config, "head")
         asyncio.run(database_step("cleanup"))

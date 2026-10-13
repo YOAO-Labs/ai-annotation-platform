@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { TabRow } from "@/components/ui/TabRow";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -218,14 +219,18 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
 
   const linkedIds = new Set(linkedProjects.map((p) => p.id));
   const availableProjects = (allProjects ?? []).filter((p) => !linkedIds.has(p.id));
-  const handleAxisConventionChange = (next: LidarAxisConvention) => {
+  const handleAxisConventionChange = async (next: LidarAxisConvention) => {
     const current = ds.axis_convention ?? "iso_8855";
     if (next === current || updateDataset.isPending) return;
     if (isPointCloudDataset && (ds.project_count ?? 0) > 0) {
-      const ok = window.confirm(
-        "该数据集已关联项目。若已有 3D 标注，切换坐标系后历史标注可能与点云不一致。确认继续？",
-      );
-      if (!ok) return;
+      if (
+        !(await confirmDialog({
+          title: "切换坐标系约定",
+          description: "该数据集已关联项目。若已有 3D 标注，切换坐标系后历史标注可能与点云不一致。",
+          confirmLabel: "继续切换",
+        }))
+      )
+        return;
     }
     updateDataset.mutate(
       { id: ds.id, payload: { axis_convention: next } },
@@ -814,7 +819,7 @@ export function DatasetsPage() {
             <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
               <div className="flex items-center gap-3">
                 <h3 className="m-0 text-sm font-semibold">全部数据集</h3>
-                <FilterGroup label="数据类型">
+                <FilterGroup label="数据类型" hideLabel>
                   {TYPE_FILTERS.map((option) => (
                     <FilterToggle
                       key={option}

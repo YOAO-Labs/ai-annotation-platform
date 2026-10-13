@@ -14,6 +14,7 @@ import pytest
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
+from tests.factory import build_tool_bindings
 
 pytestmark = pytest.mark.asyncio
 
@@ -25,7 +26,7 @@ async def _video_item_with_task(db_session, owner_id):
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=owner_id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     dataset = Dataset(
         display_id=f"D-CH-{uuid.uuid4().hex[:6]}",
@@ -69,15 +70,13 @@ async def _video_item_with_task(db_session, owner_id):
     return item
 
 
-async def test_update_chapter_frames_returns_200(
-    db_session, httpx_client_bound, super_admin
-):
+async def test_update_chapter_frames_returns_200(db_session, httpx_client, super_admin):
     """拖章节条 resize 的 PATCH 只带 start/end_frame, 必须 200 且落新值 (不再 500)。"""
     user, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     item = await _video_item_with_task(db_session, user.id)
 
-    created = await httpx_client_bound.post(
+    created = await httpx_client.post(
         f"/api/v1/videos/{item.id}/chapters",
         json={"start_frame": 0, "end_frame": 10, "title": "seg"},
         headers=headers,
@@ -85,7 +84,7 @@ async def test_update_chapter_frames_returns_200(
     assert created.status_code == 201, created.text
     chapter_id = created.json()["id"]
 
-    resized = await httpx_client_bound.patch(
+    resized = await httpx_client.patch(
         f"/api/v1/videos/{item.id}/chapters/{chapter_id}",
         json={"start_frame": 3, "end_frame": 30},
         headers=headers,

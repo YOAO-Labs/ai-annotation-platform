@@ -2,7 +2,7 @@ import { test, expect } from "../fixtures/seed";
 
 test("点云设置盖过精修面板，阻断工具键并保存点径", async ({ page, seed }, info) => {
   test.setTimeout(60_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const lidar = await seed.seedLidar();
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize({ width: 1440, height: 900 });

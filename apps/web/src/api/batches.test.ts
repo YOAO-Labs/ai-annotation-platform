@@ -74,6 +74,11 @@ describe("batchesApi · endpoint 契约", () => {
     });
   });
 
+  it("submitReview 整批送审", () => {
+    batchesApi.submitReview("p1", "b1");
+    expect(post).toHaveBeenCalledWith("/projects/p1/batches/b1/submit-review", {});
+  });
+
   it("distribute / bulk 操作", () => {
     batchesApi.distributeBatches("p1", { only_unassigned: true });
     expect(post).toHaveBeenCalledWith("/projects/p1/batches/distribute-batches", {

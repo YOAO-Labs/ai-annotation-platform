@@ -52,7 +52,7 @@ describe("existing project invitation", () => {
     id: "invited",
     email: "employee@example.test",
     name: "Employee",
-    role: "annotator",
+    role: "employee",
   } as any;
   const acceptance = {
     project_id: "project",
@@ -73,7 +73,7 @@ describe("existing project invitation", () => {
       error: null,
       data: {
         email: invitedUser.email,
-        role: "annotator",
+        role: "employee",
         project_id: "project",
         project_name: "Road QA",
         expires_at: "2030-01-01",
@@ -296,7 +296,7 @@ describe("RegisterPage / InviteRegisterForm", () => {
   it("邀请通过 → 渲染表单 + email pill", () => {
     mockResolve.data = {
       email: "x@y.com",
-      role: "annotator",
+      role: "employee",
       invited_by_name: "Alice",
       group_name: "G1",
       expires_at: new Date(Date.now() + 86400000 * 3).toISOString(),
@@ -311,14 +311,14 @@ describe("RegisterPage / InviteRegisterForm", () => {
   it("邀请提交流 → 调用 register.mutate(token, name, password)", () => {
     mockResolve.data = {
       email: "x@y.com",
-      role: "annotator",
+      role: "employee",
       invited_by_name: "Alice",
       expires_at: new Date(Date.now() + 86400000).toISOString(),
     };
     mockRegister.mutate = vi.fn((_args, opts) =>
       opts?.onSuccess?.({
         access_token: "tok",
-        user: { id: "u2", email: "x@y.com", name: "Bob", role: "annotator" },
+        user: { id: "u2", email: "x@y.com", name: "Bob", role: "employee" },
       }),
     );
     renderUI("/register?token=abc");
@@ -336,7 +336,7 @@ describe("RegisterPage / InviteRegisterForm", () => {
   it("邀请提交失败 → 显示错误条", () => {
     mockResolve.data = {
       email: "x@y.com",
-      role: "annotator",
+      role: "employee",
       expires_at: new Date(Date.now() + 86400000).toISOString(),
     };
     mockRegister.isError = true;
@@ -348,7 +348,7 @@ describe("RegisterPage / InviteRegisterForm", () => {
   it("keeps confirmed project acceptance when login invalidates the consumed invitation query", () => {
     mockResolve.data = {
       email: "x@y.com",
-      role: "annotator",
+      role: "employee",
       project_id: "project",
       project_name: "Road QA",
       expires_at: "2030-01-01",
@@ -362,7 +362,7 @@ describe("RegisterPage / InviteRegisterForm", () => {
       });
       opts.onSuccess({
         access_token: "new-account-token",
-        user: { id: "new-account", email: "x@y.com", role: "annotator" },
+        user: { id: "new-account", email: "x@y.com", role: "employee" },
         acceptance: {
           project_id: "project",
           project_name: "Road QA",
@@ -388,7 +388,7 @@ describe("RegisterPage / InviteRegisterForm", () => {
   it("无效填写 → 不调用 register.mutate", () => {
     mockResolve.data = {
       email: "x@y.com",
-      role: "annotator",
+      role: "employee",
       expires_at: new Date(Date.now() + 86400000).toISOString(),
     };
     renderUI("/register?token=abc");

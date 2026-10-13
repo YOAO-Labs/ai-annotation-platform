@@ -4,7 +4,7 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   test.setTimeout(60_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
@@ -26,6 +26,7 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
     "画布与视角",
     "播放与轨迹",
     "性能与实验",
+    "通知",
   ]);
   await dialog.getByRole("tab", { name: "标注显示", exact: true }).click();
   const labelTabs = dialog.getByRole("tablist", { name: "标签类型" });
@@ -164,7 +165,7 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
 });
 
 test("视频设置：开窗暂停，设置键盘和滚轮不切帧", async ({ page, seed }) => {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const video = await seed.videoTask(data.project_id);
   await seed.injectToken(page, data.admin_email);
   await page.goto(`/projects/${data.project_id}/annotate?task=${video.task_id}`);

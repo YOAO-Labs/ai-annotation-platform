@@ -40,10 +40,15 @@ export function DatasetsSection({ project }: { project: ProjectResponse }) {
   return (
     <>
       <Card>
-        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
           <h3 className="text-sm font-semibold">关联数据集</h3>
-          <Button onClick={() => setLinkOpen(true)} disabled={candidates.length === 0}>
-            <Icon name="plus" size={12} /> 关联数据集
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setLinkOpen(true)}
+            disabled={candidates.length === 0}
+          >
+            <Icon name="plus" /> 关联数据集
           </Button>
         </div>
 

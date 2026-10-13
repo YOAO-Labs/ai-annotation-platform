@@ -79,6 +79,16 @@ class BatchReject(BaseModel):
     feedback: str = Field(..., min_length=1, max_length=500)
 
 
+class BatchSubmitResult(BaseModel):
+    """整批送审结果：把批次内所有未送审任务（pending / in_progress）提交质检。"""
+
+    batch_id: UUID
+    status: str
+    submitted_tasks: int = 0
+    skipped_tasks: int = 0
+    remaining_tasks: int = 0
+
+
 class BatchReset(BaseModel):
     """v0.7.6 · 终极重置到 draft。reason 至少 10 字以避免误操作；写入 audit.detail.reason。"""
 

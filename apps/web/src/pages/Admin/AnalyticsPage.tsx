@@ -121,7 +121,7 @@ export function AnalyticsPage() {
             数据由 Celery beat 每日 02:30 UTC 增量同步；面板查询为固定 SQL，禁用任意 SQL 输入。
           </p>
         </div>
-        <FilterGroup label="时间范围" compact>
+        <FilterGroup label="时间范围" hideLabel compact>
           <FilterSelect
             aria-label="时间范围"
             compact

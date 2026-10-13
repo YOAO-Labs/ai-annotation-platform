@@ -3,12 +3,14 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   isPsrFieldBad,
+  enlargedCameraNavigationDirection,
   loadCameraSample,
   parsePsrForm,
   psrFormToGeometry,
 } from "./ThreeDWorkbench.helpers";
 import type { PsrField } from "./ThreeDWorkbench.helpers";
 import type { SensorCalibration } from "@/types";
+import { dispatchKey } from "../../state/hotkeys";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -103,5 +105,33 @@ describe("psrFormToGeometry", () => {
       rotation: [0 * deg, 0 * deg, 90 * deg],
       convention_at_create: "raw",
     });
+  });
+});
+
+describe("相机放大浮层的方向键归属", () => {
+  it.each([
+    ["ArrowLeft", -1, "prev"],
+    ["ArrowRight", 1, "next"],
+  ] as const)("%s 裸键切相机，Mod 组合只切题", (key, direction, taskDirection) => {
+    expect(enlargedCameraNavigationDirection(new KeyboardEvent("keydown", { key }))).toBe(
+      direction,
+    );
+    for (const modifier of ["ctrlKey", "metaKey"] as const) {
+      const event = new KeyboardEvent("keydown", { key, [modifier]: true });
+      expect(enlargedCameraNavigationDirection(event)).toBeNull();
+      expect(
+        dispatchKey(event, {
+          stage: "threed",
+          isInputFocused: false,
+          hasSelection: true,
+          pendingActive: false,
+        }),
+      ).toEqual({ type: "navigateTask", dir: taskDirection });
+    }
+    for (const modifier of ["altKey", "shiftKey"] as const) {
+      expect(
+        enlargedCameraNavigationDirection(new KeyboardEvent("keydown", { key, [modifier]: true })),
+      ).toBeNull();
+    }
   });
 });

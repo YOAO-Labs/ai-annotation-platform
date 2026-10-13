@@ -607,3 +607,22 @@ export function sortPoolsBySeverity(pools: PoolViewModel[]): PoolViewModel[] {
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
   });
 }
+
+/**
+ * Pool-level effective routing axis, derived from member routing rollup.
+ *
+ * Plan §4.2（阶段三）：健康与路由是两条独立状态轴，运行时池卡与注册服务池行
+ * 共用同一推导，保证两处口径一致。
+ */
+export function derivePoolEffectiveRouting(
+  pool: PoolViewModel,
+): "routable" | "draining" | "blocked" | "bypassed" | "unknown" {
+  if (pool.routing_policy === "unknown") return "unknown";
+  if (pool.availability.routable > 0) {
+    // If some routable + some draining, the pool is routable.
+    return "routable";
+  }
+  if (pool.availability.draining > 0 && pool.availability.routable === 0) return "draining";
+  if (pool.status === "offline") return "blocked";
+  return "unknown";
+}

@@ -1,0 +1,8 @@
+# CPU torch for the grounded-sam2 / sam3 test jobs.
+#
+# Installed with `--index-url https://download.pytorch.org/whl/cpu` by
+# scripts/run-ml-cpu-tests.sh. torch is intentionally not declared in either
+# backend's pyproject (the Docker base image pins it); the committed tests only
+# build CPU tensors and fake predictors, so the CPU wheel is sufficient and no
+# GPU, model weights or network access is required.
+torch

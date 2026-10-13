@@ -16,8 +16,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from tests.factory import build_tool_bindings
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -35,7 +37,7 @@ async def _seed_project_and_task(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner_id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     db.add(project)
     await db.flush()
@@ -69,37 +71,55 @@ async def _seed_project_and_task(
 
 @pytest.mark.asyncio
 async def test_reopen_notifies_original_reviewer(
-    httpx_client_bound, db_session, annotator, reviewer
+    httpx_client, db_session, annotator, reviewer
 ):
     ann_user, ann_token = annotator
     rev_user, rev_token = reviewer
     _, task = await _seed_project_and_task(
         db_session, owner_id=ann_user.id, assignee_id=ann_user.id
     )
+    db_session.add_all(
+        [
+            # The employee owner acts through a membership; the reviewer needs
+            # an explicit reviewer role for claim/approve.
+            ProjectMember(
+                project_id=task.project_id,
+                user_id=ann_user.id,
+                role="annotator",
+                assigned_by=ann_user.id,
+            ),
+            ProjectMember(
+                project_id=task.project_id,
+                user_id=rev_user.id,
+                role="reviewer",
+                assigned_by=ann_user.id,
+            ),
+        ]
+    )
     tid = str(task.id)
     await db_session.commit()
 
     # submit → claim → approve → reopen
-    r = await httpx_client_bound.post(
+    r = await httpx_client.post(
         f"/api/v1/tasks/{tid}/submit", headers=_bearer(ann_token)
     )
     assert r.status_code == 200, r.text
-    r = await httpx_client_bound.post(
+    r = await httpx_client.post(
         f"/api/v1/tasks/{tid}/review/claim", headers=_bearer(rev_token)
     )
     assert r.status_code == 200, r.text
-    r = await httpx_client_bound.post(
+    r = await httpx_client.post(
         f"/api/v1/tasks/{tid}/review/approve", headers=_bearer(rev_token)
     )
     assert r.status_code == 200, r.text
 
-    r = await httpx_client_bound.post(
+    r = await httpx_client.post(
         f"/api/v1/tasks/{tid}/reopen", headers=_bearer(ann_token)
     )
     assert r.status_code == 200, r.text
 
     # reviewer 查通知中心，应能看到 task.reopened
-    r = await httpx_client_bound.get(
+    r = await httpx_client.get(
         "/api/v1/notifications?limit=50", headers=_bearer(rev_token)
     )
     assert r.status_code == 200, r.text

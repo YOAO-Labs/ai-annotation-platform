@@ -76,7 +76,7 @@ export function ProjectReadinessSection({ project }: { project: ProjectResponse 
       <div className="border-b border-border px-4 py-3.5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="m-0 text-sm font-semibold">开工准备</h3>
+            <h3 className="text-sm font-semibold">开工准备</h3>
             <p className="m-0 mt-1 text-xs text-muted-foreground">
               {readyCount} / {readiness.length} 项已就绪，状态来自当前项目数据
             </p>

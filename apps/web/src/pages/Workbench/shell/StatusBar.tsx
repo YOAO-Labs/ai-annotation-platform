@@ -4,6 +4,7 @@ import type { ReconnectState } from "@/hooks/useReconnectingWebSocket";
 import type { TaskLockConflictDetail } from "@/types";
 import type { VideoSegment } from "@/api/videoTracker";
 import { formatDuration } from "../state/useSessionStats";
+import { ToolGestureHintPill, type ToolGestureHintPillProps } from "./ToolGestureHintPill";
 
 interface PreannotationProgress {
   current: number;
@@ -46,6 +47,7 @@ interface StatusBarProps {
   /** Derived from existing mutation, mask and durable queue owners. */
   saveState?: WorkbenchSaveState;
   saveError?: string | null;
+  toolHint?: ToolGestureHintPillProps | null;
 }
 
 function formatLockTime(ms: number): string {
@@ -88,6 +90,7 @@ export function StatusBar({
   segmentLeaseError,
   saveState = "saved",
   saveError,
+  toolHint,
 }: StatusBarProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -130,7 +133,7 @@ export function StatusBar({
                 work {activeVideoSegment.work_start_frame}-{activeVideoSegment.work_end_frame}
               </span>
               {segmentRemainingMs > 0 && (
-                <span className="mono text-status-caution">
+                <span data-testid="segment-lease-countdown" className="mono text-status-caution">
                   租约 {formatLockTime(segmentRemainingMs)}
                 </span>
               )}
@@ -150,7 +153,9 @@ export function StatusBar({
           <>
             <span className={cn(inlineItem, lockRemainingMs < 60_000 && "text-status-caution")}>
               <Icon name="lock" size={11} /> 锁剩余{" "}
-              <span className="mono font-medium">{formatLockTime(lockRemainingMs)}</span>
+              <span data-testid="task-lock-countdown" className="mono font-medium">
+                {formatLockTime(lockRemainingMs)}
+              </span>
             </span>
             <Sep />
           </>
@@ -182,6 +187,12 @@ export function StatusBar({
             {activeClass}
           </span>
         </span>
+        {toolHint && (
+          <>
+            <Sep />
+            <ToolGestureHintPill {...toolHint} />
+          </>
+        )}
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <span

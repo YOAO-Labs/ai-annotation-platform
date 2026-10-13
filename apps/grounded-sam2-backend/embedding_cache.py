@@ -1,4 +1,4 @@
-"""SAM 2 image embedding LRU 缓存（v0.9.1 / M1）.
+"""SAM 2 image embedding LRU 缓存.
 
 工作台同图连续点击 / 拖框是交互式精修的典型动作; SAM 2 `set_image()`
 计算 image embedding 是 ~1.5s 的大头, 缓存后 2-N 次操作能降到 < 50ms.

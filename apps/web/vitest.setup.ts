@@ -1,12 +1,15 @@
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
+import { handleUnhandledRequest } from "./src/test/apiRequestGuard";
 import { server } from "./src/mocks/server";
 
-// v0.25.2 · CI 满载 runner 上 react-query 异步解析链（capabilities 请求 → 渲染 →
-// 用户交互）偶尔超过 testing-library 默认的 1s waitFor 超时（如 ProjectDetailPanel
-// OCR 用例在同一提交上本地过、CI 挂）。全局放宽到 5s：waitFor 轮询在条件满足时
-// 立即返回，只有真失败才吃满超时，不影响本地速度。
+// A loaded CI runner occasionally needs longer than testing-library's default 1s
+// waitFor for a react-query resolve → render → interaction chain (for example a
+// capabilities request before ProjectDetailPanel's OCR case). 5s is a shared
+// safety net for the not-yet-migrated suites, not a substitute for fixing a bad
+// mock or an unawaited timer; new integration tests keep waits local to the
+// operation they exercise. waitFor still returns as soon as the condition holds.
 configure({ asyncUtilTimeout: 5000 });
 
 if (!window.matchMedia) {
@@ -26,15 +29,15 @@ if (!window.matchMedia) {
   });
 }
 
-// v0.16.0 · react-konva → DOM stand-in mock(画布栈统一地基)。
-// 把 Konva 组件渲染成带 data-konva / data-testid 的 <div>,使现有 RTL 风格
-// (fireEvent + getByTestId + 回调断言)能对 Konva 组件生效。
-// 注意:vi.mock 提升到文件顶部;工厂返回 import(...) 的 Promise,vitest 会 await。
-// 局限:只验证交互 / props,不验证真实 canvas 渲染(渲染回归交给 Playwright)。
+// react-konva renders every canvas component as a DOM stand-in carrying
+// data-konva / data-testid so existing RTL interaction and prop assertions work.
+// Limitation: this verifies component interaction and props only, never real
+// canvas rendering — pixel, focus and pointer regressions stay with Playwright.
 vi.mock("react-konva", () => import("./src/test/konvaMock"));
 
-// v0.8.5 · jsdom 在 about:blank（opaque origin）下不提供 localStorage / sessionStorage，
-// 导致 zustand persist 在 setState 时炸 "storage.setItem is not a function"。统一 polyfill。
+// jsdom served from an opaque origin does not provide localStorage /
+// sessionStorage, which breaks zustand persist with
+// "storage.setItem is not a function". Provide an in-memory implementation.
 function createMemoryStorage(): Storage {
   const map = new Map<string, string>();
   return {
@@ -75,8 +78,9 @@ afterEach(() => {
   globalThis.sessionStorage?.clear();
 });
 
-// 整套单测共享一个 MSW server。
-// 测试里如需覆盖某接口：`server.use(http.get(..., ...))`
-beforeAll(() => server.listen({ onUnhandledRequest: "warn" }));
+// One MSW server per suite. Override an endpoint with `server.use(http.get(...))`.
+// Unhandled target API requests are recorded so an integration suite can fail on
+// them via expectNoUnexpectedApiRequests; other traffic keeps a warning.
+beforeAll(() => server.listen({ onUnhandledRequest: handleUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());

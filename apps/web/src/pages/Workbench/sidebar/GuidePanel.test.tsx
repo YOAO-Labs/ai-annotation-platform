@@ -58,6 +58,7 @@ describe("GuidePanel", () => {
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveFocus();
     const overlay = screen.getByTestId("wb-guide-overlay");
+    expect(overlay).toHaveClass("backdrop-blur-overlay");
     fireEvent.pointerDown(overlay);
     fireEvent.click(overlay);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -104,6 +105,22 @@ describe("GuidePanel", () => {
     pending.resolve(true);
     await waitFor(() => expect(screen.getByTestId("wb-guide-unread")).toBeInTheDocument());
     expect(localStorage.length).toBe(0);
+  });
+
+  it("drops the overlay blur on a live 3D canvas while keeping the dim", () => {
+    render(
+      <GuidePanel
+        projectId="project-a"
+        userId="user-a"
+        projectName="项目 A"
+        content="# 当前指南"
+        backdropBlur={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "标注指引" }));
+    const overlay = screen.getByTestId("wb-guide-overlay");
+    expect(overlay).not.toHaveClass("backdrop-blur-overlay");
+    expect(overlay).toHaveClass("bg-black/25");
   });
 
   it("does not render an entry for an empty guide", () => {

@@ -52,7 +52,7 @@ def _make_token_with_exp(
     )
 
 
-async def _seed_user(db_session: AsyncSession, role: str = "annotator") -> User:
+async def _seed_user(db_session: AsyncSession, role: str = "employee") -> User:
     user = User(
         id=uuid.uuid4(),
         email=f"refresh-{uuid.uuid4().hex[:8]}@local",

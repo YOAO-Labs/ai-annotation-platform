@@ -49,7 +49,18 @@ export const SETTINGS_SCENES: ScreenshotScene[] = [
     name: "settings/system-smtp",
     role: "admin",
     route: () => "/settings",
-    prepare: (page) => gotoSection(page, "系统设置"),
+    prepare: async (page) => {
+      await gotoSection(page, "系统设置");
+      const mailGroup = page.getByRole("heading", { name: "邮件与访问地址", exact: true });
+      if (await mailGroup.count()) {
+        // 系统设置按四组渲染，SMTP 在「邮件与访问地址」组；把整张分组卡片滚到视口顶部，
+        // 保证发件人、密码与「发送测试邮件」等全部字段入镜（卡片高约 810px，viewport 900）。
+        await mailGroup.evaluate((el) => {
+          el.closest("div.rounded-lg")?.scrollIntoView({ block: "start" });
+        });
+        await page.waitForTimeout(300);
+      }
+    },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/settings/system-smtp.png",
   },

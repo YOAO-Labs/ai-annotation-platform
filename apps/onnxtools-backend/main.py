@@ -380,7 +380,7 @@ async def health() -> dict[str, Any]:
         "model_version": MODEL_VERSION,
         "ready": _handle_pool is not None,
         "loaded_handles": pool_snapshot["current_size"],
-        # v0.18.20 · 句柄池状态, 供模型市场「已加载 / 预热」展示 (此前缺 pool 字段)。
+        # 句柄池状态, 供模型市场「已加载 / 预热」展示 (此前缺 pool 字段)。
         "pool": _pool_status(pool_snapshot),
         # effective_provider 只来自当前已加载业务 session；空池、无法完整检查
         # composite，或多 session provider 不一致时为 None。
@@ -493,7 +493,7 @@ def setup() -> dict[str, Any]:
         "supported_prompts": ["none"],
         "supported_geometric_outputs": ["bbox"],
         "infra": "onnx",
-        # v0.18.20 · 声明支持 POST /warmup (协议 §4.4), 让模型市场「预热默认」按钮可用。
+        # 声明支持 POST /warmup (协议 §4.4), 让模型市场「预热默认」按钮可用。
         "warmup_endpoint": True,
         "models": [
             _detect_model_entry(),

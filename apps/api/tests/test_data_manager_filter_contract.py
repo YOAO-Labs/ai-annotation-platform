@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
@@ -80,6 +82,21 @@ def test_root_rule_and_nested_groups_compile_for_task_and_entity_grains():
     assert isinstance(
         compile_entity_filter(nested, Annotation, project=project), ColumnElement
     )
+
+
+@pytest.mark.parametrize(
+    "field", ["feedback.unresolved_count", "issue.unresolved_count"]
+)
+@pytest.mark.parametrize("use_alias", [False, True])
+def test_issue_filter_correlates_to_the_current_annotation(field, use_alias):
+    entity = aliased(Annotation, name="candidate") if use_alias else Annotation
+    condition = compile_entity_filter(
+        {"field": field, "op": "gt", "value": 0}, entity, project=_project()
+    )
+    sql = str(condition.compile(dialect=postgresql.dialect()))
+    table = "candidate" if use_alias else "annotations"
+    assert f"annotation_feedbacks.annotation_id = {table}.id" in sql
+    assert "annotation_feedbacks.task_id = tasks.id" not in sql
 
 
 @pytest.mark.parametrize("compiler", [compile_filter, compile_entity_filter])

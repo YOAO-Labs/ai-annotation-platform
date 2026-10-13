@@ -19,6 +19,7 @@ import {
   useWorkbenchImageSource,
   workbenchImagePreviewUrl,
 } from "@/pages/Workbench/stage/useWorkbenchImageSource";
+import { useSessionStats } from "@/pages/Workbench/state/useSessionStats";
 
 type DiffMode = "final" | "raw" | "diff";
 
@@ -73,6 +74,7 @@ export function ReviewWorkbench({
   const { vp, setVp } = useViewportTransform();
   const [fitTick, setFitTick] = useState(0);
   const meUserId = useAuthStore((s) => s.user?.id);
+  useSessionStats(taskId, project?.id ?? task?.project_id ?? null, "review", meUserId ?? null);
 
   // v0.6.5: 进入审核页时调 claim（幂等），冻结标注员的 withdraw 入口；
   // 仅在 status=review 时调用，避免对 completed/rejected 任务多余请求。

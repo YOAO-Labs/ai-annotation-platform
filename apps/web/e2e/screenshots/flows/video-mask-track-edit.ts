@@ -169,6 +169,10 @@ export async function runVideoMaskTrackEdit(
     const toolbar = page.getByTestId("mask-toolbar");
     await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
     await page.getByTestId("video-tool-btn-mask-track").click();
+    // ContextToolbar：Mask 工具先挂胶囊，需展开常用工具并点「更多设置」才挂载完整工具条。
+    await page.getByTestId("mask-tool-capsule").waitFor({ state: "visible", timeout: 5000 });
+    await page.getByTestId("mask-settings-trigger").click();
+    await page.getByLabel("更多 Mask 工具").click();
     await expect(toolbar).toBeVisible();
     const drawStartMs = Date.now();
     await page.waitForTimeout(1_200);
@@ -179,7 +183,8 @@ export async function runVideoMaskTrackEdit(
     });
     await stroke(page, initialPath, 1_800);
     await page.waitForTimeout(650);
-    await toolbar.getByTestId("mask-primary-action").click();
+    // 画布绘制会让 Radix 工具条收起；Enter 是 Mask 的主动作快捷键（保存）。
+    await page.keyboard.press("Enter");
     await expect(page.getByTestId("class-picker-popover")).toBeVisible();
     await page.waitForTimeout(1_000);
     const created = maskTrack(
@@ -212,15 +217,18 @@ export async function runVideoMaskTrackEdit(
       await page.waitForTimeout(220);
     }
     await page.getByLabel("展开选中信息卡(可拖动)", { exact: true }).click();
-    await expect(page.getByText(/当前帧保持 F0 的 Mask；编辑会物化新关键帧/)).toBeVisible();
-    await waitForVisibleMask(page, created.id, initial.area);
+    await expect(page.getByText(/编辑并保存当前帧 Mask/)).toBeVisible();
+    // 「保持」帧不再以像素层渲染 Mask（画布只显示关键帧标签/红条），进入编辑后才可解码核对。
     await page.waitForTimeout(1_000);
     await page.getByTitle("编辑当前帧 Mask").click();
-    await expect(toolbar).toBeVisible();
+    // 先收起浮卡：它的点击属于外部交互，会关掉随后打开的 Radix 工具条。
     await collapseVideoSelectionCard(page);
     await stage.scrollIntoViewIfNeeded();
-    await toolbar.scrollIntoViewIfNeeded();
-    await expect(toolbar).toBeInViewport({ ratio: 1 });
+    // ContextToolbar：进入编辑只挂胶囊，完整工具条需展开常用工具并点「更多设置」。
+    await page.getByTestId("mask-tool-capsule").waitFor({ state: "visible", timeout: 5000 });
+    await page.getByTestId("mask-settings-trigger").click();
+    await page.getByLabel("更多 Mask 工具").click();
+    await expect(toolbar).toBeVisible();
     await toolbar.getByRole("radio", { name: "橡皮", exact: true }).click();
     const editBounds = await renderedMediaBounds(stage);
     for (const path of editAnchor.brush_strokes)
@@ -237,7 +245,7 @@ export async function runVideoMaskTrackEdit(
           `/api/v1/tasks/${task.id}/video/tracks/${created.id}/mask-keyframes/5`,
       { timeout: 30_000 },
     );
-    await toolbar.getByTestId("mask-primary-action").click();
+    await page.keyboard.press("Enter");
     const response = await updateResponse;
     expect(response.ok(), `Save F5 Mask: HTTP ${response.status()}`).toBeTruthy();
     expect(response.request().headers()["if-match"]).toBe(`W/"${created.version}"`);
@@ -258,13 +266,12 @@ export async function runVideoMaskTrackEdit(
     await waitForVisibleMask(page, created.id, edited.area);
     await expect(row).toContainText("2 关键帧");
     await page.getByLabel("展开选中信息卡(可拖动)", { exact: true }).click();
-    await expect(page.getByText("当前帧为 Mask 关键帧。")).toBeVisible();
-    await page.getByRole("button", { name: "上一关键帧", exact: true }).click();
+    await page.locator('button[title="上一可见关键帧"]').click();
     await waitForVideoRecordingFrame(page, manifest, 0);
     await waitForVisibleMask(page, created.id, initial.area);
     await page.mouse.move(editBounds.x + 6, editBounds.y + 6);
     await page.waitForTimeout(1_500);
-    await page.getByRole("button", { name: "下一关键帧", exact: true }).click();
+    await page.locator('button[title="下一可见关键帧"]').click();
     await waitForVideoRecordingFrame(page, manifest, 5);
     await waitForVisibleMask(page, created.id, edited.area);
     await page.getByRole("button", { name: "收起浮窗", exact: true }).click();

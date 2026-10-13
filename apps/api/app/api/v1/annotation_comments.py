@@ -23,7 +23,7 @@ from app.deps import (
     require_roles,
     require_active_task_actor,
 )
-from app.db.enums import UserRole
+from app.db.enums import MANAGER_PLATFORM_ROLES, PlatformRole, ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.project_member import ProjectMember
@@ -54,12 +54,24 @@ from app.services.task_discussion import (
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
+#: Platform roles allowed to read/write task discussion.  The legacy global
+#: annotator/reviewer account roles are historical and are not an authorization
+#: source; project responsibility comes from the resolved membership.
 _ALL_ANNOTATORS = (
-    UserRole.SUPER_ADMIN,
-    UserRole.PROJECT_ADMIN,
-    UserRole.REVIEWER,
-    UserRole.ANNOTATOR,
+    PlatformRole.SUPER_ADMIN,
+    PlatformRole.PROJECT_ADMIN,
+    PlatformRole.EMPLOYEE,
 )
+
+
+async def _resolve_task_access(db: AsyncSession, task, user: User):
+    """Resolve current project access for a task's actual project."""
+
+    from app.db.models.project import Project
+    from app.services.project_access import resolve_project_access
+
+    project = await db.get(Project, task.project_id)
+    return await resolve_project_access(db, user=user, project=project)
 
 
 def _to_out(
@@ -101,17 +113,30 @@ async def _validate_project_members(
         )
     ).all()
     found = {r[0] for r in rows}
-    # 超管 / 项目所有者 也允许（不一定在 project_members 表中）
+    # 超管 / 合法项目负责人 也允许（不一定在 project_members 表中）。
+    # 平台 project_admin 仅在其拥有该项目时才算负责人，不与成员身份混淆。
+    from app.db.models.project import Project
+
+    manager_rows = (
+        await db.execute(
+            select(User.id)
+            .join(Project, Project.owner_id == User.id)
+            .where(
+                Project.id == project_id,
+                User.id.in_(user_ids),
+                User.role.in_(sorted(MANAGER_PLATFORM_ROLES)),
+            )
+        )
+    ).all()
     super_rows = (
         await db.execute(
             select(User.id).where(
                 User.id.in_(user_ids),
-                User.role.in_(
-                    [UserRole.SUPER_ADMIN.value, UserRole.PROJECT_ADMIN.value]
-                ),
+                User.role == PlatformRole.SUPER_ADMIN.value,
             )
         )
     ).all()
+    found |= {r[0] for r in manager_rows}
     found |= {r[0] for r in super_rows}
     missing = [str(uid) for uid in user_ids if uid not in found]
     if missing:
@@ -428,13 +453,14 @@ async def patch_comment(
     c = await db.get(AnnotationComment, comment_id)
     if not c or not c.is_active:
         raise HTTPException(status_code=404, detail="Comment not found")
-    await require_visible_annotation(db, c.annotation_id, current_user)
+    _ann, task = await require_visible_annotation(db, c.annotation_id, current_user)
+    access = await _resolve_task_access(db, task, current_user)
     actions = discussion_actions(
         "annotation_comment",
         "comment",
         is_author=c.author_id == current_user.id,
-        is_admin=current_user.role in {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN},
-        is_reviewer=current_user.role == UserRole.REVIEWER,
+        is_admin=access.is_manager,
+        is_reviewer=access.project_role == ProjectRole.REVIEWER.value,
         is_accessible=True,
         can_reply=False,
     )
@@ -471,13 +497,14 @@ async def delete_comment(
     c = await db.get(AnnotationComment, comment_id)
     if not c or not c.is_active:
         raise HTTPException(status_code=404, detail="Comment not found")
-    await require_visible_annotation(db, c.annotation_id, current_user)
+    _ann, task = await require_visible_annotation(db, c.annotation_id, current_user)
+    access = await _resolve_task_access(db, task, current_user)
     actions = discussion_actions(
         "annotation_comment",
         "comment",
         is_author=c.author_id == current_user.id,
-        is_admin=current_user.role in {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN},
-        is_reviewer=current_user.role == UserRole.REVIEWER,
+        is_admin=access.is_manager,
+        is_reviewer=access.project_role == ProjectRole.REVIEWER.value,
         is_accessible=True,
         can_reply=False,
     )

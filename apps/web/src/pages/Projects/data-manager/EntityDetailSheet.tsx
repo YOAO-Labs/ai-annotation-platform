@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { DataManagerEntityScope } from "@/api/taskViews";
@@ -16,6 +17,11 @@ import {
 } from "@/components/shadcn/ui/sheet";
 import { useDataManagerObjectDetail, useDataManagerTrackDetail } from "@/hooks/useTaskViews";
 import { buildWorkbenchUrl } from "@/utils/workbenchNavigation";
+
+// Lazy: opening the Data list must not initialize a workbench canvas stack.
+const DataManagerAnnotationPreview = lazy(() =>
+  import("./DataManagerAnnotationPreview").then((m) => ({ default: m.default })),
+);
 
 function AttributeList({ values }: { values: Record<string, unknown> }) {
   const items = Object.entries(values);
@@ -99,6 +105,13 @@ export function EntityDetailSheet({
           )}
           {object && (
             <div className="flex flex-col gap-4 pb-6">
+              <Suspense fallback={<Skeleton className="h-[320px] w-full" />}>
+                <DataManagerAnnotationPreview
+                  projectId={projectId}
+                  taskId={object.task_id}
+                  highlightAnnotationId={object.annotation_id}
+                />
+              </Suspense>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="default">{object.source}</Badge>
                 <Badge variant="outline">{object.tool_unit_id}</Badge>
@@ -114,7 +127,7 @@ export function EntityDetailSheet({
                   <dd className="mt-1">{object.created_by_name ?? "未知"}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">未解决反馈</dt>
+                  <dt className="text-muted-foreground">未解决问题</dt>
                   <dd className="mt-1 tabular-nums">{object.unresolved_feedback_count}</dd>
                 </div>
                 <div>

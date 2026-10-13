@@ -89,6 +89,7 @@ export const WORKBENCH_SETTING_CATEGORY_LABELS: Record<WorkbenchSettingCategory,
 };
 
 // 导航按用途组织，category 继续表示原有偏好存储子树。
+// notifications 组渲染共享的通知偏好面板，不进 buildFieldPatch/useWorkbenchConfig。
 export const WORKBENCH_SETTING_GROUPS = {
   layout: { label: "界面布局", description: "边栏宽度与工作台辅助显示。" },
   appearance: { label: "标注显示", description: "标签、线条、填充和邻帧参考框。" },
@@ -96,6 +97,10 @@ export const WORKBENCH_SETTING_GROUPS = {
   canvas: { label: "画布与视角", description: "统一调整图片、视频和点云的显示与视角。" },
   playback: { label: "播放与轨迹", description: "视频播放速度、时间轴步进与轨迹续写。" },
   advanced: { label: "性能与实验", description: "资源用量和本机实验特性，按各项说明生效。" },
+  notifications: {
+    label: "通知",
+    description: "按类型设置接收与弹出提示，账号内所有工作台同步生效。",
+  },
 } as const;
 
 export type WorkbenchSettingGroup = keyof typeof WORKBENCH_SETTING_GROUPS;

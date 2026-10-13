@@ -25,7 +25,7 @@ from model_registry import (
 
 
 def test_matrix_covers_four_tasks_plus_tracker_alias() -> None:
-    # v0.21.1 · tracker 别名到 detection 权重矩阵 (追踪不换权重, 只换关联算法), 与四个真实
+    # tracker 别名到 detection 权重矩阵 (追踪不换权重, 只换关联算法), 与四个真实
     # 权重 task 并列; 别名共享同一 series→sizes 对象。
     assert set(MODEL_MATRIX.keys()) == {
         "detection",
@@ -116,7 +116,7 @@ def test_filename_rtdetr_x() -> None:
 
 
 def test_filename_tracker_reuses_detection_weight() -> None:
-    """v0.21.1 · tracker 解出 detection 权重文件名 (无独立权重, 无 -track 后缀)。"""
+    """tracker 解出 detection 权重文件名 (无独立权重, 无 -track 后缀)。"""
     assert resolve_weight_filename("tracker", "yolo11", "s") == "yolo11s.pt"
     assert resolve_weight_filename("tracker", "rtdetr", "l") == "rtdetr-l.pt"
 
@@ -176,7 +176,7 @@ def test_iter_supported_combinations_count() -> None:
     seg:     5(v8) + 2(v9) + 5(v11) + 5(v26)                               = 17
     pose:    5(v8) + 5(v11) + 5(v26)                                       = 15
     obb:     5(v8) + 5(v11) + 5(v26)                                       = 15
-    tracker: 别名 detection 权重矩阵 (v0.21.1, 追踪不换权重)               = 33
+    tracker: 别名 detection 权重矩阵 (追踪不换权重)                        = 33
     总计:                                                                  = 113
     """
     combos = iter_supported_combinations()
@@ -185,7 +185,7 @@ def test_iter_supported_combinations_count() -> None:
     assert ("detection", "yolo11", "s") in combos
     assert ("obb", "yolo26", "x") in combos
     assert ("detection", "rtdetr", "l") in combos
-    # v0.21.1 · tracker 复用 detection 权重, 解出同一文件名 (无独立权重下载)。
+    # tracker 复用 detection 权重, 解出同一文件名 (无独立权重下载)。
     assert ("tracker", "yolo11", "s") in combos
 
 
@@ -203,7 +203,7 @@ def test_sizes_for_yolov9_det_vs_seg() -> None:
     assert seg_sizes == ["c", "e"]
 
 
-# ── v0.18.21 · 开集 (open-vocabulary) 权重矩阵金本位 (release v8.4.0 实测可下载) ──
+# ── 开集 (open-vocabulary) 权重矩阵金本位 (release v8.4.0 实测可下载) ──
 
 
 def test_openvocab_series_namespace() -> None:

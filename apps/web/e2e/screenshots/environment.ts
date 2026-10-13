@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 const FIXED_TIME = new Date("2026-07-13T10:00:00+08:00");
 
@@ -49,6 +49,36 @@ export async function applyScreenshotTheme(page: Page, theme: "light" | "dark"):
     user.preferences = { ...preferences, ui: { ...ui, theme: nextTheme } };
     localStorage.setItem("auth-storage", JSON.stringify(parsed));
   }, theme);
+}
+
+/** A mounted canvas can still be hidden by layout restoration or loading its media. */
+export async function waitForScreenshotImage(page: Page): Promise<void> {
+  const stage = page.getByTestId("workbench-stage");
+  await expect(stage).toBeVisible({ timeout: 15_000 });
+  await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 15_000 });
+}
+
+export async function waitForScreenshotVideo(page: Page): Promise<void> {
+  const stage = page.getByTestId("video-konva-stage");
+  await expect(stage).toBeVisible({ timeout: 15_000 });
+  await expect(stage).toHaveAttribute("data-video-view-ready", "true", { timeout: 15_000 });
+  await expect
+    .poll(
+      () =>
+        page.getByTestId("video-konva-source").evaluate((video: HTMLVideoElement) => {
+          const stage = video.closest('[data-testid="video-konva-stage"]');
+          if (!stage || video.seeking || video.readyState < 2 || video.videoWidth === 0) {
+            return false;
+          }
+          return (
+            stage.getAttribute("data-video-frame-source") !== "webcodecs" ||
+            stage.getAttribute("data-video-painted-frame-index") ===
+              stage.getAttribute("data-video-frame-index")
+          );
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
 }
 
 /** 等字体、已挂载图片和两个渲染帧稳定；业务控件仍由各 scene 显式等待。 */

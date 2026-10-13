@@ -21,6 +21,9 @@ ASGIApp = Callable[
 MAX_FRAME_FILE_BYTES = 32 * 1024 * 1024
 # Raw multipart includes boundaries and small form fields in addition to the file.
 MAX_FRAME_MULTIPART_BODY_BYTES = MAX_FRAME_FILE_BYTES + 1024 * 1024
+# 头像:与 services/avatar_image.MAX_AVATAR_FILE_BYTES 对齐,另留 multipart 头部余量。
+MAX_AVATAR_FILE_BYTES = 2 * 1024 * 1024
+MAX_AVATAR_MULTIPART_BODY_BYTES = MAX_AVATAR_FILE_BYTES + 256 * 1024
 # Inline RLE can consume the full canonical object budget; leave bounded room for
 # receipt, lineage, prompt summary, and JSON field names before Pydantic parsing.
 MAX_AI_MASK_ACCEPT_BODY_BYTES = MAX_UNCOMPRESSED_BYTES + 1024 * 1024
@@ -153,6 +156,7 @@ class UploadBodyLimitMiddleware:
         is_interactive_context = "/ml-backends/" in path and path.endswith(
             "/interactive-annotating"
         )
+        is_avatar = path == "/api/v1/auth/me/avatar"
         if is_mask and headers.get(b"content-encoding", b"").lower() not in {
             b"",
             b"identity",
@@ -186,26 +190,25 @@ class UploadBodyLimitMiddleware:
             and not is_ai_mask_accept
             and not is_mask_mutation
             and not is_interactive_context
+            and not is_avatar
         ):
             await self.app(scope, receive, send)
             return
 
-        limit = (
-            MAX_FRAME_MULTIPART_BODY_BYTES
-            if is_frame
-            else (
-                MAX_AI_MASK_ACCEPT_BODY_BYTES
-                if is_ai_mask_accept
-                else (
-                    MAX_MASK_MUTATION_BODY_BYTES
-                    if is_mask_mutation
-                    else (
-                        MAX_INTERACTIVE_CONTEXT_BODY_BYTES
-                        if is_interactive_context
-                        else MAX_COMPRESSED_BYTES
-                    )
+        # 各受管路径互不重叠,按上表顺序取第一个命中的上限;都不命中时回退 mask 压缩体量。
+        limit = next(
+            (
+                candidate
+                for flag, candidate in (
+                    (is_frame, MAX_FRAME_MULTIPART_BODY_BYTES),
+                    (is_avatar, MAX_AVATAR_MULTIPART_BODY_BYTES),
+                    (is_ai_mask_accept, MAX_AI_MASK_ACCEPT_BODY_BYTES),
+                    (is_mask_mutation, MAX_MASK_MUTATION_BODY_BYTES),
+                    (is_interactive_context, MAX_INTERACTIVE_CONTEXT_BODY_BYTES),
                 )
-            )
+                if flag
+            ),
+            MAX_COMPRESSED_BYTES,
         )
         raw_length = headers.get(b"content-length")
         if raw_length:
@@ -245,6 +248,23 @@ class UploadBodyLimitMiddleware:
                     {
                         "reason": "interactive_context_too_large",
                         "message": "interactive context must be <= 1 MiB",
+                    },
+                )
+                return
+        if is_avatar:
+            file_size = _multipart_field_size(
+                raw,
+                headers.get(b"content-type", b""),
+                field_name="file",
+            )
+            if file_size is not None and file_size > MAX_AVATAR_FILE_BYTES:
+                await _json_error(
+                    send,
+                    413,
+                    {
+                        "reason": "avatar_too_large",
+                        "message": "avatar must be <= 2 MiB",
+                        "max_bytes": MAX_AVATAR_FILE_BYTES,
                     },
                 )
                 return

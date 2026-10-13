@@ -23,7 +23,11 @@ def process_deactivation_requests() -> dict:
 
 async def _process_async() -> dict:
     async with task_session() as db:
-        n = await DeactivationService.execute_due(db)
+        n, pending = await DeactivationService.execute_due(db)
         await db.commit()
+        if pending:
+            from app.services.notification import NotificationService
+
+            await NotificationService(db).publish_committed(pending)
     log.info("process_deactivation_requests done: processed=%d", n)
     return {"processed": n}

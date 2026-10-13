@@ -36,7 +36,7 @@ describe("DataManagerSummaryStrip", () => {
     const onDrill = vi.fn();
     render(<DataManagerSummaryStrip summary={summary} isLoading={false} onDrill={onDrill} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /未解决反馈/ }));
+    fireEvent.click(screen.getByRole("button", { name: /未解决问题/ }));
     expect(onDrill).toHaveBeenCalledWith({
       field: "feedback.unresolved_count",
       op: "gt",

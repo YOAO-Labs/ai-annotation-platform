@@ -43,3 +43,14 @@
   color: var(--sc-muted-foreground);
   font-size: 10.5px;
 }
+
+/* 角色标签（项目负责人 / 超级管理员）；与邮箱各自独立展示，避免被邮箱覆盖。 */
+.role {
+  margin-left: 6px;
+  padding: 0 4px;
+  background: var(--sc-muted);
+  color: var(--sc-muted-foreground);
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+}

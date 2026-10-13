@@ -1,16 +1,16 @@
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import { Thumbnail } from "@/components/Thumbnail";
 import { useElementStyle } from "@/components/ui/useElementStyle";
 import { flattenTaskPages, useTaskList } from "@/hooks/useTasks";
 import { useMyBatches } from "@/hooks/useDashboard";
-import { batchesApi, type BatchResponse } from "@/api/batches";
+import { useSubmitBatch } from "@/hooks/useBatches";
 import { ApiError } from "@/api/client";
 import type { MyBatchItem } from "@/api/dashboard";
 import type { TaskResponse } from "@/types";
@@ -178,7 +178,6 @@ export function AnnotatePage() {
   const pushToast = useToastStore((s) => s.push);
   const navigate = useNavigate();
   const location = useLocation();
-  const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedBatchId = searchParams.get("batch") ?? "";
   const rejectedOnly = searchParams.get("status") === "rejected";
@@ -223,20 +222,26 @@ export function AnnotatePage() {
   const tasks = useMemo(() => flattenTaskPages(taskListData?.pages), [taskListData?.pages]);
   const total = taskListData?.pages[0]?.total ?? tasks.length;
 
-  const submitMut = useMutation({
-    mutationFn: (b: MyBatchItem) =>
-      batchesApi.transition(b.project_id, b.batch_id, "reviewing") as Promise<BatchResponse>,
-    onSuccess: () => {
-      pushToast({ msg: "已提交质检", sub: "等待审核员处理", kind: "success" });
-      qc.invalidateQueries({ queryKey: ["dashboard", "annotator"] });
-      qc.invalidateQueries({ queryKey: ["batches"] });
-      qc.invalidateQueries({ queryKey: ["tasks"] });
-    },
-    onError: (e) => {
-      const msg = e instanceof Error ? e.message : "提交失败";
-      pushToast({ msg: "提交质检失败", sub: msg, kind: "error" });
-    },
-  });
+  const submitBatchMut = useSubmitBatch(projectId ?? "");
+  const submitBatch = submitBatchMut.mutate;
+  const handleSubmitBatch = (batch: MyBatchItem) => {
+    submitBatch(batch.batch_id, {
+      onSuccess: (result) => {
+        pushToast({
+          msg: `已提交 ${result.submitted_tasks} 个任务质检`,
+          sub:
+            result.remaining_tasks > 0
+              ? `仍有 ${result.remaining_tasks} 个任务未送审`
+              : "等待审核员处理",
+          kind: "success",
+        });
+      },
+      onError: (e) => {
+        const msg = e instanceof Error ? e.message : "提交失败";
+        pushToast({ msg: "提交质检失败", sub: msg, kind: "error" });
+      },
+    });
+  };
 
   const handleSelectBatch = (b: MyBatchItem | null) => {
     setSearchParams((previous) => {
@@ -271,6 +276,30 @@ export function AnnotatePage() {
   const reviewPct = totalTasks ? Math.round((reviewDone / totalTasks) * 1000) / 10 : 0;
   const approvedPct = totalTasks ? Math.round((approvedDone / totalTasks) * 1000) / 10 : 0;
   const pendingTasks = Math.max(0, totalTasks - startedDone);
+  // 可整批送审 = 尚未提交质检的任务（pending + in_progress）。rejected 需先重做，
+  // 因此不计入；按钮按“是否还有未送审任务”显示，而不是只看批次状态。
+  const rejectedTasks = selectedBatch?.rejected_tasks ?? 0;
+  const unsubmittedTasks = Math.max(
+    0,
+    totalTasks - (selectedBatch?.review_tasks ?? 0) - approvedDone - rejectedTasks,
+  );
+  const canSubmitBatch =
+    !!selectedBatch &&
+    unsubmittedTasks > 0 &&
+    (selectedBatch.status === "annotating" || selectedBatch.status === "reviewing");
+
+  // 与 Dashboard MyBatchesCard 的提交确认同一 tone/voice(计划 Group B 要求)。
+  const confirmSubmitBatch = async (batch: MyBatchItem, pendingCount: number) => {
+    if (
+      !(await confirmDialog({
+        title: "提交批次质检",
+        description: `批次「${batch.batch_name}」仍有 ${pendingCount} 个任务未送审，提交后将整批锁定，无法继续修改。`,
+        confirmLabel: "提交质检",
+      }))
+    )
+      return;
+    handleSubmitBatch(batch);
+  };
 
   return (
     <div className={styles.page}>
@@ -339,23 +368,18 @@ export function AnnotatePage() {
           </div>
           {selectedBatch && (
             <div className={styles.headerActions}>
-              {selectedBatch.status === "annotating" && (
+              {canSubmitBatch && (
                 <Button
                   variant="primary"
                   size="sm"
-                  disabled={submitMut.isPending}
+                  disabled={submitBatchMut.isPending}
                   title={
-                    pendingTasks > 0
-                      ? `仍有 ${pendingTasks} 个未开始；确认后整批提交`
+                    unsubmittedTasks > 0
+                      ? `仍有 ${unsubmittedTasks} 个任务未送审；确认后整批提交`
                       : "整批提交质检"
                   }
                   onClick={() => {
-                    const warn =
-                      pendingTasks > 0
-                        ? `批次「${selectedBatch.batch_name}」仍有 ${pendingTasks} 个任务未开始。确认整批提交质检？提交后无法继续修改。`
-                        : `确认将批次「${selectedBatch.batch_name}」提交质检？提交后无法继续修改。`;
-                    if (!window.confirm(warn)) return;
-                    submitMut.mutate(selectedBatch);
+                    void confirmSubmitBatch(selectedBatch, unsubmittedTasks);
                   }}
                 >
                   <Icon name="check" size={11} />
@@ -403,7 +427,7 @@ export function AnnotatePage() {
           </div>
         )}
 
-        <FilterGroup label="任务状态" aria-label="任务状态筛选" className="mb-3">
+        <FilterGroup label="任务状态" hideLabel aria-label="任务状态筛选" className="mb-3">
           <FilterToggle
             active={!rejectedOnly}
             onClick={() =>

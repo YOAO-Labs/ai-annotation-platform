@@ -16,6 +16,7 @@ from app.schemas.multicamera_annotation import (
     CameraProjectionResidual,
     NormalizedCameraBbox,
 )
+from app.services.annotation_evidence import record_annotation_actor
 from app.services.pointcloud_projection import (
     ProjectionCamera,
     project_iso_box,
@@ -239,6 +240,8 @@ async def create_camera_member(
     expected_calibration_revision: int,
     expected_calibration_digest: str,
 ) -> Annotation:
+    # A2 · lock the task before the source/SceneTrack rows are locked.
+    await record_annotation_actor(db, task, actor_id)
     source = await _load_source_box(
         db,
         task=task,
@@ -297,6 +300,7 @@ async def update_camera_member(
     db: AsyncSession,
     *,
     task: Task,
+    actor_id: uuid.UUID | None = None,
     member_id: uuid.UUID,
     bbox: NormalizedCameraBbox | None,
     visibility: str | None,
@@ -305,6 +309,8 @@ async def update_camera_member(
     expected_calibration_revision: int,
     expected_calibration_digest: str,
 ) -> Annotation:
+    # A2 · lock the task before the member/SceneTrack rows are locked.
+    await record_annotation_actor(db, task, actor_id)
     member = (
         await db.execute(
             select(Annotation)
@@ -352,10 +358,13 @@ async def delete_camera_member(
     db: AsyncSession,
     *,
     task: Task,
+    actor_id: uuid.UUID | None = None,
     member_id: uuid.UUID,
     expected_version: int,
     expected_track_revision: int,
 ) -> Annotation:
+    # A2 · lock the task before the member/SceneTrack rows are locked.
+    await record_annotation_actor(db, task, actor_id)
     member = (
         await db.execute(
             select(Annotation)
@@ -391,12 +400,15 @@ async def restore_camera_member(
     db: AsyncSession,
     *,
     task: Task,
+    actor_id: uuid.UUID | None = None,
     member_id: uuid.UUID,
     expected_version: int,
     expected_track_revision: int,
     expected_calibration_revision: int,
     expected_calibration_digest: str,
 ) -> Annotation:
+    # A2 · lock the task before the member/SceneTrack rows are locked.
+    await record_annotation_actor(db, task, actor_id)
     member = (
         await db.execute(
             select(Annotation)

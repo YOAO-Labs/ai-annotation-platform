@@ -21,6 +21,7 @@ import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { ApiError } from "@/api/client";
 import { tasksApi } from "@/api/tasks";
 import { batchesApi } from "@/api/batches";
+import { projectsApi } from "@/api/projects";
 import { ShellPopover, SHELL_POPOVER_HEADER_CLASS } from "./ShellPopover";
 import {
   DiscussionNotificationError,
@@ -30,6 +31,7 @@ import {
   buildReviewWorkbenchUrl,
   buildWorkbenchUrl,
   currentWorkbenchReturnTo,
+  type GuardedNavigate,
 } from "@/utils/workbenchNavigation";
 import {
   FILTERS,
@@ -110,6 +112,22 @@ const JOB_KIND_LABEL: Record<string, string> = {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+type WorkMode = "annotate" | "review";
+
+/**
+ * Pick the work mode a notification should open.  Review work is never
+ * downgraded to the annotation editor just because the account could annotate
+ * somewhere; if the target is a review task and the account lacks review
+ * authority the caller surfaces an access error instead.
+ */
+export function chooseWorkMode(capabilities: ReadonlySet<string>, status?: string): WorkMode {
+  const canAnnotate = capabilities.has("annotation.write");
+  const canReview = capabilities.has("review.write");
+  if (status === "review") return canReview ? "review" : "annotate";
+  if (canReview && !canAnnotate) return "review";
+  return "annotate";
 }
 
 function jobVerb(item: NotificationItem): string | null {
@@ -336,15 +354,28 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
 
 /**
  * Notification trigger and list share the top-bar panel's geometry and dismissal.
+ *
+ * `navigate` 可选：默认走 React Router；全屏工作台传入自己的导航回调，
+ * 在真正改路由前跑视频/Mask 离开检查。所有会换路由的动作（含 Bug 导航、
+ * 错误恢复链接）都必须经过它。
  */
-export function NotificationsPopover() {
+export function NotificationsPopover({
+  navigate: navigateExternal,
+}: {
+  navigate?: GuardedNavigate;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const role = useAuthStore((s) => s.user?.role);
   const openBugDrawer = useBugDrawerStore((s) => s.openDrawer);
-  const { data: unreadData } = useUnreadCount();
-  const unread = unreadData?.unread ?? 0;
+  const unreadQ = useUnreadCount();
+  const unread = unreadQ.data?.unread ?? null;
   const [open, setOpen] = useState(false);
+  // 工作台传 navigateExternal 时，所有换路由动作都先过它的离开检查。
+  const go = useCallback(
+    (to: string) => (navigateExternal ? navigateExternal(to) : navigate(to)),
+    [navigateExternal, navigate],
+  );
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [target, setTarget] = useState<NotificationTargetState | null>(null);
   const navigationRequest = useRef(0);
@@ -380,31 +411,65 @@ export function NotificationsPopover() {
       isCurrentAuthOwner(owner);
     setTarget({ item, error: null });
     try {
-      const buildUrl = role === "reviewer" ? buildReviewWorkbenchUrl : buildWorkbenchUrl;
       const returnTo = currentWorkbenchReturnTo(location);
-      let url: string;
+      let projectId: string;
+      let taskId: string | undefined;
+      let batchId: string | undefined;
+      let status: string | undefined;
+      let discussion:
+        | Awaited<ReturnType<typeof resolveDiscussionNotification>>["target"]
+        | undefined;
       if (item.target_type === "feedback" || item.target_type === "annotation_comment") {
         const resolved = await resolveDiscussionNotification(item, controller.signal);
         if (!current()) return;
-        url = buildUrl(resolved.projectId, {
-          taskId: resolved.task.id,
-          batchId: resolved.task.batch_id,
-          returnTo,
-          discussion: resolved.target,
-        });
+        projectId = resolved.projectId;
+        taskId = resolved.task.id;
+        batchId = resolved.task.batch_id ?? undefined;
+        status = resolved.task.status;
+        discussion = resolved.target;
       } else if (item.target_type === "task") {
         // Read the current target: notification payloads may precede a transfer or another review.
         const task = await tasksApi.get(item.target_id, { signal: controller.signal });
-        url = buildUrl(task.project_id, { taskId: task.id, batchId: task.batch_id, returnTo });
+        if (!current()) return;
+        projectId = task.project_id;
+        taskId = task.id;
+        batchId = task.batch_id ?? undefined;
+        status = task.status;
       } else {
-        const projectId = stringValue(item.payload?.project_id);
-        if (!projectId) throw new Error("通知缺少项目信息，请从任务列表查看该批次。");
-        const batch = await batchesApi.get(projectId, item.target_id);
-        url = buildUrl(batch.project_id, { batchId: batch.id, returnTo });
+        const payloadProjectId = stringValue(item.payload?.project_id);
+        if (!payloadProjectId) throw new Error("通知缺少项目信息，请从任务列表查看该批次。");
+        const batch = await batchesApi.get(payloadProjectId, item.target_id);
+        if (!current()) return;
+        projectId = batch.project_id;
+        batchId = batch.id;
       }
+      // Resolve the *actual* project's access before choosing a work mode; an
+      // employee's review notification must not silently open the annotation
+      // editor, and a project they cannot work in must not open a dead editor.
+      const access = await projectsApi.getAccess(projectId, { signal: controller.signal });
       if (!current()) return;
+      const capabilities = new Set(access.capabilities ?? []);
+      const mode = chooseWorkMode(capabilities, status);
+      if (!capabilities.has(mode === "review" ? "review.write" : "annotation.write")) {
+        throw new Error("你对该项目没有所需的工作权限，请联系项目负责人。");
+      }
+      const buildUrl = mode === "review" ? buildReviewWorkbenchUrl : buildWorkbenchUrl;
+      const url =
+        item.target_type === "feedback" || item.target_type === "annotation_comment"
+          ? buildUrl(projectId, { taskId: taskId!, batchId, returnTo, discussion: discussion! })
+          : item.target_type === "task"
+            ? buildUrl(projectId, { taskId: taskId!, batchId, returnTo })
+            : buildUrl(projectId, { batchId: batchId!, returnTo });
+      if (!current()) return;
+      // 守卫导航可能在视频 / Mask 离开检查中被取消并返回 false；确认成功前
+      // 保留目标弹窗，取消时给出可重试的说明而不是静默关闭来源。
+      const navigated = await go(url);
+      if (!current()) return;
+      if (navigated === false) {
+        setTarget({ item, error: "跳转已取消，可重新打开或查看当前任务。" });
+        return;
+      }
       setTarget(null);
-      navigate(url);
     } catch (error) {
       if (
         !current() ||
@@ -429,16 +494,20 @@ export function NotificationsPopover() {
     }
   };
 
+  const badgeText = unread === null || unread <= 0 ? null : unread > 99 ? "99+" : String(unread);
+  const triggerLabel = unread === null ? "通知，未读数暂不可用" : `通知，${unread} 条未读`;
+
   return (
     <>
       <button
         type="button"
-        title="通知"
-        aria-label="通知"
+        title={triggerLabel}
+        aria-label={triggerLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? "shell-popover-notifications" : undefined}
         data-shell-popover-trigger="notifications"
+        data-testid="notifications-trigger"
         onClick={() => setOpen((value) => !value)}
         className={clsx(
           "relative inline-flex h-[30px] w-[30px] cursor-pointer appearance-none items-center justify-center rounded-md border border-transparent bg-transparent text-muted-foreground",
@@ -446,18 +515,24 @@ export function NotificationsPopover() {
         )}
       >
         <Icon name="bell" size={15} />
-        {unread > 0 && (
-          <span className="absolute right-[5px] top-1.5 h-[7px] w-[7px] rounded-full border-[1.5px] border-card bg-status-danger" />
+        {badgeText !== null && (
+          <span
+            data-testid="notifications-unread-badge"
+            aria-hidden="true"
+            className="absolute right-[-3px] top-[-3px] inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-card bg-status-danger px-[3px] text-center text-2xs font-semibold leading-[13px] text-primary-foreground"
+          >
+            {badgeText}
+          </span>
         )}
       </button>
       {open && (
         <ShellPopover id="notifications" label="通知" onClose={() => setOpen(false)}>
           <NotificationsPanel
-            unread={unread}
+            unread={unread ?? 0}
             onItemClick={(item) => {
               if (item.target_type === "bug_report") {
                 if (role === "super_admin" || role === "project_admin") {
-                  navigate("/bugs");
+                  go("/bugs");
                 } else {
                   openBugDrawer(item.target_id);
                 }
@@ -480,6 +555,7 @@ export function NotificationsPopover() {
         <AsyncJobDetailModal
           key={selectedJobId}
           jobId={selectedJobId}
+          navigate={go}
           onClose={() => setSelectedJobId(null)}
         />
       )}
@@ -501,7 +577,7 @@ export function NotificationsPopover() {
                   onClick={() => {
                     cancelNavigation();
                     setTarget(null);
-                    navigate(role === "reviewer" ? "/review" : "/annotate");
+                    go("/dashboard");
                   }}
                 >
                   查看当前任务
@@ -584,9 +660,9 @@ function NotificationsPanel({
       </div>
 
       <FilterGroup
-        label="通知筛选"
+        label="通知类型筛选"
+        hideLabel
         compact
-        aria-label="通知类型筛选"
         className="shrink-0 border-b border-border px-3.5 py-2.5"
       >
         <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5 sm:grid-cols-6">
@@ -606,7 +682,23 @@ function NotificationsPanel({
       </FilterGroup>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {isEmpty || isFilteredEmpty ? (
+        {notificationsQ.isPending ? (
+          <div className="flex h-full items-center justify-center px-3.5 py-6 text-center text-sm text-muted-foreground">
+            正在加载通知…
+          </div>
+        ) : notificationsQ.isError ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-3.5 py-6 text-center text-sm text-muted-foreground">
+            <Icon name="bell" size={22} className="mb-1.5 opacity-25" />
+            <div role="alert">通知加载失败，请检查网络后重试</div>
+            <button
+              type="button"
+              onClick={() => void notificationsQ.refetch()}
+              className="cursor-pointer appearance-none rounded-sm border border-border bg-muted px-2.5 py-1.5 text-xs text-brand"
+            >
+              重试
+            </button>
+          </div>
+        ) : isEmpty || isFilteredEmpty ? (
           <div className="flex h-full flex-col items-center justify-center px-3.5 py-6 text-center text-sm text-muted-foreground">
             <Icon name="bell" size={22} className="mb-1.5 opacity-25" />
             <div>{isFilteredEmpty ? "暂无此类型通知" : "暂无通知"}</div>

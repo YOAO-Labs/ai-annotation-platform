@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildProjectEntryUrl,
   buildReviewWorkbenchUrl,
   buildWorkbenchUrl,
   getRememberedWorkbenchTask,
@@ -20,6 +21,20 @@ function memoryStorage(initial?: Record<string, string>) {
 }
 
 describe("workbenchNavigation", () => {
+  it.each([
+    ["annotator", "annotate"],
+    ["reviewer", "review"],
+    ["viewer", "data-manager"],
+    [null, "annotate"],
+  ] as const)("opens a project using its %s membership, not the platform role", (role, path) => {
+    const url = new URL(
+      buildProjectEntryUrl("p", role, { returnTo: "/dashboard" }),
+      "http://app.local",
+    );
+    expect(url.pathname).toBe(`/projects/p/${path}`);
+    if (role !== "viewer") expect(url.searchParams.get("returnTo")).toBe("/dashboard");
+  });
+
   it("remembers the last task per batch", () => {
     const storage = memoryStorage();
     rememberWorkbenchTask("batch-1", "task-2", storage);

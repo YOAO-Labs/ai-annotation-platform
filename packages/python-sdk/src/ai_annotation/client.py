@@ -46,7 +46,10 @@ from ai_annotation.models import (
     Page,
     PersonStat,
     Project,
+    ProjectAccess,
+    ProjectMemberRolePreview,
     ProjectMLBackend,
+    ProjectRole,
     ProjectServicePool,
     ProjectStats,
     ReviewClaim,
@@ -115,6 +118,15 @@ class Projects:
         """可见项目聚合统计 (含最近 12 周时间序列)。任意已认证用户可达。"""
         resp = self._http.request("GET", "/projects/stats")
         return ProjectStats.model_validate(resp.json())
+
+    def access(self, project_id: IdLike) -> ProjectAccess:
+        """当前账号在该项目上的解析权限 (平台/项目角色 + 固定能力集)。
+
+        管理者返回 ``access_kind`` owner/super_admin 且 membership 字段可能为
+        None; 普通成员给出 membership id/version 与自身能力。服务端权威。
+        """
+        resp = self._http.request("GET", f"/projects/{project_id}/access")
+        return ProjectAccess.model_validate(resp.json())
 
 
 class Datasets:
@@ -962,11 +974,86 @@ class Members:
         resp = self._http.request("GET", f"/projects/{project_id}/members")
         return [Member.model_validate(x) for x in resp.json()]
 
-    def add(self, project_id: IdLike, user_id: IdLike, role: str) -> Member:
+    def add(self, project_id: IdLike, user_id: IdLike, role: ProjectRole) -> Member:
+        """添加项目成员。
+
+        ``role`` 是项目角色 (annotator / reviewer / viewer); 创建会校验账号
+        平台角色与项目角色的兼容性 (viewer 账号只能获得 viewer 成员身份)。
+        """
         resp = self._http.request(
             "POST",
             f"/projects/{project_id}/members",
             json={"user_id": str(user_id), "role": role},
+        )
+        return Member.model_validate(resp.json())
+
+    def preview_role_change(
+        self,
+        project_id: IdLike,
+        member_id: IdLike,
+        project_role: ProjectRole,
+        *,
+        replacement_annotator_id: IdLike | None = None,
+        replacement_reviewer_id: IdLike | None = None,
+    ) -> ProjectMemberRolePreview:
+        """角色变更预检 (只读): 阻塞项、受影响资源快照与一次性 token。
+
+        写入必须使用返回的 ``preview_token`` 和 ``current_version``; 预检后
+        新产生的作业 / 角色 / 归属变化会在写入时以 409 拒绝并要求重新预检。
+        """
+        body = _drop_none(
+            {
+                "project_role": project_role,
+                "replacement_annotator_id": (
+                    str(replacement_annotator_id)
+                    if replacement_annotator_id is not None
+                    else None
+                ),
+                "replacement_reviewer_id": (
+                    str(replacement_reviewer_id)
+                    if replacement_reviewer_id is not None
+                    else None
+                ),
+            }
+        )
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/members/{member_id}/role/preview",
+            json=body,
+        )
+        return ProjectMemberRolePreview.model_validate(resp.json())
+
+    def change_role(
+        self,
+        project_id: IdLike,
+        member_id: IdLike,
+        project_role: ProjectRole,
+        *,
+        expected_version: int,
+        preview_token: str,
+        reason: str,
+        replacement_annotator_id: IdLike | None = None,
+        replacement_reviewer_id: IdLike | None = None,
+    ) -> Member:
+        """按预检结果变更成员项目角色 (CAS + 原子交接)。
+
+        必须带上预检返回的 ``preview_token`` 与 ``expected_version``; 需要交接
+        未完成工作时给出显式接替人。版本陈旧 / 快照失效 / 资源占用返回 409。
+        """
+        body: dict[str, Any] = {
+            "project_role": project_role,
+            "expected_version": expected_version,
+            "preview_token": preview_token,
+            "reason": reason,
+        }
+        if replacement_annotator_id is not None:
+            body["replacement_annotator_id"] = str(replacement_annotator_id)
+        if replacement_reviewer_id is not None:
+            body["replacement_reviewer_id"] = str(replacement_reviewer_id)
+        resp = self._http.request(
+            "PATCH",
+            f"/projects/{project_id}/members/{member_id}/role",
+            json=body,
         )
         return Member.model_validate(resp.json())
 
@@ -986,12 +1073,20 @@ class Dashboard:
         return DashboardStats.model_validate(resp.json())
 
     def reviewer(self) -> DashboardStats:
-        """审核员仪表盘 (super_admin / project_admin / reviewer)。"""
+        """审核员仪表盘 (super_admin / project_admin, 或任一项目 reviewer 的 employee)。
+
+        员工按其在各项目的 reviewer 成员身份过滤工作负载; 没有该身份的
+        项目返回空工作集, 不再依赖账号全局角色。
+        """
         resp = self._http.request("GET", "/dashboard/reviewer")
         return DashboardStats.model_validate(resp.json())
 
     def annotator(self) -> DashboardStats:
-        """标注员仪表盘。"""
+        """标注员仪表盘 (super_admin / project_admin, 或任一项目 annotator 的 employee)。
+
+        员工按其在各项目的 annotator 成员身份过滤工作负载; 没有该身份的
+        项目返回空工作集, 不再依赖账号全局角色。
+        """
         resp = self._http.request("GET", "/dashboard/annotator")
         return DashboardStats.model_validate(resp.json())
 

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog
+from app.db.models.notification import Notification
 from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
 from app.services.notification import NotificationService
@@ -50,7 +51,8 @@ class DeactivationService:
         user: User,
         reason: str | None,
         request: Request | None = None,
-    ) -> User:
+    ) -> list[Notification]:
+        """Record the request; returns rows to publish after the caller commits."""
         user = (await UserLifecycleService.lock_accounts(db, [user.id])).get(user.id)
         if user is None:
             raise HTTPException(status_code=404, detail="用户不存在")
@@ -95,22 +97,23 @@ class DeactivationService:
         )
 
         # 通知所有在线 super_admin —— 给他们 7 天窗口处理（如转交任务、降级前置）
+        # Rows are returned unpublished; the caller publishes after commit so the
+        # WS delivery gate can see the committed notification rows.
         super_ids = await _list_super_admin_ids(db)
-        if super_ids:
-            svc = NotificationService(db)
-            await svc.notify_many(
-                user_ids=super_ids,
-                type="user.deactivation_requested",
-                target_type="user",
-                target_id=user.id,
-                payload={
-                    "email": user.email,
-                    "name": user.name,
-                    "role": user.role,
-                    "scheduled_at": user.deactivation_scheduled_at.isoformat(),
-                },
-            )
-        return user
+        if not super_ids:
+            return []
+        return await NotificationService(db).notify_many(
+            user_ids=super_ids,
+            type="user.deactivation_requested",
+            target_type="user",
+            target_id=user.id,
+            payload={
+                "email": user.email,
+                "name": user.name,
+                "role": user.role,
+                "scheduled_at": user.deactivation_scheduled_at.isoformat(),
+            },
+        )
 
     @staticmethod
     async def cancel(
@@ -139,9 +142,9 @@ class DeactivationService:
         return user
 
     @staticmethod
-    async def execute_due(db: AsyncSession) -> int:
+    async def execute_due(db: AsyncSession) -> tuple[int, list[Notification]]:
         """Celery beat 调用：扫描所有 scheduled_at <= now 的活跃用户，执行软删 + GDPR。
-        返回处理条数。在事务中执行，调用方负责 commit。"""
+        返回 (处理条数, 待发布通知)。在事务中执行，调用方负责 commit 后发布通知。"""
         now = datetime.now(timezone.utc)
         rows = (
             (
@@ -161,10 +164,11 @@ class DeactivationService:
             .all()
         )
         if not rows:
-            return 0
+            return 0, []
 
         super_ids = await _list_super_admin_ids(db)
         notif = NotificationService(db)
+        pending_notifications: list[Notification] = []
 
         for user in rows:
             previous_scheduled = user.deactivation_scheduled_at
@@ -210,12 +214,14 @@ class DeactivationService:
             for sid in super_ids:
                 if sid == user.id:
                     continue
-                await notif.notify(
+                row = await notif.notify(
                     user_id=sid,
                     type="user.deactivation_completed",
                     target_type="user",
                     target_id=user.id,
                     payload={"email": user.email, "name": user.name, "auto": True},
                 )
+                if row is not None:
+                    pending_notifications.append(row)
 
-        return len(rows)
+        return len(rows), pending_notifications

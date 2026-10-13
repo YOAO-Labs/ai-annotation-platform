@@ -34,7 +34,7 @@ def test_setup_protocol_version_v22(setup_dict: dict) -> None:
 
 
 def test_setup_models_are_atoms(setup_dict: dict) -> None:
-    """v0.18.12 · YOLO 各 task model 均标 composition=atom。"""
+    """YOLO 各 task model 均标 composition=atom。"""
     assert all(m["composition"] == "atom" for m in setup_dict["models"])
 
 
@@ -42,25 +42,25 @@ def test_setup_infra_pytorch(setup_dict: dict) -> None:
     assert setup_dict["infra"] == "pytorch"
 
 
-# v0.18.21 起闭集四 task + 开集文本检测 2 条; v0.18.22 加开集文本分割 1 条;
-# v0.18.23 加 YOLOE visual prompt exemplar 1 条 (交互, is_interactive=true).
+# 闭集四 task + 开集文本检测 2 条 + 开集文本分割 1 条 +
+# YOLOE visual prompt exemplar 1 条 (交互, is_interactive=true).
 CLOSED_IDS = {"detect", "segment", "pose", "obb"}
 OPENVOCAB_DETECT_IDS = {"detect-world", "detect-yoloe"}
 OPENVOCAB_SEGMENT_IDS = {"segment-yoloe"}
 EXEMPLAR_IDS = {"exemplar-yoloe"}
-# v0.21.1 · 检测式视频追踪 (video 源, 复用 detection 权重矩阵)。
+# 检测式视频追踪 (video 源, 复用 detection 权重矩阵)。
 TRACKER_IDS = {"track"}
 # 全部走开集 yoloe/world 权重矩阵 (变体合法性校验共用 is_openvocab_supported).
 OPENVOCAB_IDS = OPENVOCAB_DETECT_IDS | OPENVOCAB_SEGMENT_IDS | EXEMPLAR_IDS
 
 
 def test_setup_supported_prompts_none_text_exemplar(setup_dict: dict) -> None:
-    """v0.18.23 · 闭集 none + 开集 text + 视觉提示 exemplar 的顶层并集 hint."""
+    """闭集 none + 开集 text + 视觉提示 exemplar 的顶层并集 hint."""
     assert setup_dict["supported_prompts"] == ["none", "text", "exemplar"]
 
 
 def test_setup_has_nine_models(setup_dict: dict) -> None:
-    """v0.21.1 · 闭集 4 + 开集文本检测 2 + 文本分割 1 + 视觉提示 exemplar 1 + 检测式追踪 1 = 9."""
+    """闭集 4 + 开集文本检测 2 + 文本分割 1 + 视觉提示 exemplar 1 + 检测式追踪 1 = 9."""
     models = setup_dict["models"]
     assert len(models) == 9
     ids = {m["id"] for m in models}
@@ -91,7 +91,7 @@ def test_setup_openvocab_models_declare_text_prompt(setup_dict: dict) -> None:
 
 
 def test_setup_exemplar_model_shape(setup_dict: dict) -> None:
-    """v0.18.23 · exemplar-yoloe: 交互 / 非批量 / box+polygon 双输出 / 仅 yoloe series."""
+    """exemplar-yoloe: 交互 / 非批量 / box+polygon 双输出 / 仅 yoloe series."""
     ex = next(m for m in setup_dict["models"] if m["id"] == "exemplar-yoloe")
     assert ex["is_interactive"] is True
     assert ex["resource_profile"] == {"device": "gpu", "batchable": False}
@@ -108,7 +108,7 @@ def test_setup_exemplar_model_shape(setup_dict: dict) -> None:
 
 
 def test_setup_tracker_model_shape(setup_dict: dict) -> None:
-    """v0.21.1 · track: 检测式视频追踪。仅 video 输入 / 非交互可批量 / bbox 输出 /
+    """track: 检测式视频追踪。仅 video 输入 / 非交互可批量 / bbox 输出 /
     自报 bytetrack+botsort / params 带 tracker enum / 复用 detection series (含 rtdetr)。"""
     trk = next(m for m in setup_dict["models"] if m["id"] == "track")
     assert trk["task"] == "tracker"
@@ -135,7 +135,7 @@ def test_setup_tracker_model_shape(setup_dict: dict) -> None:
 
 
 def test_setup_openvocab_text_outputs(setup_dict: dict) -> None:
-    """v0.18.22 · 文本输出形态: 检测条目锁 box, 分割条目 mask/both (与 gsam2 同形)。"""
+    """文本输出形态: 检测条目锁 box, 分割条目 mask/both (与 gsam2 同形)。"""
     for m in setup_dict["models"]:
         if m["id"] in OPENVOCAB_DETECT_IDS:
             assert m["supported_text_outputs"] == ["box"]
@@ -176,8 +176,8 @@ def test_setup_openvocab_series_namespaces(setup_dict: dict) -> None:
 
 
 def test_setup_models_declare_supported_inputs(setup_dict: dict) -> None:
-    """v0.18.16 · 批量 task 声明 supported_inputs (整图 + crop, 可作 crop-detect 下游);
-    交互 exemplar 仅整图; v0.21.1 · 检测式追踪仅 video (单帧无跨帧状态)。"""
+    """批量 task 声明 supported_inputs (整图 + crop, 可作 crop-detect 下游);
+    交互 exemplar 仅整图; 检测式追踪仅 video (单帧无跨帧状态)。"""
     for m in setup_dict["models"]:
         if m["id"] in EXEMPLAR_IDS:
             assert m["supported_inputs"] == ["full_image"]
@@ -188,13 +188,13 @@ def test_setup_models_declare_supported_inputs(setup_dict: dict) -> None:
 
 
 def test_setup_models_declare_output_attribute_types(setup_dict: dict) -> None:
-    """v0.18.16 · 各 task 自报输出属性 (仅类别; score 是 prediction 一等字段不入属性)。"""
+    """各 task 自报输出属性 (仅类别; score 是 prediction 一等字段不入属性)。"""
     for m in setup_dict["models"]:
         assert m["output_attribute_types"] == ["class"]
 
 
 def test_setup_models_declare_resource_profile(setup_dict: dict) -> None:
-    """v0.18.16 · 批量 task GPU 可批量; 交互 exemplar GPU 单次不可批量。"""
+    """批量 task GPU 可批量; 交互 exemplar GPU 单次不可批量。"""
     for m in setup_dict["models"]:
         if m["id"] in EXEMPLAR_IDS:
             assert m["resource_profile"] == {"device": "gpu", "batchable": False}
@@ -295,7 +295,7 @@ def test_setup_params_schema_keys(setup_dict: dict) -> None:
         props = m["params"]["properties"]
         assert "iou" in props
         assert "max_det" in props
-        # v0.18.24 · exemplar 用 score_threshold 替代 conf 作为置信度旋钮 (与 sam3 字段名对齐),
+        # exemplar 用 score_threshold 替代 conf 作为置信度旋钮 (与 sam3 字段名对齐),
         # 闭集/文本路径仍用 conf。
         if m["id"] in EXEMPLAR_IDS:
             assert "score_threshold" in props
@@ -305,7 +305,7 @@ def test_setup_params_schema_keys(setup_dict: dict) -> None:
 
 
 def test_setup_exemplar_params_score_threshold_default(setup_dict: dict) -> None:
-    """v0.18.24 · exemplar 阈值默认 0.25 (前端阈值滑块初值由此而来); YOLOE VP 打分偏保守,
+    """exemplar 阈值默认 0.25 (前端阈值滑块初值由此而来); YOLOE VP 打分偏保守,
     沿用闭集 0.5 会把正确候选挡在门外。"""
     ex = next(m for m in setup_dict["models"] if m["id"] == "exemplar-yoloe")
     st = ex["params"]["properties"]["score_threshold"]
@@ -330,7 +330,7 @@ def test_setup_top_level_is_interactive_false(setup_dict: dict) -> None:
 
 
 def test_setup_variant_combinations_present(setup_dict: dict) -> None:
-    """v0.14.12 · 每个 model 必须暴露 variant_combinations (yolo 的多轴非真笛卡尔积)."""
+    """每个 model 必须暴露 variant_combinations (yolo 的多轴非真笛卡尔积)."""
     for m in setup_dict["models"]:
         assert "variant_combinations" in m, m["id"]
         combos = m["variant_combinations"]
@@ -378,7 +378,7 @@ def test_setup_variant_combinations_all_legal(setup_dict: dict) -> None:
 
 
 def test_setup_each_model_has_default_variants(setup_dict: dict) -> None:
-    """v0.14.13 · 每个 model 必须暴露 default_variants (供前端 VariantSelector 取初值)."""
+    """每个 model 必须暴露 default_variants (供前端 VariantSelector 取初值)."""
     for entry in setup_dict["models"]:
         dv = entry.get("default_variants")
         assert isinstance(dv, dict) and dv, f"{entry['id']} missing default_variants"
@@ -417,19 +417,19 @@ def test_setup_openvocab_default_variants(setup_dict: dict) -> None:
     assert seg["default_variants"] == {"series": "yoloe-11", "size": "s"}
 
 
-# ---------- v0.14.14: warmup_endpoint 声明 ----------
+# ---------- warmup_endpoint 声明 ----------
 
 
 def test_setup_warmup_endpoint_true(setup_dict: dict) -> None:
-    """v0.14.14 协议 §4.4 · 顶层 warmup_endpoint 必须为 True (yolo 支持 /warmup)."""
+    """协议 §4.4 · 顶层 warmup_endpoint 必须为 True (yolo 支持 /warmup)."""
     assert setup_dict["warmup_endpoint"] is True
 
 
-# ---------- v0.18.32: params schema 按上下文派生 (文案中性化 + 默认值校准) ----------
+# ---------- params schema 按上下文派生 (文案中性化 + 默认值校准) ----------
 
 
 def test_setup_conf_description_task_neutral(setup_dict: dict) -> None:
-    """v0.18.32 · 所有带 conf 的 model (闭集 + 开集) 的 conf 文案不再写死"检测/分割",
+    """所有带 conf 的 model (闭集 + 开集) 的 conf 文案不再写死"检测/分割",
     以免挂到 pose/obb/开集时不贴切。"""
     for m in setup_dict["models"]:
         props = m["params"]["properties"]
@@ -439,14 +439,14 @@ def test_setup_conf_description_task_neutral(setup_dict: dict) -> None:
 
 
 def test_setup_closed_set_conf_default_unchanged(setup_dict: dict) -> None:
-    """v0.18.32 · 闭集四 task conf 默认值逐字节不变 (零回归: 仍 0.25)。"""
+    """闭集四 task conf 默认值逐字节不变 (零回归: 仍 0.25)。"""
     for mid in CLOSED_IDS:
         m = next(x for x in setup_dict["models"] if x["id"] == mid)
         assert m["params"]["properties"]["conf"]["default"] == 0.25, mid
 
 
 def test_setup_openvocab_conf_default_and_desc(setup_dict: dict) -> None:
-    """v0.18.32 · 开集文本三 model 默认仍 0.25 (本版无实测证据下调), 文案点明开集语义。"""
+    """开集文本三 model 默认仍 0.25 (本版无实测证据下调), 文案点明开集语义。"""
     for mid in OPENVOCAB_DETECT_IDS | OPENVOCAB_SEGMENT_IDS:
         m = next(x for x in setup_dict["models"] if x["id"] == mid)
         conf = m["params"]["properties"]["conf"]
@@ -455,7 +455,7 @@ def test_setup_openvocab_conf_default_and_desc(setup_dict: dict) -> None:
 
 
 def test_setup_obb_iou_description_mentions_rotated(setup_dict: dict) -> None:
-    """v0.18.32 · obb 的 iou 文案注明走旋转 NMS (probiou); 其余 task 不带这句。"""
+    """obb 的 iou 文案注明走旋转 NMS (probiou); 其余 task 不带这句。"""
     obb = next(m for m in setup_dict["models"] if m["id"] == "obb")
     assert "probiou" in obb["params"]["properties"]["iou"]["description"]
     detect = next(m for m in setup_dict["models"] if m["id"] == "detect")
@@ -463,7 +463,7 @@ def test_setup_obb_iou_description_mentions_rotated(setup_dict: dict) -> None:
 
 
 def test_build_params_schema_derivations_independent() -> None:
-    """v0.18.32 · _build_params_schema 每次返回独立深拷贝, 改一份不影响另一份。"""
+    """_build_params_schema 每次返回独立深拷贝, 改一份不影响另一份。"""
     import main  # noqa: PLC0415
 
     a = main._build_params_schema()

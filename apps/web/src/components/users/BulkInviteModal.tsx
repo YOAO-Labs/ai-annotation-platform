@@ -7,9 +7,9 @@ import { useBulkInviteUsers, usePreviewBulkInviteUsers } from "@/hooks/useUsers"
 import { useGroups } from "@/hooks/useGroups";
 import { useProjects } from "@/hooks/useProjects";
 import { usePermissions } from "@/hooks/usePermissions";
-import { ROLE_LABELS } from "@/constants/roles";
+import { ROLE_LABELS, PROJECT_ROLE_LABELS } from "@/constants/roles";
 import type { BulkInviteItemPayload, BulkInviteResponse } from "@/api/users";
-import type { UserRole } from "@/types";
+import type { PlatformRole, ProjectRole } from "@/types";
 
 interface Props {
   open: boolean;
@@ -18,12 +18,15 @@ interface Props {
 const INPUT_CLASS =
   "box-border w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+const ALL_PROJECT_ROLES: ProjectRole[] = ["annotator", "reviewer", "viewer"];
+
 export function BulkInviteModal({ open, onClose }: Props) {
   const { role: actorRole } = usePermissions();
   const { data: groups = [] } = useGroups(open);
   const { data: projects = [] } = useProjects();
   const [rawEmails, setRawEmails] = useState("");
-  const [role, setRole] = useState<UserRole>("annotator");
+  const [role, setRole] = useState<PlatformRole>("employee");
+  const [projectRole, setProjectRole] = useState<ProjectRole>("annotator");
   const [groupName, setGroupName] = useState("");
   const [projectId, setProjectId] = useState("");
   const [preview, setPreview] = useState<BulkInviteResponse | null>(null);
@@ -32,10 +35,11 @@ export function BulkInviteModal({ open, onClose }: Props) {
   const previewMutation = usePreviewBulkInviteUsers();
   const pushToast = useToastStore((state) => state.push);
   const busy = bulk.isPending || previewMutation.isPending;
-  const roles: UserRole[] =
+  const roles: PlatformRole[] =
     actorRole === "super_admin" && !projectId
-      ? ["super_admin", "project_admin", "reviewer", "annotator", "viewer"]
-      : ["reviewer", "annotator", "viewer"];
+      ? ["super_admin", "project_admin", "employee", "viewer"]
+      : ["employee", "viewer"];
+  const projectRoleOptions: ProjectRole[] = role === "viewer" ? ["viewer"] : ALL_PROJECT_ROLES;
   const items = useMemo<BulkInviteItemPayload[]>(
     () =>
       [
@@ -48,15 +52,16 @@ export function BulkInviteModal({ open, onClose }: Props) {
       ].map((email) => ({
         email,
         role,
+        ...(projectId ? { project_id: projectId, project_member_role: projectRole } : {}),
         ...(groupName ? { group_name: groupName } : {}),
-        ...(projectId ? { project_id: projectId } : {}),
       })),
-    [rawEmails, role, groupName, projectId],
+    [rawEmails, role, projectRole, groupName, projectId],
   );
   const close = () => {
     if (busy) return;
     setRawEmails("");
-    setRole("annotator");
+    setRole("employee");
+    setProjectRole("annotator");
     setGroupName("");
     setProjectId("");
     setPreview(null);
@@ -134,7 +139,7 @@ export function BulkInviteModal({ open, onClose }: Props) {
                     onChange={(event) => {
                       setProjectId(event.target.value);
                       if (event.target.value && ["super_admin", "project_admin"].includes(role))
-                        setRole("annotator");
+                        setRole("employee");
                     }}
                     className={INPUT_CLASS}
                   >
@@ -147,10 +152,17 @@ export function BulkInviteModal({ open, onClose }: Props) {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  默认角色
+                  默认账号角色
                   <select
                     value={role}
-                    onChange={(event) => setRole(event.target.value as UserRole)}
+                    onChange={(event) => {
+                      const nextRole = event.target.value as PlatformRole;
+                      setRole(nextRole);
+                      // 后端规则：平台观察者仅可持有观察者职责。切换账号角色时
+                      // 同步归一项目职责，避免提交 stale 的组合被预览/后端拒绝。
+                      if (nextRole === "viewer") setProjectRole("viewer");
+                      else if (projectRole === "viewer") setProjectRole("annotator");
+                    }}
                     className={INPUT_CLASS}
                   >
                     {roles.map((value) => (
@@ -160,6 +172,22 @@ export function BulkInviteModal({ open, onClose }: Props) {
                     ))}
                   </select>
                 </label>
+                {projectId && (
+                  <label className="flex flex-col gap-1">
+                    项目职责
+                    <select
+                      value={projectRole}
+                      onChange={(event) => setProjectRole(event.target.value as ProjectRole)}
+                      className={INPUT_CLASS}
+                    >
+                      {projectRoleOptions.map((value) => (
+                        <option key={value} value={value}>
+                          {PROJECT_ROLE_LABELS[value]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label className="flex flex-col gap-1">
                   数据组（可选）
                   <select

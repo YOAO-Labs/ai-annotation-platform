@@ -1,6 +1,6 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClassPickerPopover } from "./ClassPickerPopover";
 
@@ -85,5 +85,58 @@ describe("ClassPickerPopover", () => {
     fireEvent.keyDown(window, { key: "Enter" });
 
     expect(onPick).toHaveBeenCalledWith("road");
+  });
+});
+
+describe("ClassPickerPopover keyboard ownership", () => {
+  beforeEach(() => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+  it("keeps native arrows in attributes while allowing search-result navigation", () => {
+    const onPick = vi.fn();
+    render(
+      <ClassPickerPopover
+        position="fixed"
+        anchor={{ left: 20, top: 20 }}
+        classes={Array.from({ length: 12 }, (_, i) => `class-${i + 1}`)}
+        recent={[]}
+        defaultClass="class-1"
+        onPick={onPick}
+        onCancel={vi.fn()}
+        attrEditing={{
+          schema: {
+            fields: [
+              {
+                key: "quality",
+                label: "Quality",
+                type: "select",
+                options: [
+                  { value: "a", label: "A" },
+                  { value: "b", label: "B" },
+                ],
+              },
+            ],
+          },
+          attributes: { quality: "a" },
+          context: "image",
+          onChange: vi.fn(),
+        }}
+      />,
+    );
+    const select = document.querySelector("select")!;
+    expect(select).toBeVisible();
+    const arrow = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(select, arrow);
+    expect(arrow.defaultPrevented).toBe(false);
+    const search = screen.getByPlaceholderText("搜索类别...");
+    fireEvent.change(search, { target: { value: "class-" } });
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(onPick).toHaveBeenCalledWith("class-2");
   });
 });

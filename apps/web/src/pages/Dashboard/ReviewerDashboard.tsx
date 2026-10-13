@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -13,12 +12,8 @@ import { useApproveTask, useRejectTask } from "@/hooks/useTasks";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import type { ReviewTaskItem, RecentReviewItem } from "@/api/dashboard";
-import {
-  buildReviewWorkbenchUrl,
-  buildWorkbenchUrl,
-  currentWorkbenchReturnTo,
-} from "@/utils/workbenchNavigation";
-import { RejectReasonModal } from "@/pages/Review/RejectReasonModal";
+import { buildReviewWorkbenchUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
+import { promptRejectReason } from "@/pages/Review/rejectReasonDialog";
 import { PageContainer } from "@/components/layout/PageContainer";
 import {
   isInitialQueryPaused,
@@ -117,7 +112,6 @@ export function ReviewerDashboard() {
   const qc = useQueryClient();
   const approveMut = useApproveTask();
   const rejectMut = useRejectTask();
-  const [rejectingTaskId, setRejectingTaskId] = useState<string | null>(null);
 
   const handleApprove = (taskId: string) => {
     approveMut.mutate(taskId, {
@@ -128,15 +122,13 @@ export function ReviewerDashboard() {
     });
   };
 
-  const handleReject = (taskId: string) => setRejectingTaskId(taskId);
-
-  const handleRejectConfirm = (payload: {
-    reason_type: "missing" | "extra" | "wrong_label" | "wrong_geometry";
-    reason?: string;
-  }) => {
-    if (!rejectingTaskId) return;
+  // 退回走两步决策弹窗（原 RejectReasonModal，plan T2 迁移 choiceDialog + inputDialog）；
+  // taskId 为点击时的快照，await 后提交目标不变。
+  const handleReject = async (taskId: string) => {
+    const payload = await promptRejectReason({ count: 1 });
+    if (!payload) return;
     rejectMut.mutate(
-      { taskId: rejectingTaskId, ...payload },
+      { taskId, ...payload },
       {
         onSuccess: () => {
           pushToast({ msg: "任务已退回标注员", kind: "success" });
@@ -144,7 +136,6 @@ export function ReviewerDashboard() {
         },
       },
     );
-    setRejectingTaskId(null);
   };
 
   if (statsInitialPaused) {
@@ -425,7 +416,7 @@ export function ReviewerDashboard() {
                   item={r}
                   onClick={() =>
                     navigate(
-                      buildWorkbenchUrl(r.project_id, {
+                      buildReviewWorkbenchUrl(r.project_id, {
                         taskId: r.task_id,
                         returnTo: currentWorkbenchReturnTo(location),
                       }),
@@ -437,13 +428,6 @@ export function ReviewerDashboard() {
           )}
         </Card>
       </div>
-
-      <RejectReasonModal
-        open={rejectingTaskId !== null}
-        count={1}
-        onClose={() => setRejectingTaskId(null)}
-        onConfirm={handleRejectConfirm}
-      />
     </PageContainer>
   );
 }

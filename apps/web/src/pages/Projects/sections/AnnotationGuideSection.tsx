@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useToastStore } from "@/components/ui/Toast";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
@@ -612,13 +613,14 @@ function AnnotationGuideProjectBody({
 
   return (
     <Card>
-      <div className="flex flex-col gap-3 px-4 py-4">
-        <h3 className="m-0 text-md font-semibold">标注指引</h3>
-        <p className={DESCRIPTION_CLASS}>
+      <div className="border-b border-border px-4 py-3.5">
+        <h3 className="text-sm font-semibold">标注指引</h3>
+        <p className="m-0 mt-1 text-xs text-muted-foreground">
           支持可视化 Markdown、源码和 GFM 表格；拖拽或粘贴图片会上传到当前项目资源。
           标注员可通过工作台顶栏的「标注指引」按钮打开阅读窗口。 停止输入后自动保存，也可手动保存。
         </p>
-
+      </div>
+      <div className="flex flex-col gap-3 p-4">
         <Suspense fallback={<div className={PLACEHOLDER_CLASS}>编辑器加载中…</div>}>
           <MarkdownEditor
             key={project.id}
@@ -640,14 +642,9 @@ function AnnotationGuideProjectBody({
             <span className="text-xs text-muted-foreground">
               从类别定义、边界规则和复核清单开始。
             </span>
-            <button
-              type="button"
-              className="cursor-pointer rounded-md border border-border bg-transparent px-2.5 py-1 text-xs text-foreground hover:bg-accent"
-              onClick={handleStarter}
-              data-testid="guide-starter"
-            >
+            <Button size="sm" variant="ghost" onClick={handleStarter} data-testid="guide-starter">
               插入指引模板
-            </button>
+            </Button>
           </div>
         )}
 
@@ -693,15 +690,15 @@ function AnnotationGuideProjectBody({
                   ? `保存失败：${saveError ?? "请重试"}`
                   : "已保存"}
           </span>
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={handleExplicitSave}
             disabled={saveStatus === "saving"}
-            className="cursor-pointer rounded-md border border-border bg-transparent px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="guide-save"
           >
             {saveButtonLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </Card>

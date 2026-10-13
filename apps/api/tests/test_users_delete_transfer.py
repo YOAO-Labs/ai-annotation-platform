@@ -36,7 +36,7 @@ class TestUserDelete:
             "email": "temp@test.local",
             "name": "Temp",
             "password_hash": "$2b$12$" + "0" * 53,  # dummy
-            "role": "annotator",
+            "role": "employee",
             "is_active": True,
         }
         temp = User(**user_data)

@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MeResponse } from "../api/auth";
 import type { OfflineOp } from "../pages/Workbench/state/offlineQueue";
 import { useAuthStore } from "../stores/authStore";
+import { clearProactiveLogout, isProactiveLogout } from "../utils/authRedirect";
 
 const mockAuthApi = vi.hoisted(() => ({
   login: vi.fn(),
@@ -68,7 +70,28 @@ function wrapper({ children }: { children: ReactNode }) {
       mutations: { retry: false },
     },
   });
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  // useLogout 主动退出后会 navigate("/login"),hook 需要 Router 上下文。
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/"]}>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+function wrapperWithLocation(initialPathname: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[initialPathname]}>{children}</MemoryRouter>
+      </QueryClientProvider>
+    );
+  };
 }
 
 describe("useLogoutAll", () => {
@@ -163,6 +186,8 @@ describe("useLogin", () => {
 describe("useLogout", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // 主动退出标记是模块级状态,测试间复位。
+    clearProactiveLogout();
     useAuthStore.getState().setAuth("jwt", fakeUser);
     mockOfflineQueue.count.mockResolvedValue(0);
     mockOfflineQueue.drain.mockResolvedValue({ ok: 0, failed: 0 });
@@ -351,5 +376,76 @@ describe("useLogout", () => {
     expect(mockOfflineQueue.drain).not.toHaveBeenCalled();
     expect(mockAuthApi.logout).not.toHaveBeenCalled();
     expect(localStorage.getItem("token")).toBe("other-tab-token");
+  });
+
+  function LogoutLocationProbe() {
+    const logout = useLogout();
+    const location = useLocation();
+    return (
+      <div>
+        <span data-testid="probe-loc">{location.pathname}</span>
+        <span data-testid="probe-state">{JSON.stringify(location.state ?? null)}</span>
+        <button type="button" onClick={() => void logout.requestLogout()}>
+          退出
+        </button>
+      </div>
+    );
+  }
+
+  it("主动退出后回到 /login,不携带旧页面作为登录返回地址 (Issue #123)", async () => {
+    const { container } = render(
+      <Routes>
+        <Route path="*" element={<LogoutLocationProbe />} />
+      </Routes>,
+      { wrapper: wrapperWithLocation("/unauthorized") },
+    );
+    expect(container.querySelector("[data-testid='probe-loc']")?.textContent).toBe("/unauthorized");
+
+    fireEvent.click(screen.getByRole("button", { name: "退出" }));
+
+    await waitFor(() =>
+      expect(container.querySelector("[data-testid='probe-loc']")?.textContent).toBe("/login"),
+    );
+    // 不带 state.from,登录页不再把 /unauthorized 当作返回目标。
+    expect(container.querySelector("[data-testid='probe-state']")?.textContent).toBe("null");
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it("退出请求返回 401 已清空凭证后仍完成干净跳转 (Issue #123)", async () => {
+    // 模拟 API 客户端在 logout 收到 401 时清空本地凭证,completeLogout 的
+    // 令牌校验随后不再通过,但主动退出仍应把用户带到 /login 且不带 from。
+    mockAuthApi.logout.mockImplementation(async () => {
+      useAuthStore.getState().logout();
+      throw new Error("401 Unauthorized");
+    });
+    const { container } = render(
+      <Routes>
+        <Route path="*" element={<LogoutLocationProbe />} />
+      </Routes>,
+      { wrapper: wrapperWithLocation("/unauthorized") },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "退出" }));
+
+    await waitFor(() =>
+      expect(container.querySelector("[data-testid='probe-loc']")?.textContent).toBe("/login"),
+    );
+    expect(container.querySelector("[data-testid='probe-state']")?.textContent).toBe("null");
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it("取消退出撤销提前置位的主动退出标记", async () => {
+    mockOfflineQueue.count.mockResolvedValue(1);
+    const { result } = renderHook(() => useLogout(), { wrapper });
+
+    await act(async () => {
+      await result.current.requestLogout();
+    });
+    expect(result.current.prompt).toEqual({ userId: fakeUser.id, pendingCount: 1 });
+    expect(isProactiveLogout()).toBe(true);
+
+    act(() => result.current.cancelLogout());
+    expect(isProactiveLogout()).toBe(false);
+    expect(mockAuthApi.logout).not.toHaveBeenCalled();
   });
 });

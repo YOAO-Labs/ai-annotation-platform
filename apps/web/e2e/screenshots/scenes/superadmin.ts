@@ -1,4 +1,120 @@
 import type { ScreenshotScene } from "./_types";
+import type { NotificationItem, NotificationsResponse } from "../../../src/api/notifications";
+
+// notifications/panel-overview 使用确定性列表：截图库没有持久通知，
+// created_at 对齐固定截图时钟（2026-07-13 10:00 +08），保证日期分组与相对时间稳定。
+const NOTIFICATION_FIXTURE_ITEMS: NotificationItem[] = [
+  {
+    id: "8f6a1c40-0000-4000-8000-000000000101",
+    type: "task.approved",
+    target_type: "task",
+    target_id: "8f6a1c40-0000-4000-8000-000000000001",
+    payload: {
+      task_display_id: "T-6",
+      project_id: "8f6a1c40-0000-4000-8000-000000000010",
+      project_display_id: "P-COCO8",
+      actor_id: "8f6a1c40-0000-4000-8000-000000000020",
+      actor_name: "李晓华",
+    },
+    read_at: null,
+    created_at: "2026-07-13T01:52:00Z",
+  },
+  {
+    id: "8f6a1c40-0000-4000-8000-000000000102",
+    type: "task.rejected",
+    target_type: "task",
+    target_id: "8f6a1c40-0000-4000-8000-000000000002",
+    payload: {
+      task_display_id: "T-4",
+      project_id: "8f6a1c40-0000-4000-8000-000000000010",
+      project_display_id: "P-COCO8",
+      reject_reason_type: "missing",
+      reject_reason: "车辆漏标：左侧公交未标注",
+      actor_id: "8f6a1c40-0000-4000-8000-000000000020",
+      actor_name: "李晓华",
+    },
+    read_at: "2026-07-13T01:25:00Z",
+    created_at: "2026-07-13T01:20:00Z",
+  },
+  {
+    id: "8f6a1c40-0000-4000-8000-000000000103",
+    type: "annotation.comment_mentioned",
+    target_type: "annotation_comment",
+    target_id: "8f6a1c40-0000-4000-8000-000000000003",
+    payload: {
+      project_id: "8f6a1c40-0000-4000-8000-000000000010",
+      task_id: "8f6a1c40-0000-4000-8000-000000000001",
+      source: "annotation_comment",
+      actor_name: "王芳",
+      annotation_id: "8f6a1c40-0000-4000-8000-000000000030",
+    },
+    read_at: null,
+    created_at: "2026-07-13T00:30:00Z",
+  },
+  {
+    id: "8f6a1c40-0000-4000-8000-000000000104",
+    type: "feedback.comment_mentioned",
+    target_type: "feedback",
+    target_id: "8f6a1c40-0000-4000-8000-000000000004",
+    payload: {
+      project_id: "8f6a1c40-0000-4000-8000-000000000010",
+      task_id: "8f6a1c40-0000-4000-8000-000000000002",
+      source: "feedback",
+      actor_name: "王芳",
+    },
+    read_at: null,
+    created_at: "2026-07-12T23:00:00Z",
+  },
+  {
+    id: "8f6a1c40-0000-4000-8000-000000000105",
+    type: "batch.admin_locked",
+    target_type: "batch",
+    target_id: "8f6a1c40-0000-4000-8000-000000000005",
+    payload: {
+      batch_display_id: "B-SS-REVIEW",
+      batch_name: "截图 · 待审核",
+      project_id: "8f6a1c40-0000-4000-8000-000000000010",
+      reason: "批量归档前需要核对车辆类别",
+    },
+    read_at: "2026-07-09T23:00:00Z",
+    created_at: "2026-07-09T22:00:00Z",
+  },
+  {
+    id: "8f6a1c40-0000-4000-8000-000000000106",
+    type: "export.ready",
+    target_type: "export",
+    target_id: "8f6a1c40-0000-4000-8000-000000000006",
+    payload: {
+      project_display_id: "P-COCO8",
+      targets: ["annotations", "tasks"],
+      format: "coco",
+      file_count: 8,
+      expires_at: "2026-07-20T02:00:00Z",
+    },
+    read_at: "2026-07-08T02:10:00Z",
+    created_at: "2026-07-08T02:00:00Z",
+  },
+  {
+    id: "8f6a1c40-0000-4000-8000-000000000107",
+    type: "job.completed",
+    target_type: "async_job",
+    target_id: "8f6a1c40-0000-4000-8000-000000000007",
+    payload: {
+      kind: "video_tracker",
+      project_display_id: "P-VIDEO-DEV",
+      project_name: "视频追踪（截图）",
+      task_display_id: "T-1001",
+    },
+    read_at: "2026-07-02T02:20:00Z",
+    created_at: "2026-07-02T02:00:00Z",
+  },
+];
+
+const NOTIFICATION_FIXTURE_RESPONSE: NotificationsResponse = {
+  items: NOTIFICATION_FIXTURE_ITEMS,
+  total: NOTIFICATION_FIXTURE_ITEMS.length,
+  unread: NOTIFICATION_FIXTURE_ITEMS.filter((item) => item.read_at === null).length,
+};
 
 // 平台管理页（super_admin 视角）：用户 / BUG 反馈 / 离线分析 / 系统健康 / 模型市场 / 审计 / 通知面板。
 // 路由见 App.tsx：/users /bugs /admin/analytics /admin/health /model-market /audit。
@@ -104,11 +220,22 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     role: "admin",
     route: () => "/dashboard",
     prepare: async (page) => {
+      // 截图库没有持久通知；用确定性列表展示日期分组、类型筛选与未读样式。
+      await page.route(
+        (url) => url.pathname === "/api/v1/notifications",
+        (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(NOTIFICATION_FIXTURE_RESPONSE),
+          }),
+      );
       await page.waitForLoadState("networkidle");
-      // 顶栏铃铛按钮（title="通知"）→ 展开 NotificationsPopover
-      const bell = page.getByRole("button", { name: "通知", exact: true }).first();
+      // 顶栏铃铛按钮（data-testid）→ 展开 NotificationsPopover；读屏标签随未读数变化。
+      const bell = page.getByTestId("notifications-trigger").first();
       await bell.click();
       await page.getByRole("dialog").waitFor({ timeout: 3000 });
+      await page.getByText("通过了任务").waitFor({ timeout: 3000 });
     },
     capture: { kind: "locator", selector: '[role="dialog"]', padding: 0 },
     target: "docs-site/user-guide/images/notifications/panel-overview.png",

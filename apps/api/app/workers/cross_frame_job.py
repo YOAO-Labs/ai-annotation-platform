@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.db.enums import UserRole
+from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.task import Task
@@ -26,11 +26,34 @@ from app.workers.celery_app import celery_app
 
 
 log = logging.getLogger(__name__)
-_REVIEW_EDIT_ROLES = {
-    UserRole.SUPER_ADMIN.value,
-    UserRole.PROJECT_ADMIN.value,
-    UserRole.REVIEWER.value,
-}
+
+
+async def _resolve_task_access(
+    db: AsyncSession, task: Task, actor: User, *, lock: bool = False
+):
+    """Resolve current project access for a task's actual project, fail closed."""
+
+    from app.db.models.project import Project
+    from app.services.project_access import resolve_project_access
+
+    project = await db.get(Project, task.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="task_missing")
+    try:
+        return await resolve_project_access(
+            db, user=actor, project=project, lock_membership=lock
+        )
+    except HTTPException as exc:
+        raise HTTPException(status_code=403, detail="permission_changed") from exc
+
+
+async def _review_task_authority(db: AsyncSession, task: Task, actor: User) -> None:
+    """Assert current project manager/reviewer authority for review-state work."""
+
+    access = await _resolve_task_access(db, task, actor)
+    if access.is_manager or access.project_role == ProjectRole.REVIEWER.value:
+        return
+    raise HTTPException(status_code=403, detail="permission_changed")
 
 
 @celery_app.task(bind=True, name="app.workers.cross_frame_job.run_cross_frame_job")
@@ -179,6 +202,9 @@ async def execute_cross_frame_job(
         )
 
     source_stale = False
+    # Stable actor id: a per-frame rollback expires the ORM instance, so the
+    # bounded account lock must use a captured id rather than actor.id.
+    actor_user_id = actor.id
     for target_index, target in enumerate(targets):
         frame_index = int(target["frame_index"])
         if frame_index in completed_by_frame:
@@ -220,17 +246,44 @@ async def execute_cross_frame_job(
         try:
             # 每帧进入写事务前恢复 actor：上一帧 rollback 会过期
             # Session 内对象，同时这也让运行中被停用的账号不再继续写入。
+            # Account-first: bounded FOR SHARE NOWAIT on the acting account
+            # before membership/Task locks so a concurrent global disable cannot
+            # race the frame commit.  A busy account rolls back to a terminal
+            # item via the outer handler instead of a wait cycle.
+            from app.services.project_write_guard import (
+                lock_actor_account,
+                lock_actor_scope,
+            )
+
+            try:
+                await lock_actor_account(db, actor_user_id)
+            except HTTPException as exc:
+                raise RuntimeError("permission_changed") from exc
             await db.refresh(actor)
             if not actor.is_active:
                 raise RuntimeError("permission_changed")
             lock_ids = sorted({source_task_id, target_task_id}, key=str)
+            # Account/membership-before-resource: bounded share lock the actor's
+            # membership for each involved project before the Task locks, so the
+            # final-write guard's membership re-read cannot wait after a Task.
+
+            member_project_ids = set(
+                (
+                    await db.execute(
+                        select(Task.project_id).where(Task.id.in_(lock_ids))
+                    )
+                ).scalars()
+            )
+            for member_project_id in member_project_ids:
+                await lock_actor_scope(db, actor.id, member_project_id)
             locked_tasks = list(
                 (
                     await db.execute(
                         select(Task)
                         .where(Task.id.in_(lock_ids))
                         .order_by(Task.id)
-                        .with_for_update()
+                        .with_for_update(nowait=True)
+                        .execution_options(populate_existing=True)
                     )
                 ).scalars()
             )
@@ -246,14 +299,30 @@ async def execute_cross_frame_job(
                 await _assert_task_visible(db, target_task, actor)
             except HTTPException as exc:
                 raise RuntimeError("permission_changed") from exc
-            if source_task.status == "completed" or (
-                source_task.status == "review" and actor.role not in _REVIEW_EDIT_ROLES
-            ):
+            if source_task.status == "completed":
                 raise RuntimeError("source_task_locked")
-            if target_task.status == "completed" or (
-                target_task.status == "review" and actor.role not in _REVIEW_EDIT_ROLES
-            ):
+            if source_task.status == "review":
+                # Reading a review-state source still needs review authority.
+                try:
+                    await _review_task_authority(db, source_task, actor)
+                except HTTPException as exc:
+                    raise RuntimeError("source_task_locked") from exc
+            if target_task.status == "completed":
                 raise RuntimeError("target_task_locked")
+            # Phase-aware write: pending/in-progress requires the effective
+            # annotator (or manager); review additionally validates the frozen
+            # contributor evidence.  Reviewer/viewer cannot write annotation
+            # work.
+            try:
+                from app.services.project_write_guard import (
+                    assert_phase_write_allowed,
+                )
+
+                await assert_phase_write_allowed(
+                    db, target_task, actor, action="propagate"
+                )
+            except HTTPException as exc:
+                raise RuntimeError("target_task_locked") from exc
 
             source_rows = list(
                 (

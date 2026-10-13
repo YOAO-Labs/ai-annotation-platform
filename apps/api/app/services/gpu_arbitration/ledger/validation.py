@@ -1,8 +1,7 @@
 """Input validation, canonicalization and domain checks for the GPU arbitration ledger.
 
-Extracted verbatim from the legacy ``gpu_arbiter_store`` module. This is the lowest
-domain layer above :mod:`gpu_arbitration.ledger.types` (it does not depend on keys,
-store or scripts).
+This is the lowest domain layer above :mod:`gpu_arbitration.ledger.types` (it does not
+depend on keys, store or scripts).
 """
 
 from __future__ import annotations

@@ -59,7 +59,7 @@ def _clear_setup_cache():
 
 
 async def test_create_multiple_ml_backends_no_limit(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """ADR-0044 · 不再有单项目 backend 上限: 同项目连加多个 backend 都成功。"""
     user, token = super_admin
@@ -69,7 +69,7 @@ async def test_create_multiple_ml_backends_no_limit(
 
     headers = {"Authorization": f"Bearer {token}"}
     for i in range(3):
-        resp = await httpx_client_bound.post(
+        resp = await httpx_client.post(
             f"/api/v1/projects/{proj.id}/ml-backends",
             json={
                 "name": f"sam3-{i}",
@@ -82,7 +82,7 @@ async def test_create_multiple_ml_backends_no_limit(
 
 
 async def test_create_ml_backend_reuses_registry_by_url(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """ADR-0044 · 同一 url 第二次添加复用同一全局 registry id (不新建)。"""
     user, token = super_admin
@@ -91,10 +91,10 @@ async def test_create_ml_backend_reuses_registry_by_url(
 
     headers = {"Authorization": f"Bearer {token}"}
     body = {"name": "sam3", "url": "http://sam3-reuse/", "is_interactive": True}
-    r1 = await httpx_client_bound.post(
+    r1 = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends", json=body, headers=headers
     )
-    r2 = await httpx_client_bound.post(
+    r2 = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends", json=body, headers=headers
     )
     assert r1.status_code == 201, r1.text
@@ -103,7 +103,7 @@ async def test_create_ml_backend_reuses_registry_by_url(
 
 
 async def test_create_ml_backend_activates_singleton_pool(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """registry 兼容入口首次启用时同步激活 singleton pool，真实路由才可达。"""
     from sqlalchemy import select
@@ -117,7 +117,7 @@ async def test_create_ml_backend_activates_singleton_pool(
     proj = await _seed_project(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends",
         json={
             "name": "sam3-routable",
@@ -142,14 +142,14 @@ async def test_create_ml_backend_activates_singleton_pool(
 
 
 async def test_project_out_drops_ml_backend_limit(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """ADR-0044 · 上限彻底退役, ProjectOut 不再透出 ml_backend_limit 字段。"""
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/projects/{proj.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -158,7 +158,7 @@ async def test_project_out_drops_ml_backend_limit(
 
 
 async def test_setup_proxy_returns_capability_and_caches(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -182,8 +182,8 @@ async def test_setup_proxy_returns_capability_and_caches(
     with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
         url = f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/setup"
         headers = {"Authorization": f"Bearer {token}"}
-        r1 = await httpx_client_bound.get(url, headers=headers)
-        r2 = await httpx_client_bound.get(url, headers=headers)
+        r1 = await httpx_client.get(url, headers=headers)
+        r2 = await httpx_client.get(url, headers=headers)
 
     assert r1.status_code == 200, r1.text
     assert r1.json() == capability
@@ -193,7 +193,7 @@ async def test_setup_proxy_returns_capability_and_caches(
 
 
 async def test_setup_proxy_404_on_cross_project_backend(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """ADR-0044 · backend 只对 B 项目启用, 用 A 项目路径访问 → 404 (未启用)。"""
     user, token = super_admin
@@ -202,7 +202,7 @@ async def test_setup_proxy_404_on_cross_project_backend(
     backend_b = await _seed_backend(db_session, proj_b.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/projects/{proj_a.id}/ml-backends/{backend_b.id}/setup",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -210,7 +210,7 @@ async def test_setup_proxy_404_on_cross_project_backend(
 
 
 async def test_setup_proxy_502_when_backend_unreachable(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -221,7 +221,7 @@ async def test_setup_proxy_502_when_backend_unreachable(
         raise RuntimeError("connection refused")
 
     with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
-        resp = await httpx_client_bound.get(
+        resp = await httpx_client.get(
             f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/setup",
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -254,7 +254,7 @@ _SETUP_WITH_MODELS = {
 
 
 async def test_capabilities_returns_derived_models_snapshot(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -265,7 +265,7 @@ async def test_capabilities_returns_derived_models_snapshot(
         return _SETUP_WITH_MODELS
 
     with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
-        resp = await httpx_client_bound.get(
+        resp = await httpx_client.get(
             f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -285,7 +285,7 @@ async def test_capabilities_returns_derived_models_snapshot(
 
 
 async def test_capabilities_refresh_invalidates_cache(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     """refresh 先 pop setup 缓存再重探: 两次结果不同时 refresh 拿到新值。"""
     user, token = super_admin
@@ -301,7 +301,7 @@ async def test_capabilities_refresh_invalidates_cache(
     headers = {"Authorization": f"Bearer {token}"}
     with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
         # 先 GET 一次填充缓存
-        r1 = await httpx_client_bound.get(
+        r1 = await httpx_client.get(
             f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
             headers=headers,
         )
@@ -309,13 +309,13 @@ async def test_capabilities_refresh_invalidates_cache(
         # backend 升级换 infra
         state["infra"] = "tensorrt"
         # 不刷新时 GET 仍走 30s 缓存 → 旧值
-        r2 = await httpx_client_bound.get(
+        r2 = await httpx_client.get(
             f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
             headers=headers,
         )
         assert r2.json()["infra"] == "pytorch"
         # refresh 先 invalidate 缓存再重探 → 新值
-        r3 = await httpx_client_bound.post(
+        r3 = await httpx_client.post(
             f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities/refresh",
             headers=headers,
         )
@@ -324,7 +324,7 @@ async def test_capabilities_refresh_invalidates_cache(
 
 
 async def test_capabilities_404_on_cross_project_backend(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj_a = await _seed_project(db_session, user.id)
@@ -332,7 +332,7 @@ async def test_capabilities_404_on_cross_project_backend(
     backend_b = await _seed_backend(db_session, proj_b.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/projects/{proj_a.id}/ml-backends/{backend_b.id}/capabilities",
         headers={"Authorization": f"Bearer {token}"},
     )

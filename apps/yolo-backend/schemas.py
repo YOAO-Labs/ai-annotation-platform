@@ -53,7 +53,7 @@ class Variants(BaseModel):
         "yolo12",
         "yolo26",
         "rtdetr",
-        # v0.18.21 · 开集文本检测 series.
+        # 开集文本检测 series.
         "yolo-worldv2",
         "yolo-world",
         "yoloe-v8",
@@ -69,13 +69,13 @@ class PredictParams(BaseModel):
     conf: float = Field(default=0.25, ge=0.0, le=1.0)
     iou: float = Field(default=0.70, ge=0.0, le=1.0)
     max_det: int = Field(default=300, ge=1, le=1000)
-    # v0.21.1 · 检测式视频追踪的关联算法 (type=tracker 时生效; 其它 task 忽略)。平台 apply-time
+    # 检测式视频追踪的关联算法 (type=tracker 时生效; 其它 task 忽略)。平台 apply-time
     # 从 /setup.supported_trackers 选定并下发; enum 约束到 ultralytics 内建 tracker 配置文件名。
     tracker: Literal["bytetrack", "botsort"] = "bytetrack"
 
 
 class Exemplar(BaseModel):
-    """v0.18.23 · YOLOE visual prompt 单框样例 (字段名与 sam3 对齐, 平台 exemplar wire 直通).
+    """YOLOE visual prompt 单框样例 (字段名与 sam3 对齐, 平台 exemplar wire 直通).
 
     bbox: 归一化 xyxy [x1,y1,x2,y2] (∈[0,1]); label: True=正框 / False=负框。
     YOLOE 无负框语义 → predictor 仅取正框 (label=True), 负框静默忽略。
@@ -104,7 +104,7 @@ class Context(BaseModel):
     """yolo context. `type` 决定走哪条分支:
 
     - 闭集批量: type ∈ {detection,segmentation,keypoint,obb}, 嵌套 params + 闭集 variants.
-    - 开集文本 (v0.18.21): type="text", 顶层 `text` 开放词表 + 开集 variants(series=world/yoloe);
+    - 开集文本: type="text", 顶层 `text` 开放词表 + 开集 variants(series=world/yoloe);
       平台文本路径把 conf/iou/max_det 扁平在顶层 (非嵌套 params), 由 before-validator 收拢.
     """
 
@@ -114,16 +114,16 @@ class Context(BaseModel):
     model_variants: dict[str, str] | None = None
     variants: Variants
     params: PredictParams = Field(default_factory=PredictParams)
-    # v0.14.17 · 类别白名单 (模型原生类别 index 子集). 非空时只检出这些类; 空/缺=全部类别.
+    # 类别白名单 (模型原生类别 index 子集). 非空时只检出这些类; 空/缺=全部类别.
     # 平台不做类→项目标签映射 (NG6), 仅在推理层用 ultralytics model.predict(classes=) 过滤.
     classes: list[int] | None = None
-    # v0.18.21 · 开集文本路径字段 (type=text 时生效).
+    # 开集文本路径字段 (type=text 时生效).
     text: str | None = None  # 开放词表, 逗号/换行分隔多类名.
     model_id: str | None = None  # 平台路由记录用 (后端按 series 派生 family, 不强依赖).
     output: Literal["box", "mask", "both"] = (
         "box"  # text 默认 box; exemplar 默认 mask 由平台下发.
     )
-    # v0.18.23 · YOLOE visual prompt exemplar 路径 (type=exemplar 时生效).
+    # YOLOE visual prompt exemplar 路径 (type=exemplar 时生效).
     exemplars: list[Exemplar] | None = None  # 多框样例 (归一化 xyxy); 仅正框入 YOLOE。
     score_threshold: float | None = (
         None  # exemplar per-req 阈值 → 映射 yoloe conf; null=用 params.conf。
@@ -138,7 +138,7 @@ class Context(BaseModel):
         log_deprecated_model_variant_fields(logger, deprecated)
         if "variants" not in normalized and "model_variants" in normalized:
             normalized["variants"] = normalized["model_variants"]
-        # v0.18.23 · exemplar 交互路径前端可能不带 model_variants (exemplar 工具暂无变体选择器);
+        # exemplar 交互路径前端可能不带 model_variants (exemplar 工具暂无变体选择器);
         # exemplar 恒 yoloe, 缺省回落默认档 (与 gsam2 交互变体 env 兜底同理, 避免 422/502)。
         if "variants" not in normalized and normalized.get("type") == "exemplar":
             from model_registry import OPENVOCAB_DEFAULT_YOLOE  # noqa: PLC0415
@@ -179,7 +179,7 @@ class BatchPredictRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _accept_singular_task(cls, data):
-        """v0.18.23 · 平台交互调用 (predict_interactive) 向 /predict 发单数 `task` wire
+        """平台交互调用 (predict_interactive) 向 /predict 发单数 `task` wire
         (`{task, context}`); 批量发 `tasks`。这里把单数归一成 `tasks=[task]`, 使 yolo 成为
         交互 backend (exemplar) 后, 同一 /predict 端点同时收批量与交互两种形态。"""
         if isinstance(data, dict) and "tasks" not in data and "task" in data:
@@ -190,7 +190,7 @@ class BatchPredictRequest(BaseModel):
 
 
 class WarmupRequest(BaseModel):
-    """v0.14.14 协议 §4.4 `/warmup` 请求体. 与 predict context 结构相近, 但不带图像.
+    """协议 §4.4 `/warmup` 请求体. 与 predict context 结构相近, 但不带图像.
 
     task 取 /setup models[].task: 闭集四 task + 开集交互 exemplar 模型条目的 ``interactive_seg``
     (令 warmup 命中独立的 VP pool POOL_TASK_OPENVOCAB_VP, 与首次拖框交互同句柄; 见 issue 0003)。

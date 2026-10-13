@@ -81,7 +81,7 @@ environment: Literal["development", "staging", "production"] = "development"
 
 `pnpm dev:worktree` 在现有开发形态上增加工作树级资源归属，不复用主目录的业务数据库
 或后台任务消费者。PostgreSQL/MinIO 进程可以共享，但每个工作树、每种模式拥有独立的
-database、七个 bucket、Redis 容器和本地数据目录；API/Web 与可选 worker 都运行当前 checkout。
+database、八个 bucket、Redis 容器和本地数据目录；API/Web 与可选 worker 都运行当前 checkout。
 
 运行时身份绑定工作树路径，配置通过子进程环境覆盖，不修改共享 `.env`。启动前检查迁移图
 和数据库 revision；停止保留数据，重建需要精确确认和资源归属检查。不同 Redis DB 编号

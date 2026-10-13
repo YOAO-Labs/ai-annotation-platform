@@ -1,4 +1,4 @@
-"""Prometheus 指标 + GPU / 容器 PerfHud 采样 (yolo-backend, v0.14.12).
+"""Prometheus 指标 + GPU / 容器 PerfHud 采样 (yolo-backend).
 
 指标命名与 sam3-backend / grounded-sam2-backend 对齐, 靠 Prometheus `service`
 label 区分 backend 实例, 不靠 metric 名前缀. yolo 无 embedding cache, 该组 metric 不暴露;

@@ -9,15 +9,16 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import and_, func, or_, select, true
+from sqlalchemy import and_, func, or_, select, true, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import UserRole
+from app.db.enums import PLATFORM_ROLES, TaskStatus, UserRole
 from app.db.models.group import Group
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.schemas.group import GroupOut
@@ -31,10 +32,20 @@ from app.schemas.management import (
     RoleImpactProject,
     UserStats,
 )
+from app.services.invitation import invitation_project_role
 
 
 USER_STATUS = Literal["active", "inactive", "all"]
 INVITATION_STATUS = Literal["pending", "accepted", "expired", "revoked", "all"]
+
+# Project admins manage every *enabled* annotator/reviewer account
+# (unassigned or in other projects' memberships) — interim until
+# annotator/reviewer identity becomes project-driven; matches the widened
+# member-assignment candidate list. Super admins stay read-only-visible but
+# never manageable, and deactivated accounts stay out of scope.
+#: Live platform roles a project administrator may manage/assign.  Legacy
+#: global staff values are history only and never an eligible receiver.
+_PA_OPERABLE_ROLES = (UserRole.EMPLOYEE.value,)
 
 
 def _managed_user_ids(actor: User):
@@ -47,23 +58,106 @@ def _managed_user_ids(actor: User):
     )
 
 
+async def fetch_managed_user_ids(db: AsyncSession, actor: User) -> set[UUID]:
+    """Own-project member ids of a project admin (one concrete SELECT).
+
+    Note this is only the project-bounded part of the manage scope; the
+    platform-wide enabled annotator/reviewer arm is composed per row by
+    callers (see ``query_users``) because the row itself already carries
+    ``role`` / ``is_active``.
+    """
+
+    rows = (await db.execute(_managed_user_ids(actor))).scalars().all()
+    return set(rows)
+
+
+async def fetch_lifecycle_blocked_ids(
+    db: AsyncSession, *, actor: User, user_ids: list[UUID]
+) -> set[UUID]:
+    """Ids among ``user_ids`` whose derived projects leave the actor's scope.
+
+    Mirrors the project arms of ``UserLifecycleService._project_ids_for_target``
+    (owned projects, memberships, batch assignments, tasks/locks) and keeps
+    the users touching at least one project NOT owned by ``actor``. The
+    lifecycle endpoints reject exactly these targets for project admins even
+    though account-level writes use the wider manage scope, so the users page
+    can hide offboarding / delete / reactivate up front instead of surfacing
+    buttons that always end in 403.
+    """
+
+    if not user_ids:
+        return set()
+
+    ids = sorted(set(user_ids))
+    foreign_arms = (
+        # Projects the user owns.
+        select(Project.owner_id.label("user_id")).where(
+            Project.owner_id.in_(ids),
+            Project.owner_id != actor.id,
+        ),
+        # Project memberships.
+        select(ProjectMember.user_id.label("user_id"))
+        .join(Project, Project.id == ProjectMember.project_id)
+        .where(ProjectMember.user_id.in_(ids), Project.owner_id != actor.id),
+        # Batch assignments (annotator / reviewer).
+        select(TaskBatch.annotator_id.label("user_id"))
+        .join(Project, Project.id == TaskBatch.project_id)
+        .where(TaskBatch.annotator_id.in_(ids), Project.owner_id != actor.id),
+        select(TaskBatch.reviewer_id.label("user_id"))
+        .join(Project, Project.id == TaskBatch.project_id)
+        .where(TaskBatch.reviewer_id.in_(ids), Project.owner_id != actor.id),
+        # Task assignments (assignee / reviewer).
+        select(Task.assignee_id.label("user_id"))
+        .join(Project, Project.id == Task.project_id)
+        .where(Task.assignee_id.in_(ids), Project.owner_id != actor.id),
+        select(Task.reviewer_id.label("user_id"))
+        .join(Project, Project.id == Task.project_id)
+        .where(Task.reviewer_id.in_(ids), Project.owner_id != actor.id),
+        # Task locks.
+        select(TaskLock.user_id.label("user_id"))
+        .join(Task, Task.id == TaskLock.task_id)
+        .join(Project, Project.id == Task.project_id)
+        .where(TaskLock.user_id.in_(ids), Project.owner_id != actor.id),
+    )
+    rows = (await db.execute(union(*foreign_arms))).scalars().all()
+    return {row for row in rows if row is not None}
+
+
 def user_scope_clause(
     actor: User,
     *,
     project_id: UUID | None = None,
 ):
-    """Scope management queries to the actor's visible user set.
+    """Scope **write/management** guards to the actor's manageable user set.
 
-    The legacy picker endpoint intentionally has a wider candidate list.  E
-    management endpoints use this stricter rule consistently for list, stats,
-    export and bulk operations: super admins see all users; project admins see
-    themselves and users belonging to projects they own.
+    Management *writes* (bulk group assignment, and previews that must not
+    disclose out-of-scope accounts) use this rule: super admins manage all
+    users; project admins manage themselves, users belonging to projects
+    they own, plus — until annotator/reviewer identity becomes
+    project-driven — every *enabled* annotator/reviewer account (unassigned
+    or in other projects' memberships).  Deactivated accounts outside their
+    projects, other project admins, viewers, and super admins stay out of a
+    project admin's manage scope.
+
+    When ``project_id`` is given the clause stays strictly project-bounded
+    (self + own-project members, intersected with that project's members) so
+    the platform-wide arm can neither disclose nor mutate foreign-project
+    membership lists.
     """
 
     if actor.role == UserRole.SUPER_ADMIN.value:
         clause = true()
-    else:
+    elif project_id is not None:
         clause = or_(User.id == actor.id, User.id.in_(_managed_user_ids(actor)))
+    else:
+        clause = or_(
+            User.id == actor.id,
+            User.id.in_(_managed_user_ids(actor)),
+            and_(
+                User.is_active.is_(True),
+                User.role.in_(_PA_OPERABLE_ROLES),
+            ),
+        )
 
     if project_id is not None:
         project_users = select(ProjectMember.user_id).where(
@@ -71,6 +165,58 @@ def user_scope_clause(
         )
         clause = and_(clause, User.id.in_(project_users))
     return clause
+
+
+def user_visibility_clause(
+    actor: User,
+    *,
+    project_id: UUID | None = None,
+):
+    """Scope read-only management queries (list / stats / export).
+
+    Super admins see all users.  Project admins see their manage scope
+    (``user_scope_clause``: self, own-project members, every enabled
+    annotator/reviewer) plus every *enabled* super admin as read-only
+    contact/lookup — that extra arm never grants management, and super-admin
+    rows stay non-manageable for project admins.  Deactivated accounts
+    outside the admin's projects, other project admins, and viewers stay
+    hidden.
+
+    When ``project_id`` is given the clause stays project-bounded exactly
+    like ``user_scope_clause``: a foreign project yields nothing, so the
+    platform-wide arms cannot disclose cross-project membership.
+    """
+
+    if project_id is not None:
+        # Delegates to the strict project-bounded branch of the manage scope
+        # (self + own-project members ∩ that project); the platform-wide arms
+        # never apply to project-filtered queries.
+        return user_scope_clause(actor, project_id=project_id)
+
+    if actor.role == UserRole.SUPER_ADMIN.value:
+        return true()
+
+    return or_(
+        user_scope_clause(actor),
+        and_(
+            User.is_active.is_(True),
+            User.role == UserRole.SUPER_ADMIN.value,
+        ),
+    )
+
+
+def validate_platform_role_filter(role: str | None) -> str | None:
+    """Reject legacy/unknown staff-role filters instead of returning nothing.
+
+    ``role=annotator``/``reviewer`` was the old global staff query; after the
+    employee cutover it must be a validation error, never a silently empty set.
+    """
+
+    if role is None:
+        return None
+    if role not in PLATFORM_ROLES:
+        raise HTTPException(status_code=400, detail=f"非法平台角色: {role}")
+    return role
 
 
 def build_user_query(
@@ -82,7 +228,8 @@ def build_user_query(
     status_filter: USER_STATUS = "active",
     search: str | None = None,
 ):
-    query = select(User).where(user_scope_clause(actor, project_id=project_id))
+    role = validate_platform_role_filter(role)
+    query = select(User).where(user_visibility_clause(actor, project_id=project_id))
     if status_filter == "active":
         query = query.where(User.is_active.is_(True))
     elif status_filter == "inactive":
@@ -335,7 +482,7 @@ async def _invitation_outputs(
             group_name=row.group_name,
             project_id=row.project_id,
             project_name=projects.get(row.project_id),
-            project_member_role=row.role if row.project_id else None,
+            project_member_role=invitation_project_role(row),
             status=row.status,
             expires_at=row.expires_at,
             invited_by=row.invited_by,
@@ -450,6 +597,77 @@ async def invitation_stats(
     )
 
 
+async def platform_role_change_blockers(
+    db: AsyncSession, *, target: User, new_role: str
+) -> list[str]:
+    """Blockers shared by platform-role preview and mutation.
+
+    Leaving an administrative identity (including a demotion to ``employee``)
+    must not create an anomalous non-administrative project owner, and a
+    platform-role edit never rewrites project memberships.
+    """
+
+    from app.db.enums import MANAGER_PLATFORM_ROLES, PlatformRole, ProjectRole
+    from app.services.scheduler import (
+        effective_task_assignee_expr,
+        effective_task_reviewer_expr,
+    )
+
+    blockers: list[str] = []
+    is_manager_role = new_role in MANAGER_PLATFORM_ROLES
+
+    if is_manager_role or new_role == PlatformRole.VIEWER.value:
+        work_memberships = int(
+            await db.scalar(
+                select(func.count(ProjectMember.id)).where(
+                    ProjectMember.user_id == target.id,
+                    ProjectMember.role != ProjectRole.VIEWER.value,
+                )
+            )
+            or 0
+        )
+        if work_memberships:
+            blockers.append("账号仍持有标注/质检项目职责，请先在项目中变更职责")
+
+    # Ownership blocks every non-administrative platform role, including
+    # employee: an employee owner would be an authorization anomaly.
+    if not is_manager_role:
+        owned = int(
+            await db.scalar(
+                select(func.count(Project.id)).where(Project.owner_id == target.id)
+            )
+            or 0
+        )
+        if owned:
+            blockers.append("账号仍是项目负责人，请先转移项目后变更平台角色")
+
+    if new_role == PlatformRole.VIEWER.value:
+        unfinished_statuses = (
+            TaskStatus.PENDING.value,
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.REJECTED.value,
+            TaskStatus.REVIEW.value,
+        )
+        unfinished = int(
+            await db.scalar(
+                select(func.count(Task.id))
+                .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
+                .where(
+                    Task.status.in_(unfinished_statuses),
+                    or_(
+                        effective_task_assignee_expr() == target.id,
+                        effective_task_reviewer_expr() == target.id,
+                    ),
+                )
+            )
+            or 0
+        )
+        if unfinished:
+            blockers.append("账号仍有未完成的标注/质检工作，请先交接")
+
+    return blockers
+
+
 async def role_impact_preview(
     db: AsyncSession,
     *,
@@ -489,6 +707,14 @@ async def role_impact_preview(
         )
         if active_super_admins <= 1:
             blockers.append("不能降级最后一名超级管理员")
+
+    if requested_role != target.role:
+        # Preview must report the same blockers the mutation enforces.
+        blockers.extend(
+            await platform_role_change_blockers(
+                db, target=target, new_role=requested_role
+            )
+        )
 
     project_query = (
         select(ProjectMember, Project)

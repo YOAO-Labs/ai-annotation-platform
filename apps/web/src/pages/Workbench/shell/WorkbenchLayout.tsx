@@ -9,7 +9,6 @@ import {
   type Ref,
 } from "react";
 import { ConflictModal } from "@/components/workbench/ConflictModal";
-import { RejectReasonModal } from "@/pages/Review/RejectReasonModal";
 import type { VideoStageControls } from "../stage/videoStageControls";
 import { VideoTrackerPropagateDialog } from "../stage/VideoTrackerPropagateDialog";
 import { AIInspectorPanel, AIPredictionPopover } from "./AIInspectorPanel";
@@ -62,7 +61,6 @@ interface WorkbenchLayoutProps {
   /** v0.15.3 · 工作台设置窗口(齿轮菜单入口)。 */
   workbenchSettings: ComponentProps<typeof WorkbenchSettingsDialog>;
   conflict: ComponentProps<typeof ConflictModal>;
-  rejectModal?: ComponentProps<typeof RejectReasonModal>;
   deleteConfirm?: ComponentProps<typeof DeleteConfirmModal>;
   // v0.10.13 · E1 · 顶栏标注指引入口 (可选; 项目无 guide 时不渲染).
   guidePanel?: ComponentProps<typeof GuidePanel>;
@@ -114,7 +112,6 @@ export function WorkbenchLayout({
   offlineQueue,
   workbenchSettings,
   conflict,
-  rejectModal,
   deleteConfirm,
   guidePanel,
   discussionPanel,
@@ -160,6 +157,9 @@ export function WorkbenchLayout({
     [floatingSelection, linkedFloatingSelection, setPetPosition],
   );
 
+  // 3D / 点云画布在软件渲染下用 backdrop-filter 会拖慢合成清理，这类工作台只压暗。
+  const dialogBackdropBlur = stageHost.common.stageKind !== "3d";
+
   return (
     <div ref={rootRef} className="relative flex h-full flex-col overflow-hidden bg-muted">
       <WorkbenchDockWorkspace
@@ -175,6 +175,7 @@ export function WorkbenchLayout({
                     key={guidePanelScopeKey(guidePanel)}
                     {...guidePanel}
                     projectName={topbar.projectName}
+                    backdropBlur={dialogBackdropBlur}
                   />
                 ) : undefined
               }
@@ -182,7 +183,11 @@ export function WorkbenchLayout({
               layoutDisabled={state.disabled}
               sides={state.sides}
             />
-            <WorkbenchSettingsDialog {...workbenchSettings} layoutSettings={layoutSettings} />
+            <WorkbenchSettingsDialog
+              {...workbenchSettings}
+              layoutSettings={layoutSettings}
+              backdropBlur={dialogBackdropBlur}
+            />
           </>
         )}
         slots={{
@@ -212,7 +217,18 @@ export function WorkbenchLayout({
                   />
                   {stageHost.common.stageKind !== "video" && stageOverlay}
                 </div>
-                <StatusBar {...statusBar} />
+                <StatusBar
+                  {...statusBar}
+                  toolHint={
+                    statusBar.toolHint ?? {
+                      tool: toolDock.tool,
+                      videoTool: toolDock.videoTool,
+                      threeDTool: toolDock.threeDTool,
+                      stageKind: stageHost.common.stageKind,
+                      reviewMode: toolDock.reviewMode,
+                    }
+                  }
+                />
               </div>
             </div>
           ),
@@ -265,7 +281,6 @@ export function WorkbenchLayout({
       <HotkeyCheatSheet {...hotkeys} />
       <OfflineQueueDrawer {...offlineQueue} />
       <ConflictModal {...conflict} />
-      {rejectModal && <RejectReasonModal {...rejectModal} />}
       {deleteConfirm && <DeleteConfirmModal {...deleteConfirm} />}
     </div>
   );

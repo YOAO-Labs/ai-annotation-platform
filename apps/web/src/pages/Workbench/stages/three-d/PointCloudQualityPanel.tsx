@@ -219,7 +219,7 @@ export function PointCloudQualityPanel({
                 ? "扫描当前 Scene"
                 : "扫描当前任务"}
           </Button>
-          <FilterGroup label="问题筛选" compact className="ml-auto">
+          <FilterGroup label="问题筛选" hideLabel compact className="ml-auto">
             <FilterSelect
               aria-label="质量问题状态"
               value={filter}

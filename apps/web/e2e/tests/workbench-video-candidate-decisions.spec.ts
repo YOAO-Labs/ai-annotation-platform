@@ -5,7 +5,7 @@ const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 type Prediction = { id: string; result: { class_name: string; shape_index: number }[] };
 
 async function prepare(page: Page, request: APIRequestContext, seed: SeedAPI) {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const { task_id: taskId } = await seed.videoTask(data.project_id);
   const token = await seed.accessToken(data.admin_email);
   const headers = { Authorization: `Bearer ${token}` };

@@ -4,19 +4,19 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Date, or_, and_
 from app.deps import (
-    assert_project_visible,
     get_current_user,
     get_db,
     require_roles,
 )
 from app.db.models.user import User
 from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.dataset import DatasetItem
 from app.db.models.annotation import Annotation
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_event import TaskEvent
-from app.db.enums import UserRole, TaskStatus
+from app.db.enums import UserRole, TaskStatus, ProjectRole
 from app.schemas.dashboard import (
     AnnotatorDashboardStats,
     MyBatchItem,
@@ -24,7 +24,13 @@ from app.schemas.dashboard import (
     OnboardingProjectSummary,
 )
 from app.services.storage import storage_service
-from app.services.scheduler import task_visibility_clause, is_privileged_for_project
+from app.services.scheduler import task_visibility_clause
+from app.services.project_aggregates import (
+    ANNOTATOR_ROLE,
+    DASHBOARD_PLATFORM_ROLES,
+    project_scope_clause,
+    task_project_scope,
+)
 from app.services.user_brief import resolve_briefs_with_project_role
 from app.services.dashboard_stats import (
     _class_distribution,
@@ -43,14 +49,7 @@ router = APIRouter()
 async def annotator_project_onboarding(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.SUPER_ADMIN,
-            UserRole.PROJECT_ADMIN,
-            UserRole.REVIEWER,
-            UserRole.ANNOTATOR,
-        )
-    ),
+    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
 ):
     """Return durable checklist signals for the current user and project.
 
@@ -59,13 +58,23 @@ async def annotator_project_onboarding(
     assignee's task review fields.  Client-side remembered task state is only a
     supplemental signal for the currently open browser tab.
     """
-    project = await assert_project_visible(project_id, db, current_user)
+    from app.services.project_access import resolve_project_access_by_id
+
+    project, access = await resolve_project_access_by_id(
+        db, user=current_user, project_id=project_id
+    )
     assignment_scope = True
-    if not is_privileged_for_project(current_user, project):
+    if not access.is_manager:
+        # Pass the resolved project role: the task-visibility predicate fails
+        # closed without one, so omitting it would hide every assigned task.
         assignment_scope = or_(
             Task.batch_id.in_(
                 select(TaskBatch.id)
-                .where(task_visibility_clause(current_user))
+                .where(
+                    task_visibility_clause(
+                        current_user, project_role=access.project_role
+                    )
+                )
                 .correlate_except(TaskBatch)
             ),
             and_(
@@ -167,32 +176,34 @@ async def annotator_project_onboarding(
 @router.get("/annotator", response_model=AnnotatorDashboardStats)
 async def annotator_dashboard(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.SUPER_ADMIN,
-            UserRole.PROJECT_ADMIN,
-            UserRole.REVIEWER,
-            UserRole.ANNOTATOR,
-        )
-    ),
+    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
 ):
+    # Current annotation work follows the *project* annotator role.  An
+    # employee who is only a reviewer elsewhere must not see that project's
+    # task queue; a manager keeps the existing owner/super-admin override.
+    # Historical personal metrics below stay account-scoped.
+    annotator_work_scope = task_project_scope(
+        current_user, project_roles=(ANNOTATOR_ROLE,)
+    )
+    assigned_filters = [
+        Task.assignee_id == current_user.id,
+        Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
+    ]
+    rejected_filters = [
+        Task.assignee_id == current_user.id,
+        Task.status == "rejected",
+    ]
+    if annotator_work_scope is not None:
+        assigned_filters.append(annotator_work_scope)
+        rejected_filters.append(annotator_work_scope)
+
     assigned_result = await db.execute(
-        select(func.count())
-        .select_from(Task)
-        .where(
-            Task.assignee_id == current_user.id,
-            Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
-        )
+        select(func.count()).select_from(Task).where(*assigned_filters)
     )
     assigned_tasks = assigned_result.scalar() or 0
 
     rejected_tasks_result = await db.execute(
-        select(func.count())
-        .select_from(Task)
-        .where(
-            Task.assignee_id == current_user.id,
-            Task.status == "rejected",
-        )
+        select(func.count()).select_from(Task).where(*rejected_filters)
     )
     rejected_tasks_count = rejected_tasks_result.scalar() or 0
 
@@ -416,14 +427,7 @@ async def annotator_dashboard(
 @router.get("/annotator/batches", response_model=list[MyBatchItem])
 async def my_batches(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.SUPER_ADMIN,
-            UserRole.PROJECT_ADMIN,
-            UserRole.REVIEWER,
-            UserRole.ANNOTATOR,
-        )
-    ),
+    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
 ):
     """v0.7.1 B-17 · 标注员视角的「我的批次」：仅返回当前用户被分派、且处于
     active / annotating / rejected / reviewing 的批次。让标注员从 dashboard
@@ -439,6 +443,14 @@ async def my_batches(
     )
     if current_user.role != UserRole.SUPER_ADMIN:
         q = q.where(TaskBatch.annotator_id == current_user.id)
+        # "My batches" is annotation work: restrict to projects where the
+        # account still holds an annotator role (managers may also annotate in
+        # a project they own).
+        batch_scope = project_scope_clause(
+            current_user, TaskBatch.project_id, project_roles=(ANNOTATOR_ROLE,)
+        )
+        if batch_scope is not None:
+            q = q.where(batch_scope)
     q = q.order_by(Project.name, TaskBatch.created_at.desc()).limit(100)
 
     rows = (await db.execute(q)).all()
@@ -564,14 +576,19 @@ async def my_performance(
         )
     ).scalar() or 0
 
-    # 团队 annotator 群体（活跃），用于每周均线分母
+    # 团队 annotator 群体（活跃），用于每周均线分母。
+    # 项目职责来自 project_members，账户必须是当前活跃账号；legacy 全局
+    # annotator 账号角色不再参与统计。
     team_ids = (
         (
             await db.execute(
-                select(User.id).where(
+                select(ProjectMember.user_id)
+                .join(User, User.id == ProjectMember.user_id)
+                .where(
                     User.is_active.is_(True),
-                    User.role == UserRole.ANNOTATOR,
+                    ProjectMember.role == ProjectRole.ANNOTATOR.value,
                 )
+                .distinct()
             )
         )
         .scalars()

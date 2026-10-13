@@ -10,11 +10,11 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks._shared import (
-    _ANNOTATORS,
     _assert_task_editable,
     _assert_task_visible,
     _load_task_or_404,
     _visible_task_ids,
+    require_task_annotation_write,
 )
 from app.db.models.project import Project
 from app.db.models.annotation import Annotation
@@ -25,7 +25,8 @@ from app.db.models.scene_track import (
 )
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.deps import get_db, require_roles
+from app.deps import get_db, get_current_user
+from app.services.project_access import ProjectAccess
 from app.schemas.track_operation import (
     TrackOperationCandidatesResponse,
     TrackOperationExecuteRequest,
@@ -95,13 +96,14 @@ async def _filter_visible_operations(
     project: Project,
     current_user: User,
     operations: list[SceneTrackOperation],
+    access: ProjectAccess | None = None,
 ) -> list[SceneTrackOperation]:
     operation_tasks = {
         operation.id: _operation_task_ids(operation) for operation in operations
     }
     all_task_ids = set().union(*operation_tasks.values()) if operation_tasks else set()
     visible_task_ids = await _visible_task_ids(
-        db, project, current_user, list(all_task_ids)
+        db, project, current_user, list(all_task_ids), access=access
     )
     return [
         operation
@@ -119,7 +121,7 @@ async def get_scene_track_detail(
     task_id: uuid.UUID,
     track_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, anchor_task, current_user)
@@ -258,7 +260,7 @@ async def get_scene_track_diagnostics(
     task_id: uuid.UUID,
     limit: int = Query(200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, anchor_task, current_user)
@@ -305,6 +307,7 @@ async def _task_access_map(
     project: Project,
     current_user: User,
     task_ids: set[uuid.UUID],
+    access: ProjectAccess | None = None,
 ) -> dict[uuid.UUID, Task]:
     rows = list(
         (
@@ -314,7 +317,9 @@ async def _task_access_map(
         ).scalars()
     )
     by_id = {row.id: row for row in rows}
-    visible_ids = await _visible_task_ids(db, project, current_user, list(task_ids))
+    visible_ids = await _visible_task_ids(
+        db, project, current_user, list(task_ids), access=access
+    )
     return {task_id: task for task_id, task in by_id.items() if task_id in visible_ids}
 
 
@@ -323,12 +328,13 @@ def _tasks_are_editable(
     *,
     task_ids: set[uuid.UUID] | frozenset[uuid.UUID],
     current_user: User,
+    access: ProjectAccess | None = None,
 ) -> bool:
     if not set(task_ids).issubset(tasks):
         return False
     try:
         for task_id in sorted(task_ids, key=str):
-            _assert_task_editable(tasks[task_id], current_user)
+            _assert_task_editable(tasks[task_id], current_user, access=access)
     except HTTPException:
         return False
     return True
@@ -340,6 +346,7 @@ async def _assert_prepared_mutable(
     anchor_task: Task,
     current_user: User,
     prepared: PreparedTrackOperation | PreparedSceneTrackCommand,
+    access: ProjectAccess | None = None,
 ) -> None:
     project = await db.get(Project, anchor_task.project_id)
     if project is None:
@@ -350,11 +357,13 @@ async def _assert_prepared_mutable(
         project=project,
         current_user=current_user,
         task_ids=task_ids,
+        access=access,
     )
     if not _tasks_are_editable(
         tasks,
         task_ids=task_ids,
         current_user=current_user,
+        access=access,
     ):
         raise _track_error(
             409,
@@ -395,11 +404,12 @@ async def preview_scene_track_command(
     task_id: uuid.UUID,
     data: SceneTrackCommandRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user)
-    _assert_task_editable(anchor_task, current_user)
+    await _assert_task_visible(db, anchor_task, current_user, access=access)
+    _assert_task_editable(anchor_task, current_user, access=access)
     prepared = await prepare_scene_track_command(
         db,
         anchor_task=anchor_task,
@@ -410,6 +420,7 @@ async def preview_scene_track_command(
         anchor_task=anchor_task,
         current_user=current_user,
         prepared=prepared,
+        access=access,
     )
     return SceneTrackCommandPreviewOut(**preview_payload(prepared))
 
@@ -423,11 +434,12 @@ async def execute_scene_track_command(
     data: SceneTrackCommandExecuteRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user)
-    _assert_task_editable(anchor_task, current_user)
+    await _assert_task_visible(db, anchor_task, current_user, access=access)
+    _assert_task_editable(anchor_task, current_user, access=access)
     command = SceneTrackCommandRequest.model_validate(
         data.model_dump(exclude={"snapshot_token", "idempotency_key"})
     )
@@ -468,6 +480,7 @@ async def execute_scene_track_command(
         anchor_task=anchor_task,
         current_user=current_user,
         prepared=prepared,
+        access=access,
     )
     operation, response = await apply_scene_track_command(
         db,
@@ -508,7 +521,7 @@ async def list_scene_track_operations(
     track_id: str = Query(..., min_length=1, max_length=64),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, anchor_task, current_user)
@@ -560,11 +573,12 @@ async def revert_scene_track_command(
     data: SceneTrackRevertRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user)
-    _assert_task_editable(anchor_task, current_user)
+    await _assert_task_visible(db, anchor_task, current_user, access=access)
+    _assert_task_editable(anchor_task, current_user, access=access)
     context = await resolve_scene_track_context(db, anchor_task)
     operation = (
         await db.execute(
@@ -588,8 +602,11 @@ async def revert_scene_track_command(
         project=project,
         current_user=current_user,
         task_ids=task_ids,
+        access=access,
     )
-    if not _tasks_are_editable(tasks, task_ids=task_ids, current_user=current_user):
+    if not _tasks_are_editable(
+        tasks, task_ids=task_ids, current_user=current_user, access=access
+    ):
         raise _track_error(
             409,
             "track_member_unavailable",
@@ -630,11 +647,12 @@ async def list_track_operation_candidates(
     track_id: str = Query(..., min_length=1, max_length=64),
     limit: int = Query(20, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user)
-    _assert_task_editable(anchor_task, current_user)
+    await _assert_task_visible(db, anchor_task, current_user, access=access)
+    _assert_task_editable(anchor_task, current_user, access=access)
     _, structural = await list_structural_merge_candidates(
         db,
         anchor_task=anchor_task,
@@ -652,11 +670,13 @@ async def list_track_operation_candidates(
         project=project,
         current_user=current_user,
         task_ids=all_task_ids,
+        access=access,
     )
     if not _tasks_are_editable(
         tasks,
         task_ids=structural.primary.task_ids,
         current_user=current_user,
+        access=access,
     ):
         raise _track_error(
             409,
@@ -671,6 +691,7 @@ async def list_track_operation_candidates(
             tasks,
             task_ids=candidate.task_ids,
             current_user=current_user,
+            access=access,
         )
     ]
     return TrackOperationCandidatesResponse(
@@ -692,11 +713,12 @@ async def preview_track_operation(
     task_id: uuid.UUID,
     data: TrackOperationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user)
-    _assert_task_editable(anchor_task, current_user)
+    await _assert_task_visible(db, anchor_task, current_user, access=access)
+    _assert_task_editable(anchor_task, current_user, access=access)
     prepared = await prepare_track_operation(
         db,
         anchor_task=anchor_task,
@@ -707,6 +729,7 @@ async def preview_track_operation(
         anchor_task=anchor_task,
         current_user=current_user,
         prepared=prepared,
+        access=access,
     )
     command = await prepare_scene_track_command(
         db,
@@ -723,6 +746,7 @@ async def preview_track_operation(
         anchor_task=anchor_task,
         current_user=current_user,
         prepared=command,
+        access=access,
     )
     return TrackOperationPreviewResponse(**_compat_preview_response(prepared, command))
 
@@ -736,11 +760,12 @@ async def execute_track_operation(
     data: TrackOperationExecuteRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user)
-    _assert_task_editable(anchor_task, current_user)
+    await _assert_task_visible(db, anchor_task, current_user, access=access)
+    _assert_task_editable(anchor_task, current_user, access=access)
     operation = TrackOperationRequest.model_validate(
         data.model_dump(exclude={"snapshot_token"})
     )
@@ -754,6 +779,7 @@ async def execute_track_operation(
         anchor_task=anchor_task,
         current_user=current_user,
         prepared=prepared,
+        access=access,
     )
     command = await prepare_scene_track_command(
         db,
@@ -771,6 +797,7 @@ async def execute_track_operation(
         anchor_task=anchor_task,
         current_user=current_user,
         prepared=command,
+        access=access,
     )
     command_operation, command_response = await apply_scene_track_command(
         db,

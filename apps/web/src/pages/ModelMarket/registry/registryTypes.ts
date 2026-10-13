@@ -1,11 +1,13 @@
 /**
  * v0.23.4 P3 · shared prop shapes passed from the registry orchestrator
- * (`RegisteredBackendsTab`) to the four section components under `registry/`.
+ * (`RegisteredBackendsTab`) to the five section components under `registry/`.
  *
- * The orchestrator owns the queries and the view-model merge (plan §10); each
- * section is a presentational receiver. Keeping these shapes in one place lets
- * the section components stay focused on rendering without re-deriving the
- * pool/member/GPU cross-references.
+ * The orchestrator owns the queries, the view-model merge and the registry URL
+ * state (plan §5: URL / 角色 → codec → 编排壳 → 子视图); each section is a
+ * presentational receiver that reads its own slice of `RegistryUrlState` and
+ * patches it back through `RegistryUrlPatch`. Keeping these shapes in one
+ * place lets the section components stay focused on rendering without
+ * re-deriving the pool/member/GPU cross-references.
  */
 import type { ComponentType } from "react";
 
@@ -15,13 +17,19 @@ import type {
   MLIntegrationsOverview,
 } from "@/api/adminMlIntegrations";
 import type { ServicePoolAdminItem, TopologyResponse } from "@/api/generated/types.gen";
+import type { UrlStateIssue } from "@/hooks/useUrlFilterState";
 import type { Diagnostic, RuntimeTopologyViewModel } from "../runtimeTopology";
+import type { RegistryUrlState } from "../marketUrlState";
 
-/** Search + status filter state shared by every section that has a header row. */
-export interface RegistryFilters {
-  search: string;
-  statusFilter: "all" | "healthy" | "degraded" | "offline" | "unknown";
-}
+/**
+ * URL patcher handed down from the orchestrator's `useUrlFilterState`.
+ * `replace: false` pushes a history entry — reserved for explicit tab and
+ * object jumps (plan §5); text edits and filter tweaks replace.
+ */
+export type RegistryUrlPatch = (
+  update: Partial<RegistryUrlState>,
+  options?: { replace?: boolean },
+) => void;
 
 /** Static once-per-render bundle the orchestrator hands to sections. */
 export interface RegistryScope {
@@ -43,10 +51,26 @@ export interface RegistryScope {
   diagnostics: Diagnostic[];
   /** Router mode (topology-side; always present). */
   routerMode: RuntimeTopologyViewModel["router_mode"];
+  /**
+   * Read-state flags so sections can tell "still loading" apart from a real
+   * empty collection (plan §6: 只在请求完成后显示最终空态，未知不写成 0)。
+   */
+  loading: {
+    backends: boolean;
+    gpu: boolean;
+    overview: boolean;
+  };
 }
 
-/** A registry section component takes the shared scope + the filter state. */
-export type RegistrySectionComponent = ComponentType<{
+/** Base props every registry section receives (scope + its URL slice). */
+export interface RegistrySectionProps {
   scope: RegistryScope;
-  filters: RegistryFilters;
-}>;
+  /** Full registry URL state; sections read the keys they own. */
+  url: RegistryUrlState;
+  patchUrl: RegistryUrlPatch;
+  /** URL-state issues (invalid enums etc.) the section should surface. */
+  urlIssues: UrlStateIssue[];
+}
+
+/** A registry section component takes the shared scope + the URL slice. */
+export type RegistrySectionComponent = ComponentType<RegistrySectionProps>;

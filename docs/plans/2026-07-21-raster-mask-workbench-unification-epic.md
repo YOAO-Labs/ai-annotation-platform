@@ -8,7 +8,7 @@
 >
 > 相关决策：[ADR-0022 Mask 编辑器 v1](../adr/archive/0022-mask-editor-tool-architecture.md) ·
 > [ADR-0048 视频栅格 Mask 内容寻址 RLE](../adr/archive/0048-video-raster-mask-content-addressed-rle.md) ·
-> [ADR-0053 原生 Mask AI 候选生命周期与视频纠错](../adr/0053-native-mask-ai-candidate-lifecycle-and-video-correction.md) ·
+> [ADR-0053 原生 Mask AI 候选生命周期与视频纠错](../adr/archive/0053-native-mask-ai-candidate-lifecycle-and-video-correction.md) ·
 > [v0.22.0 真·栅格 Mask Track](archive/2026-07-12-v0.22.0-raster-mask-track-davis.md)
 
 ## 1. Epic 结论

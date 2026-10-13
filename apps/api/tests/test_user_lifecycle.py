@@ -32,7 +32,7 @@ async def test_user_status_filter_and_reactivate_metadata(
 ):
     actor, actor_token = super_admin
     target = await create_user(
-        db_session, "annotator", f"lifecycle-{uuid.uuid4()}@test.local", "Lifecycle"
+        db_session, "employee", f"lifecycle-{uuid.uuid4()}@test.local", "Lifecycle"
     )
     headers = {"Authorization": f"Bearer {actor_token}"}
 
@@ -68,10 +68,10 @@ async def test_preview_commit_transfers_active_and_rejected_tasks(
 ):
     owner, owner_token = super_admin
     target = await create_user(
-        db_session, "annotator", f"handoff-{uuid.uuid4()}@test.local", "Leaving"
+        db_session, "employee", f"handoff-{uuid.uuid4()}@test.local", "Leaving"
     )
     receiver = await create_user(
-        db_session, "annotator", f"receiver-{uuid.uuid4()}@test.local", "Receiver"
+        db_session, "employee", f"receiver-{uuid.uuid4()}@test.local", "Receiver"
     )
     project = await create_project(
         db_session, owner_id=owner.id, name="Handoff project"
@@ -209,11 +209,11 @@ async def test_preview_commit_transfers_active_and_rejected_tasks(
 async def test_reviewer_and_owner_roles_use_separate_receivers(db_session, super_admin):
     actor, _ = super_admin
     reviewer = await create_user(
-        db_session, "reviewer", f"reviewer-{uuid.uuid4()}@test.local", "Reviewer"
+        db_session, "employee", f"reviewer-{uuid.uuid4()}@test.local", "Reviewer"
     )
     reviewer_receiver = await create_user(
         db_session,
-        "reviewer",
+        "employee",
         f"reviewer-receiver-{uuid.uuid4()}@test.local",
         "Reviewer receiver",
     )

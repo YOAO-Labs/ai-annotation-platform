@@ -37,7 +37,7 @@ def test_setup_supported_variants_include_display_metadata():
 
 
 def test_setup_default_variants_per_task_axes():
-    """v0.14.13 · 每个 model 的 default_variants 必须严格匹配该 model 的 supported_variants 轴.
+    """每个 model 的 default_variants 必须严格匹配该 model 的 supported_variants 轴.
 
     - detection (DINO 路径)         → 仅 dino_variant
     - interactive_seg / tracker     → 仅 sam_variant
@@ -92,10 +92,10 @@ def test_setup_default_variants_match_env_defaults():
     assert seg["dino_variant"] == DINO_VARIANT
 
 
-# ---------- v0.14.14: warmup_endpoint 声明 ----------
+# ---------- warmup_endpoint 声明 ----------
 
 
 def test_setup_warmup_endpoint_true():
-    """v0.14.14 协议 §4.4 · 顶层 warmup_endpoint 必须为 True (gsam2 支持 /warmup)."""
+    """协议 §4.4 · 顶层 warmup_endpoint 必须为 True (gsam2 支持 /warmup)."""
     data = setup()
     assert data["warmup_endpoint"] is True

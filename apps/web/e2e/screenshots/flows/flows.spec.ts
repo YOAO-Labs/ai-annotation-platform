@@ -109,6 +109,7 @@ import {
   type CandidateReviewCleanupRecord,
 } from "./candidate-review-lifecycle";
 import { recordingAnchor } from "./_canvas";
+import { PROJECT_ONBOARDING_RECORDING_NAME, runProjectOnboarding } from "./project-onboarding";
 import { installRecordingWorkbenchLayout } from "./_workbench-layout";
 import type { SourceGifVariant } from "../_helpers/flow-manifest";
 import { archivePortableRecording } from "../_helpers/portable-recorder";
@@ -189,6 +190,7 @@ const backgroundExportCleanupRecords: Array<{
 }> = [];
 
 const FLOW_SOURCE_BY_ASSET: Record<string, string> = {
+  "project-onboarding": "project-onboarding.ts",
   "ai-assisted-annotation": "sam-interactive.ts",
   "ocr-real-scene": "ocr-inference.ts",
   "secondary-inference-attribute": "secondary-inference-attribute.ts",
@@ -248,6 +250,13 @@ function flowWatchPaths(assetId: string): string[] {
     "apps/api/app/services/screenshot_seed_spec.py",
     "apps/api/app/services/screenshot_seed_backends.py",
   ];
+  if (assetId === "project-onboarding")
+    paths.push(
+      "apps/web/e2e/screenshots/flows/project-create-existing-resources.ts",
+      "apps/web/src/pages/Login/LoginPage.tsx",
+      "apps/web/src/components/projects/CreateProjectWizard.tsx",
+      "apps/web/src/components/projects/steps/Step7Success.tsx",
+    );
   if (
     [
       "bbox-draw",
@@ -791,6 +800,7 @@ async function archiveMarketingRecording(
       assetId,
       assetSpec: marketingAssetSpec(assetId),
       source: path.relative(REPO_ROOT, info.file),
+      watchPaths: flowWatchPaths(assetId),
       testTitle: info.titlePath.join(" › "),
       projectName: info.project.name,
       seedRevision: cached?.seed_revision ?? null,
@@ -2313,6 +2323,24 @@ test.describe("flow recordings", () => {
       await finalize(page, "background-export-download", undefined, drawTrim(win, t0));
     } finally {
       manageBackgroundExportFixture("cleanup", record);
+    }
+  });
+
+  test("project-onboarding — 登录、创建项目并进入工作台", async ({ page, seed }) => {
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 150_000);
+    const userEmail = cached.users.admin.email;
+    let createdProjectId: string | undefined;
+    const t0 = Date.now();
+    try {
+      await seed.deleteProjectsByExactName(PROJECT_ONBOARDING_RECORDING_NAME, userEmail);
+      await installScreenshotEnvironment(page);
+      const win = await runProjectOnboarding(page, cached, (projectId) => {
+        createdProjectId = projectId;
+      });
+      await finalize(page, "project-onboarding", undefined, drawTrim(win, t0));
+    } finally {
+      if (createdProjectId) await seed.deleteProject(createdProjectId, userEmail);
     }
   });
 

@@ -22,7 +22,7 @@ export interface AiRequestBackend {
   /** Apply to new predictions until explicitly changed; release() only clears hold. */
   failAll(enabled: boolean): void;
   release(): void;
-  /** Reuse the backend from seed.reset(); creates no global registry or service pool. */
+  /** Reuse the backend from the owned seed fixture; creates no global registry or service pool. */
   attach(
     request: APIRequestContext,
     options: {
@@ -328,7 +328,7 @@ export async function startAiRequestBackend(
         // This helper owns only a disposable seed backend. Tokens are deliberately
         // never read or replaced. Cached health is disposable and resets with seed.
         if (snapshot.extra_params.e2e_mock !== true || snapshot.auth_method !== "none") {
-          throw new Error("attach requires the unauthenticated backend returned by seed.reset()");
+          throw new Error("attach requires the unauthenticated backend returned by seed.owned()");
         }
         restore = {
           name: snapshot.name,

@@ -54,13 +54,13 @@ vi.mock("@/components/ui/Toast", async () => {
   };
 });
 
-import { AdminPeoplePage } from "./AdminPeoplePage";
+import { AdminPeoplePage, platformRoleBadgeVariant, platformRoleLabel } from "./AdminPeoplePage";
 
 const basePerson = {
   user_id: "u1",
   name: "Alice",
   email: "alice@test.com",
-  role: "annotator",
+  role: "employee",
   status: "online",
   project_count: 3,
   main_metric: 120,
@@ -78,7 +78,7 @@ const baseDetail = {
   user_id: "u1",
   name: "Alice",
   email: "alice@test.com",
-  role: "annotator",
+  role: "employee",
   project_count: 3,
   throughput: 120,
   quality_score: 90,
@@ -196,11 +196,34 @@ describe("AdminPeoplePage", () => {
     });
     renderUI();
     expect(screen.getByText("Alice")).toBeInTheDocument();
-    expect(screen.getByText(/annotator/)).toBeInTheDocument();
+    expect(screen.getByText("员工")).toBeInTheDocument();
     // main_metric 渲染
     expect(screen.getByText("120")).toBeInTheDocument();
     // project_count
     expect(screen.getByText(/3 项目/)).toBeInTheDocument();
+  });
+
+  it("平台角色徽章按平台身份呈现, 不把平台角色与项目职责比较", () => {
+    // 平台身份: employee 是唯一的普通员工身份; 项目职责 (annotator/reviewer)
+    // 在卡片其它位置由 main_metric_label 体现, 徽章不再据此变色.
+    expect(platformRoleLabel("employee")).toBe("员工");
+    expect(platformRoleLabel("viewer")).toBe("观察者");
+    expect(platformRoleLabel("super_admin")).toBe("超级管理员");
+    expect(platformRoleLabel("legacy_annotator")).toBe("legacy_annotator");
+    expect(platformRoleBadgeVariant("employee")).toBe("ai");
+    expect(platformRoleBadgeVariant("viewer")).toBe("default");
+    expect(platformRoleBadgeVariant("super_admin")).toBe("danger");
+    // 项目职责字符串即使被误当平台角色也不应命中旧的 annotator 强调分支.
+    expect(platformRoleBadgeVariant("annotator")).toBe("default");
+
+    const viewer = { ...basePerson, user_id: "u2", name: "Vera", role: "viewer" };
+    mockUseAdminPeople.mockReturnValue({
+      data: { items: [basePerson, viewer], total: 2, period: "7d" },
+      isLoading: false,
+    });
+    renderUI();
+    expect(screen.getByText("员工")).toHaveClass("bg-status-info-soft");
+    expect(screen.getByText("观察者")).toHaveClass("bg-muted");
   });
 
   it("成员有 high_rejected alert → 显示退回率 badge", () => {
@@ -254,6 +277,21 @@ describe("AdminPeoplePage", () => {
       expect(screen.getAllByText("质量").length).toBeGreaterThan(0);
       expect(screen.getByText("4 周趋势")).toBeInTheDocument();
     });
+  });
+
+  it("keeps member detail in the applied project and period", () => {
+    mockUseAdminPeople.mockReturnValue({
+      data: { items: [basePerson], total: 1, period: "1m" },
+      isLoading: false,
+    });
+    mockUseAdminPersonDetail.mockReturnValue({ data: baseDetail, isLoading: false });
+    renderUI("/admin/people?project=p1&period=1m");
+    fireEvent.click(screen.getByText("Alice").closest("[class]")!);
+    expect(mockUseAdminPersonDetail).toHaveBeenLastCalledWith("u1", "1m", "p1");
+    expect(screen.getByText("4 周趋势")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "今日" }));
+    expect(mockUseAdminPersonDetail).toHaveBeenLastCalledWith("u1", "today", "p1");
+    expect(screen.getByText("4 周趋势")).toBeInTheDocument();
   });
 
   it("点击抽屉关闭按钮关闭抽屉", async () => {

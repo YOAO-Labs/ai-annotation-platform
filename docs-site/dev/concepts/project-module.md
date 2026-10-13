@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-09-19
 ---
 
 # 项目模块
@@ -170,20 +170,21 @@ AI 能力是 project 级开关，不是 batch 或 task 私有配置。
 
 项目权限边界由两层组成：
 
-1. 全局角色：`super_admin` / `project_admin` / `reviewer` / `annotator` / `viewer`
-2. 项目内成员关系：`ProjectMember`
+1. 平台角色 `PlatformRole`（账号级，`users.role`，列名不变）：`super_admin` / `project_admin` / `employee` / `viewer`
+2. 项目内成员关系：`ProjectMember(project_id, user_id, role)`，`role` 是项目角色 `annotator` / `reviewer` / `viewer`
 
-`owner_id` 是项目级最终写权限兜底。
+`owner_id` 是项目级管理权限兜底。
 
 当前常见判断模式：
 
 - `super_admin`：越权可见 / 可写
-- `project owner`：当前项目的实际 owner
-- 其他角色：必须命中 `ProjectMember(project_id, user_id)`
+- `project owner` / 合法 `project_admin`：所管项目的管理路径（管理权限还需项目所有权，见 [可见性与权限](./visibility-and-permissions#项目层)）
+- 其他账号：必须命中 `ProjectMember(project_id, user_id)`；无成员关系即拒绝，**不再**回退全局 `users.role`
+- 历史全局 `annotator` / `reviewer` 只用于迁移适配与历史读取，不提供任何项目授权
 
-所以“用户是不是项目管理员”不是只看全局 role，而是“全局角色 + 是否是该项目 owner”的组合。
+统一解析在 `apps/api/app/services/project_access.py::resolve_project_access`，输出固定能力集。所以“用户能不能在这个项目标注 / 质检”取决于该项目内的成员角色，而不是账号全局角色。
 
-前端项目设置的 `成员管理` 是一个添加入口：先选择项目内角色（标注员 / 审核员），再多选候选用户批量加入。后端仍以单条 `ProjectMember` 关系为写入单位；批量添加只是前端对现有 `POST /projects/:id/members` 的循环封装。
+前端项目设置的 `成员管理` 选择的是**项目角色**（标注员 / 质检员 / 观察者）；同一个员工可以在不同项目承担不同角色。角色变更走“预检 → 按版本与 token 原子交接”，见 [可见性与权限](./visibility-and-permissions#成员角色变更与交接)。后端仍以单条 `ProjectMember` 关系为写入单位。
 
 ## 和 Batch / Task 的关系
 

@@ -67,7 +67,7 @@ const test = seededTest.extend<{
   ai: { data: SeedData; token: string; backend: Backend; pageErrors: string[] };
 }>({
   ai: async ({ request, seed, page }, provideFixture, testInfo) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const token = await seed.accessToken(data.admin_email);
     const backend = await startAiRequestBackend();
     const detach = await backend.attach(request, {

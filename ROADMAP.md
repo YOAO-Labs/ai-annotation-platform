@@ -13,33 +13,30 @@
 详见[视频工作台路线](ROADMAP/2026-05-21-video-workbench-roadmap.md)。
 
 - 在可获得的 Windows Edge 与 macOS Safari 客户端补齐 1080p/4K correctness、可见延迟、资源 plateau
-  与 fallback rate；Apple Silicon 原生有头 Chrome 已完成 strict 资格，不再作为遗留项。
+  与 fallback rate。
 
 ### 超大图 Tile 与 Raster Mask 客户端计算
 
 详见
 [v0.23.21–v0.23.25 超大图 Tile 与 Raster Mask 客户端计算 Epic](docs/plans/archive/2026-07-31-v0.23.21-v0.23.25-large-image-tile-webgpu-epic.md)。
 
-- Epic 已完成：不可变图片金字塔、viewport LOD/Konva tile、隐藏整图消费者收口、task-scoped
-  背景/Mask 资源协调、packed CPU fallback 与 one-pass WebGPU 长会话均已封版。横/纵可分离 WebGPU
-  候选未通过数据分布无关的两轮端到端门，未进入 production；WebGPU 始终使用访问页面的客户端资源，
-  不使用 Linux API/Celery 部署机器的 GPU。
-- 后验资格只保留真实缺口：在无实验 flag 的 Linux Wayland、macOS Metal 与 Windows D3D12 客户端补齐
-  one-pass correctness、长会话、p95 和 fallback rate；Safari/Edge 按实际 WebGPU 能力记录。没有机器时
-  继续标记 `not tested`，不改变 capability-first fallback，也不重新引入 separable 候选。
-- 超大图背景可以超过当前 Raster Mask 原生上限；Raster Mask 仍受单边 8192、总计
-  67,108,864 pixels 和 morphology ROI 16,777,216 pixels 约束，扩大协议另立版本。
+- 在可获得的无 flag Linux Wayland 与 Windows D3D12 客户端补齐 one-pass correctness、长会话、p95、
+  fallback rate，以及超大图 tile 首屏、pan/zoom 帧率、长会话 plateau 与 DPR A/B；没有机器时保持
+  `not tested`，不外推也不改变 capability-first fallback。已完成平台与实测口径见
+  [macOS WebGPU 性能实测](docs/research/25-macos-webgpu-performance.md)。
+- Raster Mask 仍受单边 8192、总计 67,108,864 pixels 和 morphology ROI 16,777,216 pixels 约束；
+  超大图背景可超过该上限，扩大 Mask 协议另立版本。
 
 ### 3D 标注工作台 0.24.x
 
 详见[v0.24.x 3D 标注工作台优化 Epic](docs/plans/archive/2026-08-14-v0.24.x-3d-workbench-optimization-epic.md)。
 
-- WebGPU 点云渲染继续保持默认关闭的实验功能：同一 NVIDIA 设备上的三轮 warm geometry、warm RGB、精修首帧、缓存 owner、CPU depth payload 与 GPU RSS plateau 均已通过；跨轮深度数组残留也已修复。主透视视图与三正交视图共用唯一 renderer/context，空闲时停止提交；Chromium GPU 进程受控丢失后会卸载这一 canvas 并自动重建完整 Legacy Scene，这验证了显存压力最终触发 device lost 时的熔断路径，但未主动制造不可控的物理 OOM。
-  当前没有 NVIDIA、Intel/AMD 两类 GPU 的可用测试设备，跨厂商验证明确记为 `not tested`；它不阻塞
-  本地性能与回退链路继续收口，但在硬件可用并完成验证前不得移除实验标记或默认启用。
-- Scene Track 已支持同帧 3D 主成员与按相机 role 区分的持久化人工 bbox，标定采用可追溯 revision，3D Quality 能冻结并治理投影残差，KITTI 优先使用所选相机的人工框；Multi-camera COCO 可把全部相机的人工 2D 真值合并导出并以指纹 manifest 可信回源。放大相机已可查看原始标定矩阵和 append-only revision 历史，项目 owner 或 super admin 可以并发安全地追加修正；跨项目共享相机只允许 super admin 修改。后续多模态几何扩展集中在相机 polygon / mask 和跨相机批量复核。
-- nuScenes 已形成可信导出合同：只允许真实来源和完整 Scene，生成官方 13 表关键帧子集并以指纹 manifest 回源原始媒体。官方 benchmark ontology / split 映射继续独立立项。
-- 点云主视图已支持吸附真实渲染点的两点或多段会话测量，可读取三维总长、水平总长和首尾高差，且不写标注或导出。地面预览仍需先形成可解释的地面分割、残差和置信合同，不复用放框时的高度估计伪装成测量事实。
+- WebGPU 点云渲染保持默认关闭的实验功能：跨厂商验证仍缺 Intel/AMD（`not tested`），Safari 长序列
+  曾停在 geometry 完成前，待复现诊断；验证完成前不得移除实验标记或默认启用。已完成平台与实测口径见
+  [macOS WebGPU 性能实测](docs/research/25-macos-webgpu-performance.md)。
+- 多模态几何扩展：相机 polygon / mask 与跨相机批量复核。
+- nuScenes 官方 benchmark ontology / split 映射独立立项。
+- 地面预览需先形成可解释的地面分割、残差和置信合同，不复用放框高度估计伪装测量事实。
 
 ## 独立 Epic
 
@@ -73,7 +70,6 @@
 - **批量推理**：吞吐压测证明瓶颈后，将 `batchable` 分块派发与 backend 真 GPU batch 一起设计，避免只摊销 HTTP 开销。
 - **编排新数据源**：支持既有矩形标注作为 crops 源；scene 跨帧聚合作为独立执行单位。
 - **生产存储地址策略**：首个复杂部署出现时扩展 `ML_BACKEND_STORAGE_HOST` 的 endpoint 选择规则。
-- **新几何预测对账**：客户 backend 实际输出 rotated bbox / polyline / keypoint 时，补齐协议与端到端导入导出验收。
 - **类别确认建议**：Magic Box 产出后提供模型类别 hint，由标注员确认。
 
 ### 项目模板
@@ -86,7 +82,7 @@
 
 ### 账号、组织与安全
 
-- 头像上传，以及用户级语言和时区偏好。
+- 用户级语言和时区偏好。
 - 可操作的组织 / 工作区切换器。
 - OAuth2 / 企业 SSO；2FA / TOTP 由客户安全要求触发。
 - i18n 文案体系，以及可量化的无障碍审计和 CI 门禁。
@@ -95,14 +91,13 @@
 
 - Webhook 订阅、outbox、重试投递和签名校验；复用现有事件信封 schema。
 - Bug Report 的 LLM 聚类、邮件摘要投递和用户邮件通知偏好。
-- AnnotationFeedback 旧表退役并切为单一写入源；视频 Issue 创建时写入当前帧锚点。
+- AnnotationFeedback 旧表退役并切为单一写入源。
 - 首次进入标注工作台的一次性 onboarding。
 
 ### 标注体验
 
 - 视频单帧折线、polygon track、polyline track 的无冲突快捷键。
 - `U` 键改为服务端按真实预测置信度查找下一最不确定任务，不再按预测数量近似。
-- 用户级快捷键映射、冲突校验、设置页录制器和动态快捷键帮助。
 - 明确 outside 帧是否显示 ghost 参考几何；产品决策后统一实现与测试。
 - 评估视频连接层 wedge 后自动硬刷新的收益与标注中断风险。
 
@@ -116,7 +111,7 @@
 
 - 提升 `BatchesSection`、`useWorkbenchShellModel`、`useImageAnnotationActions` 等复杂页面和 hook 的有效测试覆盖，不在路线图固化易过期的覆盖率快照。
 - 为 `vite` 代理 `/ws` 的多并发 CONNECTING 卡死制作最小复现；生产链路不受影响。
-- 先建立 Playwright 视觉基线，再拆分 `useStageViewport` 相关的首帧 paint 时序。
+- 在已建立的 Playwright 视觉基线上，拆分 `useStageViewport` 相关的首帧 paint 时序。
 
 ## 战略与研究输入
 

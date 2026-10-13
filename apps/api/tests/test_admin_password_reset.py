@@ -87,7 +87,7 @@ async def test_audit_detail_excludes_password(
     assert rows
     detail = rows[0].detail_json or {}
     assert detail.get("target_email") == target_user.email
-    assert detail.get("target_role") == "annotator"
+    assert detail.get("target_role") == "employee"
     assert temp not in str(detail)
 
 

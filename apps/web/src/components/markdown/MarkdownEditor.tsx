@@ -48,6 +48,8 @@ import {
   $getNodeByKey,
   $getRoot,
   ElementNode,
+  SELECTION_CHANGE_COMMAND,
+  getNearestEditorFromDOMNode,
   type LexicalEditor,
   type LexicalNode,
 } from "lexical";
@@ -559,6 +561,29 @@ function MarkdownEditorDocument({
     }
   }, []);
 
+  // MDXEditor attributes edits to the editor that last published
+  // SELECTION_CHANGE_COMMAND. Lexical defers that attribution to the browser's
+  // selectionchange event, so a paste or drop can arrive first and be handled
+  // by the root editor even when the DOM target is a nested table cell. The
+  // image would then be inserted outside the table. Activate the editor that
+  // actually owns the event target before MDXEditor's own paste/drop handler
+  // runs; Lexical preserves the target's current selection.
+  const activateEventTargetEditor = useCallback((event: Event) => {
+    if (modeRef.current !== "edit") return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    const editor = getNearestEditorFromDOMNode(target);
+    if (!editor || editor === activeEditorRef.current) return;
+    const editorRoot = editor.getRootElement();
+    if (!editorRoot || !rootRef.current?.contains(editorRoot)) return;
+    if (!isTableCellEditor(editor)) return;
+    // Re-publish SELECTION_CHANGE_COMMAND from the event target's editor so
+    // MDXEditor's active-editor subscription moves before it handles the
+    // paste/drop. A plain focus() does not re-dispatch for an unchanged range
+    // selection, which is why the attribution can be missing here.
+    editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+  }, []);
+
   const handleSubmitKeyDown = useCallback(
     (event: KeyboardEvent) => {
       const submit = onSubmitRef.current;
@@ -593,12 +618,21 @@ function MarkdownEditorDocument({
     root.addEventListener("compositionstart", handleCompositionStart, true);
     root.addEventListener("compositionend", handleCompositionEnd, true);
     root.addEventListener("keydown", handleSubmitKeyDown, true);
+    root.addEventListener("paste", activateEventTargetEditor, true);
+    root.addEventListener("drop", activateEventTargetEditor, true);
     return () => {
       root.removeEventListener("compositionstart", handleCompositionStart, true);
       root.removeEventListener("compositionend", handleCompositionEnd, true);
       root.removeEventListener("keydown", handleSubmitKeyDown, true);
+      root.removeEventListener("paste", activateEventTargetEditor, true);
+      root.removeEventListener("drop", activateEventTargetEditor, true);
     };
-  }, [handleCompositionEnd, handleCompositionStart, handleSubmitKeyDown]);
+  }, [
+    activateEventTargetEditor,
+    handleCompositionEnd,
+    handleCompositionStart,
+    handleSubmitKeyDown,
+  ]);
 
   const settleAfterPendingTransaction = useCallback(() => {
     queueMicrotask(() => {
@@ -962,6 +996,13 @@ function MarkdownEditorDocument({
         return;
       }
 
+      // A pending table-cell image lives in the nested cell editor until the
+      // debounced cell export runs. Flush the active cell first so retry sees
+      // the live node: otherwise a retry can miss the existing node, fall back
+      // to anchor insertion, and (when the marker is not yet in the root
+      // markdown) append the image outside the table.
+      flushActiveTableCell();
+
       let retryInPlace = false;
       const existingEditor = existing?.editor;
       const existingRoot = existingEditor?.getRootElement();
@@ -976,6 +1017,13 @@ function MarkdownEditorDocument({
           const node = $getNodeByKey(existing.nodeKey!);
           retryInPlace = $isImageNode(node) && node.getSrc() === existing.source;
         });
+      }
+
+      // If the recorded editor/nodeKey went stale but the live document still
+      // contains this upload's marker, reuse the existing pending upload and
+      // keep the image where it already is instead of relocating it by anchor.
+      if (existing && !retryInPlace) {
+        if (pendingImageBounds(currentEditorMarkdown(), existing.source)) retryInPlace = true;
       }
 
       if (existing && retryInPlace) {
@@ -1006,6 +1054,7 @@ function MarkdownEditorDocument({
     [
       cancelPendingUpload,
       currentEditorMarkdown,
+      flushActiveTableCell,
       insertPlaceholderAtAnchor,
       publishValidDraft,
       runUpload,

@@ -610,7 +610,7 @@ export function useVideoPreciseFrame({
         !timing ||
         timing.taskId !== taskId ||
         timing.frameIndex !== paintedFrame ||
-        paintedFrame !== frameIndex ||
+        paintedFrame !== liveFrameIndexRef.current ||
         timing.readyAt === null
       ) {
         return;
@@ -620,7 +620,8 @@ export function useVideoPreciseFrame({
       setLastPaintMs(Math.max(0, paintedAt - timing.readyAt));
       setLastVisibleMs(Math.max(0, paintedAt - timing.startedAt));
     },
-    [frameIndex, taskId],
+    // frameIndex 经 liveFrameIndexRef 读取（Issue #114 迟到回执防护），无需入依赖。
+    [taskId],
   );
 
   // 方向感知:frameIndex 变化时用差值符号更新预取方向。
@@ -630,6 +631,11 @@ export function useVideoPreciseFrame({
     }
     lastFrameIndexRef.current = frameIndex;
   }, [frameIndex]);
+
+  // Issue #114 · 帧号 live 镜像:markFramePainted 可能被 Konva draw 事件迟到触发,闭包里的
+  // frameIndex 是回调创建时刻的值;校验必须读最新帧,否则过期绘制回执仍能发布旧 painted 帧。
+  const liveFrameIndexRef = useRef(frameIndex);
+  liveFrameIndexRef.current = frameIndex;
 
   useEffect(() => {
     if (pipelineEnabled) return;

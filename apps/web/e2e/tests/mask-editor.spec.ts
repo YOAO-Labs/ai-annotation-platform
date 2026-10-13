@@ -15,7 +15,7 @@ import { test, expect } from "../fixtures/seed";
 
 test.describe("mask editor (I11)", () => {
   test("空白 mask → Enter 提交一个原生 Mask annotation", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.advanceTask({
       taskId: data.task_ids[0],
       toStatus: "pending",
@@ -67,7 +67,7 @@ test.describe("mask editor (I11)", () => {
   });
 
   test("AI prediction polygon 精修 → 确认后新原生 Mask 入库", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.advanceTask({
       taskId: data.task_ids[0],
       toStatus: "pending",
@@ -141,12 +141,22 @@ test.describe("mask editor (I11)", () => {
     await page.mouse.move(cx - 20, cy, { steps: 4 });
     await page.mouse.up();
 
-    // commit 触发：确认转换报告后创建带 prediction lineage 的原生 Mask。
+    // commit 触发：确认转换报告（可能追加 lossy 警告）后创建带 prediction lineage 的原生 Mask。
     let confirmCount = 0;
-    page.on("dialog", (dialog) => {
+    const decision = page.getByRole("alertdialog");
+    const acceptDecision = async () => {
+      await expect(decision).toBeVisible();
+      // 记住「这一条」对话框的 Radix 实例 id:确认后 app 可能在旧对话框退场动画期间
+      // 立刻入队下一条(如 lossy 警告),按 role 定位会命中新对话框。按 id 等这一条
+      // 真正卸载,既不会命中后续对话框,也不依赖 ElementHandle——元素先卸载时
+      // handle 已失效,waitForElementState("detached") 会直接抛 "not attached"。
+      const currentId = await decision.getAttribute("id");
+      await decision.locator('[data-slot="alert-dialog-action"]').click();
       confirmCount += 1;
-      void dialog.accept();
-    });
+      if (currentId) {
+        await expect(page.locator(`[id="${currentId}"]`)).toHaveCount(0, { timeout: 10_000 });
+      }
+    };
     const annoPost = page
       .waitForResponse(
         (resp) =>
@@ -158,13 +168,19 @@ test.describe("mask editor (I11)", () => {
       .catch(() => null);
     await openMaskSettings(page);
     await page.getByTestId("mask-toolbar").getByTestId("mask-primary-action").click();
+    await acceptDecision();
+    // lossy 警告视转换报告而定;短暂等待出现则再确认一轮,未出现则直接等落库。
+    await decision
+      .waitFor({ state: "visible", timeout: 3_000 })
+      .then(() => acceptDecision())
+      .catch(() => undefined);
     const resp = await annoPost;
     expect(resp).not.toBeNull();
     expect(confirmCount).toBeGreaterThan(0);
   });
 
   test("mask 工具 hotkey 全集：B / E / 滚轮 / Esc", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.advanceTask({
       taskId: data.task_ids[0],
       toStatus: "pending",

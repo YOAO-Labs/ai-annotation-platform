@@ -106,6 +106,30 @@ GET /api/v1/feedbacks/:root_id/thread?limit=50
 
 载荷共同包含 `project_id`、`task_id`、`source`、`actor_name`，不复制正文。收件人按当前访问权限、账号状态和偏好过滤，并排除操作人、去重；无实际状态变化不发通知。收到载荷不代表继续拥有目标权限，客户端打开时仍需通过任务、根线程或原标注评论接口重新校验。通知已读不代表整个线程已读，也不新增任务留言或问题回复的提及、附件能力。
 
+#### 通知偏好
+
+`GET /api/v1/notification-preferences` 返回账号全部已知类型的偏好：
+
+```json
+{
+  "items": [{ "type": "task.rejected", "in_app": true, "email": false, "toast": true }]
+}
+```
+
+- `in_app`：是否接收该类型通知。关闭后该类型新事件不写入、不推送、不计数；无记录默认 `true`。
+- `toast`：可见页面是否弹出瞬时提醒，是**有效值**——显式存储的选择优先，未存储时按类型的默认重要程度计算。调用方直接读取即可，不需要自己推导默认。
+- `email`：保留字段，当前固定为 `false`，不消费。
+
+`PUT /api/v1/notification-preferences` 更新单个类型，请求体至少提供 `in_app`、`toast` 之一：
+
+```json
+{ "type": "task.rejected", "toast": false }
+```
+
+- 只合并请求中出现的键（数据库按 JSONB `channels || patch` 原子合并）：未提供的 `in_app`/`toast`/`email` 以及并发标签页写入的其它键都保留，不会被缺省值覆盖。
+- `type` 必须是已知类型，否则 `400`；`in_app` 与 `toast` 同时缺省返回 `400`；显式传 `null` 校验失败。
+- 写入成功返回 `{"ok": true}` 并发布 `notifications.sync reason=preferences`，其它会话据此刷新偏好；该事件不产生通知，也不改未读数。
+
 ## 视频问题反馈
 
 `POST /api/v1/feedbacks` 复用像素锚点合同保存视频问题，`anchor_position.frame` 为从 0 开始的源视频帧号，x/y 为画面内 0–1 相对坐标：
@@ -398,7 +422,7 @@ annotation 变更、内容关联、操作账本、lineage、任务统计和聚�
 
 两个接口均要求当前任务可见、可编辑且任务锁允许写入，以及 `annotations:write` scope。相同 actor / task / key 同参回放首次响应，异参返回 `409 idempotency_conflict`。同一次超时重试复用原 key；下一次 undo / redo 必须使用新 key。对象版本变化、锁定或活动子对象分别返回 `409 version_mismatch / annotation_locked / active_children`，非法切线返回 `422 invalid_cut`。原切割提交后 30 天返回 `410 restore_expired`，撤销与重做不续期。
 
-每次提交或恢复都在单一事务内写入对象、统计、操作账本、lineage 与审计；任一失败不产生部分结果。Python SDK 将两个工作台内部接口明确列为 excluded，尚未提供对应客户端方法。实现与回滚约束见 [ADR-0074](/dev/adr/0074-atomic-annotation-slice-restore)。
+每次提交或恢复都在单一事务内写入对象、统计、操作账本、lineage 与审计；任一失败不产生部分结果。Python SDK 将两个工作台内部接口明确列为 excluded，尚未提供对应客户端方法。实现与回滚约束见 [ADR-0074](/dev/adr/archive/0074-atomic-annotation-slice-restore)。
 
 ## 标注转换计划
 

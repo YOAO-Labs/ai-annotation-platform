@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install frontend deps
@@ -72,6 +72,11 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test
         run: uv run alembic upgrade head
 
+      - name: Initialize MinIO buckets
+        working-directory: apps/api
+        # Seeding uploads media before the API lifespan can create these buckets.
+        run: uv run python -c "from app.services.storage import storage_service; storage_service.ensure_all_buckets()"
+
       - name: Seed screenshot catalog
         working-directory: apps/api
         env:
@@ -93,8 +98,9 @@ jobs:
           MINIO_PUBLIC_URL: /minio
         run: |
           nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 >/tmp/visual-api.log 2>&1 &
+          # This screenshot stack has no Celery workers; /health checks them too.
           for attempt in {1..30}; do
-            curl -fsS http://127.0.0.1:8000/health && exit 0
+            curl -fsS http://127.0.0.1:8000/health/db && exit 0
             sleep 1
           done
           cat /tmp/visual-api.log
@@ -104,10 +110,10 @@ jobs:
         working-directory: apps/web
         run: pnpm build
 
-      - name: Start web dev server
+      - name: Start built web preview
         working-directory: apps/web
         run: |
-          nohup pnpm dev --host 127.0.0.1 >/tmp/visual-web.log 2>&1 &
+          nohup pnpm preview --host 127.0.0.1 --port 3000 --strictPort >/tmp/visual-web.log 2>&1 &
           for attempt in {1..30}; do
             curl -fsS http://127.0.0.1:3000/login && exit 0
             sleep 1
@@ -144,6 +150,8 @@ jobs:
           path: |
             apps/web/test-results/
             apps/web/e2e/screenshots/regression/__screenshots__/
+            /tmp/visual-api.log
+            /tmp/visual-web.log
           retention-days: 14
 
       - name: Check image manifest

@@ -25,6 +25,7 @@ from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
+from tests.factory import build_tool_bindings
 
 
 async def _seed_template(
@@ -71,7 +72,7 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def test_create_private_template_minimal(httpx_client_bound, project_admin):
+async def test_create_private_template_minimal(httpx_client, project_admin):
     """project_admin 创建私有模板, 默认 scope=private."""
     _, token = project_admin
     body = {
@@ -80,7 +81,7 @@ async def test_create_private_template_minimal(httpx_client_bound, project_admin
         "type_key": "image-det",
         "classes": ["car"],
     }
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/project-templates", json=body, headers=_auth(token)
     )
     assert resp.status_code == 201, resp.text
@@ -91,7 +92,7 @@ async def test_create_private_template_minimal(httpx_client_bound, project_admin
     assert data["classes"] == ["car"]
 
 
-async def test_create_public_requires_super_admin(httpx_client_bound, project_admin):
+async def test_create_public_requires_super_admin(httpx_client, project_admin):
     """project_admin 建 scope=public → 403."""
     _, token = project_admin
     body = {
@@ -100,13 +101,13 @@ async def test_create_public_requires_super_admin(httpx_client_bound, project_ad
         "type_key": "image-det",
         "scope": "public",
     }
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/project-templates", json=body, headers=_auth(token)
     )
     assert resp.status_code == 403, resp.text
 
 
-async def test_create_organization_requires_org_id(httpx_client_bound, super_admin):
+async def test_create_organization_requires_org_id(httpx_client, super_admin):
     """scope=organization 不带 organization_id → 400."""
     _, token = super_admin
     body = {
@@ -115,13 +116,13 @@ async def test_create_organization_requires_org_id(httpx_client_bound, super_adm
         "type_key": "image-det",
         "scope": "organization",
     }
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/project-templates", json=body, headers=_auth(token)
     )
     assert resp.status_code == 400, resp.text
 
 
-async def test_list_visibility_filters(httpx_client_bound, db_session, super_admin):
+async def test_list_visibility_filters(httpx_client, db_session, super_admin):
     """列表对其他用户隐藏私有 / 跨组织模板; public 全可见."""
     admin_user, _ = super_admin
 
@@ -156,9 +157,7 @@ async def test_list_visibility_filters(httpx_client_bound, db_session, super_adm
         subject=str(pm.id), role=UserRole.PROJECT_ADMIN.value
     )
 
-    resp = await httpx_client_bound.get(
-        "/api/v1/project-templates", headers=_auth(pm_token)
-    )
+    resp = await httpx_client.get("/api/v1/project-templates", headers=_auth(pm_token))
     assert resp.status_code == 200
     names = [t["name"] for t in resp.json()]
     assert "他公共" in names
@@ -167,7 +166,7 @@ async def test_list_visibility_filters(httpx_client_bound, db_session, super_adm
 
 
 async def test_list_visible_organization_template_for_member(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     """同组织成员能看到 scope=organization 模板."""
     admin_user, _ = super_admin
@@ -202,23 +201,21 @@ async def test_list_visible_organization_template_for_member(
     token = create_access_token(
         subject=str(viewer.id), role=UserRole.PROJECT_ADMIN.value
     )
-    resp = await httpx_client_bound.get(
-        "/api/v1/project-templates", headers=_auth(token)
-    )
+    resp = await httpx_client.get("/api/v1/project-templates", headers=_auth(token))
     assert resp.status_code == 200
     names = [t["name"] for t in resp.json()]
     assert "组织内模板" in names
 
 
 async def test_update_only_by_creator_or_super_admin(
-    httpx_client_bound, db_session, project_admin
+    httpx_client, db_session, project_admin
 ):
     pm_user, pm_token = project_admin
     other = await _seed_user(db_session, UserRole.PROJECT_ADMIN.value, "other-pm")
     t = await _seed_template(db_session, other.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/project-templates/{t.id}",
         json={"name": "被改了"},
         headers=_auth(pm_token),
@@ -227,19 +224,19 @@ async def test_update_only_by_creator_or_super_admin(
     assert resp.status_code == 404
 
 
-async def test_delete_only_by_creator(httpx_client_bound, db_session, project_admin):
+async def test_delete_only_by_creator(httpx_client, db_session, project_admin):
     pm_user, pm_token = project_admin
     t = await _seed_template(db_session, pm_user.id, name="待删")
     await db_session.commit()
 
-    resp = await httpx_client_bound.delete(
+    resp = await httpx_client.delete(
         f"/api/v1/project-templates/{t.id}", headers=_auth(pm_token)
     )
     assert resp.status_code == 204
 
 
 async def test_create_from_source_project_dumps_fields(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     user, token = super_admin
     src = Project(
@@ -249,8 +246,9 @@ async def test_create_from_source_project_dumps_fields(
         type_label="图像-检测",
         type_key="image-det",
         owner_id=user.id,
-        classes=["car", "person"],
-        classes_config={"car": {"color": "#ff0000", "order": 0}},
+        tool_bindings=build_tool_bindings(
+            [{"name": "car", "color": "#ff0000", "order": 0}, "person"]
+        ),
         ai_enabled=True,
         annotation_guide="# 源指引",
     )
@@ -264,7 +262,7 @@ async def test_create_from_source_project_dumps_fields(
         "type_key": "image-det",
         "source_project_id": str(src.id),
     }
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/project-templates", json=body, headers=_auth(token)
     )
     assert resp.status_code == 201, resp.text
@@ -276,21 +274,20 @@ async def test_create_from_source_project_dumps_fields(
     assert data["source_project_id"] == str(src.id)
 
 
-async def test_duplicate_creates_private_copy(
-    httpx_client_bound, db_session, super_admin
-):
+async def test_duplicate_creates_private_copy(httpx_client, db_session, super_admin):
     user, token = super_admin
     src = await _seed_template(
         db_session,
         user.id,
         name="原模板",
         scope="public",
-        classes=["a", "b"],
-        classes_config={"a": {"color": "#222222", "order": 0}},
+        tool_bindings=build_tool_bindings(
+            [{"name": "a", "color": "#222222", "order": 0}, "b"]
+        ),
     )
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/project-templates/{src.id}/duplicate", headers=_auth(token)
     )
     assert resp.status_code == 201, resp.text
@@ -303,14 +300,14 @@ async def test_duplicate_creates_private_copy(
 
 
 async def test_apply_template_creates_project_and_bumps_usage(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     user, token = super_admin
     t = await _seed_template(
         db_session,
         user.id,
         scope="public",
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
         ai_enabled=True,
         annotation_guide="# 模板指引",
     )
@@ -323,9 +320,7 @@ async def test_apply_template_creates_project_and_bumps_usage(
         "type_key": "image-det",
         "template_id": str(t_id),
     }
-    resp = await httpx_client_bound.post(
-        "/api/v1/projects", json=body, headers=_auth(token)
-    )
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=_auth(token))
     assert resp.status_code == 200, resp.text
     project_data = resp.json()
     assert project_data["classes"] == ["car"]
@@ -335,7 +330,7 @@ async def test_apply_template_creates_project_and_bumps_usage(
     assert project_data["guide_assets"] == []
 
     # 复读模板, usage_count + 1
-    resp2 = await httpx_client_bound.get(
+    resp2 = await httpx_client.get(
         f"/api/v1/project-templates/{t_id}", headers=_auth(token)
     )
     assert resp2.status_code == 200
@@ -343,7 +338,7 @@ async def test_apply_template_creates_project_and_bumps_usage(
 
 
 async def test_template_id_and_source_project_id_mutually_exclusive(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     user, token = super_admin
     t = await _seed_template(db_session, user.id, scope="public")
@@ -365,15 +360,13 @@ async def test_template_id_and_source_project_id_mutually_exclusive(
         "template_id": str(t.id),
         "source_project_id": str(src.id),
     }
-    resp = await httpx_client_bound.post(
-        "/api/v1/projects", json=body, headers=_auth(token)
-    )
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=_auth(token))
     # pydantic model_validator → 422
     assert resp.status_code == 422, resp.text
 
 
 async def test_private_template_detail_404_for_others(
-    httpx_client_bound, db_session, project_admin
+    httpx_client, db_session, project_admin
 ):
     """别人的私有模板, 详情接口返回 404 (隐藏存在性)."""
     pm_user, pm_token = project_admin
@@ -381,7 +374,7 @@ async def test_private_template_detail_404_for_others(
     t = await _seed_template(db_session, other.id, name="他人私有")
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/project-templates/{t.id}", headers=_auth(pm_token)
     )
     assert resp.status_code == 404

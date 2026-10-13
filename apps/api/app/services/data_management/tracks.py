@@ -391,8 +391,18 @@ class DataManagerTrackService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    def _visible(self, project_id: uuid.UUID, user: User, project: Project, name: str):
-        return visible_tasks_stmt(project_id, user=user, project=project).subquery(name)
+    def _visible(
+        self,
+        project_id: uuid.UUID,
+        user: User,
+        project: Project,
+        name: str,
+        *,
+        project_role: str | None = None,
+    ):
+        return visible_tasks_stmt(
+            project_id, user=user, project=project, project_role=project_role
+        ).subquery(name)
 
     def _active(self, project_id: uuid.UUID):
         return and_(
@@ -409,19 +419,30 @@ class DataManagerTrackService:
         payload: DataManagerEntityQueryRequest,
         user: User,
         project: Project,
+        project_role: str | None = None,
     ) -> DataManagerTrackQueryResponse:
         kind = project_kind(project)
         if not (kind.scene_mode or kind.data_type == "video"):
             raise HTTPException(status_code=422, detail="Track lens is not supported")
         if kind.data_type == "video" and not kind.scene_mode:
             return await self._query_compact(
-                project_id=project_id, payload=payload, user=user, project=project
+                project_id=project_id,
+                payload=payload,
+                user=user,
+                project=project,
+                project_role=project_role,
             )
         return await self._query_scene(
-            project_id=project_id, payload=payload, user=user, project=project
+            project_id=project_id,
+            payload=payload,
+            user=user,
+            project=project,
+            project_role=project_role,
         )
 
-    async def _query_compact(self, *, project_id, payload, user, project):
+    async def _query_compact(
+        self, *, project_id, payload, user, project, project_role=None
+    ):
         sort = (payload.sort_json or [{"field": "track.track_id", "direction": "asc"}])[
             0
         ]
@@ -431,7 +452,9 @@ class DataManagerTrackService:
             raise HTTPException(
                 status_code=422, detail="Sort direction must be asc or desc"
             )
-        visible = self._visible(project_id, user, project, "dm_compact_visible")
+        visible = self._visible(
+            project_id, user, project, "dm_compact_visible", project_role=project_role
+        )
         condition = compile_entity_filter(
             payload.filter_json, Annotation, project=project, user=user
         )
@@ -570,8 +593,10 @@ class DataManagerTrackService:
             ),
         )
 
-    def _scene_member_query(self, *, project_id, user, project):
-        visible = self._visible(project_id, user, project, "dm_scene_visible")
+    def _scene_member_query(self, *, project_id, user, project, project_role=None):
+        visible = self._visible(
+            project_id, user, project, "dm_scene_visible", project_role=project_role
+        )
         item = aliased(DatasetItem)
         scene = aliased(Scene)
         return (
@@ -606,7 +631,9 @@ class DataManagerTrackService:
             )
         )
 
-    async def _query_scene(self, *, project_id, payload, user, project):
+    async def _query_scene(
+        self, *, project_id, payload, user, project, project_role=None
+    ):
         sort = (payload.sort_json or [{"field": "track.track_id", "direction": "asc"}])[
             0
         ]
@@ -616,7 +643,13 @@ class DataManagerTrackService:
             raise HTTPException(
                 status_code=422, detail="Sort direction must be asc or desc"
             )
-        visible = self._visible(project_id, user, project, "dm_scene_match_visible")
+        visible = self._visible(
+            project_id,
+            user,
+            project,
+            "dm_scene_match_visible",
+            project_role=project_role,
+        )
         condition = compile_entity_filter(
             payload.filter_json, Annotation, project=project, user=user
         )
@@ -638,7 +671,7 @@ class DataManagerTrackService:
         )
 
         all_members = self._scene_member_query(
-            project_id=project_id, user=user, project=project
+            project_id=project_id, user=user, project=project, project_role=project_role
         ).subquery("dm_scene_track_members")
         class_count = func.count(func.distinct(all_members.c.class_name))
         scene_count = func.count(func.distinct(all_members.c.scene_id))
@@ -745,7 +778,10 @@ class DataManagerTrackService:
             member_rows = (
                 await self.db.execute(
                     self._scene_member_query(
-                        project_id=project_id, user=user, project=project
+                        project_id=project_id,
+                        user=user,
+                        project=project,
+                        project_role=project_role,
                     ).where(Annotation.track_id.in_(ids))
                 )
             ).all()
@@ -801,6 +837,7 @@ class DataManagerTrackService:
             project_id=project_id,
             user=user,
             project=project,
+            project_role=project_role,
             scene_ids={row.scene_id for row in member_rows if row.scene_id is not None},
         )
         return DataManagerTrackQueryResponse(
@@ -849,6 +886,7 @@ class DataManagerTrackService:
         track_ref: str,
         user: User,
         project: Project,
+        project_role: str | None = None,
     ) -> DataManagerTrackDetailResponse:
         if track_ref.startswith("compact:"):
             try:
@@ -860,6 +898,7 @@ class DataManagerTrackService:
                 annotation_id=annotation_id,
                 user=user,
                 project=project,
+                project_role=project_role,
             )
             track = _compact_from_row(row, project)
             geometry = row.geometry if isinstance(row.geometry, dict) else {}
@@ -890,7 +929,10 @@ class DataManagerTrackService:
         rows = (
             await self.db.execute(
                 self._scene_member_query(
-                    project_id=project_id, user=user, project=project
+                    project_id=project_id,
+                    user=user,
+                    project=project,
+                    project_role=project_role,
                 ).where(Annotation.track_id == track_id)
             )
         ).all()
@@ -900,6 +942,7 @@ class DataManagerTrackService:
             project_id=project_id,
             user=user,
             project=project,
+            project_role=project_role,
             scene_ids={row.scene_id for row in rows if row.scene_id is not None},
         )
         linked_id = next(
@@ -944,11 +987,17 @@ class DataManagerTrackService:
         )
 
     async def _visible_scene_frames(
-        self, *, project_id, user, project, scene_ids: set[Any]
+        self, *, project_id, user, project, project_role=None, scene_ids: set[Any]
     ) -> dict[Any, set[int]]:
         if not scene_ids:
             return {}
-        visible = self._visible(project_id, user, project, "dm_scene_frame_visible")
+        visible = self._visible(
+            project_id,
+            user,
+            project,
+            "dm_scene_frame_visible",
+            project_role=project_role,
+        )
         item = aliased(DatasetItem)
         rows = await self.db.execute(
             select(item.scene_id, item.frame_index)
@@ -966,8 +1015,16 @@ class DataManagerTrackService:
             result[scene_id].add(int(frame_index))
         return result
 
-    async def _compact_detail_row(self, *, project_id, annotation_id, user, project):
-        visible = self._visible(project_id, user, project, "dm_compact_detail_visible")
+    async def _compact_detail_row(
+        self, *, project_id, annotation_id, user, project, project_role=None
+    ):
+        visible = self._visible(
+            project_id,
+            user,
+            project,
+            "dm_compact_detail_visible",
+            project_role=project_role,
+        )
         item = aliased(DatasetItem)
         row = (
             await self.db.execute(

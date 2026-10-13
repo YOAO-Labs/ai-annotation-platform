@@ -15,6 +15,7 @@ from app.db.models.scene_track import (
 )
 from app.db.models.task_batch import TaskBatch
 from tests.test_track_operations import _add_box, _headers, _seed_scene
+from tests.factory import create_membership
 
 
 async def _preview(client, *, task_id, token, body):
@@ -362,6 +363,13 @@ async def test_scene_track_reads_do_not_cross_hidden_scene_tasks(
     )
     assert execute.status_code == 200, execute.text
 
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=annotator_user.id,
+        role="annotator",
+        assigned_by=owner.id,
+    )
     own_batch = TaskBatch(
         project_id=project.id,
         display_id="B-TRACK-OWN",

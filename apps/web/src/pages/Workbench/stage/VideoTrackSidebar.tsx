@@ -1,5 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { Icon } from "@/components/ui/Icon";
 import type { AnnotationResponse, VideoTrackKeyframe } from "@/types";
 import type { DiffMode } from "../modes/types";
@@ -186,6 +187,10 @@ export function VideoTrackSidebar({
   trackSectionCollapsed = false,
   onToggleTrackSection,
 }: VideoTrackSidebarProps) {
+  // 删除确认是异步的:await 期间浏览器历史可能已切到别的题,闭包里的 props 是旧渲染的。
+  // 复检一律读这份实时 ref(与 shell 层 annotationsRef 兜底同一模式)。
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
   const videoTracks = useMemo(() => annotations.filter(isVideoTrack), [annotations]);
   const maskTracks = useMemo(
     () =>
@@ -453,21 +458,47 @@ export function VideoTrackSidebar({
     onBatchTrack(selectedTracks);
   }, [onBatchTrack, selectedTracks]);
 
+  // await 确认后的归属复检:对话框打开期间浏览器历史可能已切题,只提交仍属于
+  // 当前题 annotations 的轨迹;全部失效则整个放弃,不拿旧题的标注开刀。
+  const stillOwned = useCallback(
+    (tracks: AnnotationResponse[]) =>
+      tracks.filter((ann) => annotationsRef.current.some((current) => current.id === ann.id)),
+    [],
+  );
+
   const deleteSelectedTracks = useCallback(() => {
     if (selectedTracks.length <= 1 || !onDeleteTracks) return;
-    if (!window.confirm(`确定删除 ${selectedTracks.length} 条轨迹？`)) return;
-    onDeleteTracks(selectedTracks);
-    setSelectedTrackIds(new Set());
-  }, [onDeleteTracks, selectedTracks]);
+    // 删除确认走应用内对话框;确认期间轨迹可能被并行删除或已切题,提交前复检归属,
+    // 由上层 handleVideoBatchDelete 再次过滤兜底。
+    void (async () => {
+      const confirmed = await confirmDialog({
+        tone: "danger",
+        title: `删除 ${selectedTracks.length} 条轨迹？`,
+        confirmLabel: "删除",
+      });
+      if (!confirmed) return;
+      const stillPresent = stillOwned(selectedTracks);
+      if (stillPresent.length === 0) return;
+      onDeleteTracks(stillPresent);
+      setSelectedTrackIds(new Set());
+    })();
+  }, [onDeleteTracks, selectedTracks, stillOwned]);
 
   // 单条轨迹删除:右栏每行 + 选中卡底部操作栏共用;删整条 = onDeleteTracks([ann])。
   const deleteTrack = useCallback(
     (ann: VideoTrackAnnotation) => {
       if (readOnly || lockedTrackIds.has(ann.geometry.track_id) || !onDeleteTracks) return;
-      if (!window.confirm("确定删除这条轨迹？")) return;
-      onDeleteTracks([ann]);
+      void (async () => {
+        const confirmed = await confirmDialog({
+          tone: "danger",
+          title: "删除这条轨迹？",
+          confirmLabel: "删除",
+        });
+        if (!confirmed || stillOwned([ann]).length === 0) return;
+        onDeleteTracks([ann]);
+      })();
     },
-    [lockedTrackIds, onDeleteTracks, readOnly],
+    [lockedTrackIds, onDeleteTracks, readOnly, stillOwned],
   );
 
   const aggregateSelectedBboxes = useCallback(() => {
@@ -772,8 +803,17 @@ export function VideoTrackSidebar({
                     title="删除 Mask 轨迹"
                     disabled={readOnly || locked || !onDeleteTracks}
                     onClick={() => {
-                      if (window.confirm("确定删除这条 Mask 轨迹？"))
-                        onDeleteTracks?.([annotation]);
+                      void (async () => {
+                        const confirmed = await confirmDialog({
+                          tone: "danger",
+                          title: "删除这条 Mask 轨迹？",
+                          confirmLabel: "删除",
+                        });
+                        // await 期间可能已切题:仍属于当前题才提交删除。
+                        if (confirmed && stillOwned([annotation]).length > 0) {
+                          onDeleteTracks?.([annotation]);
+                        }
+                      })();
                     }}
                   >
                     <Icon name="trash" size={13} />

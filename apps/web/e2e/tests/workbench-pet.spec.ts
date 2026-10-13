@@ -3,7 +3,7 @@ import { expect, test } from "../fixtures/seed";
 test("桌宠切换信息时保持位置，展开详情后隐藏简化气泡", async ({ page, seed }, testInfo) => {
   test.setTimeout(90_000);
   page.setDefaultTimeout(15_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const taskId = data.task_ids[0];
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
   const projectPath = `/api/v1/projects/${data.project_id}`;

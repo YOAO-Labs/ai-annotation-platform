@@ -7,10 +7,11 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useToastStore } from "@/components/ui/Toast";
 import { AssigneeAvatarStack } from "@/components/ui/AssigneeAvatarStack";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useElementStyle } from "@/components/ui/useElementStyle";
 import { useMyBatches } from "@/hooks/useDashboard";
 import { ApiError } from "@/api/client";
-import { batchesApi, type BatchResponse } from "@/api/batches";
+import { batchesApi } from "@/api/batches";
 import type { MyBatchItem } from "@/api/dashboard";
 import {
   isInitialQueryPaused,
@@ -48,6 +49,16 @@ function batchesErrorMessage(error: unknown): string {
     return "分派批次服务暂时不可用，请稍后重试。";
   }
   return "分派批次加载失败，请检查网络后重试。";
+}
+
+/** 未送审任务 = pending + in_progress（rejected 需先重做，不计入整批送审）。 */
+function unsubmittedTasks(b: MyBatchItem): number {
+  return Math.max(0, b.total_tasks - b.review_tasks - b.completed_tasks - b.rejected_tasks);
+}
+
+/** 整批送审入口按“是否还有未送审任务”显示，而不是只看批次状态。 */
+function canBatchSubmit(b: MyBatchItem): boolean {
+  return unsubmittedTasks(b) > 0 && (b.status === "annotating" || b.status === "reviewing");
 }
 
 /** B-20：标注员视角的三段进度条 — 已动工 / 送审 / 通过。
@@ -110,13 +121,22 @@ export function MyBatchesCard() {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
   const submitMut = useMutation({
-    mutationFn: (b: MyBatchItem) =>
-      batchesApi.transition(b.project_id, b.batch_id, "reviewing") as Promise<BatchResponse>,
+    mutationFn: (b: MyBatchItem) => batchesApi.submitReview(b.project_id, b.batch_id),
     onMutate: (b) => setSubmittingId(b.batch_id),
-    onSuccess: () => {
-      pushToast({ msg: "已提交质检", sub: "等待审核员处理", kind: "success" });
+    onSuccess: (result) => {
+      pushToast({
+        msg: `已提交 ${result.submitted_tasks} 个任务质检`,
+        sub:
+          result.remaining_tasks > 0
+            ? `仍有 ${result.remaining_tasks} 个任务未送审`
+            : "等待审核员处理",
+        kind: "success",
+      });
       qc.invalidateQueries({ queryKey: ["dashboard", "annotator"] });
       qc.invalidateQueries({ queryKey: ["batches"] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (e) => {
       const msg = e instanceof Error ? e.message : "提交失败";
@@ -194,27 +214,45 @@ export function MyBatchesCard() {
     return a.batch_display_id.localeCompare(b.batch_display_id);
   });
 
-  // B-22 改：可批量提交的批次 = annotating 且至少有一个任务已动工或更进。
-  // 用户反馈"提交质检仍无效"是因为旧门槛要求所有任务都送审，这里放宽到只要批次状态合适即可，
-  // 让标注员可以中途整批提交（剩余 pending 任务由 confirm 提示）。
-  const submittable = sorted.filter((b) => b.status === "annotating");
+  // B-22 改：可批量提交的批次 = 仍有未送审任务（pending / in_progress）的 annotating /
+  // reviewing 批次。用户反馈"提交质检仍无效"是因为旧门槛要求所有任务都送审，这里放宽到
+  // 只要还有未送审任务即可，让标注员可以中途整批提交（剩余任务由 confirm 提示）。
+  const submittable = sorted.filter(canBatchSubmit);
   const selectedSubmittable = submittable.filter((b) => selectedIds.has(b.batch_id));
+
+  // 与 AnnotatePage 的单批提交确认同一 tone/voice(计划 Group B 要求)。
+  const confirmBatchSubmit = async (b: MyBatchItem, pendingCount: number) => {
+    if (
+      !(await confirmDialog({
+        title: "提交批次质检",
+        description: `批次「${b.batch_name}」仍有 ${pendingCount} 个任务未送审，提交后将整批锁定，无法继续修改。`,
+        confirmLabel: "提交质检",
+      }))
+    )
+      return;
+    submitMut.mutate(b);
+  };
 
   const handleBulkSubmit = async () => {
     if (selectedSubmittable.length === 0) return;
     if (
-      !window.confirm(
-        `确认批量将 ${selectedSubmittable.length} 个批次提交质检？提交后无法继续修改。`,
-      )
+      !(await confirmDialog({
+        title: "批量提交质检",
+        description: "选中批次的未送审任务将全部提交并锁定，无法继续修改。",
+        details: `将提交 ${selectedSubmittable.length} 个批次`,
+        confirmLabel: "提交质检",
+      }))
     )
       return;
     setBulkSubmitting(true);
     let okCount = 0;
+    let taskCount = 0;
     const errors: string[] = [];
     for (const b of selectedSubmittable) {
       try {
-        await batchesApi.transition(b.project_id, b.batch_id, "reviewing");
+        const result = await batchesApi.submitReview(b.project_id, b.batch_id);
         okCount += 1;
+        taskCount += result.submitted_tasks;
       } catch (e) {
         errors.push(`${b.batch_display_id}: ${e instanceof Error ? e.message : "失败"}`);
       }
@@ -223,8 +261,15 @@ export function MyBatchesCard() {
     setSelectedIds(new Set());
     qc.invalidateQueries({ queryKey: ["dashboard", "annotator"] });
     qc.invalidateQueries({ queryKey: ["batches"] });
+    qc.invalidateQueries({ queryKey: ["tasks"] });
+    qc.invalidateQueries({ queryKey: ["task"] });
+    qc.invalidateQueries({ queryKey: ["projects"] });
     if (errors.length === 0) {
-      pushToast({ msg: `已批量提交 ${okCount} 个批次`, sub: "等待审核员处理", kind: "success" });
+      pushToast({
+        msg: `已批量提交 ${okCount} 个批次 / ${taskCount} 个任务`,
+        sub: "等待审核员处理",
+        kind: "success",
+      });
     } else {
       pushToast({
         msg: `${okCount} 成功 / ${errors.length} 失败`,
@@ -293,7 +338,8 @@ export function MyBatchesCard() {
             const approvedPct = Math.round((approvedDone / total) * 1000) / 10;
             const annotateUrl = `/annotate?batch=${b.batch_id}`;
 
-            const canSelect = b.status === "annotating";
+            const canSelect = canBatchSubmit(b);
+            const submittableCount = unsubmittedTasks(b);
             return (
               <button
                 key={b.batch_id}
@@ -355,24 +401,15 @@ export function MyBatchesCard() {
                 </div>
 
                 <div className="flex flex-[0_0_auto] items-center gap-2">
-                  {b.status === "annotating" && (
+                  {canSelect && (
                     <Button
                       variant="primary"
                       size="sm"
                       disabled={submittingId === b.batch_id || bulkSubmitting}
-                      title={
-                        pendingTasks > 0
-                          ? `仍有 ${pendingTasks} 个未开始；确认后整批提交`
-                          : "整批提交质检"
-                      }
+                      title={`仍有 ${submittableCount} 个任务未送审；确认后整批提交`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        const warn =
-                          pendingTasks > 0
-                            ? `批次「${b.batch_name}」仍有 ${pendingTasks} 个任务未开始。确认整批提交质检？提交后无法继续修改。`
-                            : `确认将批次「${b.batch_name}」提交质检？提交后无法继续修改。`;
-                        if (!window.confirm(warn)) return;
-                        submitMut.mutate(b);
+                        void confirmBatchSubmit(b, submittableCount);
                       }}
                     >
                       <Icon name="check" size={11} />

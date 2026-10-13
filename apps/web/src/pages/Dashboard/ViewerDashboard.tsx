@@ -10,7 +10,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useToastStore } from "@/components/ui/Toast";
 import { useProjects, useProjectStats } from "@/hooks/useProjects";
 import type { ProjectResponse } from "@/api/projects";
-import { buildWorkbenchUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
+import { buildProjectEntryUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
 import { projectDisplayType } from "@/utils/projectDisplay";
 import { PageContainer } from "@/components/layout/PageContainer";
 
@@ -38,7 +38,9 @@ export function ViewerDashboard() {
   const pushToast = useToastStore((s) => s.push);
   const onOpenProject = (p: ProjectResponse) => {
     if (p.data_type && WORKBENCH_DATA_TYPES.has(p.data_type)) {
-      navigate(buildWorkbenchUrl(p.id, { returnTo: currentWorkbenchReturnTo(location) }));
+      navigate(
+        buildProjectEntryUrl(p.id, "viewer", { returnTo: currentWorkbenchReturnTo(location) }),
+      );
     } else {
       pushToast({
         msg: `项目 "${p.name}" 已打开`,
@@ -83,7 +85,7 @@ export function ViewerDashboard() {
         <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
           <div className="flex items-center gap-3">
             <h3 className="text-sm font-semibold">项目列表</h3>
-            <FilterGroup label="状态">
+            <FilterGroup label="状态" hideLabel>
               {FILTERS.map((option) => (
                 <FilterToggle
                   key={option}

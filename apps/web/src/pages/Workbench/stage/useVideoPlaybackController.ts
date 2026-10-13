@@ -223,6 +223,9 @@ export function useVideoPlaybackController({
   const overlayHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameIndexRef = useRef(0);
+  // Issue #114 · 最新一次主动导航（seekFrameAsync）的目标帧。暂停态下 handleFrameClockChange
+  // 只接受该目标或当前帧回声；浏览器高负载交错产生的其它媒体帧回报一律视为过期并丢弃。
+  const frameNavigationTargetRef = useRef<number | null>(null);
   const jogPlaybackRef = useRef<VideoJogPlayback>(DEFAULT_PAUSED_JOG_PLAYBACK);
   const onSelectRef = useRef(onSelect);
   const mountedRef = useRef(true);
@@ -268,6 +271,11 @@ export function useVideoPlaybackController({
 
   const frameIndex = controlledFrameIndex ?? uncontrolledFrameIndex;
   frameIndexRef.current = frameIndex;
+  // PR #118 评审跟进:导航目标在渲染期收敛到已提交帧——播放逐帧推进与宿主外部改写受控帧
+  // (章节/段落/任务恢复)都不经 seekFrameAsync,若沿用旧目标,「seek A → 播放到 B →
+  // 暂停」后 A 的迟到回报仍能过栅栏拽回旧帧。seekFrameAsync 对目标的赋值与其乐观写
+  // 在同一同步栈内完成,不会在提交前被此收敛覆盖。
+  frameNavigationTargetRef.current = frameIndex;
   jogPlaybackRef.current = jogPlayback;
   const isJogPlaying = jogPlayback.direction !== 0;
   const isPlaybackActive = isPlaying || isJogPlaying;
@@ -326,6 +334,17 @@ export function useVideoPlaybackController({
         setFrameIndex(loopRegion.startFrame);
         const video = videoRef.current;
         if (video) video.currentTime = frameToTime(loopRegion.startFrame, timebase);
+        return;
+      }
+      // Issue #114 · 暂停态 stale-assignment 栅栏：时间轴点击的异步取帧在高负载下可能迟到，
+      // 与键盘步进竞争后把帧号拽回旧帧。合法的暂停态写入只可能是最新导航目标（含其回声
+      // 回执）；播放态逐帧推进不受此限制。被丢弃的写不影响媒体 seek 本身，画面在下一帧
+      // 变化时由 useFrameClock 的重对齐 effect 收敛。
+      if (
+        !isPlaybackActiveRef.current &&
+        nextFrame !== frameNavigationTargetRef.current &&
+        nextFrame !== frameIndexRef.current
+      ) {
         return;
       }
       setFrameIndex(nextFrame);
@@ -802,6 +821,9 @@ export function useVideoPlaybackController({
       if (options?.recordHistory) {
         setJumpHistory((history) => pushVideoJumpHistory(history, targetFrame));
       }
+      // Issue #114 · 在发起媒体 seek 之前登记导航目标：startSeek 的乐观写与后续媒体回执
+      // 都以此目标为准，迟到的旧帧回报会在 handleFrameClockChange 的栅栏处被丢弃。
+      frameNavigationTargetRef.current = targetFrame;
       showCachedBitmapFrame(targetFrame);
       let result: FrameSeekResult;
       try {

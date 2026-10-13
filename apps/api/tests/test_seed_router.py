@@ -116,6 +116,22 @@ async def test_seed_reset_returns_fixture_payload(httpx_client):
     assert isinstance(body["task_ids"], list)
     assert len(body["task_ids"]) == 5
 
+    for project_role in ("annotator", "reviewer"):
+        login = await httpx_client.post(
+            "/api/v1/__test/seed/login",
+            json={"email": body[f"{project_role}_email"]},
+        )
+        assert login.status_code == 200, login.text
+        identity = login.json()
+        assert identity["user"]["role"] == "employee"
+        access = await httpx_client.get(
+            f"/api/v1/projects/{body['project_id']}/access",
+            headers={"Authorization": f"Bearer {identity['access_token']}"},
+        )
+        assert access.status_code == 200, access.text
+        assert access.json()["project_role"] == project_role
+        assert access.json()["platform_role"] == "employee"
+
 
 async def test_filtering_seed_route_is_guarded_and_hidden_from_openapi(
     httpx_client, app_module
@@ -129,6 +145,158 @@ async def test_filtering_seed_route_is_guarded_and_hidden_from_openapi(
     )
     assert route.include_in_schema is False
     assert "/api/v1/__test/seed/filtering" not in app_module.openapi()["paths"]
+
+
+async def test_project_roles_seed_route_is_guarded_and_hidden_from_openapi(
+    httpx_client, app_module
+):
+    response = await httpx_client.post("/api/v1/__test/seed/project-roles")
+    assert response.status_code == 200, response.text
+    route = next(
+        route
+        for route in app_module.routes
+        if getattr(route, "path", None) == "/api/v1/__test/seed/project-roles"
+    )
+    assert route.include_in_schema is False
+    assert "/api/v1/__test/seed/project-roles" not in app_module.openapi()["paths"]
+
+
+async def test_project_roles_seed_builds_multi_project_employee_matrix(
+    httpx_client, db_session
+):
+    """One employee: annotator in A, reviewer in B, no membership in C.
+
+    Review work is left pending so the browser spec submits it through the real
+    API and freezes complete contributor evidence.
+    """
+    import uuid
+
+    from sqlalchemy import func, select
+
+    from app.db.models.project_member import ProjectMember
+    from app.db.models.task import Task
+    from app.db.models.task_batch import TaskBatch
+    from app.db.models.user import User
+
+    response = await httpx_client.post("/api/v1/__test/seed/project-roles")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["employee_email"] == "employee@e2e.test"
+    assert body["peer_email"] == "peer@e2e.test"
+    projects = body["projects"]
+    assert projects["a"]["project_role"] == "annotator"
+    assert projects["b"]["project_role"] == "reviewer"
+    assert projects["d"]["project_role"] == "annotator"
+    assert projects["c"]["project_role"] is None
+    assert projects["c"]["membership_id"] is None
+
+    assert body["users"]["employee"]["platform_role"] == "employee"
+    assert body["users"]["owner_a"]["platform_role"] == "project_admin"
+    assert body["users"]["owner_b"]["platform_role"] == "project_admin"
+    assert body["users"]["viewer"]["platform_role"] == "viewer"
+
+    # Exactly the fixture accounts, no base reset users left behind.
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(User).where(User.email.like("%@e2e.test"))
+        )
+        == 9
+    )
+
+    employee = await db_session.scalar(
+        select(User).where(User.email == body["employee_email"])
+    )
+    assert employee is not None and employee.role == "employee"
+
+    # The no-project employee exists but holds no membership.
+    solo = await db_session.scalar(select(User).where(User.email == body["solo_email"]))
+    assert solo is not None and solo.role == "employee"
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(ProjectMember)
+            .where(ProjectMember.user_id == solo.id)
+        )
+        == 0
+    )
+
+    memberships = {
+        (row.project_id, row.user_id): row.role
+        for row in (
+            await db_session.scalars(
+                select(ProjectMember).where(ProjectMember.user_id == employee.id)
+            )
+        ).all()
+    }
+    a_id = uuid.UUID(projects["a"]["project_id"])
+    b_id = uuid.UUID(projects["b"]["project_id"])
+    c_id = uuid.UUID(projects["c"]["project_id"])
+    d_id = uuid.UUID(projects["d"]["project_id"])
+    assert memberships[(a_id, employee.id)] == "annotator"
+    assert memberships[(b_id, employee.id)] == "reviewer"
+    assert memberships[(d_id, employee.id)] == "annotator"
+    assert (c_id, employee.id) not in memberships
+
+    # The employee can annotate A and review B, while C stays invisible even
+    # though one of its tasks is explicitly assigned to the employee.
+    login = await httpx_client.post(
+        "/api/v1/__test/seed/login", json={"email": body["employee_email"]}
+    )
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    for project_key, expected_role in (
+        ("a", "annotator"),
+        ("b", "reviewer"),
+        ("d", "annotator"),
+    ):
+        access = await httpx_client.get(
+            f"/api/v1/projects/{projects[project_key]['project_id']}/access",
+            headers=headers,
+        )
+        assert access.status_code == 200, access.text
+        assert access.json()["project_role"] == expected_role
+    c_access = await httpx_client.get(
+        f"/api/v1/projects/{c_id}/access", headers=headers
+    )
+    assert c_access.status_code in (403, 404)
+
+    # Review evidence must be freezable later: known-empty accumulator, not NULL.
+    for key in (
+        "annotation_task_id",
+        "review_task_id",
+        "c_assigned_task_id",
+        "open_pool_task_id",
+    ):
+        task = await db_session.get(Task, uuid.UUID(body[key]))
+        assert task is not None
+        assert task.annotation_contributor_ids == []
+
+    # The revocation premise: D is an open pool, so the employee owns no
+    # assignment there and can be removed without a handoff blocker.
+    open_task = await db_session.get(Task, uuid.UUID(body["open_pool_task_id"]))
+    assert open_task is not None
+    assert open_task.assignee_id is None
+    batch = await db_session.get(TaskBatch, uuid.UUID(projects["d"]["batch_id"]))
+    assert batch is not None
+    assert batch.annotator_id is None
+
+
+async def test_project_roles_seed_is_idempotent(httpx_client, db_session):
+    from sqlalchemy import func, select
+
+    from app.db.models.user import User
+
+    first = await httpx_client.post("/api/v1/__test/seed/project-roles")
+    second = await httpx_client.post("/api/v1/__test/seed/project-roles")
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(User).where(User.email.like("%@e2e.test"))
+        )
+        == 9
+    )
 
 
 async def test_seed_reset_is_idempotent_with_singleton_pool(httpx_client, db_session):
@@ -432,7 +600,7 @@ async def test_smart_scribble_masks_use_vehicle_silhouettes():
         assert bounding_area * 0.45 < len(foreground) < bounding_area * 0.85
 
 
-async def test_seed_reset_preserves_dev_data(httpx_client_bound, db_session):
+async def test_seed_reset_preserves_dev_data(httpx_client, db_session):
     """v0.8.7+ · D 方案核心断言：reset 不动非 fixture 的开发数据。
 
     造一个 dev 用户 + dev 项目，跑 reset，断言它们仍然存在；同时 fixture
@@ -468,7 +636,7 @@ async def test_seed_reset_preserves_dev_data(httpx_client_bound, db_session):
     await db_session.commit()
 
     # 跑 reset
-    res = await httpx_client_bound.post("/api/v1/__test/seed/reset")
+    res = await httpx_client.post("/api/v1/__test/seed/reset")
     assert res.status_code == 200, res.text
 
     # dev 数据应保留

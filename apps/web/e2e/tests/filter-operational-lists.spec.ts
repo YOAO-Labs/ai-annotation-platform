@@ -31,14 +31,29 @@ async function checked(response: Response) {
   return response.json();
 }
 
+function keysOf(manifest: FilteringSeedManifest) {
+  const {
+    search_keys: keys,
+    display_names: names,
+    invitation_emails: emails,
+    audit_scopes: scopes,
+  } = manifest.operations;
+  return { keys, names, emails, scopes };
+}
+
+function dashboardURL(query: string, extra: string): string {
+  return `/dashboard?q=${encodeURIComponent(query)}&${extra}`;
+}
+
 test("project popover and status controls share one applied state and cancel keeps it", async ({
   page,
   filtering,
 }) => {
-  const initial = getResponse(page, "/projects", { search: "Filter Ops" });
-  await page.goto("/dashboard?q=Filter+Ops&layout=grid&keep=filter-test");
+  const searchKeys = keysOf(filtering).keys;
+  const initial = getResponse(page, "/projects/query", { search: searchKeys.projects });
+  await page.goto(dashboardURL(searchKeys.projects, "layout=grid&keep=filter-test"));
   const projects = await checked(await initial);
-  expect(projects.map((project: { id: string }) => project.id).sort()).toEqual(
+  expect(projects.items.map((project: { id: string }) => project.id).sort()).toEqual(
     [...filtering.operations.project_ids].sort(),
   );
   await page.getByRole("button", { name: "筛选", exact: true }).click();
@@ -50,12 +65,12 @@ test("project popover and status controls share one applied state and cancel kee
 
   await page.getByRole("button", { name: "筛选", exact: true }).click();
   await drawer.getByRole("button", { name: "已完成", exact: true }).click();
-  const completed = getResponse(page, "/projects", { status: "completed" });
+  const completed = getResponse(page, "/projects/query", { status: "completed" });
   await drawer.getByRole("button", { name: "应用", exact: true }).click();
   await expect(drawer).not.toBeVisible();
   await checked(await completed);
   await expect.poll(() => new URL(page.url()).searchParams.get("status")).toBe("completed");
-  const inProgress = getResponse(page, "/projects", { status: "in_progress" });
+  const inProgress = getResponse(page, "/projects/query", { status: "in_progress" });
   await page.getByRole("button", { name: "进行中", exact: true }).click();
   await checked(await inProgress);
   await page.getByRole("button", { name: "筛选", exact: true }).click();
@@ -66,7 +81,7 @@ test("project popover and status controls share one applied state and cancel kee
   await drawer.getByRole("button", { name: "取消", exact: true }).click();
   await expect(drawer).not.toBeVisible();
   await page.reload();
-  await expect(page.getByPlaceholder("搜索项目...")).toHaveValue("Filter Ops");
+  await expect(page.getByPlaceholder("搜索项目...")).toHaveValue(searchKeys.projects);
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
 });
 
@@ -74,8 +89,11 @@ test("members restore filters, clear selection on filter changes, and isolate in
   page,
   filtering,
 }) => {
-  const members = getResponse(page, "/users/query", { status: "active", search: "Filter" });
-  await page.goto("/users?q=Filter&status=active&invite_q=filter-pending&keep=filter-test");
+  const { keys, names, emails } = keysOf(filtering);
+  const members = getResponse(page, "/users/query", { status: "active", search: keys.users });
+  await page.goto(
+    `/users?q=${encodeURIComponent(keys.users)}&status=active&invite_q=${encodeURIComponent(keys.invitations)}&keep=filter-test`,
+  );
   const active = await checked(await members);
   expect(active.items.map((user: { id: string }) => user.id)).toContain(
     filtering.operations.user_ids[0],
@@ -83,8 +101,8 @@ test("members restore filters, clear selection on filter changes, and isolate in
   expect(active.items.map((user: { id: string }) => user.id)).not.toContain(
     filtering.operations.user_ids[1],
   );
-  await page.getByRole("checkbox", { name: "选择 Filter Active", exact: true }).check();
-  const inactive = getResponse(page, "/users/query", { status: "inactive", search: "Filter" });
+  await page.getByRole("checkbox", { name: `选择 ${names.active}`, exact: true }).check();
+  const inactive = getResponse(page, "/users/query", { status: "inactive", search: keys.users });
   await page.getByRole("combobox", { name: "账号状态", exact: true }).selectOption("inactive");
   const result = await checked(await inactive);
   expect(result.items.map((user: { id: string }) => user.id)).toEqual([
@@ -92,28 +110,28 @@ test("members restore filters, clear selection on filter changes, and isolate in
   ]);
   await expect(page.getByRole("button", { name: "清除选择", exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("checkbox", { name: "选择 Filter Inactive", exact: true }),
+    page.getByRole("checkbox", { name: `选择 ${names.inactive}`, exact: true }),
   ).not.toBeChecked();
-  const invitations = getResponse(page, "/invitations/query", { search: "filter-pending" });
+  const invitations = getResponse(page, "/invitations/query", { search: keys.invitations });
   await page.getByRole("button", { name: /邀请记录/ }).click();
   const inviteResult = await checked(await invitations);
   expect(inviteResult.items.map((invite: { id: string }) => invite.id)).toEqual([
     filtering.operations.invitation_ids[0],
   ]);
   await expect(page.getByRole("textbox", { name: "搜索邀请", exact: true })).toHaveValue(
-    "filter-pending",
+    keys.invitations,
   );
-  const exportResponse = getResponse(page, "/invitations/export", { search: "filter-pending" });
+  const exportResponse = getResponse(page, "/invitations/export", { search: keys.invitations });
   const downloadReady = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出筛选结果", exact: true }).click();
   const exported = await exportResponse;
   expect(exported.ok()).toBe(true);
   const download = await downloadReady;
   const csv = await readFile((await download.path())!, "utf8");
-  expect(csv).toContain("filter-pending@example.test");
-  expect(csv).not.toContain("filter-accepted@example.test");
+  expect(csv).toContain(emails.pending);
+  expect(csv).not.toContain(emails.accepted);
   const params = new URL(page.url()).searchParams;
-  expect(params.get("q")).toBe("Filter");
+  expect(params.get("q")).toBe(keys.users);
   expect(params.get("status")).toBe("inactive");
   expect(params.get("keep")).toBe("filter-test");
 });
@@ -122,11 +140,14 @@ test("dataset filters preserve deep-link state and browser history", async ({
   page,
   filtering,
 }) => {
-  const initial = getResponse(page, "/datasets", { search: "Filter Ops", data_type: "image" });
+  const initial = getResponse(page, "/datasets", {
+    search: keysOf(filtering).keys.projects,
+    data_type: "image",
+  });
   await page.goto(
     "/datasets?" +
       new URLSearchParams({
-        q: "Filter Ops",
+        q: keysOf(filtering).keys.projects,
         data_type: "image",
         dataset: filtering.operations.dataset_ids[0],
         keep: "filter-test",
@@ -139,7 +160,10 @@ test("dataset filters preserve deep-link state and browser history", async ({
   const imageRow = page.locator("#dataset-row-" + filtering.operations.dataset_ids[0]);
   await expect(imageRow.getByRole("button", { name: "收起" })).toBeVisible();
   await expect.poll(() => new URL(page.url()).searchParams.has("dataset")).toBe(false);
-  const next = getResponse(page, "/datasets", { search: "Filter Ops", data_type: "video" });
+  const next = getResponse(page, "/datasets", {
+    search: keysOf(filtering).keys.projects,
+    data_type: "video",
+  });
   await page.getByRole("button", { name: "视频", exact: true }).click();
   const videos = await checked(await next);
   expect(videos.items.map((item: { id: string }) => item.id)).toEqual([
@@ -164,13 +188,20 @@ test("template default scope stays private and explicit all survives reload", as
   page,
   filtering,
 }) => {
-  const initial = getResponse(page, "/project-templates", { search: "Filter", scope: "private" });
-  await page.goto("/project-templates?q=Filter&keep=filter-test");
+  const initial = getResponse(page, "/project-templates", {
+    search: keysOf(filtering).keys.templates,
+    scope: "private",
+  });
+  await page.goto(
+    `/project-templates?q=${encodeURIComponent(keysOf(filtering).keys.templates)}&keep=filter-test`,
+  );
   const mine = await checked(await initial);
   expect(mine.map((item: { id: string }) => item.id)).toEqual([
     filtering.operations.template_ids[0],
   ]);
-  const allResponse = getResponse(page, "/project-templates", { search: "Filter" });
+  const allResponse = getResponse(page, "/project-templates", {
+    search: keysOf(filtering).keys.templates,
+  });
   await page.getByRole("button", { name: "全部", exact: true }).click();
   const all = await checked(await allResponse);
   expect(all.map((item: { id: string }) => item.id).sort()).toEqual(
@@ -178,8 +209,12 @@ test("template default scope stays private and explicit all survives reload", as
   );
   await expect.poll(() => new URL(page.url()).searchParams.get("scope")).toBe("all");
   await page.reload();
-  await expect(page.getByText("Filter Public Template", { exact: true })).toBeVisible();
-  await expect(page.getByText("Filter Private Template", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(filtering.operations.display_names.template_public, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(filtering.operations.display_names.template_private, { exact: true }),
+  ).toBeVisible();
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
 });
 
@@ -187,8 +222,13 @@ test("audit detail edits preserve an explicit empty value through reload", async
   page,
   filtering,
 }) => {
-  const rows = getResponse(page, "/audit-logs", { detail_key: "scope", detail_value: "alpha" });
-  await page.goto("/audit?detail_key=scope&detail_value=alpha&scope=all&keep=filter-test");
+  const rows = getResponse(page, "/audit-logs", {
+    detail_key: "scope",
+    detail_value: keysOf(filtering).scopes.alpha,
+  });
+  await page.goto(
+    `/audit?detail_key=scope&detail_value=${encodeURIComponent(keysOf(filtering).scopes.alpha)}&scope=all&keep=filter-test`,
+  );
   const initial = await checked(await rows);
   expect(JSON.stringify(initial)).toContain(filtering.operations.project_ids[0]);
   await page.getByRole("button", { name: "筛选", exact: true }).click();
@@ -245,7 +285,10 @@ test("image job search keeps spaces and applies its page reset with the debounce
   const initial = getResponse(page, "/async-jobs", { offset: "20" });
   await page.goto("/ai-pre/jobs?page=2&keep=filter-test");
   await checked(await initial);
-  const applied = getResponse(page, "/async-jobs", { search: "alpha complete", offset: "0" });
+  const applied = getResponse(page, "/async-jobs", {
+    search: keysOf(filtering).keys.jobs,
+    offset: "0",
+  });
   const seen: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
@@ -253,32 +296,36 @@ test("image job search keeps spaces and applies its page reset with the debounce
       seen.push(url.search);
   });
   const search = page.getByPlaceholder("搜索 prompt...");
-  await search.pressSequentially("alpha complete", { delay: 15 });
+  await search.pressSequentially(keysOf(filtering).keys.jobs, { delay: 15 });
   const jobs = await checked(await applied);
   expect(jobs.items.map((job: { id: string }) => job.id)).toEqual([
     filtering.operations.job_ids[0],
   ]);
-  await expect(search).toHaveValue("alpha complete");
-  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("alpha complete");
+  await expect(search).toHaveValue(keysOf(filtering).keys.jobs);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("q"))
+    .toBe(keysOf(filtering).keys.jobs);
   expect(new URL(page.url()).searchParams.has("page")).toBe(false);
   expect(seen).toHaveLength(1);
   await page.reload();
-  await expect(search).toHaveValue("alpha complete");
+  await expect(search).toHaveValue(keysOf(filtering).keys.jobs);
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
 });
 
 test("project filter stays attached, keeps its draft on resize, and cancels without a query", async ({
   page,
+  filtering,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const initial = getResponse(page, "/projects", { search: "Filter Ops" });
-  await page.goto("/dashboard?q=Filter+Ops&keep=filter-geometry");
+  const searchKeys = keysOf(filtering).keys;
+  const initial = getResponse(page, "/projects/query", { search: searchKeys.projects });
+  await page.goto(dashboardURL(searchKeys.projects, "keep=filter-geometry"));
   await checked(await initial);
   const trigger = page.getByRole("button", { name: "筛选", exact: true });
   const dialog = page.getByRole("dialog", { name: "高级筛选" });
   const queries: string[] = [];
   page.on("request", (request) => {
-    if (new URL(request.url()).pathname === "/api/v1/projects") queries.push(request.url());
+    if (new URL(request.url()).pathname === "/api/v1/projects/query") queries.push(request.url());
   });
   await trigger.click();
   await expect(dialog).toHaveAttribute("data-filter-panel", "popover");
@@ -318,32 +365,34 @@ test("project filter stays attached, keeps its draft on resize, and cancels with
 
 test("member filter summaries remove one condition without clearing search or account scope", async ({
   page,
+  filtering,
 }) => {
-  const initial = getResponse(page, "/users/query", { search: "Filter", status: "active" });
-  await page.goto("/users?q=Filter&keep=filter-summary");
+  const { keys: searchKeys } = keysOf(filtering);
+  const initial = getResponse(page, "/users/query", { search: searchKeys.users, status: "active" });
+  await page.goto(`/users?q=${encodeURIComponent(searchKeys.users)}&keep=filter-summary`);
   await checked(await initial);
   await page.getByRole("button", { name: "筛选", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "成员筛选" });
   const filtered = getResponse(page, "/users/query", {
-    search: "Filter",
+    search: searchKeys.users,
     status: "active",
-    role: "annotator",
+    role: "employee",
   });
-  await dialog.getByRole("combobox", { name: "角色筛选" }).selectOption("annotator");
+  await dialog.getByRole("combobox", { name: "角色筛选" }).selectOption("employee");
   await checked(await filtered);
   await dialog.getByRole("button", { name: "完成", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole("button", { name: "角色：标注员", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "角色：员工", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "移除角色筛选" }).click();
   await expect(page.getByRole("button", { name: "移除角色筛选" })).toHaveCount(0);
   // The initial query is still fresh in the 30-second cache. Reload verifies
   // restored request scope without requiring a redundant request on removal.
-  const removed = getResponse(page, "/users/query", { search: "Filter", status: "active" });
+  const removed = getResponse(page, "/users/query", { search: searchKeys.users, status: "active" });
   await page.reload();
   const response = await removed;
   expect(new URL(response.url()).searchParams.has("role")).toBe(false);
   await checked(response);
-  expect(new URL(page.url()).searchParams.get("q")).toBe("Filter");
+  expect(new URL(page.url()).searchParams.get("q")).toBe(searchKeys.users);
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-summary");
   await expect(page.getByRole("combobox", { name: "账号状态" })).toHaveValue("active");
 });

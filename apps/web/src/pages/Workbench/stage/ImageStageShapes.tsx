@@ -4,6 +4,7 @@ import type { Annotation, RotatedBboxGeometry, Keypoint, KeypointSchema } from "
 import { useMemo } from "react";
 import { predictionSourceLabel, type AiBox } from "../state/transforms";
 import type { ResizeDirection } from "./ResizeHandles";
+import type { ClassesConfig } from "@/api/projects";
 import { classColorForCanvas, displayClassName, hexToRgba } from "./colors";
 import { buildVertexIndex } from "./iou-index";
 import type { Pt } from "./polygonGeom";
@@ -82,6 +83,11 @@ interface KonvaBoxProps {
   fadedOpacity?: number;
   /** v0.15.27 · 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
+  /**
+   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
+   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
+   */
+  colorConfig?: ClassesConfig;
   /** v0.10.5 M4-β · I15 occluded：渲染为虚线 + 半透。 */
   occluded?: boolean;
   imgW: number;
@@ -106,6 +112,7 @@ export function KonvaBox({
   occluded = false,
   fadedOpacity = DEFAULT_FADED_OPACITY,
   visual,
+  colorConfig,
   imgW,
   imgH,
   scale,
@@ -113,7 +120,7 @@ export function KonvaBox({
   onMoveStart,
   onResizeStart,
 }: KonvaBoxProps) {
-  const color = classColorForCanvas(b.cls);
+  const color = classColorForCanvas(b.cls, colorConfig);
   const sw = screenToWorld(strokeWidthFor(selected, visual), scale);
   const handleSize = screenToWorld(BOX_HANDLE_SCREEN_PX, scale);
   const labelFontSize = visual.labelFontSize / scale;
@@ -212,6 +219,11 @@ interface KonvaPolygonProps {
   fadedOpacity?: number;
   /** v0.15.27 · 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
+  /**
+   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
+   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
+   */
+  colorConfig?: ClassesConfig;
   /** v0.10.5 M4-β · I15 occluded：渲染为虚线 + 半透（与 selfIntersect 红色互斥）。 */
   occluded?: boolean;
   imgW: number;
@@ -252,6 +264,7 @@ export function KonvaPolygon({
   onClick,
   fadedOpacity = DEFAULT_FADED_OPACITY,
   visual,
+  colorConfig,
   points,
   selfIntersect,
   editable,
@@ -262,7 +275,7 @@ export function KonvaPolygon({
   holes,
   multiPolygon,
 }: KonvaPolygonProps) {
-  const color = classColorForCanvas(b.cls);
+  const color = classColorForCanvas(b.cls, colorConfig);
   const sw = screenToWorld(strokeWidthFor(selected, visual), scale);
   const labelFontSize = visual.labelFontSize / scale;
   const labelText = shapeLabelText(b, isAi, visual.labelContent);
@@ -470,6 +483,11 @@ interface KonvaRotatedBoxProps {
   fadedOpacity?: number;
   /** v0.15.27 · 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
+  /**
+   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
+   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
+   */
+  colorConfig?: ClassesConfig;
   occluded?: boolean;
   imgW: number;
   imgH: number;
@@ -492,6 +510,7 @@ export function KonvaRotatedBox({
   occluded = false,
   fadedOpacity = DEFAULT_FADED_OPACITY,
   visual,
+  colorConfig,
   imgW,
   imgH,
   scale,
@@ -500,7 +519,7 @@ export function KonvaRotatedBox({
   onRotateStart,
   onResizeStart,
 }: KonvaRotatedBoxProps) {
-  const color = classColorForCanvas(b.cls);
+  const color = classColorForCanvas(b.cls, colorConfig);
   const sw = screenToWorld(strokeWidthFor(selected, visual), scale);
   const handleSize = screenToWorld(BOX_HANDLE_SCREEN_PX, scale);
   const labelFontSize = visual.labelFontSize / scale;
@@ -641,6 +660,11 @@ interface KonvaPolylineProps {
   fadedOpacity?: number;
   /** v0.15.27 · 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
+  /**
+   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
+   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
+   */
+  colorConfig?: ClassesConfig;
   /** v0.10.5 M4-β · I15 occluded：渲染为虚线 + 半透。 */
   occluded?: boolean;
   imgW: number;
@@ -672,13 +696,14 @@ export function KonvaPolyline({
   onClick,
   fadedOpacity = DEFAULT_FADED_OPACITY,
   visual,
+  colorConfig,
   points,
   editable,
   onVertexMouseDown,
   onEdgeMouseDown,
   onBodyMouseDown,
 }: KonvaPolylineProps) {
-  const color = classColorForCanvas(b.cls);
+  const color = classColorForCanvas(b.cls, colorConfig);
   const sw = screenToWorld(strokeWidthFor(selected, visual), scale);
   const labelFontSize = visual.labelFontSize / scale;
   const labelText = shapeLabelText(b, isAi, visual.labelContent);
@@ -824,6 +849,11 @@ interface KonvaKeypointProps {
   fadedOpacity?: number;
   /** v0.15.27 · 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
+  /**
+   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
+   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
+   */
+  colorConfig?: ClassesConfig;
   imgW: number;
   imgH: number;
   scale: number;
@@ -851,6 +881,7 @@ export function KonvaKeypoint({
   faded,
   fadedOpacity = DEFAULT_FADED_OPACITY,
   visual,
+  colorConfig,
   imgW,
   imgH,
   scale,
@@ -860,7 +891,7 @@ export function KonvaKeypoint({
   onNodeMouseDown,
   onToggleVisibility,
 }: KonvaKeypointProps) {
-  const color = classColorForCanvas(b.cls);
+  const color = classColorForCanvas(b.cls, colorConfig);
   const kps: Keypoint[] = b.keypoints ?? [];
   const r = (selected ? 5 : 4) / scale;
   const sw = screenToWorld(strokeWidthFor(selected, visual), scale);

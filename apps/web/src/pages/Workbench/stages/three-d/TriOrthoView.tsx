@@ -417,11 +417,21 @@ export function TriOrthoView({
       const { selected, zoom, onZoomChange } = propsRef.current;
       if (!selected || dragRef.current) return;
       const direction = e.key === "+" || e.key === "=" ? 1 : e.key === "-" ? -1 : null;
-      if (direction !== null) {
+      if (direction !== null && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         onZoomChange(stepTriZoom(zoom, direction));
-      } else if (e.key === "0") {
+      } else if (
+        // v0.24 · 0 让位给第十个类别键；聚焦视图缩放重置改为 Shift+物理 Digit0。
+        // 事件在本视图消费，不再下落到类别选择或全局视图重置。
+        e.code === "Digit0" &&
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         onZoomChange(TRI_ZOOM_DEFAULT);
       }
     };

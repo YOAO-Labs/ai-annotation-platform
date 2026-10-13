@@ -17,7 +17,13 @@ class User(Base):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), default="annotator")
+    # Platform role.  New ordinary staff are employees; public self-registration
+    # explicitly creates a viewer.  Legacy annotator/reviewer values are only
+    # pre-cutover historical data.  The server default matches migration 0174:
+    # an insert that omits role creates a usable employee account.
+    role: Mapped[str] = mapped_column(
+        String(50), default="employee", server_default="employee"
+    )
     group_name: Mapped[str | None] = mapped_column(String(100))
     group_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -72,6 +78,9 @@ class User(Base):
     )
     # v0.8.4 · 用户级周目标（标注员任务量目标）；ProjectMember.weekly_target 覆盖优先
     weekly_target_default: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 头像引用。NULL = 首字母回退；`preset:<slug>` = 内置像素头像；`upload:<32位hex>` = 用户上传。
+    # 语法与解析集中在 services/avatar.py；upload: 只能由上传端点写入,客户端不可自选。
+    avatar_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)
     # v0.9.41 · 用户偏好 JSONB：标注工作台渲染配置（smoothImage / cssImageFilter / 顶点大小等）；schema 在 schemas/user_preferences.py。
     preferences: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict

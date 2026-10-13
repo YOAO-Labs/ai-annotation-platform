@@ -52,7 +52,7 @@ async function json<T>(response: APIResponse): Promise<T> {
 }
 
 async function setup(page: Page, seed: SeedAPI) {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const token = await seed.accessToken(data.admin_email);
   await json(
     await page.request.patch(`${API_BASE}/api/v1/projects/${data.project_id}`, {
@@ -117,7 +117,7 @@ test("讨论通知通过实时推送打开五十条之后的旧回复，并刷�
     });
     await page.goto("/projects");
     await socketReady;
-    await expect(page.getByRole("button", { name: "通知", exact: true })).toBeVisible();
+    await expect(page.getByTestId("notifications-trigger")).toBeVisible();
     const oldReply = await replyToIssue(page, reviewerToken, root.id, "通知中的最早回复");
     await expect
       .poll(() =>
@@ -135,7 +135,7 @@ test("讨论通知通过实时推送打开五十条之后的旧回复，并刷�
       read_at: null,
       payload: { reply_id: oldReply.id, source: "feedback" },
     });
-    await page.getByRole("button", { name: "通知", exact: true }).click();
+    await page.getByTestId("notifications-trigger").click();
     await page.getByRole("button", { name: /^打开通知：回复了问题/ }).click();
     await expect(page).toHaveURL(new RegExp(`reply=${oldReply.id}`));
     await expect(page.getByTestId("discussion-issue-detail")).toHaveAttribute(
@@ -154,9 +154,9 @@ test("讨论通知通过实时推送打开五十条之后的旧回复，并刷�
     // Browser back retains the authenticated query cache; the new reply must
     // still be fetched when a later notification opens this same conversation.
     await page.goBack();
-    await expect(page.getByRole("button", { name: "通知", exact: true })).toBeVisible();
+    await expect(page.getByTestId("notifications-trigger")).toBeVisible();
     const freshReply = await replyToIssue(page, reviewerToken, root.id, "缓存建立后才发布的新回复");
-    await page.getByRole("button", { name: "通知", exact: true }).click();
+    await page.getByTestId("notifications-trigger").click();
     await expect(page.getByRole("button", { name: /^打开通知：回复了问题/ })).toHaveCount(2);
     await page
       .getByRole("button", { name: /^打开通知：回复了问题/ })
@@ -170,7 +170,7 @@ test("讨论通知通过实时推送打开五十条之后的旧回复，并刷�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -221,7 +221,7 @@ test("标注提及通知定位原评论，发送目标跟随标注，支持静�
       payload: { source: "annotation_comment", annotation_id: annotation.id },
     });
     await page.goto("/projects");
-    await page.getByRole("button", { name: "通知", exact: true }).click();
+    await page.getByTestId("notifications-trigger").click();
     await page.getByRole("button", { name: /^打开通知：在标注评论中提到了你/ }).click();
     await expect(page).toHaveURL(new RegExp(`comment=${original.id}`));
     const row = discussion(page).locator(`[data-comment-key="annotation_comment:${original.id}"]`);
@@ -247,10 +247,10 @@ test("标注提及通知定位原评论，发送目标跟随标注，支持静�
     await mention();
     expect((await notifications(page, data.token)).items).toHaveLength(1);
     await page.goBack();
-    await expect(page.getByRole("button", { name: "通知", exact: true })).toBeVisible();
+    await expect(page.getByTestId("notifications-trigger")).toBeVisible();
     const sourceUrl = page.url();
     await seed.deleteTaskAnnotation(data.task_ids[0], annotation.id, data.admin_email);
-    await page.getByRole("button", { name: "通知", exact: true }).click();
+    await page.getByTestId("notifications-trigger").click();
     await page.getByRole("button", { name: /^打开通知：在标注评论中提到了你/ }).click();
     await expect(page.getByRole("dialog", { name: "打开通知目标" })).toContainText(
       "标注已删除或当前账号不可见",
@@ -258,7 +258,7 @@ test("标注提及通知定位原评论，发送目标跟随标注，支持静�
     await expect(page).toHaveURL(sourceUrl);
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -283,7 +283,7 @@ test("问题状态通知为审核员打开对应审核工作台并保留字段�
     });
     await seed.injectToken(page, data.reviewer_email);
     await page.goto("/review");
-    await page.getByRole("button", { name: "通知", exact: true }).click();
+    await page.getByTestId("notifications-trigger").click();
     await page.getByRole("button", { name: /^打开通知：状态 / }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${data.project_id}/review\\?`));
     const detail = page.getByTestId("discussion-issue-detail");
@@ -305,13 +305,18 @@ test("问题状态通知为审核员打开对应审核工作台并保留字段�
       .toBe("open");
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
 test("失效讨论地址和跨项目任务不会永久加载或先显示错误画布", async ({ page, seed }) => {
   test.setTimeout(120_000);
   const data = await setup(page, seed);
+  // The foreign project below is deliberately named like the shared fixture but
+  // is owned by this namespace's admin, so it must be removed before the owned
+  // pre-clean: `projects.owner_id` would otherwise block the user delete with a
+  // misleading residual.
+  let foreignProjectId: string | null = null;
   try {
     const root = await createIssue(page, data, data.task_ids[0], "校验地址问题");
     for (const query of [
@@ -336,6 +341,7 @@ test("失效讨论地址和跨项目任务不会永久加载或先显示错误�
         },
       }),
     );
+    foreignProjectId = foreign.id;
     const foreignCanvasReads: string[] = [];
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === `/api/v1/tasks/${data.task_ids[0]}/annotations`)
@@ -377,8 +383,20 @@ test("失效讨论地址和跨项目任务不会永久加载或先显示错误�
     );
     await expect(editor(page)).toHaveText("无效链接不能更换当前草稿目标");
   } finally {
-    await page.close();
-    await seed.reset();
+    // Remove the foreign project and prove it completed before the owned
+    // pre-clean runs; page cleanup must still happen if that assertion fails.
+    try {
+      if (foreignProjectId) {
+        const deleted = await page.request.delete(
+          `${API_BASE}/api/v1/projects/${foreignProjectId}`,
+          { headers: auth(data.token) },
+        );
+        expect(deleted.status()).toBe(204);
+      }
+    } finally {
+      await page.close();
+      await seed.owned();
+    }
   }
 });
 
@@ -431,7 +449,7 @@ test("未选标注可发送任务留言，失败保留正文，读回原生任�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -541,7 +559,7 @@ test("混合讨论可加载旧标注评论，阅读范围与各发送目标的�
     await expect(panel.getByTestId("comment-input-disabled")).toHaveCount(0);
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -599,7 +617,7 @@ test("任务 A 的晚响应不清空任务 B 草稿，离开工作台再返回�
   } finally {
     releaseResponse();
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -686,7 +704,7 @@ test("弹窗未保存笔触跨页签和工作台路由恢复，并提交到原�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -785,7 +803,7 @@ test("任务问题完整读取旧回复和嵌套回复，失败重试后解决�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -835,7 +853,7 @@ test("未加载且被筛掉的图钉直接打开详情，不改列表筛选", as
     await expect(panel.getByTestId("issue-open-count")).toHaveText("待处理 51");
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -882,7 +900,7 @@ test("解决分页边界上的问题后继续下一条，返回列表保留阅�
     await expect(panel.getByTestId("issue-open-count")).toHaveText("待处理 51");
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -946,6 +964,6 @@ test("迟到的问题回复不清空另一问题或原问题的新草稿", async
   } finally {
     releaseResponse();
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });

@@ -316,7 +316,7 @@ export function DiscussionIssuesTab({
             if (listScrollRef.current) listScrollTopRef.current = listScrollRef.current.scrollTop;
           }}
         >
-          <FilterGroup compact label="问题筛选" className="gap-1">
+          <FilterGroup compact label="问题筛选" hideLabel className="gap-1">
             {allowProjectScope && (
               <FilterSelect
                 compact

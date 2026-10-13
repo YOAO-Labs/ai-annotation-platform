@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSamCandidateHotkeyBlocked } from "../../state/hotkeys";
+import { choiceDialog, confirmDialog } from "@/components/ui/decisionDialog";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Annotation, AnnotationResponse, PredictionResponse } from "@/types";
 import type { AnnotationPayload, AnnotationUpdatePayload } from "@/api/tasks";
@@ -221,12 +222,21 @@ export function maskRefineBlockReason(
 
 export type EmptyRasterMaskChoice = "delete" | "undo" | "continue";
 
-export function promptEmptyRasterMaskChoice(
-  confirmFn: (message: string) => boolean,
-): EmptyRasterMaskChoice {
-  if (confirmFn("Mask 已被擦空。是否删除该标注对象？")) return "delete";
-  if (confirmFn("是否撤销本次擦空？选择取消将保持空白并继续编辑。")) return "undo";
-  return "continue";
+/**
+ * 应用内三选一决策对话框 (decision-dialog 计划 Group C): 删除对象 / 撤销擦空 / 继续编辑,
+ * 取代原先两段连续 window.confirm; 取消 / Esc / 点遮罩 = 保持空白并继续编辑。
+ */
+export async function promptEmptyRasterMaskChoice(): Promise<EmptyRasterMaskChoice> {
+  const key = await choiceDialog({
+    title: "Mask 已被擦空",
+    description: "是否删除该标注对象？也可以撤销本次擦空，或保持空白继续编辑。",
+    options: [
+      { key: "delete", label: "删除对象", tone: "danger" },
+      { key: "undo", label: "撤销擦空" },
+      { key: "continue", label: "继续编辑" },
+    ],
+  });
+  return key === "delete" || key === "undo" ? key : "continue";
 }
 
 export function useImageAnnotationActions({
@@ -1247,7 +1257,7 @@ export function useImageAnnotationActions({
           pushToast({ msg: "Mask 为空", sub: "请继续编辑或取消本次绘制", kind: "warning" });
           return Promise.resolve({ ok: false, retryable: false });
         }
-        const emptyChoice = promptEmptyRasterMaskChoice(window.confirm);
+        const emptyChoice = await promptEmptyRasterMaskChoice();
         if (!isCurrentOwner()) return staleResult;
         if (emptyChoice === "delete") {
           return maskEditor
@@ -1317,20 +1327,23 @@ export function useImageAnnotationActions({
       }
       if (refine) {
         const report = compareRegionToRasterResult(refine.sourceGeometry, rle);
-        if (
-          !window.confirm(
-            `${formatMaskConversionReport(report)}\n\n是否将精修结果保存为原生 Mask？`,
-          )
-        ) {
-          return Promise.resolve({ ok: false, retryable: false });
-        }
-        if (
-          report.lossy &&
-          !window.confirm(
-            `精修后有 ${report.changedPixels} 个像素发生变化，其中 ${report.droppedPixels} 个源前景像素被移除。确认继续？`,
-          )
-        ) {
-          return Promise.resolve({ ok: false, retryable: false });
+        // 两个确认对话框之间都重验 owner/session,防止等待期间会话切换后旧稿件落库。
+        const saveConfirmed = await confirmDialog({
+          title: "将精修结果保存为原生 Mask？",
+          description: formatMaskConversionReport(report),
+          confirmLabel: "保存",
+        });
+        if (!isCurrentOwner()) return staleResult;
+        if (!saveConfirmed) return Promise.resolve({ ok: false, retryable: false });
+        if (report.lossy) {
+          const lossyConfirmed = await confirmDialog({
+            tone: "danger",
+            title: "确认丢弃源前景像素？",
+            description: `精修后有 ${report.changedPixels} 个像素发生变化，其中 ${report.droppedPixels} 个源前景像素被移除。`,
+            confirmLabel: "确认继续",
+          });
+          if (!isCurrentOwner()) return staleResult;
+          if (!lossyConfirmed) return Promise.resolve({ ok: false, retryable: false });
         }
       }
 

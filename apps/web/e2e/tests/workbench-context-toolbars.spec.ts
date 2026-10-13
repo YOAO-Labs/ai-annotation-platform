@@ -13,7 +13,7 @@ const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../api");
 
 function prepareRasterImage(taskId: string) {
-  // seed.reset() uses SVGs; the actual ROI pipeline needs a decodable raster.
+  // The seed fixture uses SVGs; the actual ROI pipeline needs a decodable raster.
   execFileSync(
     "uv",
     [
@@ -21,7 +21,7 @@ function prepareRasterImage(taskId: string) {
       "python",
       "-c",
       `
-import asyncio, io, os, sys, uuid
+import asyncio, io, os, re, sys, uuid
 from PIL import Image
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -35,11 +35,15 @@ async def prepare():
     try:
         async with engine.begin() as connection:
             row = (await connection.execute(text("SELECT dataset_item_id, file_path FROM tasks WHERE id=:id FOR UPDATE"), {"id": task_id})).one()
-            assert row.file_path.startswith("e2e/image/task-")
+            # Owned fixtures name the seed SVG after their namespace; derive the
+            # directory from the task itself so the replacement PNG stays inside
+            # the same owned prefix and owned-cleanup removes it.
+            owned = re.fullmatch(r"e2e/owned/([a-z0-9]{4,12})/image/task-[0-9]+[.]svg", row.file_path or "")
+            assert owned, f"expected an owned image fixture task path, got {row.file_path!r}"
             storage = StorageService()
             buffer = io.BytesIO()
             Image.new("RGB", (256, 256), "#d7e4ee").save(buffer, format="PNG")
-            key = f"e2e/context-toolbar/{task_id}.png"
+            key = f"e2e/owned/{owned.group(1)}/image/context-toolbar-{task_id}.png"
             storage.client.put_object(Bucket=storage.datasets_bucket, Key=key, Body=buffer.getvalue(), ContentType="image/png")
             await connection.execute(text("UPDATE tasks SET file_path=:key, file_name='context-toolbar.png' WHERE id=:id"), {"id": task_id, "key": key})
             await connection.execute(text("UPDATE dataset_items SET file_path=:key, file_name='context-toolbar.png', width=256, height=256, file_size=:size WHERE id=:id"), {"id": row.dataset_item_id, "key": key, "size": buffer.tell()})
@@ -63,17 +67,42 @@ function removeTestImages(taskId: string, annotationId?: string) {
       "python",
       "-c",
       `
-import sys, uuid
+import asyncio, os, re, sys, uuid
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
 from app.services.storage import StorageService
 task_id = str(uuid.UUID(sys.argv[1]))
-storage = StorageService()
-keys = [(storage.datasets_bucket, f"e2e/context-toolbar/{task_id}.png")]
-if len(sys.argv) > 2:
-    annotation_id = str(uuid.UUID(sys.argv[2]))
-    keys.append((storage.import_bucket, f"roi-crops/secondary/{annotation_id}/0.jpg"))
-for bucket, key in keys:
-    storage.client.delete_object(Bucket=bucket, Key=key)
-    assert not storage.client.list_objects_v2(Bucket=bucket, Prefix=key).get("Contents")
+annotation_id = str(uuid.UUID(sys.argv[2])) if len(sys.argv) > 2 else None
+url = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
+assert (url.database or "").endswith(("_e2e", "_test"))
+def assert_absent(storage, bucket, key):
+    assert not storage.client.list_objects_v2(Bucket=bucket, Prefix=key).get("Contents"), f"leftover {bucket}/{key}"
+async def cleanup():
+    engine = create_async_engine(url)
+    # One shared client for every deletion and postcondition check in this run.
+    storage = StorageService()
+    try:
+        async with engine.begin() as connection:
+            file_path = await connection.scalar(text("SELECT file_path FROM tasks WHERE id=:id"), {"id": task_id})
+        if file_path:
+            # Delete only this test's replacement PNG, at the exact owned
+            # namespace and exact taskId filename derived from the row; the seed
+            # SVG is left to fixture teardown.
+            replacement = re.fullmatch(
+                rf"e2e/owned/([a-z0-9]{{4,12}})/image/context-toolbar-{re.escape(task_id)}[.]png",
+                file_path,
+            )
+            if replacement:
+                storage.client.delete_object(Bucket=storage.datasets_bucket, Key=file_path)
+                assert_absent(storage, storage.datasets_bucket, file_path)
+        if annotation_id is not None:
+            key = f"roi-crops/secondary/{annotation_id}/0.jpg"
+            storage.client.delete_object(Bucket=storage.import_bucket, Key=key)
+            assert_absent(storage, storage.import_bucket, key)
+    finally:
+        await engine.dispose()
+asyncio.run(cleanup())
 `,
       taskId,
       ...(annotationId ? [annotationId] : []),
@@ -88,7 +117,7 @@ test("secondary capsule preserves configuration and real child writes across col
   seed,
 }, testInfo) => {
   test.setTimeout(120_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const token = await seed.accessToken(data.admin_email);
   const taskId = data.task_ids[0];
   const backend = await startAiRequestBackend({ secondary: true });
@@ -272,7 +301,7 @@ test("secondary capsule preserves configuration and real child writes across col
         await detach?.();
       } finally {
         await backend.close();
-        await seed.reset();
+        await seed.owned();
       }
     }
   }

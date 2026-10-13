@@ -1,4 +1,4 @@
-"""Prometheus 指标定义 (v0.9.1 / M1, v0.9.11 PerfHud 扩展).
+"""Prometheus 指标定义 (含 PerfHud 扩展).
 
 风格对齐 apps/api/app/observability/metrics.py: raw prometheus_client,
 集中注册 + 一组 record_* helper.
@@ -8,7 +8,7 @@
     embedding_cache_misses_total{prompt_type}    Counter
     embedding_cache_size                         Gauge
     inference_latency_seconds{prompt_type,cache} Histogram
-    # v0.9.11 PerfHud: NVML / psutil 实时指标
+    # PerfHud: NVML / psutil 实时指标
     gpu_utilization_percent                      Gauge
     gpu_temperature_celsius                      Gauge
     gpu_power_watts                              Gauge
@@ -54,7 +54,7 @@ INFERENCE_LATENCY = Histogram(
 )
 
 
-# v0.10.35 §B · sam2_video tracker 指标 (与图片池可分辨; sam_variant 维度).
+# sam2_video tracker 指标 (与图片池可分辨; sam_variant 维度).
 VIDEO_TRACKER_FRAMES = Counter(
     "video_tracker_frames_processed_total",
     "sam2_video tracker 逐帧传播处理的帧数",
@@ -141,7 +141,7 @@ def record_mask_ai_backend_inference(
         return
 
 
-# v0.9.11 PerfHud · NVML / psutil 实时指标 (lifespan startup 初始化, /health + /metrics 共用)
+# PerfHud · NVML / psutil 实时指标 (lifespan startup 初始化, /health + /metrics 共用)
 GPU_UTILIZATION = Gauge("gpu_utilization_percent", "GPU SM 利用率 (%)")
 GPU_TEMPERATURE = Gauge("gpu_temperature_celsius", "GPU 温度 (°C)")
 GPU_POWER = Gauge("gpu_power_watts", "GPU 实时功耗 (W)")
@@ -170,7 +170,7 @@ def update_cache_size(size: int) -> None:
     EMBEDDING_CACHE_SIZE.set(size)
 
 
-# ── v0.9.11 PerfHud · pynvml + psutil 采样 ──────────────────────────────────
+# ── PerfHud · pynvml + psutil 采样 ──────────────────────────────────────────
 
 _pynvml_initialized = False
 _pynvml_handle = None

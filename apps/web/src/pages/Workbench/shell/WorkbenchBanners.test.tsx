@@ -77,7 +77,7 @@ describe("WorkbenchBanners", () => {
             id: "user-2",
             name: "李静雯",
             email: "li@example.com",
-            role: "annotator",
+            role: "employee",
             avatar_initial: "李",
           },
         }}

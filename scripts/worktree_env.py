@@ -17,6 +17,7 @@ BUCKETS = {
     "MINIO_AUDIT_ARCHIVE_BUCKET": "audit-archive",
     "MINIO_IMPORT_BUCKET": "import",
     "MINIO_EXPORT_BUCKET": "export",
+    "MINIO_AVATARS_BUCKET": "avatars",
 }
 MODES = ("dev", "test", "e2e")
 

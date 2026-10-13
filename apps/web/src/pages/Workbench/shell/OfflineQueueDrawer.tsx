@@ -1,15 +1,16 @@
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
 import {
   type OfflineOp,
-  clearAll,
   getAll,
   removeById,
   drain,
   subscribe,
+  type DrainOptions,
   type OfflineQueueScope,
 } from "../state/offlineQueue";
 
@@ -24,6 +25,8 @@ interface OfflineQueueDrawerProps {
   onFlushOne: (op: OfflineOp) => Promise<void>;
   /** 全部同步：drain 整个队列，调用方负责 invalidate cache + 提示。 */
   onFlushAll: () => Promise<void>;
+  /** 与 drain 相同的错误分类：delete 的 404 = 目标已不存在（视为已同步）。 */
+  classifyError?: DrainOptions["classifyError"];
 }
 
 function formatTs(ts: number): string {
@@ -65,6 +68,7 @@ export function OfflineQueueDrawer({
   queueScope,
   onFlushOne,
   onFlushAll,
+  classifyError,
 }: OfflineQueueDrawerProps) {
   const [storedItems, setItems] = useState<OfflineOp[]>([]);
   const items = useMemo(
@@ -140,11 +144,25 @@ export function OfflineQueueDrawer({
     async (op: OfflineOp) => {
       setBusyId(op.id);
       try {
-        const result = await drain(onFlushOne, {
-          ...queueScope,
-          userId: queueScope?.userId ?? "",
-          operationId: op.id,
-        });
+        const result = await drain(
+          onFlushOne,
+          {
+            ...queueScope,
+            userId: queueScope?.userId ?? "",
+            operationId: op.id,
+          },
+          // Same classification as the drain: a 404 on a delete means the
+          // target is already gone server-side and the op leaves the queue.
+          classifyError ? { classifyError } : undefined,
+        );
+        if ((result.deferred ?? 0) > 0) {
+          pushToast({
+            msg: "网络不稳定",
+            sub: "授权检查未完成，稍后将自动重试",
+            kind: "warning",
+          });
+          return;
+        }
         if (result.failed) throw new Error("该操作仍未同步，请检查连接和任务权限后重试");
         if (!queueScope?.isCurrent?.()) return;
         pushToast({ msg: "已同步该操作", kind: "success" });
@@ -154,7 +172,7 @@ export function OfflineQueueDrawer({
         setBusyId(null);
       }
     },
-    [onFlushOne, pushToast, queueScope],
+    [classifyError, onFlushOne, pushToast, queueScope],
   );
 
   const handleDelete = useCallback(
@@ -172,10 +190,19 @@ export function OfflineQueueDrawer({
 
   const handleClearAll = useCallback(async () => {
     if (items.length === 0) return;
-    if (!window.confirm(`确认丢弃全部 ${items.length} 条离线操作？此操作不可撤销。`)) return;
-    await clearAll(queueScope);
+    // 确认对话框是异步的:等待期间失败的保存可能把新操作入队。
+    // 只丢弃用户确认时看到的那批 ID,新入队的未保存编辑不经同意不得清除。
+    const confirmedIds = items.map((op) => op.id);
+    const confirmed = await confirmDialog({
+      tone: "danger",
+      title: `丢弃全部 ${confirmedIds.length} 条离线操作？`,
+      description: "此操作不可撤销。",
+      confirmLabel: "丢弃全部",
+    });
+    if (!confirmed) return;
+    await Promise.all(confirmedIds.map((id) => removeById(id, queueScope)));
     pushToast({ msg: "队列已清空", kind: "warning" });
-  }, [items.length, pushToast, queueScope]);
+  }, [items, pushToast, queueScope]);
 
   const handleFlushAll = useCallback(async () => {
     setFlushAllBusy(true);
@@ -223,6 +250,7 @@ export function OfflineQueueDrawer({
         {items.length > 0 && (
           <FilterGroup
             label="筛选"
+            hideLabel
             compact
             className="border-b border-border px-4 py-2 text-xs text-muted-foreground"
           >

@@ -1,21 +1,17 @@
 /**
  * v0.23.4 · service-pool runtime overview.
  *
- * Pools render as scan-friendly summaries instead of a wide table: identity and
- * health stay in the header, the four operator signals share one compact band,
- * and member operations remain behind progressive disclosure.
+ * 模型市场多 TAB UI 优化 · 阶段三 (plan §4.2)：池卡是两行轻量字段带——
+ * 第一行身份（展开按钮 + 名称 + 短 ID/策略 + 健康、路由、新鲜度分开显示），
+ * 第二行带标签的字段（可路由/总实例、并发、驻留、CPU 回退、流量）。去掉旧版
+ * 四个内层小卡与悬浮位移动画；无流量指标的池只显示一条「暂无路由指标」，
+ * 缺失字段不在首层冒充数值，仍保留下钻处的未知语义；驻留已知性同样取自
+ * 「可信且可解析」的状态——`{state:"unknown"}`、畸形载荷或未核实来源都显示
+ * 「未知」，不把显式未知的数据折算成确定的 0。正常池保持 topology 稳定
+ * 顺序，不因轮询数值重排；展开成员时跨两列，成员与维护动作沿用既有组件。
  */
 import { useState, type ReactNode } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Cpu,
-  Gauge,
-  Server,
-  Signal,
-  Waypoints,
-  type LucideIcon,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, Server } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -27,9 +23,11 @@ import {
   EmptyTitle,
 } from "@/components/shadcn/ui/empty";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/shadcn/ui/tooltip";
 import type { GlobalBackendItem, ObserveTarget } from "@/api/adminMlIntegrations";
 import {
   NO_METRICS_LABEL,
+  derivePoolEffectiveRouting,
   type FreshnessViewModel,
   type PoolViewModel,
   type RuntimeTopologyViewModel,
@@ -38,7 +36,13 @@ import { RuntimeStatusBadge } from "./RuntimeStatusBadge";
 import { TrafficDistributionBar, type TrafficSegment } from "./TrafficDistributionBar";
 import { BackendInstanceRow } from "./BackendInstanceRow";
 import type { VariantWarmTarget } from "../VariantPanel";
-import { isActiveResidency, isFreshCachedHealth } from "./parseResidency";
+import {
+  isActiveResidency,
+  isFreshCachedHealth,
+  parseResidency,
+  residencyStateToAxis,
+} from "./parseResidency";
+import { formatShortId } from "../registry/registryShared";
 
 /** Per-member lookups the orchestrator pre-computes from /all + /observe. */
 export interface MemberLookups {
@@ -96,21 +100,26 @@ export function ServicePoolRuntimeTable({
       {topology.pools.map((pool) => {
         const isOpen = expanded.has(pool.id);
         const residentCount = pool.members.filter((member) => {
-          const { backend, observe } = lookup(member.registry_id);
-          const hasDirectResidency = observe?.residency != null;
-          const residency = hasDirectResidency
-            ? observe.residency
-            : backend?.health_meta?.residency;
-          const trusted = hasDirectResidency
-            ? observe?.ok === true
-            : backend != null && isFreshCachedHealth(backend.state, backend.last_checked_at);
+          const { residency, trusted } = resolveMemberResidency(lookup(member.registry_id));
           return isActiveResidency(residency, trusted);
         }).length;
+        // 已知 = 至少一个成员给出可信且可解析的驻留状态；`{state:"unknown"}`、
+        // 畸形载荷或未核实来源都不能把「未知」折算成确定的 0（plan §4.2 / ADR-0051）。
+        const residencyKnown = pool.members.some((member) => {
+          const { residency, trusted } = resolveMemberResidency(lookup(member.registry_id));
+          if (!trusted) return false;
+          const parsed = parseResidency(residency);
+          return parsed != null && residencyStateToAxis(parsed.state) !== "unknown";
+        });
         const cpuFallbackCount = pool.members.filter((member) => {
           const { backend, observe } = lookup(member.registry_id);
           const compute = observe?.compute ?? backend?.health_meta?.compute ?? null;
           return isCpuFallbackInline(compute);
         }).length;
+        const computeKnown = pool.members.some((member) => {
+          const { backend, observe } = lookup(member.registry_id);
+          return (observe?.compute ?? backend?.health_meta?.compute ?? null) != null;
+        });
         const trafficSegments: TrafficSegment[] = pool.members.map((member) => ({
           instance_id: member.registry_id,
           instance_name: member.name,
@@ -121,10 +130,6 @@ export function ServicePoolRuntimeTable({
             (sum, member) => sum + (member.runtime?.selection_count_window ?? 0),
             0,
           ) || null;
-        const lastSelectedTimes = pool.members
-          .map((member) => member.runtime?.last_selected_at ?? null)
-          .filter((value): value is string => Boolean(value))
-          .sort();
 
         return (
           <PoolRuntimeCard
@@ -138,18 +143,35 @@ export function ServicePoolRuntimeTable({
             warming={warming}
             trafficSegments={trafficSegments}
             trafficTotal={trafficTotal}
-            lastSelected={
-              lastSelectedTimes.length > 0
-                ? (lastSelectedTimes[lastSelectedTimes.length - 1] ?? null)
-                : null
-            }
             residentCount={residentCount}
+            residencyKnown={residencyKnown}
             cpuFallbackCount={cpuFallbackCount}
+            cpuFallbackKnown={computeKnown}
           />
         );
       })}
     </section>
   );
+}
+
+/**
+ * Resolve one member's residency payload and whether its source is trusted
+ * (fresh direct probe / fresh cached health). This is the same resolution the
+ * instance rows render, so pool-level counts and row-level states can never
+ * disagree about what "known" means.
+ */
+function resolveMemberResidency({ backend, observe }: MemberLookups): {
+  residency: unknown;
+  trusted: boolean;
+} {
+  const hasDirectResidency = observe?.residency != null;
+  const residency: unknown = hasDirectResidency
+    ? observe.residency
+    : backend?.health_meta?.residency;
+  const trusted = hasDirectResidency
+    ? observe?.ok === true
+    : backend != null && isFreshCachedHealth(backend.state, backend.last_checked_at);
+  return { residency, trusted };
 }
 
 function PoolRuntimeCard({
@@ -162,9 +184,10 @@ function PoolRuntimeCard({
   warming,
   trafficSegments,
   trafficTotal,
-  lastSelected,
   residentCount,
+  residencyKnown,
   cpuFallbackCount,
+  cpuFallbackKnown,
 }: {
   pool: PoolViewModel;
   isOpen: boolean;
@@ -175,108 +198,124 @@ function PoolRuntimeCard({
   warming?: Set<string>;
   trafficSegments: TrafficSegment[];
   trafficTotal: number | null;
-  lastSelected: string | null;
   residentCount: number;
+  residencyKnown: boolean;
   cpuFallbackCount: number;
+  cpuFallbackKnown: boolean;
 }): ReactNode {
-  const availabilityDetail = [
-    pool.availability.draining > 0 ? `${pool.availability.draining} 个停流中` : null,
-    pool.availability.offline > 0 ? `${pool.availability.offline} 个离线` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // 健康与路由分开显示（plan §4.2 / ADR-0051 四状态轴）。
+  const effectiveRouting = derivePoolEffectiveRouting(pool);
 
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-xl border border-border bg-card transition-[background-color,border-color,box-shadow,transform] duration-200",
-        isOpen
-          ? "border-primary/30 shadow-sm xl:col-span-2"
-          : "hover:-translate-y-px hover:border-primary/25 hover:shadow-sm",
+        "overflow-hidden rounded-xl border border-border bg-card",
+        isOpen && "border-primary/30 shadow-sm xl:col-span-2",
       )}
     >
-      <div className="flex flex-col gap-3 px-4 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <Button
-              variant="ghost"
-              size="xs"
-              className="size-7 p-0"
-              onClick={onToggle}
-              aria-expanded={isOpen}
-              aria-label={isOpen ? "收起服务池成员" : "展开服务池成员"}
-              title={isOpen ? "收起" : "展开"}
-            >
-              {isOpen ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-            </Button>
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              <Server className="size-4" strokeWidth={1.6} aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <h4 className="truncate text-sm font-semibold tracking-tight">{pool.name}</h4>
-                {!pool.enabled && <Badge variant="outline">已停用</Badge>}
-              </div>
-              <div
-                className="mt-0.5 truncate font-mono text-2xs text-muted-foreground"
-                title={pool.id}
-              >
-                {pool.id.slice(0, 8)} · {pool.routing_policy}
-              </div>
-            </div>
+      <div className="flex flex-col gap-2 px-4 py-3">
+        {/* 第 1 行：身份 + 健康 / 路由 / 新鲜度（独立轴）。 */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Button
+            variant="ghost"
+            size="xs"
+            className="size-6 p-0"
+            onClick={onToggle}
+            aria-expanded={isOpen}
+            aria-label={isOpen ? "收起服务池成员" : "展开服务池成员"}
+            title={isOpen ? "收起" : "展开"}
+          >
+            {isOpen ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+          </Button>
+          <Server
+            className="size-4 shrink-0 text-muted-foreground"
+            strokeWidth={1.6}
+            aria-hidden="true"
+          />
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h4 className="truncate text-sm font-semibold tracking-tight">{pool.name}</h4>
+            {!pool.enabled && <Badge variant="outline">已停用</Badge>}
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="mono cursor-pointer text-2xs text-muted-foreground hover:text-foreground">
+                {formatShortId(pool.id)}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{pool.id}</TooltipContent>
+          </Tooltip>
+          <span className="text-2xs text-muted-foreground">{pool.routing_policy}</span>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             <RuntimeStatusBadge axis="health" value={pool.status} />
+            <RuntimeStatusBadge axis="routing" value={effectiveRouting} />
             <FreshnessSummary sources={topology.sources} />
           </div>
         </div>
 
-        <div className={cn("grid gap-2 sm:grid-cols-2", isOpen && "xl:grid-cols-4")}>
-          <PoolMetric
-            icon={Signal}
-            label="可用实例"
-            value={`${pool.availability.routable} / ${pool.availability.total}`}
-            detail={availabilityDetail || "全部实例可接流"}
-          />
-          <PoolMetric
-            icon={Waypoints}
-            label="流量窗口"
-            value={<TrafficDistributionBar segments={trafficSegments} total={trafficTotal} />}
-            detail={`最近选择 ${formatShortTime(lastSelected)}`}
-          />
-          <PoolMetric
-            icon={Gauge}
-            label="并发容量"
-            value={
-              <span className="tabular-nums">
-                {pool.capacity.inflight ?? "—"}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  / {pool.capacity.limit ?? "未声明"}
-                </span>
+        {/* 第 2 行：带标签的字段带（可路由 / 并发 / 驻留 / CPU 回退 / 流量）。 */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-muted/35 px-3 py-2 text-xs">
+          <PoolField label="可路由">
+            <span className="text-status-positive">{pool.availability.routable}</span>
+            <span className="text-muted-foreground"> / {pool.availability.total}</span>
+            {(pool.availability.draining > 0 || pool.availability.offline > 0) && (
+              <span className="ml-1 text-2xs text-muted-foreground">
+                {[
+                  pool.availability.draining > 0 ? `${pool.availability.draining} 停流` : null,
+                  pool.availability.offline > 0 ? `${pool.availability.offline} 离线` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
-            }
-            detail={
-              pool.capacity.inflight == null
-                ? NO_METRICS_LABEL
-                : pool.capacity.saturated
-                  ? "存在熔断成员"
-                  : "当前 inflight"
-            }
-            tone={pool.capacity.saturated ? "danger" : "default"}
-          />
-          <PoolMetric
-            icon={Cpu}
-            label="运行资源"
-            value={`${residentCount} 个驻留`}
-            detail={cpuFallbackCount > 0 ? `${cpuFallbackCount} 个 CPU 回退` : "无 CPU 回退"}
-            tone={cpuFallbackCount > 0 ? "warning" : "default"}
-          />
+            )}
+          </PoolField>
+          <PoolField label="并发">
+            {pool.capacity.inflight != null ? (
+              <>
+                <span className="tabular-nums">{pool.capacity.inflight}</span>
+                <span className="text-muted-foreground"> / {pool.capacity.limit ?? "未声明"}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">{NO_METRICS_LABEL}</span>
+            )}
+          </PoolField>
+          {pool.capacity.saturated && (
+            <Badge variant="danger">
+              <span>熔断</span>
+            </Badge>
+          )}
+          <PoolField label="驻留">
+            {residencyKnown ? (
+              `${residentCount} 个`
+            ) : (
+              <span className="text-muted-foreground">未知</span>
+            )}
+          </PoolField>
+          <PoolField label="CPU 回退">
+            {cpuFallbackKnown ? (
+              cpuFallbackCount > 0 ? (
+                <span className="text-status-caution">{cpuFallbackCount} 个</span>
+              ) : (
+                <span className="text-muted-foreground">0</span>
+              )
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </PoolField>
+          <PoolField label="流量">
+            {/* 同一池无流量指标时只显示一条「暂无路由指标」（plan §4.2），
+                不画空分布条冒充数据。 */}
+            {trafficTotal != null ? (
+              <TrafficDistributionBar segments={trafficSegments} total={trafficTotal} />
+            ) : (
+              <span className="text-muted-foreground">{NO_METRICS_LABEL}</span>
+            )}
+          </PoolField>
         </div>
 
         {pool.status_reason_codes.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
             <Badge variant={pool.status === "healthy" ? "outline" : "warning"}>状态依据</Badge>
-            <span className="font-mono text-2xs">{pool.status_reason_codes.join(" · ")}</span>
+            <span className="font-mono">{pool.status_reason_codes.join(" · ")}</span>
           </div>
         )}
       </div>
@@ -319,44 +358,12 @@ function PoolRuntimeCard({
   );
 }
 
-function PoolMetric({
-  icon: MetricIcon,
-  label,
-  value,
-  detail,
-  tone = "default",
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: ReactNode;
-  detail: string;
-  tone?: "default" | "warning" | "danger";
-}): ReactNode {
+function PoolField({ label, children }: { label: string; children: ReactNode }): ReactNode {
   return (
-    <div className="flex min-w-0 gap-2.5 rounded-lg bg-muted/35 px-3 py-2.5">
-      <MetricIcon
-        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-        strokeWidth={1.6}
-        aria-hidden="true"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="text-2xs font-medium text-muted-foreground">{label}</div>
-        <div className="mt-1 truncate text-sm font-semibold tracking-tight">{value}</div>
-        <div
-          className={cn(
-            "mt-0.5 truncate text-2xs",
-            tone === "danger"
-              ? "text-status-danger"
-              : tone === "warning"
-                ? "text-status-caution"
-                : "text-muted-foreground",
-          )}
-          title={detail}
-        >
-          {detail}
-        </div>
-      </div>
-    </div>
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0 text-2xs text-muted-foreground">{label}</span>
+      <span className="inline-flex min-w-0 items-center gap-1 font-medium">{children}</span>
+    </span>
   );
 }
 
@@ -382,18 +389,6 @@ function FreshnessSummary({ sources }: { sources: FreshnessViewModel[] }): React
       <Badge variant="success">数据新鲜</Badge>
     </span>
   );
-}
-
-function formatShortTime(iso: string | null): string {
-  if (!iso) return "—";
-  const timestamp = new Date(iso);
-  if (Number.isNaN(timestamp.getTime())) return iso;
-  return timestamp.toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
 }
 
 function isCpuFallbackInline(

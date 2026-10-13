@@ -1,5 +1,6 @@
 // Explicitly enrolled flows only: unknown flows must not acquire a manual fallback.
 const manual = [
+  "project-onboarding",
   "bbox-draw",
   "workspace-layout-basics",
   "rotated-bbox",

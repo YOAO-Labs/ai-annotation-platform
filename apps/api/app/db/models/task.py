@@ -66,6 +66,11 @@ class Task(Base):
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )
+    # Batch assignment also populates assignee_id. Preserve the intent of a
+    # selected-task assignment even when it equals the current batch default.
+    assignee_is_override: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # v0.8.4 · 分派时间戳（效率看板「平均单题耗时」分母 = submitted_at - assigned_at）
     assigned_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -95,8 +100,45 @@ class Task(Base):
         nullable=True,
         index=True,
     )
+    reviewer_is_override: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     reviewer_claimed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # Stable identifier for the current submission/review round.  It lets
+    # performance reporting join a review decision to the submission that
+    # created it even after the mutable reviewer fields are cleared.
+    review_round_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    # First-review facts are written once for tasks created after the
+    # attribution rollout. The contributor snapshot is captured at the first
+    # submit/skip and finalized with the first decision. NULL eligibility keeps
+    # pre-rollout history explicitly unknown rather than allowing an
+    # audit-retention gap to look like a clean first pass.
+    first_review_eligible: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, default=True, server_default="true"
+    )
+    first_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    first_review_result: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    first_review_contributor_ids: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    # 项目级员工角色 · 增量 A/B：可空贡献者证据。NULL = 未知/legacy；数据库列无
+    # server default，历史行保持未知。ORM/Core 新建行用 Python-only default=list 落
+    # 已知空集合（旧二进制不写此列 → NULL）。annotation 累积与 review 冻结逻辑见
+    # services/annotation_evidence.py。
+    annotation_contributor_ids: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, default=list
+    )
+    review_contributor_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    review_submitter_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

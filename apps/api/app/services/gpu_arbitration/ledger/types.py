@@ -1,8 +1,6 @@
 """Domain types, enums, dataclasses and constants for the GPU arbitration Redis ledger.
 
-Extracted verbatim from the legacy ``app.services.gpu_arbiter_store`` module as part of
-the v0.23.0 service-domain modularization. This is the primitive layer: it depends on
-no other ledger submodule.
+This is the primitive layer: it depends on no other ledger submodule.
 """
 
 from __future__ import annotations

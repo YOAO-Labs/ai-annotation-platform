@@ -110,3 +110,13 @@
 .workspace :global(.dv-resize-container) {
   --dv-overlay-z-index: 20;
 }
+
+/* While a dock tab/group is being dragged, Dockview's overlay->group DnD
+   forwarding did not activate for the canvas layout, so the group's drop target
+   never received dragover/drop and the docking drag was cancelled. Make the
+   overlay layer transparent for the duration of the drag so the drag hit-tests
+   the owning group. Scoped to this workspace and to the active drag, so ordinary
+   canvas pointer input and canvas-internal DnD are unaffected. */
+.workspace.dragPassthrough :global(.dv-render-overlay) {
+  pointer-events: none;
+}

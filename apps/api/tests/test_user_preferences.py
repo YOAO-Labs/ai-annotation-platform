@@ -206,3 +206,147 @@ def test_onboarding_preferences_reject_unknown_project_state_fields():
         ("onboarding", "projects", "project-a", "completed"),
         "extra_forbidden",
     ) in errors
+
+
+# ── v0.24 · workbench.shortcuts（账号级快捷键覆盖）────────────────────────
+
+
+def test_shortcuts_accept_valid_binding_entry_and_dump_by_alias():
+    prefs = UserPreferences.model_validate(
+        {
+            "workbench": {
+                "shortcuts": {
+                    "schemaVersion": 1,
+                    "image": {
+                        "image.tool.box": [
+                            {"key": "k", "modifiers": []},
+                            {"key": "1", "modifiers": ["alt"]},
+                        ]
+                    },
+                    "video": {"video.tool.mask": None},
+                    "common": {
+                        "common.task.next": [
+                            {"key": "arrowright", "modifiers": ["mod"]}
+                        ]
+                    },
+                }
+            }
+        }
+    )
+
+    shortcuts = prefs.workbench.shortcuts
+    assert shortcuts is not None
+    assert shortcuts.schemaVersion == 1
+    assert shortcuts.image["image.tool.box"][0].key == "k"
+    assert shortcuts.image["image.tool.box"][1].modifiers == ["alt"]
+    assert shortcuts.video["video.tool.mask"] is None
+
+    dumped = prefs.model_dump(mode="json", exclude_unset=True, by_alias=True)
+    shortcuts_dumped = dumped["workbench"]["shortcuts"]
+    assert shortcuts_dumped["schemaVersion"] == 1
+    assert shortcuts_dumped["image"]["image.tool.box"] == [
+        {"key": "k", "modifiers": []},
+        {"key": "1", "modifiers": ["alt"]},
+    ]
+    assert shortcuts_dumped["video"]["video.tool.mask"] is None
+
+
+def test_shortcuts_reject_unknown_command_id():
+    try:
+        UserPreferences.model_validate(
+            {
+                "workbench": {
+                    "shortcuts": {
+                        "image": {"legacy.command": [{"key": "k", "modifiers": []}]}
+                    }
+                }
+            }
+        )
+    except ValidationError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected validation error for unknown command id")
+
+
+def test_shortcuts_reject_modifier_only_key_and_over_limit_bindings():
+    # 仅修饰键不是合法 key
+    try:
+        UserPreferences.model_validate(
+            {
+                "workbench": {
+                    "shortcuts": {
+                        "image": {"image.tool.box": [{"key": "shift", "modifiers": []}]}
+                    }
+                }
+            }
+        )
+    except ValidationError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected validation error for modifier-only key")
+
+    # 每条命令最多一主一备两条组合
+    try:
+        UserPreferences.model_validate(
+            {
+                "workbench": {
+                    "shortcuts": {
+                        "image": {
+                            "image.tool.box": [
+                                {"key": "b", "modifiers": []},
+                                {"key": "1", "modifiers": ["alt"]},
+                                {"key": "x", "modifiers": []},
+                            ]
+                        }
+                    }
+                }
+            }
+        )
+    except ValidationError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected validation error for over-limit binding list")
+
+
+def test_shortcuts_reject_unknown_modifier_and_extra_fields():
+    try:
+        UserPreferences.model_validate(
+            {
+                "workbench": {
+                    "shortcuts": {
+                        "image": {
+                            "image.tool.box": [{"key": "b", "modifiers": ["hyper"]}]
+                        }
+                    }
+                }
+            }
+        )
+    except ValidationError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected validation error for unknown modifier")
+
+    try:
+        UserPreferences.model_validate(
+            {
+                "workbench": {
+                    "shortcuts": {
+                        "image": {
+                            "image.tool.box": [
+                                {"key": "b", "modifiers": [], "label": "矩形"}
+                            ]
+                        }
+                    }
+                }
+            }
+        )
+    except ValidationError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected validation error for extra binding field")
+
+
+def test_shortcuts_empty_object_uses_defaults_without_migration():
+    prefs = UserPreferences.model_validate({})
+    shortcuts = prefs.workbench.shortcuts
+    assert shortcuts is None or shortcuts == shortcuts.model_validate({})

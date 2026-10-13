@@ -1,4 +1,4 @@
-"""SAM 3 image embedding LRU 缓存 (v0.10.0 / M0).
+"""SAM 3 image embedding LRU 缓存.
 
 直接镜像 grounded-sam2-backend 的 EmbeddingCache 设计 (cap 32, LRU, 线程安全):
 SAM 3 单次 image encoder 前向 ~ 1-2s (3090 / A100), 缓存命中后同图二次 prompt
@@ -31,7 +31,7 @@ class CacheEntry:
     `orig_hw = (original_height, original_width)`, `wh = (image.width, image.height)`,
     两者冗余但分别对应 _forward_grounding 用的 height/width 和我们 polygon 归一化用的 (w, h).
 
-    `is_batch` 给未来 set_image_batch 留位; v0.10.0 不用.
+    `is_batch` 给未来 set_image_batch 留位; 当前不用.
 
     sync_vendor.sh 升级 commit 时务必跑端到端验收, 确认 Sam3Processor.set_image() 写到 state
     的 keys (`backbone_out`, `original_height`, `original_width`) 仍然一致.

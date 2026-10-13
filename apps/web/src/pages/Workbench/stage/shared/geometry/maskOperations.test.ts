@@ -185,6 +185,49 @@ describe("Mask operations · connectivity and membership", () => {
     expect(rows(four.alpha, 3)[1][1]).toBe(1);
     expect(rows(eight.alpha, 3)[1][1]).toBe(0);
   });
+
+  it("keeps the hit diagonal component in 4-connectivity while the 8-connected merge makes the same keep a no-op", () => {
+    // diagonal_two topology from the Mask advanced E2E matrix: two equal
+    // components touching diagonally, so connectivity decides the outcome.
+    const source = alpha([
+      [1, 1, 0, 0],
+      [1, 1, 0, 0],
+      [0, 0, 1, 1],
+      [0, 0, 1, 1],
+    ]);
+
+    const four = applyMaskComponent(source, 4, 4, {
+      action: "keep",
+      x: 0,
+      y: 0,
+      connectivity: 4,
+    });
+    const eight = applyMaskComponent(source, 4, 4, {
+      action: "keep",
+      x: 0,
+      y: 0,
+      connectivity: 8,
+    });
+
+    expect(rows(four.alpha, 4)).toEqual([
+      [1, 1, 0, 0],
+      [1, 1, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]);
+    expect(four.report.changedPixels).toBe(4);
+    expect(four.report.beforeArea).toBe(8);
+    expect(four.report.afterArea).toBe(4);
+    expect(four.report.beforeComponents).toBe(2);
+    expect(four.report.afterComponents).toBe(1);
+    // Under 8-connectivity the diagonal blocks are one component: keep is a no-op.
+    expect([...eight.alpha]).toEqual([...source]);
+    expect(eight.report.changedPixels).toBe(0);
+    expect(eight.report.beforeArea).toBe(8);
+    expect(eight.report.afterArea).toBe(8);
+    expect(eight.report.beforeComponents).toBe(1);
+    expect(eight.report.afterComponents).toBe(1);
+  });
 });
 
 describe("Mask operations · morphology", () => {
@@ -381,6 +424,54 @@ describe("Mask operations · component and hole editing", () => {
     expect(all.report.changedPixels).toBe(3);
     expect(all.alpha[0]).toBe(0);
     expect(fillMaskHoles(source, 7, 6, { mode: "hit", x: 0, y: 0 }).report.changedPixels).toBe(0);
+  });
+
+  it("drives the donut-and-islands matrix: hole count, threshold pruning and keep-to-one", () => {
+    // donut_three topology from the Mask advanced E2E matrix: a donut with one
+    // enclosed hole plus two separate islands (three foreground components).
+    const source = alpha([
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 0, 0, 1, 1, 1, 1, 0],
+      [0, 1, 0, 0, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 1, 1, 1, 0, 0, 1, 1, 0],
+      [0, 1, 0, 0, 0, 0, 0, 1, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ]);
+    const labels = labelMaskRegions(source, 9, 9, { value: 255, connectivity: 4 });
+    expect(labels.regions.map((region) => region.area)).toEqual([24, 4, 3]);
+    const background = labelMaskRegions(source, 9, 9, { value: 0, connectivity: 4 });
+    expect(background.regions.find((region) => !region.touchesBoundary)?.area).toBe(4);
+
+    const filled = fillMaskHoles(source, 9, 9, { mode: "all" });
+    expect(filled.report.beforeArea).toBe(31);
+    expect(filled.report.afterArea).toBe(35);
+    expect(filled.report.changedPixels).toBe(4);
+    const filledBackground = labelMaskRegions(filled.alpha, 9, 9, {
+      value: 0,
+      connectivity: 4,
+    });
+    expect(filledBackground.regions.every((region) => region.touchesBoundary)).toBe(true);
+
+    const pruned = removeSmallMaskComponents(source, 9, 9, { maxArea: 3, connectivity: 4 });
+    expect(pruned.report.changedPixels).toBe(3);
+    expect(pruned.report.beforeComponents).toBe(3);
+    expect(pruned.report.afterComponents).toBe(2);
+    expect(pruned.report.afterArea).toBe(28);
+
+    const kept = applyMaskComponent(source, 9, 9, {
+      action: "keep",
+      x: 1,
+      y: 2,
+      connectivity: 4,
+    });
+    expect(kept.report.changedPixels).toBe(7);
+    expect(kept.report.beforeComponents).toBe(3);
+    expect(kept.report.afterComponents).toBe(1);
+    expect(kept.report.afterArea).toBe(24);
+    expect(rows(kept.alpha, 9)[6]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it("smooth is one close-then-open result and keeps the source immutable", () => {

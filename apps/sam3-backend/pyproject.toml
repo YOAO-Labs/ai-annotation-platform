@@ -41,7 +41,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "video_predictor", "pvs_video_predictor", "schemas", "embedding_cache", "observability", "managed_pool", "pool_domain", "gpu_lifecycle"]
+py-modules = ["main", "predictor", "video_predictor", "pvs_video_predictor", "schemas", "embedding_cache", "observability", "pool_domain", "gpu_lifecycle"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

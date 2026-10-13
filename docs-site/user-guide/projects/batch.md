@@ -65,6 +65,8 @@ scene 模式项目在关联数据集时（经新建项目向导）会**自动**�
 
 ![批次列表各状态彩色徽标](../images/projects/batch-status-list.png)
 
+列表的「操作」列默认只显示图标，将光标移到某个按钮上时会展开该按钮的名称，移开后收起。使用 Tab 键聚焦按钮也能显示名称；触屏设备直接显示名称。停留在按钮上可查看详细提示，包括按钮不可用的原因。
+
 批次状态机如下：
 
 <ExcalidrawDiagram
@@ -77,7 +79,7 @@ scene 模式项目在关联数据集时（经新建项目向导）会**自动**�
 
 - `active → pre_annotated` 由 AI 批量预标成功结束后自动触发
 - `active → annotating`、`pre_annotated → annotating` 有自动路径，不需要管理员手工点状态
-- `annotating → reviewing` 既可能由“全量完成”自动触发，也可能由标注员主动整批送审触发
+- `annotating → reviewing` 既可能由“全量完成”自动触发，也可能由标注员主动整批送审触发；整批送审会先把批次内所有 `pending / in_progress` 任务提交质检，再推进批次状态
 - owner 可以对批次执行 admin lock / unlock。admin lock 是软暂停：阻止新派单并冻结自动状态推进，但不会把已有任务变成只读。
 - `reset → draft` 是正常迁移图之外的管理性重置，可以从任意状态触发，并会同步重置 task、锁和 AI 预标产物
 
@@ -114,8 +116,8 @@ scene 模式项目在关联数据集时（经新建项目向导）会**自动**�
 以下状态变化依赖用户操作：
 
 - owner：`draft → active`
-- 标注员：`annotating → reviewing`
-- reviewer：`reviewing → approved`、`reviewing → rejected`
+- 标注员：整批送审，把自己批次内未送审的 `pending / in_progress` 任务提交质检并进入 `reviewing`
+- reviewer：`reviewing → approved`；整批退回可对 `active / annotating / reviewing` 批次执行（部分送审的批次也能打回重做）
 - owner 重新激活返工：`rejected → active`
 - owner 需填写理由的逆向迁移：
   `archived → active`、`approved → reviewing`、`rejected → reviewing`、`pre_annotated → active`
@@ -231,13 +233,14 @@ owner 可以在批次行上点击锁定，为批次写入锁定原因。锁定�
 
 ## 退回与重做
 
-`reviewing → rejected` 不是简单改一个批次状态，它还会同步影响任务：
+整批退回把批次置为 `rejected` 并同步影响任务：
 
+- 接受 `active / annotating / reviewing` 三种来源状态：审核页列出的部分送审批次（还有任务未送审）也能整批打回
 - 仅 `review` / `completed` 任务会被回退为 `pending`
 - 现有 annotation 历史会保留，不会被硬删除
 - `review_feedback` 会保留在批次上，供标注员查看退回原因
 
-这意味着“批次被退回”更接近“软重开”，而不是“整批清空重做”。
+这意味着“批次被退回”更接近“软重开”，而不是“整批清空重做”。通用 `transition` 的 `reviewing → rejected` 仍然只改批次状态；只有专用的整批退回入口会写反馈并重置任务。
 
 ## 终极重置到 Draft
 

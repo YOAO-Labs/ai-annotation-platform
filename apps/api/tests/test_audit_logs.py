@@ -72,9 +72,13 @@ class TestAuditLogFilters:
         assert [item["action"] for item in data["items"]] == ["project.create"]
 
     async def test_pagination(self, httpx_client, auth_headers):
-        """分页参数生效。"""
+        """分页参数生效。
+
+        列表端点的分页契约为 `page` / `page_size`（`limit` / `offset` 只属于导出端点），
+        因此这里必须传 `page_size`；传 `limit` 会被忽略并回落到默认 20 条。
+        """
         r = await httpx_client.get(
-            "/api/v1/audit-logs?limit=5&offset=0", headers=auth_headers
+            "/api/v1/audit-logs?page=1&page_size=5", headers=auth_headers
         )
         assert r.status_code == 200
         data = r.json()

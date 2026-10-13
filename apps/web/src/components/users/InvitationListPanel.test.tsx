@@ -120,14 +120,14 @@ it("paginates 1000 invitations and shares selected filters with stats and export
   );
   fireEvent.click(screen.getByRole("button", { name: "筛选" }));
   fireEvent.change(screen.getByLabelText("邀请项目筛选"), { target: { value: "p1" } });
-  fireEvent.change(screen.getByLabelText("邀请角色筛选"), { target: { value: "reviewer" } });
+  fireEvent.change(screen.getByLabelText("邀请角色筛选"), { target: { value: "employee" } });
   fireEvent.click(screen.getByRole("button", { name: "待接受" }));
   fireEvent.change(screen.getByLabelText("搜索邀请"), { target: { value: "test" } });
   const filters = {
     scope: "me",
     status: "pending",
     project_id: "p1",
-    role: "reviewer",
+    role: "employee",
     search: "test",
   };
   await waitFor(() =>

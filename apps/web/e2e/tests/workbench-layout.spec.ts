@@ -1,5 +1,6 @@
 import { panelCommand } from "../fixtures/workbench-panel-actions";
 import { layoutCommand, openLayoutSettings } from "../helpers/workbench-layout";
+import { renderedGroups, workspace } from "../helpers/workbench-layout-matrix";
 import type { Page } from "@playwright/test";
 import type { NamedWorkspacePreset } from "../../src/api/auth";
 import type {
@@ -7,7 +8,7 @@ import type {
   WorkspaceNode,
   WorkspaceSnapshot,
 } from "../../src/pages/Workbench/layout/workbenchLayoutSnapshot";
-import { expect, test } from "../fixtures/seed";
+import { expect, ownedNamespaceFor, test } from "../fixtures/seed";
 
 const DESKTOP = { width: 1440, height: 900 };
 // 每次运行都新起 dev server，首屏要现编译整张模块图：本机实测 4.9–5.7s，
@@ -71,7 +72,7 @@ test.use({ viewport: DESKTOP });
 
 test("AI 候选和多选不会作为标注身份查询隐藏讨论面板", async ({ page, seed }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const taskId = data.task_ids[0];
   const annotationCommentRequests: string[] = [];
   const scopedAnnotationIds: string[] = [];
@@ -178,7 +179,7 @@ test("AI 候选和多选不会作为标注身份查询隐藏讨论面板", async
     ).toBe(true);
   } finally {
     await page.close();
-    await seed.reset();
+    await seed.owned();
   }
 });
 
@@ -187,7 +188,7 @@ test("图片布局预设、面板隐藏和浮动保留画布及未发送讨论�
   seed,
 }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.advanceTask({
     taskId: data.task_ids[0],
     toStatus: "pending",
@@ -362,12 +363,200 @@ test("图片布局预设、面板隐藏和浮动保留画布及未发送讨论�
   ).toBe(dockedDiscussionGroup);
 });
 
+test("a root-edge queue dock keeps the reserved group collapsed and the saved tree", async ({
+  page,
+  seed,
+}) => {
+  test.setTimeout(120_000);
+  const data = await seed.owned();
+  await seed.advanceTask({
+    taskId: data.task_ids[0],
+    toStatus: "pending",
+    annotatorEmail: data.annotator_email,
+  });
+  await seed.injectToken(page, data.annotator_email);
+  await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
+  await layoutCommand(page, "标准标注布局");
+  await expect(page.getByTestId("workbench-stage")).toHaveAttribute(
+    "data-image-ready",
+    "true",
+    FIRST_PAINT,
+  );
+
+  // Leave a merged tab group plus a floating group, then exercise the queue
+  // docks one at a time and assert each actually lands: right of the canvas,
+  // then below it (leaving the canvas at the workspace left edge), then the
+  // final left drop inside Dockview's root-edge band. On the pre-fix build all
+  // of these drags were no-ops because the queue already started on the left,
+  // so each geometry assertion below fails without the real dock.
+  const dockedGroups = async () => (await renderedGroups(page)).filter((group) => !group.floating);
+  const rectFor = (groups: Awaited<ReturnType<typeof dockedGroups>>, tab: string) =>
+    groups.find((group) => group.tabs.includes(tab))?.rect;
+
+  await panelCommand(page, "讨论", "与标注详情合并为标签");
+  await expect
+    .poll(async () => {
+      const root = (await savedSnapshot(page, "annotate:image"))?.layout.grid.root;
+      return !!root && groupFor(root, "discussion") === groupFor(root, "inspector");
+    })
+    .toBe(true);
+  await panelCommand(page, "类别面板", "浮动面板");
+  await expect
+    .poll(async () => {
+      const snapshot = await savedSnapshot(page, "annotate:image");
+      return (
+        snapshot?.layout.floatingGroups?.some((group) =>
+          group.data?.views.includes("class-palette"),
+        ) ?? false
+      );
+    })
+    .toBe(true);
+
+  await panelCommand(page, "任务队列", "停靠到右侧");
+  await expect
+    .poll(async () => {
+      const groups = await dockedGroups();
+      const queue = rectFor(groups, "task-queue");
+      const canvas = rectFor(groups, "canvas");
+      return !!queue && !!canvas && queue.x >= canvas.x + canvas.width - 2;
+    })
+    .toBe(true);
+
+  await panelCommand(page, "任务队列", "停靠到底部");
+  await expect
+    .poll(async () => {
+      const groups = await dockedGroups();
+      const queue = rectFor(groups, "task-queue");
+      const canvas = rectFor(groups, "canvas");
+      return !!queue && !!canvas && queue.y >= canvas.y + canvas.height - 2;
+    })
+    .toBe(true);
+
+  // Root-edge precondition: after the bottom dock the canvas starts at the
+  // workspace left, so the next 8px-from-left target is inside the root-edge band.
+  const workspaceBox = await workspace(page).boundingBox();
+  await expect
+    .poll(async () => {
+      const canvas = rectFor(await dockedGroups(), "canvas");
+      return !!canvas && !!workspaceBox && Math.abs(canvas.x - workspaceBox.x) <= 2;
+    })
+    .toBe(true);
+
+  await panelCommand(page, "任务队列", "停靠到左侧");
+  await expect
+    .poll(async () => {
+      const groups = await dockedGroups();
+      const queue = rectFor(groups, "task-queue");
+      const canvas = rectFor(groups, "canvas");
+      return !!queue && !!canvas && queue.x + queue.width <= canvas.x + 2;
+    })
+    .toBe(true);
+
+  await expect
+    .poll(async () => {
+      const snapshot = await savedSnapshot(page, "annotate:image");
+      const root = snapshot?.layout.grid.root;
+      return {
+        merged: !!root && groupFor(root, "discussion") === groupFor(root, "inspector"),
+        floating:
+          snapshot?.layout.floatingGroups?.some((group) =>
+            group.data?.views.includes("class-palette"),
+          ) ?? false,
+      };
+    })
+    .toEqual({ merged: true, floating: true });
+
+  // The reserved parking group must consume no docked grid space: the docked
+  // groups must still cover the workspace edges with no blank reserved column.
+  await expect
+    .poll(async () => {
+      const docked = (await renderedGroups(page)).filter((group) => !group.floating);
+      const rect = await workspace(page).boundingBox();
+      if (!docked.length || !rect) return Infinity;
+      const left = Math.min(...docked.map((group) => group.rect.x));
+      const right = Math.max(...docked.map((group) => group.rect.x + group.rect.width));
+      return Math.max(Math.abs(left - rect.x), Math.abs(right - (rect.x + rect.width)));
+    })
+    .toBeLessThanOrEqual(2);
+
+  // Cleanup acceptance: once the dock drags finish, the workspace must not keep
+  // the overlay passthrough class, so ordinary canvas pointer input is restored.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (document.querySelector("[data-workbench-workspace]")?.className.split(/\s+/) ?? []).some(
+          (name) => name.includes("dragPassthrough"),
+        ),
+      ),
+    )
+    .toBe(false);
+
+  const saved = await savedSnapshot(page, "annotate:image");
+  const mergedDiscussionGroup = groupFor(saved!.layout.grid.root, "discussion");
+  expect(mergedDiscussionGroup).toBeDefined();
+  expect(mergedDiscussionGroup).toBe(groupFor(saved!.layout.grid.root, "inspector"));
+  expect(
+    saved!.layout.floatingGroups?.some((group) => group.data?.views.includes("class-palette")),
+  ).toBe(true);
+  await expect(
+    page.getByText("保存的布局无法恢复，请从布局菜单重置。", { exact: true }),
+  ).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByTestId("workbench-stage")).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByText("保存的布局无法恢复，请从布局菜单重置。", { exact: true }),
+  ).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      const groups = await renderedGroups(page);
+      return {
+        merged: groups.some((group) => group.tabs.join(",") === "inspector,discussion"),
+        floating: groups.some((group) => group.floating && group.tabs.includes("class-palette")),
+      };
+    })
+    .toEqual({ merged: true, floating: true });
+  const restored = await savedSnapshot(page, "annotate:image");
+  expect(groupFor(restored!.layout.grid.root, "discussion")).toBe(mergedDiscussionGroup);
+
+  // Bounded native-cancel acceptance: start a real native tab drag, prove the
+  // overlay passthrough is active, cancel with Escape, then verify the class is
+  // reset and the canvas still answers a real pointer hit-test.
+  const passthroughActive = () =>
+    page.evaluate(() =>
+      (document.querySelector("[data-workbench-workspace]")?.className.split(/\s+/) ?? []).some(
+        (name) => name.includes("dragPassthrough"),
+      ),
+    );
+  const discussionTab = page.getByRole("tab", { name: "讨论", exact: true });
+  const tabBox = await discussionTab.boundingBox();
+  expect(tabBox).not.toBeNull();
+  await page.mouse.move(tabBox!.x + tabBox!.width / 2, tabBox!.y + tabBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(tabBox!.x + tabBox!.width / 2 + 60, tabBox!.y + 90, { steps: 10 });
+  await expect.poll(passthroughActive).toBe(true);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect.poll(passthroughActive).toBe(false);
+
+  const stage = page.getByTestId("workbench-stage");
+  await expect(stage).toHaveAttribute("data-image-ready", "true");
+  await stage.click({ position: { x: 80, y: 80 } });
+  await expect(stage).toBeVisible();
+});
+
 test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" }, async ({ page, seed }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.injectToken(page, data.admin_email);
   // Theme screenshots exercise the layout without depending on the seed's external ML service.
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
+  // The queue badge shows the task's own display id; derive it from the API
+  // instead of assuming the retired shared-fixture value.
+  const taskResponse = await page.request.get(`/api/v1/tasks/${data.task_ids[0]}`, { headers });
+  expect(taskResponse.ok(), await taskResponse.text()).toBe(true);
+  const taskDisplayId = ((await taskResponse.json()) as { display_id: string }).display_id;
+  expect(taskDisplayId).toBe(`T-E2E-${ownedNamespaceFor(test.info())}000001`);
   const configured = await page.request.patch(`/api/v1/projects/${data.project_id}`, {
     headers,
     data: { ai_enabled: false, ai_interactive_enabled: false, ml_backend_id: null },
@@ -394,8 +583,15 @@ test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" 
   const workspace = page.locator("[data-workbench-workspace]");
   const queue = page.getByRole("tabpanel", { name: "任务队列", exact: true });
   await expect(queue.getByText("1 / 5", { exact: true })).toBeVisible();
-  await expect(queue.getByText("T-E2E-000001", { exact: true })).toHaveClass(/text-brand/);
+  await expect(queue.getByText(taskDisplayId, { exact: true })).toHaveClass(/text-brand/);
   await expect(queue.getByText("task-1.svg", { exact: true })).toBeVisible();
+  // Keep the fixture private to this test; only its path-derived IDs vary in screenshots.
+  // The fourth and fifth rows sit behind the category panel, so masking them would
+  // paint over that panel even though their text is occluded in the real UI.
+  const taskIdLabels = queue.getByText(/^T-E2E-[a-z0-9]{4,12}\d{6}$/);
+  await expect(taskIdLabels.first()).toHaveText(taskDisplayId);
+  await expect(taskIdLabels.nth(2)).toBeVisible();
+  const visibleTaskIds = [taskIdLabels.nth(0), taskIdLabels.nth(1), taskIdLabels.nth(2)];
   for (const floating of [false, true]) {
     if (floating) await panelCommand(page, "讨论", "浮动面板");
     for (const theme of ["light", "dark"]) {
@@ -406,6 +602,7 @@ test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" 
         `workspace-${floating ? "floating" : "standard"}-${theme}.png`,
         {
           animations: "disabled",
+          mask: visibleTaskIds,
           maxDiffPixelRatio: 0.01,
         },
       );
@@ -415,7 +612,7 @@ test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" 
 
 test("命名布局预设随账号保存，可跨刷新应用与删除", async ({ page, seed }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.injectToken(page, data.admin_email);
   await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
   await layoutCommand(page, "标准标注布局");
@@ -458,7 +655,7 @@ test("命名布局预设随账号保存，可跨刷新应用与删除", async ({
 
 test("预设撤销恢复自定义树，后续预设替换撤销点且紧凑模式清除撤销入口", async ({ page, seed }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.injectToken(page, data.admin_email);
   await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
   await layoutCommand(page, "标准标注布局");
@@ -511,7 +708,7 @@ test("视频紧凑布局禁止桌面写入，退出后恢复浮窗与非零帧�
   seed,
 }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const video = await seed.videoTask(data.project_id);
   await seed.injectToken(page, data.admin_email);
   await page.goto(`/projects/${data.project_id}/annotate?task=${video.task_id}`);

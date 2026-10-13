@@ -9,13 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks import _assert_task_visible
-from app.db.enums import UserRole
 from app.db.models.dataset import VideoChunk, VideoFrameIndex
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_chapter import VideoChapter
-from app.deps import get_current_user, get_db, require_roles, require_active_task_actor
+from app.deps import get_current_user, get_db, require_active_task_actor
 from app.schemas.task import (
     TaskVideoFrameTimetableResponse,
     VideoFrameTimetableEntry,
@@ -40,7 +39,7 @@ from app.schemas.video_frame_service import (
     VideoSegmentsResponse,
 )
 from app.services.audit import AuditAction, AuditService
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import resolve_project_access
 from app.services.video_frame_service import (
     build_context_from_dataset_item,
     get_chunk as get_video_chunk_asset,
@@ -53,12 +52,6 @@ from app.services.video_frame_service import (
 from app.services.video_segment_service import list_segments as list_video_segments
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
-
-
-_CHAPTER_EDITORS = (
-    UserRole.SUPER_ADMIN,
-    UserRole.PROJECT_ADMIN,
-)
 
 
 def _chapter_out(row: VideoChapter) -> VideoChapterOut:
@@ -80,8 +73,10 @@ def _chapter_out(row: VideoChapter) -> VideoChapterOut:
 
 async def _assert_chapter_editor(db: AsyncSession, task: Task, user: User) -> None:
     project = await db.get(Project, task.project_id)
-    if project is not None and is_privileged_for_project(user, project):
-        return
+    if project is not None:
+        access = await resolve_project_access(db, user=user, project=project)
+        if access.is_manager:
+            return
     raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可管理章节")
 
 
@@ -342,7 +337,7 @@ async def create_video_chapter(
     payload: VideoChapterCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_CHAPTER_EDITORS)),
+    current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     await _assert_chapter_editor(db, task, current_user)
@@ -399,7 +394,7 @@ async def update_video_chapter(
     payload: VideoChapterUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_CHAPTER_EDITORS)),
+    current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     await _assert_chapter_editor(db, task, current_user)
@@ -479,7 +474,7 @@ async def delete_video_chapter(
     chapter_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_CHAPTER_EDITORS)),
+    current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     await _assert_chapter_editor(db, task, current_user)

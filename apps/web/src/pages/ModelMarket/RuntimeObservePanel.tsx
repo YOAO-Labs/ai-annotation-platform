@@ -12,21 +12,12 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Activity,
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
-  RefreshCw,
-  Route,
-  Server,
-  ShieldCheck,
-  type LucideIcon,
-} from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/shadcn/ui/alert";
 import {
   Card,
@@ -183,17 +174,12 @@ export function RuntimeObservePanel(): React.ReactElement {
     <TooltipProvider delayDuration={200}>
       <div className="mb-4">
         <Card className="overflow-hidden">
-          <CardHeader>
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Activity className="size-5" strokeWidth={1.6} aria-hidden="true" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className="text-lg tracking-tight">运行时观测</CardTitle>
-                <CardDescription className="mt-1 max-w-2xl text-pretty">
-                  按服务池检查可用性、容量与数据可信度，展开后处理单个实例。
-                </CardDescription>
-              </div>
+          <CardHeader className="py-3">
+            <div className="min-w-0">
+              <CardTitle className="text-sm tracking-tight">运行时观测</CardTitle>
+              <CardDescription className="mt-0.5 max-w-2xl text-pretty text-xs">
+                按服务池检查可用性、容量与数据可信度，展开后处理单个实例。
+              </CardDescription>
             </div>
             <CardAction className="flex flex-wrap items-center justify-end gap-3 max-md:col-span-2 max-md:row-start-3 max-md:justify-start">
               <Switch
@@ -280,90 +266,63 @@ function RuntimeSummaryBand({
     off: "直连观测",
   };
 
+  // 紧凑摘要带（plan §4.2 阶段三）：路由模式 · 可路由实例 · 需关注服务池 ·
+  // 数据来源可用性，一条可换行的字段带替代旧版四个大摘要块。
   return (
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-label="运行时摘要">
-      <SummaryItem
-        icon={Route}
-        label="路由模式"
-        value={routerLabels[topology.router_mode] ?? "未知"}
-        detail={`mode · ${topology.router_mode}`}
-      />
-      <SummaryItem
-        icon={ShieldCheck}
-        label="可路由实例"
-        value={`${routable} / ${memberCount}`}
-        detail={`${poolCount} 个服务池`}
-      />
-      <SummaryItem
-        icon={Activity}
-        label="需关注服务池"
-        value={String(attentionPools)}
-        detail={attentionPools === 0 ? "当前无异常" : "健康状态非正常"}
-        tone={attentionPools > 0 ? "warning" : "success"}
-      />
-      <SummaryItem
-        icon={Server}
-        label="数据与纳管"
-        value={
-          topology.sources.length > 0 ? `${freshSources} / ${topology.sources.length}` : "未上报"
-        }
-        detail={
-          envOnlyCount > 0
-            ? `${envOnlyCount} 个容器未纳管`
-            : staleSources > 0
-              ? `${staleSources} 个数据源陈旧`
-              : "全部容器已纳管"
-        }
-        tone={staleSources > 0 || envOnlyCount > 0 ? "warning" : "default"}
-      />
-    </div>
-  );
-}
-
-function SummaryItem({
-  icon: SummaryIcon,
-  label,
-  value,
-  detail,
-  tone = "default",
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  detail: string;
-  tone?: "default" | "success" | "warning";
-}): React.ReactElement {
-  return (
-    <div className="flex min-w-0 items-center gap-3 rounded-lg bg-muted/40 px-3.5 py-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm ring-1 ring-border">
-        <SummaryIcon className="size-4" strokeWidth={1.6} aria-hidden="true" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-2xs font-medium text-muted-foreground">{label}</div>
-        <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-base font-semibold tracking-tight tabular-nums">
-            {value}
-          </span>
-          {tone !== "default" && (
-            <Badge variant={tone}>{tone === "success" ? "正常" : "注意"}</Badge>
-          )}
-        </div>
-        <div className="mt-0.5 truncate text-2xs text-muted-foreground">{detail}</div>
-      </div>
+    <div
+      className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-muted/30 px-3.5 py-2.5 text-xs"
+      aria-label="运行时摘要"
+    >
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-muted-foreground">路由模式</span>
+        <span className="font-medium">{routerLabels[topology.router_mode] ?? "未知"}</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-muted-foreground">可路由实例</span>
+        <span className="font-medium tabular-nums">
+          <span className="text-status-positive">{routable}</span>
+          <span className="text-muted-foreground"> / {memberCount}</span>
+        </span>
+        <span className="text-2xs text-muted-foreground">{poolCount} 个服务池</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-muted-foreground">需关注服务池</span>
+        <span
+          className={cn("font-medium tabular-nums", attentionPools > 0 && "text-status-caution")}
+        >
+          {attentionPools}
+        </span>
+        <span className="text-2xs text-muted-foreground">
+          {attentionPools > 0 ? "健康状态非正常" : "当前无异常"}
+        </span>
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-muted-foreground">数据来源</span>
+        {topology.sources.length > 0 ? (
+          <Badge variant={staleSources > 0 ? "warning" : "success"}>
+            {freshSources} / {topology.sources.length} 新鲜
+          </Badge>
+        ) : (
+          <span className="font-medium">未上报</span>
+        )}
+        {envOnlyCount > 0 && (
+          <span className="text-2xs text-status-caution">{envOnlyCount} 个容器未纳管</span>
+        )}
+      </span>
     </div>
   );
 }
 
 function RuntimeSummarySkeleton(): React.ReactElement {
   return (
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-label="正在加载运行时摘要">
+    <div
+      className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-muted/30 px-3.5 py-2.5"
+      aria-label="正在加载运行时摘要"
+    >
       {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="flex items-center gap-3 rounded-lg bg-muted/40 px-3.5 py-3">
-          <Skeleton className="size-8" />
-          <div className="flex flex-1 flex-col gap-2">
-            <Skeleton className="h-2.5 w-20" />
-            <Skeleton className="h-4 w-28" />
-          </div>
+        <div key={index} className="inline-flex items-center gap-1.5">
+          <Skeleton className="h-2.5 w-12" />
+          <Skeleton className="h-3.5 w-14" />
         </div>
       ))}
     </div>

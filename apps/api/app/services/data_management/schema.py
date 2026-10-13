@@ -55,7 +55,11 @@ _BASE_COLUMNS = [
         True,
     ),
     ("pending_tracker_job_count", "AI 追踪待审", "AI 待审", True, True),
-    ("unresolved_feedback_count", "反馈", "质量", True, True),
+    ("unresolved_issue_count", "未解决问题", "质量", True, True),
+    ("comment_count", "评论", "讨论", True, True),
+    # Legacy feedback column kept as a compatibility alias of the corrected
+    # unresolved-issue count for saved views that still reference it.
+    ("unresolved_feedback_count", "反馈（兼容）", "质量", False, True),
     ("annotation_source_counts", "来源", "标注", True, True),
     ("track_count", "轨迹", "标注", True, True),
     ("last_activity_at", "最近活动", "任务", True, True),
@@ -266,8 +270,22 @@ def build_data_manager_schema(
             expensive=True,
         ),
         DataManagerFilterFieldOut(
+            key="issue.unresolved_count",
+            label="未解决问题",
+            group="质量",
+            value_type="number",
+            operators=_NUMBER_OPS,
+        ),
+        DataManagerFilterFieldOut(
+            key="discussion.comment_count",
+            label="评论",
+            group="讨论",
+            value_type="number",
+            operators=_NUMBER_OPS,
+        ),
+        DataManagerFilterFieldOut(
             key="feedback.unresolved_count",
-            label="未解决反馈",
+            label="未解决反馈（兼容）",
             group="质量",
             value_type="number",
             operators=_NUMBER_OPS,
@@ -499,7 +517,9 @@ def build_data_manager_schema(
             "low_confidence_prediction_shape_count",
             "低置信 AI 待审 (<50%)",
         ),
-        _option("unresolved_feedback_count", "未解决反馈"),
+        _option("unresolved_feedback_count", "未解决问题"),
+        _option("unresolved_issue_count", "未解决问题"),
+        _option("comment_count", "评论"),
         _option("last_activity_at", "最近活动"),
     ]
     metrics = [
@@ -511,7 +531,7 @@ def build_data_manager_schema(
             if _track_capable(project)
             else []
         ),
-        DataManagerMetricOut(key="feedback", label="未解决反馈", group="质量"),
+        DataManagerMetricOut(key="feedback", label="未解决问题", group="质量"),
     ]
     builtin_views = builtin_view_keys(project)
 
@@ -543,7 +563,7 @@ def build_data_manager_schema(
                 ("track_id", "轨迹 ID", "轨迹", True, "annotation.track_id"),
                 ("attributes", "属性", "属性", True, None),
                 ("task_location", "任务 / 帧", "定位", True, "task.display_id"),
-                ("feedback", "反馈", "质量", True, "feedback.unresolved_count"),
+                ("feedback", "未解决问题", "质量", True, "feedback.unresolved_count"),
                 ("updated_at", "更新时间", "对象", True, "annotation.updated_at"),
                 ("confidence", "置信度", "对象", False, "annotation.confidence"),
                 ("created_by", "创建者", "人员", False, None),

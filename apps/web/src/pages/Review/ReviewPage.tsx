@@ -15,16 +15,28 @@ import {
   useApproveTask,
   useRejectTask,
 } from "@/hooks/useTasks";
-import { useRejectBatch } from "@/hooks/useBatches";
 import { useReviewerStats } from "@/hooks/useDashboard";
 import { ApiError } from "@/api/client";
 import type { TaskResponse } from "@/types";
 import type { ReviewingBatchItem } from "@/api/dashboard";
 import { buildReviewWorkbenchUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
 import { useAuthStore } from "@/stores/authStore";
-import { RejectReasonModal } from "./RejectReasonModal";
+import { useRejectBatch } from "@/hooks/useBatches";
+import { inputDialog } from "@/components/ui/decisionDialog";
+import { promptRejectReason } from "./rejectReasonDialog";
+import type { RejectPayload } from "./rejectReasonTypes";
 import { ReviewSidebar } from "./ReviewSidebar";
 import { ReviewBatchCardGrid } from "./ReviewBatchCardGrid";
+import {
+  clearReviewAssignee,
+  clearReviewSelection,
+  readReviewQueueParams,
+  readReviewTaskId,
+  reviewQueueIsUnchanged,
+  reviewQueueScopeKey,
+  selectReviewBatch,
+  setReviewTaskId,
+} from "./reviewUrlState";
 import {
   isInitialQueryPaused,
   isQueryPaused,
@@ -189,8 +201,9 @@ export function ReviewPage() {
   // Queue selection is URL-owned so a browser navigation updates the request
   // scope before the next render. Local selection state could briefly combine
   // a new assignee with a retired batch while React effects caught up.
-  const selectedProjectId = searchParams.get("project") ?? "";
-  const selectedBatchId = searchParams.get("batch") ?? "";
+  const queueScope = readReviewQueueParams(searchParams);
+  const selectedProjectId = queueScope.project;
+  const selectedBatchId = queueScope.batch;
 
   // v0.7.1 B-18：批次树数据来自 reviewer dashboard 聚合（已扩展为「reviewing 或 review_tasks>0」）。
   const reviewerStatsQuery = useReviewerStats();
@@ -211,10 +224,9 @@ export function ReviewPage() {
   );
   // 选中批次后 projectId 跟随；未选中走 selectedProjectId 兜底（用于「全部待审」筛选）。
   const projectId = selectedBatch?.project_id || selectedProjectId || undefined;
-  const rejectBatchMut = useRejectBatch(projectId ?? "");
 
   // v0.12.5 · 绩效页项目下钻带入的 assignee 过滤(后端 tasks 已支持 assignee_id)。
-  const assigneeFilter = searchParams.get("assignee") || "";
+  const assigneeFilter = queueScope.assignee;
   const taskListParams = useMemo(
     () => ({
       status: "review" as const,
@@ -241,52 +253,32 @@ export function ReviewPage() {
 
   const approveMut = useApproveTask();
   const rejectMut = useRejectTask();
+  // 整批退回的批次驳回 mutation（原 RejectBatchModal 内联 hook，plan T2 迁移到调用方）
+  const rejectBatchMut = useRejectBatch(projectId ?? "");
   const authOwnerKey = useAuthStore(
     (state) => `${state.user?.id ?? "anonymous"}:${state.token ?? "none"}`,
   );
 
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
-  const [rejectingIds, setRejectingIds] = useState<string[] | null>(null);
-  const queueUrlRef = useRef({
-    project: searchParams.get("project") ?? "",
-    batch: searchParams.get("batch") ?? "",
-    assignee: searchParams.get("assignee") ?? "",
-    authOwnerKey,
-  });
-  const queueScopeKey = [
-    authOwnerKey,
-    searchParams.get("project") ?? "",
-    searchParams.get("batch") ?? "",
-    searchParams.get("assignee") ?? "",
-  ].join("\u001f");
+  // plan 1789527942 · T2：批次驳回 / 任务退回已迁移 decisionDialog；弹窗期间 URL 作用域可能漂移，
+  // 各 async 流程在 await 后重查 queueScopeKeyRef 再提交（快照 + 复查取代原 open state 关闭逻辑）。
+  const queueUrlRef = useRef({ ...queueScope, authOwnerKey });
+  const queueScopeKey = reviewQueueScopeKey(authOwnerKey, queueScope);
   const queueScopeKeyRef = useRef(queueScopeKey);
   queueScopeKeyRef.current = queueScopeKey;
   const checkedIdsKey = JSON.stringify([...checkedIds].sort());
   const checkedIdsKeyRef = useRef(checkedIdsKey);
   checkedIdsKeyRef.current = checkedIdsKey;
-  const rejectingActionRef = useRef<{ scopeKey: string; selectionKey: string } | null>(null);
   const queueSearch = searchParams.toString();
 
   // Clear cross-page selections when a URL-owned queue scope changes.
   useEffect(() => {
     const params = new URLSearchParams(queueSearch);
-    const next = {
-      project: params.get("project") ?? "",
-      batch: params.get("batch") ?? "",
-      assignee: params.get("assignee") ?? "",
-      authOwnerKey,
-    };
+    const next = { ...readReviewQueueParams(params), authOwnerKey };
     const previous = queueUrlRef.current;
     queueUrlRef.current = next;
-    if (
-      previous.project !== next.project ||
-      previous.batch !== next.batch ||
-      previous.assignee !== next.assignee ||
-      previous.authOwnerKey !== next.authOwnerKey
-    ) {
+    if (!reviewQueueIsUnchanged(previous, next)) {
       setCheckedIds(new Set());
-      setRejectingIds(null);
-      rejectingActionRef.current = null;
     }
   }, [authOwnerKey, queueSearch]);
 
@@ -301,51 +293,33 @@ export function ReviewPage() {
 
   const handleSelectBatch = (b: ReviewingBatchItem | null) => {
     // 合并而非整体重写：保留 assignee 等下钻带入的过滤 param。
-    const next = new URLSearchParams(searchParams);
-    next.delete("project");
-    next.delete("batch");
-    if (b) {
-      next.set("project", b.project_id);
-      next.set("batch", b.batch_id);
-    }
-    setSearchParams(next);
+    setSearchParams(
+      selectReviewBatch(
+        searchParams,
+        b ? { project_id: b.project_id, batch_id: b.batch_id } : null,
+      ),
+    );
     setCheckedIds(new Set());
-    setRejectingIds(null);
-    rejectingActionRef.current = null;
   };
 
   const clearAssigneeFilter = () => {
-    const next = new URLSearchParams(searchParams);
-    next.delete("assignee");
-    setSearchParams(next);
+    setSearchParams(clearReviewAssignee(searchParams));
     setCheckedIds(new Set());
-    setRejectingIds(null);
-    rejectingActionRef.current = null;
   };
 
   // 返回卡片网格概览：清掉 batch / project / assignee 三类选择。
   const backToOverview = () => {
-    const next = new URLSearchParams(searchParams);
-    next.delete("project");
-    next.delete("batch");
-    next.delete("assignee");
-    setSearchParams(next);
+    setSearchParams(clearReviewSelection(searchParams));
     setCheckedIds(new Set());
-    setRejectingIds(null);
-    rejectingActionRef.current = null;
   };
 
-  const openTaskId = searchParams.get("taskId");
+  const openTaskId = readReviewTaskId(searchParams);
   // ESC 关 drawer
   useEffect(() => {
     if (!openTaskId) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setSearchParams((previous) => {
-          const next = new URLSearchParams(previous);
-          next.delete("taskId");
-          return next;
-        });
+        setSearchParams((previous) => setReviewTaskId(previous, null));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -375,19 +349,12 @@ export function ReviewPage() {
         }),
       );
     } else {
-      setSearchParams((previous) => {
-        const next = new URLSearchParams(previous);
-        next.set("taskId", id);
-        return next;
-      });
+      setSearchParams((previous) => setReviewTaskId(previous, id));
     }
   };
   const runBatchReject = (
     ids: string[],
-    payload: {
-      reason_type: "missing" | "extra" | "wrong_label" | "wrong_geometry";
-      reason?: string;
-    },
+    payload: RejectPayload,
     actionScopeKey: string,
     actionSelectionKey: string,
   ) => {
@@ -419,13 +386,60 @@ export function ReviewPage() {
                 kind: failed ? "error" : "success",
               });
               setCheckedIds(new Set());
-              setRejectingIds(null);
-              rejectingActionRef.current = null;
             }
           },
         },
       );
     });
+  };
+
+  // 整批退回：应用内决策弹窗填必填原因（原 RejectBatchModal，plan T2 迁移 inputDialog，copy 保留）。
+  const handleBatchReject = async () => {
+    if (rejectBatchMut.isPending) return;
+    const batchId = selectedBatchId;
+    const scopeKey = queueScopeKeyRef.current;
+    const feedback = await inputDialog({
+      title: `驳回批次 ${selectedBatch?.batch_display_id ?? batchId}`,
+      description:
+        "驳回后批次状态变为「已退回」，被分派的标注员会收到通知。已提交质检 / 已通过的任务回退到待标注，**已有标注内容会保留**，标注员可在 reviewer 留言指引下继续修改。",
+      label: "驳回原因 / 留言",
+      placeholder: "请说明需要标注员重做的具体问题…",
+      required: true,
+      maxLength: 500,
+      tone: "danger",
+      confirmLabel: "确认驳回",
+    });
+    if (!feedback) return;
+    // async-await gap：弹窗期间 URL 作用域被切换时放弃，避免误驳回当前批次之外的批次。
+    if (queueScopeKeyRef.current !== scopeKey) return;
+    rejectBatchMut.mutate(
+      { batchId, feedback },
+      {
+        onSuccess: () => pushToast({ msg: "批次已驳回，已通知被分派的标注员", kind: "success" }),
+        onError: (e) => pushToast({ msg: "驳回失败", sub: (e as Error).message, kind: "warning" }),
+      },
+    );
+  };
+
+  // 批量退回：两步决策弹窗（原 RejectReasonModal，plan T2 迁移 choiceDialog + inputDialog）。
+  const handleTasksReject = async () => {
+    const ids = [...checkedIds];
+    if (ids.length === 0) return;
+    const actionScopeKey = queueScopeKeyRef.current;
+    const actionSelectionKey = checkedIdsKeyRef.current;
+    // v0.8.8 · 单任务退回且该任务被跳过时透传 skip_reason 到第一步提示
+    const skipReasonHint =
+      ids.length === 1 ? (tasks.find((t) => t.id === ids[0])?.skip_reason ?? null) : null;
+    const payload = await promptRejectReason({ count: ids.length, skipReasonHint });
+    if (!payload) return;
+    // async-await gap：弹窗期间队列作用域或选择集合变化时放弃。
+    if (
+      queueScopeKeyRef.current !== actionScopeKey ||
+      checkedIdsKeyRef.current !== actionSelectionKey
+    ) {
+      return;
+    }
+    runBatchReject(ids, payload, actionScopeKey, actionSelectionKey);
   };
 
   const runBatchApprove = (actionScopeKey: string, actionSelectionKey: string) => {
@@ -473,8 +487,8 @@ export function ReviewPage() {
   const approvedPct = totalTasks ? Math.round((approvedDone / totalTasks) * 1000) / 10 : 0;
 
   // 纯落地态（无 batch / project / assignee 选择）展示批次卡片网格；其余维持任务列表。
-  const showOverview =
-    !selectedBatchId && !selectedProjectId && !assigneeFilter && sidebarBatches.length > 0;
+  const hasQueueSelection = Boolean(selectedBatchId || selectedProjectId || assigneeFilter);
+  const showOverview = !hasQueueSelection && sidebarBatches.length > 0;
 
   return (
     <div className="mx-auto box-border grid h-full max-w-[1480px] grid-cols-[300px_1fr] gap-4 px-6 py-5 text-foreground max-[900px]:h-auto max-[900px]:grid-cols-1 max-[900px]:p-4">
@@ -506,7 +520,7 @@ export function ReviewPage() {
       <section className="max-h-[calc(100vh-80px)] min-w-0 overflow-auto max-[900px]:max-h-none">
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            {!showOverview && (
+            {hasQueueSelection && (
               <button
                 type="button"
                 className="mb-1.5 inline-flex cursor-pointer appearance-none items-center gap-1 border-none bg-transparent p-0 text-xs text-muted-foreground hover:text-brand"
@@ -535,7 +549,7 @@ export function ReviewPage() {
               )}
             </p>
             {assigneeFilter && (
-              <FilterGroup compact label="指派范围" className="mt-2">
+              <FilterGroup compact label="指派范围" hideLabel className="mt-2">
                 <ActiveFilterChip label="仅看指派标注员" onRemove={clearAssigneeFilter} />
               </FilterGroup>
             )}
@@ -553,18 +567,8 @@ export function ReviewPage() {
               <Button
                 size="sm"
                 variant="danger"
-                onClick={() => {
-                  const feedback = window.prompt("整批退回原因（必填，最大 500 字）：");
-                  if (!feedback || !feedback.trim()) return;
-                  rejectBatchMut.mutate(
-                    { batchId: selectedBatchId, feedback: feedback.trim() },
-                    {
-                      onSuccess: () =>
-                        pushToast({ msg: "整批已退回，已通知被分派标注员", kind: "success" }),
-                      onError: (e) => pushToast({ msg: "退回失败", sub: (e as Error).message }),
-                    },
-                  );
-                }}
+                onClick={() => void handleBatchReject()}
+                disabled={rejectBatchMut.isPending}
               >
                 <Icon name="x" size={11} />
                 整批退回
@@ -689,17 +693,7 @@ export function ReviewPage() {
                     <Icon name="check" size={11} />
                     批量通过 ({checkedIds.size})
                   </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => {
-                      rejectingActionRef.current = {
-                        scopeKey: queueScopeKeyRef.current,
-                        selectionKey: checkedIdsKeyRef.current,
-                      };
-                      setRejectingIds([...checkedIds]);
-                    }}
-                  >
+                  <Button variant="danger" size="sm" onClick={() => void handleTasksReject()}>
                     <Icon name="x" size={11} />
                     批量退回 ({checkedIds.size})
                   </Button>
@@ -736,35 +730,6 @@ export function ReviewPage() {
           </>
         )}
       </section>
-
-      <RejectReasonModal
-        open={!!rejectingIds}
-        count={rejectingIds?.length ?? 0}
-        onClose={() => {
-          setRejectingIds(null);
-          rejectingActionRef.current = null;
-        }}
-        onConfirm={(payload) => {
-          if (!rejectingIds) return;
-          const action = rejectingActionRef.current;
-          if (
-            !action ||
-            action.scopeKey !== queueScopeKeyRef.current ||
-            action.selectionKey !== checkedIdsKeyRef.current
-          ) {
-            setRejectingIds(null);
-            rejectingActionRef.current = null;
-            return;
-          }
-          runBatchReject(rejectingIds, payload, action.scopeKey, action.selectionKey);
-        }}
-        // v0.8.8 · 单任务退回且该任务被跳过时透传 skip_reason 到 modal
-        skipReasonHint={
-          rejectingIds?.length === 1
-            ? (tasks.find((t) => t.id === rejectingIds[0])?.skip_reason ?? null)
-            : null
-        }
-      />
     </div>
   );
 }

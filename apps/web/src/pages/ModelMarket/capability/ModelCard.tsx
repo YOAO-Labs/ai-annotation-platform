@@ -1,7 +1,15 @@
-// 能力目录单个 model 卡片(从 CapabilityCatalogPanel.tsx 拆出,行为零变化)。Row 为内部布局子组件。
-
-import type { ReactNode } from "react";
+// 能力目录单个 model 卡片（plan §4.1 阶段二：首层摘要化）。
+//
+// 首层只保留选择模型所需的信息：
+//   名称 + 来源后端 / 任务与模态及可批量、交互·有状态等选型徽标 /
+//   简短「输入 → 输出」摘要 / 驻留情况（未知如实呈现）/ 缓存提示 /
+//   详情展开入口 + 现有规则允许时的预热按钮。
+// 框架、模型族、完整属性、资源细项、变体组合等收进展开区域；展开按钮是独立
+// 按钮，不把整卡包成大按钮。协议分组已在分组标题呈现任务时，通过
+// `showTaskBadge=false` 不在卡内重复。
+import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import type { FlatModel } from "./types";
 import {
@@ -30,8 +38,16 @@ const TAG_CLASS =
 const VARIANT_PILL_BASE =
   "inline-flex items-center rounded-full border px-2 py-px text-2xs leading-[1.6]";
 
-export function ModelCard({ item }: { item: FlatModel }) {
+export function ModelCard({
+  item,
+  showTaskBadge = true,
+}: {
+  item: FlatModel;
+  /** 分组标题已含任务标签（协议卡）时关闭，避免重复（plan §4.1）。 */
+  showTaskBadge?: boolean;
+}) {
   const { model: m } = item;
+  const [detailOpen, setDetailOpen] = useState(false);
   const infra = effectiveInfra(m, item.backendInfra);
   const modalities = effectiveModalities(m, item.backendModalities);
   const geom = m.supported_geometric_outputs ?? [];
@@ -57,6 +73,16 @@ export function ModelCard({ item }: { item: FlatModel }) {
   const loaded = isLoadedRuntimeKey(item, defaultVariants, cardRuntimeKey);
   const evict = lastEvict(item);
   const comp = COMPOSITION_BADGE[m.composition ?? "atom"];
+  // 驻留情况：healthMeta 缺失（instances 路径 / 未探活）时如实显示「运行状态未知」，
+  // 不把未知画成「未加载」（plan §4.1）。
+  const runtimeKnown = item.healthMeta?.pool != null;
+
+  // 简短「输入 → 输出」摘要（plan §4.1 首层）。
+  const inputLabels =
+    (m.supported_inputs?.length ?? 0) > 0
+      ? m.supported_inputs!.map((i) => inputLabel(i))
+      : ["整图"];
+  const outputParts = [...geom, ...(m.supported_text_outputs ?? [])];
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border bg-card px-3.5 py-3">
@@ -84,13 +110,14 @@ export function ModelCard({ item }: { item: FlatModel }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {m.task && <Badge variant={taskVariant(m.task)}>{taskLabel(m.task)}</Badge>}
+        {showTaskBadge && m.task && (
+          <Badge variant={taskVariant(m.task)}>{taskLabel(m.task)}</Badge>
+        )}
         {comp && (
           <span title={comp.title}>
             <Badge variant={comp.variant}>{comp.label}</Badge>
           </span>
         )}
-        {infra && <Badge variant="outline">{infraLabel(infra)}</Badge>}
         {modalities.map((mod) => (
           <Badge key={mod} variant="default">
             {modalityLabel(mod)}
@@ -114,14 +141,6 @@ export function ModelCard({ item }: { item: FlatModel }) {
             <Badge variant="outline">{device.toUpperCase()}</Badge>
           </span>
         )}
-        {m.model_family && (
-          <span
-            className="mono rounded-full border border-border px-2 py-px text-2xs text-muted-foreground"
-            title="模型族"
-          >
-            {m.model_family}
-          </span>
-        )}
       </div>
 
       <div
@@ -134,101 +153,151 @@ export function ModelCard({ item }: { item: FlatModel }) {
         </span>
       </div>
 
-      <Row label="运行时">
-        <Badge variant="default">池 {currentPoolSize(item)}</Badge>
-        <Badge variant={loaded ? "success" : "outline"}>{loaded ? "已加载" : "未加载"}</Badge>
+      {/* 简短输入 → 输出摘要。 */}
+      <div
+        className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+        title={`输入 ${inputLabels.join("、")} → 输出 ${outputParts.join("、") || "未知"}`}
+      >
+        <span className="shrink-0 text-2xs font-semibold">输入 → 输出</span>
+        <span className="truncate">
+          {inputLabels.join(" / ")} → {outputParts.length > 0 ? outputParts.join(" · ") : "—"}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-14 shrink-0 text-2xs font-semibold text-muted-foreground">运行时</span>
+        {runtimeKnown ? (
+          <>
+            <Badge variant="default">池 {currentPoolSize(item)}</Badge>
+            <Badge variant={loaded ? "success" : "outline"}>{loaded ? "已加载" : "未加载"}</Badge>
+          </>
+        ) : (
+          <span className="text-2xs text-muted-foreground">运行状态未知</span>
+        )}
         <WarmButton item={item} variants={defaultVariants} size="xs" />
-      </Row>
+      </div>
 
-      <Row label="可接受输入">
-        {(m.supported_inputs?.length ?? 0) > 0 ? (
-          m.supported_inputs!.map((i) => (
-            <span key={i} className={TAG_CLASS}>
-              {inputLabel(i)}
-            </span>
-          ))
-        ) : (
-          <span className={TAG_CLASS}>整图</span>
-        )}
-      </Row>
+      {/* 展开按钮是独立按钮（plan §4.1），详情区按需渲染。 */}
+      <div className="flex items-center justify-end border-t border-dashed border-border pt-1.5">
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={() => setDetailOpen((v) => !v)}
+          aria-expanded={detailOpen}
+          title={detailOpen ? "收起详细合同" : "展开详细合同与变体"}
+        >
+          <Icon name={detailOpen ? "chevDown" : "chevRight"} size={11} />
+          {detailOpen ? "收起详情" : "详情"}
+        </Button>
+      </div>
 
-      <Row label="输出几何">
-        {geom.length > 0 ? (
-          geom.map((g) => (
-            <span key={g} className={TAG_CLASS}>
-              {g}
-            </span>
-          ))
-        ) : (
-          <span className={TAG_CLASS}>—</span>
-        )}
-      </Row>
-
-      <Row label="输出属性">
-        {attrs.length > 0 ? (
-          attrs.map((a) => (
-            <span key={a} className={TAG_CLASS}>
-              {a}
-            </span>
-          ))
-        ) : (
-          <span className={TAG_CLASS}>—</span>
-        )}
-      </Row>
-
-      {/* device / batchable 已升级为顶部徽标; 资源行只留余项 (vram 等)。backend 未上报
-          任何余项时整行隐藏, 而非显示恒为「—」的空行 (那会让人误以为资源信息缺失)。 */}
-      {resourceEntries.length > 0 && (
-        <Row label="资源">
-          {resourceEntries.map(([k, v]) => (
-            <span key={k} className={TAG_CLASS}>
-              {k}: {String(v)}
-            </span>
-          ))}
-        </Row>
-      )}
-
-      {variantGroups.length > 0 && (
-        <div className="flex flex-col gap-1.5 border-t border-dashed border-border pt-1">
-          {variantGroups.map((g) => (
-            <div key={g.key} className="flex flex-col gap-1">
-              <span className="text-2xs font-semibold text-muted-foreground">
-                {g.title ?? g.key}
+      {detailOpen && (
+        <div className="flex flex-col gap-2">
+          <Row label="推理框架">
+            {infra ? (
+              <span className={TAG_CLASS}>{infraLabel(infra)}</span>
+            ) : (
+              <span className={TAG_CLASS}>—</span>
+            )}
+          </Row>
+          {m.model_family && (
+            <Row label="模型族">
+              <span className="mono rounded-full border border-border px-2 py-px text-2xs text-muted-foreground">
+                {m.model_family}
               </span>
-              <div className="flex flex-wrap gap-1.5">
-                {g.variants!.map((v) => {
-                  const metaBits = [
-                    v.vram_gb != null ? `${v.vram_gb}GB` : null,
-                    v.tier ? tierLabel(v.tier) : null,
-                  ].filter(Boolean);
-                  return (
-                    <span
-                      key={v.value}
-                      className={
-                        v.recommended
-                          ? `${VARIANT_PILL_BASE} border-brand/30 bg-brand/10 text-brand`
-                          : `${VARIANT_PILL_BASE} border-border bg-muted text-muted-foreground`
-                      }
-                      title={v.note ?? undefined}
-                    >
-                      <span className="mono">{v.label ?? v.value}</span>
-                      {metaBits.length > 0 && (
-                        <span className="text-muted-foreground"> · {metaBits.join(" · ")}</span>
-                      )}
-                      {v.recommended && <span className="text-status-caution"> ★</span>}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            </Row>
+          )}
+          <Row label="可接受输入">
+            {(m.supported_inputs?.length ?? 0) > 0 ? (
+              m.supported_inputs!.map((i) => (
+                <span key={i} className={TAG_CLASS}>
+                  {inputLabel(i)}
+                </span>
+              ))
+            ) : (
+              <span className={TAG_CLASS}>整图</span>
+            )}
+          </Row>
 
-      {evict && (
-        <div className="flex items-center gap-1.5 border-t border-dashed border-border pt-2 text-xs text-muted-foreground">
-          <Icon name="history" size={11} />
-          <span>{formatEvict(evict)}</span>
+          <Row label="输出几何">
+            {geom.length > 0 ? (
+              geom.map((g) => (
+                <span key={g} className={TAG_CLASS}>
+                  {g}
+                </span>
+              ))
+            ) : (
+              <span className={TAG_CLASS}>—</span>
+            )}
+          </Row>
+
+          <Row label="输出属性">
+            {attrs.length > 0 ? (
+              attrs.map((a) => (
+                <span key={a} className={TAG_CLASS}>
+                  {a}
+                </span>
+              ))
+            ) : (
+              <span className={TAG_CLASS}>—</span>
+            )}
+          </Row>
+
+          {/* device / batchable 已升级为顶部徽标; 资源行只留余项 (vram 等)。backend 未上报
+              任何余项时整行隐藏, 而非显示恒为「—」的空行 (那会让人误以为资源信息缺失)。 */}
+          {resourceEntries.length > 0 && (
+            <Row label="资源">
+              {resourceEntries.map(([k, v]) => (
+                <span key={k} className={TAG_CLASS}>
+                  {k}: {String(v)}
+                </span>
+              ))}
+            </Row>
+          )}
+
+          {variantGroups.length > 0 && (
+            <div className="flex flex-col gap-1.5 border-t border-dashed border-border pt-1">
+              {variantGroups.map((g) => (
+                <div key={g.key} className="flex flex-col gap-1">
+                  <span className="text-2xs font-semibold text-muted-foreground">
+                    {g.title ?? g.key}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {g.variants!.map((v) => {
+                      const metaBits = [
+                        v.vram_gb != null ? `${v.vram_gb}GB` : null,
+                        v.tier ? tierLabel(v.tier) : null,
+                      ].filter(Boolean);
+                      return (
+                        <span
+                          key={v.value}
+                          className={
+                            v.recommended
+                              ? `${VARIANT_PILL_BASE} border-brand/30 bg-brand/10 text-brand`
+                              : `${VARIANT_PILL_BASE} border-border bg-muted text-muted-foreground`
+                          }
+                          title={v.note ?? undefined}
+                        >
+                          <span className="mono">{v.label ?? v.value}</span>
+                          {metaBits.length > 0 && (
+                            <span className="text-muted-foreground"> · {metaBits.join(" · ")}</span>
+                          )}
+                          {v.recommended && <span className="text-status-caution"> ★</span>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {evict && (
+            <div className="flex items-center gap-1.5 border-t border-dashed border-border pt-2 text-xs text-muted-foreground">
+              <Icon name="history" size={11} />
+              <span>{formatEvict(evict)}</span>
+            </div>
+          )}
         </div>
       )}
     </div>

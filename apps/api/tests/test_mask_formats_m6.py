@@ -255,7 +255,7 @@ async def _seed_aap_import(db, *, owner_id: uuid.UUID) -> tuple[Project, Task, b
 
 @pytest.mark.asyncio
 async def test_export_preflight_reports_loss_and_unsupported_items(
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     db_session,
 ) -> None:
@@ -275,7 +275,7 @@ async def test_export_preflight_reports_loss_and_unsupported_items(
     )
     await db_session.commit()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/exports:preflight",
         headers=_bearer(token),
         json={"targets": ["aap_json", "yolo-seg"]},
@@ -296,7 +296,7 @@ async def test_export_preflight_reports_loss_and_unsupported_items(
 
 @pytest.mark.asyncio
 async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     db_session,
     monkeypatch,
@@ -321,7 +321,7 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
         "client",
         SimpleNamespace(get_object=lambda **_kwargs: {"Body": Body(payload)}),
     )
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",
         headers=_bearer(token),
         json={
@@ -349,12 +349,12 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
         "plan_digest": preflight["plan"]["plan_digest"],
         "confirm_lossy": False,
     }
-    first = await httpx_client_bound.post(
+    first = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports",
         headers=_bearer(token),
         json=execute_payload,
     )
-    replay = await httpx_client_bound.post(
+    replay = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports",
         headers=_bearer(token),
         json=execute_payload,
@@ -410,7 +410,7 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
         "app.workers.celery_app.celery_app.control.revoke",
         lambda task_id, **_kwargs: revoked.append(task_id),
     )
-    cancel = await httpx_client_bound.post(
+    cancel = await httpx_client.post(
         f"/api/v1/async-jobs/{batch.async_job_id}/cancel",
         headers=_bearer(token),
     )
@@ -423,7 +423,7 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
 
 @pytest.mark.asyncio
 async def test_import_execute_rejects_plan_without_executable_items(
-    httpx_client_bound,
+    httpx_client,
     super_admin,
     db_session,
     monkeypatch,
@@ -450,7 +450,7 @@ async def test_import_execute_rejects_plan_without_executable_items(
         "client",
         SimpleNamespace(get_object=lambda **_kwargs: {"Body": Body(payload)}),
     )
-    preflight = await httpx_client_bound.post(
+    preflight = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",
         headers=_bearer(token),
         json={
@@ -463,7 +463,7 @@ async def test_import_execute_rejects_plan_without_executable_items(
     )
     assert preflight.status_code == 200, preflight.text
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports",
         headers=_bearer(token),
         json={

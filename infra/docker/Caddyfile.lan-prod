@@ -21,7 +21,7 @@ https://{$LAN_BIND_IP}:3030 {
 
 	@other_storage {
 		path /minio /minio/*
-		not path /minio/prod-annotations/* /minio/prod-datasets/* /minio/prod-bug-reports/* /minio/prod-media-cache/* /minio/prod-audit-archive/* /minio/prod-import/* /minio/prod-export/*
+		not path /minio/prod-annotations/* /minio/prod-datasets/* /minio/prod-bug-reports/* /minio/prod-media-cache/* /minio/prod-audit-archive/* /minio/prod-import/* /minio/prod-export/* /minio/prod-avatars/*
 	}
 	respond @other_storage 404
 	reverse_proxy web:80

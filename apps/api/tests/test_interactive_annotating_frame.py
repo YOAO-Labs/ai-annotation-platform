@@ -173,14 +173,14 @@ def _url(proj, backend) -> str:
 
 
 async def test_frame_bytes_become_backend_file_path(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     """帧 JPEG 上传换 URL 后投给 backend；task 的 mp4 路径不得出现在 task_data。"""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={
@@ -201,14 +201,14 @@ async def test_frame_bytes_become_backend_file_path(
 
 
 async def test_context_passthrough_without_threshold_injection(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     """context 原样透传；平台不注入项目级 DINO 阈值（与 interactive-annotating 一致）。"""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={
@@ -229,14 +229,14 @@ async def test_context_passthrough_without_threshold_injection(
 
 
 async def test_mask_input_next_passthrough(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     """low-res logits 由平台绑定帧与模型后签名，供同帧下一次点击精修。"""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={
@@ -266,13 +266,13 @@ async def test_mask_input_next_passthrough(
 
 
 async def test_native_mask_frame_validates_jpeg_size_and_returns_lineage(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={
@@ -306,14 +306,14 @@ async def test_native_mask_frame_validates_jpeg_size_and_returns_lineage(
 
 
 async def test_native_mask_frame_rejects_backend_size_mismatch(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
     patched["native_size"] = (23, 32)
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={
@@ -329,13 +329,13 @@ async def test_native_mask_frame_rejects_backend_size_mismatch(
 
 
 async def test_non_interactive_backend_rejected(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id, is_interactive=False)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={"task_id": str(task.id), "frame_index": "0", "context": "{}"},
@@ -349,7 +349,7 @@ async def test_non_interactive_backend_rejected(
 
 
 async def test_interactive_frame_rejects_context_over_one_mib_before_upload(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
@@ -359,7 +359,7 @@ async def test_interactive_frame_rejects_context_over_one_mib_before_upload(
         ensure_ascii=False,
     )
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={
@@ -375,15 +375,13 @@ async def test_interactive_frame_rejects_context_over_one_mib_before_upload(
     assert "task_data" not in patched
 
 
-async def test_empty_frame_rejected(
-    httpx_client_bound, super_admin, db_session, patched
-):
+async def test_empty_frame_rejected(httpx_client, super_admin, db_session, patched):
     """空帧不该白跑一次 GPU 推理。"""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", b"", "image/jpeg")},
         data={"task_id": str(task.id), "frame_index": "0", "context": "{}"},
@@ -396,13 +394,13 @@ async def test_empty_frame_rejected(
 
 
 async def test_invalid_context_json_rejected(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={"task_id": str(task.id), "frame_index": "0", "context": "{not json"},
@@ -415,14 +413,12 @@ async def test_invalid_context_json_rejected(
     assert "task_data" not in patched
 
 
-async def test_unknown_task_rejected(
-    httpx_client_bound, super_admin, db_session, patched
-):
+async def test_unknown_task_rejected(httpx_client, super_admin, db_session, patched):
     user, token = super_admin
     proj, backend, _ = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={"task_id": str(uuid.uuid4()), "frame_index": "0", "context": "{}"},
@@ -434,7 +430,7 @@ async def test_unknown_task_rejected(
 
 
 async def test_cross_project_task_rejected(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     """跨项目越权: 用 A 项目的 backend + B 项目的 task_id → 404, 不落对象存储。"""
     user, token = super_admin
@@ -442,7 +438,7 @@ async def test_cross_project_task_rejected(
     _, _, task_b = await _seed(db_session, user.id)
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj_a, backend_a),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={"task_id": str(task_b.id), "frame_index": "0", "context": "{}"},
@@ -454,7 +450,7 @@ async def test_cross_project_task_rejected(
 
 
 async def test_ai_interactive_disabled_rejected(
-    httpx_client_bound, super_admin, db_session, patched
+    httpx_client, super_admin, db_session, patched
 ):
     """项目关掉「交互式 AI 工具」总开关后, 直接调 API 也应 403 (开关不再是装饰)。"""
     user, token = super_admin
@@ -462,7 +458,7 @@ async def test_ai_interactive_disabled_rejected(
     proj.ai_interactive_enabled = False
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         _url(proj, backend),
         files={"frame": ("f.jpg", JPEG_BYTES, "image/jpeg")},
         data={

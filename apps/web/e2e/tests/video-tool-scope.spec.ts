@@ -1,5 +1,5 @@
 import { canvasBottomDivider, panelCommand } from "../fixtures/workbench-panel-actions";
-import type { APIRequestContext, APIResponse, Dialog, Locator, Page } from "@playwright/test";
+import type { APIRequestContext, APIResponse, Locator, Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 
 import { expect, test as base, type SeedData } from "../fixtures/seed";
@@ -98,7 +98,7 @@ async function annotations(request: APIRequestContext, fixture: ScopeCase) {
 
 const test = base.extend<{ scopeCase: ScopeCase }>({
   scopeCase: async ({ page, request, seed }, provideFixture, testInfo) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     const token = await seed.accessToken(data.admin_email);
     await seed.configureRasterMask(data.project_id, true);
@@ -1089,63 +1089,55 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     await expect(page.getByTestId("mask-primary-action")).toHaveText("已保存");
     await clickPoint(page, [0.9, 0.85]);
     await expect(page.getByTestId("mask-primary-action")).toHaveText("保存当前帧关键帧");
-    let choice: "continue" | "discard" | "save" = "continue";
-    const dialogs: string[] = [];
-    const respond = async (dialog: Dialog) => {
-      dialogs.push(dialog.message());
-      if (choice === "save" || (choice === "discard" && dialog.message().includes("丢弃")))
-        await dialog.accept();
-      else await dialog.dismiss();
+    // 离开守卫是应用内三选一对话框: 继续编辑 / 丢弃并离开 / 保存后离开。
+    const leaveDialog = page.getByRole("alertdialog");
+    const decideLeave = async (action: "继续编辑" | "丢弃并离开" | "保存后离开") => {
+      await expect(leaveDialog).toBeVisible();
+      await leaveDialog.getByRole("button", { name: action, exact: true }).click();
+      await expect(leaveDialog).toBeHidden();
     };
-    page.on("dialog", respond);
-    try {
-      await scopeControl(page, "frame").click();
-      await expect.poll(() => dialogs.length).toBe(2);
-      await expectScope(page, "track");
-      await expect(page.getByTestId("mask-primary-action")).toHaveText("保存当前帧关键帧");
-      expect(scopeCase.writes).toEqual([]);
-      choice = "discard";
-      await scopeControl(page, "frame").click();
-      await expectScope(page, "frame");
-      expect(
-        (await annotations(request, scopeCase)).find(
-          (annotation) => annotation.id === tracks.mask.id,
-        )?.geometry,
-      ).toEqual(original);
-      expect(scopeCase.writes).toEqual([]);
-      await chooseTool(page, "select");
-      await clickPoint(page, [0.94, 0.9]);
-      await selectTrack(page, tracks.mask);
-      await expect(page.getByTestId("mask-primary-action")).toHaveText("已保存");
-      await clickPoint(page, [0.9, 0.85]);
-      choice = "save";
-      const saved = page.waitForResponse(
-        (response) =>
-          response.request().method() === "PUT" &&
-          new URL(response.url()).pathname ===
-            `/api/v1/tasks/${scopeCase.taskId}/video/tracks/${tracks.mask.id}/mask-keyframes/0`,
-      );
-      await scopeControl(page, "frame").click();
-      expect((await saved).ok()).toBe(true);
-      await expectScope(page, "frame");
-      const persisted = record(
-        scopeCase,
-        (await annotations(request, scopeCase)).find(
-          (annotation) => annotation.id === tracks.mask.id,
-        )!,
-      );
-      expect(persisted.geometry.keyframes![0].mask).not.toEqual(original.keyframes![0].mask);
-      expect(persisted.geometry.keyframes!.slice(1)).toEqual(original.keyframes!.slice(1));
-      expect(scopeCase.writes).toHaveLength(1);
-      await page.reload();
-      expect(
-        (await annotations(request, scopeCase)).find(
-          (annotation) => annotation.id === tracks.mask.id,
-        )?.geometry,
-      ).toEqual(persisted.geometry);
-    } finally {
-      page.off("dialog", respond);
-    }
+    await scopeControl(page, "frame").click();
+    await decideLeave("继续编辑");
+    await expectScope(page, "track");
+    await expect(page.getByTestId("mask-primary-action")).toHaveText("保存当前帧关键帧");
+    expect(scopeCase.writes).toEqual([]);
+    await scopeControl(page, "frame").click();
+    await decideLeave("丢弃并离开");
+    await expectScope(page, "frame");
+    expect(
+      (await annotations(request, scopeCase)).find((annotation) => annotation.id === tracks.mask.id)
+        ?.geometry,
+    ).toEqual(original);
+    expect(scopeCase.writes).toEqual([]);
+    await chooseTool(page, "select");
+    await clickPoint(page, [0.94, 0.9]);
+    await selectTrack(page, tracks.mask);
+    await expect(page.getByTestId("mask-primary-action")).toHaveText("已保存");
+    await clickPoint(page, [0.9, 0.85]);
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        new URL(response.url()).pathname ===
+          `/api/v1/tasks/${scopeCase.taskId}/video/tracks/${tracks.mask.id}/mask-keyframes/0`,
+    );
+    await scopeControl(page, "frame").click();
+    await decideLeave("保存后离开");
+    expect((await saved).ok()).toBe(true);
+    await expectScope(page, "frame");
+    const persisted = record(
+      scopeCase,
+      (await annotations(request, scopeCase)).find(
+        (annotation) => annotation.id === tracks.mask.id,
+      )!,
+    );
+    expect(persisted.geometry.keyframes![0].mask).not.toEqual(original.keyframes![0].mask);
+    expect(persisted.geometry.keyframes!.slice(1)).toEqual(original.keyframes!.slice(1));
+    expect(scopeCase.writes).toHaveLength(1);
+    await page.reload();
+    expect(
+      (await annotations(request, scopeCase)).find((annotation) => annotation.id === tracks.mask.id)
+        ?.geometry,
+    ).toEqual(persisted.geometry);
   });
 
   test("F2-4 禁用目标轨迹变体后保留选择工具和原因，不改为其他几何", async ({

@@ -105,7 +105,7 @@ test("视频 Mask 关键帧复制、outside、删除撤销与组件拆轨保持�
   seed,
 }) => {
   test.setTimeout(90_000);
-  const data = await seed.reset();
+  const data = await seed.owned();
   const { task_id: taskId } = await seed.videoTask(data.project_id);
   const fixture = await seed.nativeMaskCandidate(taskId, {
     variant: "multimask_donut",

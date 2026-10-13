@@ -630,18 +630,21 @@ function Step2({
   const filesInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
   const [hover, setHover] = useState(false);
+  // 行内校验错误(替代原原生 alert 提示):紧贴选择区展示,选中合规文件即清除。
+  const [zipError, setZipError] = useState<string | null>(null);
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
 
   const handleZipPick = (f: File | null) => {
     if (!f) return;
     if (!/\.zip$/i.test(f.name)) {
-      alert("请选择 .zip 文件");
+      setZipError("请选择 .zip 文件");
       return;
     }
     if (f.size > ZIP_MAX_BYTES) {
-      alert(`ZIP 包不能超过 ${ZIP_MAX_BYTES / 1024 / 1024}MB`);
+      setZipError(`ZIP 包不能超过 ${ZIP_MAX_BYTES / 1024 / 1024}MB`);
       return;
     }
+    setZipError(null);
     onSetZip(f);
   };
 
@@ -767,6 +770,12 @@ function Step2({
               }}
             />
           </div>
+
+          {zipError && (
+            <p role="alert" className="mt-2 text-xs font-medium text-status-danger">
+              {zipError}
+            </p>
+          )}
 
           {zipFile && (
             <div className={styles.zipFileRow}>

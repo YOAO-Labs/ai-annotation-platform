@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 cli = ["typer>=0.12", "rich>=13.0"]
 # tui 隐含 cli (aap tui 子命令从 CLI 入口启动)
-# websockets: ML Backend 实时统计 WS 消费 (v0.15.12), 仅 TUI 用; 同步 Client 仍只依赖 httpx
+# websockets: ML Backend 实时统计 WS 消费, 仅 TUI 用; 同步 Client 仍只依赖 httpx
 tui = ["textual>=8.2,<9", "typer>=0.12", "rich>=13.0", "websockets>=12"]
 test = [
     "pytest>=8.3",

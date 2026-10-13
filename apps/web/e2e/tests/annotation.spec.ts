@@ -37,7 +37,7 @@ async function enableRegionUnit(page: Page): Promise<void> {
 
 test.describe("annotation workbench", () => {
   test("annotator 登录 → /annotate 路由可达（smoke）", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.injectToken(page, data.annotator_email);
     await page.goto("/annotate");
     await expect(page).toHaveURL(/\/annotate/);
@@ -50,7 +50,7 @@ test.describe("annotation workbench", () => {
         ? "bbox 业务拒绝不产生已保存标注，刷新仍为空"
         : "bbox 真实绘制、选类、落库并刷新恢复",
       async ({ page, seed }) => {
-        const data = await seed.reset();
+        const data = await seed.owned();
         const taskId = data.task_ids[0];
         await seed.advanceTask({
           taskId,
@@ -183,7 +183,7 @@ test.describe("annotation workbench", () => {
    *   ④ 点击 stage 触发 /interactive-annotating, body.context.type === "point"
    */
   test("Prompt-first · grounded-sam2 capability → smart-point dispatch", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.advanceTask({
       taskId: data.task_ids[0],
       toStatus: "pending",
@@ -292,7 +292,7 @@ test.describe("annotation workbench", () => {
    * v0.10.2 · sam3 capability → exemplar 工具可用; smart-point 置灰; 拖框 → exemplar dispatch.
    */
   test("Prompt-first · sam3 capability → exemplar dispatch", async ({ page, seed }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.advanceTask({
       taskId: data.task_ids[0],
       toStatus: "pending",

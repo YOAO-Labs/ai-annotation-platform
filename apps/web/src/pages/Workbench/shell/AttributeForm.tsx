@@ -47,6 +47,13 @@ export interface AttributeFormProps {
    * 后端会删对应 meta,刷新后 chip 自然消失。
    */
   attributesMeta?: AttributesMeta | null;
+  /**
+   * Increment B · 属性快捷键区域（显式 opt-in，仅图片选中卡两类消费者启用）。
+   * 开启后表单外围渲染一个可聚焦的非编辑区域：点击 / 聚焦其标题（或区域本身）后，
+   * 数字键属性快捷键才生效；焦点离开区域立即恢复画布类别键所有权。
+   * 原生 input/select/contenteditable 控件始终保留自己的键盘行为。
+   */
+  shortcutRegion?: boolean;
 }
 
 /** v0.20.10 · AI 溯源 chip 的 hover 文案: 尽量显 model / backend。 */
@@ -111,8 +118,12 @@ export function AttributeForm({
   batchCount,
   hideHeading,
   attributesMeta,
+  shortcutRegion = false,
 }: AttributeFormProps) {
   const [draft, setDraft] = useState<Record<string, unknown>>(attributes ?? {});
+  // Increment B · 属性快捷键区域的激活态（焦点在区域内 = 激活）。
+  const [regionActive, setRegionActive] = useState(false);
+  const regionRef = useRef<HTMLDivElement>(null);
   const lastFromUpstream = useRef<Record<string, unknown>>(attributes ?? {});
   // v0.10.6：保留最新 draft 引用，blur flush 时取最新值上抛
   const draftRef = useRef(draft);
@@ -211,6 +222,146 @@ export function AttributeForm({
 
   const missing = getMissingRequired(schema, className, draft);
 
+  const hotkeyBadgeTitle = (hotkey: string) =>
+    shortcutRegion
+      ? `聚焦「属性快捷键」区域后按 ${hotkey} 切换该属性`
+      : `属性快捷键 ${hotkey}：在图片选中卡聚焦「属性快捷键」区域后生效`;
+
+  const fieldsList = visible.map((f) => {
+    const v = draft[f.key];
+    const isMissing = f.required && missing.includes(f.key);
+    const setValue = (newV: unknown) => scheduleCommit({ ...draft, [f.key]: newV });
+    return (
+      <label
+        key={f.key}
+        className={cn(
+          "flex flex-col gap-1 rounded border border-transparent px-1.5 py-1",
+          f.type === "boolean" && "flex-row items-center justify-between gap-2",
+          isMissing && "border-rose-400/60 bg-status-danger-soft",
+        )}
+      >
+        <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+          {f.label}
+          {f.required && <span className="ml-1 text-status-danger">*</span>}
+          {/* v0.20.10 · AI 属性溯源 chip: origin=ai 的字段旁一枚极轻标记, hover 显 model。 */}
+          {attributesMeta?.[f.key]?.origin === "ai" && (
+            <span
+              title={aiChipTitle(attributesMeta[f.key])}
+              data-testid={`attr-ai-origin-${f.key}`}
+              className="rounded-[3px] border border-brand/30 bg-brand/10 px-1 py-px text-2xs font-semibold leading-[1.2] text-brand"
+            >
+              ✦ AI
+            </span>
+          )}
+          {/* v0.10.6 M4-γ · I13.2：视频任务下 mutable 字段标记徽标，提示「逐 keyframe 可变」语义。 */}
+          {context === "video" && f.mutable === true && (
+            <span
+              title="逐 keyframe 可变（mutable）"
+              data-testid={`attr-mutable-badge-${f.key}`}
+              className="rounded-[3px] border border-amber-500/40 bg-status-caution-soft px-1.5 py-px text-2xs font-semibold uppercase leading-[1.2] tracking-[0.3px] text-status-caution"
+            >
+              逐帧
+            </span>
+          )}
+          {f.description && <DescriptionPopover description={f.description} />}
+          {f.hotkey && (f.type === "boolean" || f.type === "select") && (
+            <span
+              className="mono rounded-[3px] border border-b-2 border-brand/30 bg-brand/10 px-1.5 py-px text-2xs font-semibold text-brand"
+              title={hotkeyBadgeTitle(f.hotkey)}
+            >
+              ⌨ {f.hotkey}
+            </span>
+          )}
+        </span>
+        {f.type === "text" && (
+          <input
+            type="text"
+            value={(v as string) ?? ""}
+            disabled={readOnly}
+            onChange={(e) => setValue(e.target.value)}
+            data-attribute-key={f.key}
+            className={INPUT_CLASS}
+          />
+        )}
+        {f.type === "number" && (
+          <input
+            type="number"
+            value={(v as number | string | undefined) ?? ""}
+            min={f.min ?? undefined}
+            max={f.max ?? undefined}
+            disabled={readOnly}
+            onChange={(e) => {
+              const n = e.target.value === "" ? undefined : Number(e.target.value);
+              setValue(n);
+            }}
+            data-attribute-key={f.key}
+            className={INPUT_CLASS}
+          />
+        )}
+        {f.type === "boolean" && (
+          <Switch
+            checked={!!v}
+            disabled={readOnly}
+            onChange={(next) => setValue(next)}
+            data-attribute-key={f.key}
+          />
+        )}
+        {f.type === "select" && (
+          <select
+            value={(v as string) ?? ""}
+            disabled={readOnly}
+            onChange={(e) => setValue(e.target.value || undefined)}
+            data-attribute-key={f.key}
+            className={`${INPUT_CLASS} cursor-pointer`}
+          >
+            <option value="">—</option>
+            {f.options?.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+        {f.type === "multiselect" && (
+          <select
+            multiple
+            value={Array.isArray(v) ? (v as string[]) : []}
+            disabled={readOnly}
+            onChange={(e) => {
+              const arr = Array.from(e.target.selectedOptions).map((o) => o.value);
+              setValue(arr);
+            }}
+            data-attribute-key={f.key}
+            className={`${INPUT_CLASS} h-20`}
+          >
+            {f.options?.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+        {f.type === "range" && (
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={f.min ?? 0}
+              max={f.max ?? 100}
+              value={typeof v === "number" ? v : (f.min ?? 0)}
+              disabled={readOnly}
+              onChange={(e) => setValue(Number(e.target.value))}
+              data-attribute-key={f.key}
+              className="flex-1 accent-brand"
+            />
+            <span className="mono min-w-[2.5ch] text-right text-xs text-muted-foreground">
+              {typeof v === "number" ? v : (f.min ?? 0)}
+            </span>
+          </div>
+        )}
+      </label>
+    );
+  });
+
   return (
     <div
       className="flex flex-col gap-1.5 border-t border-border px-3 pb-2.5 pt-2"
@@ -233,140 +384,57 @@ export function AttributeForm({
           )}
         </div>
       )}
-      {visible.map((f) => {
-        const v = draft[f.key];
-        const isMissing = f.required && missing.includes(f.key);
-        const setValue = (newV: unknown) => scheduleCommit({ ...draft, [f.key]: newV });
-        return (
-          <label
-            key={f.key}
+      {shortcutRegion ? (
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            data-testid="attribute-shortcut-region-heading"
+            onClick={() => regionRef.current?.focus()}
+            className="w-fit appearance-none rounded-sm bg-transparent p-0 text-2xs font-semibold uppercase tracking-[0.4px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title="点击启用属性快捷键；焦点离开区域自动停用"
+          >
+            属性快捷键
+          </button>
+          <div
+            ref={regionRef}
+            tabIndex={0}
+            data-attribute-shortcut-region=""
+            data-region-active={regionActive || undefined}
+            data-testid="attribute-shortcut-region"
+            role="group"
+            aria-label="属性快捷键区域"
+            onFocus={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              setRegionActive(true);
+            }}
+            onBlur={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              setRegionActive(false);
+            }}
             className={cn(
-              "flex flex-col gap-1 rounded border border-transparent px-1.5 py-1",
-              f.type === "boolean" && "flex-row items-center justify-between gap-2",
-              isMissing && "border-rose-400/60 bg-status-danger-soft",
+              "flex flex-col gap-0.5 rounded-md border px-1 py-0.5 outline-none transition-none",
+              regionActive ? "border-brand/50 ring-2 ring-brand/15" : "border-dashed border-border",
             )}
           >
-            <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
-              {f.label}
-              {f.required && <span className="ml-1 text-status-danger">*</span>}
-              {/* v0.20.10 · AI 属性溯源 chip: origin=ai 的字段旁一枚极轻标记, hover 显 model。 */}
-              {attributesMeta?.[f.key]?.origin === "ai" && (
-                <span
-                  title={aiChipTitle(attributesMeta[f.key])}
-                  data-testid={`attr-ai-origin-${f.key}`}
-                  className="rounded-[3px] border border-brand/30 bg-brand/10 px-1 py-px text-2xs font-semibold leading-[1.2] text-brand"
-                >
-                  ✦ AI
-                </span>
-              )}
-              {/* v0.10.6 M4-γ · I13.2：视频任务下 mutable 字段标记徽标，提示「逐 keyframe 可变」语义。 */}
-              {context === "video" && f.mutable === true && (
-                <span
-                  title="逐 keyframe 可变（mutable）"
-                  data-testid={`attr-mutable-badge-${f.key}`}
-                  className="rounded-[3px] border border-amber-500/40 bg-status-caution-soft px-1.5 py-px text-2xs font-semibold uppercase leading-[1.2] tracking-[0.3px] text-status-caution"
-                >
-                  逐帧
-                </span>
-              )}
-              {f.description && <DescriptionPopover description={f.description} />}
-              {f.hotkey && (f.type === "boolean" || f.type === "select") && (
-                <span
-                  className="mono rounded-[3px] border border-b-2 border-brand/30 bg-brand/10 px-1.5 py-px text-2xs font-semibold text-brand"
-                  title={`选中标注后按 ${f.hotkey} 切换该属性`}
-                >
-                  ⌨ {f.hotkey}
+            {fieldsList}
+            <span
+              className="px-1 pb-0.5 text-2xs"
+              role="status"
+              data-testid="attribute-shortcut-region-hint"
+            >
+              {regionActive ? (
+                <span className="text-brand">属性快捷键已启用 · 数字键切换属性，Esc 退出</span>
+              ) : (
+                <span className="text-muted-foreground">
+                  点击此区域启用后，数字键切换属性；画布数字键仍切换类别
                 </span>
               )}
             </span>
-            {f.type === "text" && (
-              <input
-                type="text"
-                value={(v as string) ?? ""}
-                disabled={readOnly}
-                onChange={(e) => setValue(e.target.value)}
-                data-attribute-key={f.key}
-                className={INPUT_CLASS}
-              />
-            )}
-            {f.type === "number" && (
-              <input
-                type="number"
-                value={(v as number | string | undefined) ?? ""}
-                min={f.min ?? undefined}
-                max={f.max ?? undefined}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const n = e.target.value === "" ? undefined : Number(e.target.value);
-                  setValue(n);
-                }}
-                data-attribute-key={f.key}
-                className={INPUT_CLASS}
-              />
-            )}
-            {f.type === "boolean" && (
-              <Switch
-                checked={!!v}
-                disabled={readOnly}
-                onChange={(next) => setValue(next)}
-                data-attribute-key={f.key}
-              />
-            )}
-            {f.type === "select" && (
-              <select
-                value={(v as string) ?? ""}
-                disabled={readOnly}
-                onChange={(e) => setValue(e.target.value || undefined)}
-                data-attribute-key={f.key}
-                className={`${INPUT_CLASS} cursor-pointer`}
-              >
-                <option value="">—</option>
-                {f.options?.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            {f.type === "multiselect" && (
-              <select
-                multiple
-                value={Array.isArray(v) ? (v as string[]) : []}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const arr = Array.from(e.target.selectedOptions).map((o) => o.value);
-                  setValue(arr);
-                }}
-                data-attribute-key={f.key}
-                className={`${INPUT_CLASS} h-20`}
-              >
-                {f.options?.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            {f.type === "range" && (
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={f.min ?? 0}
-                  max={f.max ?? 100}
-                  value={typeof v === "number" ? v : (f.min ?? 0)}
-                  disabled={readOnly}
-                  onChange={(e) => setValue(Number(e.target.value))}
-                  data-attribute-key={f.key}
-                  className="flex-1 accent-brand"
-                />
-                <span className="mono min-w-[2.5ch] text-right text-xs text-muted-foreground">
-                  {typeof v === "number" ? v : (f.min ?? 0)}
-                </span>
-              </div>
-            )}
-          </label>
-        );
-      })}
+          </div>
+        </div>
+      ) : (
+        fieldsList
+      )}
     </div>
   );
 }

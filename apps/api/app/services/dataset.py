@@ -159,6 +159,9 @@ async def build_tasks_for_link(
                 "file_path": item.file_path,
                 "file_type": item.file_type,
                 "status": "pending",
+                # A2 · known-empty annotation-phase accumulator for a task created
+                # after every producer records.
+                "annotation_contributor_ids": [],
             }
             for i, item in enumerate(chunk)
         ]
@@ -949,6 +952,7 @@ class DatasetService:
                     "file_path": item.file_path,
                     "file_type": item.file_type,
                     "status": "pending",
+                    "annotation_contributor_ids": [],
                 }
                 for i, (project_id, item) in enumerate(chunk)
             ]

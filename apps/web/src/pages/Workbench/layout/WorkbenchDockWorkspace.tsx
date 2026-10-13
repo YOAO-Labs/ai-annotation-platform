@@ -611,6 +611,24 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
   useEffect(() => {
     if (!api) return;
     const blocked = () => latest.current.owner.readOnly || latest.current.compact;
+    // Overlay-rendered panel content (e.g. the canvas) sits above its Dockview
+    // group. Dockview forwards overlay DnD to the group, but in this layout the
+    // forwarded HTML5 target did not activate, so the group's drop target never
+    // received dragover/drop and the dock was cancelled. While an HTML5 dock
+    // drag is active, make the overlay layer transparent so the drag hit-tests
+    // the owning group. Scoped to HTML5 drags only: Dockview also arms a pointer
+    // drag source, and Shift+pointer is the float gesture, which must keep the
+    // canvas overlay interactive.
+    const setOverlayPassthrough = (active: boolean) => {
+      host.current?.classList.toggle(styles.dragPassthrough, active);
+    };
+    // Dockview arms both an HTML5 and a pointer drag source. Only the HTML5
+    // backend needs the overlay passthrough; Shift+pointer is Dockview's float
+    // gesture and must keep the canvas overlay interactive.
+    const armOverlayPassthrough = (nativeEvent: DragEvent | PointerEvent) => {
+      if (!(nativeEvent instanceof DragEvent) || nativeEvent.shiftKey) return;
+      setOverlayPassthrough(true);
+    };
     const guardShiftFloat = (event: PointerEvent) => {
       if (!event.shiftKey || !(event.target instanceof HTMLElement)) return;
       const tab = event.target.closest<HTMLElement>(".dv-tab");
@@ -665,6 +683,9 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
         restoreDragSizes = undefined;
         if (!restore) return;
         try {
+          // A root-edge restructure can re-expose the reserved parking group
+          // into the grid; re-assert the owner invariant before restoring sizes.
+          executor.current?.reassertReservedGroups();
           restore(movedPanel ? api.getPanel(movedPanel)?.group.id : movedGroup);
         } catch {
           latest.current.owner.failRestore();
@@ -672,11 +693,18 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
         movedPanel = movedGroup = undefined;
       }),
       api.onWillDragPanel((event) => {
-        if (blocked() || event.panel.id === "canvas") event.nativeEvent.preventDefault();
+        if (blocked() || event.panel.id === "canvas") {
+          event.nativeEvent.preventDefault();
+          return;
+        }
+        armOverlayPassthrough(event.nativeEvent);
       }),
       api.onWillDragGroup((event) => {
-        if (blocked() || event.group.id === "canvas" || event.group.id === "parking")
+        if (blocked() || event.group.id === "canvas" || event.group.id === "parking") {
           event.nativeEvent.preventDefault();
+          return;
+        }
+        armOverlayPassthrough(event.nativeEvent);
       }),
       api.onWillShowOverlay((event) => {
         guardDrop(event);
@@ -709,6 +737,7 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
       restoreDragSizes = undefined;
       movedPanel = movedGroup = undefined;
       pointerDown.current = false;
+      setOverlayPassthrough(false);
       persist();
     };
     window.addEventListener("pointerup", release);
@@ -721,6 +750,7 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
       window.removeEventListener("dragend", release);
       window.removeEventListener("drop", release, true);
       workspaceHost?.removeEventListener("pointerdown", guardShiftFloat, true);
+      setOverlayPassthrough(false);
       if (pendingFrame.current !== null) cancelAnimationFrame(pendingFrame.current);
     };
   }, [api, persist, dropOverlays]);

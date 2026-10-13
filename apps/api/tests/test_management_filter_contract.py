@@ -10,10 +10,9 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.project_member import ProjectMember
 from app.db.models.user_invitation import UserInvitation
 from app.db.models.user import User
-from tests.factory import create_project, create_user
+from tests.factory import create_membership, create_project, create_user
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,23 +32,29 @@ async def test_users_query_stats_and_export_keep_the_same_filtered_scope(
     project = await create_project(db_session, owner_id=manager.id)
     managed = await create_user(
         db_session,
-        "annotator",
+        "employee",
         "contract-managed@example.test",
         "Contract Managed",
     )
     outside = await create_user(
         db_session,
-        "annotator",
+        "viewer",
         "contract-outside@example.test",
         "Contract Outside",
     )
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=managed.id,
-            role="annotator",
-            assigned_by=manager.id,
-        )
+    disabled_outside = await create_user(
+        db_session,
+        "employee",
+        "contract-disabled@example.test",
+        "Contract Disabled",
+    )
+    disabled_outside.is_active = False
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=managed.id,
+        role="annotator",
+        assigned_by=manager.id,
     )
     await db_session.flush()
 
@@ -80,7 +85,33 @@ async def test_users_query_stats_and_export_keep_the_same_filtered_scope(
     )
     assert query_body["items"][0]["id"] == str(managed.id)
     assert export_body["users"][0]["id"] == str(managed.id)
+    # Read visibility excludes unassigned viewers and disabled accounts...
     assert str(outside.id) not in {row["id"] for row in query_body["items"]}
+    assert str(disabled_outside.id) not in {row["id"] for row in query_body["items"]}
+
+    # ...but does include enabled unassigned annotators (issue #115).
+    enabled_outside = await create_user(
+        db_session,
+        "employee",
+        "contract-enabled@example.test",
+        "Contract Enabled",
+    )
+    await db_session.flush()
+    enabled_params = {"status": "active", "search": "Contract Enabled"}
+    enabled_query = await httpx_client.get(
+        "/api/v1/users/query",
+        params={**enabled_params, "page": 1, "page_size": 50},
+        headers=_headers(project_admin),
+    )
+    enabled_export = await httpx_client.get(
+        "/api/v1/users/export",
+        params={**enabled_params, "format": "json"},
+        headers=_headers(project_admin),
+    )
+    assert enabled_query.status_code == enabled_export.status_code == 200
+    assert enabled_query.json()["total"] == 1
+    assert enabled_query.json()["items"][0]["id"] == str(enabled_outside.id)
+    assert json.loads(enabled_export.text)["users"][0]["id"] == str(enabled_outside.id)
 
     outside_project = await create_project(db_session, owner_id=admin.id)
     scoped = await httpx_client.get(

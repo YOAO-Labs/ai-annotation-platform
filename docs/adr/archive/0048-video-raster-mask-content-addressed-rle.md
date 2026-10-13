@@ -4,7 +4,7 @@
 - **Date:** 2026-07-13
 - **Deciders:** core team
 - **Supersedes:** —
-- **Extended by:** [ADR-0052](../0052-shared-raster-mask-and-image-geometry.md)
+- **Extended by:** [ADR-0052](0052-shared-raster-mask-and-image-geometry.md)
 
 ## Context
 

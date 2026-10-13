@@ -227,7 +227,7 @@ export function BugsPage() {
       <h1 className={styles.title}>Bug 反馈管理</h1>
 
       {/* Filters */}
-      <FilterGroup label="筛选" className={styles.filters}>
+      <FilterGroup label="筛选" hideLabel className={styles.filters}>
         <FilterSelect
           aria-label="问题状态"
           value={filters.status}

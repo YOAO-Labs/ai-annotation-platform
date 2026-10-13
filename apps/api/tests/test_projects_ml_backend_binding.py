@@ -53,7 +53,7 @@ async def _seed_backend(
 
 
 async def test_create_project_with_ml_backend_id_binds_backend(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     # 先建一个 dummy project + backend（绑定的 backend 必须先存在）
@@ -69,14 +69,14 @@ async def test_create_project_with_ml_backend_id_binds_backend(
         "ai_enabled": True,
         "ml_backend_id": str(backend.id),
     }
-    resp = await httpx_client_bound.post("/api/v1/projects", json=body, headers=headers)
+    resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["ml_backend_id"] == str(backend.id)
 
 
 async def test_patch_project_bind_backend_updates_binding(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -84,7 +84,7 @@ async def test_patch_project_bind_backend_updates_binding(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         json={"ml_backend_id": str(backend.id)},
         headers=headers,
@@ -95,7 +95,7 @@ async def test_patch_project_bind_backend_updates_binding(
 
 
 async def test_patch_project_unbind_backend_clears_binding(
-    httpx_client_bound, super_admin, db_session
+    httpx_client, super_admin, db_session
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id, ai_enabled=True)
@@ -106,7 +106,7 @@ async def test_patch_project_unbind_backend_clears_binding(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client_bound.patch(
+    resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         json={"ml_backend_id": None},
         headers=headers,

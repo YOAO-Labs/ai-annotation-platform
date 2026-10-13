@@ -42,6 +42,8 @@ last_reviewed: 2026-09-12
 | `apps/api/app/services/notification.py`             | 通知写表与 Redis PubSub                           |
 | `apps/api/app/services/discussion_notifications.py` | 讨论事件收件人、原始目标身份与延迟发布记录        |
 | `apps/api/app/services/async_job_notify.py`         | `async_jobs` 终态 → 通用 `job.*` 通知 helper      |
+| `apps/api/app/services/async_job_terminal.py`       | 各作业 kind 的领域终态账本回填（signal / 硬取消） |
+| `apps/api/app/workers/signals.py`                   | Celery crash / revoke 兜底信号，驱动终态回填      |
 | `apps/api/app/db/models/notification.py`            | `Notification` 模型                               |
 | `apps/api/app/api/v1/notifications.py`              | 通知列表、已读、偏好设置                          |
 | `apps/api/app/api/v1/ws.py`                         | `/ws/notifications` 在线推送                      |
@@ -217,7 +219,7 @@ last_reviewed: 2026-09-12
 
 ### 已知通知类型
 
-`apps/api/app/api/v1/notifications.py:29` 中的 `KNOWN_NOTIFICATION_TYPES` 是「**用户可在设置页静音**」的全部类型；新增类型时必须同步两侧：
+`apps/api/app/services/notification_preferences.py` 中的 `KNOWN_NOTIFICATION_TYPES` 是「**用户可在设置页配置**」的全部类型，`DEFAULT_TOAST_TYPES` 是无显式选择时默认弹出提示的重要类型；设置页 API 从这里读取，前端不维护第二份名单。新增类型时同步该文件与前端设置页标签：
 
 - `bug_report.commented`
 - `bug_report.reopened`
@@ -252,6 +254,29 @@ last_reviewed: 2026-09-12
 新增可配置通知类型时要同步更新后端 `KNOWN_NOTIFICATION_TYPES` 与前端设置页标签；
 不可配置的运维类通知则刻意不进 `KNOWN`，避免被错误静音。
 
+### 偏好存储与弹出门控
+
+偏好按 `(user_id, type)` 存在 `notification_preferences.channels` JSONB：
+
+- `in_app`：接收开关；关闭时整个通知链不写不推。
+- `toast`：弹出提示选择；键缺省表示「未选择」，GET 返回按类型默认值
+  （`DEFAULT_TOAST_TYPES`）计算的有效值。关闭接收只禁用弹出、不重置该选择，
+  重新开启接收时恢复。
+- `email`：保留键，当前不消费。
+
+PUT `/notification-preferences` 只合并请求出现的键（JSONB `channels || patch`），
+未提供的键与并发标签页写的其它键互不覆盖；提交成功后发布
+`notifications.sync reason=preferences`（不产生通知、不改未读数），其它会话据此
+刷新偏好查询。
+
+### 读/删除同步的提交顺序
+
+`mark_read` / `mark_all_read` / `delete_for_user` / `clear_read` 只在事务内改行，
+`notifications.sync`（`reason=read` / `reason=deleted`）由 API handler 在
+`db.commit()` 成功且确有行变化后发布。收到事件的会话读到的必然是已提交状态；
+发布失败只记日志，不影响已提交的请求。历史创建路径（`notify` 默认立即 publish）
+仍可能在事务提交前发出，客户端继续把 push 视为「可以刷新了」并用 REST 读真值。
+
 ### async_jobs 终态通知
 
 用户发起且有 `user_id` 的后台任务在进入终态后会发通用通知：
@@ -263,7 +288,17 @@ last_reviewed: 2026-09-12
 | `cancelled` | `job.cancelled` |
 
 helper 位于 `apps/api/app/services/async_job_notify.py`，由 worker / API 在各自 `mark_*`
-之后显式调用；不要把通知职责塞进 `services/async_job.py` 的状态方法。
+之后显式调用；不要把通知职责塞进 `services/async_job.py` 的状态方法。调用方保留事务所有权：
+helper 在 `mark_*` 之后、调用方 `commit()` 之前调用；`/ws/notifications` 的投递闸门会在
+自己的会话里短暂重试读取尚不可见的行，因此消息在提交落地后送达而不是被丢弃。
+
+各作业 kind 的**领域终态账本**（`MaskQCRun` / `PointCloudQualityRun` /
+`MaskRepairBatch` / `MaskFormatImport`）的正规更新仍在各自 worker 内。兜底路径——worker
+进程 crash、Celery revoke、未被 task body 捕获的异常——由 `workers/signals.py` 走统一骨架
+（连接 → 按 `celery_task_id` 查 `async_jobs` → 落终态 → 回填领域账本 → 通知 → 提交 → 释放），
+领域差异由 `services/async_job_terminal.py` 的封闭分派承担：mask 格式导入取消保留
+`partial`、回滚失败保留 `rollback_failed`、修复取消按已完成分片决定 `partial` / `cancelled`。
+终态作业不会被迟到的信号覆盖，未知 `celery_task_id` 与无领域账本的 kind 静默跳过。
 
 当前白名单：
 
@@ -404,14 +439,15 @@ WS 握手时会校验 JWT，然后订阅：
 
 ## 常见修改落点
 
-| 你想改什么       | 先看哪里                                                |
-| ---------------- | ------------------------------------------------------- |
-| 新增业务动作审计 | `services/audit.py` + 对应 route                        |
-| 让某动作可通知   | `services/notification.py` + 对应 route                 |
-| 通知偏好开关     | `api/v1/notifications.py` + `notification_preferences`  |
-| 后台任务终态通知 | `services/async_job_notify.py` + 对应 worker/API 终态点 |
-| 审计查询 / 导出  | `api/v1/audit_logs.py`                                  |
-| 批次审计聚合视图 | `api/v1/batches.py:list_batch_audit_logs`               |
+| 你想改什么       | 先看哪里                                                     |
+| ---------------- | ------------------------------------------------------------ |
+| 新增业务动作审计 | `services/audit.py` + 对应 route                             |
+| 让某动作可通知   | `services/notification.py` + 对应 route                      |
+| 通知偏好开关     | `api/v1/notifications.py` + `notification_preferences`       |
+| 后台任务终态通知 | `services/async_job_notify.py` + 对应 worker/API 终态点      |
+| 作业终态领域账本 | `services/async_job_terminal.py` + `workers/signals.py` 兜底 |
+| 审计查询 / 导出  | `api/v1/audit_logs.py`                                       |
+| 批次审计聚合视图 | `api/v1/batches.py:list_batch_audit_logs`                    |
 
 ## 常见误解
 

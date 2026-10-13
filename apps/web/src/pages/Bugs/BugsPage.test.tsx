@@ -79,7 +79,7 @@ const item = {
   display_id: "B-1",
   reporter_id: "u1",
   route: "/dashboard",
-  user_role: "annotator",
+  user_role: "employee",
   project_id: null,
   task_id: null,
   title: "Markdown detail",

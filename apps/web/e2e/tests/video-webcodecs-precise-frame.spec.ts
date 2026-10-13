@@ -119,7 +119,7 @@ async function seedAndOpenVideoTask(
   fixture: string,
   options?: { chunkStatus?: "ready" | "pending"; flag?: boolean },
 ) {
-  const data = await seed.reset();
+  const data = await seed.owned();
   const video = await seed.videoWebCodecs(data.project_id, {
     fixture,
     chunkStatus: options?.chunkStatus ?? "ready",
@@ -203,7 +203,7 @@ const PIXEL_SCENARIOS = [
 test.describe("video webcodecs precise-frame pipeline", () => {
   test("flag off: full page lifecycle has zero precise API requests", async ({ page, seed }) => {
     test.setTimeout(90_000);
-    const data = await seed.reset();
+    const data = await seed.owned();
     const video = await seed.videoWebCodecs(data.project_id, {
       fixture: "h264-baseline-gop12",
       chunkStatus: "ready",

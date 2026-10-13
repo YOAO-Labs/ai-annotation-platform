@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useToastStore } from "@/components/ui/Toast";
+import type { GuardedNavigate } from "@/utils/workbenchNavigation";
 import {
   exportDownloadState,
   JOB_KIND_LABEL,
@@ -59,10 +60,12 @@ export function AsyncJobDetailModal({
   jobId,
   onClose,
   onRetryQueued,
+  navigate: navigateExternal,
 }: {
   jobId: string;
   onClose: () => void;
   onRetryQueued?: (queued: number) => void;
+  navigate?: GuardedNavigate;
 }) {
   const userId = useAuthStore((state) => state.user?.id);
   const navigate = useNavigate();
@@ -120,7 +123,7 @@ export function AsyncJobDetailModal({
   const download =
     job?.kind === "export" && job.status === "completed" ? exportDownloadState(job.result) : null;
 
-  const openTarget = async (kind: "dataset" | "project") => {
+  const openTarget = async (kind: "dataset" | "project" | "dashboard") => {
     if (!job) return;
     const request = ++navigationRequest.current;
     const owner = captureAuthOwner();
@@ -128,16 +131,22 @@ export function AsyncJobDetailModal({
     setOpeningTarget(true);
     setTargetError(null);
     try {
+      let url: string;
       if (kind === "dataset" && datasetId) {
         await datasetsApi.get(datasetId);
         if (!current()) return;
-        navigate(`/datasets?dataset=${encodeURIComponent(datasetId)}`);
+        url = `/datasets?dataset=${encodeURIComponent(datasetId)}`;
+      } else if (kind === "dashboard") {
+        url = "/dashboard";
       } else if (job.project_id) {
         await projectsApi.get(job.project_id);
         if (!current()) return;
-        navigate(`/projects/${job.project_id}/data-manager`);
-      }
+        url = `/projects/${job.project_id}/data-manager`;
+      } else return;
       if (!current()) return;
+      if (navigateExternal) {
+        if ((await navigateExternal(url)) === false || !current()) return;
+      } else navigate(url);
       onClose();
     } catch (error) {
       if (!current()) return;
@@ -296,10 +305,8 @@ export function AsyncJobDetailModal({
             {download && !download.url && (
               <Button
                 size="sm"
-                onClick={() => {
-                  navigate("/dashboard");
-                  onClose();
-                }}
+                disabled={openingTarget}
+                onClick={() => void openTarget("dashboard")}
               >
                 返回项目列表
               </Button>

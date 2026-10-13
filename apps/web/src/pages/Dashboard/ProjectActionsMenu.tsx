@@ -70,6 +70,12 @@ export function ProjectActionsMenu({
     },
     ...(canManage
       ? ([
+          {
+            id: "member-performance",
+            label: "成员绩效",
+            icon: "users",
+            onSelect: () => navigate(`/projects/${project.id}/data-manager?section=members`),
+          },
           { id: "div-0", divider: true, label: "" },
           {
             id: "duplicate",
@@ -107,6 +113,17 @@ export function ProjectActionsMenu({
 
   return (
     <>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={(event) => {
+          event.stopPropagation();
+          navigate(`/projects/${project.id}/data-manager?section=overview`);
+        }}
+      >
+        <Icon name="dataManager" size={12} />
+        数据管理
+      </Button>
       <DropdownMenu
         minWidth={180}
         items={items}

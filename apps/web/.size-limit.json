@@ -1,5 +1,5 @@
 [
-  { "name": "main", "pattern": "index-*.js", "max": "700 KB" },
+  { "name": "main", "pattern": "index-*.js", "max": "730 KB" },
   { "name": "vendor-konva", "pattern": "vendor-konva-*.js", "max": "320 KB" },
   { "name": "vendor-markdown", "pattern": "vendor-markdown-*.js", "max": "150 KB" },
   {

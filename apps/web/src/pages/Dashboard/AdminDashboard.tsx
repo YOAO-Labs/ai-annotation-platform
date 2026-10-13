@@ -1,10 +1,11 @@
 import { useState, type CSSProperties } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { StatCard } from "@/components/ui/StatCard";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useElementStyle } from "@/components/ui/useElementStyle";
@@ -17,7 +18,7 @@ import { CreateProjectWizard } from "@/components/projects/CreateProjectWizard";
 import { ImportDatasetWizard } from "@/components/datasets/ImportDatasetWizard";
 import { auditActionLabel } from "@/utils/auditLabels";
 import { projectDisplayType } from "@/utils/projectDisplay";
-import { buildWorkbenchUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
+import { buildProjectEntryUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
 import type { ProjectResponse } from "@/api/projects";
 import type { UserRole } from "@/types";
 import type { RegistrationDayPoint } from "@/api/dashboard";
@@ -48,6 +49,8 @@ export function AdminDashboard() {
   const [importOpen, setImportOpen] = useState(false);
 
   const recentActivity = audit?.items ?? [];
+  // The projects endpoint returns newest-created projects first.
+  const recentProjects = projects.slice(0, 5);
 
   const openWizard = () => {
     const next = new URLSearchParams(searchParams);
@@ -64,7 +67,11 @@ export function AdminDashboard() {
   // B-46 · 项目行「打开」入口 — 与其它 dashboard 一致: 工作台型项目进工作台, 其余 toast 提示.
   const onOpenProject = (p: ProjectResponse) => {
     if (p.data_type && WORKBENCH_DATA_TYPES.has(p.data_type)) {
-      navigate(buildWorkbenchUrl(p.id, { returnTo: currentWorkbenchReturnTo(location) }));
+      navigate(
+        buildProjectEntryUrl(p.id, p.my_project_role, {
+          returnTo: currentWorkbenchReturnTo(location),
+        }),
+      );
     } else {
       pushToast({
         msg: `项目 "${p.name}" 已打开`,
@@ -277,8 +284,21 @@ export function AdminDashboard() {
           <div className="min-w-0">
             <Card>
               <div className={CARD_HEADER_SPLIT_CLASS}>
-                <h3 className={CARD_TITLE_CLASS}>全平台项目</h3>
-                <span className="text-xs text-muted-foreground">共 {projects.length} 个</span>
+                <h3 className={CARD_TITLE_CLASS}>最近项目</h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  {!projectsLoading && recentProjects.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      最近创建的 {recentProjects.length} 个
+                    </span>
+                  )}
+                  <Link
+                    to="/dashboard"
+                    className="inline-flex items-center gap-1 rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  >
+                    查看全部项目
+                    <Icon name="chevRight" size={11} />
+                  </Link>
+                </div>
               </div>
               {projectsLoading && (
                 <div className="p-8 text-center text-sm text-muted-foreground">加载中...</div>
@@ -310,7 +330,7 @@ export function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {projects.map((p) => (
+                      {recentProjects.map((p) => (
                         <tr
                           key={p.id}
                           className="cursor-pointer hover:bg-muted/40"
@@ -326,7 +346,10 @@ export function AdminDashboard() {
                           </td>
                           <td className={TABLE_CELL_CLASS}>
                             <div className="flex min-w-0 items-center gap-2">
-                              <Avatar initial={p.owner_name?.slice(0, 1) ?? "?"} size="sm" />
+                              <UserAvatar
+                                size="sm"
+                                user={{ name: p.owner_name, avatar_ref: p.owner_avatar_ref }}
+                              />
                               <span className="max-w-[160px] overflow-hidden text-ellipsis whitespace-nowrap text-sm">
                                 {p.owner_name ?? "—"}
                               </span>
@@ -361,19 +384,6 @@ export function AdminDashboard() {
                             className={`${TABLE_CELL_CLASS} py-2.5 pr-4 text-right whitespace-nowrap`}
                           >
                             <div className="inline-flex items-center gap-1 whitespace-nowrap">
-                              {/* v0.10.11 · 「复制项目配置」入口 — 跳 Wizard 复制流, 用源项目配置预填. */}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/dashboard?new=1&from=${p.id}`);
-                                }}
-                                title="复制项目配置（不复制数据集 / 任务 / 成员）"
-                              >
-                                <Icon name="copy" size={13} />
-                                复制
-                              </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"

@@ -114,13 +114,14 @@ export function VideoSamplingSection({ project }: { project: ProjectResponse }) 
 
   return (
     <Card>
-      <div className="p-4">
-        <h3 className="text-md font-semibold">视频帧采样（逻辑采样）</h3>
-        <p className="mt-1.5 text-sm text-muted-foreground">
+      <div className="border-b border-border px-4 py-3.5">
+        <h3 className="text-sm font-semibold">视频帧采样（逻辑采样）</h3>
+        <p className="m-0 mt-1 text-xs text-muted-foreground">
           采样只约束「逐帧导航 +
           打点」的网格，不会物理重采样或取代原视频；连续播放仍走原始帧率与所有帧。
         </p>
-
+      </div>
+      <div className="p-4">
         <div className={ROW_CLASS}>
           <span className={LABEL_CLASS}>采样方式</span>
           <div className="inline-flex flex-col gap-2 text-sm">

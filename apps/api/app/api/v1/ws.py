@@ -8,10 +8,199 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from app.config import settings
 from app.core.security import decode_access_token
+from app.core.token_blacklist import get_user_generation, is_blacklisted
+from app.db.enums import PlatformRole
 from app.services.notification import channel_for
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+
+#: Administrative socket channels are limited to these *current* platform roles.
+_ADMIN_SOCKET_ROLES = (
+    PlatformRole.SUPER_ADMIN.value,
+    PlatformRole.PROJECT_ADMIN.value,
+)
+
+# Pre-commit publishers (worker jobs) emit their Redis message before the
+# notification row is committed; the per-message gate retries this long for the
+# row to become visible before failing closed.
+_NOTIFICATION_GATE_RETRY_SECONDS = 0.15
+
+
+async def _load_active_user(user_id: str | None):
+    """Resolve the current database account for a socket handshake.
+
+    Socket tokens are long-lived: a JWT ``role`` claim can outlive a role
+    change or account disable.  Restricted subscriptions must therefore
+    re-resolve the account from the database instead of trusting the claim.
+    Returns ``None`` when the account is missing or inactive.
+    """
+
+    if not user_id:
+        return None
+    from app.db.base import async_session
+    from app.db.models.user import User
+
+    try:
+        user_uuid = uuid.UUID(str(user_id))
+    except (TypeError, ValueError):
+        return None
+    async with async_session() as db:
+        user = await db.get(User, user_uuid)
+        if user is None or not user.is_active:
+            return None
+        return user
+
+
+async def _authenticate_socket_token(token: str):
+    """Resolve a socket token (JWT or ``ak_`` API key) to an active account."""
+
+    from app.services import api_key_service
+
+    if api_key_service.is_api_key_token(token):
+        from app.db.base import async_session
+
+        async with async_session() as db:
+            resolved = await api_key_service.resolve_token(db, token)
+            if resolved is None:
+                return None
+            _key, user = resolved
+            await db.commit()  # 持久化 last_used_at
+            return user if user.is_active else None
+    try:
+        payload = decode_access_token(token)
+    except Exception:
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    # Mirror get_current_user: a blacklisted jti or a bumped account generation
+    # invalidates the credential even though the user row is still active.
+    jti: str | None = payload.get("jti")
+    token_gen: int = payload.get("gen", 0)
+    if jti:
+        try:
+            if await is_blacklisted(jti):
+                return None
+        except Exception:
+            pass
+        try:
+            if await get_user_generation(user_id) > token_gen:
+                return None
+        except Exception:
+            pass
+    return await _load_active_user(user_id)
+
+
+async def _revalidate_project_stream(token: str, project_id: uuid.UUID) -> bool:
+    user = await _authenticate_socket_token(token)
+    if user is None:
+        return False
+    return await _revalidate_project_access(project_id, str(user.id))
+
+
+async def _notification_message_allowed(token: str, data) -> bool:
+    """Per-message gate for the per-user notification socket.
+
+    A row already published to Redis is re-resolved against the recipient's
+    current project access before it is forwarded; restricted rows whose access
+    was revoked are dropped.  Only the explicit ``notifications.sync`` control
+    frame is allowed without a verifiable row id; malformed or unidentifiable
+    payloads fail closed.
+    """
+
+    user = await _authenticate_socket_token(token)
+    if user is None:
+        return False
+    try:
+        raw = data.decode() if isinstance(data, bytes) else data
+        message = json.loads(raw)
+    except Exception:
+        return False
+    if not isinstance(message, dict):
+        return False
+    if message.get("type") == "notifications.sync":
+        return True
+    raw_id = message.get("id")
+    if not raw_id:
+        return False
+    try:
+        notification_id = uuid.UUID(str(raw_id))
+    except (TypeError, ValueError):
+        return False
+    from app.db.base import async_session
+    from app.db.models.notification import Notification
+    from app.services.notification import NotificationService
+
+    async with async_session() as db:
+        service = NotificationService(db)
+        # A notification row published before its creating transaction commits is
+        # briefly invisible to this separate session (READ COMMITTED); that must
+        # not be mistaken for a revoked delivery or the one real-time push is
+        # dropped.  Retry briefly while the row is missing; once the row is
+        # visible the deliverability answer is authoritative and still fails
+        # closed on revocation or bogus ids.
+        for attempt in range(4):
+            if await db.get(Notification, notification_id) is not None:
+                return await service.notification_deliverable(notification_id, user.id)
+            if attempt < 3:
+                await asyncio.sleep(_NOTIFICATION_GATE_RETRY_SECONDS)
+        return False
+
+
+async def _revalidate_task_stream(token: str, task_id: uuid.UUID) -> bool:
+    user = await _authenticate_socket_token(token)
+    if user is None:
+        return False
+    return await _revalidate_task_visible(task_id, str(user.id))
+
+
+async def _revalidate_admin_stream(token: str) -> bool:
+    user = await _authenticate_socket_token(token)
+    return user is not None and user.role in _ADMIN_SOCKET_ROLES
+
+
+async def _revalidate_project_access(project_id: uuid.UUID, user_id: str) -> bool:
+    """Re-resolve current project access for an ongoing restricted stream.
+
+    Project removal must stop future messages for that project while unrelated
+    authorized sockets keep working.
+    """
+
+    from app.db.base import async_session
+    from app.db.models.project import Project
+    from app.db.models.user import User
+    from app.services.project_access import resolve_project_access
+
+    async with async_session() as db:
+        project = await db.get(Project, project_id)
+        user = await db.get(User, uuid.UUID(str(user_id)))
+        if project is None or user is None:
+            return False
+        try:
+            await resolve_project_access(db, user=user, project=project)
+        except Exception:
+            return False
+        return True
+
+
+async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
+    from app.api.v1.tasks._shared import _assert_task_visible
+    from app.db.base import async_session
+    from app.db.models.task import Task
+
+    user = await _load_active_user(user_id)
+    if user is None:
+        return False
+    async with async_session() as db:
+        task = await db.get(Task, task_id)
+        if task is None:
+            return False
+        try:
+            await _assert_task_visible(db, task, user)
+        except Exception:
+            return False
+        return True
 
 
 # v0.7.0：模块级共享连接池，避免每次 WS 连接都新建 Redis socket。
@@ -77,6 +266,8 @@ async def _run_pubsub_ws(
     pubsub: aioredis.client.PubSub,
     *,
     heartbeat: bool = True,
+    revalidate=None,
+    allow_message=None,
 ) -> None:
     """把 Redis pub/sub 消息转发给 WebSocket, 直到任意一方关闭。caller 负责 subscribe/cleanup。
 
@@ -90,11 +281,22 @@ async def _run_pubsub_ws(
 
     async def _relay() -> None:
         async for message in pubsub.listen():
-            if message["type"] == "message":
-                data = message["data"]
-                await websocket.send_text(
-                    data.decode() if isinstance(data, bytes) else data
-                )
+            if message["type"] != "message":
+                continue
+            if revalidate is not None and not await revalidate():
+                # Authority or credential changed after the handshake: stop
+                # before forwarding this protected payload.  The endpoint's
+                # finally block unsubscribes; unrelated sockets are untouched.
+                return
+            data = message["data"]
+            if allow_message is not None and not await allow_message(data):
+                # Drop this one restricted payload (for example a notification
+                # whose project access was revoked after publication) while
+                # keeping unrelated deliveries flowing.
+                continue
+            await websocket.send_text(
+                data.decode() if isinstance(data, bytes) else data
+            )
 
     async def _watch_disconnect() -> None:
         # 不期望客户端→服务端帧; await receive() 仅用于感知客户端断开 / 服务端关闭。
@@ -128,14 +330,35 @@ async def _run_pubsub_ws(
 
 
 @router.websocket("/ws/projects/{project_id}/preannotate")
-async def preannotate_progress(websocket: WebSocket, project_id: uuid.UUID):
+async def preannotate_progress(
+    websocket: WebSocket,
+    project_id: uuid.UUID,
+    token: str = Query(...),
+):
+    """Project preannotation progress.
+
+    Handshake contract (B3 -> B4): connect with ``?token=<JWT or ak_ api_key>``.
+    The stream re-checks current project access every
+    :data:`REVALIDATE_INTERVAL` seconds so losing the project stops delivery.
+    """
+
+    user = await _authenticate_socket_token(token)
+    if user is None or not await _revalidate_project_access(project_id, str(user.id)):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await websocket.accept()
     r = aioredis.Redis(connection_pool=_get_redis_pool())
     pubsub = r.pubsub()
     channel = f"project:{project_id}:preannotate"
     await pubsub.subscribe(channel)
     try:
-        await _run_pubsub_ws(websocket, pubsub, heartbeat=False)
+        await _run_pubsub_ws(
+            websocket,
+            pubsub,
+            heartbeat=False,
+            revalidate=lambda: _revalidate_project_stream(token, project_id),
+        )
     except WebSocketDisconnect:
         pass
     finally:
@@ -147,7 +370,11 @@ async def preannotate_progress(websocket: WebSocket, project_id: uuid.UUID):
 
 
 @router.websocket("/ws/batches/project/{project_id}")
-async def batch_events_socket(websocket: WebSocket, project_id: uuid.UUID):
+async def batch_events_socket(
+    websocket: WebSocket,
+    project_id: uuid.UUID,
+    token: str = Query(...),
+):
     """v0.9.13 · 项目级 batch 状态变更广播.
 
     Channel: `project:{project_id}:batch` (BatchService.transition / check_auto_transitions
@@ -155,16 +382,27 @@ async def batch_events_socket(websocket: WebSocket, project_id: uuid.UUID):
     useBatchEventsSocket 收到后 invalidate ["batches", projectId], 让标注员/admin
     多端实时看到 batch 状态翻转 (B-15).
 
-    无鉴权 (与 /ws/projects/{id}/preannotate 一致), batch 状态非机密信息;
-    项目内成员均需感知, 限管理员会丢失标注员实时同步语义.
+    Handshake contract (B3 -> B4): connect with ``?token=<JWT or ak_ api_key>``.
+    Project access is required at handshake and re-checked while streaming so a
+    removed member stops receiving this project's events.
     """
+
+    user = await _authenticate_socket_token(token)
+    if user is None or not await _revalidate_project_access(project_id, str(user.id)):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await websocket.accept()
     r = aioredis.Redis(connection_pool=_get_redis_pool())
     pubsub = r.pubsub()
     channel = f"project:{project_id}:batch"
     await pubsub.subscribe(channel)
     try:
-        await _run_pubsub_ws(websocket, pubsub)
+        await _run_pubsub_ws(
+            websocket,
+            pubsub,
+            revalidate=lambda: _revalidate_project_stream(token, project_id),
+        )
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -196,11 +434,10 @@ async def prediction_jobs_socket(
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")
-        role = payload.get("role")
         if not user_id:
             raise ValueError("missing sub")
-        uuid.UUID(user_id)
-        if role not in ("super_admin", "project_admin"):
+        user = await _load_active_user(user_id)
+        if user is None or user.role not in _ADMIN_SOCKET_ROLES:
             raise PermissionError("not admin")
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -212,7 +449,11 @@ async def prediction_jobs_socket(
     channel = "global:prediction-jobs"
     await pubsub.subscribe(channel)
     try:
-        await _run_pubsub_ws(websocket, pubsub)
+        await _run_pubsub_ws(
+            websocket,
+            pubsub,
+            revalidate=lambda: _revalidate_admin_stream(token),
+        )
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -231,6 +472,7 @@ async def video_tracker_job_socket(
     job_id: uuid.UUID,
     token: str = Query(...),
 ):
+    task_id_for_revalidate: uuid.UUID | None = None
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")
@@ -250,6 +492,7 @@ async def video_tracker_job_socket(
             if user is None or not user.is_active or job is None or task is None:
                 raise ValueError("tracker job not visible")
             await _assert_task_visible(db, task, user)
+            task_id_for_revalidate = task.id
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -260,7 +503,11 @@ async def video_tracker_job_socket(
     channel = f"video-tracker-job:{job_id}"
     await pubsub.subscribe(channel)
     try:
-        await _run_pubsub_ws(websocket, pubsub)
+        await _run_pubsub_ws(
+            websocket,
+            pubsub,
+            revalidate=lambda: _revalidate_task_stream(token, task_id_for_revalidate),
+        )
     except WebSocketDisconnect:
         pass
     finally:
@@ -290,11 +537,13 @@ async def ml_backend_stats_socket(
     鉴权: super_admin / project_admin 才能看 (运维向, 标注员不需要).
     v0.15.12 · 除 JWT 外也接受 ak_ api_key (SDK/TUI 用), role 校验不变.
     """
+    user_id: str | None = None
+    actor = None
     try:
         from app.services import api_key_service
 
         if api_key_service.is_api_key_token(token):
-            # ak_ 路径: 解析 api_key → 取关联 user 的 role
+            # ak_ 路径: 解析 api_key → 以当前数据库账号状态/角色为准
             from app.db.base import async_session
 
             async with async_session() as db:
@@ -303,16 +552,15 @@ async def ml_backend_stats_socket(
                     raise PermissionError("invalid api key")
                 _key, user = resolved
                 user_id = str(user.id)
-                role = user.role
+                actor = user if user.is_active else None
                 await db.commit()  # 持久化 last_used_at
         else:
             payload = decode_access_token(token)
             user_id = payload.get("sub")
-            role = payload.get("role")
             if not user_id:
                 raise ValueError("missing sub")
-            uuid.UUID(user_id)
-        if role not in ("super_admin", "project_admin"):
+            actor = await _load_active_user(user_id)
+        if actor is None or actor.role not in _ADMIN_SOCKET_ROLES:
             raise PermissionError("not admin")
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -329,7 +577,11 @@ async def ml_backend_stats_socket(
         log.warning("incr subscribers key failed: %s", e)
 
     try:
-        await _run_pubsub_ws(websocket, pubsub)
+        await _run_pubsub_ws(
+            websocket,
+            pubsub,
+            revalidate=lambda: _revalidate_admin_stream(token),
+        )
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -364,7 +616,10 @@ async def notifications_socket(
         user_id = payload.get("sub")
         if not user_id:
             raise ValueError("missing sub")
-        uuid.UUID(user_id)  # validate
+        # Re-resolve the account: a disabled account with an unexpired token must
+        # not keep receiving restricted per-user deliveries.
+        if await _load_active_user(user_id) is None:
+            raise PermissionError("inactive account")
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -375,7 +630,11 @@ async def notifications_socket(
     channel = channel_for(user_id)
     await pubsub.subscribe(channel)
     try:
-        await _run_pubsub_ws(websocket, pubsub)
+        await _run_pubsub_ws(
+            websocket,
+            pubsub,
+            allow_message=lambda data: _notification_message_allowed(token, data),
+        )
     except WebSocketDisconnect:
         pass
     except Exception as e:

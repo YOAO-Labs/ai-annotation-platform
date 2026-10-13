@@ -7,9 +7,13 @@ import { apiClient } from "./client";
 
 export const rasterMasksApi = {
   /** 获取图片 Raster Mask 或视频单帧 Mask 的静态内容。 */
-  annotationRasterMaskContent: (annotationId: string) =>
+  annotationRasterMaskContent: (annotationId: string, init?: RequestInit) =>
     // Revalidate even a still-fresh response cached before the server policy changed.
-    apiClient.get<CocoRle>(`/annotations/${annotationId}/mask-content`, { cache: "no-cache" }),
+    // `init` carries cancellation (AbortSignal) for read-only preview surfaces.
+    apiClient.get<CocoRle>(`/annotations/${annotationId}/mask-content`, {
+      cache: "no-cache",
+      ...init,
+    }),
   /** 获取视频掩码关键帧内容 (video_track_mask)。 */
   annotationVideoMaskContent: (annotationId: string, frameIndex: number) =>
     apiClient.get<CocoRle>(`/annotations/${annotationId}/mask-content/${frameIndex}`, {

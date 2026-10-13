@@ -346,7 +346,7 @@ describe("AuditPage", () => {
       data: [{ id: "u-actor", name: "Alice", email: "a@x.com" }],
     });
     renderUI("/audit?actor_id=u-actor");
-    expect(screen.getByText(/追溯模式/)).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "追溯模式" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "操作人：Alice · a@x.com" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "移除操作人筛选" }));
     expect(mockUseAuditLogs).toHaveBeenLastCalledWith(

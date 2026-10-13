@@ -52,7 +52,7 @@ async def test_reporter_comment_on_fixed_triggers_reopen(db_session, annotator):
     comment, was_reopened, name, role = result
 
     assert was_reopened is True
-    assert role == "annotator"
+    assert role == "employee"
     assert name == "Annotator"
 
     refreshed = await db_session.get(BugReport, report.id)
@@ -141,7 +141,7 @@ async def test_reopen_increments_on_repeated_cycles(db_session, annotator, super
 
 @pytest.mark.asyncio
 async def test_third_party_cannot_comment(
-    httpx_client_bound, db_session, annotator, reviewer
+    httpx_client, db_session, annotator, reviewer
 ):
     """非提交者非管理员调评论端点 → 403。"""
     reporter, _ = annotator
@@ -149,7 +149,7 @@ async def test_third_party_cannot_comment(
     report = await _seed_bug(db_session, reporter.id, status="new")
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/bug_reports/{report.id}/comments",
         json={"body": "ping"},
         headers=_bearer(other_token),
@@ -158,13 +158,13 @@ async def test_third_party_cannot_comment(
 
 
 @pytest.mark.asyncio
-async def test_reporter_can_comment_via_http(httpx_client_bound, db_session, annotator):
+async def test_reporter_can_comment_via_http(httpx_client, db_session, annotator):
     """提交者经 HTTP 评论 → 200，author 信息回传。"""
     reporter, token = annotator
     report = await _seed_bug(db_session, reporter.id, status="fixed")
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/bug_reports/{report.id}/comments",
         json={"body": "依然不行"},
         headers=_bearer(token),
@@ -172,11 +172,11 @@ async def test_reporter_can_comment_via_http(httpx_client_bound, db_session, ann
     assert resp.status_code == 201
     data = resp.json()
     assert data["body"] == "依然不行"
-    assert data["author_role"] == "annotator"
+    assert data["author_role"] == "employee"
     assert data["author_name"] == "Annotator"
 
     # 再 GET 详情，确认 reopen_count + status
-    detail = await httpx_client_bound.get(
+    detail = await httpx_client.get(
         f"/api/v1/bug_reports/{report.id}", headers=_bearer(token)
     )
     assert detail.status_code == 200
@@ -188,7 +188,7 @@ async def test_reporter_can_comment_via_http(httpx_client_bound, db_session, ann
 
 @pytest.mark.asyncio
 async def test_create_bug_report_accepts_multi_image_attachments(
-    httpx_client_bound, annotator
+    httpx_client, annotator
 ):
     """提交 BUG 时可登记多张截图附件，详情接口原样返回。"""
     _, token = annotator
@@ -207,7 +207,7 @@ async def test_create_bug_report_accepts_multi_image_attachments(
         },
     ]
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/bug_reports",
         json={
             "title": "markdown bug",
@@ -221,7 +221,7 @@ async def test_create_bug_report_accepts_multi_image_attachments(
     data = resp.json()
     assert data["attachments"] == attachments
 
-    detail = await httpx_client_bound.get(
+    detail = await httpx_client.get(
         f"/api/v1/bug_reports/{data['id']}", headers=_bearer(token)
     )
     assert detail.status_code == 200
@@ -229,12 +229,10 @@ async def test_create_bug_report_accepts_multi_image_attachments(
 
 
 @pytest.mark.asyncio
-async def test_bug_report_attachment_invalid_key_rejected(
-    httpx_client_bound, annotator
-):
+async def test_bug_report_attachment_invalid_key_rejected(httpx_client, annotator):
     """附件 key 必须在 BUG 附件前缀下，防止任意对象 key 注入。"""
     _, token = annotator
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/bug_reports",
         json={
             "title": "bad attachment",
@@ -254,10 +252,10 @@ async def test_bug_report_attachment_invalid_key_rejected(
 
 
 @pytest.mark.asyncio
-async def test_bug_report_rejects_oversized_description(httpx_client_bound, annotator):
+async def test_bug_report_rejects_oversized_description(httpx_client, annotator):
     """描述长度有硬上限，避免前端捕获内容被无限放大。"""
     _, token = annotator
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/bug_reports",
         json={
             "title": "too long",
@@ -269,12 +267,10 @@ async def test_bug_report_rejects_oversized_description(httpx_client_bound, anno
 
 
 @pytest.mark.asyncio
-async def test_bug_report_rejects_too_many_recent_api_calls(
-    httpx_client_bound, annotator
-):
+async def test_bug_report_rejects_too_many_recent_api_calls(httpx_client, annotator):
     """最近请求记录最多保留 100 条。"""
     _, token = annotator
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/bug_reports",
         json={
             "title": "too many calls",
@@ -287,15 +283,13 @@ async def test_bug_report_rejects_too_many_recent_api_calls(
 
 
 @pytest.mark.asyncio
-async def test_bug_comment_rejects_oversized_body(
-    httpx_client_bound, db_session, annotator
-):
+async def test_bug_comment_rejects_oversized_body(httpx_client, db_session, annotator):
     """评论正文有硬上限，仍允许普通 Markdown 长评论。"""
     reporter, token = annotator
     report = await _seed_bug(db_session, reporter.id, status="new")
     await db_session.commit()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/bug_reports/{report.id}/comments",
         json={"body": "x" * 10001},
         headers=_bearer(token),
@@ -304,9 +298,9 @@ async def test_bug_comment_rejects_oversized_body(
 
 
 @pytest.mark.asyncio
-async def test_bug_report_upload_init_rejects_non_image(httpx_client_bound, annotator):
+async def test_bug_report_upload_init_rejects_non_image(httpx_client, annotator):
     _, token = annotator
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         "/api/v1/bug_reports/screenshot/upload-init",
         json={"file_name": "x.txt", "content_type": "text/plain"},
         headers=_bearer(token),
@@ -316,7 +310,7 @@ async def test_bug_report_upload_init_rejects_non_image(httpx_client_bound, anno
 
 @pytest.mark.asyncio
 async def test_bug_report_attachment_download_checks_registered_key(
-    httpx_client_bound, db_session, annotator, reviewer, monkeypatch
+    httpx_client, db_session, annotator, reviewer, monkeypatch
 ):
     reporter, token = annotator
     _, other_token = reviewer
@@ -340,7 +334,7 @@ async def test_bug_report_attachment_download_checks_registered_key(
         lambda *args, **kwargs: "http://minio.test/signed",
     )
 
-    ok = await httpx_client_bound.get(
+    ok = await httpx_client.get(
         f"/api/v1/bug_reports/{report.id}/attachments/download",
         params={"key": key},
         headers=_bearer(token),
@@ -348,14 +342,14 @@ async def test_bug_report_attachment_download_checks_registered_key(
     assert ok.status_code == 302
     assert ok.headers["location"] == "http://minio.test/signed"
 
-    bad_key = await httpx_client_bound.get(
+    bad_key = await httpx_client.get(
         f"/api/v1/bug_reports/{report.id}/attachments/download",
         params={"key": f"bug-report-attachments/{reporter.id}/{uuid.uuid4()}-y.png"},
         headers=_bearer(token),
     )
     assert bad_key.status_code == 400
 
-    forbidden = await httpx_client_bound.get(
+    forbidden = await httpx_client.get(
         f"/api/v1/bug_reports/{report.id}/attachments/download",
         params={"key": key},
         headers=_bearer(other_token),

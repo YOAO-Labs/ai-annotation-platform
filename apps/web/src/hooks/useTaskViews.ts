@@ -53,6 +53,11 @@ export function useDataManagerSchema(
     queryFn: ({ signal }) => taskViewsApi.schema(projectId!, entityScope, { signal }),
     enabled: !!projectId && !!userId,
     staleTime: 60_000,
+    // The Data Manager renders its schema error with an explicit retry action.
+    // Without this, a failed schema query would be retried every time the
+    // surrounding page remounts that error branch, cycling loading ↔ error
+    // instead of letting the reader press retry.
+    retryOnMount: false,
   });
 }
 

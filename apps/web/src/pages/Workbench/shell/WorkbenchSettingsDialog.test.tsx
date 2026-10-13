@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_WORKBENCH_PREFERENCES } from "@/api/auth";
@@ -14,18 +15,41 @@ const mocks = vi.hoisted(() => ({
   loadError: null as Error | null,
   lockedFields: [] as string[],
 }));
+const preferencesMock = vi.hoisted(() => ({
+  data: {
+    items: [
+      { type: "task.rejected", in_app: true, email: false, toast: true },
+      { type: "task.approved", in_app: true, email: false, toast: false },
+    ],
+  },
+  isPending: false,
+  isError: false,
+  isSuccess: true,
+  refetch: vi.fn(),
+}));
 vi.mock("@/hooks/useMediaQuery", () => ({ useMediaQuery: () => true }));
 vi.mock("../state/useWorkbenchConfig", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useWorkbenchConfig: () => ({ config: DEFAULT_WORKBENCH_PREFERENCES, ...mocks }),
 }));
+vi.mock("@/hooks/useNotificationPreferences", () => ({
+  useNotificationPreferences: () => preferencesMock,
+  useUpdateNotificationPreference: () => ({ mutateAsync: vi.fn().mockResolvedValue({ ok: true }) }),
+}));
+
+function withProviders(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={client}>{ui}</QueryClientProvider>;
+}
 
 type Props = Partial<Parameters<typeof WorkbenchSettingsDialog>[0]>;
 function mount(props: Props = {}) {
   return render(
-    <MemoryRouter>
-      <WorkbenchSettingsDialog open onClose={vi.fn()} {...props} />
-    </MemoryRouter>,
+    withProviders(
+      <MemoryRouter>
+        <WorkbenchSettingsDialog open onClose={vi.fn()} {...props} />
+      </MemoryRouter>,
+    ),
   );
 }
 const category = (name: string) => screen.getByRole("tab", { name });
@@ -36,6 +60,9 @@ describe("WorkbenchSettingsDialog", () => {
     mocks.loaded = true;
     mocks.loadError = null;
     mocks.lockedFields = [];
+    preferencesMock.isPending = false;
+    preferencesMock.isError = false;
+    preferencesMock.isSuccess = true;
     localStorage.clear();
   });
 
@@ -54,13 +81,21 @@ describe("WorkbenchSettingsDialog", () => {
     expect(mocks.setFields).toHaveBeenCalledTimes(1);
   });
 
-  it("shows all six purpose categories and leaves hidden fields unavailable", () => {
+  it("shows all seven purpose categories and leaves hidden fields unavailable", () => {
     mount();
     expect(
       within(screen.getByRole("tablist", { name: "设置分类" }))
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["界面布局", "标注显示", "编辑与辅助", "画布与视角", "播放与轨迹", "性能与实验"]);
+    ).toEqual([
+      "界面布局",
+      "标注显示",
+      "编辑与辅助",
+      "画布与视角",
+      "播放与轨迹",
+      "性能与实验",
+      "通知",
+    ]);
     expect(screen.queryByText("网格吸附")).not.toBeInTheDocument();
   });
 
@@ -110,6 +145,31 @@ describe("WorkbenchSettingsDialog", () => {
     expect(screen.getByText("没有找到相关设置")).toBeVisible();
   });
 
+  it("keeps the overlay blurred by default and unblurred on a live 3D canvas", () => {
+    const view = mount();
+    expect(screen.getByTestId("workbench-settings-overlay")).toHaveClass("backdrop-blur-overlay");
+    view.rerender(
+      withProviders(
+        <MemoryRouter>
+          <WorkbenchSettingsDialog open onClose={vi.fn()} backdropBlur={false} />
+        </MemoryRouter>,
+      ),
+    );
+    const overlay = screen.getByTestId("workbench-settings-overlay");
+    expect(overlay).not.toHaveClass("backdrop-blur-overlay");
+    expect(overlay).toHaveClass("bg-black/25");
+  });
+
+  it("highlights matched terms and keeps section legends above field labels", async () => {
+    mount();
+    const user = userEvent.setup();
+    const legend = document.querySelector('[data-slot="field-legend"]');
+    expect(legend).toHaveAttribute("data-variant", "legend");
+    expect(legend?.className).toContain("data-[variant=legend]:text-md");
+    await user.type(screen.getByRole("textbox", { name: "搜索设置" }), "Gamma");
+    expect(screen.getAllByText("Gamma", { selector: "mark" }).length).toBeGreaterThan(0);
+  });
+
   it("writes every local experiment and both special settings without a modality filter", async () => {
     const onToggleHideOrphans = vi.fn();
     const onToggleSecondaryBar = vi.fn();
@@ -153,9 +213,11 @@ describe("WorkbenchSettingsDialog", () => {
       );
     }
     render(
-      <MemoryRouter>
-        <Harness />
-      </MemoryRouter>,
+      withProviders(
+        <MemoryRouter>
+          <Harness />
+        </MemoryRouter>,
+      ),
     );
     const user = userEvent.setup();
     const trigger = screen.getByRole("button", { name: "打开设置" });
@@ -211,5 +273,63 @@ describe("WorkbenchSettingsDialog", () => {
     expect(screen.queryByRole("slider")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(mocks.retryLoad).toHaveBeenCalledOnce();
+  });
+});
+
+describe("WorkbenchSettingsDialog · 通知分类", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.loaded = true;
+    mocks.loadError = null;
+    preferencesMock.isPending = false;
+    preferencesMock.isError = false;
+    preferencesMock.isSuccess = true;
+  });
+
+  it("通知分类渲染共享偏好面板，不受渲染配置加载失败影响", async () => {
+    mocks.loadError = new Error("render config down");
+    mount();
+    const user = userEvent.setup();
+    await user.click(category("通知"));
+    expect(await screen.findByTestId("notification-preferences-panel")).toBeVisible();
+    expect(screen.getByText("任务被退回")).toBeVisible();
+    // 渲染配置的重试按钮不吞掉通知面板
+    expect(screen.getByTestId("notification-preference-task.rejected")).toBeVisible();
+  });
+
+  it("偏好加载失败时通知分类显示自己的错误与重试", async () => {
+    preferencesMock.isPending = false;
+    preferencesMock.isError = true;
+    preferencesMock.isSuccess = false;
+    mount();
+    const user = userEvent.setup();
+    await user.click(category("通知"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法加载通知偏好");
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(preferencesMock.refetch).toHaveBeenCalled();
+  });
+
+  it("全局搜索命中通知标签时展示通知偏好结果", async () => {
+    mount();
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "搜索设置" }), "任务被退回");
+    expect(await screen.findByTestId("notification-preferences-panel")).toBeVisible();
+    expect(screen.getAllByText("通知偏好").length).toBeGreaterThan(0);
+  });
+
+  it.each(["通知", "通知偏好"])("全局搜索分类「%s」时展示分类内的设置项", async (query) => {
+    mount();
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "搜索设置" }), query);
+    expect(screen.getByTestId("notification-preference-task.rejected")).toBeVisible();
+    expect(screen.getByTestId("notification-preference-task.approved")).toBeVisible();
+    expect(screen.queryByText("没有匹配的通知类型。")).toBeNull();
+  });
+
+  it("搜索无命中且通知也不匹配时仍显示空态", async () => {
+    mount();
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "搜索设置" }), "不存在的设置");
+    expect(await screen.findByText("没有找到相关设置")).toBeVisible();
   });
 });

@@ -48,16 +48,6 @@ export interface WorkbenchBannerActions {
   onAcceptRejection: () => void;
 }
 
-export interface RejectTaskModalState {
-  open: boolean;
-  onClose: () => void;
-  onConfirm: (payload: {
-    reason_type: "missing" | "extra" | "wrong_label" | "wrong_geometry";
-    reason?: string;
-  }) => void;
-  skipReasonHint: string | null;
-}
-
 export interface WorkbenchModeState {
   isLocked: boolean;
   diffMode?: DiffMode;
@@ -66,5 +56,4 @@ export interface WorkbenchModeState {
   claimInfo: ReviewClaimResponse | null;
   topbarActions: WorkbenchTopbarActions;
   bannerActions: WorkbenchBannerActions;
-  rejectModal?: RejectTaskModalState;
 }

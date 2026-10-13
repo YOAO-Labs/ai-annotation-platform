@@ -17,6 +17,7 @@
 // 接入 session 的 generation 隔离与单飞保存; 图片侧逐步跟进。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { choiceDialog } from "@/components/ui/decisionDialog";
 import {
   useMaskEditor,
   type UseMaskEditorOptions,
@@ -43,13 +44,21 @@ export interface MaskSessionKey {
 
 export type MaskSessionGuardChoice = "save" | "discard" | "continue";
 
-/** 两段确认提供明确三态：先询问保存，再询问丢弃，均取消即继续编辑。 */
-export function promptMaskLeaveChoice(
-  confirmFn: (message: string) => boolean,
-): MaskSessionGuardChoice {
-  if (confirmFn("Mask 尚未保存。是否保存后离开？")) return "save";
-  if (confirmFn("是否丢弃 Mask 稿件并离开？")) return "discard";
-  return "continue";
+/**
+ * 应用内三选一决策对话框 (decision-dialog 计划 Group C): 一次呈现保存 / 丢弃 / 继续编辑,
+ * 取代原先两段连续 window.confirm; 取消 / Esc / 点遮罩 = 继续编辑。
+ */
+export async function promptMaskLeaveChoice(): Promise<MaskSessionGuardChoice> {
+  const key = await choiceDialog({
+    title: "Mask 尚未保存",
+    description: "是否保存后离开？也可以丢弃稿件，或继续编辑。",
+    options: [
+      { key: "save", label: "保存后离开" },
+      { key: "discard", label: "丢弃并离开", tone: "danger" },
+      { key: "continue", label: "继续编辑" },
+    ],
+  });
+  return key === "save" || key === "discard" ? key : "continue";
 }
 
 export interface UseMaskEditorSessionOptions extends UseMaskEditorOptions {

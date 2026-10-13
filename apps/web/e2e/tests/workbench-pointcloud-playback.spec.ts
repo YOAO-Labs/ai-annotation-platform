@@ -6,9 +6,9 @@ const player = (page: Page) => page.locator("[data-scene-playback]");
 const play = (page: Page) => page.getByTestId("scene-timeline-play");
 
 async function prepare(page: Page, seed: SeedAPI) {
-  await seed.reset();
+  const owned = await seed.owned();
   const data = await seed.seedLidar();
-  await seed.injectToken(page, "admin@e2e.test");
+  await seed.injectToken(page, owned.admin_email);
   if (process.env.PLAYWRIGHT_POINTCLOUD_WEBGPU === "1") {
     await page.addInitScript(() =>
       localStorage.setItem("aap.experiment.pointCloudWebGpuRenderer", "1"),

@@ -288,7 +288,7 @@ curl -X POST localhost:8003/warmup \
 
 **drain / resume 状态机**：成员 `traffic_state` 为 `active` / `draining` / `disabled`。`drain` 只停止接**新** lease，不影响在飞请求或模型权重卸载（后者是 GPU 仲裁的 residency drain，独立）。卸载、移除成员和物理删除 registry 共用同一安全门：router 必须处于 `enforce`，成员必须精确为 `draining`，Redis 账本可读并先清理过期 lease，随后新鲜快照中的 exact `inflight=0` 才构成 quiescent 证明。状态不满足返回 409；账本不可用、缺失或不可信返回 503，不能把未知当作零。
 
-详见 [ADR-0050](../../dev/adr/0050-ml-backend-service-pools-and-request-routing)（路由核心）与 [ADR-0051](../../dev/adr/0051-model-market-observability-information-architecture)（观测面 IA）。
+详见 [ADR-0050](../../dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)（路由核心）与 [ADR-0051](../../dev/adr/archive/0051-model-market-observability-information-architecture)（观测面 IA）。
 
 ---
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Modal } from "@/components/ui/Modal";
 import { useToastStore } from "@/components/ui/Toast";
 import { useTransferProject } from "@/hooks/useProjects";
@@ -46,7 +46,10 @@ export function OwnerSection({ project }: { project: ProjectResponse }) {
         </div>
         <div className="flex flex-col gap-3.5 p-4">
           <div className="flex items-center gap-3">
-            <Avatar initial={project.owner_name?.slice(0, 1) ?? "?"} size="md" />
+            <UserAvatar
+              size="md"
+              user={{ name: project.owner_name, avatar_ref: project.owner_avatar_ref }}
+            />
             <div>
               <div className="text-sm font-medium">{project.owner_name ?? "—"}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">
@@ -93,7 +96,7 @@ export function OwnerSection({ project }: { project: ProjectResponse }) {
                   onClick={() => setSelected(u.id)}
                   className={`${CANDIDATE_ITEM_BASE} ${active ? "bg-brand/10" : "bg-transparent"}`}
                 >
-                  <Avatar initial={u.name.slice(0, 1)} size="sm" />
+                  <UserAvatar user={u} size="sm" />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">{u.name}</div>
                     <div className="text-xs text-muted-foreground">

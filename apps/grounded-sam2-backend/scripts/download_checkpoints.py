@@ -6,7 +6,7 @@
 (避免带半残模型上线); PREFETCH 列表里的额外变体下载失败仅 warn, 不阻塞启动
 (运行期请求该变体时再由 ModelPool 报 503, 不该让一个 flaky 的附加权重拖垮整容器).
 
-v0.10.23 · ModelPool 单容器多变体热切换后, 仅预拉主变体已不够: 运行期请求其他
+ModelPool 单容器多变体热切换下, 仅预拉主变体不够: 运行期请求其他
 变体会因 checkpoint 缺失 503. 通过 PREFETCH_*_VARIANTS 声明要常驻哪些变体的权重,
 entrypoint 启动时一并下好.
 

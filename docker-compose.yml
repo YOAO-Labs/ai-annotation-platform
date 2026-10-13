@@ -29,8 +29,9 @@ services:
       retries: 5
 
   minio:
-    # Docker Hub 的 minio/minio 已下架；quay.io 是官方社区镜像源。
-    image: quay.io/minio/minio
+    # Quay 社区镜像已下架；IBM 镜像保留相同 digest，与 CI 固定为同一版本。
+    # https://www.ibm.com/support/pages/node/7289585
+    image: icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -70,7 +71,8 @@ services:
   #   docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml up -d
   # 拉起。区别详见 docs-site/dev/concepts/runtime-environments.md。
 
-  # Development migrations and owner-only tasks run outside ordinary workers.
+  # Run development migrations explicitly before starting workers.
+  # Only this worker consumes owner-only maintenance tasks.
   celery-worker-maintenance:
     build:
       context: .
@@ -81,7 +83,7 @@ services:
       MIGRATION_DATABASE_URL: ""
       TEST_DATABASE_URL: ""
       PLAYWRIGHT_E2E_DATABASE_URL: ""
-      ALEMBIC_AUTO_UPGRADE: "true"
+      ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}

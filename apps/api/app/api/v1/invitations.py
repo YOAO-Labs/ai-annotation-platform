@@ -13,7 +13,7 @@ from app.schemas.invitation import (
     RegisterResponse,
 )
 from app.schemas.user import UserOut
-from app.services.invitation import InvitationService
+from app.services.invitation import InvitationService, invitation_project_role
 from app.services.audit import AuditService, AuditAction
 
 router = APIRouter()
@@ -39,7 +39,7 @@ async def resolve_invitation(token: str, db: AsyncSession = Depends(get_db)):
         group_name=inv.group_name,
         project_id=inv.project_id,
         project_name=project_name,
-        project_member_role=inv.role if inv.project_id else None,
+        project_member_role=invitation_project_role(inv),
         expires_at=inv.expires_at,
         invited_by_name=inviter_name,
     )

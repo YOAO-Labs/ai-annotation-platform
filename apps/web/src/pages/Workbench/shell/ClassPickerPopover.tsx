@@ -1,5 +1,5 @@
 import { isWorkbenchInteractionBlocked } from "../state/workbenchInteractionGuards";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AttributeSchema } from "@/api/projects";
 import type { Viewport } from "../state/useViewportTransform";
@@ -51,7 +51,8 @@ type ClassPickerPopoverProps = ImagePositionProps | FixedPositionProps;
 /**
  * 画框完成后的类别选择 popover。
  * - image 模式锚定到框左下角；fixed 模式使用调用方给出的 viewport 坐标
- * - 数字 1-9 / 字母 a-z 直选；Enter 默认 default；Esc 取消；点外部取消
+ * - 数字 1-9 + 0 直选前十个类别（搜索框内输入数字仍是文本）；↑/↓ 在过滤结果间移动，
+ *   Enter 选中高亮项；查询为空时 Enter 维持默认类别；Esc 取消；点外部取消
  */
 export function ClassPickerPopover({
   classes,
@@ -65,6 +66,20 @@ export function ClassPickerPopover({
 }: ClassPickerPopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
   const resolvedDefaultClass = classes.includes(defaultClass) ? defaultClass : (classes[0] ?? "");
+  // 键盘导航状态：filteredRef/queryRef 由 ClassPalette 回调同步；highlightRef 供按键处理读取。
+  const filteredRef = useRef(classes);
+  const queryRef = useRef("");
+  const highlightRef = useRef<number | null>(null);
+  const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
+
+  const moveHighlight = (dir: 1 | -1) => {
+    const len = filteredRef.current.length;
+    if (len === 0) return;
+    setHighlightIndex((prev) => {
+      if (prev === null) return dir === 1 ? 0 : len - 1;
+      return Math.max(0, Math.min(len - 1, prev + dir));
+    });
+  };
 
   const isFixed = positionProps.position === "fixed";
   // image 模式：框左下角（容器坐标）；fixed 模式：调用方传 viewport/client 坐标。
@@ -106,38 +121,55 @@ export function ClassPickerPopover({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isWorkbenchInteractionBlocked(e)) return;
+      // IME 组合中的按键永不确认类别。
+      if (e.isComposing || e.keyCode === 229) return;
+      const inEditable =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLSelectElement ||
+        e.target instanceof HTMLTextAreaElement;
       if (
-        (e.target instanceof HTMLInputElement ||
-          e.target instanceof HTMLSelectElement ||
-          e.target instanceof HTMLTextAreaElement) &&
+        inEditable &&
+        (e.key === "ArrowDown" || e.key === "ArrowUp") &&
+        !(e.target instanceof HTMLElement && e.target.hasAttribute("data-class-picker-search"))
+      )
+        return;
+      if (
+        inEditable &&
         e.key !== "Escape" &&
-        e.key !== "Enter"
+        e.key !== "Enter" &&
+        e.key !== "ArrowDown" &&
+        e.key !== "ArrowUp"
       ) {
-        return; // 让搜索框 / 属性表单控件正常输入，不抢数字/字母快捷键
+        return; // 让搜索框 / 属性表单控件正常输入，不抢数字快捷键
       }
       if (e.key === "Escape") {
         e.preventDefault();
         onCancel("escape");
         return;
       }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        moveHighlight(e.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
       if (e.key === "Enter") {
         e.preventDefault();
+        if (queryRef.current.trim()) {
+          // 有查询：Enter 确认高亮结果；无结果不选择。
+          const idx = highlightRef.current;
+          const picked = idx !== null ? filteredRef.current[idx] : undefined;
+          if (picked) onPick(picked);
+          return;
+        }
         if (resolvedDefaultClass) onPick(resolvedDefaultClass);
         return;
       }
-      // 数字 1-9
-      if (e.key >= "1" && e.key <= "9") {
-        const idx = parseInt(e.key, 10) - 1;
-        if (classes[idx]) {
-          e.preventDefault();
-          onPick(classes[idx]);
-        }
-        return;
-      }
-      // 字母 a-z (映射到 classes[9..])
-      if (/^[a-z]$/i.test(e.key)) {
-        const letterIdx = e.key.toLowerCase().charCodeAt(0) - "a".charCodeAt(0);
-        const idx = 9 + letterIdx;
+      // 数字 1-9 + 0 直选前十槽；搜索框等可编辑控件内数字保持文本输入。
+      const isDigit =
+        (e.key >= "1" && e.key <= "9" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) ||
+        (e.key === "0" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey);
+      if (isDigit && !inEditable) {
+        const idx = e.key === "0" ? 9 : parseInt(e.key, 10) - 1;
         if (classes[idx]) {
           e.preventDefault();
           onPick(classes[idx]);
@@ -147,6 +179,20 @@ export function ClassPickerPopover({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [classes, resolvedDefaultClass, onPick, onCancel]);
+
+  // 过滤结果 / 查询变化时同步引用并复位高亮（移动高亮不改变过滤结果）。
+  const handleFilteredChange = useCallback((filtered: string[], query: string) => {
+    const changed = filtered !== filteredRef.current;
+    filteredRef.current = filtered;
+    queryRef.current = query;
+    if (changed) {
+      highlightRef.current = null;
+      setHighlightIndex(null);
+    }
+  }, []);
+  useEffect(() => {
+    highlightRef.current = highlightIndex;
+  }, [highlightIndex]);
 
   // click outside to cancel
   useEffect(() => {
@@ -184,13 +230,17 @@ export function ClassPickerPopover({
         onPick={onPick}
         dense
         enableSearch={classes.length > 9}
+        highlightIndex={highlightIndex ?? undefined}
+        onFilteredChange={handleFilteredChange}
       />
       {classes.length === 0 && (
         <div className="p-2 text-center text-xs text-muted-foreground">该项目尚未配置类别</div>
       )}
       {classes.length > 0 && (
         <div className="mt-2 text-center text-2xs text-muted-foreground">
-          快捷键: {shortcutForIndex(0)}…{shortcutForIndex(Math.min(classes.length - 1, 34))}
+          {classes.length <= 10
+            ? `快捷键: 1…${shortcutForIndex(classes.length - 1)} · Enter ↵ 默认`
+            : "快捷键: 1-9、0 直选前十类 · 其余用搜索或点击 · ↑↓ 选择 · Enter ↵ 确认"}
         </div>
       )}
       {attrEditing && (

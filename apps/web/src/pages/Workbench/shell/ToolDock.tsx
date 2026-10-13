@@ -79,6 +79,11 @@ interface ToolDockProps {
   threeDMode?: boolean;
   threeDTool?: ThreeDTool;
   onSetThreeDTool?: (t: ThreeDTool) => void;
+  /**
+   * Increment B · 可编辑工具命令的生效组合（含备用），按命令 ID 索引；
+   * null = 该命令已停用（角标清空）。未提供的命令沿用静态提示。
+   */
+  toolHotkeys?: Record<string, { label: string; alt?: string } | null>;
 }
 
 interface ToolDescriptor {
@@ -309,6 +314,32 @@ const GROUP_LABELS: Record<ToolDockEntry["group"], string> = {
   frame: "单帧工具",
   sam: "SAM 工具",
   track: "轨迹工具",
+};
+
+/** Increment B · 工具 → 可编辑命令 ID（生效组合提示的数据源）。 */
+const IMAGE_TOOL_COMMAND: Partial<Record<ToolId, string>> = {
+  select: "image.tool.select",
+  box: "image.tool.box",
+  "rotated-box": "image.tool.rotatedBox",
+  polygon: "image.tool.polygon",
+  polyline: "image.tool.polyline",
+  keypoint: "image.tool.keypoint",
+  mask: "image.tool.mask",
+  "magic-box": "image.tool.magicBox",
+};
+
+const VIDEO_TOOL_COMMAND: Partial<Record<VideoTool, string>> = {
+  select: "video.tool.select",
+  box: "video.tool.box",
+  "rotated-box": "video.tool.rotatedBox",
+  keypoint: "video.tool.keypoint",
+  polygon: "video.tool.polygon",
+  "smart-point": "video.tool.smartPoint",
+  "smart-box": "video.tool.smartBox",
+  exemplar: "video.tool.exemplar",
+  "magic-box": "video.tool.magicBox",
+  track: "video.tool.track",
+  mask: "video.tool.mask",
 };
 
 function AdaptiveToolDock({
@@ -632,7 +663,16 @@ export function ToolDock({
   threeDMode = false,
   threeDTool = "select",
   onSetThreeDTool,
+  toolHotkeys,
 }: ToolDockProps) {
+  // Increment B · 工具角标 / tooltip 优先读生效组合；命令停用时清空角标。
+  const effectiveHotkey = (
+    commandId: string | undefined,
+  ): { label: string; alt?: string } | null => {
+    if (!commandId) return null;
+    if (!toolHotkeys || !Object.prototype.hasOwnProperty.call(toolHotkeys, commandId)) return null;
+    return toolHotkeys[commandId] ?? { label: "" };
+  };
   if (threeDMode) {
     const visibleThreeDTools = THREE_D_TOOLS.filter((t) => {
       const unit = unitForThreeDTool(t.id);
@@ -705,8 +745,12 @@ export function ToolDock({
         group: t.group,
         label: t.label,
         icon: t.icon,
-        hotkey: t.hotkey,
-        description: t.altDigit ? `${t.desc} · 备用 Alt+${t.altDigit}` : t.desc,
+        hotkey: effectiveHotkey(VIDEO_TOOL_COMMAND[t.id])?.label ?? t.hotkey,
+        description: (() => {
+          const h = effectiveHotkey(VIDEO_TOOL_COMMAND[t.id]);
+          if (h?.alt) return `${t.desc} · 备用 ${h.alt}`;
+          return !h && t.altDigit ? `${t.desc} · 备用 Alt+${t.altDigit}` : t.desc;
+        })(),
         disabledReason,
         testId: `video-tool-btn-${t.id}`,
         onSelect: () => onSetVideoTool?.(t.id),
@@ -786,13 +830,18 @@ export function ToolDock({
         : !supported
           ? "当前后端不支持此交互模式"
           : undefined);
+    const h = effectiveHotkey(IMAGE_TOOL_COMMAND[t.id]);
     return {
       id: t.id,
       group: groupOf(t),
       label: t.label,
       icon: t.icon as IconName,
-      hotkey: t.hotkey.toUpperCase(),
-      description: descriptor?.altDigit ? `${desc} · 备用 Alt+${descriptor.altDigit}` : desc,
+      hotkey: h ? h.label : t.hotkey.toUpperCase(),
+      description: h?.alt
+        ? `${desc} · 备用 ${h.alt}`
+        : !h && descriptor?.altDigit
+          ? `${desc} · 备用 Alt+${descriptor.altDigit}`
+          : desc,
       disabledReason,
       testId: `tool-btn-${t.id}`,
       onSelect: () => onSetTool(t.id),

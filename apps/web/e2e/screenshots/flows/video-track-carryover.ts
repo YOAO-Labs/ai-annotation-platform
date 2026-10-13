@@ -71,6 +71,7 @@ export async function runVideoTrackCarryover(
   const frontTruck = recordingAnchor(catalog, "video_demo", "tracking", "front_truck_f0", 0);
   const nextFrame = recordingAnchor(catalog, "video_demo", "tracking", "left_bus_f1", 1);
   expect(nextFrame.label).toBe(leftBus.label);
+  await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
   await trackButton.click();
   const drawStartMs = Date.now();
   const bus = await drawTrack(page, leftBus, taskId, onCreated);

@@ -21,11 +21,11 @@ test("point-mask visibility removes and restores painted points without changing
   seed,
 }) => {
   test.setTimeout(120_000);
-  await seed.reset();
+  const data = await seed.owned();
   const lidar = await seed.seedLidar();
   const taskId = lidar.lidar_task_ids[0];
   const pointIndices = Array.from({ length: lidar.lidar_point_count }, (_, index) => index);
-  const annotation = await seed.createTaskAnnotation(taskId, "admin@e2e.test", {
+  const annotation = await seed.createTaskAnnotation(taskId, data.admin_email, {
     annotation_type: "point_mask_3d",
     tool_unit_id: "point_mask_3d",
     class_name: "ground",
@@ -37,7 +37,7 @@ test("point-mask visibility removes and restores painted points without changing
     },
   });
   try {
-    await seed.injectToken(page, "admin@e2e.test");
+    await seed.injectToken(page, data.admin_email);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate?task=${taskId}`);
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 30_000 });
@@ -132,7 +132,7 @@ test("point-mask visibility removes and restores painted points without changing
     await page.mouse.move(5, 5);
     await expect.poll(async () => difference(await capture())).toBeLessThan(0.005);
     await capture(test.info().outputPath("pointmask-restored.png"));
-    const token = await seed.accessToken("admin@e2e.test");
+    const token = await seed.accessToken(data.admin_email);
     const response = await request.get(
       (process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010") +
         `/api/v1/tasks/${taskId}/annotations`,
@@ -157,7 +157,7 @@ test("point-mask visibility removes and restores painted points without changing
     await writeFile(rendererPath, rendererInfo);
     await test.info().attach("renderer", { path: rendererPath, contentType: "application/json" });
   } finally {
-    await seed.deleteTaskAnnotation(taskId, annotation.id, "admin@e2e.test");
+    await seed.deleteTaskAnnotation(taskId, annotation.id, data.admin_email);
   }
 });
 
@@ -166,10 +166,10 @@ test.describe("workbench pointcloud smoke (WebGL go/no-go)", () => {
     page,
     seed,
   }) => {
-    await seed.reset();
+    const data = await seed.owned();
     const lidar = await seed.seedLidar();
     // super_admin 可见全部项目/任务,免去 batch 可见性/分派的额外铺设。
-    await seed.injectToken(page, "admin@e2e.test");
+    await seed.injectToken(page, data.admin_email);
 
     // 收集 console error / pageerror;WebGL 跑不起来时 Three.js 会在此爆。
     const consoleErrors: string[] = [];

@@ -51,3 +51,4 @@ last_reviewed: 2026-07-12
 - [视频帧服务排障](/ops/runbooks/video-frame-service) — frame cache、chunk smart-copy、视频 tracker job
 - [图片金字塔](/ops/runbooks/image-pyramid) — 大图派生、回填、告警和故障码处理
 - [PG 连接池耗尽](/ops/runbooks/postgres-connection-pool-exhausted) — 连接池打满、请求排队或超时
+- [员工项目角色迁移与回滚](/ops/runbooks/project-role-migration) — 0173/0174 协调切换、审计、回滚边界与已签发 URL 限制

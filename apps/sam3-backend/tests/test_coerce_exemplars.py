@@ -1,4 +1,4 @@
-"""v0.18.19 · main._coerce_exemplars 路由归一 + /setup exemplar_capabilities 单测.
+"""main._coerce_exemplars 路由归一 + /setup exemplar_capabilities 单测.
 
 无 GPU: mock 掉 sam3 / torch 依赖, 只测纯路由归一逻辑与 setup 声明。
 """

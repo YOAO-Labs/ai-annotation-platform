@@ -119,7 +119,7 @@ test.describe("Mask phase primary actions", () => {
       seed,
       request,
     }) => {
-      const data = await seed.reset();
+      const data = await seed.owned();
       const taskId = data.task_ids[0];
       const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
       const token = await seed.accessToken(data.annotator_email);
@@ -147,7 +147,7 @@ test.describe("Mask phase primary actions", () => {
     seed,
     request,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -196,7 +196,7 @@ test.describe("Mask phase primary actions", () => {
     seed,
     request,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     const token = await seed.accessToken(data.annotator_email);
@@ -235,23 +235,18 @@ test.describe("Mask phase primary actions", () => {
         await expect(page.getByTitle("撤销笔画 (Ctrl+Z)")).toBeEnabled();
       }
     }
-    const dialogs: string[] = [];
-    const continueEditing = async (dialog: import("@playwright/test").Dialog) => {
-      dialogs.push(dialog.message());
-      await dialog.dismiss();
-    };
-    page.on("dialog", continueEditing);
+    // Escape 触发离开守卫:应用内三选一选「继续编辑」,工具与稿件保持。
+    const leaveDialog = page.getByRole("alertdialog");
     await primaryKey(page, "Escape");
+    await expect(leaveDialog).toBeVisible({ timeout: 5_000 });
+    await leaveDialog.getByRole("button", { name: "继续编辑", exact: true }).click();
     await openMaskSettings(page);
-    await expect.poll(() => dialogs.length).toBe(2);
     await expect(page.getByTestId("mask-primary-action")).toHaveText("保存 Mask");
     await expect(page.getByTitle("撤销笔画 (Ctrl+Z)")).toBeEnabled();
-    page.off("dialog", continueEditing);
-    page.on("dialog", async (dialog) => {
-      if (dialog.message().includes("丢弃")) await dialog.accept();
-      else await dialog.dismiss();
-    });
+    // secondary(取消编辑)选「丢弃并离开」,稿件丢弃且不落库。
     await page.getByTestId("mask-secondary-action").click();
+    await expect(leaveDialog).toBeVisible({ timeout: 5_000 });
+    await leaveDialog.getByRole("button", { name: "丢弃并离开", exact: true }).click();
     await expect(page.getByTestId("mask-tool-capsule")).toHaveCount(0);
     expect(await content(request, fixture.annotation_id, token)).toEqual(before);
   });
@@ -261,7 +256,7 @@ test.describe("Mask phase primary actions", () => {
     seed,
     request,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     await seed.configureRasterMask(data.project_id, true);
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     const fixture = await seed.nativeMaskCandidate(taskId);
@@ -351,7 +346,7 @@ test.describe("Mask phase primary actions", () => {
     seed,
     request,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     const token = await seed.accessToken(data.annotator_email);
@@ -387,7 +382,7 @@ test.describe("Mask phase primary actions", () => {
     seed,
     request,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -438,7 +433,7 @@ test.describe("Mask phase primary actions", () => {
         window as typeof window & { __E2E_MASK_TILE_MAX_BYTES__?: number }
       ).__E2E_MASK_TILE_MAX_BYTES__ = 327776;
     });
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,

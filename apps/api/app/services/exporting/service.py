@@ -293,8 +293,14 @@ def _coco_keypoints(geometry: dict, w: int, h: int) -> tuple[list[float], int] |
 
 
 class ExportService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        task_ids: list[uuid.UUID] | None = None,
+    ) -> None:
         self.db = db
+        self.task_ids = task_ids
 
     async def _load_data(
         self,
@@ -310,6 +316,8 @@ class ExportService:
         task_q = select(Task).where(Task.project_id == project_id)
         if batch_id:
             task_q = task_q.where(Task.batch_id == batch_id)
+        if self.task_ids is not None:
+            task_q = task_q.where(Task.id.in_(self.task_ids))
         if video_scope is not None:
             task_q = task_q.where(Task.id == video_scope.task_id)
         task_q = task_q.order_by(Task.sequence_order, Task.created_at, Task.id)
@@ -468,6 +476,8 @@ class ExportService:
         id_q = select(Task.id).where(Task.project_id == project_id)
         if batch_id:
             id_q = id_q.where(Task.batch_id == batch_id)
+        if self.task_ids is not None:
+            id_q = id_q.where(Task.id.in_(self.task_ids))
         if video_scope is not None:
             id_q = id_q.where(Task.id == video_scope.task_id)
         id_q = id_q.order_by(Task.sequence_order, Task.created_at, Task.id)

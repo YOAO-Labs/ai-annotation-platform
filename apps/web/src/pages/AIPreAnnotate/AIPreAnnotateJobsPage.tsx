@@ -215,7 +215,7 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
     <Card>
       <div className={styles.cardHeader}>
         <span>历史 job ({total})</span>
-        <FilterGroup compact label="筛选" className="flex-wrap">
+        <FilterGroup compact label="筛选" hideLabel className="flex-wrap">
           <FilterSelect
             compact
             aria-label="预标任务状态"

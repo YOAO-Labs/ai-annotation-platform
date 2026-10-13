@@ -1,4 +1,4 @@
-"""yolo-backend FastAPI 入口 (v0.14.12).
+"""yolo-backend FastAPI 入口.
 
 端点 (ml-backend 协议 v2):
     GET  /health          健康检查 + provisioning 元信息 + 池状态
@@ -235,7 +235,7 @@ async def lifespan(app: FastAPI):
     raw_keyring = os.environ.get("GPU_LIFECYCLE_VERIFY_KEYS_JSON", "").strip()
     verify_keyring = load_verify_keyring(raw_keyring) if raw_keyring else {}
     CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
-    # v0.18.21 · 创建文本编码器权重目录 (Dockerfile 软链 /app/weights → 此处持久卷子目录).
+    # 创建文本编码器权重目录 (Dockerfile 软链 /app/weights → 此处持久卷子目录).
     # ultralytics WEIGHTS_DIR 相对 "weights" 落 /app/weights → 经软链入卷; 目录须先存在,
     # 否则首个开集文本 /predict 时 clip.load(download_root="weights/clip") makedirs 失败.
     (CHECKPOINTS_DIR / "weights").mkdir(parents=True, exist_ok=True)
@@ -502,13 +502,13 @@ _OBB_PARAMS_SCHEMA = _build_params_schema(
 )
 
 # 开集文本 (detect-world / detect-yoloe / segment-yoloe): conf 是文本匹配置信度。默认仍取 0.25
-# (与闭集同值)——本版无 GPU 实测证据下调, 不盲改 (见 v0.18.32 计划 §3); 仅文案点明开集语义。
+# (与闭集同值)——本版无 GPU 实测证据下调, 不盲改 (校准依据见计划 §3); 仅文案点明开集语义。
 _OPENVOCAB_PARAMS_SCHEMA = _build_params_schema(
     conf_desc="保留文本匹配置信度高于此值的结果. YOLOE/World 开集打分偏保守, "
     "调高=更少更准, 调低=更多但含噪.",
 )
 
-# v0.18.24 · exemplar (YOLOE 视觉提示) 专属 params: 用 `score_threshold` 替代 conf 作为置信度
+# exemplar (YOLOE 视觉提示) 专属 params: 用 `score_threshold` 替代 conf 作为置信度
 # 旋钮 (与 sam3 字段名对齐, 平台 exemplar 阈值滑块读 model.params.score_threshold.default)。
 # 默认 0.25, 与闭集 conf 同值但语义是"相似度"而非检测置信度: 实测 YOLOE VP 相似度分天然打得
 # 保守 (相似小目标多框命中也仅 ~0.5), 取更高阈值 (如 0.5) 会把正确候选挡在门外; 0.25 是召回与
@@ -547,7 +547,7 @@ _EXEMPLAR_PARAMS_SCHEMA = {
 }
 
 
-# v0.21.1 · 检测式视频追踪 params: 闭集 conf/iou/max_det + tracker 算法选择 (ByteTrack/BoT-SORT)。
+# 检测式视频追踪 params: 闭集 conf/iou/max_det + tracker 算法选择 (ByteTrack/BoT-SORT)。
 # tracker 是 param 不是 variant 轴 (不换权重, 只换关联算法), 平台 apply-time 选, 不进全局池;
 # enum 约束到 supported_trackers, 默认 bytetrack (快、通用基线)。
 _TRACKER_PARAMS_SCHEMA = _build_params_schema()
@@ -681,7 +681,7 @@ def _build_openvocab_model_entry(
     geometric_outputs: list[str] | None = None,
     supported_text_outputs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """开集文本 model 条目 (v0.18.21 检测 / v0.18.22 分割). 与闭集结构一致, 但
+    """开集文本 model 条目 (检测 / 分割). 与闭集结构一致, 但
     supported_prompts=['text']; task/几何输出/文本输出形态按条目区分.
 
     supported_text_outputs (协议: 文本批量路径的输出形态选项, 与 gsam2 同形) 决定前端文本面板
@@ -712,7 +712,7 @@ def _build_openvocab_model_entry(
 
 
 def _build_exemplar_model_entry() -> dict[str, Any]:
-    """v0.18.23 · YOLOE visual prompt exemplar 交互模型条目.
+    """YOLOE visual prompt exemplar 交互模型条目.
 
     is_interactive=True + supported_prompts=["exemplar"] → 平台 useBackendRouting 据此把
     yolo-backend 视为交互 backend, 工作台 ExemplarTool 启用 (与 sam3 exemplar 同列, 路由由
@@ -728,7 +728,7 @@ def _build_exemplar_model_entry() -> dict[str, Any]:
         "is_interactive": True,
         "composition": "atom",
         "supported_prompts": ["exemplar"],
-        # v0.18.23 · exemplar 能力声明 (字段与 sam3 对齐, 供前端按能力渲染控件):
+        # exemplar 能力声明 (字段与 sam3 对齐, 供前端按能力渲染控件):
         # YOLOE 支持多正框 + per-request 阈值, 但**无负框** (negative_box=False) /
         # MVP 不叠 text (text_combination=False) → 前端据此隐藏负极性按钮与 text 输入。
         "exemplar_capabilities": {
@@ -755,7 +755,7 @@ def _build_exemplar_model_entry() -> dict[str, Any]:
 
 
 def _build_tracker_model_entry() -> dict[str, Any]:
-    """v0.21.1 · 检测式视频追踪 (detect-then-track) model 条目.
+    """检测式视频追踪 (detect-then-track) model 条目.
 
     复用 detection 权重 + ultralytics 原生 ByteTrack/BoT-SORT: task=tracker、仅吃 video、
     输出带 track_id 的逐帧 bbox (result item type=video_track_bbox)。走标准批量 /predict +
@@ -804,19 +804,19 @@ def setup() -> dict[str, Any]:
         "name": "yolo-backend",
         "version": BACKEND_VERSION,
         "model_version": MODEL_VERSION,
-        "labels": [],  # 顶层 hint 留空; v0.14.17 起类别表逐 model 暴露 (models[].classes) 供前端
+        "labels": [],  # 顶层 hint 留空; 类别表逐 model 暴露 (models[].classes) 供前端
         #               类别白名单 UI. 平台仍不做"模型类→项目标签"映射 (NG6 保留, 由 alias 配置 + 采纳时人选承担).
-        # v0.18.23 · 顶层 hint; 平台实际按 models[] 并集派生 (is_interactive=any(model)),
+        # 顶层 hint; 平台实际按 models[] 并集派生 (is_interactive=any(model)),
         # exemplar 模型令本 backend 整体成为交互 backend。顶层仍报 false 仅为兼容旧消费方。
         "is_interactive": False,
-        # v0.18.21/23 · 闭集四 task 纯批量(none) + 开集文本检测/分割(text) + 视觉提示(exemplar).
+        # 闭集四 task 纯批量(none) + 开集文本检测/分割(text) + 视觉提示(exemplar).
         # 顶层为各 model 并集 hint; 平台按 models[].supported_prompts 逐 model 路由
         # (text → 批量文本面板; exemplar → 工作台交互工具)。
         "supported_prompts": ["none", "text", "exemplar"],
         "supported_geometric_outputs": ["bbox", "polygon", "keypoint", "rotated_bbox"],
         "supported_variants": [],  # 顶层留空, 由 models[].supported_variants 各自声明.
         "infra": "pytorch",
-        "warmup_endpoint": True,  # v0.14.14: 声明本 backend 支持 POST /warmup (协议 §4.4)
+        "warmup_endpoint": True,  # 声明本 backend 支持 POST /warmup (协议 §4.4)
         "params": _PARAMS_SCHEMA,
         "models": [
             _build_model_entry(
@@ -844,7 +844,7 @@ def setup() -> dict[str, Any]:
                 ["rotated_bbox"],
                 params=_OBB_PARAMS_SCHEMA,
             ),
-            # v0.18.21 · 开集文本检测 (批量文本面板, 与 gsam2 text 同列).
+            # 开集文本检测 (批量文本面板, 与 gsam2 text 同列).
             _build_openvocab_model_entry(
                 "detect-world",
                 "YOLO-World 开集文本检测",
@@ -863,7 +863,7 @@ def setup() -> dict[str, Any]:
                 geometric_outputs=["bbox"],
                 supported_text_outputs=["box"],
             ),
-            # v0.18.22 · YOLOE 开集文本分割 (同 -seg 权重出 mask, 与 detect-yoloe 共用句柄).
+            # YOLOE 开集文本分割 (同 -seg 权重出 mask, 与 detect-yoloe 共用句柄).
             _build_openvocab_model_entry(
                 "segment-yoloe",
                 "YOLOE 开集文本分割",
@@ -873,9 +873,9 @@ def setup() -> dict[str, Any]:
                 geometric_outputs=["polygon"],
                 supported_text_outputs=["mask", "both"],
             ),
-            # v0.18.23 · YOLOE visual prompt exemplar (交互工具, is_interactive=true).
+            # YOLOE visual prompt exemplar (交互工具, is_interactive=true).
             _build_exemplar_model_entry(),
-            # v0.21.1 · 检测式视频追踪 (video 源, 复用 detection 权重 + ultralytics tracker).
+            # 检测式视频追踪 (video 源, 复用 detection 权重 + ultralytics tracker).
             _build_tracker_model_entry(),
         ],
     }
@@ -1163,7 +1163,7 @@ async def lifecycle_reset(request: Request) -> dict[str, Any]:
 
 @app.post("/warmup", response_model=WarmupResponse)
 async def warmup(request: Request) -> WarmupResponse:
-    """v0.14.14 协议 §4.4: 加载指定 (task, series, size) 权重到 pool, 不跑 forward.
+    """协议 §4.4: 加载指定 (task, series, size) 权重到 pool, 不跑 forward.
 
     重复预热同 variant 返回 cache_hit=true. pool 满时按 LRU 淘汰最旧的 key, evicted 字段
     回填被淘汰的 key 名供前端 toast 提示.

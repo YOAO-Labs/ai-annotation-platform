@@ -1,8 +1,10 @@
 /**
  * ReviewPage 单测 — 加载态 / 空态 / 正常渲染 / 批次选择 / 全选交互.
+ * plan 1789527942 · T2：整批退回 / 批量退回迁移 decisionDialog（inputDialog /
+ * choiceDialog 两步流），测试渲染真实 <DecisionDialogHost /> 驱动完整弹窗交互.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useNavigate } from "react-router-dom";
 import { ApiError } from "@/api/client";
 
@@ -66,20 +68,6 @@ vi.mock("./ReviewSidebar", () => ({
   ),
 }));
 
-vi.mock("./RejectReasonModal", () => ({
-  RejectReasonModal: ({ open, onConfirm, onClose }: any) =>
-    open ? (
-      <div data-testid="reject-modal">
-        <button type="button" onClick={() => onConfirm({ reason_type: "missing" })}>
-          确认退回
-        </button>
-        <button type="button" onClick={onClose}>
-          取消退回
-        </button>
-      </div>
-    ) : null,
-}));
-
 vi.mock("@/components/Thumbnail", () => ({
   Thumbnail: () => <div data-testid="thumbnail" />,
 }));
@@ -98,6 +86,8 @@ vi.mock("@/components/ui/Toast", async () => {
 });
 
 import { ReviewPage } from "./ReviewPage";
+import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 
 const idleMutation = { mutate: vi.fn(), isPending: false };
 
@@ -117,6 +107,7 @@ function renderUI(initialPath = "/review") {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <ReviewPage />
+      <DecisionDialogHost />
     </MemoryRouter>,
   );
 }
@@ -141,6 +132,13 @@ describe("ReviewPage", () => {
     mockUseAnnotations.mockReturnValue({ data: [] });
     mockUseReviewerStats.mockReturnValue({ data: { reviewing_batches: [] } });
     mockUseTaskList.mockReturnValue({ data: undefined, isLoading: false });
+  });
+
+  // vitest afterEach 先于 RTL cleanup 跑,此刻 Host 仍挂载;清空 decisionDialog 队列防跨用例残留。
+  afterEach(() => {
+    act(() => {
+      useDecisionDialogStore.setState({ queue: [] });
+    });
   });
 
   it("初始态 → 显示侧边栏 + 「质检审核」标题 + 引导文案", () => {
@@ -207,6 +205,27 @@ describe("ReviewPage", () => {
   it("无任务空态 → 显示「暂无待审核任务」", () => {
     renderUI();
     expect(screen.getByText("暂无待审核任务")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "返回全部批次" })).not.toBeInTheDocument();
+  });
+
+  it.each(["project=p1", "batch=b1", "assignee=u1"])(
+    "空队列有 %s 选择时仍可返回全部批次",
+    (selection) => {
+      renderUI(`/review?${selection}`);
+      fireEvent.click(screen.getByRole("button", { name: "返回全部批次" }));
+      expect(screen.getByText("暂无待审核任务")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "返回全部批次" })).not.toBeInTheDocument();
+      expect(mockUseTaskList).toHaveBeenLastCalledWith(undefined, { status: "review" });
+    },
+  );
+
+  it.each([
+    { data: undefined, isLoading: true },
+    { data: undefined, isError: true, error: new Error("暂时不可用"), refetch: vi.fn() },
+  ])("无选择的审核批次加载或失败状态不显示返回入口", (queryState) => {
+    mockUseReviewerStats.mockReturnValue(queryState);
+    renderUI();
+    expect(screen.queryByRole("button", { name: "返回全部批次" })).not.toBeInTheDocument();
   });
 
   it("有任务 → 渲染任务行 + 全选 checkbox", () => {
@@ -235,6 +254,103 @@ describe("ReviewPage", () => {
     expect(screen.getByText("cat.jpg")).toBeInTheDocument();
     // 批量操作栏：共 X 个待审核任务
     expect(screen.getByText(/共 1 个待审核任务/)).toBeInTheDocument();
+  });
+
+  it("整批退回：必填原因空提交被拦下，补齐后按去空白值提交（不再依赖 window.prompt）", async () => {
+    const mutate = vi.fn();
+    mockUseRejectBatch.mockReturnValue({ mutate, isPending: false });
+    mockUseReviewerStats.mockReturnValue({
+      data: {
+        reviewing_batches: [
+          {
+            batch_id: "b1",
+            batch_name: "批次A",
+            batch_display_id: "B-1",
+            project_id: "p1",
+            project_name: "项目X",
+            total_tasks: 5,
+            review_tasks: 2,
+            completed_tasks: 1,
+          },
+        ],
+      },
+    });
+    mockUseTaskList.mockReturnValue({
+      data: { pages: [{ items: [sampleTask] }] },
+      isLoading: false,
+    });
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
+    renderUI("/review?project=p1&batch=b1");
+
+    fireEvent.click(screen.getByRole("button", { name: "整批退回" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "驳回批次 B-1" });
+    const textarea = within(dialog).getByPlaceholderText(/请说明需要标注员重做的具体问题/);
+    // inputDialog 的 textarea 强制 maxLength=500（服务统一行为）
+    expect(textarea).toHaveAttribute("maxlength", "500");
+
+    // 原因为空时点确认：行内报错、不关窗、mutation 不触发
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认驳回" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/请填写/);
+    expect(mutate).not.toHaveBeenCalled();
+
+    // 补齐后确认：mutation 只在确认后收到去空白的原因
+    fireEvent.change(textarea, { target: { value: "  重新标注车辆框  " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认驳回" }));
+    await waitFor(() =>
+      expect(mutate).toHaveBeenCalledWith(
+        { batchId: "b1", feedback: "重新标注车辆框" },
+        expect.objectContaining({ onSuccess: expect.any(Function) }),
+      ),
+    );
+    expect(promptSpy).not.toHaveBeenCalled();
+    promptSpy.mockRestore();
+  });
+
+  it("打开整批退回弹窗后切换批次作用域，确认后被作用域守卫拦下不误退回", async () => {
+    mockUseReviewerStats.mockReturnValue({
+      data: {
+        reviewing_batches: [
+          {
+            batch_id: "b1",
+            batch_name: "批次A",
+            batch_display_id: "B-1",
+            project_id: "p1",
+            project_name: "项目X",
+            total_tasks: 5,
+            review_tasks: 2,
+            completed_tasks: 1,
+          },
+          {
+            batch_id: "b2",
+            batch_name: "批次B",
+            batch_display_id: "B-2",
+            project_id: "p1",
+            project_name: "项目X",
+            total_tasks: 4,
+            review_tasks: 2,
+            completed_tasks: 0,
+          },
+        ],
+      },
+    });
+    mockUseTaskList.mockReturnValue({
+      data: { pages: [{ items: [sampleTask] }] },
+      isLoading: false,
+    });
+    const mutate = vi.fn();
+    mockUseRejectBatch.mockReturnValue({ mutate, isPending: false });
+    renderUI("/review?project=p1&batch=b1");
+
+    fireEvent.click(screen.getByRole("button", { name: "整批退回" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "驳回批次 B-1" });
+
+    // decisionDialog 不感知页面作用域，弹窗仍打开；确认后由 queueScopeKeyRef 复查拦下
+    fireEvent.click(screen.getByTestId("batch-b2"));
+    const textarea = within(dialog).getByPlaceholderText(/请说明需要标注员重做的具体问题/);
+    fireEvent.change(textarea, { target: { value: "重做" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认驳回" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(mutate).not.toHaveBeenCalled();
   });
 
   it("全选 checkbox → 已选 N/N 文案出现 + 批量操作按钮显示", () => {
@@ -278,7 +394,7 @@ describe("ReviewPage", () => {
     expect(screen.getByRole("button", { name: /批量退回/ })).toBeInTheDocument();
   });
 
-  it("批量退回按钮 → 打开 RejectReasonModal", () => {
+  it("批量退回按钮 → 打开退回原因 choiceDialog（含选项 label）", async () => {
     mockUseReviewerStats.mockReturnValue({
       data: {
         reviewing_batches: [
@@ -304,10 +420,42 @@ describe("ReviewPage", () => {
     const checkboxes = screen.getAllByRole("checkbox");
     fireEvent.click(checkboxes[0]);
     fireEvent.click(screen.getByRole("button", { name: /批量退回/ }));
-    expect(screen.getByTestId("reject-modal")).toBeInTheDocument();
+    const dialog = await screen.findByRole("alertdialog", { name: "退回原因（1 个任务）" });
+    for (const label of ["漏标", "多标", "类别错误", "位置或尺寸不准"]) {
+      expect(within(dialog).getByRole("button", { name: label })).toBeInTheDocument();
+    }
   });
 
-  it("切换 URL 批次会关闭退回草稿，迟到的旧结果不会清空新选择", async () => {
+  it("批量退回单任务被跳过时，choiceDialog 描述透传 skip 提示", async () => {
+    mockUseReviewerStats.mockReturnValue({
+      data: {
+        reviewing_batches: [
+          {
+            batch_id: "b1",
+            batch_name: "批次A",
+            batch_display_id: "B-1",
+            project_id: "p1",
+            project_name: "项目X",
+            total_tasks: 5,
+            review_tasks: 2,
+            completed_tasks: 1,
+          },
+        ],
+      },
+    });
+    mockUseTaskList.mockReturnValue({
+      data: { pages: [{ items: [{ ...sampleTask, skip_reason: "no_target" }] }] },
+      isLoading: false,
+    });
+    renderUI("/review?project=p1&batch=b1");
+
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    fireEvent.click(screen.getByRole("button", { name: /批量退回/ }));
+    const dialog = await screen.findByRole("alertdialog", { name: "退回原因（1 个任务）" });
+    expect(within(dialog).getByText(/此任务被标注员跳过：no_target/)).toBeInTheDocument();
+  });
+
+  it("切换 URL 批次后，迟到的旧退回结果不会清空新选择", async () => {
     let settled: (() => void) | undefined;
     const rejectMutate = vi.fn((_variables: unknown, options: { onSettled: () => void }) => {
       settled = options.onSettled;
@@ -347,16 +495,20 @@ describe("ReviewPage", () => {
       <MemoryRouter initialEntries={["/review?project=p1&batch=b1"]}>
         <NavigateTo path="/review?project=p2&batch=b2" />
         <ReviewPage />
+        <DecisionDialogHost />
       </MemoryRouter>,
     );
 
     fireEvent.click(screen.getAllByRole("checkbox")[0]);
     fireEvent.click(screen.getByRole("button", { name: /批量退回/ }));
-    fireEvent.click(screen.getByRole("button", { name: "确认退回" }));
-    expect(rejectMutate).toHaveBeenCalledOnce();
+    let dialog = await screen.findByRole("alertdialog", { name: "退回原因（1 个任务）" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "漏标" }));
+    dialog = await screen.findByRole("alertdialog", { name: "补充说明" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认退回" }));
+    await waitFor(() => expect(rejectMutate).toHaveBeenCalledOnce());
 
     fireEvent.click(screen.getByRole("button", { name: "导航" }));
-    await waitFor(() => expect(screen.queryByTestId("reject-modal")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "批次B" })).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("checkbox")[0]);
     expect(screen.getByText("已选 1/1")).toBeInTheDocument();
 

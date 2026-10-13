@@ -1,0 +1,18 @@
+[Unit]
+Description=Primary checkout development API on port 8000
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@/apps/api
+Environment=MIGRATION_DATABASE_URL=
+ExecStart=@PROJECT_DIR@/apps/api/.venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --timeout-graceful-shutdown 30
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0022
+
+[Install]
+WantedBy=default.target

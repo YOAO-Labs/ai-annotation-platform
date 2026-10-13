@@ -5,6 +5,19 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      # Plan §6.5-5: the manual entry states its scope explicitly instead of
+      # implying one from the event name. The planned selection honours it;
+      # the legacy rollback mode keeps its extended-only behavior.
+      e2e_scope:
+        description: "E2E scope for the manual run (shadow report)"
+        required: false
+        default: extended
+        type: choice
+        options:
+          - extended
+          - full
 
 # Cancel superseded PR runs; retain every main-branch validation.
 concurrency:
@@ -67,14 +80,20 @@ jobs:
         run: |
           uv run python -m unittest discover -s ../../scripts -p 'test_worktree*.py' -v
           uv run python ../../scripts/test-orca-worktree-setup.py
-      # Keep the image from the last passing main run, using MinIO's Quay registry.
+      - name: Local service maintenance tests
+        working-directory: apps/api
+        run: |
+          uv run python ../../scripts/test_production_health_recover.py
+          uv run python ../../scripts/test_development_restart.py
+      # IBM mirrors the removed Quay image with the same verified digest.
+      # https://www.ibm.com/support/pages/node/7289585
       - name: Start MinIO
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+            icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:9000/minio/health/live; then
               exit 0
@@ -92,11 +111,12 @@ jobs:
       - name: alembic upgrade head
         working-directory: apps/api
         run: uv run alembic upgrade head
-      - name: alembic round-trip (upgrade-then-downgrade-then-upgrade)
+      - name: Migration validation (fresh / reversible / forward / restore)
         working-directory: apps/api
-        run: |
-          uv run alembic downgrade base
-          uv run alembic upgrade head
+        env:
+          AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
+          MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: uv run python ../../scripts/validate_migrations.py
       - name: OpenAPI snapshot drift check
         working-directory: apps/api
         run: |
@@ -109,6 +129,11 @@ jobs:
         run: >-
           uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
           --durations=30 --junitxml=pytest-results.xml
+      # P6 交接：migration policy 纯规则测试（scripts/ 下不被 apps/api pytest
+      # 收集），在此以同一 venv 显式运行。
+      - name: Migration policy pure tests
+        working-directory: apps/api
+        run: uv run python ../../scripts/test_alembic_migration_policy.py
       - name: Upload backend test results
         uses: actions/upload-artifact@v4
         if: always()
@@ -142,7 +167,7 @@ jobs:
         working-directory: docs-site/dev/examples/mock-v2-backend
         run: uv run --extra test pytest -q
 
-  # Python SDK / CLI / TUI 测试（packages/python-sdk, v0.15.2 起）。
+  # Python SDK / CLI / TUI 测试（packages/python-sdk）。
   python-sdk-pytest:
     name: Python SDK tests
     runs-on: ubuntu-latest
@@ -167,7 +192,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - uses: pnpm/action-setup@v4
       - name: pnpm install
         working-directory: apps/web
@@ -177,7 +202,7 @@ jobs:
         env:
           OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
         run: pnpm build
-      # v0.8.8 · bundle size budget 守护：超过 .size-limit.json 阈值即阻断 PR。
+      # bundle size budget 守护：超过 .size-limit.json 阈值即阻断 PR。
       - name: Bundle size check
         working-directory: apps/web
         run: pnpm size
@@ -206,7 +231,7 @@ jobs:
         run: pip install uv
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - uses: pnpm/action-setup@v4
       - name: pnpm install
         run: pnpm install --frozen-lockfile
@@ -228,8 +253,10 @@ jobs:
           --all-files --hook-stage manual --show-diff-on-failure
       - name: Repository Node script tests
         run: >-
-          node --test scripts/check-workflow-names.test.mjs
-          scripts/dev-worktree.test.mjs scripts/plan-e2e-suites.test.mjs
+          node --test scripts/audit-e2e-requirements.test.mjs
+          scripts/check-workflow-names.test.mjs scripts/dev-worktree.test.mjs
+          scripts/image-reference-utils.test.mjs scripts/plan-e2e-suites.test.mjs
+          scripts/summarize-e2e-results.test.mjs
       - name: Workflow naming
         run: node scripts/check-workflow-names.mjs --strict
 
@@ -242,7 +269,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - uses: pnpm/action-setup@v4
       - name: pnpm install
         run: pnpm install --frozen-lockfile
@@ -258,11 +285,14 @@ jobs:
       contents: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      required: ${{ steps.plan.outputs.required }}
+      run-suites: ${{ steps.plan.outputs.run_suites }}
+      ml-cpu: ${{ steps.plan.outputs.ml_cpu }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Fetch PR base
         if: github.event_name == 'pull_request'
         env:
@@ -272,11 +302,67 @@ jobs:
         id: plan
         env:
           E2E_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          E2E_DISPATCH_SCOPE: ${{ inputs.e2e_scope }}
+          # Documented rollback: set the repository variable
+          # E2E_SELECTION_MODE=legacy to restore the frozen pre-P8 selection
+          # without a code change (empty/unset keeps the planned default).
+          E2E_SELECTION_MODE: ${{ vars.E2E_SELECTION_MODE }}
         run: node scripts/plan-e2e-suites.mjs "$E2E_BASE_SHA" >> "$GITHUB_OUTPUT"
+      # The planning job records the legacy-vs-planned comparison every run;
+      # the stable `Frontend E2E` name is preserved across the P9 switch.
+      - name: Record shadow E2E selection
+        env:
+          SHADOW: ${{ steps.plan.outputs.shadow }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const shadow = JSON.parse(process.env.SHADOW);
+          const plannedSet = new Set(shadow.planned);
+          const legacySet = new Set(shadow.legacy);
+          const rows = [
+            '| Suite | Legacy gate | §6 shadow proposal |',
+            '| --- | --- | --- |',
+            ...shadow.legacy.filter((suite) => !plannedSet.has(suite)).map((suite) => `| ${suite} | runs | proposed removal |`),
+            ...shadow.planned.map((suite) => `| ${suite} | ${legacySet.has(suite) ? "runs" : "absent"} | runs |`),
+          ];
+          const lines = [
+            '### E2E shadow selection (plan §6, warn-only — gate unchanged)',
+            '',
+            '```',
+            `legacy:  ${shadow.legacy.join(', ') || '(none)'}`,
+            `planned: ${shadow.planned.join(', ') || '(none)'}`,
+            `added:   ${shadow.added.join(', ') || '(none)'}`,
+            `removed: ${shadow.removed.join(', ') || '(none)'}`,
+            '```',
+            '',
+            ...rows,
+            '',
+            'Reasons:',
+            ...shadow.reasons.map((reason) => `- ${reason.suite}: ${reason.because}`),
+            ...shadow.warnings.map((warning) => `- warning: ${warning}`),
+            '',
+            `ML CPU contract caller triggered: ${shadow.mlCpu === true}`,
+            `Delegated ml-cpu suites (execution via ml-cpu-test.yml): ${shadow.sharedContracts.qualification.map((s) => s.suite).join(', ') || '(none)'}`,
+            '',
+          ];
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'));
+          NODE
+
+  # P6 handoff wiring: the CPU contract suites (shared packages + five ML
+  # backends, including the 12 CPU-torch files) execute through the dedicated
+  # reusable workflow. Path filters live here; execution lives there.
+  ml-cpu:
+    name: ML CPU contract tests
+    needs: [e2e-plan]
+    if: needs.e2e-plan.outputs.ml-cpu == 'true'
+    uses: ./.github/workflows/ml-cpu-test.yml
+    with:
+      suites: "all"
 
   e2e-suites:
     name: Frontend E2E execution
     needs: [e2e-plan]
+    if: needs.e2e-plan.outputs.run-suites == 'true'
     uses: ./.github/workflows/e2e-run.yml
     with:
       matrix: ${{ needs.e2e-plan.outputs.matrix }}
@@ -287,10 +373,38 @@ jobs:
     needs: [e2e-plan, e2e-suites]
     if: always()
     steps:
-      - name: Require every E2E suite to pass
+      - uses: actions/checkout@v4
+      - name: Collect per-suite status artifacts
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-report-*
+          path: suite-status-raw
+          merge-multiple: true
+      - name: Audit planned suites against actual results
+        if: needs.e2e-plan.outputs.required != ''
+        env:
+          E2E_REQUIRED: ${{ needs.e2e-plan.outputs.required }}
+          E2E_RUN_SUITES: ${{ needs.e2e-plan.outputs.run-suites }}
+        run: |
+          printf '%s' "$E2E_REQUIRED" > required-suites.json
+          if [ "$E2E_RUN_SUITES" = "true" ]; then
+            node scripts/audit-e2e-requirements.mjs required-suites.json suite-status-raw/suite-status
+          else
+            # Documented docs-only skip: the manifest must carry an explicit
+            # docs-only classification with a reason (validated by the audit).
+            mkdir -p empty-status
+            node scripts/audit-e2e-requirements.mjs required-suites.json empty-status
+          fi
+      - name: Require every planned E2E suite to pass
         env:
           E2E_PLAN_RESULT: ${{ needs.e2e-plan.result }}
-          E2E_RESULT: ${{ needs.e2e-suites.result }}
+          E2E_SUITES_RESULT: ${{ needs.e2e-suites.result }}
+          E2E_RUN_SUITES: ${{ needs.e2e-plan.outputs.run-suites }}
         run: |
           test "$E2E_PLAN_RESULT" = success
-          test "$E2E_RESULT" = success
+          if [ "$E2E_RUN_SUITES" = "true" ]; then
+            test "$E2E_SUITES_RESULT" = success
+          else
+            test "$E2E_SUITES_RESULT" = skipped
+          fi

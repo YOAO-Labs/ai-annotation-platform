@@ -31,7 +31,7 @@ class _Model:
 
 def _domain(*, free_gpu_memory=None):
     from gpu_lifecycle import Sam3GpuLifecycle
-    from managed_pool import BuildArtifact, ManagedLruPool
+    from aap_backend_runtime import BuildArtifact, ManagedLruPool
     from pool_domain import Sam3Pools
 
     private_key = Ed25519PrivateKey.generate()
@@ -704,7 +704,7 @@ async def test_cancelled_close_still_releases_active_operation() -> None:
 @pytest.mark.asyncio
 async def test_cancelled_legacy_unload_owner_recovers_without_keyring() -> None:
     from gpu_lifecycle import Sam3GpuLifecycle
-    from managed_pool import BuildArtifact, ManagedLruPool
+    from aap_backend_runtime import BuildArtifact, ManagedLruPool
     from pool_domain import Sam3Pools
 
     cleanup_started = threading.Event()

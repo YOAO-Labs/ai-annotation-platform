@@ -6,10 +6,11 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.annotation import Annotation
+from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.prediction import Prediction
-from app.db.models.project_member import ProjectMember
-from tests.factory import create_batch, create_project, create_task
+from tests.factory import create_membership, create_batch, create_project, create_task
 
 pytestmark = pytest.mark.asyncio
 
@@ -81,7 +82,363 @@ async def test_tasks_query_filters_unresolved_feedback_count(
     body = r.json()
     assert [item["id"] for item in body["items"]] == [str(task_b.id)]
     assert body["items"][0]["unresolved_feedback_count"] == 1
+    assert body["items"][0]["unresolved_issue_count"] == 1
     assert str(task_a.id) not in [item["id"] for item in body["items"]]
+
+
+async def test_tasks_query_separates_unresolved_issues_from_comments(
+    httpx_client: httpx.AsyncClient,
+    project_admin,
+    db_session: AsyncSession,
+):
+    """Two task columns agree with the Workbench read surfaces.
+
+    Plan example: one open issue with two replies plus three task comments and
+    one annotation comment shows 未解决问题 1 / 评论 4. Resolving the issue
+    becomes 0 / 4; replies never inflate either column.
+    """
+    owner, token = project_admin
+    project, task_a, task_b = await _seed_project(db_session, owner.id)
+    task_c = await create_task(db_session, project_id=project.id, display_id="T-DM-C")
+
+    annotation = Annotation(
+        task_id=task_a.id,
+        project_id=project.id,
+        user_id=owner.id,
+        annotation_type="bbox",
+        class_name="car",
+        geometry={"type": "bbox", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+        is_active=True,
+    )
+    deleted_annotation = Annotation(
+        task_id=task_c.id,
+        project_id=project.id,
+        user_id=owner.id,
+        annotation_type="bbox",
+        class_name="car",
+        geometry={"type": "bbox", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+        is_active=False,
+    )
+    db_session.add_all([annotation, deleted_annotation])
+    await db_session.flush()
+
+    issue_root = AnnotationFeedback(
+        kind="issue",
+        anchor_type="task",
+        project_id=project.id,
+        task_id=task_a.id,
+        status="open",
+        body="root issue",
+        author_id=owner.id,
+    )
+    db_session.add(issue_root)
+    await db_session.flush()
+
+    def _feedback(**kwargs):
+        kwargs.setdefault("status", "open")
+        kwargs.setdefault("body", "body")
+        kwargs.setdefault("author_id", owner.id)
+        return AnnotationFeedback(**kwargs)
+
+    db_session.add_all(
+        [
+            # Two replies to the issue: never comments, never standalone issues.
+            _feedback(
+                kind="comment",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_a.id,
+                thread_parent_id=issue_root.id,
+            ),
+            _feedback(
+                kind="comment",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_a.id,
+                thread_parent_id=issue_root.id,
+            ),
+            # Three native task comments.
+            *[
+                _feedback(
+                    kind="comment",
+                    anchor_type="task",
+                    project_id=project.id,
+                    task_id=task_a.id,
+                )
+                for _ in range(3)
+            ],
+            # Noise on task_b that must count as neither issue nor comment:
+            # resolved issue, mirrored annotation comment, bug and rejection
+            # records, and an inactive native comment.
+            _feedback(
+                kind="issue",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_b.id,
+                status="resolved",
+            ),
+            _feedback(
+                kind="comment",
+                anchor_type="annotation",
+                project_id=project.id,
+                task_id=task_b.id,
+                annotation_id=annotation.id,
+            ),
+            _feedback(
+                kind="bug",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_b.id,
+            ),
+            _feedback(
+                kind="reject",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_b.id,
+            ),
+            _feedback(
+                kind="comment",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_b.id,
+                is_active=False,
+            ),
+        ]
+    )
+    # One active annotation comment on task_a, and one on the soft-deleted
+    # annotation of task_c (retained like the Workbench comment feed).
+    db_session.add_all(
+        [
+            AnnotationComment(
+                annotation_id=annotation.id,
+                project_id=project.id,
+                author_id=owner.id,
+                body="annotation comment",
+                is_resolved=False,
+                is_active=True,
+            ),
+            AnnotationComment(
+                annotation_id=deleted_annotation.id,
+                project_id=project.id,
+                author_id=owner.id,
+                body="comment on deleted annotation",
+                is_resolved=False,
+                is_active=True,
+            ),
+        ]
+    )
+    # task_c: deleted root issue with a surviving reply must not leave a
+    # phantom unresolved issue.
+    deleted_root = AnnotationFeedback(
+        kind="issue",
+        anchor_type="task",
+        project_id=project.id,
+        task_id=task_c.id,
+        status="open",
+        body="deleted root",
+        author_id=owner.id,
+        is_active=False,
+    )
+    db_session.add(deleted_root)
+    await db_session.flush()
+    db_session.add(
+        _feedback(
+            kind="comment",
+            anchor_type="task",
+            project_id=project.id,
+            task_id=task_c.id,
+            thread_parent_id=deleted_root.id,
+        )
+    )
+    await db_session.flush()
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async def query(payload):
+        response = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/tasks/query",
+            headers=headers,
+            json=payload,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    body = await query(
+        {
+            "filter_json": {},
+            "columns_json": [
+                "unresolved_issue_count",
+                "comment_count",
+                "unresolved_feedback_count",
+            ],
+        }
+    )
+    by_id = {item["id"]: item for item in body["items"]}
+    assert by_id[str(task_a.id)]["unresolved_issue_count"] == 1
+    assert by_id[str(task_a.id)]["comment_count"] == 4
+    # Legacy alias keeps the corrected issue count.
+    assert by_id[str(task_a.id)]["unresolved_feedback_count"] == 1
+    assert by_id[str(task_b.id)]["unresolved_issue_count"] == 0
+    assert by_id[str(task_b.id)]["comment_count"] == 0
+    assert by_id[str(task_c.id)]["unresolved_issue_count"] == 0
+    assert by_id[str(task_c.id)]["comment_count"] == 1
+
+    # Both Workbench read surfaces agree with the two columns.
+    discussion = await httpx_client.get(
+        f"/api/v1/tasks/{task_a.id}/discussion/page",
+        headers=headers,
+        params={"scope": "all", "limit": 50},
+    )
+    assert discussion.status_code == 200, discussion.text
+    assert discussion.json()["total"] == 4
+
+    issues = await httpx_client.get(
+        "/api/v1/feedbacks",
+        headers=headers,
+        params={
+            "project_id": project.id,
+            "task_id": task_a.id,
+            "kind": "issue",
+            "root_only": True,
+            "include_counts": True,
+            "limit": 50,
+        },
+    )
+    assert issues.status_code == 200, issues.text
+    assert issues.json()["total"] == 1
+    assert issues.json()["status_counts"]["open"] == 1
+
+    # Numeric filters and both new sorts use the same predicates.
+    filtered = await query(
+        {
+            "filter_json": {
+                "op": "and",
+                "rules": [{"field": "issue.unresolved_count", "op": "gt", "value": 0}],
+            },
+        }
+    )
+    assert [item["id"] for item in filtered["items"]] == [str(task_a.id)]
+    filtered_comments = await query(
+        {
+            "filter_json": {
+                "op": "and",
+                "rules": [
+                    {"field": "discussion.comment_count", "op": "gt", "value": 0}
+                ],
+            },
+            "sort_json": [{"field": "comment_count", "direction": "desc"}],
+        }
+    )
+    assert [item["id"] for item in filtered_comments["items"]] == [
+        str(task_a.id),
+        str(task_c.id),
+    ]
+
+    # The summary drill-down counts unresolved root issues only.
+    summary = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/data-manager/summary",
+        headers=headers,
+        json={"filter_json": {}},
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["unresolved_feedback"] == 1
+
+    # Resolving the issue keeps the comment column unchanged.
+    issue_root.status = "resolved"
+    await db_session.flush()
+    body = await query({"filter_json": {}})
+    by_id = {item["id"]: item for item in body["items"]}
+    assert by_id[str(task_a.id)]["unresolved_issue_count"] == 0
+    assert by_id[str(task_a.id)]["comment_count"] == 4
+
+    # Reopening restores the unresolved issue; deleting the root (with
+    # surviving replies) never leaves a phantom issue.
+    issue_root.status = "open"
+    await db_session.flush()
+    body = await query({"filter_json": {}})
+    assert {item["id"]: item for item in body["items"]}[str(task_a.id)][
+        "unresolved_issue_count"
+    ] == 1
+
+    issue_root.is_active = False
+    await db_session.flush()
+    body = await query({"filter_json": {}})
+    by_id = {item["id"]: item for item in body["items"]}
+    assert by_id[str(task_a.id)]["unresolved_issue_count"] == 0
+    assert by_id[str(task_a.id)]["comment_count"] == 4
+
+
+async def test_builtin_feedback_open_view_counts_unresolved_issues(
+    httpx_client: httpx.AsyncClient,
+    project_admin,
+    db_session: AsyncSession,
+):
+    owner, token = project_admin
+    project, task_a, task_b = await _seed_project(db_session, owner.id)
+    db_session.add_all(
+        [
+            AnnotationFeedback(
+                kind="issue",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_a.id,
+                status="open",
+                body="root",
+                author_id=owner.id,
+            ),
+            AnnotationFeedback(
+                kind="comment",
+                anchor_type="task",
+                project_id=project.id,
+                task_id=task_b.id,
+                status="open",
+                body="ordinary comment",
+                author_id=owner.id,
+            ),
+        ]
+    )
+    await db_session.flush()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    views = await httpx_client.get(
+        f"/api/v1/projects/{project.id}/task-views", headers=headers
+    )
+    assert views.status_code == 200, views.text
+    feedback_open = next(
+        view for view in views.json()["items"] if view["key"] == "feedback-open"
+    )
+    assert feedback_open["name"] == "有未解决问题"
+    assert feedback_open["result_count"] == 1
+
+    schema = await httpx_client.get(
+        f"/api/v1/projects/{project.id}/data-manager/schema", headers=headers
+    )
+    assert schema.status_code == 200, schema.text
+    columns = {column["key"]: column for column in schema.json()["columns"]}
+    assert columns["unresolved_issue_count"]["label"] == "未解决问题"
+    assert columns["comment_count"]["label"] == "评论"
+    assert columns["unresolved_issue_count"]["default"] is True
+    assert columns["comment_count"]["default"] is True
+    # The legacy column remains valid for saved views but is no longer default.
+    assert columns["unresolved_feedback_count"]["default"] is False
+    assert "unresolved_issue_count" in schema.json()["default_columns"]
+    assert "comment_count" in schema.json()["default_columns"]
+    assert "unresolved_feedback_count" not in schema.json()["default_columns"]
+    sort_fields = {item["value"] for item in schema.json()["sort_fields"]}
+    assert {"unresolved_issue_count", "comment_count"} <= sort_fields
+    filter_fields = {item["key"] for item in schema.json()["filter_fields"]}
+    assert {"issue.unresolved_count", "discussion.comment_count"} <= filter_fields
+
+    # A legacy saved-view column list keeps working as the compatibility alias.
+    legacy = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/tasks/query",
+        headers=headers,
+        json={"filter_json": {}, "columns_json": ["unresolved_feedback_count"]},
+    )
+    assert legacy.status_code == 200, legacy.text
+    by_id = {item["id"]: item for item in legacy.json()["items"]}
+    assert by_id[str(task_a.id)]["unresolved_feedback_count"] == 1
+    assert by_id[str(task_b.id)]["unresolved_feedback_count"] == 0
 
 
 async def test_tasks_query_filters_prediction_model_version(
@@ -317,12 +674,8 @@ async def test_tasks_query_annotator_only_sees_visible_batches(
     annotator_user, annotator_token = annotator
     reviewer_user, _ = reviewer
     project = await create_project(db_session, owner_id=owner.id, type_key="image-det")
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator_user.id,
-            role="annotator",
-        )
+    await create_membership(
+        db_session, project_id=project.id, user_id=annotator_user.id, role="annotator"
     )
 
     batch_mine = await create_batch(db_session, project_id=project.id, status="active")
@@ -372,12 +725,8 @@ async def test_task_view_visibility_and_shared_edit_permissions(
     owner, owner_token = project_admin
     reviewer_user, reviewer_token = reviewer
     project, _, _ = await _seed_project(db_session, owner.id)
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=reviewer_user.id,
-            role="reviewer",
-        )
+    await create_membership(
+        db_session, project_id=project.id, user_id=reviewer_user.id, role="reviewer"
     )
     await db_session.flush()
 

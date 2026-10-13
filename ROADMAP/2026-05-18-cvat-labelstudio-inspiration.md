@@ -106,7 +106,9 @@
 
 ## 3. 生态扩面类（差异化竞争点）
 
-### 3.1 公开 Python SDK + CLI
+### 3.1 公开 Python SDK + CLI ✅ 已完成（`packages/python-sdk`）
+
+> 独立包 `ai-annotation-sdk` 与 `aap` CLI / TUI 已落地，覆盖鉴权、项目 / 数据集 / 任务 / 标注 / 预测 / 导出 / 批次 / 成员 / 模型服务与后台任务；OpenAPI 契约测试与能力台账 `api-coverage.toml` 随 SDK 独立发版，文档见 `docs-site/dev/sdk/`。SoT：`packages/python-sdk/` 与 CHANGELOG。仅 PyPI 发布不在仓库内可证。
 
 - **来源**：CVAT [`cvat-sdk`](../../cvat/cvat-sdk) + [`cvat-cli`](../../cvat/cvat-cli)。
 - **现 ROADMAP**：L7 "公开 SDK"在 12 月+ 长期规划里。
@@ -164,16 +166,13 @@
 
 ## 4. 分析与观测类
 
-### 4.1 Annotator Performance Dashboard
+### 4.1 Annotator Performance Dashboard ✅ 已完成
 
-- **数据源已齐**：`task_events.duration_ms` + `mv_user_perf_daily` 物化视图 + §1.6 DuckDB 视图。
-- **缺**：前端面板。
-- **设计**：
-  - super_admin / project_admin 可见的 `/admin/performance` 页面。
-  - 维度：人均吞吐（task/h）/ 平均耗时分布（直方图）/ reject 率 / IAA（如已计算）/ 类别覆盖。
-  - 时间筛选：今日 / 本周 / 本月 / 自定义 range。
-  - 个人页 `/me/performance`：标注员看自己的趋势，对标团队平均线。
-- **工作量**：3d（前端图表 + SQL）。
+> 个人页 `/me/performance`、管理端 `/admin/people` 与项目成员绩效看板已落地，覆盖人均吞吐、耗时分布（p50/p95）、reject 原因与类别覆盖、首审质量与 CSV 导出；IAA 维度随共识能力另立。SoT：`apps/web/src/pages/Me/MyPerformancePage.tsx`、`apps/api/app/api/v1/dashboard/annotator.py`、CHANGELOG。
+
+- **数据源**：`task_events.duration_ms` + `mv_user_perf_daily` 物化视图 + §1.6 DuckDB 视图。
+- **已交付**：管理端 `/admin/people` 与项目成员绩效看板（人均吞吐 / 耗时分布 p50·p95 / reject 原因 / 类别覆盖 / 首审质量 / CSV 导出），以及个人页 `/me/performance`（趋势对标团队）。
+- **仍缺**：IAA 维度，随共识能力另立。
 - **价值**：**付费决策项**。项目管理客户能据此发奖金 / 排红线，对标注员能据此自我改进。CVAT 有简版，LS Enterprise 才完整 —— **可做差异化**。
 
 ### 4.2 请求级 Trace ID（轻量 OpenTelemetry）
@@ -265,11 +264,11 @@
 | §2.4 Tracker 协议层          | ✅ **已完成 v0.10.37**（能力协商 epic）                           | 结论演进：取消 Tracker Registry UI，改 `/setup` 自报 + 动态发现；详见 §2.4 与视频 roadmap §3.2/§3.3 |
 | §2.5 项目规则版本化          | **新增**                                                          | 回流到 §A "数据 & 存储" 或长期规划                                                                  |
 | §2.6 平台原生 AAP JSON       | ✅ **已完成 v0.10.15**（2026-05-19，与 §1.5 同窗口）              | 后续延伸条目已转录到 ROADMAP §A "Predictions Import / AAP JSON 后续延伸"                            |
-| §3.1 公开 SDK + CLI          | 长期规划 L7（12 月+）                                             | **优先级升级**：建议从 L7 提升到 P2                                                                 |
+| §3.1 公开 SDK + CLI          | ✅ **已完成**（`packages/python-sdk`）                            | 独立包 `ai-annotation-sdk` + `aap` CLI / TUI + `docs-site/dev/sdk/`；仅 PyPI 发布不在仓库内可证     |
 | §3.2 Cloud Storage Sync      | **新增**                                                          | 回流到 §A "数据 & 存储"，触发=企业客户需求                                                          |
 | §3.3 Datumaro 集成           | **新增**                                                          | 写入 §A "导出" 子节（如有），或新增                                                                 |
 | §3.4 Tool Plugin 注册式      | 长期规划 L7                                                       | **细化**：作 L7 的具体接口形态备忘                                                                  |
-| §4.1 Annotator Dashboard     | **新增**                                                          | 回流到 §B "可观测性"，标"付费决策项"                                                                |
+| §4.1 Annotator Dashboard     | ✅ **已完成**                                                     | 个人页 `/me/performance` + 管理端 `/admin/people` + 项目成员绩效；IAA 维度随共识能力另立            |
 | §4.2 Trace ID                | **新增**                                                          | 回流到 §B "测试 / 开发体验"                                                                         |
 | §4.3 ClickHouse 升级         | **新增**                                                          | 回流到 "等业务规模触发" 区块                                                                        |
 | §5.1 LLM-as-Judge            | §B Bug 反馈 LLM 聚类是同源                                        | **升级范围**：扩为 LLM SDK 接入统一窗口（聚类 / reject 建议 / 类别澄清）                            |
@@ -285,7 +284,7 @@
 **第 1 波（v0.11 内开工）✅ 全部收尾 v0.10.13 / v0.10.15 / v0.10.16**：~~§1.1 Annotation Guide~~ ✅ v0.10.13 / ~~§1.2 reject_reason_type~~ ✅ v0.10.16 / ~~§1.5 Predictions Import~~ ✅ v0.10.15（与 §2.6 同窗口）/ ~~§1.7 async_jobs~~ ✅ v0.10.16（与 §1.3 / §1.6 同窗口）。
 **特征**：低风险、低工作量、高可见价值；落地后给后续大项铺基建。第 1 波在 3 个版本内全部收尾，进入第 2 波。
 
-**第 2 波（v0.11 中后期）**：§2.1 Webhook 系统 / §2.2 AnnotationFeedback 收敛 / §3.1 公开 SDK。
+**第 2 波（v0.11 中后期）**：§2.1 Webhook 系统 / §2.2 AnnotationFeedback 收敛 / ~~§3.1 公开 SDK~~ ✅ 已完成。
 **特征**：协议层 + 生态扩面；做完平台从"内部工具"升级为"可对外集成的产品"。
 
 **第 3 波（v0.12+）**：§2.3 Consensus / §4.1 Annotator Dashboard / §5.1 LLM-as-Judge。

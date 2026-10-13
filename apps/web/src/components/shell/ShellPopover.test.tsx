@@ -52,7 +52,7 @@ function renderPanels() {
 const panels = [
   { trigger: "性能监控", label: "GPU 性能监控" },
   { trigger: "后台任务", label: "后台任务" },
-  { trigger: "通知", label: "通知" },
+  { trigger: "通知，0 条未读", label: "通知" },
 ];
 
 describe("top-bar information panels", () => {
@@ -104,13 +104,16 @@ describe("top-bar information panels", () => {
     renderPanels();
     fireEvent.click(screen.getByRole("button", { name: "后台任务" }));
     await screen.findByRole("dialog", { name: "后台任务" });
-    fireEvent.click(screen.getByRole("button", { name: "通知" }));
+    fireEvent.click(screen.getByRole("button", { name: "通知，0 条未读" }));
     await screen.findByRole("dialog", { name: "通知" });
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
 
     act(() => usePerfHudStore.getState().open());
     await screen.findByRole("dialog", { name: "GPU 性能监控" });
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "通知" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "通知，0 条未读" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 });

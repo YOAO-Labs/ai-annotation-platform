@@ -17,7 +17,7 @@ const surfaces = [
   ["people analysis", "pages/Admin/AdminPeoplePage.tsx", "FilterGroup"],
   ["analytics range", "pages/Admin/AnalyticsPage.tsx", "FilterGroup"],
   ["model catalog", "pages/ModelMarket/capability/FilterToolbar.tsx", "FilterGroup"],
-  ["registry status", "pages/ModelMarket/RegisteredBackendsTab.tsx", "FilterGroup"],
+  ["registry status", "pages/ModelMarket/registry/ServicePoolsSection.tsx", "FilterGroup"],
   ["registry diagnostics", "pages/ModelMarket/registry/IssueCenter.tsx", "FilterPanel"],
   ["image preannotation jobs", "pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx", "FilterGroup"],
   ["video tracker jobs", "pages/ModelMarket/VideoTrackerJobsPage.tsx", "FilterGroup"],

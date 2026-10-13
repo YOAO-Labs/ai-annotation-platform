@@ -1,6 +1,7 @@
 import { FilterGroup, FilterSelect, FilterToggle } from "@/components/filters/FilterControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { Icon } from "@/components/ui/Icon";
 import type {
   MaskCompareBaseline,
@@ -337,9 +338,15 @@ export function MaskQcPanel({
   const decideTrackerRegion = async (decision: "accept" | "reject") => {
     if (!activeIssue || !selectedTrackerCandidate || !canDecideTrackerRegion) return;
     const verb = decision === "accept" ? "接受" : "拒绝";
-    if (!window.confirm(`${verb}只会作用于当前质检问题区域，区域外候选保持待审。确认继续吗？`)) {
-      return;
-    }
+    const confirmed = await confirmDialog({
+      tone: decision === "accept" ? "default" : "danger",
+      title: `确认${verb}该区域候选？`,
+      description: `${verb}只会作用于当前质检问题区域，区域外候选保持待审。`,
+      confirmLabel: verb,
+    });
+    if (!confirmed) return;
+    // 等待决定期间问题/候选可能已被切换或决定;重验后才提交。
+    if (!activeIssue || !selectedTrackerCandidate || !canDecideTrackerRegion) return;
     setRegionDecision(decision);
     setRegionDecisionError(null);
     try {

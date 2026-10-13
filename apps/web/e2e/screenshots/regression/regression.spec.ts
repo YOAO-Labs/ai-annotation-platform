@@ -33,6 +33,8 @@ const DEFAULT_MASK_SELECTORS = [
   "[data-screenshot-mask]",
   "[data-testid='user-avatar']",
   "time[datetime]",
+  "[data-testid='task-lock-countdown']",
+  "[data-testid='segment-lease-countdown']",
 ];
 
 function selectedScenes(): ResolvedScreenshotScene[] {
@@ -84,6 +86,11 @@ test.describe("visual regression", () => {
 
   test.beforeAll(() => {
     catalog = loadScreenshotCatalog();
+    for (const key of ["image_demo", "video_demo"] as const) {
+      if (catalog.projects[key].ml_backend?.name !== "mock-v2-backend") {
+        throw new Error(`视觉回归需要 ${key} 绑定 screenshot protocol stub；请使用 stub seed`);
+      }
+    }
   });
 
   for (const scene of selectedScenes()) {
@@ -108,6 +115,17 @@ test.describe("visual regression", () => {
         cleanupMock = await setupMockState(page, scene.mockState);
         await page.goto(scene.route(catalog));
         if (scene.prepare) await scene.prepare(page, catalog);
+        if (scene.name === "projects/ai-pre-config-panel") {
+          // Regression baselines use the protocol stub's explicit source model.
+          // Documentation captures keep their live backend selection.
+          const backend = catalog.projects.image_demo.ml_backend;
+          if (!backend?.capabilities.models?.some((model) => model.id === "yolo-detect")) {
+            throw new Error("视觉回归需要 screenshot protocol stub 的 yolo-detect 模型");
+          }
+          const sourceModel = page.getByRole("combobox", { name: "模型任务", exact: true });
+          await sourceModel.selectOption("yolo-detect");
+          await expect(sourceModel).toHaveValue("yolo-detect");
+        }
         await applyScreenshotTheme(page, "light");
         await waitForScreenshotReady(page);
         cleanupAnnotations = await injectAnnotations(page, scene.annotate);

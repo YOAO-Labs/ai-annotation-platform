@@ -8,9 +8,10 @@ last_reviewed: 2026-09-07
 
 # Mask 像素编辑器
 
-Mask 质检的范围、状态、严重级别和规则使用统一紧凑筛选控件，仍在质检面板内即时更新，不遮挡整个画布。 [筛选操作说明](/user-guide/reference/filtering)。
+面向标注员与审核员的像素级分割标注与质检指南。适用于精细轮廓修补、前景抠图与复杂遮挡分割。
 
-> 图片项目默认开启原生 Mask 能力，图片与视频都保存逐像素 RLE；按项目关闭后，图片仍保留 polygon 兼容提交。
+> 图片项目默认开启原生 Mask 能力，图片与视频都保存逐像素 RLE；按项目关闭后，图片仍保留 polygon 兼容提交。<br>
+> 质检说明：Mask 质检面板支持按严重级别与规则进行原位筛选，详见 [筛选操作说明](/user-guide/reference/filtering)。
 
 Mask 像素工具使用 `M` 键进入。它既可逐笔涂擦，也可用套索和区域填充一次修改连续区域。常见用法：
 
@@ -323,5 +324,5 @@ Buffer 都会保留；网络或服务暂时错误可用原幂等键「重试实�
 ## 相关 ADR
 
 - [ADR-0022 · Mask 编辑器工具架构](/dev/adr/archive/0022-mask-editor-tool-architecture)
-- [ADR-0052 · 共享栅格 Mask 与图片 geometry 合同](/dev/adr/0052-shared-raster-mask-and-image-geometry)
-- [ADR-0054 · Raster Mask 大画布内存与分块决策](/dev/adr/0054-raster-mask-large-canvas-memory-and-tiles)
+- [ADR-0052 · 共享栅格 Mask 与图片 geometry 合同](/dev/adr/archive/0052-shared-raster-mask-and-image-geometry)
+- [ADR-0054 · Raster Mask 大画布内存与分块决策](/dev/adr/archive/0054-raster-mask-large-canvas-memory-and-tiles)

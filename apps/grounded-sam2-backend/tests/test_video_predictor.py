@@ -1,9 +1,9 @@
-"""v0.10.35 §B / v0.21.27 阶段 A · SAM2VideoTracker 单测 (无 GPU / fake predictor).
+"""SAM2VideoTracker 单测 (无 GPU / fake predictor).
 
 覆盖:
   - 坐标归一化: 归一化 seed bbox → 像素 xyxy; mask 外接框 → 归一化 {x,y,w,h}。
   - outside 判定: 空 mask → outside=True 零框; 非空 → outside=False。
-  - 窗内传播 (多目标, v0.21.27 阶段 A): fake predictor 逐对象 yield [num_obj,1,H,W],
+  - 窗内传播 (多目标): fake predictor 逐对象 yield [num_obj,1,H,W],
     验证源帧号映射 / direction / seed 帧锚定 / 逐对象 instance_id / 点种子透传 / 多帧 prompt。
   - A1 真实 object score 作 confidence。
 

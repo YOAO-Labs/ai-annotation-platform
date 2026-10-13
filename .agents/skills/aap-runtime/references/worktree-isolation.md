@@ -22,7 +22,7 @@ Use `pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/py
 
 Keep the generated `AAP_WORKTREE_MODE` marker intact. Test entry points reject `dev` before database preparation, and dev processes intentionally receive unusable test DSNs rather than aliases into another mode. API/ordinary workers exclude the migration/test owner credentials. The maintenance worker receives the same database's owner connection as `DATABASE_URL`, with migration/test DSN variables cleared; frontend processes receive only public/system configuration.
 
-Redis logical databases do not isolate Pub/Sub. Keep the dedicated Redis instance and all Celery broker/read/write/result overrides together. Redis AOF and DuckDB/temp files belong to the selected mode. Override all seven storage buckets, because cleanup and lifecycle settings are bucket-scoped.
+Redis logical databases do not isolate Pub/Sub. Keep the dedicated Redis instance and all Celery broker/read/write/result overrides together. Redis AOF and DuckDB/temp files belong to the selected mode. Override all eight storage buckets, because cleanup and lifecycle settings are bucket-scoped.
 
 `Ctrl+C` stops the launched processes but retains resources. `stop` also stops the owned Redis container while preserving AOF and business data. Wait for important active tasks before stopping; arbitrary in-flight tasks are not guaranteed resumable.
 

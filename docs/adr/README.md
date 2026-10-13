@@ -43,7 +43,7 @@
 - [0009](0009-task-events-table-and-partition.md) — task_events 表与按月分区方案
 - [0025](0025-webhook-event-envelope-versioning.md) — Webhook 事件信封与版本化（草案，未实现）
 - [0034](0034-lidar-axis-convention.md) — 点云数据集 lidar 坐标系约定：dataset 级声明 + 加载侧归一化
-- [0068](0068-experimental-webgpu-pointcloud-renderer.md) — 3D 点云采用默认关闭的 WebGPU 实验渲染路径
+- [0075](0075-platform-identity-vs-project-authority.md) — 平台身份与项目职责分离：员工按项目成员角色授权（本地实现中，未部署）
 
 ### 已采纳（Accepted，归档）
 
@@ -88,33 +88,33 @@
 - [0042](archive/0042-tailwind-shadcn-design-system.md) — 前端样式体系迁移到 Tailwind v4 + shadcn/ui
 - [0043](archive/0043-staged-preannotation-pipeline.md) — 多阶段预标注编排（路径 B：平台层跨 backend pipeline）
 - [0044](archive/0044-global-ml-backend-registry-and-project-enablement.md) — ML Backend 全局注册表 + 项目级启用（解耦能力声明与项目绑定）
-- [0045](0045-track-id-as-annotation-column.md) — 跨帧对象标识 track_id 提升为 annotation 表列（统一 group_id 高位段与 geometry 内 track_id）
-- [0046](0046-project-pipeline-library-and-scopes.md) — 全局 Pipeline 库：持久化命名编排模板 + 三档作用域（private/organization/public，apply copy-on-write）
-- [0047](0047-data-manager-entity-read-model.md) — Data Manager 按 task / object / track 分 grain 查询，不复制权威写模型
+- [0045](archive/0045-track-id-as-annotation-column.md) — 跨帧对象标识 track_id 提升为 annotation 表列（统一 group_id 高位段与 geometry 内 track_id）
+- [0046](archive/0046-project-pipeline-library-and-scopes.md) — 全局 Pipeline 库：持久化命名编排模板 + 三档作用域（private/organization/public，apply copy-on-write）
+- [0047](archive/0047-data-manager-entity-read-model.md) — Data Manager 按 task / object / track 分 grain 查询，不复制权威写模型
 - [0048](archive/0048-video-raster-mask-content-addressed-rle.md) — 视频栅格 mask 使用内容寻址 RLE 对象，不内联进 annotation JSONB
 - [0049](archive/0049-cross-backend-gpu-memory-arbitration.md) — 按物理 GPU 资源进行跨 Backend 显存预算准入与驱逐
-- [0050](0050-ml-backend-service-pools-and-request-routing.md) — ML Backend 服务池与真实请求路由（池 / 实例双 ID + 平滑加权轮询，独立于 GPU 仲裁）
-- [0051](0051-model-market-observability-information-architecture.md) — 模型市场可观测性 IA（四状态轴 + 诊断去重 + 卸载安全门 + 只读字段补齐）
-- [0052](0052-shared-raster-mask-and-image-geometry.md) — 图片 / 视频共享内容寻址 RLE，引入图片 `raster_mask` 与静态读取合同
-- [0053](0053-native-mask-ai-candidate-lifecycle-and-video-correction.md) — 原生 Mask AI 瞬态候选、原子接受、视频局部纠错与可回收生命周期
-- [0054](0054-raster-mask-large-canvas-memory-and-tiles.md) — 图片大画布采用稀疏 tile、XOR history 与固定 Worker pool，视频 / AI 保持 4096 边界
-- [0055](0055-mask-quality-and-format-contracts.md) — Mask 质量闭环采用版本化账本，格式适配使用 preflight、显式损失与真实 consumer 门
-- [0056](0056-raster-mask-persistent-client-compute-session.md) — Raster Mask 大 ROI 使用持久客户端计算会话与可回滚 WebGPU 候选后端
-- [0057](0057-raster-mask-webgpu-packed-xor-contract.md) — Raster Mask WebGPU 使用 packed source 与 core XOR result，保留惰性 CPU fallback
-- [0058](0058-raster-mask-immutable-packed-base-cache.md) — Raster Mask Worker 使用有界 immutable packed base cache 与 word-span ROI assemble
-- [0059](0059-raster-mask-dense-word-scatter-over-sparse-compaction.md) — Raster Mask 保留 dense word-scatter，不采用 atomic sparse compaction
-- [0060](0060-default-enable-capability-gated-client-acceleration.md) — 默认启用按客户端能力安全回退的 WebCodecs 与 Raster Mask WebGPU
-- [0061](0061-raster-mask-packed-cpu-fallback-and-webgpu-circuit.md) — Raster Mask 大 ROI 使用 packed CPU fallback、双预算与独立 WebGPU 熔断
-- [0062](0062-immutable-image-pyramid-assets.md) — 超大图采用不可变代次金字塔与批量鉴权交付
-- [0063](0063-konva-viewport-image-tiles.md) — 超大图客户端采用视口 LOD Tile 与解码字节 LRU
-- [0064](0064-task-scoped-raster-resource-coordination.md) — 图片工作台采用任务级栅格资源协调器
-- [0065](0065-keep-one-pass-raster-mask-webgpu-kernel.md) — Raster Mask WebGPU 保留 one-pass kernel，不采用可分离候选
+- [0050](archive/0050-ml-backend-service-pools-and-request-routing.md) — ML Backend 服务池与真实请求路由（池 / 实例双 ID + 平滑加权轮询，独立于 GPU 仲裁）
+- [0051](archive/0051-model-market-observability-information-architecture.md) — 模型市场可观测性 IA（四状态轴 + 诊断去重 + 卸载安全门 + 只读字段补齐）
+- [0052](archive/0052-shared-raster-mask-and-image-geometry.md) — 图片 / 视频共享内容寻址 RLE，引入图片 `raster_mask` 与静态读取合同
+- [0053](archive/0053-native-mask-ai-candidate-lifecycle-and-video-correction.md) — 原生 Mask AI 瞬态候选、原子接受、视频局部纠错与可回收生命周期
+- [0054](archive/0054-raster-mask-large-canvas-memory-and-tiles.md) — 图片大画布采用稀疏 tile、XOR history 与固定 Worker pool，视频 / AI 保持 4096 边界
+- [0055](archive/0055-mask-quality-and-format-contracts.md) — Mask 质量闭环采用版本化账本，格式适配使用 preflight、显式损失与真实 consumer 门
+- [0056](archive/0056-raster-mask-persistent-client-compute-session.md) — Raster Mask 大 ROI 使用持久客户端计算会话与可回滚 WebGPU 候选后端
+- [0057](archive/0057-raster-mask-webgpu-packed-xor-contract.md) — Raster Mask WebGPU 使用 packed source 与 core XOR result，保留惰性 CPU fallback
+- [0058](archive/0058-raster-mask-immutable-packed-base-cache.md) — Raster Mask Worker 使用有界 immutable packed base cache 与 word-span ROI assemble
+- [0059](archive/0059-raster-mask-dense-word-scatter-over-sparse-compaction.md) — Raster Mask 保留 dense word-scatter，不采用 atomic sparse compaction
+- [0060](archive/0060-default-enable-capability-gated-client-acceleration.md) — 默认启用按客户端能力安全回退的 WebCodecs 与 Raster Mask WebGPU
+- [0061](archive/0061-raster-mask-packed-cpu-fallback-and-webgpu-circuit.md) — Raster Mask 大 ROI 使用 packed CPU fallback、双预算与独立 WebGPU 熔断
+- [0062](archive/0062-immutable-image-pyramid-assets.md) — 超大图采用不可变代次金字塔与批量鉴权交付
+- [0063](archive/0063-konva-viewport-image-tiles.md) — 超大图客户端采用视口 LOD Tile 与解码字节 LRU
+- [0064](archive/0064-task-scoped-raster-resource-coordination.md) — 图片工作台采用任务级栅格资源协调器
+- [0065](archive/0065-keep-one-pass-raster-mask-webgpu-kernel.md) — Raster Mask WebGPU 保留 one-pass kernel，不采用可分离候选
 - [0066](archive/0066-video-segment-fragments-and-canonical-tracks.md) — 视频协同以 Segment Fragment 为写入真相，完整轨迹按边界决策派生
 - [0067](archive/0067-audit-bi-daily-materialized-view.md) — 审计 BI 采用日粒度物化与热数据补尾
-- [0068](0068-experimental-webgpu-pointcloud-renderer.md) — 3D 点云渲染器采用可回退的实验性 WebGPU 后端
+- [0068](archive/0068-experimental-webgpu-pointcloud-renderer.md) — 3D 点云渲染器采用可回退的实验性 WebGPU 后端
 - [0069](archive/0069-scene-track-domain-and-lifecycle.md) — Scene Track 作为 3D 时序对象生命周期、存在区间与可逆命令的权威模型
 - [0070](archive/0070-single-context-pointcloud-four-view-rendering.md) — 点云四视图采用单 context 与事件驱动渲染
 - [0071](archive/0071-persistent-multicamera-annotation-members.md) — 多相机人工标注作为 SceneTrack 的持久成员
 - [0072](archive/0072-workbench-dockable-layout.md) — 工作台采用受控 Dockview 布局与单一快照写入者
 - [0073](archive/0073-shared-surface-for-3d-docking.md) — 3D 自由布局采用工作区共享渲染 surface 与整组相机呈现
-- [0074](0074-atomic-annotation-slice-restore.md) — 图片对象切割采用受限操作账本与原子恢复
+- [0074](archive/0074-atomic-annotation-slice-restore.md) — 图片对象切割采用受限操作账本与原子恢复

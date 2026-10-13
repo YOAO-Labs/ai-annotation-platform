@@ -15,8 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import assert_project_visible, get_db, require_roles
-from app.db.enums import UserRole
+from app.deps import assert_project_visible, get_current_user, get_db
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.audit_log import AuditLog
@@ -29,13 +28,6 @@ from app.schemas.annotation_history import (
 from app.services.user_brief import resolve_briefs
 
 router = APIRouter()
-
-_ALL_ANNOTATORS = (
-    UserRole.SUPER_ADMIN,
-    UserRole.PROJECT_ADMIN,
-    UserRole.REVIEWER,
-    UserRole.ANNOTATOR,
-)
 
 # 这些 task 级 action 直接影响 annotation 的命运，归入时间线
 _RELEVANT_TASK_ACTIONS = (
@@ -54,7 +46,7 @@ _RELEVANT_TASK_ACTIONS = (
 async def get_annotation_history(
     annotation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
 ):
     ann = await db.get(Annotation, annotation_id)
     if not ann:
@@ -166,7 +158,7 @@ async def get_annotation_history(
 async def get_task_audit_history(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
 ):
     """I4 · 任务级时间线 — DiscussionPanel 在未选中标注时降级展示.
 

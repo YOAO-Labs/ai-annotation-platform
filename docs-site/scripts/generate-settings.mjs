@@ -248,10 +248,15 @@ lines.push("");
 const esc = (s) => s.replace(/\|/g, "\\|");
 
 for (const group of groups) {
+  const groupSections = sections.filter(
+    (entry) => entry.group === group.key && fields.some((field) => field.section === entry.key),
+  );
+  // 通知等由共享面板独立渲染、不承载偏好字段的分组：不生成空标题，
+  // 其内容由工作台设置指南的对应小节说明。
+  if (groupSections.length === 0) continue;
   lines.push(`### ${group.label}`, "");
-  for (const section of sections.filter((entry) => entry.group === group.key)) {
+  for (const section of groupSections) {
     const list = fields.filter((field) => field.section === section.key);
-    if (list.length === 0) continue;
     lines.push(`#### ${section.label}`, "", "| 设置项 | 说明 | 默认 |", "|---|---|---|");
     for (const f of list) {
       const label = f.parentKey ? `└ ${f.label}` : f.label;

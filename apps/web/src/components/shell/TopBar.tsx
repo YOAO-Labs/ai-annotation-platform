@@ -3,7 +3,7 @@ import { useQueryClient, useIsFetching } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { Icon } from "@/components/ui/Icon";
 import { SearchInput } from "@/components/ui/SearchInput";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useAuthStore } from "@/stores/authStore";
 import { useLogout } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
@@ -20,8 +20,10 @@ import {
 } from "@/components/shadcn/ui/alert-dialog";
 import { PreannotateJobsBadge } from "./PreannotateJobsBadge";
 import { JobsBell } from "./JobsBell";
+import { useWhatsNewStore } from "./WhatsNewDialog";
 import { CommandPalette } from "@/components/CommandPalette";
 import { usePerfHudStore } from "@/components/PerfHud";
+import { appVersion } from "@/utils/releaseNotes";
 
 const NotificationsPopover = lazy(() =>
   import("./NotificationsPopover").then((module) => ({ default: module.NotificationsPopover })),
@@ -99,7 +101,16 @@ export function TopBar({
               className="size-[22px] shrink-0 rounded-md"
             />
             <span>标注中心</span>
-            <span className="ml-1 text-xs font-normal text-muted-foreground">v2.5</span>
+            {/* 版本号与登录后「本次更新」窗口联动:点击随时查看当前版本更新内容。 */}
+            <button
+              type="button"
+              title="查看本次更新内容"
+              aria-label={`查看 v${appVersion} 更新内容`}
+              onClick={() => useWhatsNewStore.getState().openManually()}
+              className="ml-1 cursor-pointer rounded-xs text-xs font-normal text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              v{appVersion}
+            </button>
           </div>
           <div
             onClick={onWorkspaceChange}
@@ -180,7 +191,7 @@ export function TopBar({
           </Suspense>
 
           <div className="flex cursor-pointer items-center gap-2 rounded-lg py-1 pl-1 pr-2.5 transition-[background-color,transform] duration-200 hover:-translate-y-px hover:bg-accent active:translate-y-0 active:scale-[0.98]">
-            <Avatar initial={user?.name?.[0] ?? "?"} size="sm" />
+            <UserAvatar user={user ?? { name: "?" }} size="sm" />
             <div
               className={clsx(
                 "flex flex-col items-start leading-[1.2] whitespace-nowrap",

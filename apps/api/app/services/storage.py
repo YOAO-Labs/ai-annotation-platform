@@ -52,6 +52,7 @@ class StorageService:
         self.audit_archive_bucket = settings.minio_audit_archive_bucket
         self.import_bucket = settings.minio_import_bucket
         self.export_bucket = settings.minio_export_bucket
+        self.avatars_bucket = settings.minio_avatars_bucket
 
     def ensure_bucket(self, bucket: str | None = None) -> None:
         b = bucket or self.bucket
@@ -68,6 +69,7 @@ class StorageService:
         self.ensure_bucket(self.audit_archive_bucket)
         self.ensure_bucket(self.import_bucket)
         self.ensure_bucket(self.export_bucket)
+        self.ensure_bucket(self.avatars_bucket)
         self._ensure_lifecycle()
 
     def _ensure_lifecycle(self) -> None:
@@ -158,6 +160,9 @@ class StorageService:
                 )
 
         # audit-archive 桶不挂 lifecycle:合规要求永久保留。运维可单独开 object lock。
+        # avatars 桶同样不挂 lifecycle:头像是不可重生的持久身份数据,由 users.avatar_ref
+        # 持久引用;一旦过期就会出现"DB 指向已删对象"的破图(与上面 playback 同类故障)。
+        # 修改头像时由 API 显式删除旧对象,不依赖 lifecycle。
 
     def _public_url(self, url: str) -> str:
         if settings.minio_public_url:
@@ -186,6 +191,26 @@ class StorageService:
                 r"://[^/]+", f"://{settings.ml_backend_storage_host}", url, count=1
             )
         return url
+
+    def put_bytes(
+        self,
+        key: str,
+        data: bytes,
+        *,
+        content_type: str = "application/octet-stream",
+        cache_control: str | None = None,
+        bucket: str | None = None,
+    ) -> None:
+        """小对象直写入口(如头像 WebP)。大文件请用 ``upload_file`` 走分段上传。"""
+        extra: dict = {"ContentType": content_type}
+        if cache_control:
+            extra["CacheControl"] = cache_control
+        self.client.put_object(
+            Bucket=bucket or self.bucket,
+            Key=key,
+            Body=data,
+            **extra,
+        )
 
     def upload_crop_bytes(
         self, jpeg_bytes: bytes, key: str, *, expires_in: int = 3600
@@ -369,6 +394,7 @@ class StorageService:
             self.audit_archive_bucket,
             self.import_bucket,
             self.export_bucket,
+            self.avatars_bucket,
         ]
 
     # v0.10.17 · 派生媒体缓存按 key 前缀路由到 media-cache 桶。

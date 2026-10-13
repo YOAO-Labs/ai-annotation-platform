@@ -1,6 +1,13 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  imageWorkbenchAborts,
+  isExpectedRequestAbort,
+  maskEditorAborts,
+  objectCommentsAborts,
+  type RequestErrorSignal,
+} from "../helpers/request-errors";
 import type { APIRequestContext, APIResponse, Page, Response } from "@playwright/test";
 import { expect, test as base, type SeedData } from "../fixtures/seed";
 
@@ -56,7 +63,7 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
 
 const test = base.extend<{ sliceCase: Case }>({
   sliceCase: async ({ page, request, seed, browser }, provideFixture, testInfo) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -110,7 +117,7 @@ const test = base.extend<{ sliceCase: Case }>({
       allowedErrors: new Set(),
     };
     await seed.injectToken(page, data.annotator_email);
-    const errors: Array<{ kind: string; path?: string; message: string; method?: string }> = [];
+    const errors: RequestErrorSignal[] = [];
     page.on("pageerror", (error) => errors.push({ kind: "page", message: error.message }));
     page.on("console", (message) => {
       if (message.type() === "error")
@@ -149,24 +156,9 @@ const test = base.extend<{ sliceCase: Case }>({
     let passed = false;
     try {
       await provideFixture(fixture);
-      const expectedAborts = errors.filter(
-        (error) =>
-          error.kind === "request" &&
-          error.message === "net::ERR_ABORTED" &&
-          ((error.method === "POST" && error.path === "/api/v1/auth/me/heartbeat") ||
-            (error.method === "GET" &&
-              ([
-                "/api/v1/auth/me",
-                "/api/v1/auth/registration-status",
-                "/api/v1/feedbacks",
-                "/api/v1/projects",
-                "/api/v1/audit-logs",
-                "/api/v1/tasks",
-              ].includes(error.path!) ||
-                /^\/api\/v1\/tasks\/[0-9a-f-]{36}(\/annotations)?$/.test(error.path!) ||
-                /^\/api\/v1\/annotations\/[0-9a-f-]{36}\/(mask-content|comments\/page)$/.test(
-                  error.path!,
-                )))),
+      // Reload can report keepalive session telemetry as aborted after the API accepts it.
+      const expectedAborts = errors.filter((error) =>
+        isExpectedRequestAbort(error, imageWorkbenchAborts, objectCommentsAborts, maskEditorAborts),
       );
       const unexpected = errors.filter(
         (error) =>
@@ -214,7 +206,7 @@ const test = base.extend<{ sliceCase: Case }>({
         page.removeAllListeners("request");
         await page.unrouteAll({ behavior: "ignoreErrors" });
         if (!page.isClosed()) await page.goto("about:blank");
-        await seed.reset();
+        await seed.owned();
       }
     }
   },
@@ -855,13 +847,11 @@ test("H4b-3 discard on task switch retires the mask slice preview without writes
   // Chromium may report keepalive release as aborted during navigation; verify the DB release below.
   fixture.allowedErrors.add(`request:/api/v1/tasks/${fixture.taskId}/lock:net::ERR_ABORTED`);
   const dialogs: string[] = [];
-  page.on("dialog", async (dialog) => {
-    dialogs.push(dialog.message());
-    if (dialog.message() === "Mask 尚未保存。是否保存后离开？") await dialog.dismiss();
-    else if (dialog.message() === "是否丢弃 Mask 稿件并离开？") await dialog.accept();
-    else throw new Error(`Unexpected dialog: ${dialog.message()}`);
-  });
+  const leaveDialog = page.getByRole("alertdialog");
   await page.getByText(next.display_id, { exact: true }).first().click();
+  await expect(leaveDialog).toBeVisible({ timeout: 5_000 });
+  dialogs.push((await leaveDialog.locator('[data-slot="alert-dialog-title"]').textContent()) ?? "");
+  await leaveDialog.getByRole("button", { name: "丢弃并离开", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`task=${nextId}`));
   await expect(stage(page)).toHaveAttribute("data-image-ready", "true");
   await openMaskSettings(page);
@@ -870,7 +860,7 @@ test("H4b-3 discard on task switch retires the mask slice preview without writes
   await expect(controls(page)).not.toContainText("待原子提交");
   await expect(page.getByTestId(`box-list-item-${source.id}`)).toHaveCount(0);
   await expect.poll(() => ledger(fixture).activeLocks).toBe(0);
-  expect(dialogs).toEqual(["Mask 尚未保存。是否保存后离开？", "是否丢弃 Mask 稿件并离开？"]);
+  expect(dialogs).toEqual(["Mask 尚未保存"]);
   expect(fixture.writes).toHaveLength(0);
   expect(ledger(fixture).operations).toHaveLength(0);
   expect(await content(request, fixture, source.id)).toEqual(holed());
@@ -882,5 +872,4 @@ test("H4b-3 discard on task switch retires the mask slice preview without writes
   expect(other).toEqual([]);
   expect(await history(page, fixture.taskId)).toBeNull();
   fixture.evidence.push({ nextTask: nextId, dialogs, noWrites: true });
-  page.removeAllListeners("dialog");
 });

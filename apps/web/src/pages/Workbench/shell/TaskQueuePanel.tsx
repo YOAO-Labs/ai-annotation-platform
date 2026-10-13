@@ -553,7 +553,7 @@ export function TaskQueuePanel({
           ) : (
             <>
               <div className="mb-1.5 text-muted-foreground text-xs">
-                {classPickable ? "点击选择放置类别" : "数字/字母键直接落框时使用"}
+                {classPickable ? "点击选择放置类别" : "数字键 1-9、0 直接落框时使用"}
               </div>
               <ClassPalette
                 classes={classes}

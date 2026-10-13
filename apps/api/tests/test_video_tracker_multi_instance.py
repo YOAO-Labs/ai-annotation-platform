@@ -97,7 +97,6 @@ async def _make_video_task(db_session, owner_id):
         type_key="video-track",
         type_label="视频 · 时序追踪",
         owner_id=owner_id,
-        classes=["car"],
         tool_bindings={
             "bbox": {
                 "enabled": True,
@@ -260,7 +259,7 @@ async def test_runner_lands_extra_instances_as_new_tracks(
     assert pre_extra == []  # 接受前无新轨迹
 
     # 接受 → 落库。
-    await accept_tracker_job(db_session, job.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
     await db_session.refresh(job)
     await db_session.refresh(source)
     assert job.status == "accepted"
@@ -342,7 +341,7 @@ async def test_runner_sourceless_detection_lands_all_as_new_tracks(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    await accept_tracker_job(db_session, job.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "accepted"
     assert job.staged_result is None
@@ -430,7 +429,7 @@ async def test_full_accept_skips_sourceless_instance_with_only_outside_results(
     async def collect(_channel: str, _payload: dict) -> None:
         return None
 
-    await accept_tracker_job(db_session, job.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
     rows = (
         (
             await db_session.execute(
@@ -675,7 +674,7 @@ async def test_runner_single_instance_no_extra_tracks(
     await run_tracker_job(db_session, job.id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "pending_review"
-    await accept_tracker_job(db_session, job.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "accepted"
 
@@ -934,7 +933,7 @@ async def test_runner_associates_window_local_ids_across_windows(
         return None
 
     await run_tracker_job(db_session, job.id, publisher=collect)
-    await accept_tracker_job(db_session, job.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
     await db_session.refresh(source)
 
     # 源轨迹 (primary=left): 4 帧全为 left 几何 (x≈0.1), 不混入 right (x≈0.5)。
@@ -1077,7 +1076,7 @@ async def test_runner_multi_source_backfills_each_own_track(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    await accept_tracker_job(db_session, job.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
     await db_session.refresh(job)
     await db_session.refresh(src_a)
     await db_session.refresh(src_b)
@@ -1136,7 +1135,9 @@ async def test_accept_multi_source_soft_deleted_source_fails_closed(
     await db_session.flush()
 
     with pytest.raises(TrackerJobStateConflict, match="inactive"):
-        await accept_tracker_job(db_session, job.id, publisher=collect)
+        await accept_tracker_job(
+            db_session, job.id, actor_id=user.id, publisher=collect
+        )
     await db_session.refresh(job)
     await db_session.refresh(src_a)
     assert job.status == "pending_review"
@@ -1230,7 +1231,7 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
 
 
 async def test_track_video_endpoint_multi_source_builds_job(
-    httpx_client_bound, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     """v0.22.2 · M · track_video 端点透传 source_annotation_ids: 多源建 job (annotation_id
     为 None, prompt.seeds 各源一条)。"""
@@ -1266,7 +1267,7 @@ async def test_track_video_endpoint_multi_source_builds_job(
         lambda name, args=None, queue=None, **kwargs: FakeAsyncResult(),
     )
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video:track",
         headers={"Authorization": f"Bearer {token}"},
         json={
@@ -1345,7 +1346,7 @@ async def test_accept_multi_source_touched_covers_sources_and_created(
         is None
     )
 
-    await accept_tracker_job(db_session, job.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "accepted"
 
@@ -1461,7 +1462,9 @@ async def test_accept_tracker_job_conflict_on_source_version_mismatch(
     await db_session.refresh(source)
 
     with pytest.raises(TrackerJobStateConflict) as exc:
-        await accept_tracker_job(db_session, job.id, publisher=collect)
+        await accept_tracker_job(
+            db_session, job.id, actor_id=user.id, publisher=collect
+        )
     assert (
         "version changed" in str(exc.value).lower()
         or "conflict" in str(exc.value).lower()
@@ -1508,7 +1511,9 @@ async def test_accept_tracker_job_legacy_without_expected_versions_fails_closed(
     await db_session.refresh(source)
 
     with pytest.raises(TrackerJobStateConflict, match="snapshot is missing"):
-        await accept_tracker_job(db_session, job.id, publisher=collect)
+        await accept_tracker_job(
+            db_session, job.id, actor_id=user.id, publisher=collect
+        )
     await db_session.refresh(job)
     assert job.status == "pending_review"
     assert job.staged_result is not None
@@ -1543,7 +1548,9 @@ async def test_accept_tracker_job_rejects_locked_or_soft_deleted_source(
     source.is_locked = True
     await db_session.commit()
     with pytest.raises(TrackerJobStateConflict, match="locked"):
-        await accept_tracker_job(db_session, job.id, publisher=collect)
+        await accept_tracker_job(
+            db_session, job.id, actor_id=user.id, publisher=collect
+        )
 
 
 async def test_accept_tracker_job_rechecks_task_status(
@@ -1568,10 +1575,24 @@ async def test_accept_tracker_job_rechecks_task_status(
         return None
 
     await run_tracker_job(db_session, job.id, publisher=collect)
+    # Review-state accept is rejected by the canonical frozen-evidence guard
+    # (unknown legacy evidence) before the legacy status lock message.
     task.status = "review"
     await db_session.commit()
-    with pytest.raises(TrackerJobStateConflict, match="task is locked"):
-        await accept_tracker_job(db_session, job.id, publisher=collect)
+    with pytest.raises(TrackerJobStateConflict) as exc:
+        await accept_tracker_job(
+            db_session, job.id, actor_id=user.id, publisher=collect
+        )
+    assert exc.value.detail["reason"] == "review_contributors_unknown"
+
+    # A completed task is still rejected by the status/phase lock.
+    task.status = "completed"
+    await db_session.commit()
+    with pytest.raises(TrackerJobStateConflict) as exc:
+        await accept_tracker_job(
+            db_session, job.id, actor_id=user.id, publisher=collect
+        )
+    assert exc.value.detail["reason"] == "task_locked"
 
 
 async def test_accept_tracker_job_rechecks_segment_lease(
@@ -1610,4 +1631,6 @@ async def test_accept_tracker_job_rechecks_segment_lease(
 
     await run_tracker_job(db_session, job.id, publisher=collect)
     with pytest.raises(TrackerJobStateConflict, match="segment lease"):
-        await accept_tracker_job(db_session, job.id, publisher=collect)
+        await accept_tracker_job(
+            db_session, job.id, actor_id=user.id, publisher=collect
+        )

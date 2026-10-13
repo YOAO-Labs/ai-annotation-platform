@@ -203,7 +203,11 @@ export async function runVideoMaskCorrectionPropagate(
   }
 
   // 录制窗口外创建一条有意带漏分与右侧外溢的 F0 Mask；正式母版从 F5 错误边界开始。
+  await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
   await page.getByTestId("video-tool-btn-mask-track").click();
+  await page.getByTestId("mask-tool-capsule").waitFor({ state: "visible", timeout: 5000 });
+  await page.getByTestId("mask-settings-trigger").click();
+  await page.getByLabel("更多 Mask 工具").click();
   const toolbar = page.getByTestId("mask-toolbar");
   await toolbar.waitFor({ timeout: 10_000 });
   const initialPath = initial.brush_strokes.flatMap((path, index) => {

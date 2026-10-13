@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +12,7 @@ import {
   useBatches,
   useDeleteBatch,
   useTransitionBatch,
+  useSubmitBatch,
   useSplitBatches,
   useBulkArchiveBatches,
   useBulkDeleteBatches,
@@ -21,15 +22,14 @@ import {
   useAdminUnlockBatch,
   useBulkApproveBatches,
   useBulkRejectBatches,
+  useRejectBatch,
+  useResetBatch,
 } from "@/hooks/useBatches";
 import { useBatchEventsSocket } from "@/hooks/useBatchEventsSocket";
 import { useIsProjectOwner } from "@/hooks/useIsProjectOwner";
+import { inputDialog } from "@/components/ui/decisionDialog";
 import { BatchAssignmentModal } from "@/components/projects/BatchAssignmentModal";
 import { ProjectDistributeBatchesModal } from "@/components/projects/ProjectDistributeBatchesModal";
-import { RejectBatchModal } from "./RejectBatchModal";
-import { ReverseTransitionModal, type ReverseKind } from "./ReverseTransitionModal";
-import { ResetBatchModal } from "./ResetBatchModal";
-import { AdminLockModal } from "./AdminLockModal";
 import { BulkRejectModal } from "./BulkRejectModal";
 import { BatchesKanbanView } from "./BatchesKanbanView";
 import { BatchAuditLogDrawer } from "./BatchAuditLogDrawer";
@@ -37,6 +37,36 @@ import { UnbatchedTasksModal } from "./UnbatchedTasksModal";
 import type { ProjectResponse } from "@/api/projects";
 import type { BatchResponse, BulkBatchActionResponse } from "@/api/batches";
 import { cn } from "@/lib/utils";
+import styles from "./BatchesSection.module.css";
+
+function BatchActionButton({
+  icon,
+  label,
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Button>, "children"> & {
+  icon: ComponentProps<typeof Icon>["name"];
+  label: string;
+}) {
+  return (
+    <Button
+      {...props}
+      aria-label={label}
+      className={cn(
+        "gap-0 px-[9px] hover:translate-y-0 disabled:pointer-events-auto has-[>svg]:px-[9px] motion-reduce:transition-none",
+        styles.actionButton,
+        className,
+      )}
+    >
+      <Icon name={icon} size={12} />
+      <span className={styles.actionLabel} aria-hidden="true">
+        <span className={styles.actionLabelClip}>
+          <span className="pl-1.5">{label}</span>
+        </span>
+      </span>
+    </Button>
+  );
+}
 
 // success-colored Button 覆盖类(Button 无 success variant) — 对齐 Button danger/ai variant 风格
 const SUCCESS_BTN =
@@ -77,6 +107,53 @@ const BULK_LABEL: Record<BulkActionKind, string> = {
   reject: "驳回",
 };
 
+// v0.7.3 · 逆向迁移（owner 专属）。原 ReverseTransitionModal 的文案随 plan T2 迁移 inputDialog 一并收编。
+type ReverseKind = "unarchive" | "reopen_from_approved" | "reopen_from_rejected";
+
+const REVERSE_COPY: Record<
+  ReverseKind,
+  {
+    title: (b: BatchResponse) => string;
+    description: string;
+    targetStatus: string;
+    success: string;
+  }
+> = {
+  unarchive: {
+    title: (b) => `撤销归档 · ${b.display_id}`,
+    description:
+      "批次状态会回到「激活」，由调度器在下一次任务操作时自动推进到正确阶段。被分派的标注员 / 审核员会收到通知。",
+    targetStatus: "active",
+    success: "已撤销归档",
+  },
+  reopen_from_approved: {
+    title: (b) => `重开审核 · ${b.display_id}`,
+    description:
+      "批次会从「已通过」回到「审核中」。原审核元数据（通过时间 / 审核人 / 反馈）会被清空，审核员需重新评估。",
+    targetStatus: "reviewing",
+    success: "已重开审核",
+  },
+  reopen_from_rejected: {
+    title: (b) => `直接复审 · ${b.display_id}`,
+    description:
+      "批次从「已退回」直接进入「审核中」，跳过标注员重做。上一次的退回原因会保留，审核员可重新评估。",
+    targetStatus: "reviewing",
+    success: "已直接复审",
+  },
+};
+
+/** 未送审任务 = pending + in_progress（rejected 需先重做，不计入整批送审）。 */
+function hasUnsubmittedTasks(batch: BatchResponse): boolean {
+  return batch.total_tasks - batch.review_tasks - batch.completed_tasks - batch.rejected_tasks > 0;
+}
+
+/** 与标注页一致：annotating / reviewing 且仍有未送审任务时才提供整批送审。 */
+function canSubmitReview(batch: BatchResponse): boolean {
+  return (
+    hasUnsubmittedTasks(batch) && (batch.status === "annotating" || batch.status === "reviewing")
+  );
+}
+
 export function BatchesSection({ project }: { project: ProjectResponse }) {
   const pushToast = useToastStore((s) => s.push);
   // v0.9.13 · 后端 batch 状态变更 (transition / auto_transition) 实时刷新本页列表
@@ -84,12 +161,15 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   const { data: batches = [], isLoading } = useBatches(project.id);
   const deleteBatch = useDeleteBatch(project.id);
   const transitionBatch = useTransitionBatch(project.id);
+  const submitBatchReview = useSubmitBatch(project.id);
   const splitBatches = useSplitBatches(project.id);
   const bulkArchive = useBulkArchiveBatches(project.id);
   const bulkDelete = useBulkDeleteBatches(project.id);
   const bulkActivate = useBulkActivateBatches(project.id);
   const bulkApprove = useBulkApproveBatches(project.id);
   const bulkReject = useBulkRejectBatches(project.id);
+  const rejectBatch = useRejectBatch(project.id);
+  const resetBatch = useResetBatch(project.id);
   const adminLock = useAdminLockBatch(project.id);
   const adminUnlock = useAdminUnlockBatch(project.id);
   const isOwner = useIsProjectOwner(project);
@@ -110,7 +190,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     affected: number;
   } | null>(null);
   const [assignTarget, setAssignTarget] = useState<BatchResponse | null>(null);
-  const [rejectTarget, setRejectTarget] = useState<BatchResponse | null>(null);
   const [distributeOpen, setDistributeOpen] = useState(false);
   // v0.12.0 · P2 · 浏览未归类任务池
   const [browseUnbatched, setBrowseUnbatched] = useState(false);
@@ -125,16 +204,9 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   } | null>(null);
   const [resultExpanded, setResultExpanded] = useState(false);
 
-  // v0.7.3 · 逆向迁移 + 操作历史
-  const [reverseTarget, setReverseTarget] = useState<{
-    batch: BatchResponse;
-    kind: ReverseKind;
-  } | null>(null);
+  // v0.7.3 · 操作历史抽屉（逆向迁移 / 重置 / 驳回 / 锁定在 plan T2 已迁移 inputDialog，
+  // 目标批次以点击时的局部快照传入 async handler，不再需要 open state）
   const [auditTarget, setAuditTarget] = useState<BatchResponse | null>(null);
-  // v0.7.6 · 终极重置到 draft
-  const [resetTarget, setResetTarget] = useState<BatchResponse | null>(null);
-  // v0.9.15 · ADR-0008 admin-lock
-  const [lockTarget, setLockTarget] = useState<BatchResponse | null>(null);
 
   // v0.7.6 · view toggle [list | kanban] + URL ?batch_view=kanban 持久化
   const [searchParams, setSearchParams] = useSearchParams();
@@ -247,7 +319,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
       {
         onSuccess: () => {
           pushToast({ msg: `批次 ${batch.display_id} 已锁定`, kind: "success" });
-          setLockTarget(null);
         },
         onError: (e) => pushToast({ msg: "锁定失败", sub: (e as Error).message }),
       },
@@ -341,6 +412,111 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
+  // v0.7.0 · 批次驳回（原 RejectBatchModal，plan T2 迁移 inputDialog，copy 原样保留）。
+  const handleRejectBatch = async (batch: BatchResponse) => {
+    if (rejectBatch.isPending) return;
+    const feedback = await inputDialog({
+      title: `驳回批次 ${batch.display_id}`,
+      description:
+        "驳回后批次状态变为「已退回」，被分派的标注员会收到通知。已提交质检 / 已通过的任务回退到待标注，**已有标注内容会保留**，标注员可在 reviewer 留言指引下继续修改。",
+      label: "驳回原因 / 留言",
+      placeholder: "请说明需要标注员重做的具体问题…",
+      required: true,
+      maxLength: 500,
+      tone: "danger",
+      confirmLabel: "确认驳回",
+    });
+    if (!feedback) return;
+    // batch 为点击时的快照，async-await gap 后提交目标不变
+    rejectBatch.mutate(
+      { batchId: batch.id, feedback },
+      {
+        onSuccess: () => pushToast({ msg: "批次已驳回，已通知被分派的标注员", kind: "success" }),
+        onError: (e) => pushToast({ msg: "驳回失败", sub: (e as Error).message, kind: "warning" }),
+      },
+    );
+  };
+
+  // v0.7.3 · owner 逆向迁移（原 ReverseTransitionModal，plan T2 迁移 inputDialog）。
+  const handleReverseTransition = async (batch: BatchResponse, kind: ReverseKind) => {
+    if (transitionBatch.isPending) return;
+    const copy = REVERSE_COPY[kind];
+    const reason = await inputDialog({
+      title: copy.title(batch),
+      description: copy.description,
+      label: "操作原因 · 会写入审计日志",
+      placeholder: "请简要说明操作原因（运维需要 / 误判修正 / …）",
+      required: true,
+      maxLength: 500,
+      confirmLabel: "确认",
+    });
+    if (!reason) return;
+    transitionBatch.mutate(
+      { batchId: batch.id, targetStatus: copy.targetStatus, reason },
+      {
+        onSuccess: () => pushToast({ msg: copy.success, kind: "success" }),
+        onError: (e) => pushToast({ msg: "操作失败", sub: (e as Error).message, kind: "warning" }),
+      },
+    );
+  };
+
+  // v0.7.6 · owner 终极重置到 draft（原 ResetBatchModal，plan T2 迁移 inputDialog；
+  // 原警告块的列表文案并入 description，≥10 字下限走 validate）。
+  const handleResetBatch = async (batch: BatchResponse) => {
+    if (resetBatch.isPending) return;
+    const reason = await inputDialog({
+      title: `重置到草稿 · ${batch.display_id}`,
+      description: `这是 owner 兜底操作。批次将从 ${batch.status} 强制回到 draft：批次内 ${batch.total_tasks} 个 task 全部回 pending；已有标注记录保留（不删 annotation，不改 is_active）；会释放所有标注员锁，原审核反馈 / 审核人会被清空。`,
+      label: "重置原因 · 会写入审计日志",
+      placeholder: "说明为什么要把批次回退到草稿（迁移错误数据 / 整体重做 / …）",
+      required: true,
+      maxLength: 500,
+      tone: "danger",
+      confirmLabel: "确认重置",
+      validate: (value) => (value.length >= 10 ? null : "至少 10 字"),
+    });
+    if (!reason) return;
+    resetBatch.mutate(
+      { batchId: batch.id, reason },
+      {
+        onSuccess: () => pushToast({ msg: "已重置到草稿", kind: "success" }),
+        onError: (e) => pushToast({ msg: "重置失败", sub: (e as Error).message, kind: "warning" }),
+      },
+    );
+  };
+
+  // v0.9.15 · ADR-0008 admin-lock（原 AdminLockModal，plan T2 迁移 inputDialog）。
+  const handleAdminLockPrompt = async (batch: BatchResponse) => {
+    if (adminLock.isPending) return;
+    const reason = await inputDialog({
+      title: `锁定批次 ${batch.display_id}`,
+      description:
+        "锁定后，自动状态推进将被冻结，不再向该批次派发新任务。锁定原因将记录在审计日志中，并通知被分派的标注员 / 审核员。",
+      label: "锁定原因",
+      placeholder: "请说明锁定原因，例如：发现数据质量问题，暂停标注，待确认后解锁…",
+      required: true,
+      maxLength: 500,
+      tone: "danger",
+      confirmLabel: "确认锁定",
+    });
+    if (!reason) return;
+    handleAdminLock(batch, reason);
+  };
+
+  // 整批送审与标注页共用同一端点：提交批次内所有未送审任务，而不是只改批次状态。
+  const handleSubmitReview = (batch: BatchResponse) => {
+    submitBatchReview.mutate(batch.id, {
+      onSuccess: (result) =>
+        pushToast({
+          msg: `已提交 ${result.submitted_tasks} 个任务质检`,
+          sub:
+            result.remaining_tasks > 0 ? `仍有 ${result.remaining_tasks} 个任务未送审` : undefined,
+          kind: "success",
+        }),
+      onError: (e) => pushToast({ msg: "提交质检失败", sub: (e as Error).message }),
+    });
+  };
+
   const handleDelete = (batch: BatchResponse, force = false) => {
     deleteBatch.mutate(
       { batchId: batch.id, force },
@@ -372,9 +548,9 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   return (
     <>
       <Card>
-        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
-          <h3 className="m-0 text-sm font-semibold">批次管理</h3>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border px-4 py-3.5">
+          <h3 className="text-sm font-semibold">批次管理</h3>
+          <div className="flex flex-wrap items-center gap-1.5">
             {/* v0.7.6 · view toggle */}
             <div
               role="tablist"
@@ -388,7 +564,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                   aria-selected={view === v}
                   onClick={() => setView(v)}
                   className={cn(
-                    "inline-flex cursor-pointer items-center gap-1 appearance-none border-0 bg-transparent px-2.5 py-1 text-xs text-muted-foreground",
+                    "inline-flex h-8 cursor-pointer items-center gap-1.5 appearance-none border-0 bg-transparent px-3 text-xs text-muted-foreground",
                     view === v && "bg-card text-foreground",
                     v === "list" && "border-r border-border",
                   )}
@@ -400,19 +576,23 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
               ))}
             </div>
             <Button
+              size="sm"
+              variant="ghost"
               onClick={() => setDistributeOpen(true)}
               disabled={batches.length === 0}
               title="把项目下所有批次圆周分派给所选成员（一 batch 一标注员 + 一审核员）"
             >
-              <Icon name="users" size={12} />
+              <Icon name="users" />
               按项目分派批次
             </Button>
             {/* scene 模式项目分包只能 by scene：头部入口也走 by_scene，不开 random modal。 */}
             <Button
+              size="sm"
+              variant="ghost"
               onClick={project.scene_mode ? handleCreateByScene : () => setShowCreate(true)}
               disabled={project.scene_mode && splitBatches.isPending}
             >
-              <Icon name="plus" size={12} />
+              <Icon name="plus" />
               创建批次
             </Button>
           </div>
@@ -679,7 +859,9 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                     <td className="px-3 py-2.5 align-middle">
                       <div className="flex flex-nowrap gap-1 whitespace-nowrap">
                         {b.status === "draft" && (
-                          <Button
+                          <BatchActionButton
+                            icon="play"
+                            label="激活"
                             onClick={() => handleTransition(b, "active")}
                             disabled={!b.annotator_id || b.total_tasks === 0}
                             title={
@@ -689,111 +871,121 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                                   ? "批次内无任务，无法激活"
                                   : "激活"
                             }
-                          >
-                            <Icon name="play" size={12} />
-                          </Button>
+                          />
                         )}
-                        {b.status === "annotating" && (
-                          <Button
-                            onClick={() => handleTransition(b, "reviewing")}
-                            title="整批提交质检（owner / 被分派标注员）"
-                          >
-                            <Icon name="check" size={12} /> 提交质检
-                          </Button>
+                        {canSubmitReview(b) && (
+                          <BatchActionButton
+                            icon="check"
+                            label="提交质检"
+                            onClick={() => handleSubmitReview(b)}
+                            title={
+                              b.status === "reviewing"
+                                ? "批次审核中但仍有未送审任务，整批补交质检"
+                                : "整批提交质检（owner / 被分派标注员）"
+                            }
+                          />
                         )}
                         {b.status === "reviewing" && (
                           <>
-                            <Button
+                            <BatchActionButton
+                              icon="check"
+                              label="通过"
                               onClick={() => handleTransition(b, "approved")}
                               title="批次通过审核（reviewer / owner）"
                               className={SUCCESS_BTN}
-                            >
-                              <Icon name="check" size={12} /> 通过
-                            </Button>
-                            <Button
+                            />
+                            <BatchActionButton
+                              icon="x"
+                              label="驳回"
                               variant="danger"
-                              onClick={() => setRejectTarget(b)}
+                              onClick={() => void handleRejectBatch(b)}
                               title="批次驳回（reviewer / owner）"
-                            >
-                              <Icon name="x" size={12} /> 驳回
-                            </Button>
+                            />
                           </>
                         )}
                         {b.status === "rejected" && (
-                          <Button onClick={() => handleTransition(b, "active")} title="重新激活">
-                            <Icon name="refresh" size={12} />
-                          </Button>
+                          <BatchActionButton
+                            icon="refresh"
+                            label="重新激活"
+                            onClick={() => handleTransition(b, "active")}
+                            title="重新激活"
+                          />
                         )}
                         {/* v0.7.3 · owner 专属逆向迁移按钮 */}
                         {isOwner && b.status === "rejected" && (
-                          <Button
-                            onClick={() =>
-                              setReverseTarget({ batch: b, kind: "reopen_from_rejected" })
-                            }
+                          <BatchActionButton
+                            icon="refresh"
+                            label="直接复审"
+                            onClick={() => void handleReverseTransition(b, "reopen_from_rejected")}
                             title="跳过重标，直接复审"
-                          >
-                            <Icon name="refresh" size={12} /> 直接复审
-                          </Button>
+                          />
                         )}
                         {isOwner && b.status === "approved" && (
-                          <Button
-                            onClick={() =>
-                              setReverseTarget({ batch: b, kind: "reopen_from_approved" })
-                            }
+                          <BatchActionButton
+                            icon="refresh"
+                            label="重开审核"
+                            onClick={() => void handleReverseTransition(b, "reopen_from_approved")}
                             title="重开审核"
-                          >
-                            <Icon name="refresh" size={12} /> 重开审核
-                          </Button>
+                          />
                         )}
                         {isOwner && b.status === "archived" && (
-                          <Button
-                            onClick={() => setReverseTarget({ batch: b, kind: "unarchive" })}
+                          <BatchActionButton
+                            icon="refresh"
+                            label="撤销归档"
+                            onClick={() => void handleReverseTransition(b, "unarchive")}
                             title="撤销归档"
-                          >
-                            <Icon name="refresh" size={12} /> 撤销归档
-                          </Button>
+                          />
                         )}
                         {/* v0.7.6 · owner 终极重置到 draft（任意非 draft 状态） */}
                         {isOwner && b.status !== "draft" && (
-                          <Button
-                            onClick={() => setResetTarget(b)}
+                          <BatchActionButton
+                            icon="refresh"
+                            label="重置"
+                            onClick={() => void handleResetBatch(b)}
                             title="重置到草稿（owner 兜底）"
-                          >
-                            <Icon name="refresh" size={12} /> 重置
-                          </Button>
+                          />
                         )}
                         {!["archived", "approved"].includes(b.status) && (
-                          <Button onClick={() => handleTransition(b, "archived")} title="归档">
-                            <Icon name="inbox" size={12} />
-                          </Button>
+                          <BatchActionButton
+                            icon="inbox"
+                            label="归档"
+                            onClick={() => handleTransition(b, "archived")}
+                            title="归档"
+                          />
                         )}
                         {b.display_id !== "B-DEFAULT" && (
-                          <Button onClick={() => setConfirmDelete(b)} title="删除">
-                            <Icon name="trash" size={12} />
-                          </Button>
+                          <BatchActionButton
+                            icon="trash"
+                            label="删除"
+                            onClick={() => setConfirmDelete(b)}
+                            title="删除"
+                          />
                         )}
                         {/* v0.7.3 · 操作历史抽屉 */}
-                        <Button onClick={() => setAuditTarget(b)} title="操作历史">
-                          <Icon name="clock" size={12} />
-                        </Button>
+                        <BatchActionButton
+                          icon="clock"
+                          label="操作历史"
+                          onClick={() => setAuditTarget(b)}
+                          title="操作历史"
+                        />
                         {/* v0.9.15 · ADR-0008 admin-lock */}
                         {isOwner && !b.admin_locked && (
-                          <Button
-                            onClick={() => setLockTarget(b)}
+                          <BatchActionButton
+                            icon="lock"
+                            label="锁定批次"
+                            onClick={() => void handleAdminLockPrompt(b)}
                             title="锁定批次（冻结自动推进，阻止新派单）"
                             className="text-status-caution"
-                          >
-                            <Icon name="lock" size={12} />
-                          </Button>
+                          />
                         )}
                         {isOwner && b.admin_locked && (
-                          <Button
+                          <BatchActionButton
+                            icon="unlock"
+                            label="解锁批次"
                             onClick={() => handleAdminUnlock(b)}
                             title="解锁批次"
                             className="text-status-positive"
-                          >
-                            <Icon name="unlock" size={12} />
-                          </Button>
+                          />
                         )}
                       </div>
                       {b.status === "rejected" && b.review_feedback && (
@@ -933,15 +1125,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* v0.7.0：批次驳回 Modal */}
-      {rejectTarget && (
-        <RejectBatchModal
-          projectId={project.id}
-          batch={rejectTarget}
-          onClose={() => setRejectTarget(null)}
-        />
-      )}
-
       {/* v0.7.2：项目级 batch 分派 Modal */}
       {distributeOpen && (
         <ProjectDistributeBatchesModal
@@ -1019,41 +1202,12 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* v0.7.3：逆向迁移 Modal */}
-      {reverseTarget && (
-        <ReverseTransitionModal
-          projectId={project.id}
-          batch={reverseTarget.batch}
-          kind={reverseTarget.kind}
-          onClose={() => setReverseTarget(null)}
-        />
-      )}
-
       {/* v0.7.3：操作历史抽屉 */}
       {auditTarget && (
         <BatchAuditLogDrawer
           projectId={project.id}
           batch={auditTarget}
           onClose={() => setAuditTarget(null)}
-        />
-      )}
-
-      {/* v0.7.6：终极重置到 draft */}
-      {resetTarget && (
-        <ResetBatchModal
-          projectId={project.id}
-          batch={resetTarget}
-          onClose={() => setResetTarget(null)}
-        />
-      )}
-
-      {/* v0.9.15：管理员锁定 Modal */}
-      {lockTarget && (
-        <AdminLockModal
-          batch={lockTarget}
-          onClose={() => setLockTarget(null)}
-          onSubmit={(reason) => handleAdminLock(lockTarget, reason)}
-          pending={adminLock.isPending}
         />
       )}
 

@@ -6,7 +6,7 @@ import { FilterPanel } from "@/components/filters/FilterPanel";
 import { FilterTrigger } from "@/components/filters/FilterTrigger";
 import { Input } from "@/components/shadcn/ui/input";
 import { Button } from "@/components/ui/Button";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useUsers } from "@/hooks/useUsers";
 import { useAuthStore } from "@/stores/authStore";
 import { PROJECT_DATA_TYPES } from "@/constants/toolUnits";
@@ -194,7 +194,7 @@ export function ProjectFilterPanel({ open, onOpenChange, initial, onApply, count
                     onChange={() => setDraft({ ...draft, member_id: user.id })}
                     className="size-3 accent-brand"
                   />
-                  <Avatar size="sm" initial={(user.name || "?").slice(0, 1).toUpperCase()} />
+                  <UserAvatar user={user} size="sm" />
                   <span className="min-w-0 flex-1 truncate">{user.name}</span>
                   <span className="text-2xs text-muted-foreground">
                     {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}

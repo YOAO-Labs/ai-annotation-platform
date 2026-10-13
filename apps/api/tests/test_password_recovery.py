@@ -243,7 +243,7 @@ async def test_concurrent_consumers_can_use_a_reset_token_only_once(test_engine)
                 email=f"concurrent-{uuid4().hex}@local",
                 name="Concurrent Reset",
                 password_hash=hash_password("Test1234"),
-                role="annotator",
+                role="employee",
                 is_active=True,
             )
         )
@@ -299,7 +299,7 @@ async def test_reset_user_lock_serializes_old_password_login(test_engine):
                 email=email,
                 name="Login Race",
                 password_hash=hash_password("OldStrong1"),
-                role="annotator",
+                role="employee",
                 is_active=True,
             )
         )

@@ -19,6 +19,7 @@ vi.mock("@/hooks/useBatches", () => ({
   useCreateBatch: () => mutationStub(),
   useDeleteBatch: () => mutationStub(),
   useTransitionBatch: () => mutationStub(),
+  useSubmitBatch: () => mutationStub(),
   useSplitBatches: () => mutationStub(),
   useBulkArchiveBatches: () => mutationStub(),
   useBulkDeleteBatches: () => mutationStub(),
@@ -26,6 +27,8 @@ vi.mock("@/hooks/useBatches", () => ({
   useBulkActivateBatches: () => mutationStub(),
   useBulkApproveBatches: () => mutationStub(),
   useBulkRejectBatches: () => mutationStub(),
+  useRejectBatch: () => mutationStub(),
+  useResetBatch: () => mutationStub(),
   useAdminLockBatch: () => mutationStub(),
   useAdminUnlockBatch: () => mutationStub(),
   useUnclassifiedTaskCount: () => mockUseUnclassified(),
@@ -46,6 +49,7 @@ vi.mock("@/components/ui/Toast", async () => {
 
 import { BatchesSection } from "./BatchesSection";
 import type { ProjectResponse } from "@/api/projects";
+import type { BatchResponse } from "@/api/batches";
 
 const baseProject = {
   id: "p1",
@@ -55,6 +59,39 @@ const baseProject = {
   type_label: "图像检测",
   status: "in_progress",
 } as ProjectResponse;
+
+const baseBatch = {
+  id: "b1",
+  project_id: "p1",
+  dataset_id: null,
+  display_id: "B-1",
+  name: "批次一",
+  description: "",
+  status: "reviewing",
+  priority: 50,
+  deadline: null,
+  assigned_user_ids: [],
+  annotator_id: null,
+  reviewer_id: null,
+  annotator: null,
+  reviewer: null,
+  total_tasks: 3,
+  completed_tasks: 0,
+  review_tasks: 1,
+  approved_tasks: 0,
+  rejected_tasks: 0,
+  created_by: null,
+  created_at: "2026-09-16T00:00:00Z",
+  updated_at: null,
+  progress_pct: 0,
+  review_feedback: null,
+  reviewed_at: null,
+  reviewed_by: null,
+  admin_locked: false,
+  admin_lock_reason: null,
+  admin_locked_at: null,
+  admin_locked_by: null,
+} as BatchResponse;
 
 function renderUI() {
   return render(
@@ -89,5 +126,20 @@ describe("BatchesSection (smoke)", () => {
     mockUseBatches.mockReturnValue({ data: [], isLoading: false });
     renderUI();
     expect(mockBatchEventsSocket).toHaveBeenCalledWith("p1");
+  });
+
+  it("reviewing 且仍有未送审任务 → 显示整批送审入口", () => {
+    mockUseBatches.mockReturnValue({ data: [baseBatch], isLoading: false });
+    renderUI();
+    expect(screen.getByText("提交质检")).toBeInTheDocument();
+  });
+
+  it("reviewing 且全部送审 → 隐藏整批送审入口", () => {
+    mockUseBatches.mockReturnValue({
+      data: [{ ...baseBatch, review_tasks: 3 }],
+      isLoading: false,
+    });
+    renderUI();
+    expect(screen.queryByText("提交质检")).not.toBeInTheDocument();
   });
 });

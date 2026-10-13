@@ -13,10 +13,11 @@
  * flows（drain/resume/delete/health）· 问题中心诊断去重 · 窄屏无 min-w-[980px]。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type ReactNode } from "react";
 
 // Radix Tabs switches on pointerdown. userEvent.click() fires the full
 // pointer + mouse + click sequence, which reliably triggers the switch in jsdom.
@@ -286,17 +287,42 @@ function makeOverview(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderUI() {
+function LocationProbe(): ReactNode {
+  const location = useLocation();
+  return <div data-testid="registry-location-probe" data-search={location.search} />;
+}
+
+function renderUI(initialUrl = "/model-market?tab=registry") {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <RegisteredBackendsTab />
-      </MemoryRouter>
-    </QueryClientProvider>,
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/model-market",
+        element: (
+          <>
+            <RegisteredBackendsTab />
+            <LocationProbe />
+          </>
+        ),
+      },
+    ],
+    { initialEntries: [initialUrl] },
   );
+  return {
+    ...render(
+      <QueryClientProvider client={qc}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+    router,
+    queryClient: qc,
+  };
+}
+
+function currentSearch(): string {
+  return screen.getByTestId("registry-location-probe").dataset.search ?? "";
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
@@ -375,6 +401,17 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       renderUI();
       expect(await screen.findByText("尚无服务池")).toBeInTheDocument();
     });
+
+    it("实例列表查询失败且无缓存 → 实例 tab 计数显示 ? 而不是 0", async () => {
+      // 回归（PR #103 Codex P2）：/all 失败时旧代码回落 0，把失败的列表
+      // 冒充成空注册表；应与 GPU / 项目计数一致地显示未知。
+      mockListAll.mockRejectedValue(new Error("all 503"));
+      renderUI();
+      const instancesTab = await screen.findByRole("tab", { name: /实例/ });
+      await waitFor(() => {
+        expect(instancesTab.textContent).toContain("?");
+      });
+    });
   });
 
   describe("Super Admin", () => {
@@ -396,17 +433,23 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(screen.getAllByTitle("服务池操作").length).toBeGreaterThan(0);
     });
 
-    it("实例 tab 渲染实例行 + 详情/操作按钮 + GPU claim UUID", async () => {
+    it("实例 tab 渲染实例行 + 详情/操作按钮，GPU claim 收敛进摘要列（plan §4.3）", async () => {
       mockListAll.mockResolvedValue({ items: [makeBackend()] });
       renderUI();
       // 切到实例 tab（Radix Tabs 用 pointerdown 切换）
       await switchTab(/实例/);
       await screen.findByText("grounded-sam2");
-      // GPU claim UUID 可见（超管）
-      expect(screen.getAllByText("node-a/index:0").length).toBeGreaterThan(0);
+      // URL 收进名称副行，完整值仍可通过 title 查看
+      expect(screen.getByTitle("http://172.17.0.1:8001")).toBeInTheDocument();
+      // GPU claim 摘要列显示完整资源 ID（带 GPU 前缀），title 带预算
+      expect(screen.getByText("GPU node-a/index:0")).toBeInTheDocument();
+      expect(screen.getByTitle(/node-a\/index:0 · 8192 MiB/)).toBeInTheDocument();
       // 详情 + 操作按钮存在
       expect(screen.getAllByTitle("详情").length).toBeGreaterThan(0);
       expect(screen.getAllByTitle("实例操作").length).toBeGreaterThan(0);
+      // 主表不再有独立的 URL / 来源 / 权重 / GPU 列（列数收敛为 6）
+      const header = screen.getByText("所属服务池").closest("tr");
+      expect(header?.querySelectorAll("th").length).toBe(6);
     });
 
     it("点击注册实例 → 打开 GlobalBackendFormModal", async () => {
@@ -427,10 +470,12 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(within(summary).getByText("全局期望模式")).toBeInTheDocument();
       expect(within(summary).getByText("Observe 就绪")).toBeInTheDocument();
       expect(within(summary).getByText("Enforce 未就绪")).toBeInTheDocument();
-      // 资源 ID 出现
-      expect(await screen.findByText(/node-a\/index:0/)).toBeInTheDocument();
+      // 身份列显示设备序号 + 节点，完整资源 ID 折叠为短 ID（tooltip/复制保留全值）
+      expect(await screen.findByText("index:0")).toBeInTheDocument();
+      expect(screen.getByText("节点 · node-a")).toBeInTheDocument();
       expect(screen.getByText("配置 · observe")).toBeInTheDocument();
-      expect(screen.getByText("1 个 backend")).toBeInTheDocument();
+      expect(screen.getByTitle("node-a/index:0")).toBeInTheDocument();
+      expect(screen.getByText(/1 个 backend/)).toBeInTheDocument();
       // committed 运行时占用的数值
       expect(screen.getByText(/4,096 MiB/)).toBeInTheDocument();
       // 静态声明的数值
@@ -748,6 +793,107 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       // 问题中心 tab 上的计数 badge = 2（pool_offline + circuit_open）
       const issueTab = screen.getByRole("tab", { name: /问题中心/ });
       expect(issueTab.querySelector(".bg-status-danger-soft, [class*='danger']")).not.toBeNull();
+    });
+  });
+
+  describe("URL 子视图状态（plan §5）", () => {
+    it("搜索逐字输入保留空格并匹配实例名称", async () => {
+      const user = userEvent.setup();
+      mockListAll.mockResolvedValue({ items: [makeBackend({ name: "SAM 2" })] });
+      renderUI("/model-market?tab=registry&registry_view=instances");
+      const input = await screen.findByLabelText("搜索实例");
+      await user.type(input, "SAM ");
+      expect(input).toHaveValue("SAM ");
+      await user.type(input, "2 ");
+      expect(input).toHaveValue("SAM 2 ");
+      expect(new URLSearchParams(currentSearch()).get("instance_q")).toBe("SAM 2 ");
+      expect(screen.getByText("SAM 2")).toBeInTheDocument();
+    });
+
+    it("详情随后退关闭、前进恢复，失效目标不保留旧详情", async () => {
+      mockListAll.mockResolvedValue({ items: [makeBackend()] });
+      const { router } = renderUI("/model-market?tab=registry&registry_view=instances");
+      fireEvent.click(await screen.findByRole("button", { name: "详情" }));
+      expect(await screen.findByRole("dialog")).toHaveTextContent("grounded-sam2");
+      await act(() => router.navigate(-1));
+      expect(currentSearch()).not.toContain("instance_id");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await act(() => router.navigate(1));
+      expect(await screen.findByRole("dialog")).toHaveTextContent("grounded-sam2");
+      await act(() =>
+        router.navigate("/model-market?tab=registry&registry_view=instances&instance_id=missing"),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.getByText(/对象不存在或当前不可访问/)).toBeInTheDocument();
+    });
+
+    it("实例深链等待数据后打开，目标移除后关闭", async () => {
+      let resolveBackends!: (value: { items: ReturnType<typeof makeBackend>[] }) => void;
+      mockListAll.mockReturnValue(
+        new Promise((resolve) => {
+          resolveBackends = resolve;
+        }),
+      );
+      const { queryClient } = renderUI(
+        "/model-market?tab=registry&registry_view=instances&instance_id=bk-1",
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await act(async () => resolveBackends({ items: [makeBackend()] }));
+      expect(await screen.findByRole("dialog")).toHaveTextContent("grounded-sam2");
+      mockListAll.mockResolvedValue({ items: [makeBackend({ id: "bk-2", name: "second" })] });
+      await act(() => queryClient.invalidateQueries());
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.getByText(/对象不存在或当前不可访问/)).toBeInTheDocument();
+    });
+
+    it("?registry_view=instances 深链直接落到实例子视图", async () => {
+      mockListAll.mockResolvedValue({ items: [makeBackend()] });
+      renderUI("/model-market?tab=registry&registry_view=instances");
+      // 无需点击，实例试图直接渲染。
+      expect(await screen.findByText("grounded-sam2")).toBeInTheDocument();
+    });
+
+    it("子 TAB 触发器显示来源明确的计数（plan §3）", async () => {
+      mockListAll.mockResolvedValue({
+        items: [makeBackend(), makeBackend({ id: "bk-2", name: "second" })],
+      });
+      renderUI();
+      const poolsTab = await screen.findByRole("tab", { name: /服务池/ });
+      expect(poolsTab.textContent).toContain("1");
+      const instancesTab = screen.getByRole("tab", { name: /实例/ });
+      expect(instancesTab.textContent).toContain("2");
+    });
+
+    it("服务池「查看实例」→ URL 变为 registry_view=instances&instance_pool=<id>", async () => {
+      mockListAll.mockResolvedValue({
+        items: [makeBackend(), makeBackend({ id: "bk-2", name: "unmanaged" })],
+      });
+      renderUI(
+        "/model-market?tab=registry&instance_q=other&instance_health=offline&instance_pool=old-pool&instance_id=old-backend",
+      );
+      await screen.findByText("grounded-sam2-pool");
+      fireEvent.click(screen.getAllByTitle("服务池操作")[0]);
+      fireEvent.click(await screen.findByRole("menuitem", { name: /查看实例/ }));
+      await waitFor(() => {
+        const search = currentSearch();
+        expect(search).toContain("registry_view=instances");
+        expect(search).toContain("instance_pool=pool-1");
+        expect(search).not.toMatch(/instance_(q|health|id)=/);
+      });
+      // 实例行被池条件过滤后仍可见（bk-1 属于 pool-1）。
+      expect(await screen.findByText("grounded-sam2")).toBeInTheDocument();
+      expect(screen.getByText(/仅显示服务池「grounded-sam2-pool」的实例/)).toBeInTheDocument();
+      expect(screen.queryByText("unmanaged")).not.toBeInTheDocument();
+    });
+
+    it("项目管理员深链超管子视图 → 回退服务池且不渲染超管 TAB", async () => {
+      mockRole = "project_admin";
+      renderUI("/model-market?tab=registry&registry_view=gpu");
+      expect(await screen.findByText("grounded-sam2-pool")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(currentSearch()).not.toContain("registry_view=gpu");
+      });
+      expect(screen.queryByRole("tab", { name: /GPU 资源/ })).not.toBeInTheDocument();
     });
   });
 

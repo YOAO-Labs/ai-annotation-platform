@@ -10,6 +10,16 @@ import type { GlobalBackendItem } from "@/api/adminMlIntegrations";
 import type { TopologyPoolEntry, TopologyMemberInstance } from "@/api/generated/types.gen";
 import type { MemberViewModel, PoolViewModel } from "../runtimeTopology";
 
+/**
+ * Compact display form of a stable id (plan §4.3: 名称 + 短 ID 优先，完整值靠
+ * tooltip / 复制 / 详情)。≤12 字符原样显示；更长的取前 8 字符 + 省略号。
+ * 不发明名称——只截断真实值。
+ */
+export function formatShortId(value: string): string {
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 8)}…`;
+}
+
 /** Format an ISO timestamp as a localized, hour-24 string. Returns "—" on null. */
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";

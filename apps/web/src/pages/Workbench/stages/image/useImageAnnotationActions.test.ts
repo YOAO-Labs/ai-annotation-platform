@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import type { Annotation, AnnotationResponse, CocoRleMaskRef } from "@/types";
 import type { CocoRle } from "../../stage/shared/geometry/maskRle";
 import type { MaskSaveResult } from "../../state/useMaskEditorSession";
@@ -9,6 +10,20 @@ import {
   hasUsableImageBounds,
   useImageAnnotationActions,
 } from "./useImageAnnotationActions";
+
+/** 结算当前排队的 decisionDialog,模拟用户点下某个按钮。 */
+function settleDecisionDialog(value: boolean | string | null) {
+  const head = useDecisionDialogStore.getState().queue[0];
+  if (!head) throw new Error("decisionDialog 队列为空");
+  useDecisionDialogStore.getState().settle(value);
+}
+
+afterEach(() => {
+  // decisionDialog store 是模块级单例,清空队列避免跨测试残留。
+  act(() => {
+    useDecisionDialogStore.setState({ queue: [] });
+  });
+});
 
 const nativeRequests = vi.hoisted(() => ({ upload: vi.fn() }));
 vi.mock("@/api/rasterMasks", () => ({
@@ -921,25 +936,25 @@ describe("ordinary image Mask commit ownership", () => {
     view.s.selectedId = savedMask.id;
     view.args.annotationsRef.current = [savedMask] as never;
     view.editor.commitToRleAsync.mockResolvedValueOnce({ ...maskRle, counts: [10_000] });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     view.rerender();
     let pending!: Promise<MaskSaveResult>;
-    try {
-      await act(async () => {
-        pending = view.result.current.commitMaskAsPolygon();
-      });
-      expect(view.args.mutations.delete.mutate).toHaveBeenCalledTimes(1);
-      const callbacks = view.args.mutations.delete.mutate.mock.calls[0][1];
-      view.args.taskId = "task-2";
-      view.rerender();
-      await act(async () => {
-        callbacks.onSuccess();
-        expect(await pending).toEqual({ ok: false, retryable: false });
-      });
-      expectNoMaskCompletion(view);
-    } finally {
-      confirm.mockRestore();
-    }
+    await act(async () => {
+      pending = view.result.current.commitMaskAsPolygon();
+    });
+    // 擦空稿件走应用内三选一;选「删除对象」后进入删除分支。
+    await act(async () => {
+      settleDecisionDialog("delete");
+      await Promise.resolve();
+    });
+    expect(view.args.mutations.delete.mutate).toHaveBeenCalledTimes(1);
+    const callbacks = view.args.mutations.delete.mutate.mock.calls[0][1];
+    view.args.taskId = "task-2";
+    view.rerender();
+    await act(async () => {
+      callbacks.onSuccess();
+      expect(await pending).toEqual({ ok: false, retryable: false });
+    });
+    expectNoMaskCompletion(view);
   });
 
   it("卸载后合并成功保持静默", async () => {

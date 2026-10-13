@@ -27,13 +27,13 @@ pnpm test:e2e:stress                     # 完整布局压力矩阵
 
 首次运行需要 `pnpm exec playwright install chromium` 装浏览器。
 
-CI 使用 `line` reporter 显示正在执行的用例及重试，同时保留 GitHub annotations、HTML 和 `e2e-results.json` 报告。Actions 摘要分别列出每个套件通过、失败、重试后通过（flaky）、跳过数量及执行时间。每次失败尝试都保留截图和 trace，包括禁用重试的扩展套件；报告缺失会明确提示检查启动或超时日志。分片内按单 worker 串行运行；排查长时间执行时先查看当前用例和超时信息，不能只凭 WebSocket 断连日志判断测试卡死。
+CI 使用 `line` reporter 显示正在执行的用例及重试，同时保留 GitHub annotations、HTML 和 `e2e-results.json` 报告。Actions 摘要分别列出每个套件通过、失败、重试后通过（flaky）、跳过数量及执行时间。每次失败尝试都保留截图和 trace，包括零重试的视觉基线套件；报告缺失会明确提示检查启动或超时日志。分片内按单 worker 串行运行；排查长时间执行时先查看当前用例和超时信息，不能只凭 WebSocket 断连日志判断测试卡死。
 
-CI 功能用例最多重试一次；视觉和压力用例不重试。首个用例最终失败后终止当前分片，其他分片继续完成各自诊断。每个 Playwright 测试进程总限时 15 分钟，测试步骤限时 20 分钟，整个 E2E job（含安装和构建）限时 30 分钟。分层限时为清理和报告上传保留余量，并在测试进程无法自行退出时由 Actions 兜底。本地运行不启用这些 CI 早退限制。
+CI 功能用例最多重试一次；视觉基线不重试，压力用例最多重试一次。首个用例最终失败后终止当前分片，其他分片继续完成各自诊断。每个 Playwright 测试进程总限时 15 分钟，测试步骤限时 20 分钟，整个 E2E job（含安装和构建）限时 30 分钟。分层限时为清理和报告上传保留余量，并在测试进程无法自行退出时由 Actions 兜底。本地运行不启用这些 CI 早退限制。
 
 ## 功能、视觉与压力测试
 
-默认 `playwright.config.ts` 排除 `@visual`、`@stress`；`playwright.extended.config.ts` 复用相同项目、服务和数据隔离配置，只选择扩展标签。不要在功能测试中混入整页或整个工作区的截图断言。给视觉测试添加 `{ tag: "@visual" }`，保持其标题、文件位置和项目名以复用既有基线；有意的外观变化经人工核对差异后，用 `pnpm test:e2e:visual --update-snapshots` 更新并提交基线，不能自动接受差异。
+默认 `playwright.config.ts` 排除 `@visual`、`@stress`；扩展配置拆成两个入口，均复用相同项目、服务和数据隔离配置：`playwright.extended.config.ts` 只选择 `@visual`（零重试），`playwright.stress.config.ts` 选择 `@stress`（最多重试一次，用于区分确定性损坏与 runner 资源饥饿，重试通过仍标记 flaky）。不要在功能测试中混入整页或整个工作区的截图断言。给视觉测试添加 `{ tag: "@visual" }`，保持其标题、文件位置和项目名以复用既有基线；有意的外观变化经人工核对差异后，用 `pnpm test:e2e:visual --update-snapshots` 更新并提交基线，不能自动接受差异。
 
 布局矩阵在图片/视频/点云 × 标注/审核六种上下文中都保留真实拖动、画布身份、上下文隔离、紧凑模式、保存与刷新恢复断言。功能集执行 14 次重排，`@stress` 执行完整 54 次；新增长循环必须放入压力集，并在功能集中保留覆盖关键状态转换的短流程。
 
@@ -60,11 +60,24 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 ## 数据准备
 
 避免每个 spec 重复造数据：`e2e/fixtures/seed.ts` 通过
-`/api/v1/__test/seed/*` 创建固定 fixture。这组路由需要同时满足：
+`/api/v1/__test/seed/*` 创建 fixture。这组路由需要同时满足：
 
 - `E2E_SEED_ENABLED=true`；
 - 当前数据库名以 `_e2e` 或 `_test` 结尾；
 - `production` 环境永不挂载路由。
+
+**默认使用私有命名空间 fixture**：`await seed.owned()` 按 spec 文件 + 测试标题
+确定性派生命名空间（`^[a-z0-9]{4,12}$`，重试稳定、跨测试唯一），由 `/seed/owned`
+只创建该命名空间的标准工作台 fixture，测试结束后 seed fixture teardown 调用
+`/seed/owned-cleanup` 精确清理（含存储对象与 mock backend 注册项）；清理失败会让
+测试失败。`/seed/lidar`、`/seed/project-roles`、`/seed/filtering` 的命名空间参数
+同样只触碰各自命名空间；filtering manifest 暴露 `display_names`、`invitation_emails`、
+`search_keys`、`audit_scopes`，spec 必须用 manifest 值做全局列表搜索/文案/导出断言。
+
+`seed.reset()` 只保留给确属全局操作的套件：它破坏性重建共享命名空间并会收敛所有
+E2E 数据（含 owned 命名空间），是已记录的串行例外；不要再在普通用例中调用。需要
+跨命名空间存活/清理证据时，可用 `fixtures/storage-object-probe.py` 经真实存储客户端
+读取对象字节。
 
 正常结束时 `globalTeardown` 会调用 `/api/v1/__test/seed/cleanup` 清除固定 E2E
 数据。这只是卫生性兜底：强制中断或进程被终止时 teardown 可能来不及执行，
@@ -99,13 +112,51 @@ PLAYWRIGHT_AI_REQUEST_WORKER=1 pnpm test:e2e \
 
 ## WebCodecs 精确帧 E2E
 
-视频 Issue 的 180 帧夹具按测试 API 的 `VIDEO_CHUNK_SIZE_FRAMES` 生成完整真实分片，默认三块，每块 60 帧。测试开始前核对正式 manifest 与分片范围、就绪状态；不能依赖未启动的媒体 worker 补齐缺失分片。像素身份仍从实际编码视频验证。两个 Issue 套件共用 `helpers/video-request-errors.ts`，只允许明确端点的 `net::ERR_ABORTED` 生命周期取消（心跳、会话统计、帧预览及分片元数据/样本）；标注、Issue 写入失败、其他网络错误与 HTTP 错误仍须报告。`pnpm --filter @anno/web test scripts/video-request-errors.test.ts` 验证这些边界，CI 的前端单元测试同步执行。
+视频 Issue 的 180 帧夹具按测试 API 的 `VIDEO_CHUNK_SIZE_FRAMES` 生成完整真实分片，默认三块，每块 60 帧。测试开始前核对正式 manifest 与分片范围、就绪状态；不能依赖未启动的媒体 worker 补齐缺失分片。像素身份仍从实际编码视频验证。请求失败分类集中在 `helpers/request-errors.ts`：每条允许项都是「方法 + 精确路径 + 原因」的有类型规则，图片与视频套件按共享规则组组合；只允许明确端点的 `net::ERR_ABORTED` 生命周期取消（心跳、会话统计、bootstrap/任务上下文读、帧预览及分片元数据/样本），标注与 Issue 写入失败、其他网络错误与 HTTP 错误仍须报告。`pnpm --filter @anno/web test scripts/video-request-errors.test.ts` 同时验证这些边界的允许侧与禁止侧，CI 的前端单元测试同步执行。
+
+刷新前的布局保存等待必须匹配当前交互产生的 workspace 快照，并等响应接收完成。初始化、切换预设和激活讨论面板会分别发送偏好 PATCH，首条成功响应不能代表后续保存完成。任务级 Issue 用例延迟最终讨论布局响应，验证刷新不会抢先取消偏好写入；偏好 PATCH 的取消仍按错误处理。
 
 `e2e/tests/video-webcodecs-precise-frame.spec.ts` 用 `seed/video-webcodecs`
 造确定性 H.264 fixture（baseline / 主 profile B 帧 / 短 GOP / VFR），验证精确帧
 pipeline 的开关边界、精确解码或安全回退、pending→ready 切换。视频舞台容器暴露
 `data-video-frame-source` / `data-video-precise-state` / `data-video-frame-index`
-三个可观察属性供 spec 读取。
+三个可观察属性供 spec 读取；`data-video-painted-frame-index`（精确绘制完成的帧号，
+非 webcodecs 源恒为 `-1`）用于等待绘制就绪。导航触发的异步取帧在负载下可能
+迟到：应用层已在播放控制器的帧号写入处加单调栅栏，迟到的旧帧回报不会再覆盖
+更新后的帧号（Issue #114，组件级回归见
+`useVideoPlaybackController.stale-seek.test.ts`），视频 Issue 套件的
+`expectPaintSettled` 保留为冗余防护——等它与 `data-video-frame-index` 一致后再
+继续或断言仍最稳妥。
+
+### 时间轴定位契约与真实指针回归
+
+视频 Issue/track 套件建立前置帧一律走 `e2e/helpers/video-timeline-seek.ts` 的
+确定性通路：先等可见窗口包含目标（需要时展开时间轴并 zoom-reset，等窗口状态
+实际更新），再把能精确表达目标帧的 range 归一化值（0..10000）写入「视频帧时间轴」
+输入，经应用既有 `onChange → onSeek` 生效。映射与组件 `timelineCoords.pctToFrame`
+同款，`rangeValueForFrame` 反解不精确即显式失败——本套件 180 帧素材在任意合法
+窗口下逐帧可表达（`scripts/video-timeline-seek.test.ts` 逐帧验证）；更长素材出现
+不可表达帧时应缩窗或扩粒度，不允许静默近似。导航失败时 `seek` 会在
+`seek-navigation-state` 附件写入目标/选择/绘制帧、显示源、precise state 与时间轴
+窗口的只读快照，帮助区分「目标未写入 / 呈现未完成」，且不覆盖原始断言错误。
+
+像素采样（`fixtures/video-frame-pixels.ts`）对「属性断言已过、采样时文档恰好被
+真实导航替换」的竞态做了有界重试：仅针对 `Execution context was destroyed`，
+重试在当前文档上重新采样。帧身份断言逐帧特异，采错帧会照常失败，因此重试
+不会把导航竞态放大成假通过。
+
+不要回退成「裸坐标点击时间轴 + 有限键盘补偿」：播放浮层在指针离开画布约 2s 后
+进入 `pointer-events: none`，裸 `mouse.click` 绕过 actionability 检查会被静默吞掉
+（`default-two` shard 2/4 曾因此偶发失败：点击后停留网格吸附帧，补偿十次后断言
+失败）。fill 不做命中检查，不依赖浮层可见。
+
+真实鼠标路径由 `e2e/tests/video-timeline-seek.spec.ts` 单独覆盖：折叠态、展开态、
+关闭 Issue 表单后、缩放窗口与首末帧端点。它以 `video-timeline-shell` 为定位器，
+用 `locator.click({ position })`（带 hit-target 检查，被吞的点击会显式失败），
+几何换算与组件 `frameFromPointer` 一致；点击前通过真实指针移动唤出浮层并断言
+shell `pointerEvents` 恢复 `auto`，不用 `force: true`、不关动画、不用键盘补救。
+端点点击内缩 2px 并容忍 ±1 帧的取整漂移（输入量化到整数像素的固有不确定
+性，内部帧仍逐帧精确断言）；不要把端点断言绑定在个别边界像素上。
 
 **能力门**：WebCodecs `VideoDecoder` 需 secure context。localhost 下 Chromium 暴露
 构造器，但 headless 软解下 `isConfigSupported` / 实际 decode 可能不通过，精确帧会

@@ -1,6 +1,11 @@
+import type { CSSProperties, ReactNode } from "react";
+
 import type { DataManagerFilterField, DataManagerSummary } from "@/api/taskViews";
 import { Skeleton } from "@/components/shadcn/ui/skeleton";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { useDataManagerSummary } from "@/hooks/useTaskViews";
 import { DataManagerCharts } from "./DataManagerCharts";
 
 interface DataManagerOverviewProps {
@@ -91,9 +96,9 @@ function overviewItems(summary: DataManagerSummary | undefined): OverviewItem[] 
       detail: `轨迹标注 ${metric(summary?.annotations.tracked)}`,
     },
     {
-      label: "未解决反馈",
+      label: "未解决问题",
       value: summary?.unresolved_feedback,
-      detail: summary?.unresolved_feedback ? "需要处理" : "当前无反馈",
+      detail: summary?.unresolved_feedback ? "需要处理" : "当前无问题",
       drill: { field: "feedback.unresolved_count", op: "gt", value: "0" },
     },
   ];
@@ -227,6 +232,265 @@ export function DataManagerOverview(props: DataManagerOverviewProps) {
     <div className="flex flex-col gap-4">
       <DataManagerSummaryStrip {...props} />
       <DataManagerAnalyticsContent {...props} />
+    </div>
+  );
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "待标注",
+  in_progress: "标注中",
+  review: "待审核",
+  completed: "已完成",
+  rejected: "已退回",
+  uploading: "上传中",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: "bg-status-caution",
+  in_progress: "bg-status-info",
+  review: "bg-status-caution",
+  completed: "bg-status-positive",
+  rejected: "bg-status-danger",
+  uploading: "bg-status-info-alt",
+};
+
+function OverviewMetric({
+  label,
+  value,
+  detail,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
+        {value}
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+    </>
+  );
+  return onClick ? (
+    <button
+      type="button"
+      className="rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onClick}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="rounded-lg border border-border bg-card p-4">{content}</div>
+  );
+}
+
+export function DataManagerProjectOverview({
+  projectId,
+  summaryFilter = {},
+  onDrill,
+  children,
+}: {
+  projectId: string;
+  summaryFilter?: Record<string, unknown>;
+  onDrill?: (rule: { field: string; op: "eq" | "gt"; value: string }) => void;
+  children?: ReactNode;
+}) {
+  const summaryQ = useDataManagerSummary(projectId, summaryFilter);
+  const summary = summaryQ.data;
+  const visible = summary?.scope.visible_task_total ?? 0;
+  const completed = summary?.task_status.completed ?? 0;
+  const review = summary?.task_status.review ?? 0;
+  const feedback = summary?.unresolved_feedback ?? 0;
+  const statusTotal = Object.values(summary?.task_status ?? {}).reduce(
+    (total, value) => total + value,
+    0,
+  );
+
+  if (summaryQ.isError) {
+    return (
+      <section
+        role="alert"
+        className="rounded-lg border border-status-danger/30 bg-status-danger-soft p-6"
+      >
+        <div className="flex items-start gap-3">
+          <Icon name="warning" size={18} className="mt-0.5 shrink-0 text-status-danger" />
+          <div>
+            <h2 className="text-sm font-semibold text-status-danger">项目概览暂时不可用</h2>
+            <p className="mt-1 text-xs text-status-danger/80">无法读取当前项目的任务汇总。</p>
+            <Button size="sm" variant="ghost" className="mt-3" onClick={() => summaryQ.refetch()}>
+              <Icon name="refresh" size={12} />
+              重试
+            </Button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-4">
+      <section aria-labelledby="data-manager-overview-title">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <h2 id="data-manager-overview-title" className="text-base font-semibold">
+              项目概览
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              当前项目可见任务快照；点击指标可进入对应数据集合。
+            </p>
+          </div>
+          <Badge variant="outline">当前快照</Badge>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {summaryQ.isLoading ? (
+            Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} className="h-28 rounded-lg" />
+            ))
+          ) : (
+            <>
+              <OverviewMetric
+                label="可见任务"
+                value={visible.toLocaleString()}
+                detail="项目权限范围内"
+              />
+              <OverviewMetric
+                label="已完成"
+                value={completed.toLocaleString()}
+                detail={`任务状态 · ${completed}/${Math.max(statusTotal, visible)} 个`}
+                onClick={
+                  completed > 0
+                    ? () => onDrill?.({ field: "task.status", op: "eq", value: "completed" })
+                    : undefined
+                }
+              />
+              <OverviewMetric
+                label="待审核"
+                value={review.toLocaleString()}
+                detail="当前待审核任务"
+                onClick={
+                  review > 0
+                    ? () => onDrill?.({ field: "task.status", op: "eq", value: "review" })
+                    : undefined
+                }
+              />
+              <OverviewMetric
+                label="未解决问题"
+                value={feedback.toLocaleString()}
+                detail={feedback ? "需要处理" : "当前无反馈"}
+                onClick={
+                  feedback > 0
+                    ? () => onDrill?.({ field: "feedback.unresolved_count", op: "gt", value: "0" })
+                    : undefined
+                }
+              />
+            </>
+          )}
+        </div>
+      </section>
+
+      {!summaryQ.isLoading && !visible && (
+        <section className="rounded-lg border border-dashed border-border bg-card p-8 text-center">
+          <Icon name="inbox" size={24} className="mx-auto text-muted-foreground" />
+          <h2 className="mt-3 text-sm font-semibold">项目中还没有可见任务</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            任务导入后，交付和质量状态会显示在这里。
+          </p>
+        </section>
+      )}
+
+      {!summaryQ.isLoading && summary && visible > 0 && (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <section
+            className="rounded-lg border border-border bg-card p-4"
+            aria-labelledby="delivery-title"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 id="delivery-title" className="text-sm font-semibold">
+                  交付状态
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">按当前可见任务计数</p>
+              </div>
+              <span className="font-mono text-xs text-muted-foreground">
+                {statusTotal.toLocaleString()} 条状态记录
+              </span>
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
+              {Object.entries(summary.task_status).map(([status, count]) => {
+                const percentage = statusTotal ? Math.round((count / statusTotal) * 100) : 0;
+                return (
+                  <div key={status}>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span>{STATUS_LABELS[status] ?? status}</span>
+                      <span className="font-mono tabular-nums text-muted-foreground">
+                        {count.toLocaleString()} · {percentage}%
+                      </span>
+                    </div>
+                    <div
+                      className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted"
+                      aria-hidden="true"
+                    >
+                      <div
+                        className={`h-full rounded-full ${STATUS_COLORS[status] ?? "bg-status-info"}`}
+                        // eslint-disable-next-line no-restricted-syntax -- status bar width is data-driven.
+                        style={{ width: `${percentage}%` } as CSSProperties}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section
+            className="rounded-lg border border-border bg-card p-4"
+            aria-labelledby="quality-title"
+          >
+            <div>
+              <h2 id="quality-title" className="text-sm font-semibold">
+                质量关注
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">需要负责人优先查看的当前信号</p>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                className="rounded-md border border-border p-3 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() =>
+                  onDrill?.({
+                    field: "ai.low_confidence_prediction_shape_count",
+                    op: "gt",
+                    value: "0",
+                  })
+                }
+              >
+                <div className="text-xs text-muted-foreground">低置信 AI 候选</div>
+                <div className="mt-1 font-mono text-xl tabular-nums">
+                  {(summary.ai_review.low_confidence_prediction_shapes ?? 0).toLocaleString()}
+                </div>
+                <div className="mt-1 text-2xs text-muted-foreground">点击查看对应任务</div>
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-border p-3 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() =>
+                  onDrill?.({ field: "feedback.unresolved_count", op: "gt", value: "0" })
+                }
+              >
+                <div className="text-xs text-muted-foreground">问题积压</div>
+                <div className="mt-1 font-mono text-xl tabular-nums">
+                  {feedback.toLocaleString()}
+                </div>
+                <div className="mt-1 text-2xs text-muted-foreground">按任务查看未解决问题</div>
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {children}
     </div>
   );
 }

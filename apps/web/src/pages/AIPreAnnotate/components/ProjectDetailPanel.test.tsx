@@ -185,8 +185,24 @@ describe("ProjectDetailPanel v0.9.12", () => {
     mockDeleteProjectPipelineMutate.mockReset();
     mockUseBatches.mockReturnValue({
       data: [
-        { id: "b1", display_id: "B-1", name: "批次甲", total_tasks: 10 },
-        { id: "b2", display_id: "B-2", name: "批次乙", total_tasks: 20 },
+        {
+          id: "b1",
+          display_id: "B-1",
+          name: "批次甲",
+          status: "active",
+          annotator_id: "u-anno",
+          reviewer_id: null,
+          total_tasks: 10,
+        },
+        {
+          id: "b2",
+          display_id: "B-2",
+          name: "批次乙",
+          status: "active",
+          annotator_id: null,
+          reviewer_id: null,
+          total_tasks: 20,
+        },
       ],
       isLoading: false,
     });
@@ -284,13 +300,73 @@ describe("ProjectDetailPanel v0.9.12", () => {
 
   it("选中 ≥2 个 batch 时出现串/并行单选", () => {
     renderUI();
-    fireEvent.click(screen.getByRole("checkbox", { name: /全选 active/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /全选可预标批次/ }));
     expect(screen.getByRole("radiogroup", { name: /并发模式/ })).toBeInTheDocument();
+  });
+
+  it("批次查询限定 active,draft, 避免拉取全量批次历史", () => {
+    renderUI();
+    expect(mockUseBatches).toHaveBeenCalledWith("p1", "active,draft");
+  });
+
+  // issue #124 · 未分派人员的 draft 批次出现在可预标列表, 已分派 draft / 已进入
+  // 人工流程的批次不出现; draft 行带「草稿·未分派」徽标提醒后续仍需分派激活。
+  it("批次列表放行未分派 draft, 过滤已分派 draft 与人工流程批次", () => {
+    mockUseBatches.mockReturnValue({
+      data: [
+        {
+          id: "b-active",
+          display_id: "B-A",
+          name: "活动批次",
+          status: "active",
+          annotator_id: "u-anno",
+          reviewer_id: null,
+          total_tasks: 5,
+        },
+        {
+          id: "b-draft-free",
+          display_id: "B-D1",
+          name: "未分派草稿",
+          status: "draft",
+          annotator_id: null,
+          reviewer_id: null,
+          total_tasks: 8,
+        },
+        {
+          id: "b-draft-assigned",
+          display_id: "B-D2",
+          name: "已分派草稿",
+          status: "draft",
+          annotator_id: "u-anno",
+          reviewer_id: null,
+          total_tasks: 3,
+        },
+        {
+          id: "b-annotating",
+          display_id: "B-N",
+          name: "标注中批次",
+          status: "annotating",
+          annotator_id: "u-anno",
+          reviewer_id: null,
+          total_tasks: 2,
+        },
+      ],
+      isLoading: false,
+    });
+    renderUI();
+    expect(screen.getByText("未分派草稿")).toBeInTheDocument();
+    expect(screen.getByText("草稿·未分派")).toBeInTheDocument();
+    expect(screen.queryByText("已分派草稿")).toBeNull();
+    expect(screen.queryByText("标注中批次")).toBeNull();
+    // 全选只勾选放行的两个批次 (active + 未分派 draft)。
+    fireEvent.click(screen.getByRole("checkbox", { name: /全选可预标批次/ }));
+    expect(screen.getByRole("checkbox", { name: /选择 活动批次/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /选择 未分派草稿/ })).toBeChecked();
   });
 
   it("串行模式: 多 batch 顺序触发 trigger.mutateAsync", async () => {
     renderUI();
-    fireEvent.click(screen.getByRole("checkbox", { name: /全选 active/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /全选可预标批次/ }));
     fireEvent.change(screen.getByPlaceholderText(/car, person/), {
       target: { value: "car" },
     });
@@ -311,7 +387,7 @@ describe("ProjectDetailPanel v0.9.12", () => {
 
   it("并行模式: 同时触发 N 次 mutateAsync", async () => {
     renderUI();
-    fireEvent.click(screen.getByRole("checkbox", { name: /全选 active/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /全选可预标批次/ }));
     fireEvent.change(screen.getByPlaceholderText(/car, person/), {
       target: { value: "car, person" },
     });

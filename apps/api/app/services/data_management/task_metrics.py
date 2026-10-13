@@ -33,7 +33,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import is_privileged_for_project
 
 LOW_CONFIDENCE_THRESHOLD = 0.5
 

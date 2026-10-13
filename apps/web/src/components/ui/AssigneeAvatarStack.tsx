@@ -1,4 +1,4 @@
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 
 /**
  * AssigneeAvatarStack —— 责任人头像组(v0.17.2,module.css → Tailwind)。
@@ -10,6 +10,7 @@ export interface AssigneeBrief {
   email?: string;
   role?: string | null;
   avatar_initial?: string;
+  avatar_ref?: string | null;
 }
 
 interface Props {
@@ -53,8 +54,14 @@ export function AssigneeAvatarStack({
             key={u.id}
             className="rounded-full border-[1.5px] border-card bg-card [&:not(:first-child)]:-ml-1.5"
           >
-            <Avatar
-              initial={u.avatar_initial || (u.name || u.email || "?").slice(0, 1).toUpperCase()}
+            <UserAvatar
+              user={{
+                id: u.id,
+                name: u.name,
+                email: u.email,
+                avatar_initial: u.avatar_initial,
+                avatar_ref: u.avatar_ref,
+              }}
               size={size}
             />
           </span>

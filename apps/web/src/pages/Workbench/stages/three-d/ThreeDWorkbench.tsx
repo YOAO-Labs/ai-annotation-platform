@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { viewportRegionClipPath } from "../../layout/workbenchViewportRegions";
 import { createPortal } from "react-dom";
 import { useWorkbench3DLayout } from "../../layout/Workbench3DLayoutContext";
@@ -28,6 +29,7 @@ import {
   useUpdateAnnotation,
 } from "@/hooks/useTasks";
 import { useProject } from "@/hooks/useProjects";
+import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { useFrameNeighbors } from "@/hooks/useFrameNeighbors";
 import { useNeighborAnnotations } from "@/hooks/useNeighborAnnotations";
 import { useNeighborPointClouds } from "@/hooks/useNeighborPointClouds";
@@ -236,6 +238,7 @@ import {
   SEED_FALLBACK_RANGE_M,
   boxGeometryFromPsr,
   frontCameraForward,
+  enlargedCameraNavigationDirection,
   geometryConvention,
   isPsrFieldBad,
   loadCameraSample,
@@ -515,8 +518,10 @@ export function ThreeDWorkbench({
   // 创建新 3D 标注需要对应工具单位的类别(后端按 tool_bindings 校验 class_name)。
   const { data: task } = useTask(taskId ?? "");
   const { data: project } = useProject(task?.project_id ?? "");
-  const qualityAllowed =
-    userRole === "super_admin" || userRole === "project_admin" || userRole === "reviewer";
+  // 点云质量由项目能力门控（与后端 review.write 授权一致）：项目负责人/超级管理员
+  // 经 is_manager 放行，普通项目质检员经 review.write 放行；全局角色不再是授权来源。
+  const projectAccess = useProjectAccess(task?.project_id ?? undefined);
+  const qualityAllowed = projectAccess.isManager || projectAccess.hasCapability("review.write");
   const qualityCanScanScene = userRole === "super_admin" || project?.owner_id === userId;
   const canManageCalibration = userRole === "super_admin" || project?.owner_id === userId;
   const [qualityPanelOpen, setQualityPanelOpen] = useState(false);
@@ -2155,7 +2160,15 @@ export function ThreeDWorkbench({
   const handleDeleteManualBbox = useCallback(async () => {
     if (!writeAllowedRef.current) return;
     if (!enlargedCameraMember || !cameraMembers.data?.track_revision) return;
-    if (!window.confirm(`删除 ${enlargedCam?.name ?? "当前相机"} 的 2D 成员？`)) return;
+    const confirmed = await confirmDialog({
+      tone: "danger",
+      title: `删除 ${enlargedCam?.name ?? "当前相机"} 的 2D 成员？`,
+      confirmLabel: "删除",
+    });
+    if (!confirmed) return;
+    // 等待决定期间成员/轨迹修订可能已变化;重验后仍以乐观锁提交,不匹配由服务端拒绝。
+    if (!writeAllowedRef.current) return;
+    if (!enlargedCameraMember || !cameraMembers.data?.track_revision) return;
     try {
       await cameraMembers.remove.mutateAsync({
         memberId: enlargedCameraMember.id,
@@ -2211,12 +2224,11 @@ export function ThreeDWorkbench({
       if (e.key === "Escape") {
         if (seedMode) setSeedMode(false);
         else setEnlargedRole(null);
-      } else if (e.key === "ArrowLeft") {
+      } else {
+        const direction = enlargedCameraNavigationDirection(e);
+        if (direction === null) return;
         e.preventDefault();
-        cycleEnlargedCamera(-1);
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        cycleEnlargedCamera(1);
+        cycleEnlargedCamera(direction);
       }
     };
     window.addEventListener("keydown", onKey);

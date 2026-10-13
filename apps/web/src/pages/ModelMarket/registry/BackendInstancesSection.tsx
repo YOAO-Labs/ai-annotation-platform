@@ -1,20 +1,23 @@
 /**
  * v0.23.4 P3 · registry "实例" tab.
  *
- * Plan §6.1 (instance table spec): the table is for configuring and locating
- * physical endpoints. Main columns: name / owning pool / URL / source / traffic
- * state / weight / max concurrency / GPU claim / last checked / actions.
+ * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: the table is for configuring
+ * and locating physical endpoints. Main columns collapse to six —
+ * 实例身份 (name + short id + URL subrow + source tag) / 所属服务池 /
+ * 健康及路由 / 并发与 GPU 摘要 / 最近检查 / 操作 — so identity and actions fit
+ * on screen together at 1440px. URL drops to a name subrow; weight, the full
+ * GPU claim and raw snapshots live in the detail Sheet.
  *
- * Project Admin: weight, GPU claim and internal reason columns are hidden
- * (server-side projection already nulled them). Super Admin sees a
- * risk-ordered DropdownMenu (健康检查 / 编辑 / 暂停接流 / 恢复接流 / 卸载 / 删除)
- * and a "详情" button that opens a Sheet with raw error text / capability
- * snapshot / model pool / generation / full diagnostics — those heavy fields
- * are NOT in the main row (plan §10).
+ * Toolbar + filters belong to this view (plan §5): `instance_q` (name/ID/URL),
+ * `instance_health`, and the removable pool focus condition
+ * (`instance_pool=<id>`, set via the pool row's 查看实例 jump). `instance_id`
+ * deep-links straight into the detail Sheet; unknown objects render an
+ * explicit "对象不存在或当前不可访问" note instead of silently widening the
+ * filter.
  *
- * Unload + Delete open an AlertDialog. Unload is additionally gated by the
- * server-side drain → quiescent → unload safety flow (plan §8.1); when the
- * instance is still routable we route the operator through drain first.
+ * Project Admin: weight, GPU claim and internal reason are hidden (server-side
+ * projection already nulled them). Super Admin sees the risk-ordered action
+ * menu; 详情 stays visible for both roles.
  */
 import { useMemo, useState, type ReactNode } from "react";
 
@@ -49,14 +52,18 @@ import {
   SheetTitle,
 } from "@/components/shadcn/ui/sheet";
 import { ScrollArea } from "@/components/shadcn/ui/scroll-area";
+import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
+import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
+import { Input } from "@/components/shadcn/ui/input";
 
 import type { GlobalBackendItem } from "@/api/adminMlIntegrations";
 import { formatDateTime, gpuClaimOf, NO_LIMIT, registryStateToHealthAxis } from "./registryShared";
-import { CopyableId, EmptyState, NullCell } from "./registryUi";
+import { EmptyState, LoadingState, NullCell, ShortCopyableId, UrlIssueChips } from "./registryUi";
 import { CapabilityDriftReviewDialog } from "./CapabilityDriftReviewDialog";
-import type { RegistryFilters, RegistryScope } from "./registryTypes";
+import type { RegistryScope, RegistrySectionProps } from "./registryTypes";
 import type { MemberViewModel } from "../runtimeTopology";
 import { evaluateUnloadGate } from "../runtimeTopology";
+import { urlIssuesForView } from "../marketUrlState";
 import { RuntimeStatusBadge } from "../runtime/RuntimeStatusBadge";
 import { GlobalBackendFormModal, type GlobalRegistryEditTarget } from "../GlobalBackendFormModal";
 import {
@@ -78,72 +85,115 @@ interface ConfirmState {
 
 export function BackendInstancesSection({
   scope,
-  filters,
-  focusedPoolId = null,
-  onClearPoolFocus,
-}: {
-  scope: RegistryScope;
-  filters: RegistryFilters;
-  focusedPoolId?: string | null;
-  onClearPoolFocus?: () => void;
-}): ReactNode {
-  const { isSuperAdmin, backends } = scope;
-  const [detail, setDetail] = useState<DetailState | null>(null);
+  url,
+  patchUrl,
+  urlIssues,
+  onOpenRegister,
+}: RegistrySectionProps & { onOpenRegister?: () => void }): ReactNode {
+  const { isSuperAdmin, backends, loading } = scope;
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [editTarget, setEditTarget] = useState<GlobalRegistryEditTarget | null>(null);
   const [editOpen, setEditOpen] = useState(false);
 
   const registryToPool = useMemo(() => buildRegistryPoolLookup(scope), [scope]);
+  const focusPool = url.instancePool
+    ? (scope.vm.pools.find((p) => p.id === url.instancePool) ?? null)
+    : null;
+  const focusPoolUnknown = Boolean(url.instancePool) && !loading.backends && !focusPool;
+
+  // The URL owns detail selection so history and refreshed data cannot leave a stale sheet.
+  const focusInstanceId = url.instanceId;
+  const detailBackend = backends.find((b) => b.id === focusInstanceId);
+  const detail: DetailState | null = detailBackend ? { backend: detailBackend } : null;
+
+  const closeDetail = () => {
+    if (url.instanceId) patchUrl({ instanceId: "" });
+  };
 
   const rows = useMemo(() => {
     return backends.filter((b) => {
-      if (focusedPoolId && registryToPool.get(b.id)?.poolId !== focusedPoolId) {
+      if (url.instancePool && registryToPool.get(b.id)?.poolId !== url.instancePool) {
         return false;
       }
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
+      if (url.instanceQ) {
+        const q = url.instanceQ.trim().toLowerCase();
         const hay = `${b.name} ${b.url} ${b.id} ${b.source_project_name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
-      if (filters.statusFilter !== "all") {
+      if (url.instanceHealth !== "all") {
         const axis = registryStateToHealthAxis(b.state);
-        if (axis !== filters.statusFilter) return false;
+        if (axis !== url.instanceHealth) return false;
       }
       return true;
     });
-  }, [backends, filters.search, filters.statusFilter, focusedPoolId, registryToPool]);
+  }, [backends, url.instanceQ, url.instanceHealth, url.instancePool, registryToPool]);
+
+  if (loading.backends) {
+    return <LoadingState label="加载实例列表…" />;
+  }
 
   if (backends.length === 0) {
     return (
-      <EmptyState
-        icon="bot"
-        message="尚无注册实例"
-        hint={isSuperAdmin ? "点击页头「注册实例」添加。" : undefined}
-      />
+      <div className="flex flex-col gap-3">
+        <InstanceToolbar
+          scope={scope}
+          url={url}
+          patchUrl={patchUrl}
+          urlIssues={urlIssues}
+          onOpenRegister={onOpenRegister}
+        />
+        <EmptyState
+          icon="bot"
+          message="尚无注册实例"
+          hint={isSuperAdmin && onOpenRegister ? "点击「注册实例」添加。" : undefined}
+        />
+      </div>
     );
   }
 
+  // Other registry sections wrap their toolbar/conditions/table in `gap-3`;
+  // the instances view used a bare fragment, so its toolbar sat flush against
+  // the table instead of matching the sibling tabs (plan §4.3).
   return (
-    <>
-      {focusedPoolId && (
-        <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-          <span>仅显示服务池 {focusedPoolId} 的实例</span>
-          <Button size="sm" variant="ghost" onClick={onClearPoolFocus}>
-            清除筛选
+    <div className="flex flex-col gap-3">
+      <InstanceToolbar
+        scope={scope}
+        url={url}
+        patchUrl={patchUrl}
+        urlIssues={urlIssues}
+        onOpenRegister={onOpenRegister}
+      />
+      {focusPool && (
+        <div className="flex flex-wrap items-center gap-2">
+          <ActiveFilterChip
+            label={`仅显示服务池「${focusPool.name}」的实例`}
+            onRemove={() => patchUrl({ instancePool: "" })}
+          />
+        </div>
+      )}
+      {focusPoolUnknown && (
+        <div className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+          <span>对象不存在或当前不可访问（instance_pool={url.instancePool}）</span>
+          <Button size="sm" variant="ghost" onClick={() => patchUrl({ instancePool: "" })}>
+            移除定位
           </Button>
         </div>
       )}
-      <Table>
+      {focusInstanceId && !backends.some((b) => b.id === focusInstanceId) && (
+        <div className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+          <span>对象不存在或当前不可访问（instance_id={focusInstanceId}）</span>
+          <Button size="sm" variant="ghost" onClick={() => patchUrl({ instanceId: "" })}>
+            移除定位
+          </Button>
+        </div>
+      )}
+      <Table containerClassName="overflow-hidden rounded-lg border border-border bg-card">
         <TableHeader>
           <TableRow>
-            <TableHead>实例名称</TableHead>
+            <TableHead>实例</TableHead>
             <TableHead>所属服务池</TableHead>
-            <TableHead>URL</TableHead>
-            <TableHead>来源</TableHead>
-            <TableHead>接流状态</TableHead>
-            {isSuperAdmin && <TableHead>权重</TableHead>}
-            <TableHead>最大并发</TableHead>
-            {isSuperAdmin && <TableHead>GPU claim</TableHead>}
+            <TableHead>健康及路由</TableHead>
+            <TableHead>并发 / GPU</TableHead>
             <TableHead>最近检查</TableHead>
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
@@ -155,7 +205,10 @@ export function BackendInstancesSection({
               backend={b}
               scope={scope}
               poolInfo={registryToPool.get(b.id) ?? null}
-              onOpenDetail={(backend) => setDetail({ backend })}
+              onOpenDetail={(backend) => {
+                // 对象跳转写入 URL 并 push 历史（plan §5），深链/返回可恢复。
+                patchUrl({ instanceId: backend.id }, { replace: false });
+              }}
               onConfirm={setConfirm}
               onEdit={(target) => {
                 setEditTarget(target);
@@ -165,7 +218,7 @@ export function BackendInstancesSection({
           ))}
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={isSuperAdmin ? 10 : 7}>
+              <TableCell colSpan={6}>
                 <div className="p-6 text-center text-sm text-muted-foreground">没有匹配的实例</div>
               </TableCell>
             </TableRow>
@@ -173,7 +226,7 @@ export function BackendInstancesSection({
         </TableBody>
       </Table>
 
-      <InstanceDetailSheet detail={detail} onClose={() => setDetail(null)} />
+      <InstanceDetailSheet detail={detail} scope={scope} onClose={closeDetail} />
 
       <InstanceConfirmDialog confirm={confirm} scope={scope} onClose={() => setConfirm(null)} />
 
@@ -182,7 +235,77 @@ export function BackendInstancesSection({
         backend={editTarget}
         onClose={() => setEditOpen(false)}
       />
-    </>
+    </div>
+  );
+}
+
+/** 本子视图的工具栏：搜索/健康筛选/池定位清除 + 明确主操作「注册实例」。 */
+function InstanceToolbar({
+  scope,
+  url,
+  patchUrl,
+  urlIssues,
+  onOpenRegister,
+}: RegistrySectionProps & { onOpenRegister?: () => void }): ReactNode {
+  const hasConditions = url.instanceHealth !== "all" || Boolean(url.instancePool);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Icon
+            name="search"
+            size={12}
+            className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            aria-label="搜索实例"
+            placeholder="搜索名称 / ID / URL"
+            value={url.instanceQ}
+            onChange={(e) => patchUrl({ instanceQ: e.target.value })}
+            className="h-8 w-56 pl-7 text-xs"
+          />
+        </div>
+        <FilterGroup label="健康" hideLabel compact>
+          <FilterSelect
+            aria-label="按健康状态筛选实例"
+            value={url.instanceHealth}
+            onChange={(e) =>
+              patchUrl({ instanceHealth: e.target.value as typeof url.instanceHealth })
+            }
+            className="h-8 text-xs"
+          >
+            <option value="all">全部</option>
+            <option value="healthy">健康</option>
+            <option value="degraded">降级</option>
+            <option value="offline">离线</option>
+            <option value="unknown">未知</option>
+          </FilterSelect>
+        </FilterGroup>
+        {hasConditions && (
+          <button
+            type="button"
+            onClick={() => patchUrl({ instanceHealth: "all", instancePool: "" })}
+            className="text-2xs text-brand no-underline hover:underline"
+          >
+            清除条件
+          </button>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {scope.isSuperAdmin && onOpenRegister && (
+            <Button size="sm" variant="primary" onClick={onOpenRegister}>
+              <Icon name="plus" size={11} />
+              注册实例
+            </Button>
+          )}
+        </div>
+      </div>
+      <UrlIssueChips
+        issues={urlIssuesForView(urlIssues, "instances")}
+        onDismiss={(key) => {
+          if (key === "instance_health") patchUrl({ instanceHealth: "all" });
+        }}
+      />
+    </div>
   );
 }
 
@@ -209,37 +332,40 @@ function InstanceRow({
   const { isSuperAdmin } = scope;
   const member = poolInfo?.member ?? null;
   const trafficState = member?.traffic_state ?? null;
+  const claim = gpuClaimOf(backend);
+  const maxConcurrency = backend.extra_params?.max_concurrency;
 
   return (
     <TableRow>
+      {/* 身份：名称 + 短 ID + URL 副行 + 来源轻标签（plan §4.3）。 */}
       <TableCell>
-        <div className="flex flex-col gap-0.5">
-          <span className="max-w-[180px] truncate font-medium" title={backend.name}>
-            {backend.name}
+        <div className="flex max-w-[260px] flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate font-medium" title={backend.name}>
+              {backend.name}
+            </span>
+            <Badge variant="outline" className="shrink-0 text-2xs text-muted-foreground">
+              {backend.source_project_name || "env"}
+            </Badge>
+          </div>
+          <span
+            className="mono max-w-full truncate text-2xs text-muted-foreground"
+            title={backend.url}
+          >
+            {backend.url}
           </span>
-          <CopyableId value={backend.id} label="实例 ID" />
+          <ShortCopyableId value={backend.id} label="实例 ID" />
         </div>
       </TableCell>
       <TableCell>
         {poolInfo?.poolId ? (
           <div className="flex flex-col gap-0.5">
             <span className="text-sm">{poolInfo.poolName}</span>
-            <span className="text-2xs text-muted-foreground">{poolInfo.poolId}</span>
+            <ShortCopyableId value={poolInfo.poolId} label="服务池 ID" />
           </div>
         ) : (
           <NullCell>未纳管</NullCell>
         )}
-      </TableCell>
-      <TableCell>
-        <span
-          className="mono max-w-[240px] truncate text-xs text-muted-foreground"
-          title={backend.url}
-        >
-          {backend.url}
-        </span>
-      </TableCell>
-      <TableCell>
-        <Badge variant="outline">{backend.source_project_name || "env"}</Badge>
       </TableCell>
       <TableCell>
         <TrafficStateCell
@@ -248,27 +374,28 @@ function InstanceRow({
           routing={member?.routing ?? "unknown"}
         />
       </TableCell>
-      {isSuperAdmin && (
-        <TableCell>
-          {member?.weight != null ? (
-            <span className="text-sm">{member.weight}</span>
-          ) : (
-            <NullCell>—</NullCell>
-          )}
-        </TableCell>
-      )}
       <TableCell>
-        {typeof backend.extra_params?.max_concurrency === "number" ? (
-          <span className="text-sm">{backend.extra_params.max_concurrency}</span>
-        ) : (
-          <NullCell>{NO_LIMIT}</NullCell>
-        )}
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm">
+            {typeof maxConcurrency === "number" ? (
+              maxConcurrency
+            ) : (
+              <NullCell>并发 {NO_LIMIT}</NullCell>
+            )}
+          </span>
+          {isSuperAdmin &&
+            (claim ? (
+              <span
+                className="mono text-2xs text-muted-foreground"
+                title={`${claim.gpu_resource_id} · ${claim.vram_budget_mb} MiB`}
+              >
+                GPU {claim.gpu_resource_id}
+              </span>
+            ) : (
+              <span className="text-2xs text-muted-foreground">无 GPU 声明</span>
+            ))}
+        </div>
       </TableCell>
-      {isSuperAdmin && (
-        <TableCell>
-          <GpuClaimCell backend={backend} />
-        </TableCell>
-      )}
       <TableCell>
         <span className="text-xs text-muted-foreground">
           {formatDateTime(backend.last_checked_at)}
@@ -316,25 +443,6 @@ function TrafficStateCell({
         </Badge>
       )}
       <RuntimeStatusBadge axis="routing" value={routing} prefix="路由" />
-    </div>
-  );
-}
-
-function GpuClaimCell({ backend }: { backend: GlobalBackendItem }): ReactNode {
-  const claim = gpuClaimOf(backend);
-  const gpuConfig = backend.gpu_config;
-  if (!claim) {
-    return <NullCell>无 GPU 声明</NullCell>;
-  }
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="mono text-xs" title={claim.gpu_resource_id}>
-        {claim.gpu_resource_id}
-      </span>
-      <span className="text-2xs text-muted-foreground">
-        {claim.vram_budget_mb}
-        {gpuConfig?.allocatable_mb ? ` / ${gpuConfig.allocatable_mb}` : ""} MiB
-      </span>
     </div>
   );
 }
@@ -628,11 +736,18 @@ function InstanceConfirmDialog({
   );
 }
 
+/**
+ * 详情 Sheet（plan §4.3）：主行收敛后的重字段——权重、完整 GPU claim、原始
+ * 快照——都落在这里；同时补充只读身份字段（所属服务池 / 接流状态 / 路由 /
+ * 最大并发），详情关闭后焦点返回触发按钮由 Sheet 的RADIX 焦点管理兜底。
+ */
 function InstanceDetailSheet({
   detail,
+  scope,
   onClose,
 }: {
   detail: DetailState | null;
+  scope: RegistryScope;
   onClose: () => void;
 }): ReactNode {
   return (
@@ -640,24 +755,42 @@ function InstanceDetailSheet({
       <SheetContent side="right" className="w-[min(560px,100vw)] sm:max-w-[560px]">
         <SheetHeader>
           <SheetTitle>{detail?.backend.name ?? ""}</SheetTitle>
-          <SheetDescription>
-            实例原始调试字段（错误文本 / 能力快照 / 模型池 / 诊断）
-          </SheetDescription>
+          <SheetDescription>实例身份、服务池关系、GPU 配置与健康诊断</SheetDescription>
         </SheetHeader>
-        {detail && <DetailBody backend={detail.backend} />}
+        {detail && (
+          <DetailBody
+            backend={detail.backend}
+            poolInfo={buildRegistryPoolLookup(scope).get(detail.backend.id) ?? null}
+            isSuperAdmin={scope.isSuperAdmin}
+          />
+        )}
       </SheetContent>
     </Sheet>
   );
 }
 
-function DetailBody({ backend }: { backend: GlobalBackendItem }): ReactNode {
+function DetailBody({
+  backend,
+  poolInfo,
+  isSuperAdmin,
+}: {
+  backend: GlobalBackendItem;
+  poolInfo: {
+    poolId: string;
+    poolName: string;
+    poolEnabled: boolean;
+    member: MemberViewModel | null;
+  } | null;
+  isSuperAdmin: boolean;
+}): ReactNode {
   const gpuConfig = backend.gpu_config;
+  const member = poolInfo?.member ?? null;
   return (
     <ScrollArea className="h-[calc(100vh-8rem)]">
       <div className="flex flex-col gap-4 px-4 pb-8 text-sm">
         <DetailSection title="基本">
           <DetailRow label="实例 ID">
-            <CopyableId value={backend.id} />
+            <span className="mono text-xs">{backend.id}</span>
           </DetailRow>
           <DetailRow label="URL">
             <span className="mono text-xs">{backend.url}</span>
@@ -667,6 +800,38 @@ function DetailBody({ backend }: { backend: GlobalBackendItem }): ReactNode {
           </DetailRow>
           <DetailRow label="来源">
             <span>{backend.source_project_name || "—"}</span>
+          </DetailRow>
+          <DetailRow label="所属服务池">
+            {poolInfo ? (
+              <span className="text-xs">
+                {poolInfo.poolName}
+                <span className="mono ml-1.5 text-2xs text-muted-foreground">
+                  {poolInfo.poolId}
+                </span>
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">未纳管</span>
+            )}
+          </DetailRow>
+          {isSuperAdmin && member && (
+            <DetailRow label="接流状态">
+              <span className="text-xs">
+                {trafficStateLabel(member.traffic_state)}
+                {member.weight != null && ` · 权重 ${member.weight}`}
+              </span>
+            </DetailRow>
+          )}
+          {isSuperAdmin && member && (
+            <DetailRow label="路由">
+              <span className="text-xs">{member.routing}</span>
+            </DetailRow>
+          )}
+          <DetailRow label="最大并发">
+            <span className="text-xs">
+              {typeof backend.extra_params?.max_concurrency === "number"
+                ? backend.extra_params.max_concurrency
+                : "未声明"}
+            </span>
           </DetailRow>
           <DetailRow label="最近检查">
             <span className="text-xs text-muted-foreground">

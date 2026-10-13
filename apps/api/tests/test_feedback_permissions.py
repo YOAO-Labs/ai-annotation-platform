@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.db.models.project_member import ProjectMember
 from app.db.models.annotation_feedback import AnnotationFeedback
-from tests.factory import create_batch, create_project, create_task
+from tests.factory import create_membership, create_batch, create_project, create_task
 
 
 @pytest.mark.asyncio
@@ -19,13 +18,12 @@ async def test_reviewer_mixed_patch_is_rejected_as_a_whole(
     batch = await create_batch(db_session, project_id=project.id, status="active")
     task = await create_task(db_session, project_id=project.id)
     task.batch_id = batch.id
-    db_session.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=qa.id,
-            role="reviewer",
-            assigned_by=owner.id,
-        )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=qa.id,
+        role="reviewer",
+        assigned_by=owner.id,
     )
     await db_session.flush()
     owner_headers = {"Authorization": f"Bearer {owner_token}"}

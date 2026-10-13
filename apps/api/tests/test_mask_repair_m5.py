@@ -18,6 +18,7 @@ from app.services.mask_repair import canonical_digest
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import coco_rle_area, encode_coco_rle
 from app.workers.mask_repair import _execute_shard, _rollback_shard
+from tests.factory import create_user
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -69,6 +70,11 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
     )
     db.add(item)
     await db.flush()
+    # The review task carries a distinct literal annotator as its frozen round
+    # contributor, so the owner's QC repair is not a self-review of own work.
+    author = await create_user(
+        db, "employee", f"rpr-author-{suffix}@test.local", "Repair Author"
+    )
     task = Task(
         project_id=project.id,
         dataset_item_id=item.id,
@@ -78,6 +84,10 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
         file_type="image",
         status="review",
         reviewer_id=owner_id,
+        annotation_contributor_ids=[str(author.id)],
+        review_contributor_ids=[str(author.id)],
+        review_submitter_id=author.id,
+        review_round_id=uuid.uuid4(),
     )
     db.add(task)
     await db.flush()
@@ -88,7 +98,7 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
     annotation = Annotation(
         task_id=task.id,
         project_id=project.id,
-        user_id=owner_id,
+        user_id=author.id,
         source="manual",
         annotation_type="raster_mask",
         tool_unit_id="region",

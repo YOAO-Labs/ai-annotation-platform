@@ -160,4 +160,4 @@ lease、非 active 旧代次和孤儿前缀。source 或 owner 删除时同步�
 不使用普通媒体缓存的固定期限 lifecycle。
 
 相关运维步骤见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
-客户端背景选择见 [ADR-0063](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/0063-konva-viewport-image-tiles.md)，联合资源决策见 [ADR-0064](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/0064-task-scoped-raster-resource-coordination.md)。
+客户端背景选择见 [ADR-0063](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0063-konva-viewport-image-tiles.md)，联合资源决策见 [ADR-0064](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0064-task-scoped-raster-resource-coordination.md)。

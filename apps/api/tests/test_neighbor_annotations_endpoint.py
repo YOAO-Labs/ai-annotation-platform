@@ -16,7 +16,7 @@ import uuid
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.task import Task
-from tests.factory import create_batch, create_project, create_user
+from tests.factory import create_membership, create_batch, create_project, create_user
 
 
 async def _seed_scene_with_n_tasks(db, *, owner_id, n: int):
@@ -247,6 +247,13 @@ async def test_neighbor_annotations_filters_cross_batch(
     # 项目 owner 为 admin(非 annotator),否则 annotator 成 owner 即特权全可见。
     project, _, scene, tasks = await _seed_scene_with_n_tasks(
         db_session, owner_id=admin.id, n=3
+    )
+    await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=anno.id,
+        role="annotator",
+        assigned_by=admin.id,
     )
     # 中心帧(1)与后邻帧(2)在 annotator 自己的 active batch;前邻帧(0)在别人的 batch。
     other_anno = await create_user(

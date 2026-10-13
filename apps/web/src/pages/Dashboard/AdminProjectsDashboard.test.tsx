@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 
-const mockUseProjects = vi.fn();
+const mockUseProjectPage = vi.fn();
 const mockUseProjectStats = vi.fn();
 const mockPushToast = vi.fn();
 const mockBuildWorkbenchUrl = vi.hoisted(() => vi.fn((id: string) => `/workbench/${id}`));
 
 vi.mock("@/hooks/useProjects", () => ({
-  useProjects: (...args: unknown[]) => mockUseProjects(...args),
+  useProjectPage: (...args: unknown[]) => mockUseProjectPage(...args),
   useProjectStats: () => mockUseProjectStats(),
 }));
 
@@ -31,7 +31,7 @@ vi.mock("./ExportModal", () => ({
 }));
 
 vi.mock("@/utils/workbenchNavigation", () => ({
-  buildWorkbenchUrl: (id: string) => mockBuildWorkbenchUrl(id),
+  buildProjectEntryUrl: (id: string) => mockBuildWorkbenchUrl(id),
   currentWorkbenchReturnTo: () => "/dashboard",
 }));
 
@@ -44,6 +44,10 @@ vi.mock("@/components/ui/Toast", async () => {
       sel({ push: mockPushToast }),
   };
 });
+
+function pageResult(items: unknown[] = [], total = items.length, page = 1, pageSize = 20) {
+  return { items, total, page, page_size: pageSize, pages: Math.ceil(total / pageSize) };
+}
 
 import { AdminProjectsDashboard } from "./AdminProjectsDashboard";
 
@@ -72,11 +76,11 @@ function LocationProbe() {
 
 describe("AdminProjectsDashboard", () => {
   beforeEach(() => {
-    mockUseProjects.mockReset();
+    mockUseProjectPage.mockReset();
     mockUseProjectStats.mockReset();
     mockPushToast.mockReset();
     mockBuildWorkbenchUrl.mockClear();
-    mockUseProjects.mockReturnValue({ data: [], isLoading: false });
+    mockUseProjectPage.mockReturnValue({ data: pageResult([]), isLoading: false });
     mockUseProjectStats.mockReturnValue({ data: undefined });
   });
 
@@ -108,8 +112,8 @@ describe("AdminProjectsDashboard", () => {
   });
 
   it("does not open projects from row text; the open button still enters workbench", () => {
-    mockUseProjects.mockReturnValue({
-      data: [
+    mockUseProjectPage.mockReturnValue({
+      data: pageResult([
         {
           id: "p1",
           display_id: "P-1",
@@ -127,7 +131,7 @@ describe("AdminProjectsDashboard", () => {
           in_progress_tasks: 0,
           ai_enabled: false,
         },
-      ],
+      ]),
       isLoading: false,
     });
     renderUI();
@@ -139,14 +143,14 @@ describe("AdminProjectsDashboard", () => {
 
   it("restores status from the URL and tab changes the query", () => {
     renderUI("/dashboard?status=pending_review&new=1&from=p1&layout=grid");
-    expect(mockUseProjects).toHaveBeenLastCalledWith(
+    expect(mockUseProjectPage).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: "pending_review" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "已完成" }));
     expect(screen.getByTestId("location-search").textContent).toContain("status=completed");
     expect(screen.getByTestId("location-search").textContent).toContain("new=1");
     expect(screen.getByTestId("location-search").textContent).toContain("from=p1");
-    expect(mockUseProjects).toHaveBeenLastCalledWith(
+    expect(mockUseProjectPage).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: "completed" }),
     );
   });
@@ -154,14 +158,34 @@ describe("AdminProjectsDashboard", () => {
   it("applies q and status together after external URL navigation", async () => {
     renderUI("/dashboard?q=old&status=in_progress", "/dashboard?q=new&status=pending_review");
     await waitFor(() => {
-      expect(mockUseProjects).toHaveBeenLastCalledWith(
+      expect(mockUseProjectPage).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: "pending_review", search: "new" }),
       );
     });
     expect(
-      mockUseProjects.mock.calls.some(
+      mockUseProjectPage.mock.calls.some(
         ([params]) => params.status === "pending_review" && params.search === "old",
       ),
     ).toBe(false);
+  });
+
+  it("keeps the pending search draft when the wizard opens before debounce", async () => {
+    vi.useFakeTimers();
+    renderUI();
+    const input = screen.getByPlaceholderText("搜索项目...");
+    fireEvent.change(input, { target: { value: "car" } });
+    fireEvent.click(screen.getByTestId("new-project-btn"));
+    expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
+    expect(input).toHaveValue("car");
+    expect(screen.getByTestId("location-search").textContent).toContain("new=1");
+
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(input).toHaveValue("car");
+    expect(mockUseProjectPage).toHaveBeenLastCalledWith(expect.objectContaining({ search: "car" }));
+    const search = screen.getByTestId("location-search").textContent ?? "";
+    expect(search).toContain("q=car");
+    expect(search).toContain("new=1");
   });
 });

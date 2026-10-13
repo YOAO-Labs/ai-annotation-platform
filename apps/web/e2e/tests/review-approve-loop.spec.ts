@@ -23,15 +23,21 @@ test.describe("review approve loop", () => {
     seed,
     request,
   }) => {
-    const data = await seed.reset();
+    const data = await seed.owned();
 
-    // 1. 把 task[0] 推到 review 状态，并双绑定 annotator/reviewer
-    await seed.advanceTask({
-      taskId: data.task_ids[0],
-      toStatus: "review",
-      annotatorEmail: data.annotator_email,
-      reviewerEmail: data.reviewer_email,
+    // 1. 真实标注 + 提交，冻结完整的 review contributor 证据。
+    //    不能用 advance_task：它绕过工作流，review 证据保持 unknown 会被自审守卫拒绝。
+    await seed.createTaskAnnotation(data.task_ids[0], data.annotator_email, {
+      annotation_type: "bbox",
+      tool_unit_id: "bbox",
+      class_name: "car",
+      geometry: { type: "bbox", x: 0.1, y: 0.1, w: 0.7, h: 0.7 },
     });
+    const submitToken = await seed.accessToken(data.annotator_email);
+    const submitted = await request.post(`${API_BASE}/api/v1/tasks/${data.task_ids[0]}/submit`, {
+      headers: { Authorization: `Bearer ${submitToken}` },
+    });
+    expect(submitted.ok(), await submitted.text()).toBe(true);
 
     // 2. reviewer 登录 → 进项目级 review workbench 路由
     await seed.injectToken(page, data.reviewer_email);

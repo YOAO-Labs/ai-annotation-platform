@@ -145,6 +145,8 @@ export function useWorkbenchImageSource(
   mediaIdentity?: string | null,
 ): {
   source: WorkbenchImageSource | null;
+  /** Read fresh metadata and signed URLs without requesting a pyramid rebuild. */
+  refresh: () => Promise<void>;
   retry: (() => Promise<void>) | undefined;
 } {
   const queryClient = useQueryClient();
@@ -184,6 +186,10 @@ export function useWorkbenchImageSource(
       }),
     [maxSingleDecodedBytes, mediaIdentity, query.data, task],
   );
+  const refetch = query.refetch;
+  const refresh = useCallback(async () => {
+    if (shouldQuery) await refetch();
+  }, [refetch, shouldQuery]);
   const retry = useCallback(async () => {
     if (!task?.id) return;
     const result = await tasksApi.retryImagePyramid(task.id);
@@ -208,6 +214,7 @@ export function useWorkbenchImageSource(
   }, [queryClient, queryKey, summary?.generation, summary?.required, task?.id]);
   return {
     source,
+    refresh,
     retry: source?.kind === "pyramid-failed" && source.retryable ? retry : undefined,
   };
 }

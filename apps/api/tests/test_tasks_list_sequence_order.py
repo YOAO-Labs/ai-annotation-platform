@@ -51,14 +51,14 @@ async def _seed_sequence(db: AsyncSession, owner_id: uuid.UUID, seqs: list[int |
 
 @pytest.mark.asyncio
 async def test_list_orders_by_sequence_order_despite_identical_created_at(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     admin_user, token = super_admin
     # 打乱插入,期望接口仍按 sequence_order 升序返回。
     p = await _seed_sequence(db_session, admin_user.id, [3, 0, 4, 1, 2])
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -68,15 +68,13 @@ async def test_list_orders_by_sequence_order_despite_identical_created_at(
 
 
 @pytest.mark.asyncio
-async def test_null_sequence_order_sorts_last(
-    httpx_client_bound, db_session, super_admin
-):
+async def test_null_sequence_order_sorts_last(httpx_client, db_session, super_admin):
     admin_user, token = super_admin
     # 含 NULL(非序列任务):应排在有序帧之后,且不破坏排序。
     p = await _seed_sequence(db_session, admin_user.id, [1, None, 0, None])
     await db_session.commit()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks?project_id={p.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -87,7 +85,7 @@ async def test_null_sequence_order_sorts_last(
 
 @pytest.mark.asyncio
 async def test_cursor_pagination_preserves_sequence_order(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ):
     admin_user, token = super_admin
     p = await _seed_sequence(db_session, admin_user.id, [4, 2, 0, 5, 1, 3])
@@ -100,9 +98,7 @@ async def test_cursor_pagination_preserves_sequence_order(
         url = f"/api/v1/tasks?project_id={p.id}&limit=2"
         if cursor:
             url += f"&cursor={cursor}"
-        resp = await httpx_client_bound.get(
-            url, headers={"Authorization": f"Bearer {token}"}
-        )
+        resp = await httpx_client.get(url, headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
         body = resp.json()
         collected.extend(it["sequence_order"] for it in body["items"])
@@ -115,7 +111,7 @@ async def test_cursor_pagination_preserves_sequence_order(
 
 @pytest.mark.asyncio
 async def test_point_cloud_task_without_dataset_item_uses_datasets_bucket(
-    httpx_client_bound, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     admin_user, token = super_admin
     project = await _seed_sequence(db_session, admin_user.id, [0])
@@ -130,7 +126,7 @@ async def test_point_cloud_task_without_dataset_item_uses_datasets_bucket(
 
     monkeypatch.setattr(storage_service, "generate_download_url", _fake_download_url)
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/tasks?project_id={project.id}",
         headers={"Authorization": f"Bearer {token}"},
     )

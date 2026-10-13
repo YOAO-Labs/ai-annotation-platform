@@ -20,7 +20,7 @@ from main import setup
 
 
 def test_setup_supported_variants_declare_single_axis():
-    """v0.14.12 · 单档 backend 也要显式声明 variant 轴 (供模型市场显示具体权重).
+    """单档 backend 也要显式声明 variant 轴 (供模型市场显示具体权重).
 
     SAM 3 图像模型单档官方权重 (sam3, facebook/sam3), supported_variants 一轴一值;
     sam_variant / dino_variant 不应混进 params (与 gsam2 严格分离).
@@ -38,7 +38,7 @@ def test_setup_supported_variants_declare_single_axis():
 
 
 def test_setup_default_variants_present_on_each_model():
-    """v0.14.13 · 即便单档 sam3, default_variants 仍要写, 让前端按统一规则消费."""
+    """即便单档 sam3, default_variants 仍要写, 让前端按统一规则消费."""
     data = setup()
     assert len(data["models"]) == 5
     for model in data["models"]:
@@ -56,10 +56,10 @@ def test_setup_default_variants_match_env_model_variant():
         assert model["default_variants"]["model_variant"] == MODEL_VARIANT
 
 
-# ---------- v0.14.14: warmup_endpoint 声明 ----------
+# ---------- warmup_endpoint 声明 ----------
 
 
 def test_setup_warmup_endpoint_true():
-    """v0.14.14 协议 §4.4 · 顶层 warmup_endpoint 必须为 True (sam3 支持 /warmup)."""
+    """协议 §4.4 · 顶层 warmup_endpoint 必须为 True (sam3 支持 /warmup)."""
     data = setup()
     assert data["warmup_endpoint"] is True

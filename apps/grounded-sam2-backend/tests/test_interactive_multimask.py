@@ -1,4 +1,4 @@
-"""v0.18.17 · predict_point / predict_bbox 的 multimask 候选 + 排序单测。
+"""predict_point / predict_bbox 的 multimask 候选 + 排序单测。
 
 不加载 GPU, mock SAM predict, 验证:
 - multimask_output 透传到 _sam_predictor.predict;
@@ -90,7 +90,7 @@ def test_point_multimask_passthrough_and_sorted(predictor):
     out_scores = [r["score"] for r in results]
     assert out_scores == sorted(out_scores, reverse=True)
     assert out_scores[0] == pytest.approx(0.91)
-    # v0.18.18 · 多候选阶段 index 歧义 → 不回灌 low-res.
+    # 多候选阶段 index 歧义 → 不回灌 low-res.
     assert mask_next is None
 
 
@@ -107,12 +107,12 @@ def test_point_single_mask_default(predictor):
         predictor._sam_predictor.predict.call_args.kwargs["multimask_output"] is False
     )
     assert len(results) == 1
-    # v0.18.18 · multimask=False 单 mask → 编码 low-res 回 mask_input_next.
+    # multimask=False 单 mask → 编码 low-res 回 mask_input_next.
     assert isinstance(mask_next, str) and mask_next
 
 
 def test_point_mask_input_decoded_and_passed(predictor):
-    """v0.18.18 · context.mask_input 解码成 (1,256,256) 透传 _sam_predictor.predict。"""
+    """context.mask_input 解码成 (1,256,256) 透传 _sam_predictor.predict。"""
     from aap_protocol_v2 import encode_low_res_mask
 
     low_res = np.zeros((1, 256, 256), dtype=np.float32)

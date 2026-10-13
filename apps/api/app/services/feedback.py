@@ -18,6 +18,7 @@ from sqlalchemy import and_, any_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID, array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.annotation import Annotation
@@ -866,23 +867,75 @@ def _valid_root_clause(root: AnnotationFeedback):
     from app.db.models.annotation import Annotation
     from app.db.models.task import Task
 
+    # Aliased tables keep the anti-orphan checks independent of any outer
+    # Task/Annotation in correlated contexts (Data Manager counts).
+    root_task = aliased(Task)
+    root_annotation = aliased(Annotation)
     task_ok = (
-        ~select(Task.id)
+        ~select(root_task.id)
         .where(
-            Task.id == root.task_id,
-            Task.project_id != root.project_id,
+            root_task.id == root.task_id,
+            root_task.project_id != root.project_id,
         )
         .exists()
     )
     annotation_ok = (
-        ~select(Annotation.id)
+        ~select(root_annotation.id)
         .where(
-            Annotation.id == root.annotation_id,
+            root_annotation.id == root.annotation_id,
             or_(
-                Annotation.project_id != root.project_id,
-                ~_same_task_value(Annotation.task_id, root.task_id),
+                root_annotation.project_id != root.project_id,
+                ~_same_task_value(root_annotation.task_id, root.task_id),
             ),
         )
         .exists()
     )
     return and_(task_ok, annotation_ok)
+
+
+def open_root_issue_clause(af: AnnotationFeedback) -> ColumnElement[bool]:
+    """Predicate for active, valid, open root issues.
+
+    Matches the Workbench issue relation (``kind=issue``, root only, open) so
+    task-level issue counts agree with ``DiscussionIssuesTab``. Replies,
+    ordinary comments, resolved/shelved/deleted issues, bugs and rejection
+    records are excluded.
+    """
+
+    return and_(
+        af.kind == "issue",
+        af.thread_parent_id.is_(None),
+        af.is_active.is_(True),
+        af.status == "open",
+        _valid_root_clause(af),
+    )
+
+
+def unresolved_issue_count_sq() -> ColumnElement[int]:
+    """Correlated count of active open root issues per ``Task`` row."""
+
+    af = AnnotationFeedback
+    return (
+        select(func.count(af.id))
+        .where(
+            af.project_id == Task.project_id,
+            af.task_id == Task.id,
+            open_root_issue_clause(af),
+        )
+        .scalar_subquery()
+    )
+
+
+def annotation_unresolved_issue_count_sq(annotation) -> ColumnElement[int]:
+    """Correlated count of active open root issues anchored to one annotation."""
+
+    af = AnnotationFeedback
+    return (
+        select(func.count(af.id))
+        .where(
+            af.annotation_id == annotation.id,
+            open_root_issue_clause(af),
+        )
+        .correlate(annotation)
+        .scalar_subquery()
+    )

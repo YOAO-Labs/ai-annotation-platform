@@ -1,0 +1,5 @@
+# Extra runtime dependency that apps/onnxtools-backend's pyproject does not
+# declare: `cv2` is normally provided by the git-installed `onnxtools[inference]`
+# extra in the Docker image. The committed tests import `cv2` directly (or via
+# `predictor.py`), so the CPU test environment adds the headless wheel.
+opencv-python-headless>=4.9

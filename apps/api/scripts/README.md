@@ -183,3 +183,46 @@ production 环境始终拒绝运行。
 production 始终不挂载。catalog 按固定逻辑键解析用户、项目、任务、批次和运行时
 UUID，并硬校验 ML Backend 主绑定、项目启用关联、connected 状态及场景级能力；
 数据不完整时返回 `409 screenshot_seed_not_ready`，不会退回“最新项目”。
+
+## audit_project_roles（项目级员工角色 · 增量 A 准备，只读）
+
+项目级员工角色改造的准备工具（计划见
+`docs/plans/1789807315_project-scoped-employee-roles.md`）。它只读数据库：CLI 开启
+`REPEATABLE READ, READ ONLY` 事务（由 PostgreSQL 强制），绝不写入角色、成员或分派；
+用于员工身份转换前的差异盘点与对账，不改变任何现有行为。
+
+该审计同时可在 0173 迁移之前运行：它先检查 `information_schema` 中是否存在增量列，
+缺失时改用 `NULL` 投影并把相应证据归类为“未知/不完整”，因此不会因读取尚不存在的列而失败。
+
+```bash
+cd apps/api
+uv run python scripts/audit_project_roles.py --pretty
+uv run python scripts/audit_project_roles.py --output /tmp/project-role-audit.json
+# 直接运行（脚本自带 apps/api sys.path 引导，不会再报 ModuleNotFoundError: app）
+.venv/bin/python scripts/audit_project_roles.py --max-rows 1
+```
+
+审计目标库默认取 `settings.database_url`，可用 `--database-url` 覆盖；只读冒烟/CI 场景可通过
+环境变量 `DATABASE_URL` 传入隔离测试库，避免把连接串放到命令行参数里。
+
+输出为带版本的 JSON（`report_version: project-role-audit/2`），包含 run ID、Alembic
+仓储/库基线（含各增量列是否存在）、各清单总数与实体 ID/角色，不包含口令哈希、邀请 token、
+签名 URL 或自由文本原因。`--max-rows` 必须为正整数，只截断明细（总数仍精确）；
+`--database-url` 可覆盖默认连接。
+
+报告内容：
+
+- 未知或 NULL 角色、非法/停用项目 owner、管理员成员关系；把「全局/成员角色不一致」
+  （legacy annotator/reviewer 与成员角色不同）与「跨项目角色多样化」
+  （同一账号在不同项目承担不同角色）分开列出；`employee` 作为转换后的合法账号值被识别。
+- 生效任务分派（任务显式分派优先于继承的批次默认）缺少有效成员关系、错误成员角色，
+  以及停用账号仍持有未完成工作。
+- 待处理邀请按账号级/项目级、角色、过期与目标项目已删除分类，并标出需要回填
+  `project_role` 的历史项目邀请。
+- 有审核活动的任务其贡献者证据按缺失轮次 / 缺失提交人 / 非数组或含非法 UUID 元素 /
+  未知或非法标注累积器 / 冻结集缺少提交人或累积器成员 分类；只有轮次、提交人、两个均为
+  合法 UUID 数组且包含全部累积器成员与提交人 才算完整，历史未知保持 NULL；报告不回显
+  原始数组内容（只给存在性与 JSON 类型）。
+- 用户、成员、活跃分派、锁、审核认领、任务状态、标注量与历史审核总量的对账计数。
+
+该命令属于增量 A 的附加准备（schema 附加列 + 只读审计），不代表员工角色功能已上线或已部署。

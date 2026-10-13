@@ -11,7 +11,6 @@ from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import UserRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_conversion_plan import AnnotationConversionPlan
 from app.db.models.annotation_operation import (
@@ -33,6 +32,7 @@ from app.schemas.annotation_conversion import (
     AnnotationConversionSummary,
 )
 from app.services.annotation import AnnotationService
+from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_propagation import _new_track_id
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.audit import AuditAction, AuditService
@@ -52,7 +52,7 @@ from app.services.raster_mask_storage import (
     reserve_raster_mask_upload,
     store_coco_rle,
 )
-from app.services.scheduler import is_privileged_for_project
+from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
     collaboration_config,
@@ -850,6 +850,7 @@ class AnnotationConversionService:
         task: Task,
         actor: User,
         payload: AnnotationConversionDryRunRequest,
+        access: Any = None,
     ) -> AnnotationConversionDryRunResponse:
         try:
             await assert_task_lock_for_legacy_video(self.db, task, actor.id)
@@ -1046,6 +1047,7 @@ class AnnotationConversionService:
         actor: User,
         payload: AnnotationConversionExecuteRequest,
         request: Request,
+        access: Any = None,
     ) -> AnnotationConversionExecuteResponse:
         execution_payload = payload.model_dump(mode="json")
         execution_payload.pop("plan_token")
@@ -1090,10 +1092,24 @@ class AnnotationConversionService:
             raise AnnotationConversionError(
                 status_code=404, reason="task_not_found", message="Task not found"
             )
+        from app.api.v1.tasks._shared import (
+            _assert_review_adjustment_evidence,
+            _resolve_task_access,
+            assert_annotation_write_allowed,
+        )
+
+        if access is None:
+            access = await _resolve_task_access(
+                self.db, task, actor, lock_membership=True
+            )
+        assert_annotation_write_allowed(task, access)
+        await _assert_review_adjustment_evidence(self.db, task, actor, access)
+        is_review_adjuster = bool(
+            access is not None
+            and (access.is_manager or access.project_role == "reviewer")
+        )
         if task.status == "completed" or (
-            task.status == "review"
-            and actor.role
-            not in {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN, UserRole.REVIEWER}
+            task.status == "review" and not is_review_adjuster
         ):
             raise AnnotationConversionError(
                 status_code=409,
@@ -1291,6 +1307,7 @@ class AnnotationConversionService:
                 action_results.append((action, None))
 
         await self.db.flush()
+        await record_annotation_actor(self.db, task, actor.id)
         await AnnotationService(self.db)._update_task_stats(task_id)
         await heartbeat_task_lock_for_legacy_video(self.db, task, actor.id)
 

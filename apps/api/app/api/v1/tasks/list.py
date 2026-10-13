@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import (
     get_db,
     get_current_user,
-    require_roles,
     assert_project_visible,
 )
 from app.db.models.user import User
@@ -17,9 +16,13 @@ from app.schemas.task import (
     TaskListResponse,
 )
 from app.schemas.scene import NeighborsResponse
+from app.services.project_access import (
+    ProjectAccess,
+    ProjectCapability,
+    resolve_project_access,
+)
 from app.services.scheduler import (
     get_next_task,
-    is_privileged_for_project,
     task_visibility_clause,
 )
 from app.services.user_brief import resolve_briefs
@@ -36,7 +39,6 @@ from app.api.v1.tasks._shared import (
     _attach_dimensions_batch,
     _attach_image_pyramids_batch,
     _SEQ_NULL_SENTINEL,
-    _ANNOTATORS,
 )
 
 router = APIRouter()
@@ -47,6 +49,7 @@ def _build_task_query(
     project_id: uuid.UUID,
     project,
     user: User,
+    access: ProjectAccess,
     status: str | None,
     assignee_id: uuid.UUID | None,
     batch_id: uuid.UUID | None,
@@ -58,9 +61,9 @@ def _build_task_query(
     query = select(Task).where(Task.project_id == project_id)
 
     # B-16: retain the scheduler's exact non-privileged batch visibility policy.
-    if not is_privileged_for_project(user, project):
-        query = query.join(TaskBatch, Task.batch_id == TaskBatch.id).where(
-            task_visibility_clause(user)
+    if not access.is_manager:
+        query = query.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
+            task_visibility_clause(user, project_role=access.project_role)
         )
 
     if status:
@@ -102,10 +105,12 @@ async def list_tasks(
     user: User = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user)
+    access = await resolve_project_access(db, user=user, project=project)
     filtered = _build_task_query(
         project_id=project_id,
         project=project,
         user=user,
+        access=access,
         status=status,
         assignee_id=assignee_id,
         batch_id=batch_id,
@@ -178,10 +183,21 @@ async def next_task(
     project_id: uuid.UUID = Query(...),
     batch_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
 ):
-    await assert_project_visible(project_id, db, current_user)
-    task = await get_next_task(current_user, project_id, db, batch_id=batch_id)
+    project = await assert_project_visible(project_id, db, current_user)
+    access = await resolve_project_access(db, user=current_user, project=project)
+    if not access.is_manager and not access.has(
+        ProjectCapability.ANNOTATION_WRITE.value
+    ):
+        raise HTTPException(status_code=403, detail="缺少项目权限: annotation.write")
+    task = await get_next_task(
+        current_user,
+        project_id,
+        db,
+        batch_id=batch_id,
+        project_role=access.project_role,
+    )
     if not task:
         return None
     await db.commit()

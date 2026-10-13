@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-09-15
 ---
 
 # 环境变量参考
@@ -19,8 +19,8 @@ last_reviewed: 2026-09-12
 | `DATABASE_URL` | `postgresql+asyncpg://user:pass@localhost:5432/annotation` | 异步数据库连接串，格式：postgresql+asyncpg://用户名:密码@主机:端口/数据库名 本地开发可直接使用下方默认值；生产环境请替换为真实凭据 注：驱动必须是 postgresql+asyncpg；托管库走 SSL 时用 ?ssl=require（asyncpg 不认 sslmode=） pnpm dev:worktree 只使用本机实例，并向子进程覆盖为专属库；不要为工作树改共享 .env。 |
 | `MIGRATION_DATABASE_URL` | `—` | 可选的 Alembic / 专用维护 worker 的 schema-owner 连接；运行角色没有 DDL 权限时必须配置。 未设置或留空时迁移仍回退 DATABASE_URL，保持单角色部署兼容。 dev:worktree 会同时覆盖运行/迁移目标库名；迁移账号需具备本机 CREATEDB 权限。 |
 | `DATABASE_URL_DOCKER` | `postgresql+asyncpg://user:pass@postgres:5432/annotation` | 仅供开发态 Compose 内的 Celery worker 使用；容器访问 PostgreSQL 应使用 postgres 服务名。 GPU collector 启用前请改成独立、非 owner、非超级用户且无 membership/fence DELETE 的应用角色。 生产叠加文件仍统一读取 DATABASE_URL，不使用此项。 |
-| `MIGRATION_DATABASE_URL_DOCKER` | `—` | 开发态 Compose 的 maintenance worker 使用此连接执行启动迁移及数据库维护；容器地址通常为 postgres:5432。 |
-| `ALEMBIC_AUTO_UPGRADE` | `true` | API 镜像 entrypoint 是否自动执行 Alembic；生产 API 保持 true，开发态 maintenance worker 负责启动迁移，普通 Worker 与生产 maintenance worker 强制为 false。 |
+| `MIGRATION_DATABASE_URL_DOCKER` | `—` | 开发态 Compose 的 maintenance worker 使用此连接执行数据库维护，迁移由宿主机显式执行；容器地址通常为 postgres:5432。 |
+| `ALEMBIC_AUTO_UPGRADE` | `true` | API 镜像 entrypoint 是否自动执行 Alembic；标准生产 API 保持 true。 开发及生产 Worker 均强制为 false；开发迁移使用 pnpm dev:api 或显式运行 Alembic。 |
 
 ## 仅供 docker-compose.yml 里的 postgres 容器初始化用（后端不读这三项）。
 
@@ -60,6 +60,7 @@ last_reviewed: 2026-09-12
 | `MINIO_AUDIT_ARCHIVE_BUCKET` | `audit-archive` | 审计冷分区归档桶（永久保留，合规相关，建议开启 versioning + object lock） |
 | `MINIO_IMPORT_BUCKET` | `import` | 导入预标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_EXPORT_BUCKET` | `export` | 导出标注产物桶（7 天 lifecycle，短生命周期） |
+| `MINIO_AVATARS_BUCKET` | `avatars` | 用户头像桶（永久保留，不可重生，纳入备份；不挂 lifecycle） |
 
 ## 超大图 Image Pyramid
 

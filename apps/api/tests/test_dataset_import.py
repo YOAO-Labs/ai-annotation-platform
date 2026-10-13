@@ -537,9 +537,7 @@ async def test_import_from_connection_api_creates_secretless_job(
     assert "access_key" not in str(job.payload)
 
 
-async def test_dataset_import_cancel_is_allowed(
-    httpx_client_bound, db_session, annotator
-):
+async def test_dataset_import_cancel_is_allowed(httpx_client, db_session, annotator):
     user, token = annotator
     job = await async_job_svc.create_job(
         db_session,
@@ -549,7 +547,7 @@ async def test_dataset_import_cancel_is_allowed(
     await async_job_svc.mark_running(db_session, job.id)
     await db_session.flush()
 
-    response = await httpx_client_bound.post(
+    response = await httpx_client.post(
         f"/api/v1/async-jobs/{job.id}/cancel",
         headers=_bearer(token),
     )

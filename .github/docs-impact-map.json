@@ -74,7 +74,7 @@
       "id": "task-annotation-review",
       "name": "Task workflow, annotation editing, and reviewer actions",
       "codeMatchers": [
-        "apps/api/app/api/v1/tasks.py",
+        "apps/api/app/api/v1/tasks/",
         "apps/api/app/services/annotation.py",
         "apps/api/app/db/models/task.py",
         "apps/api/app/db/models/annotation.py",
@@ -111,7 +111,9 @@
       "name": "Video metadata, manifest, and video annotation workbench",
       "codeMatchers": [
         "apps/api/app/workers/media.py",
-        "apps/web/src/pages/Workbench/stage/VideoStage.tsx",
+        "apps/web/src/pages/Workbench/stage/Video*.tsx",
+        "apps/web/src/pages/Workbench/stage/video*.ts",
+        "apps/web/src/pages/Workbench/stage/useVideo*.ts",
         "apps/api/tests/test_video_workbench.py"
       ],
       "recommendDocs": [
@@ -333,7 +335,7 @@
       "recommendDocs": [
         "docs-site/dev/reference/data-manager-query.md",
         "docs-site/user-guide/projects/data-manager.md",
-        "docs/adr/0047-data-manager-entity-read-model.md"
+        "docs/adr/archive/0047-data-manager-entity-read-model.md"
       ],
       "acceptDocs": [
         "docs-site/dev/reference/data-manager-query.md",
@@ -368,13 +370,7 @@
     {
       "id": "env-and-runtime-config",
       "name": "Environment variables and runtime configuration",
-      "codeMatchers": [
-        ".env.example",
-        "apps/api/app/config.py",
-        "docker-compose.yml",
-        "compose.yaml",
-        "docker-compose.override.yml"
-      ],
+      "codeMatchers": [".env.example", "apps/api/app/config.py", "docker-compose*.yml"],
       "recommendDocs": [".env.example", "DEV.md", "docs-site/dev/reference/env-vars.md"],
       "acceptDocs": [".env.example", "DEV.md", "docs-site/dev/reference/env-vars.md"]
     }

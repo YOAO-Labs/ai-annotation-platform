@@ -149,6 +149,18 @@ export interface BatchAuditLogEntry {
   detail: Record<string, unknown> | null;
 }
 
+export interface BatchReject {
+  feedback: string;
+}
+
+export interface BatchSubmitResult {
+  batch_id: string;
+  status: string;
+  submitted_tasks: number;
+  skipped_tasks: number;
+  remaining_tasks: number;
+}
+
 export const batchesApi = {
   list: (projectId: string, status?: string) => {
     const q = new URLSearchParams();
@@ -175,6 +187,13 @@ export const batchesApi = {
     apiClient.post<BatchResponse>(
       `/projects/${projectId}/batches/${batchId}/transition`,
       reason ? { target_status: targetStatus, reason } : { target_status: targetStatus },
+    ),
+
+  // 整批送审：提交批次内所有 pending / in_progress 任务，再推进到 reviewing。
+  submitReview: (projectId: string, batchId: string) =>
+    apiClient.post<BatchSubmitResult>(
+      `/projects/${projectId}/batches/${batchId}/submit-review`,
+      {},
     ),
 
   split: (projectId: string, payload: BatchSplitPayload) =>

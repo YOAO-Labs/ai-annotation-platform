@@ -20,7 +20,7 @@ from tests.factory import create_project
 
 @pytest.mark.asyncio
 async def test_list_pools_available_returns_all_pools_with_enablement(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ) -> None:
     """All pools appear (LEFT JOIN); enablement reflects project_ml_backend_pool rows."""
     user, token = super_admin
@@ -33,7 +33,7 @@ async def test_list_pools_available_returns_all_pools_with_enablement(
     )
     await db_session.flush()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/projects/{proj.id}/ml-backends/pools/available",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -53,9 +53,7 @@ async def test_list_pools_available_returns_all_pools_with_enablement(
 
 
 @pytest.mark.asyncio
-async def test_enable_pool_for_project(
-    httpx_client_bound, db_session, super_admin
-) -> None:
+async def test_enable_pool_for_project(httpx_client, db_session, super_admin) -> None:
     """PUT /pools/:pool_id/enablement creates the project binding."""
     user, token = super_admin
     proj = await create_project(db_session, owner_id=user.id)
@@ -63,7 +61,7 @@ async def test_enable_pool_for_project(
     pool.enabled = True  # pool must be enabled to be project-enableable
     await db_session.flush()
 
-    resp = await httpx_client_bound.put(
+    resp = await httpx_client.put(
         f"/api/v1/projects/{proj.id}/ml-backends/pools/{pool.id}/enablement",
         headers={"Authorization": f"Bearer {token}"},
         json={"enabled": True},
@@ -89,7 +87,7 @@ async def test_enable_pool_for_project(
 
 @pytest.mark.asyncio
 async def test_enable_disabled_pool_rejected(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ) -> None:
     """A pool that is not enabled (pool.enabled=false) cannot be project-enabled (D15)."""
     user, token = super_admin
@@ -98,7 +96,7 @@ async def test_enable_disabled_pool_rejected(
     # pool.enabled defaults to False (create_registry_with_pool does not enable the pool).
     await db_session.flush()
 
-    resp = await httpx_client_bound.put(
+    resp = await httpx_client.put(
         f"/api/v1/projects/{proj.id}/ml-backends/pools/{pool.id}/enablement",
         headers={"Authorization": f"Bearer {token}"},
         json={"enabled": True},
@@ -108,12 +106,10 @@ async def test_enable_disabled_pool_rejected(
 
 
 @pytest.mark.asyncio
-async def test_enable_unknown_pool_404(
-    httpx_client_bound, db_session, super_admin
-) -> None:
+async def test_enable_unknown_pool_404(httpx_client, db_session, super_admin) -> None:
     user, token = super_admin
     proj = await create_project(db_session, owner_id=user.id)
-    resp = await httpx_client_bound.put(
+    resp = await httpx_client.put(
         f"/api/v1/projects/{proj.id}/ml-backends/pools/{uuid.uuid4()}/enablement",
         headers={"Authorization": f"Bearer {token}"},
         json={"enabled": True},
@@ -123,7 +119,7 @@ async def test_enable_unknown_pool_404(
 
 @pytest.mark.asyncio
 async def test_disable_pool_clears_enablement(
-    httpx_client_bound, db_session, super_admin
+    httpx_client, db_session, super_admin
 ) -> None:
     """PUT with enabled=false disables an existing binding."""
     user, token = super_admin
@@ -135,7 +131,7 @@ async def test_disable_pool_clears_enablement(
     )
     await db_session.flush()
 
-    resp = await httpx_client_bound.put(
+    resp = await httpx_client.put(
         f"/api/v1/projects/{proj.id}/ml-backends/pools/{pool.id}/enablement",
         headers={"Authorization": f"Bearer {token}"},
         json={"enabled": False},

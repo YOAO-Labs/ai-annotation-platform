@@ -12,7 +12,7 @@
 import { test, expect } from "../fixtures/seed";
 
 test("workbench perf · __workbenchPerf 在 image 工作台 mount 后存在", async ({ page, seed }) => {
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.advanceTask({
     taskId: data.task_ids[0],
     toStatus: "pending",

@@ -6,7 +6,7 @@ import asyncio
 from types import SimpleNamespace
 
 from embedding_cache import CacheEntry, EmbeddingCache
-from managed_pool import BuildArtifact, ManagedLruPool
+from aap_backend_runtime import BuildArtifact, ManagedLruPool
 
 
 def _run(coro):

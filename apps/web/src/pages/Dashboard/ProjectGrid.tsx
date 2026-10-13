@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/Card";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Badge } from "@/components/ui/Badge";
-import { Avatar } from "@/components/ui/Avatar";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { type ProjectResponse } from "@/api/projects";
@@ -39,7 +39,6 @@ export function ProjectGrid({ projects, onOpen, canManage, onSettings }: Props) 
         const startedPct = Math.round(
           (((p.in_progress_tasks ?? 0) + p.review_tasks + p.completed_tasks) / total) * 100,
         );
-        const ownerInitial = p.owner_name?.slice(0, 1) ?? "?";
         const due = p.due_date ?? "—";
 
         return (
@@ -91,7 +90,10 @@ export function ProjectGrid({ projects, onOpen, canManage, onSettings }: Props) 
 
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <Avatar size="sm" initial={ownerInitial} />
+                  <UserAvatar
+                    size="sm"
+                    user={{ name: p.owner_name, avatar_ref: p.owner_avatar_ref }}
+                  />
                   <span className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
                     {p.owner_name ?? "—"}
                   </span>

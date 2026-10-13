@@ -1,0 +1,19 @@
+[Unit]
+Description=Primary checkout development Web on port 3000
+After=aap-development-api.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@/apps/web
+Environment=PATH=@NODE_BIN_DIR@:/usr/local/bin:/usr/bin:/bin
+ExecStart=@NODE_BIN_DIR@/node @PROJECT_DIR@/apps/web/node_modules/vite/bin/vite.js --host 0.0.0.0 --port 3000 --strictPort
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0022
+
+[Install]
+WantedBy=default.target

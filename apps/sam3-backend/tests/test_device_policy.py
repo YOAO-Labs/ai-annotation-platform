@@ -161,7 +161,7 @@ def test_pvs_builder_receives_cuda_device_without_retry(monkeypatch) -> None:
 def test_health_reports_unknown_until_a_cuda_pool_is_loaded(monkeypatch) -> None:
     import main as main_module  # noqa: PLC0415
     from gpu_lifecycle import Sam3GpuLifecycle  # noqa: PLC0415
-    from managed_pool import BuildArtifact, ManagedLruPool  # noqa: PLC0415
+    from aap_backend_runtime import BuildArtifact, ManagedLruPool  # noqa: PLC0415
     from pool_domain import Sam3Pools  # noqa: PLC0415
 
     monkeypatch.setattr(main_module.torch.cuda, "is_available", lambda: False)
@@ -218,7 +218,7 @@ def test_gpu_unavailable_is_translated_to_protocol_503(
     model_key,
 ) -> None:
     import main as main_module  # noqa: PLC0415
-    from managed_pool import ManagedLruPool  # noqa: PLC0415
+    from aap_backend_runtime import ManagedLruPool  # noqa: PLC0415
 
     def fail_build(_key):
         raise DeviceUnavailableError("CUDA unavailable")

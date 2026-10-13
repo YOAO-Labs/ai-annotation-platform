@@ -1,0 +1,11 @@
+[Unit]
+Description=Check LAN production containers every two minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+AccuracySec=10s
+Unit=aap-production-health.service
+
+[Install]
+WantedBy=timers.target

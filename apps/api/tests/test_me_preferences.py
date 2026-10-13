@@ -370,6 +370,43 @@ async def test_patch_ui_subtree_deep_merges_theme_and_secondary_bar(
     assert ui["secondary_bar_hidden"] is True
 
 
+async def test_patch_ui_changelog_seen_version_roundtrip(httpx_client, annotator):
+    """登录后版本更新提醒: changelog_seen_version 默认空串(从未确认), 单键 PATCH
+    不冲掉同子树其它键, 可独立更新(换设备各确认一次的场景)。"""
+    _, token = annotator
+
+    # 1) 未写过 ui 时默认空串 = 从未确认过任何版本。
+    resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["ui"]["changelog_seen_version"] == ""
+
+    # 2) 先写主题 (模拟 useTheme), 再确认版本 — 不冲掉主题。
+    resp = await httpx_client.patch(
+        PREFS_URL, json={"ui": {"theme": "dark"}}, headers=_bearer(token)
+    )
+    assert resp.status_code == 200
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={"ui": {"changelog_seen_version": "9.9.9"}},
+        headers=_bearer(token),
+    )
+    assert resp.status_code == 200
+    ui = resp.json()["ui"]
+    assert ui["theme"] == "dark"
+    assert ui["changelog_seen_version"] == "9.9.9"
+
+    # 3) 再确认更高版本 — 版本键独立更新, 主题仍在。
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={"ui": {"changelog_seen_version": "10.0.0"}},
+        headers=_bearer(token),
+    )
+    assert resp.status_code == 200
+    ui = resp.json()["ui"]
+    assert ui["changelog_seen_version"] == "10.0.0"
+    assert ui["theme"] == "dark"
+
+
 async def test_patch_ai_interactive_backend_independent(httpx_client, annotator):
     """v0.18.31 · 第三个 ai 子键 interactive_backend_by_project (交互后端选择, 按 project)
     与 params/model 独立深合并, 三键互不覆盖。"""
@@ -2225,3 +2262,360 @@ async def test_named_presets_concurrent_writes_allow_only_one_stale_map(test_eng
         async with maker() as cleanup:
             await cleanup.execute(sa.delete(User).where(User.id == user_id))
             await cleanup.commit()
+
+
+# ── v0.24 · workbench.shortcuts：定向写入 / 无关 PATCH 保留 / opaque 兜底 ──
+
+
+@pytest.fixture
+def shortcut_preferences_writer():
+    """Exercise the complete preference handler without a database connection."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+
+    from app.api.v1.me import update_preferences
+
+    def create(existing):
+        user = SimpleNamespace(id=uuid4(), preferences=copy.deepcopy(existing))
+        session = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: user)),
+            commit=AsyncMock(),
+        )
+
+        async def write(shortcuts):
+            return await update_preferences(
+                {"workbench": {"shortcuts": shortcuts}}, session, user
+            )
+
+        return write, user, session
+
+    return create
+
+
+@pytest.mark.parametrize("opaque_bucket", ["future-format", ["opaque"], None])
+async def test_shortcut_validation_preserves_omitted_buckets(
+    shortcut_preferences_writer, opaque_bucket
+):
+    existing = {
+        "workbench": {
+            "shortcuts": {
+                "schemaVersion": 99,
+                "common": opaque_bucket,
+                "video": {"legacy.command": {"future": True}},
+            }
+        }
+    }
+    write, user, session = shortcut_preferences_writer(existing)
+
+    response = await write({"image": {"image.tool.box": [{"key": "k"}]}})
+
+    expected = {
+        **existing["workbench"]["shortcuts"],
+        "image": {"image.tool.box": [{"key": "k", "modifiers": []}]},
+    }
+    assert user.preferences["workbench"]["shortcuts"] == expected
+    assert json.loads(response.body)["workbench"]["shortcuts"] == expected
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "shortcuts,field",
+    [
+        ({"schemaVersion": "invalid"}, "schemaVersion"),
+        ({"schemaVersion": None}, "schemaVersion"),
+        ({"schemaVersion": 2}, "schemaVersion"),
+        ({"unexpected": True}, "unexpected"),
+        ({"common": None}, "common"),
+        ({"image": None}, "image"),
+        ({"video": None}, "video"),
+    ],
+)
+async def test_shortcut_validation_rejects_invalid_submitted_fields(
+    shortcut_preferences_writer, shortcuts, field
+):
+    from fastapi.exceptions import RequestValidationError
+
+    existing = {"workbench": {"shortcuts": {"image": {"image.tool.box": []}}}}
+    write, user, session = shortcut_preferences_writer(existing)
+
+    with pytest.raises(RequestValidationError) as caught:
+        await write(shortcuts)
+
+    assert ("body", "workbench", "shortcuts", field) in {
+        error["loc"] for error in caught.value.errors()
+    }
+    assert user.preferences == existing
+    session.commit.assert_not_awaited()
+
+
+async def test_shortcut_validation_preserves_explicit_schema_version(
+    shortcut_preferences_writer,
+):
+    write, user, _ = shortcut_preferences_writer({})
+
+    await write({"schemaVersion": 1})
+
+    assert user.preferences["workbench"]["shortcuts"] == {"schemaVersion": 1}
+
+
+@pytest.mark.parametrize(
+    "command_id,value",
+    [
+        ("legacy.command", [{"key": "k"}]),
+        ("image.tool.box", [{"key": "k"}, {"key": "l"}, {"key": "m"}]),
+        ("image.tool.box", {"future": True}),
+    ],
+)
+async def test_shortcut_validation_preserves_only_unchanged_invalid_entries(
+    shortcut_preferences_writer, command_id, value
+):
+    from fastapi.exceptions import RequestValidationError
+
+    existing = {"workbench": {"shortcuts": {"image": {command_id: value}}}}
+    write, user, _ = shortcut_preferences_writer(existing)
+
+    await write({"image": {command_id: copy.deepcopy(value)}})
+
+    assert user.preferences == existing
+
+    new_write, new_user, new_session = shortcut_preferences_writer({})
+    with pytest.raises(RequestValidationError):
+        await new_write({"image": {command_id: copy.deepcopy(value)}})
+    assert new_user.preferences == {}
+    new_session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize("stored_value", [{"future": True}, float("inf")])
+async def test_shortcut_validation_resets_invalid_entry_explicitly(
+    shortcut_preferences_writer, stored_value
+):
+    existing = {"workbench": {"shortcuts": {"image": {"legacy.command": stored_value}}}}
+    write, user, _ = shortcut_preferences_writer(existing)
+
+    response = await write({"image": {"legacy.command": None}})
+
+    # 未知命令的 null 重置会被真正移除：键不再落库，读路径不会继续报
+    # unknown-command（已知命令的 null 仍保留「恢复默认」语义）。
+    assert user.preferences["workbench"]["shortcuts"] == {"image": {}}
+    assert json.loads(response.body)["workbench"]["shortcuts"]["image"] == {}
+
+
+async def test_shortcut_validation_rejects_command_from_another_domain(
+    shortcut_preferences_writer,
+):
+    from fastapi.exceptions import RequestValidationError
+
+    write, user, session = shortcut_preferences_writer({})
+
+    with pytest.raises(RequestValidationError) as caught:
+        await write({"image": {"video.frame.next": [{"key": "j"}]}})
+
+    assert ("body", "workbench", "shortcuts", "image") in {
+        error["loc"] for error in caught.value.errors()
+    }
+    assert user.preferences == {}
+    session.commit.assert_not_awaited()
+
+
+async def test_shortcut_validation_resets_entire_subtree_explicitly(
+    shortcut_preferences_writer,
+):
+    existing = {"workbench": {"shortcuts": {"image": {"image.tool.box": []}}}}
+    write, user, _ = shortcut_preferences_writer(existing)
+
+    await write(None)
+
+    assert user.preferences["workbench"]["shortcuts"] is None
+
+
+async def test_shortcut_patch_writes_entry_and_get_round_trips(httpx_client, annotator):
+    _, token = annotator
+    headers = _bearer(token)
+
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={
+            "workbench": {
+                "shortcuts": {
+                    "image": {
+                        "image.tool.box": [
+                            {"key": "k", "modifiers": []},
+                            {"key": "1", "modifiers": ["alt"]},
+                        ]
+                    }
+                }
+            }
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    shortcuts = resp.json()["workbench"]["shortcuts"]
+    assert shortcuts["image"]["image.tool.box"] == [
+        {"key": "k", "modifiers": []},
+        {"key": "1", "modifiers": ["alt"]},
+    ]
+
+    resp = await httpx_client.get(PREFS_URL, headers=headers)
+    assert resp.status_code == 200
+    shortcuts = resp.json()["workbench"]["shortcuts"]
+    assert shortcuts["schemaVersion"] == 1
+    assert shortcuts["image"]["image.tool.box"][0]["key"] == "k"
+
+    # 显式恢复默认：提交 null 后该条目被移除语义的 null 落库
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={
+            "workbench": {
+                "shortcuts": {"image": {"image.tool.box": None}},
+            }
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["workbench"]["shortcuts"]["image"]["image.tool.box"] is None
+
+
+async def test_unrelated_preference_patch_preserves_stored_shortcuts(
+    httpx_client, annotator
+):
+    _, token = annotator
+    headers = _bearer(token)
+
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={
+            "workbench": {
+                "shortcuts": {
+                    "video": {"video.frame.next": [{"key": "d", "modifiers": ["alt"]}]}
+                }
+            }
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+
+    # 无关偏好 PATCH（不带 shortcuts 子树）不得影响存量快捷键
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={"workbench": {"common": {"confirmDelete": "always"}}},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    shortcuts = resp.json()["workbench"]["shortcuts"]
+    assert shortcuts["video"]["video.frame.next"] == [
+        {"key": "d", "modifiers": ["alt"]}
+    ]
+    assert resp.json()["workbench"]["common"]["confirmDelete"] == "always"
+
+
+async def test_shortcut_patch_rejects_unknown_command_and_modifier_only_key(
+    httpx_client, annotator
+):
+    _, token = annotator
+    headers = _bearer(token)
+
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={
+            "workbench": {
+                "shortcuts": {
+                    "image": {"legacy.command": [{"key": "k", "modifiers": []}]}
+                }
+            }
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={
+            "workbench": {
+                "shortcuts": {
+                    "image": {"image.tool.box": [{"key": "shift", "modifiers": []}]}
+                }
+            }
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+async def test_preferences_get_tolerates_corrupt_shortcut_subtree(
+    httpx_client, annotator, db_session
+):
+    """损坏 / 未来版本的存量 shortcuts 子树：GET 不失败，原样透出供客户端识别修正。"""
+    user, token = annotator
+    corrupt = {
+        "schemaVersion": 99,
+        "image": {"legacy.command": [{"key": "k", "modifiers": []}]},
+    }
+    user.preferences = {"workbench": {"shortcuts": corrupt}}
+    await db_session.flush()
+
+    resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["workbench"]["shortcuts"] == corrupt
+
+    # 混合形态：合法桶正常回显，未知命令条目保留原值
+    mixed = {
+        "schemaVersion": 1,
+        "image": {
+            "image.tool.box": [{"key": "k", "modifiers": []}],
+            "legacy.command": [{"key": "k", "modifiers": []}],
+        },
+    }
+    user.preferences = {"workbench": {"shortcuts": mixed}}
+    await db_session.flush()
+    resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
+    assert resp.status_code == 200
+    # 整棵子树校验失败（存在未知命令）→ 原样透出；客户端宽容解析按条目排除。
+    assert resp.json()["workbench"]["shortcuts"] == mixed
+
+
+async def test_shortcut_patch_preserves_untouched_invalid_entries(
+    httpx_client, annotator, db_session
+):
+    """同桶内改一条合法条目：未触碰的非法存量条目保留原值；显式重置该条目为 null 会清除。"""
+    user, token = annotator
+    user.preferences = {
+        "workbench": {
+            "shortcuts": {
+                "schemaVersion": 1,
+                "image": {
+                    "legacy.command": [{"key": "k", "modifiers": []}],
+                    "image.tool.box": [{"key": "b", "modifiers": []}],
+                },
+            }
+        }
+    }
+    await db_session.flush()
+
+    # 同桶内改一条合法命令：未触碰的非法存量条目原样保留。
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={
+            "workbench": {"shortcuts": {"image": {"image.tool.select": [{"key": "n"}]}}}
+        },
+        headers=_bearer(token),
+    )
+    assert resp.status_code == 200
+    shortcuts = resp.json()["workbench"]["shortcuts"]
+    assert shortcuts["image"]["image.tool.select"] == [{"key": "n", "modifiers": []}]
+    assert shortcuts["image"]["legacy.command"] == [{"key": "k", "modifiers": []}]
+
+    # 显式把非法条目重置为 null：通过严格校验并从存量中清除。
+    resp = await httpx_client.patch(
+        PREFS_URL,
+        json={
+            "workbench": {
+                "shortcuts": {"image": {"legacy.command": None}},
+            }
+        },
+        headers=_bearer(token),
+    )
+    assert resp.status_code == 200
+    shortcuts = resp.json()["workbench"]["shortcuts"]
+    assert "legacy.command" not in shortcuts["image"]
+    assert shortcuts["image"]["image.tool.select"] == [{"key": "n", "modifiers": []}]

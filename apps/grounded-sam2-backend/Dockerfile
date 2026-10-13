@@ -95,7 +95,7 @@ RUN pip install --no-build-isolation -e /app/backend_runtime
 COPY grounded-sam2-backend/scripts/ ./scripts/
 COPY grounded-sam2-backend/main.py grounded-sam2-backend/predictor.py \
      grounded-sam2-backend/schemas.py grounded-sam2-backend/embedding_cache.py \
-     grounded-sam2-backend/managed_pool.py grounded-sam2-backend/model_pool.py \
+     grounded-sam2-backend/model_pool.py \
      grounded-sam2-backend/video_predictor.py grounded-sam2-backend/video_pool.py \
      grounded-sam2-backend/pool_domain.py grounded-sam2-backend/gpu_lifecycle.py \
      grounded-sam2-backend/observability.py ./

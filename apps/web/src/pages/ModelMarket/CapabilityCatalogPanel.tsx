@@ -6,6 +6,12 @@
 //   - 工具栏按 task / model_family / infra / modality 多选 chips 过滤;
 //   - 「刷新」对每个 backend 调 refreshCapabilities 重探并刷新缓存.
 // 仅消费已落地契约 (api/ml-backends.ts + adminMlIntegrations.ts), 不改 api / types.
+//
+// 模型市场多 TAB UI 优化 · 阶段二 (plan §4.1 / §5):
+//   - 工具栏固定为三行: ①搜索/分组/卡片列表/刷新 ②任务/模态快捷筛选+更多筛选
+//     ③结果计数+已应用条件标签; 全部条件写入 URL (catalog_* 键, 多选重复键)。
+//   - 计数唯一来源: 「匹配 N / 总计 M」来自当前实际渲染集合, 不在父页面按项目
+//     累加第二套模型总数; 协议能力类别数单独标注, 不与模型条目数混用。
 
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -23,6 +29,7 @@ import {
   type CapabilityInstanceModel,
 } from "@/api/mlCapabilities";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { ProtocolCapabilityCard } from "./ProtocolCapabilityCard";
 import { EmptyCatalogBanner } from "./EmptyCatalogBanner";
 import { taskLabel, infraLabel, modalityLabel } from "./capability/labels";
@@ -33,6 +40,7 @@ import {
   groupModels,
   toggle,
 } from "./capability/catalogModel";
+import { CATALOG_URL_DEFAULTS, MARKET_URL_KEYS, catalogUrlCodec } from "./marketUrlState";
 import { FilterToolbar } from "./capability/FilterToolbar";
 import { ModelListTable } from "./capability/ModelListTable";
 import { ModelCard } from "./capability/ModelCard";
@@ -115,12 +123,23 @@ export function CapabilityCatalogPanel() {
   const pushToast = useToastStore((s) => s.push);
   const [searchParams, setSearchParams] = useSearchParams();
   const [refreshing, setRefreshing] = useState(false);
-  const [viewMode, setViewMode] = useState<CatalogViewMode>("cards");
-  // v0.14.11 · 默认按协议能力 (task) 分组, 即使无 backend 注册也展示 9 张协议卡。
-  const [groupBy, setGroupBy] = useState<CatalogGroupBy>("task");
-  const [search, setSearch] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // 目录条件全部写入 URL（plan §5 catalog_* 键表）：文本编辑 replace；分组/视图
+  // 切换是显式显示状态，仍 replace（主 TAB 语义才 push）。
+  const {
+    state: catalog,
+    patch: patchCatalog,
+    issues: catalogIssues,
+  } = useUrlFilterState({ codec: catalogUrlCodec, defaults: CATALOG_URL_DEFAULTS });
+  const search = catalog.catalogQ;
+  const viewMode = catalog.catalogView as CatalogViewMode;
+  const groupBy = catalog.catalogGroup as CatalogGroupBy;
+  const taskFilter = useMemo(() => new Set(catalog.catalogTask), [catalog.catalogTask]);
+  const familyFilter = useMemo(() => new Set(catalog.catalogFamily), [catalog.catalogFamily]);
+  const infraFilter = useMemo(() => new Set(catalog.catalogInfra), [catalog.catalogInfra]);
+  const modalityFilter = useMemo(() => new Set(catalog.catalogModality), [catalog.catalogModality]);
 
   // v0.14.11 · 协议级能力目录 (与 backend 注册解耦); 用作 groupBy=task 时的协议卡数据源。
   const { data: protocol } = useProtocolCapabilities();
@@ -131,7 +150,8 @@ export function CapabilityCatalogPanel() {
   const goToRegistry = () => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", "registry");
-    setSearchParams(next, { replace: true });
+    // 显式 TAB 跳转新增浏览器历史（plan §5）。
+    setSearchParams(next, { replace: false });
   };
 
   // overview (admin) 只有 super_admin 能读; project_admin 也能进本页, 但对其而言
@@ -302,12 +322,6 @@ export function CapabilityCatalogPanel() {
     };
   }, [flatModels]);
 
-  // 多选过滤 (空集 = 不过滤该轴).
-  const [taskFilter, setTaskFilter] = useState<Set<string>>(new Set());
-  const [familyFilter, setFamilyFilter] = useState<Set<string>>(new Set());
-  const [infraFilter, setInfraFilter] = useState<Set<string>>(new Set());
-  const [modalityFilter, setModalityFilter] = useState<Set<string>>(new Set());
-
   const filtered = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
     return flatModels.filter((f) => {
@@ -415,18 +429,30 @@ export function CapabilityCatalogPanel() {
     search,
   ]);
 
+  // 当前实际渲染集合的模型条目数（plan §4.1：计数唯一来源 = 渲染集合）。
+  const renderedModelCount =
+    groupBy === "task" && protocolView
+      ? protocolView.reduce((sum, v) => sum + v.mounted.length, 0)
+      : filtered.length;
+  const renderedCategoryCount =
+    groupBy === "task" && protocolView ? protocolView.length : grouped.length;
+
   const hasActiveFilter =
-    taskFilter.size > 0 ||
-    familyFilter.size > 0 ||
-    infraFilter.size > 0 ||
-    modalityFilter.size > 0 ||
-    Boolean(search.trim());
+    taskFilter.size > 0 || familyFilter.size > 0 || infraFilter.size > 0 || modalityFilter.size > 0;
+  // 清除条件保留搜索 / 分组 / 显示方式（plan §5 键表）。
   const clearFilters = () => {
-    setTaskFilter(new Set());
-    setFamilyFilter(new Set());
-    setInfraFilter(new Set());
-    setModalityFilter(new Set());
-    setSearch("");
+    patchCatalog({ catalogTask: [], catalogFamily: [], catalogInfra: [], catalogModality: [] });
+  };
+  const toggleCatalogFacet = (
+    key: "catalogTask" | "catalogFamily" | "catalogInfra" | "catalogModality",
+    value: string,
+  ) => {
+    patchCatalog((prev) => {
+      const next = new Set(prev[key]);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return { ...prev, [key]: [...next] };
+    });
   };
   const toggleGroup = (key: string) => {
     if (flatModels.length > 30) {
@@ -464,6 +490,64 @@ export function CapabilityCatalogPanel() {
   ).length;
   const distinctBackendCount = backendRefs.length + envOnlyCount;
 
+  // ── 工具栏第 1 行：搜索 / 分组 / 卡片列表 / 刷新（plan §4.1 顺序）────────
+  const primaryToolbar = (
+    <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-4 py-3">
+      <label className="inline-flex min-w-[220px] flex-[1_1_280px] items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1.5 text-muted-foreground">
+        <Icon name="search" size={13} />
+        <input
+          value={search}
+          onChange={(e) => patchCatalog({ catalogQ: e.target.value })}
+          placeholder="搜索模型、ID、模型族、任务或来源"
+          className="w-full min-w-0 appearance-none border-0 bg-transparent text-xs text-foreground outline-none"
+        />
+      </label>
+      <div className="inline-flex gap-1 rounded-md border border-border bg-muted p-1">
+        <button
+          type="button"
+          className={viewMode === "cards" ? VIEW_BTN_ON_CLASS : VIEW_BTN_CLASS}
+          onClick={() => patchCatalog({ catalogView: "cards" })}
+          aria-pressed={viewMode === "cards"}
+          title="卡片视图"
+        >
+          <Icon name="grid" size={13} />
+        </button>
+        <button
+          type="button"
+          className={viewMode === "list" ? VIEW_BTN_ON_CLASS : VIEW_BTN_CLASS}
+          onClick={() => patchCatalog({ catalogView: "list" })}
+          aria-pressed={viewMode === "list"}
+          title="列表视图"
+        >
+          <Icon name="list" size={13} />
+        </button>
+      </div>
+      <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+        分组
+        <select
+          value={groupBy}
+          onChange={(e) => patchCatalog({ catalogGroup: e.target.value as CatalogGroupBy })}
+          className={SELECT_CLASS}
+        >
+          <option value="task">协议能力 (默认)</option>
+          <option value="backend">backend</option>
+          <option value="infra">infra</option>
+          <option value="none">不分组</option>
+        </select>
+      </label>
+      <Button
+        size="sm"
+        className="ml-auto"
+        onClick={onRefresh}
+        disabled={refreshing || backendRefs.length === 0}
+        title="对所有 backend 重探 /setup 并刷新能力目录"
+      >
+        <Icon name="refresh" size={11} className={refreshing ? "spin" : undefined} />
+        刷新
+      </Button>
+    </div>
+  );
+
   return (
     <div className="mb-4">
       <Card>
@@ -471,19 +555,14 @@ export function CapabilityCatalogPanel() {
           <div className="flex items-center gap-2">
             <Icon name="layers" size={14} className="text-muted-foreground" />
             <h3 className="m-0 text-sm font-semibold">能力目录</h3>
+            {/* 计数唯一来源（plan §4.1）：匹配 / 总计 来自当前渲染集合；
+                能力类别数与模型条目数分开表述，不混用。 */}
             <span className="text-xs text-muted-foreground">
-              {flatModels.length} 个模型条目 · {distinctBackendCount} 个 backend
+              {groupBy === "task" && protocolView
+                ? `${renderedCategoryCount} 类协议能力 · 匹配 ${renderedModelCount} / 总计 ${flatModels.length} 个模型条目 · ${distinctBackendCount} 个 backend`
+                : `匹配 ${renderedModelCount} / 总计 ${flatModels.length} 个模型条目 · ${distinctBackendCount} 个 backend`}
             </span>
           </div>
-          <Button
-            size="sm"
-            onClick={onRefresh}
-            disabled={refreshing || backendRefs.length === 0}
-            title="对所有 backend 重探 /setup 并刷新能力目录"
-          >
-            <Icon name="refresh" size={11} className={refreshing ? "spin" : undefined} />
-            刷新
-          </Button>
         </div>
 
         {overviewLoading ? (
@@ -500,74 +579,47 @@ export function CapabilityCatalogPanel() {
           groupBy !== "task" ? (
           // v0.14.11 · 0 backend + 非 task 分组: 沿用旧空态; task 分组下走协议卡视图。
           // v0.14.12 · 同时有 env-only instances 时, 这里不再显示空态。
-          <div className={EMPTY_STATE_CLASS}>
-            <Icon name="layers" size={28} className="opacity-30" />
-            <div>尚无项目注册 ML Backend</div>
-            <div className="text-xs">
-              切到「分组: task」可查看平台协议层支持的全部能力； 或在项目设置注册 backend 后,
-              其能力目录会出现在这里。
+          <>
+            {primaryToolbar}
+            <div className={EMPTY_STATE_CLASS}>
+              <Icon name="layers" size={28} className="opacity-30" />
+              <div>尚无项目注册 ML Backend</div>
+              <div className="text-xs">
+                切到「分组: task」可查看平台协议层支持的全部能力； 或在项目设置注册 backend 后,
+                其能力目录会出现在这里。
+              </div>
             </div>
-          </div>
+          </>
         ) : (
           <>
+            {primaryToolbar}
+
             <FilterToolbar
               facets={facets}
               taskFilter={taskFilter}
               familyFilter={familyFilter}
               infraFilter={infraFilter}
               modalityFilter={modalityFilter}
-              onToggleTask={(v) => setTaskFilter((s) => toggle(s, v))}
-              onToggleFamily={(v) => setFamilyFilter((s) => toggle(s, v))}
-              onToggleInfra={(v) => setInfraFilter((s) => toggle(s, v))}
-              onToggleModality={(v) => setModalityFilter((s) => toggle(s, v))}
+              onToggleTask={(v) => toggleCatalogFacet("catalogTask", v)}
+              onToggleFamily={(v) => toggleCatalogFacet("catalogFamily", v)}
+              onToggleInfra={(v) => toggleCatalogFacet("catalogInfra", v)}
+              onToggleModality={(v) => toggleCatalogFacet("catalogModality", v)}
               hasActiveFilter={hasActiveFilter}
               onClear={clearFilters}
+              issues={catalogIssues}
+              onDismissIssue={(key) => {
+                // 移除无效目录条件 = 回落默认枚举；encode 会把非法参数从 URL
+                // 清掉（默认值删除键），issue 随之消失（plan §5 可见提示 + 移除入口）。
+                if (key === MARKET_URL_KEYS.catalogGroup) {
+                  patchCatalog({ catalogGroup: CATALOG_URL_DEFAULTS.catalogGroup });
+                } else if (key === MARKET_URL_KEYS.catalogView) {
+                  patchCatalog({ catalogView: CATALOG_URL_DEFAULTS.catalogView });
+                }
+              }}
+              matchedCount={renderedModelCount}
+              totalCount={flatModels.length}
+              categoryCount={groupBy === "task" && protocolView ? renderedCategoryCount : null}
             />
-
-            <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-4 py-3">
-              <label className="inline-flex min-w-[220px] flex-[1_1_280px] items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1.5 text-muted-foreground">
-                <Icon name="search" size={13} />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="搜索模型、ID、模型族、任务或来源"
-                  className="w-full min-w-0 appearance-none border-0 bg-transparent text-xs text-foreground outline-none"
-                />
-              </label>
-              <div className="inline-flex gap-1 rounded-md border border-border bg-muted p-1">
-                <button
-                  type="button"
-                  className={viewMode === "cards" ? VIEW_BTN_ON_CLASS : VIEW_BTN_CLASS}
-                  onClick={() => setViewMode("cards")}
-                  aria-pressed={viewMode === "cards"}
-                  title="卡片视图"
-                >
-                  <Icon name="grid" size={13} />
-                </button>
-                <button
-                  type="button"
-                  className={viewMode === "list" ? VIEW_BTN_ON_CLASS : VIEW_BTN_CLASS}
-                  onClick={() => setViewMode("list")}
-                  aria-pressed={viewMode === "list"}
-                  title="列表视图"
-                >
-                  <Icon name="list" size={13} />
-                </button>
-              </div>
-              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                分组
-                <select
-                  value={groupBy}
-                  onChange={(e) => setGroupBy(e.target.value as CatalogGroupBy)}
-                  className={SELECT_CLASS}
-                >
-                  <option value="task">协议能力 (默认)</option>
-                  <option value="backend">backend</option>
-                  <option value="infra">infra</option>
-                  <option value="none">不分组</option>
-                </select>
-              </label>
-            </div>
 
             {/* 探测失败的 backend 降级提示 (能力目录可能缺条目). */}
             {results.some((r) => r.isError) && (
@@ -631,11 +683,17 @@ export function CapabilityCatalogPanel() {
             ) : filtered.length === 0 ? (
               <div className={EMPTY_STATE_CLASS}>
                 <Icon name="filter" size={24} className="opacity-30" />
-                <div>{hasActiveFilter ? "当前过滤条件无匹配模型" : "暂无可用模型条目"}</div>
-                {hasActiveFilter && (
-                  <button className={RETRY_BTN_CLASS} onClick={clearFilters}>
-                    清除过滤
-                  </button>
+                <div>
+                  {hasActiveFilter || search ? "当前过滤条件无匹配模型" : "暂无可用模型条目"}
+                </div>
+                {(hasActiveFilter || search) && (
+                  <div className="flex gap-2">
+                    {hasActiveFilter && (
+                      <button className={RETRY_BTN_CLASS} onClick={clearFilters}>
+                        清除过滤
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             ) : (
@@ -667,7 +725,11 @@ export function CapabilityCatalogPanel() {
                         (viewMode === "cards" ? (
                           <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
                             {group.items.map((f) => (
-                              <ModelCard key={`${f.backendId}:${f.model.id}`} item={f} />
+                              <ModelCard
+                                key={`${f.backendId}:${f.model.id}`}
+                                item={f}
+                                showTaskBadge={groupBy !== "task"}
+                              />
                             ))}
                           </div>
                         ) : (

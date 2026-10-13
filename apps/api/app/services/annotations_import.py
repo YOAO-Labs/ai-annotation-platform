@@ -311,6 +311,14 @@ async def import_aap_json_annotations(
                 result.skipped += 1
             continue
 
+        if not dry_run:
+            # A2 · an import envelope may visit tasks in any order, so acquire the
+            # task row with NOWAIT before the overwrite purge / inserts: a busy
+            # lock rolls back to a retryable 409 instead of forming a wait cycle.
+            from app.services.annotation_evidence import lock_tasks_for_evidence
+
+            await lock_tasks_for_evidence(db, [task.id], nowait=True)
+
         # 先建主标注/SceneTrack，再挂同轨迹的相机成员；交换格式不要求调用方排序。
         for entry in sorted(
             block.annotations, key=lambda item: item.sensor_role is not None
@@ -612,6 +620,14 @@ async def import_aap_json_annotations(
             result=result,
         )
         from app.services.annotation import AnnotationService
+        from app.services.annotation_evidence import record_annotation_actors_for_tasks
+
+        # D1 · every imported annotation is attributed to the operator, including
+        # camera members and scene-track members. Recording is conservative:
+        # a legacy task with an unknown accumulator stays unknown.
+        await record_annotation_actors_for_tasks(
+            db, affected_tasks, operator_user_id, nowait=True
+        )
 
         svc = AnnotationService(db)
         for task_id in affected_tasks:

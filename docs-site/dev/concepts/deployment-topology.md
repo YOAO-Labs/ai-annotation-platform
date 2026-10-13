@@ -36,13 +36,13 @@ last_reviewed: 2026-07-29
 
 物理实例保存在 ML Backend registry 中，服务池把能力一致的一个或多个实例组成逻辑计算单元。项目启用的是服务池，请求进入 `MLBackendRouter` 后才会根据健康、能力指纹、熔断、权重和并发上限选出物理实例。
 
-prompt、媒体和 pipeline 参数是推理输入，不是直接选择物理主机的路由键。协议契约见 [ML Backend 协议](../reference/ml-backend-protocol)，服务池语义见 [ADR 0050 — ML Backend 服务池路由](../adr/0050-ml-backend-service-pools-and-request-routing)。
+prompt、媒体和 pipeline 参数是推理输入，不是直接选择物理主机的路由键。协议契约见 [ML Backend 协议](../reference/ml-backend-protocol)，服务池语义见 [ADR 0050 — ML Backend 服务池路由](../adr/archive/0050-ml-backend-service-pools-and-request-routing)。
 
 Kubernetes 编排目前不是既定路线；如果 Compose 和服务池已无法满足调度、容错或运维要求，应先新建 ADR 论证迁移边界。
 
 ## 生产入口与端口
 
-需要在现有主机上保留开发环境并新增独立生产业务数据时，另有[局域网生产部署](/ops/deploy/lan-production)：`docker-compose.lan-prod.yml` 使用独立 Compose 项目，Caddy 在局域网 3030/8080 终结内部 HTTPS；PostgreSQL 实例、MinIO 实例和模型服务复用，新数据库、七个桶、Redis、Worker、Beat、DuckDB 和 CA 卷独立。下面的 8088 拓扑仍适用于整栈生产覆盖文件，两个入口不要叠加使用。
+需要在现有主机上保留开发环境并新增独立生产业务数据时，另有[局域网生产部署](/ops/deploy/lan-production)：`docker-compose.lan-prod.yml` 使用独立 Compose 项目，Caddy 在局域网 3030/8080 终结内部 HTTPS；PostgreSQL 实例、MinIO 实例和模型服务复用，新数据库、八个桶、Redis、Worker、Beat、DuckDB 和 CA 卷独立。下面的 8088 拓扑仍适用于整栈生产覆盖文件，两个入口不要叠加使用。
 
 <ExcalidrawDiagram
   src="/diagrams/shared/deployment/production-network-boundaries.svg"

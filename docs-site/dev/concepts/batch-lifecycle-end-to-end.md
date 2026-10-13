@@ -167,11 +167,12 @@ worker 会：
 
 ### annotator 手工提交整批
 
-annotator 在自己负责的 `annotating` 批次上手工触发：
+annotator 在自己负责的批次上手工触发：
+`POST /projects/{id}/batches/{id}/submit-review`
 
-- `annotating → reviewing`
+当前行为是**整批送审**：批次内所有 `pending / in_progress` task 逐个走与工作台提交相同的路径（审核轮次、任务锁释放、Mask QC 自动运行、contributor 快照），随后由 `check_auto_transitions` 把批次推进到 `reviewing`。因此它既提交 task，也会锁住这些 task；已经 `rejected` 的 task 需要先 `accept-rejection` 重做，不进入本次批量集合，并且会作为 blocker 让批次保持 `annotating`。批次已处于 `reviewing` 但仍有未送审 task（例如先手工送审、随后 withdraw / reopen）时，入口仍然可用，只补交剩余 `pending / in_progress` task。
 
-这是 batch-only 送审，没有 readiness 硬闸门：即使还有 `pending / rejected` task 也可进入 `reviewing`。它不提交 task、不释放 task lock、不修改 task counter，也不等于每一条 task 都已经 individually `completed`。
+请求鉴权与 `annotating → reviewing` 一致：被分派标注员或 owner / super_admin。标注页的「提交质检」按“是否还有未送审任务”显示，不再只看批次状态。
 
 ### reviewer 决策
 
@@ -207,6 +208,8 @@ task 级动作改变的是单题状态；batch 级动作改变的是整批是否
 - `review_feedback` 写入批次
 - 所有 `review / completed` task 回到 `pending`
 - annotation 与单批路径的 `is_labeled` 保留，同步重算 batch / project counter，写 audit 并通知 annotator
+
+专用 reject 当前接受 `active / annotating / reviewing` 三种来源状态：审核页会列出部分送审（`review_tasks > 0`）但状态尚未推进到 `reviewing` 的批次，这些批次同样要能整批打回重做。通用 `transition target=rejected` 仍然只允许 `reviewing → rejected`，不会放宽。
 
 这是一种“整批退回重做”，不清 annotation 历史，但会把生产流重新拉回前段。
 

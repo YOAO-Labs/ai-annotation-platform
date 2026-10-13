@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { DropdownMenu, type DropdownItem } from "@/components/ui/DropdownMenu";
 import { Icon } from "@/components/ui/Icon";
 import { Switch } from "@/components/ui/Switch";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import { useUpdateProject, useRenameClass } from "@/hooks/useProjects";
 import { useUnsavedWarning } from "@/hooks/useUnsavedWarning";
@@ -53,6 +55,7 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
   const [renameAllUnits, setRenameAllUnits] = useState(false);
   // v0.18.0 起「从 ML Backend 预填配置」对话框开关 (v0.20.3 由「导入属性」升级为类别+属性)。
   const [prefillOpen, setPrefillOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useUnsavedWarning(dirty);
 
@@ -180,11 +183,16 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     try {
       const usage = await projectsApi.classUsage(project.id);
       const count = usage.classes[row.name] ?? 0;
-      const message =
-        count > 0
-          ? `类别「${row.name}」已被 ${count} 条标注使用。\n\n删除后这些标注将变为孤儿；暂不影响标注数据，加回同名类别即可恢复。工作台可隐藏孤儿标注，如需彻底清除请运维执行清理。\n\n确认删除？`
-          : `类别「${row.name}」暂无标注引用，可放心删除。\n\n确认删除？`;
-      return window.confirm(message);
+      return await confirmDialog({
+        tone: "danger",
+        title: `删除类别「${row.name}」`,
+        description:
+          count > 0
+            ? "删除后引用该类别的标注将变为孤儿；暂不影响标注数据，加回同名类别即可恢复。工作台可隐藏孤儿标注，如需彻底清除请运维执行清理。"
+            : "该类别暂无标注引用，可放心删除。",
+        details: count > 0 ? `已被 ${count} 条标注使用` : undefined,
+        confirmLabel: "删除",
+      });
     } catch (err) {
       pushToast({
         msg: "删除前用量统计失败",
@@ -201,11 +209,16 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     try {
       const usage = await projectsApi.classUsage(project.id);
       const count = usage.attributes[key] ?? 0;
-      const message =
-        count > 0
-          ? `属性「${key}」已被 ${count} 条标注使用。\n\n删除后这些属性值将变为孤儿；暂不影响标注数据，加回同 key 属性即可恢复。工作台可隐藏孤儿标注，如需彻底清除请运维执行清理。\n\n确认删除？`
-          : `属性「${key}」暂无标注引用，可放心删除。\n\n确认删除？`;
-      return window.confirm(message);
+      return await confirmDialog({
+        tone: "danger",
+        title: `删除属性「${key}」`,
+        description:
+          count > 0
+            ? "删除后引用该属性的标注值将变为孤儿；暂不影响标注数据，加回同 key 属性即可恢复。工作台可隐藏孤儿标注，如需彻底清除请运维执行清理。"
+            : "该属性暂无标注引用，可放心删除。",
+        details: count > 0 ? `已被 ${count} 条标注使用` : undefined,
+        confirmLabel: "删除",
+      });
     } catch (err) {
       pushToast({
         msg: "删除前用量统计失败",
@@ -366,26 +379,58 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     <Card>
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
         <h3 className="text-sm font-semibold">类别与属性</h3>
-        <div className="flex gap-1.5 whitespace-nowrap">
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
           <Button size="sm" variant="ghost" onClick={() => setPrefillOpen(true)}>
-            <Icon name="sparkles" size={11} />从 ML Backend 预填
+            <Icon name="sparkles" />从 ML Backend 预填
           </Button>
-          <Button size="sm" variant="ghost" onClick={onExportJson}>
-            <Icon name="download" size={11} />
-            导出属性 JSON
-          </Button>
-          <label className="cursor-pointer">
-            <input
-              type="file"
-              accept="application/json"
-              onChange={onImportJson}
-              className="hidden"
-            />
-            <span className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-sm text-foreground hover:bg-muted">
-              <Icon name="plus" size={11} />
-              导入属性
-            </span>
-          </label>
+          {/* 导入 / 导出只覆盖属性 schema（类别无法经 JSON 导入导出，只能 ML Backend 预填
+              或手动维护），收进下拉避免头部按钮横向堆叠。隐藏 input 留在头部，
+              菜单 onSelect 处于点击手势内，可直接唤起系统文件选择。 */}
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json"
+            onChange={onImportJson}
+            className="hidden"
+          />
+          <DropdownMenu
+            panelAriaLabel="属性 JSON 导入导出"
+            minWidth={228}
+            items={
+              [
+                {
+                  id: "export-attributes",
+                  icon: "download",
+                  label: "导出属性 schema (JSON)",
+                  onSelect: onExportJson,
+                },
+                {
+                  id: "import-attributes",
+                  icon: "upload",
+                  label: "导入属性 schema (JSON)",
+                  onSelect: () => importInputRef.current?.click(),
+                },
+              ] satisfies DropdownItem[]
+            }
+            footer={
+              <div className="text-2xs leading-snug text-muted-foreground">
+                仅含当前工具单位的属性 schema；类别不能经 JSON 导入 / 导出。
+              </div>
+            }
+            trigger={({ open, toggle, ref }) => (
+              <Button
+                ref={ref}
+                size="sm"
+                variant="ghost"
+                onClick={toggle}
+                aria-haspopup="menu"
+                aria-expanded={open}
+              >
+                属性 JSON
+                <Icon name="chevDown" size={12} />
+              </Button>
+            )}
+          />
         </div>
       </div>
       <div className="flex flex-col gap-2.5 p-4">

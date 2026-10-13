@@ -165,7 +165,7 @@ export function InvitationListPanel() {
   return (
     <div className={styles.root}>
       <div className={`${styles.toolbar} flex-wrap gap-2`}>
-        <FilterGroup label="邀请状态" compact>
+        <FilterGroup label="邀请状态" hideLabel compact>
           {(["all", "pending", "accepted", "expired", "revoked"] as const).map((value) => (
             <FilterToggle
               compact

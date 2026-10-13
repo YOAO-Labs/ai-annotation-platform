@@ -8,17 +8,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks._shared import (
-    _ANNOTATORS,
     _assert_task_editable,
     _assert_task_visible,
     _load_task_or_404,
+    require_task_annotation_write,
+    require_task_annotation_write_strict,
 )
-from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_roles, require_scopes
+from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.multicamera_annotation import (
     CameraAnnotationMemberCreate,
     CameraAnnotationMemberDelete,
@@ -41,6 +41,7 @@ from app.services.multicamera_annotation import (
     restore_camera_member,
     update_camera_member,
 )
+from app.services.project_access import ProjectAccess
 from app.services.sensor_calibration import (
     SensorCalibrationError,
     list_calibration_revisions,
@@ -108,11 +109,12 @@ async def post_camera_member(
     payload: CameraAnnotationMemberCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
-    _assert_task_editable(task, current_user)
+    await _assert_task_visible(db, task, current_user, access=access)
+    _assert_task_editable(task, current_user, access=access)
     try:
         member = await create_camera_member(
             db,
@@ -158,15 +160,17 @@ async def patch_camera_member(
     payload: CameraAnnotationMemberUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
-    _assert_task_editable(task, current_user)
+    await _assert_task_visible(db, task, current_user, access=access)
+    _assert_task_editable(task, current_user, access=access)
     try:
         member = await update_camera_member(
             db,
             task=task,
+            actor_id=current_user.id,
             member_id=member_id,
             bbox=payload.bbox,
             visibility=payload.visibility,
@@ -203,15 +207,17 @@ async def remove_camera_member(
     payload: CameraAnnotationMemberDelete,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
-    _assert_task_editable(task, current_user)
+    await _assert_task_visible(db, task, current_user, access=access)
+    _assert_task_editable(task, current_user, access=access)
     try:
         member = await delete_camera_member(
             db,
             task=task,
+            actor_id=current_user.id,
             member_id=member_id,
             expected_version=payload.expected_version,
             expected_track_revision=payload.expected_track_revision,
@@ -244,15 +250,17 @@ async def restore_deleted_camera_member(
     payload: CameraAnnotationMemberRestore,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ANNOTATORS)),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
-    _assert_task_editable(task, current_user)
+    await _assert_task_visible(db, task, current_user, access=access)
+    _assert_task_editable(task, current_user, access=access)
     try:
         member = await restore_camera_member(
             db,
             task=task,
+            actor_id=current_user.id,
             member_id=member_id,
             expected_version=payload.expected_version,
             expected_track_revision=payload.expected_track_revision,
@@ -325,19 +333,15 @@ async def patch_camera_calibration(
     payload: SensorCalibrationUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-    ),
+    current_user: User = Depends(get_current_user),
+    access: ProjectAccess = Depends(require_task_annotation_write_strict),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await _assert_task_visible(db, task, current_user, access=access)
     project = await db.get(Project, task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    if (
-        current_user.role != UserRole.SUPER_ADMIN
-        and project.owner_id != current_user.id
-    ):
+    if not access.is_manager:
         raise HTTPException(
             status_code=403, detail="Only the project owner can update calibration"
         )
@@ -345,7 +349,7 @@ async def patch_camera_calibration(
         item = await load_linked_camera_item(db, task=task, camera_role=camera_role)
     except (MulticameraAnnotationError, SensorCalibrationError) as exc:
         _raise_domain_error(exc)
-    if current_user.role != UserRole.SUPER_ADMIN:
+    if not access.is_super_admin:
         cross_project_id = await db.scalar(
             select(Task.project_id)
             .join(TaskDatasetItemLink, TaskDatasetItemLink.task_id == Task.id)

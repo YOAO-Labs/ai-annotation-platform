@@ -1,6 +1,6 @@
-"""v0.8.3 · 测试与 E2E 共用的对象工厂。
+"""测试与 E2E 共用的对象工厂。
 
-提取自 conftest.py 的 _make_user / _create_user，扩展项目 / 任务 / 批次工厂供
+提取用户 / 项目 / 任务 / 批次的最小构造逻辑，供 pytest 与
 e2e/fixtures/seed.ts 通过 _test_seed router 调用。
 
 约束：
@@ -8,6 +8,8 @@ e2e/fixtures/seed.ts 通过 _test_seed router 调用。
     （_test_seed router 自身有环境与数据库纵深守卫）
   - 数据可重入（display_id 加随机后缀，避免重复 truncate 造数）
   - 不写 audit_log（避免污染 audit 测试）
+  - 用户工厂只创建平台身份；项目成员与职责由测试/调用方显式创建，
+    工厂不从平台角色推断 membership
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 from functools import cache
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +32,34 @@ def _default_password_hash() -> str:
     from app.core.security import hash_password
 
     return hash_password(DEFAULT_PASSWORD)
+
+
+def build_tool_bindings(
+    classes: list[str | dict[str, Any]],
+    *,
+    unit: str = "bbox",
+    attribute_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """按现行数据模型直接构造 tool_bindings（唯一存储真值）。
+
+    产出一个启用的工具单位：类别条目直接携带 name（必填）与 color / alias /
+    order（可选，缺省按入参顺序编号），attribute_schema 缺省为空字段集。
+    结构与 API 写入路径产出的绑定同形，不经过任何旧扁平字段兼容翻译。
+    unit 缺省 bbox（image-det / video-track 常规标注）；分割/掩码语义显式传
+    unit="region"。
+    """
+    entries: list[dict[str, Any]] = []
+    for i, c in enumerate(classes):
+        entry: dict[str, Any] = dict(c) if isinstance(c, dict) else {"name": c}
+        entry.setdefault("order", i)
+        entries.append(entry)
+    return {
+        unit: {
+            "enabled": True,
+            "classes": entries,
+            "attribute_schema": attribute_schema or {"fields": []},
+        }
+    }
 
 
 def make_user_dict(
@@ -76,21 +107,16 @@ async def create_project(
     classes: list[str] | None = None,
 ):
     from app.db.models.project import Project
-    from app.services.project import coalesce_legacy_into_tool_bindings
 
     suffix = secrets.token_hex(3)
-    # v0.10.22 起 Project 无 classes 列, tool_bindings 是单源真值. 直接传 classes= 仅在
-    # conftest 装了测试专用 shim 时才合法; 而 _test_seed.seed_reset 在**真实 app**(无 shim)
-    # 里调本工厂, 故这里自己把 classes 翻译成 tool_bindings, 两侧都能用 (修 E2E seed/reset 500).
-    kw: dict = {"classes": list(classes or ["car", "person"])}
-    coalesce_legacy_into_tool_bindings(kw, None, type_key)
+    # tool_bindings 是唯一存储真值；classes 经工厂直接构造成现行绑定结构。
     project = Project(
         display_id=f"P-E2E-{suffix}",
         name=name,
         type_label=type_label,
         type_key=type_key,
         owner_id=owner_id,
-        tool_bindings=kw["tool_bindings"],
+        tool_bindings=build_tool_bindings(list(classes or ["car", "person"])),
         ai_enabled=False,
     )
     db.add(project)
@@ -141,3 +167,36 @@ async def create_batch(
     db.add(batch)
     await db.flush()
     return batch
+
+
+async def create_membership(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    role: str,
+    assigned_by: uuid.UUID | None = None,
+    version: int | None = None,
+    weekly_target: int | None = None,
+):
+    """Create one explicit project membership with a project role.
+
+    Platform identity stays on the user; a membership is never inferred from
+    the account role.  Callers that need a specific ``version`` (role-change
+    CAS tests), ``weekly_target`` or an explicit ``assigned_by`` auditor pass
+    them explicitly; the common case only names project, user and role.
+    """
+
+    from app.db.models.project_member import ProjectMember
+
+    kwargs: dict = {"project_id": project_id, "user_id": user_id, "role": role}
+    if assigned_by is not None:
+        kwargs["assigned_by"] = assigned_by
+    if version is not None:
+        kwargs["version"] = version
+    if weekly_target is not None:
+        kwargs["weekly_target"] = weekly_target
+    member = ProjectMember(**kwargs)
+    db.add(member)
+    await db.flush()
+    return member

@@ -11,7 +11,7 @@ const fakeUser: MeResponse = {
   id: "1",
   email: "u@x.com",
   name: "U",
-  role: "annotator",
+  role: "employee",
   status: "online",
 } as unknown as MeResponse;
 

@@ -1945,8 +1945,11 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
           fitViewport();
           return;
         }
-        if (e.key === "0" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // v0.24 · 0 让位给第十个类别键；实际尺寸改为 Shift+物理 Digit0
+        // （Shift+0 的产出字符随布局变化，故按 e.code 判定，与 Backquote 反向键同一先例）。
+        if (e.code === "Digit0" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault();
+          e.stopImmediatePropagation();
           setActualSize();
           return;
         }
@@ -2919,7 +2922,9 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
           highlightAction={highlightAction}
           onSeek={(frame) => {
             showPlaybackOverlay();
-            pausePlayback();
+            // snapToGrid: false —— 点击本身携带明确目标帧，默认 snap 会先发起一次
+            // 网格 seek 再被目标 seek 取消，高负载下徒增一次竞态窗口（Issue #114）。
+            pausePlayback({ snapToGrid: false });
             seekToFrame(frame, { recordHistory: true });
           }}
           onSeekByFrames={seekOverlayByFrames}

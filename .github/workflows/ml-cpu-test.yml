@@ -1,0 +1,215 @@
+# Reusable CPU test workflow for the three shared packages and five ML backends.
+#
+# Caller contract:
+#   uses: ./.github/workflows/ml-cpu-test.yml
+#   with:
+#     suites: all                     # default; or a comma/space separated subset of:
+#                                     #   shared-backend-runtime, shared-mask-utils, shared-protocol-v2,
+#                                     #   yolo, rapidocr, onnxtools, grounded-sam2, sam3
+#   (a call with no `suites` input runs every suite)
+#
+# Manual full entry: Actions -> "ML CPU tests" -> Run workflow.
+#
+# Scope: the 88 Python test files that are otherwise not wired (89 not-wired
+# minus the Node image-reference test owned by the P8 caller work). No GPU, no
+# model weights, no network beyond dependency installation. `grounded-sam2` and
+# `sam3` install CPU torch; `yolo` deliberately avoids ultralytics/torch;
+# `rapidocr` needs neither rapidocr/onnxruntime/cv2; `onnxtools` adds cv2 and
+# reports 3 upstream-gated skips. Each suite runs in its own throwaway venv so
+# committed `sys.modules` torch stubs cannot leak across suites.
+
+name: ML CPU tests
+
+on:
+  workflow_call:
+    inputs:
+      suites:
+        description: >-
+          Comma/space separated subset of shared-backend-runtime, shared-mask-utils,
+          shared-protocol-v2, yolo, rapidocr, onnxtools, grounded-sam2, sam3; or "all".
+        required: false
+        default: all
+        type: string
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: >-
+          Comma/space separated subset of shared-backend-runtime, shared-mask-utils,
+          shared-protocol-v2, yolo, rapidocr, onnxtools, grounded-sam2, sam3; or "all".
+        required: false
+        default: all
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: ML CPU select suites
+    runs-on: ubuntu-latest
+    outputs:
+      shared_backend_runtime: ${{ steps.plan.outputs.shared_backend_runtime }}
+      shared_mask_utils: ${{ steps.plan.outputs.shared_mask_utils }}
+      shared_protocol_v2: ${{ steps.plan.outputs.shared_protocol_v2 }}
+      yolo: ${{ steps.plan.outputs.yolo }}
+      rapidocr: ${{ steps.plan.outputs.rapidocr }}
+      onnxtools: ${{ steps.plan.outputs.onnxtools }}
+      grounded_sam2: ${{ steps.plan.outputs.grounded_sam2 }}
+      sam3: ${{ steps.plan.outputs.sam3 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve requested suites
+        id: plan
+        env:
+          SUITES: ${{ inputs.suites }}
+        run: bash scripts/run-ml-cpu-tests.sh plan "$SUITES" >> "$GITHUB_OUTPUT"
+
+  shared-backend-runtime:
+    name: ML CPU shared backend runtime
+    needs: plan
+    if: needs.plan.outputs.shared_backend_runtime == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install uv
+        run: pip install uv
+      - name: Run shared backend runtime tests
+        run: bash scripts/run-ml-cpu-tests.sh run shared-backend-runtime
+
+  shared-mask-utils:
+    name: ML CPU shared mask utils
+    needs: plan
+    if: needs.plan.outputs.shared_mask_utils == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install uv
+        run: pip install uv
+      - name: Run shared mask utils tests
+        run: bash scripts/run-ml-cpu-tests.sh run shared-mask-utils
+
+  shared-protocol-v2:
+    name: ML CPU shared protocol v2
+    needs: plan
+    if: needs.plan.outputs.shared_protocol_v2 == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install uv
+        run: pip install uv
+      - name: Run shared protocol v2 tests
+        run: bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2
+
+  yolo:
+    name: ML CPU yolo backend
+    needs: plan
+    if: needs.plan.outputs.yolo == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install uv
+        run: pip install uv
+      - name: Run yolo backend tests
+        run: bash scripts/run-ml-cpu-tests.sh run yolo
+
+  rapidocr:
+    name: ML CPU rapidocr backend
+    needs: plan
+    if: needs.plan.outputs.rapidocr == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install uv
+        run: pip install uv
+      - name: Run rapidocr backend tests
+        run: bash scripts/run-ml-cpu-tests.sh run rapidocr
+
+  onnxtools:
+    name: ML CPU onnxtools backend
+    needs: plan
+    if: needs.plan.outputs.onnxtools == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install uv
+        run: pip install uv
+      - name: Run onnxtools backend tests
+        run: bash scripts/run-ml-cpu-tests.sh run onnxtools
+
+  grounded-sam2:
+    name: ML CPU grounded sam2 backend
+    needs: plan
+    if: needs.plan.outputs.grounded_sam2 == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install uv
+        run: pip install uv
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ml-cpu-uv-${{ runner.os }}-grounded-sam2-${{ hashFiles('apps/grounded-sam2-backend/uv.lock') }}
+          restore-keys: |
+            ml-cpu-uv-${{ runner.os }}-grounded-sam2-
+      - name: Run grounded-sam2 backend tests
+        run: bash scripts/run-ml-cpu-tests.sh run grounded-sam2
+
+  sam3:
+    name: ML CPU sam3 backend
+    needs: plan
+    if: needs.plan.outputs.sam3 == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ml-cpu-uv-${{ runner.os }}-sam3-${{ hashFiles('apps/sam3-backend/uv.lock') }}
+          restore-keys: |
+            ml-cpu-uv-${{ runner.os }}-sam3-
+      - name: Run sam3 backend tests
+        run: bash scripts/run-ml-cpu-tests.sh run sam3

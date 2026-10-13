@@ -1,6 +1,6 @@
 import uuid
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text, update
 
 from app.db.models.dataset import (
     Dataset,
@@ -11,6 +11,7 @@ from app.db.models.dataset import (
     VideoSegment,
 )
 from app.db.models.annotation import Annotation
+from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -18,6 +19,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.cli.video.rebuild_timetable import rebuild_item_timetable
 from app.services.system_settings_service import SystemSettingsService
+from tests.factory import build_tool_bindings
 from app.services.video_frame_service import (
     build_context_from_dataset_item,
     list_chunks,
@@ -32,7 +34,7 @@ async def _make_video_task(db_session, owner_id):
         type_label="视频 · 时序追踪",
         data_type="video",
         owner_id=owner_id,
-        classes=["car"],
+        tool_bindings=build_tool_bindings(["car"]),
     )
     dataset = Dataset(
         display_id=f"D-VFS-{uuid.uuid4().hex[:6]}",
@@ -76,7 +78,7 @@ async def _make_video_task(db_session, owner_id):
 
 
 async def test_video_manifest_v2_exposes_service_urls(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -90,11 +92,11 @@ async def test_video_manifest_v2_exposes_service_urls(
         lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
     )
 
-    task_resp = await httpx_client_bound.get(
+    task_resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/manifest-v2",
         headers={"Authorization": f"Bearer {token}"},
     )
-    video_resp = await httpx_client_bound.get(
+    video_resp = await httpx_client.get(
         f"/api/v1/videos/{item.id}/manifest",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -119,7 +121,7 @@ async def test_video_manifest_v2_exposes_service_urls(
 
 
 async def test_video_segments_facade_lists_lazy_segments(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -128,7 +130,7 @@ async def test_video_segments_facade_lists_lazy_segments(
         45,
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/videos/{item.id}/segments",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -145,7 +147,7 @@ async def test_video_segments_facade_lists_lazy_segments(
 
 
 async def test_video_segment_claim_heartbeat_release(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, _ = await _make_video_task(db_session, user.id)
@@ -154,21 +156,21 @@ async def test_video_segment_claim_heartbeat_release(
         300,
     )
 
-    segments_resp = await httpx_client_bound.get(
+    segments_resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/segments",
         headers={"Authorization": f"Bearer {token}"},
     )
     segment_id = segments_resp.json()["segments"][0]["id"]
 
-    claim_resp = await httpx_client_bound.post(
+    claim_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment_id}:claim",
         headers={"Authorization": f"Bearer {token}"},
     )
-    heartbeat_resp = await httpx_client_bound.post(
+    heartbeat_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment_id}:heartbeat",
         headers={"Authorization": f"Bearer {token}"},
     )
-    release_resp = await httpx_client_bound.post(
+    release_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment_id}:release",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -185,10 +187,12 @@ async def test_video_segment_claim_heartbeat_release(
 
 
 async def test_submitted_video_segment_stays_completed_after_refresh_and_release(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, _ = await _make_video_task(db_session, user.id)
+    task.reviewer_id = user.id
+    task.reviewer_is_override = True
     project = await db_session.get(Project, task.project_id)
     project.video_collaboration = {"enabled": True, "overlap_frames": 2}
     monkeypatch.setattr(
@@ -197,22 +201,22 @@ async def test_submitted_video_segment_stays_completed_after_refresh_and_release
     )
     headers = {"Authorization": f"Bearer {token}"}
 
-    listed = await httpx_client_bound.get(
+    listed = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/segments", headers=headers
     )
     segment_id = listed.json()["segments"][0]["id"]
-    await httpx_client_bound.post(
+    await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment_id}:claim",
         headers=headers,
     )
-    submitted = await httpx_client_bound.post(
+    submitted = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment_id}:submit",
         headers=headers,
     )
-    refreshed = await httpx_client_bound.get(
+    refreshed = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/segments", headers=headers
     )
-    released = await httpx_client_bound.post(
+    released = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment_id}:release",
         headers=headers,
     )
@@ -221,9 +225,107 @@ async def test_submitted_video_segment_stays_completed_after_refresh_and_release
     assert refreshed.json()["segments"][0]["status"] == "completed"
     assert released.json()["status"] == "completed"
 
+    # Completing the remaining segments starts a fresh review round; a prior
+    # round's selected reviewer must not pin subsequent batch assignments.
+    for segment in listed.json()["segments"][1:]:
+        submitted = await httpx_client.post(
+            f"/api/v1/tasks/{task.id}/video/segments/{segment['id']}:submit",
+            headers=headers,
+        )
+        assert submitted.status_code == 200, submitted.text
+    await db_session.refresh(task)
+    assert task.status == "review"
+    assert task.reviewer_id is None
+    assert task.reviewer_is_override is False
+
+
+async def test_video_submit_does_not_credit_shared_item_segment_assignees(
+    db_session, httpx_client, super_admin, annotator, monkeypatch
+):
+    owner, token = super_admin
+    foreign_user, _ = annotator
+    task, item = await _make_video_task(db_session, owner.id)
+    project = await db_session.get(Project, task.project_id)
+    project.video_collaboration = {"enabled": True, "overlap_frames": 2}
+    monkeypatch.setattr(
+        "app.services.video_segment_service.settings.video_segment_size_frames", 45
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    listed = await httpx_client.get(
+        f"/api/v1/tasks/{task.id}/video/segments", headers=headers
+    )
+    segment_ids = [uuid.UUID(row["id"]) for row in listed.json()["segments"]]
+    assert len(segment_ids) == 2
+    first = await db_session.get(VideoSegment, segment_ids[0])
+    # Segment identity is global to the dataset item; this assignee does not
+    # establish any contribution to this project's task.
+    first.status = "completed"
+    first.assignee_id = foreign_user.id
+    await db_session.flush()
+    claimed = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/video/segments/{segment_ids[1]}:claim",
+        headers=headers,
+    )
+    assert claimed.status_code == 200, claimed.text
+    submitted = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/video/segments/{segment_ids[1]}:submit",
+        headers=headers,
+    )
+    assert submitted.status_code == 200, submitted.text
+    audit = await db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.target_id == str(task.id), AuditLog.action == "task.submit"
+        )
+    )
+    assert audit is not None
+    assert audit.detail_json["project_id"] == str(project.id)
+    assert str(owner.id) in audit.detail_json["contributor_ids"]
+    assert str(foreign_user.id) not in audit.detail_json["contributor_ids"]
+
+    # A2 · the last segment submitter is recorded as a contributor and frozen
+    # with the round; the shared dataset-item segment assignee is not credited.
+    await db_session.refresh(task)
+    assert task.status == "review"
+    assert task.review_submitter_id == owner.id
+    assert str(owner.id) in (task.review_contributor_ids or [])
+    assert str(foreign_user.id) not in (task.review_contributor_ids or [])
+    assert str(owner.id) in (task.annotation_contributor_ids or [])
+
+
+async def test_segment_evidence_retains_each_actual_submitter(
+    db_session, super_admin, monkeypatch
+):
+    from app.services.video_frame_service import build_context_from_task
+    from app.services.video_segment_service import ensure_segments, submit_segment
+    from tests.factory import create_user
+
+    owner, _ = super_admin
+    other = await create_user(
+        db_session, "super_admin", "segment-submitter@test.local", "Other submitter"
+    )
+    task, _ = await _make_video_task(db_session, owner.id)
+    project = await db_session.get(Project, task.project_id)
+    project.video_collaboration = {"enabled": True, "overlap_frames": 2}
+    monkeypatch.setattr(
+        "app.services.video_segment_service.settings.video_segment_size_frames", 45
+    )
+    ctx = await build_context_from_task(db_session, task)
+    segments = await ensure_segments(db_session, ctx)
+    assert len(segments) == 2
+
+    await submit_segment(db_session, ctx, segments[0].id, owner, privileged=True)
+    assert task.status != "review"
+    assert task.annotation_contributor_ids == [str(owner.id)]
+    await submit_segment(db_session, ctx, segments[1].id, other, privileged=True)
+    await db_session.refresh(task)
+    assert task.status == "review"
+    assert task.review_round_id is not None
+    assert task.review_submitter_id == other.id
+    assert task.review_contributor_ids == sorted([str(owner.id), str(other.id)])
+
 
 async def test_video_collaboration_derives_overlap_work_ranges(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, _ = await _make_video_task(db_session, user.id)
@@ -234,7 +336,7 @@ async def test_video_collaboration_derives_overlap_work_ranges(
     )
     await db_session.flush()
 
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/segments",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -249,7 +351,7 @@ async def test_video_collaboration_derives_overlap_work_ranges(
 
 
 async def test_video_collaboration_scopes_annotation_write_and_read_to_segment(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, _ = await _make_video_task(db_session, user.id)
@@ -262,18 +364,18 @@ async def test_video_collaboration_scopes_annotation_write_and_read_to_segment(
     headers = {"Authorization": f"Bearer {token}"}
 
     segments = (
-        await httpx_client_bound.get(
+        await httpx_client.get(
             f"/api/v1/tasks/{task.id}/video/segments", headers=headers
         )
     ).json()["segments"]
     segment = segments[0]
-    claim = await httpx_client_bound.post(
+    claim = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment['id']}:claim",
         headers=headers,
     )
     assert claim.status_code == 200
 
-    create = await httpx_client_bound.post(
+    create = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",
         headers=headers,
         json={
@@ -294,14 +396,14 @@ async def test_video_collaboration_scopes_annotation_write_and_read_to_segment(
     assert create.status_code == 201
     assert create.json()["video_segment_id"] == segment["id"]
 
-    missing_scope = await httpx_client_bound.get(
+    missing_scope = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/annotations", headers=headers
     )
-    scoped = await httpx_client_bound.get(
+    scoped = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/annotations?video_segment_id={segment['id']}",
         headers=headers,
     )
-    outside = await httpx_client_bound.post(
+    outside = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",
         headers=headers,
         json={
@@ -328,12 +430,12 @@ async def test_video_collaboration_scopes_annotation_write_and_read_to_segment(
 
 
 async def test_video_collaboration_public_enablement_is_available_for_empty_video_project(
-    db_session, httpx_client_bound, super_admin
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, _ = await _make_video_task(db_session, user.id)
 
-    response = await httpx_client_bound.patch(
+    response = await httpx_client.patch(
         f"/api/v1/projects/{task.project_id}",
         headers={"Authorization": f"Bearer {token}"},
         json={"video_collaboration": {"enabled": True, "overlap_frames": 10}},
@@ -347,7 +449,7 @@ async def test_video_collaboration_public_enablement_is_available_for_empty_vide
 
 
 async def test_video_collaboration_revalidates_tool_binding_updates(
-    db_session, httpx_client_bound, super_admin
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, _ = await _make_video_task(db_session, user.id)
@@ -355,7 +457,7 @@ async def test_video_collaboration_revalidates_tool_binding_updates(
     project.video_collaboration = {"enabled": True, "overlap_frames": 10}
     await db_session.flush()
 
-    response = await httpx_client_bound.patch(
+    response = await httpx_client.patch(
         f"/api/v1/projects/{task.project_id}",
         headers={"Authorization": f"Bearer {token}"},
         json={
@@ -377,7 +479,7 @@ async def test_video_collaboration_revalidates_tool_binding_updates(
 
 
 async def test_video_segment_non_assignee_cannot_claim_assigned_segment(
-    db_session, httpx_client_bound, annotator, reviewer
+    db_session, httpx_client, annotator, reviewer
 ):
     assigned_user, _ = annotator
     review_user, review_token = reviewer
@@ -421,7 +523,7 @@ async def test_video_segment_non_assignee_cannot_claim_assigned_segment(
     db_session.add(segment)
     await db_session.flush()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment.id}:claim",
         headers={"Authorization": f"Bearer {review_token}"},
     )
@@ -430,7 +532,7 @@ async def test_video_segment_non_assignee_cannot_claim_assigned_segment(
 
 
 async def test_video_chunks_create_pending_rows_and_enqueue(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -445,7 +547,7 @@ async def test_video_chunks_create_pending_rows_and_enqueue(
         lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/chunks?from_frame=0&to_frame=65",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -494,7 +596,7 @@ async def test_video_warmup_zero_skips_neighbor_enqueue(
 
 @pytest.mark.parametrize("path", ["chunks?from_frame=0&to_frame=0", "chunks/0"])
 async def test_warmup_setting_failure_does_not_expire_the_primary_response(
-    db_session, httpx_client_bound, super_admin, monkeypatch, path
+    db_session, httpx_client, super_admin, monkeypatch, path
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -525,7 +627,7 @@ async def test_warmup_setting_failure_does_not_expire_the_primary_response(
         "app.workers.media.ensure_video_chunks.delay",
         lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
     )
-    response = await httpx_client_bound.get(
+    response = await httpx_client.get(
         f"/api/v1/tasks/{task_id}/video/{path}",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -538,7 +640,7 @@ async def test_warmup_setting_failure_does_not_expire_the_primary_response(
 
 
 async def test_video_chunk_api_exposes_generation_diagnostics(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -572,7 +674,7 @@ async def test_video_chunk_api_exposes_generation_diagnostics(
         lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/chunks/0",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -587,7 +689,7 @@ async def test_video_chunk_api_exposes_generation_diagnostics(
 
 
 async def test_video_chunk_samples_returns_description_and_stored_order(
-    db_session, httpx_client_bound, super_admin
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -645,7 +747,7 @@ async def test_video_chunk_samples_returns_description_and_stored_order(
     )
     await db_session.flush()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/videos/{item.id}/chunks/0/samples",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -664,7 +766,7 @@ async def test_video_chunk_samples_returns_description_and_stored_order(
 
 
 async def test_video_chunk_samples_404_when_no_samples(
-    db_session, httpx_client_bound, super_admin
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -685,7 +787,7 @@ async def test_video_chunk_samples_404_when_no_samples(
     )
     await db_session.flush()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/videos/{item.id}/chunks/0/samples",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -694,13 +796,13 @@ async def test_video_chunk_samples_404_when_no_samples(
 
 
 async def test_video_chunk_samples_404_when_item_invisible(
-    db_session, httpx_client_bound, project_admin, annotator
+    db_session, httpx_client, project_admin, annotator
 ):
     owner, _ = project_admin
     _other_user, token = annotator
     _task, item = await _make_video_task(db_session, owner.id)
     # 资源真实存在，但当前用户既不是所有者，也不是项目成员。
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/videos/{item.id}/chunks/0/samples",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -708,7 +810,7 @@ async def test_video_chunk_samples_404_when_item_invisible(
 
 
 async def test_video_frame_ready_returns_cached_url_without_enqueue(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -735,7 +837,7 @@ async def test_video_frame_ready_returns_cached_url_without_enqueue(
         lambda *args: queued.append(args),
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frames/12?format=webp&w=512",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -749,7 +851,7 @@ async def test_video_frame_ready_returns_cached_url_without_enqueue(
 
 
 async def test_video_frame_pending_does_not_enqueue_duplicate_worker(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -770,7 +872,7 @@ async def test_video_frame_pending_does_not_enqueue_duplicate_worker(
         lambda *args: queued.append(args),
     )
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frames/12?format=webp&w=512",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -782,7 +884,7 @@ async def test_video_frame_pending_does_not_enqueue_duplicate_worker(
 
 
 async def test_video_frame_prefetch_creates_missing_rows(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -793,7 +895,7 @@ async def test_video_frame_prefetch_creates_missing_rows(
         lambda item_id, requests: queued.append((item_id, requests)),
     )
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/videos/{item.id}/frames:prefetch",
         headers={"Authorization": f"Bearer {token}"},
         json={"frame_indices": [3, 3, 4], "width": 320, "format": "jpeg"},
@@ -815,7 +917,7 @@ async def test_video_frame_prefetch_creates_missing_rows(
 
 
 async def test_video_frame_retry_resets_failed_rows_only(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -847,7 +949,7 @@ async def test_video_frame_retry_resets_failed_rows_only(
         lambda item_id, requests: queued.append((item_id, requests)),
     )
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/frames:retry",
         headers={"Authorization": f"Bearer {token}"},
         json={"frame_indices": [7, 8], "width": 512, "format": "webp"},
@@ -866,7 +968,7 @@ async def test_video_frame_retry_resets_failed_rows_only(
 
 
 async def test_video_asset_failures_list_metadata_chunk_and_frame_errors(
-    db_session, httpx_client_bound, super_admin
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -899,7 +1001,7 @@ async def test_video_asset_failures_list_metadata_chunk_and_frame_errors(
     )
     await db_session.flush()
 
-    resp = await httpx_client_bound.get(
+    resp = await httpx_client.get(
         "/api/v1/storage/video-assets/failures",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -916,7 +1018,7 @@ async def test_video_asset_failures_list_metadata_chunk_and_frame_errors(
 
 
 async def test_video_asset_retry_queues_existing_media_tasks(
-    db_session, httpx_client_bound, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
     _, item = await _make_video_task(db_session, user.id)
@@ -955,12 +1057,12 @@ async def test_video_asset_retry_queues_existing_media_tasks(
         lambda item_id, requests: queued_frames.append((item_id, requests)),
     )
 
-    metadata_resp = await httpx_client_bound.post(
+    metadata_resp = await httpx_client.post(
         "/api/v1/storage/video-assets/retry",
         headers={"Authorization": f"Bearer {token}"},
         json={"asset_type": "poster", "dataset_item_id": str(item.id)},
     )
-    chunk_resp = await httpx_client_bound.post(
+    chunk_resp = await httpx_client.post(
         "/api/v1/storage/video-assets/retry",
         headers={"Authorization": f"Bearer {token}"},
         json={
@@ -969,7 +1071,7 @@ async def test_video_asset_retry_queues_existing_media_tasks(
             "chunk_id": 1,
         },
     )
-    frame_resp = await httpx_client_bound.post(
+    frame_resp = await httpx_client.post(
         "/api/v1/storage/video-assets/retry",
         headers={"Authorization": f"Bearer {token}"},
         json={
@@ -998,6 +1100,127 @@ async def test_video_asset_retry_queues_existing_media_tasks(
     assert chunk.error is None
     assert frame.status == "pending"
     assert frame.error is None
+
+
+async def test_video_asset_retry_accepts_any_managed_linked_project(
+    db_session, httpx_client, super_admin, project_admin, monkeypatch
+):
+    """一个 dataset item 可被多个项目的 task 关联：只要其中任一链接项目是该
+    管理员合法管理的，重试就应放行（与失败列表 any-owned-project 作用域一致），
+    而不是依赖 LIMIT 1 任选一条链接行。"""
+
+    owner, token = project_admin
+    owned_task, item = await _make_video_task(db_session, owner.id)
+
+    # Second project owned by someone else, linking the same dataset item.
+    from tests.factory import create_user
+
+    other_user = await create_user(
+        db_session, "project_admin", f"vfs-other-{uuid.uuid4().hex[:6]}@test.local", "O"
+    )
+    other_project = Project(
+        display_id=f"P-VFS-{uuid.uuid4().hex[:6]}",
+        name="Other Project",
+        type_key="video-track",
+        type_label="视频 · 时序追踪",
+        data_type="video",
+        owner_id=other_user.id,
+        tool_bindings=build_tool_bindings(["car"]),
+    )
+    db_session.add(other_project)
+    await db_session.flush()
+    other_task = Task(
+        project_id=other_project.id,
+        dataset_item_id=item.id,
+        display_id=f"T-VFS-{uuid.uuid4().hex[:6]}",
+        file_name="clip.mp4",
+        file_path="videos/clip.mp4",
+        file_type="video",
+        status="pending",
+    )
+    db_session.add(other_task)
+    await db_session.flush()
+
+    queued_metadata: list[str] = []
+    monkeypatch.setattr(
+        "app.workers.media.generate_video_metadata.delay",
+        lambda item_id: queued_metadata.append(item_id),
+    )
+
+    resp = await httpx_client.post(
+        "/api/v1/storage/video-assets/retry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"asset_type": "poster", "dataset_item_id": str(item.id)},
+    )
+    assert resp.status_code == 202, resp.text
+    assert queued_metadata == [str(item.id)]
+
+
+async def test_video_asset_retry_rejects_unmanaged_linked_projects_only(
+    db_session, httpx_client, super_admin, project_admin
+):
+    """所有链接项目都不归该管理员管理时保持 403。"""
+
+    owner, token = project_admin
+    _, item = await _make_video_task(db_session, owner.id)
+
+    from tests.factory import create_user
+
+    other_user = await create_user(
+        db_session,
+        "project_admin",
+        f"vfs-denied-{uuid.uuid4().hex[:6]}@test.local",
+        "D",
+    )
+    other_project = Project(
+        display_id=f"P-VFS-{uuid.uuid4().hex[:6]}",
+        name="Denied Project",
+        type_key="video-track",
+        type_label="视频 · 时序追踪",
+        data_type="video",
+        owner_id=other_user.id,
+        tool_bindings=build_tool_bindings(["car"]),
+    )
+    db_session.add(other_project)
+    await db_session.flush()
+    db_session.add(
+        Task(
+            project_id=other_project.id,
+            dataset_item_id=item.id,
+            display_id=f"T-VFS-{uuid.uuid4().hex[:6]}",
+            file_name="clip.mp4",
+            file_path="videos/clip.mp4",
+            file_type="video",
+            status="pending",
+        )
+    )
+    await db_session.flush()
+
+    # Re-point the first task at a fresh item so the shared item is only linked
+    # to the unmanaged project.
+    await db_session.execute(
+        update(Task)
+        .where(
+            Task.id
+            == (
+                await db_session.scalar(
+                    select(Task.id).where(
+                        Task.project_id != other_project.id,
+                        Task.dataset_item_id == item.id,
+                    )
+                )
+            )
+        )
+        .values(dataset_item_id=None)
+    )
+    await db_session.flush()
+
+    resp = await httpx_client.post(
+        "/api/v1/storage/video-assets/retry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"asset_type": "poster", "dataset_item_id": str(item.id)},
+    )
+    assert resp.status_code == 403
 
 
 async def test_rebuild_timetable_cli_helper_replaces_rows(
@@ -1073,7 +1296,7 @@ async def test_rebuild_timetable_cli_helper_replaces_rows(
 
 
 async def test_video_tracker_job_create_get_cancel(
-    db_session, httpx_client_bound, project_admin, annotator, monkeypatch
+    db_session, httpx_client, project_admin, annotator, monkeypatch
 ):
     owner, _ = project_admin
     user, token = annotator
@@ -1130,17 +1353,17 @@ async def test_video_tracker_job_create_get_cancel(
         _fake_send_task,
     )
 
-    segments_resp = await httpx_client_bound.get(
+    segments_resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/segments",
         headers={"Authorization": f"Bearer {token}"},
     )
     segment_id = segments_resp.json()["segments"][0]["id"]
-    await httpx_client_bound.post(
+    await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/segments/{segment_id}:claim",
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    create_resp = await httpx_client_bound.post(
+    create_resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}:propagate",
         headers={"Authorization": f"Bearer {token}"},
         json={
@@ -1162,18 +1385,18 @@ async def test_video_tracker_job_create_get_cancel(
     assert body["celery_task_id"] == "tracker-celery-task"
     assert queued_jobs == [body["id"]]
 
-    get_resp = await httpx_client_bound.get(
+    get_resp = await httpx_client.get(
         f"/api/v1/video-tracker-jobs/{body['id']}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert get_resp.status_code == 200
     assert get_resp.json()["id"] == body["id"]
 
-    cancel_resp = await httpx_client_bound.delete(
+    cancel_resp = await httpx_client.delete(
         f"/api/v1/video-tracker-jobs/{body['id']}",
         headers={"Authorization": f"Bearer {token}"},
     )
-    repeat_cancel_resp = await httpx_client_bound.delete(
+    repeat_cancel_resp = await httpx_client.delete(
         f"/api/v1/video-tracker-jobs/{body['id']}",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -1189,7 +1412,7 @@ async def test_video_tracker_job_create_get_cancel(
 
 
 async def test_video_tracker_job_requires_current_segment_lock(
-    db_session, httpx_client_bound, project_admin, annotator, monkeypatch
+    db_session, httpx_client, project_admin, annotator, monkeypatch
 ):
     owner, _ = project_admin
     user, token = annotator
@@ -1231,13 +1454,13 @@ async def test_video_tracker_job_requires_current_segment_lock(
     db_session.add(annotation)
     await db_session.flush()
 
-    segments_resp = await httpx_client_bound.get(
+    segments_resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/segments",
         headers={"Authorization": f"Bearer {token}"},
     )
     segment_id = segments_resp.json()["segments"][0]["id"]
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}:propagate",
         headers={"Authorization": f"Bearer {token}"},
         json={
@@ -1254,7 +1477,7 @@ async def test_video_tracker_job_requires_current_segment_lock(
 
 
 async def test_video_tracker_job_rejects_polyline_track(
-    db_session, httpx_client_bound, project_admin, annotator
+    db_session, httpx_client, project_admin, annotator
 ):
     # polyline 轨迹传播暂不支持: runner 会把它静默改写成空 bbox 轨迹, 故入口必须 400 拒绝
     # (且早于段锁校验, 无需 claim segment 即返回 400)。
@@ -1305,7 +1528,7 @@ async def test_video_tracker_job_rejects_polyline_track(
     db_session.add(annotation)
     await db_session.flush()
 
-    resp = await httpx_client_bound.post(
+    resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/tracks/{annotation.id}:propagate",
         headers={"Authorization": f"Bearer {token}"},
         json={

@@ -1,4 +1,4 @@
-"""Prometheus 指标定义 (v0.10.0 / M0).
+"""Prometheus 指标定义.
 
 镜像 grounded-sam2-backend/observability.py. 指标名与 grounded-sam2 逐字同名 (无
 `sam3_` 前缀), 靠 Prometheus `service` label 区分两个 backend 实例, 不靠名字前缀.

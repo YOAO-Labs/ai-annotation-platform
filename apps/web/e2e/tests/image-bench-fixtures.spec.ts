@@ -5,7 +5,7 @@
  *   IMAGE_BENCH_SIZE        - 2k | 8k | polygon-dense（默认 2k）
  *   IMAGE_BENCH_DENSITY     - 10 | 100 | 500（默认 10）
  *
- * 当前实现走 seed.reset() 默认 fixture（未带 size/density 参数）；后端 _test_seed
+ * 当前实现走 owned 私有 fixture（未带 size/density 参数）；后端 _test_seed
  * 端点扩入参后此处改 reset({ imageSize, density })。无论参数是否生效，spec 都会：
  *   1) 进入工作台 → 等 mount
  *   2) 模拟 pan / zoom / select 各一回合
@@ -19,7 +19,7 @@ const SIZE = env.IMAGE_BENCH_SIZE ?? "2k";
 const DENSITY = parseInt(env.IMAGE_BENCH_DENSITY ?? "10", 10);
 
 test(`image-bench · size=${SIZE} density=${DENSITY}`, async ({ page, seed }) => {
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.advanceTask({
     taskId: data.task_ids[0],
     toStatus: "pending",

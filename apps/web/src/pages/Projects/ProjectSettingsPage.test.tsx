@@ -1,21 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { fireEvent, screen } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
+import type { ReactNode } from "react";
+import { Route, Routes, useLocation } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockUseProject = vi.fn();
+import type { ProjectResponse } from "@/api/projects";
+import { server } from "@/mocks/server";
+import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
+import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
+import { renderWithProviders } from "@/test/renderWithProviders";
 
-vi.mock("@/hooks/useProjects", () => ({
-  useProject: (id: string) => mockUseProject(id),
-}));
-
-vi.mock("@/hooks/useIsProjectOwner", () => ({
-  useIsProjectOwner: () => true,
-}));
-
-vi.mock("@/hooks/usePermissions", () => ({
-  usePermissions: () => ({ role: "project_admin" }),
-}));
-
+// Heavy section bodies are stand-ins on purpose: this suite protects the
+// settings page's routing, deep-link and project-role assembly contract, not
+// each section's own business flow. Those sections keep their own suites.
 vi.mock("./sections/GeneralSection", () => ({
   GeneralSection: () => <div>general-section</div>,
 }));
@@ -55,6 +52,26 @@ vi.mock("./sections/ProjectReadinessSection", () => ({
 
 import { ProjectSettingsPage } from "./ProjectSettingsPage";
 
+const OWNER_ID = "owner-1";
+
+function projectResponse(overrides: Partial<ProjectResponse>): ProjectResponse {
+  return {
+    id: "p-image",
+    name: "Image Project",
+    display_id: "P-IMAGE",
+    owner_id: OWNER_ID,
+    type_label: "图像检测",
+    type_key: "image-det",
+    data_type: "image",
+    status: "in_progress",
+    ...overrides,
+  } as unknown as ProjectResponse;
+}
+
+function installProjectApi(project: ProjectResponse) {
+  server.use(http.get("*/api/v1/projects/:projectId", () => HttpResponse.json(project)));
+}
+
 function LocationProbe() {
   const location = useLocation();
   return (
@@ -65,62 +82,51 @@ function LocationProbe() {
   );
 }
 
-function renderSettingsPage(project: Record<string, unknown>) {
-  mockUseProject.mockReturnValue({
-    data: project,
-    isLoading: false,
-    error: null,
-  });
-  return render(
-    <MemoryRouter initialEntries={[`/projects/${project.id}/settings`]}>
-      <Routes>
-        <Route path="/projects/:id/settings" element={<ProjectSettingsPage />} />
-        <Route
-          path="/projects/:id/annotate"
-          element={
-            <>
-              <div>workbench-target</div>
-              <LocationProbe />
-            </>
-          }
-        />
-      </Routes>
-    </MemoryRouter>,
+function renderSettingsPage(path: string, probes?: ReactNode) {
+  return renderWithProviders(
+    <Routes>
+      <Route path="/projects/:id/settings" element={<ProjectSettingsPage />} />
+      <Route
+        path="/projects/:id/annotate"
+        element={
+          <>
+            <div>workbench-target</div>
+            <LocationProbe />
+          </>
+        }
+      />
+      <Route path="/unauthorized" element={<div>unauthorized</div>} />
+    </Routes>,
+    { initialEntries: [path], children: probes },
   );
 }
 
-function renderSettingsPageAt(project: Record<string, unknown>, path: string) {
-  mockUseProject.mockReturnValue({
-    data: project,
-    isLoading: false,
-    error: null,
-  });
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/projects/:id/settings" element={<ProjectSettingsPage />} />
-      </Routes>
-    </MemoryRouter>,
-  );
-}
+beforeEach(() => {
+  resetUnexpectedApiRequests();
+  seedAuthUser(createTestUser({ id: OWNER_ID, role: "project_admin" }));
+});
+
+afterEach(() => {
+  expectNoUnexpectedApiRequests();
+  resetAuthUser();
+});
 
 describe("ProjectSettingsPage", () => {
-  beforeEach(() => {
-    mockUseProject.mockReset();
-  });
+  it("shows the workbench entry for video projects", async () => {
+    installProjectApi(
+      projectResponse({
+        id: "p-video",
+        name: "Video Project",
+        display_id: "P-VIDEO",
+        type_label: "视频项目",
+        type_key: "video-track",
+        data_type: "video",
+      }),
+    );
 
-  it("shows the workbench entry for video projects", () => {
-    renderSettingsPage({
-      id: "p-video",
-      name: "Video Project",
-      display_id: "P-VIDEO",
-      type_label: "视频项目",
-      type_key: "video-track",
-      data_type: "video",
-      status: "in_progress",
-    });
+    renderSettingsPage("/projects/p-video/settings");
 
-    fireEvent.click(screen.getByRole("button", { name: /打开工作台/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /打开工作台/ }));
 
     expect(screen.getByText("workbench-target")).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(
@@ -128,18 +134,21 @@ describe("ProjectSettingsPage", () => {
     );
   });
 
-  it("shows the workbench entry for point cloud projects", () => {
-    renderSettingsPage({
-      id: "p-lidar",
-      name: "Point Cloud Project",
-      display_id: "P-LIDAR",
-      type_label: "3D 点云",
-      type_key: "lidar",
-      data_type: "lidar",
-      status: "in_progress",
-    });
+  it("shows the workbench entry for point cloud projects", async () => {
+    installProjectApi(
+      projectResponse({
+        id: "p-lidar",
+        name: "Point Cloud Project",
+        display_id: "P-LIDAR",
+        type_label: "3D 点云",
+        type_key: "lidar",
+        data_type: "lidar",
+      }),
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: /打开工作台/ }));
+    renderSettingsPage("/projects/p-lidar/settings");
+
+    fireEvent.click(await screen.findByRole("button", { name: /打开工作台/ }));
 
     expect(screen.getByText("workbench-target")).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(
@@ -147,35 +156,29 @@ describe("ProjectSettingsPage", () => {
     );
   });
 
-  it("uses one combined classes and attributes settings tab", () => {
-    renderSettingsPage({
-      id: "p-image",
-      name: "Image Project",
-      display_id: "P-IMAGE",
-      type_label: "图像检测",
-      type_key: "image-det",
-      data_type: "image",
-      status: "in_progress",
-    });
+  it("uses one combined classes and attributes settings tab", async () => {
+    installProjectApi(projectResponse({ id: "p-image", display_id: "P-IMAGE" }));
 
-    expect(screen.getByTestId("settings-tab-classes")).toHaveTextContent("类别与属性");
+    renderSettingsPage("/projects/p-image/settings");
+
+    expect(await screen.findByTestId("settings-tab-classes")).toHaveTextContent("类别与属性");
     expect(screen.queryByTestId("settings-tab-attributes")).toBeNull();
   });
 
-  it("maps old section=attributes links to the combined tab", () => {
-    renderSettingsPageAt(
-      {
-        id: "p-image",
-        name: "Image Project",
-        display_id: "P-IMAGE",
-        type_label: "图像检测",
-        type_key: "image-det",
-        data_type: "image",
-        status: "in_progress",
-      },
-      "/projects/p-image/settings?section=attributes",
-    );
+  it("maps old section=attributes links to the combined tab", async () => {
+    installProjectApi(projectResponse({ id: "p-image", display_id: "P-IMAGE" }));
 
-    expect(screen.getByText("classes-section")).toBeInTheDocument();
+    renderSettingsPage("/projects/p-image/settings?section=attributes");
+
+    expect(await screen.findByText("classes-section")).toBeInTheDocument();
+  });
+
+  it("keeps a non-owner employee out of project settings", async () => {
+    installProjectApi(projectResponse({ id: "p-image", display_id: "P-IMAGE" }));
+    seedAuthUser(createTestUser({ id: "employee-2", role: "employee" }));
+
+    renderSettingsPage("/projects/p-image/settings");
+
+    expect(await screen.findByText("unauthorized")).toBeInTheDocument();
   });
 });
