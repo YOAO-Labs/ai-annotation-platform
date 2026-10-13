@@ -41,6 +41,7 @@
 ### Fixed
 
 - 修复文档站快捷键自适应脚本因 `MutationObserver` 频繁写入 DOM 诱发的微任务无限递归死循环，解决 `/user-guide/getting-started` 页面加载时主线程被占满导致卡死无响应的问题。
+- 修复文档站首页第二屏（Product Proof）在 PC 桌面端示例尺寸偏小及预标与模型市场截图底部被意外裁剪的问题：校准真实 UI 截图 16:10 原生画幅与 `object-fit: contain`，调整栅格比例给予演示区域更充分的展示空间，消除下半部参数与配置项截断。
 
 ### Changed
 

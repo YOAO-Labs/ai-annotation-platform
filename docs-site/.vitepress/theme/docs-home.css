@@ -690,20 +690,27 @@
   transition: transform 0.2s linear;
   position: relative;
 }
-.docs-home .proof-screen img,
-.docs-home .proof-screen video {
+.docs-home .proof-screen img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  object-position: top center;
+  filter: saturate(0.85) contrast(1.02);
+  border: 0;
+  border-radius: 0;
+  display: block;
+  background: #17181d;
+}
+.docs-home .proof-screen > video {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
   object-position: top;
-  filter: saturate(0.82) contrast(1.02);
+  filter: saturate(0.92) contrast(1.03);
   border: 0;
   border-radius: 0;
   display: block;
-  background: #eef0f3;
-}
-.docs-home .proof-screen video {
-  filter: saturate(0.92) contrast(1.03);
+  background: #17181d;
 }
 .docs-home .proof-tool-carousel {
   position: relative;
@@ -1538,8 +1545,8 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: 0.85fr 1.15fr;
-    gap: clamp(24px, 3.5vw, 44px);
+    grid-template-columns: minmax(280px, 0.32fr) minmax(0, 1fr);
+    gap: clamp(24px, 3.5vw, 52px);
     align-items: center;
     margin-top: clamp(8px, 1.8vh, 18px);
   }
@@ -1559,12 +1566,17 @@
     line-height: 1.5;
   }
   .docs-home .proof-screen {
-    padding: 8px 8px 0;
+    padding: 10px 10px 0;
+    transform: rotateX(1deg) scale(0.99);
   }
-  .docs-home .proof-screen img,
-  .docs-home .proof-screen video,
   .docs-home .proof-tool-viewport {
-    max-height: clamp(240px, 32vh, 360px);
+    max-height: clamp(320px, 45vh, 520px);
+  }
+  .docs-home .proof-screen img {
+    max-height: clamp(340px, 52vh, 600px);
+  }
+  .docs-home .proof-screen > video {
+    max-height: clamp(320px, 48vh, 560px);
   }
   .docs-home .proof-tool-copy {
     padding: 8px 12px;
@@ -1591,11 +1603,11 @@
     font-size: 11px;
   }
   .docs-home .screen-stamp {
-    width: 88px;
-    height: 88px;
+    width: 92px;
+    height: 92px;
     font-size: 8px;
-    top: -24px;
-    right: -12px;
+    top: -34px;
+    right: -20px;
   }
 
   /* 第三屏：Documentation Paths（探索与学习路径） */
