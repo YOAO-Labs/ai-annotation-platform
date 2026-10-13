@@ -5,8 +5,14 @@
  * - macOS: 将 Ctrl 映射为 ⌘ (Command)，Alt 映射为 ⌥ (Option)；
  * - Windows/Linux: 保持 Ctrl 与 Alt。
  *
- * 同时支持在文档快捷键速查表上方提供即时平台切换，满足多平台切换工作的标注员与质检员。
+ * 安全约束：
+ * - 仅在客户端运行，避免 SSR 异常；
+ * - 绑定 VitePress router 路由切换，绝不在 document.body 上挂载无条件 MutationObserver，
+ *   杜绝死循环 microtask 导致的页面卡死；
+ * - 更新 DOM 前严格比对 textContent，避免无效重绘与事件风暴。
  */
+
+import type { Router } from "vitepress";
 
 export type PlatformKind = "mac" | "win";
 
@@ -37,7 +43,7 @@ export function setActivePlatform(plat: PlatformKind): void {
     // ignore
   }
   applyPlatformClass(plat);
-  updateHotkeyElements(plat);
+  updateHotkeyElements();
 }
 
 function applyPlatformClass(plat: PlatformKind): void {
@@ -47,36 +53,54 @@ function applyPlatformClass(plat: PlatformKind): void {
   root.classList.add(plat === "mac" ? "is-platform-mac" : "is-platform-win");
 }
 
-function updateHotkeyElements(plat: PlatformKind): void {
-  if (typeof document === "undefined") return;
+let isUpdating = false;
 
-  // 1. 更新所有显式声明了 data-platform-key 的按键
-  document.querySelectorAll<HTMLElement>("[data-key-mac][data-key-win]").forEach((el) => {
-    const text = plat === "mac" ? el.dataset.keyMac : el.dataset.keyWin;
-    if (text && el.textContent !== text) {
-      el.textContent = text;
-    }
-  });
+export function updateHotkeyElements(): void {
+  if (typeof document === "undefined" || isUpdating) return;
+  isUpdating = true;
 
-  // 2. 增强文档正文和表格中的快捷键代码与 kbd
-  document.querySelectorAll<HTMLElement>(".vp-doc table td code, .vp-doc kbd").forEach((el) => {
-    if (el.dataset.hotkeyParsed) {
-      // 重新渲染已标记的按键
-      const raw = el.dataset.rawKey;
-      if (raw) {
-        el.textContent = formatKeyText(raw, plat);
+  try {
+    const plat = getActivePlatform();
+    applyPlatformClass(plat);
+
+    // 1. 更新显式声明了 data-key-mac / data-key-win 的专用按键
+    document.querySelectorAll<HTMLElement>("[data-key-mac][data-key-win]").forEach((el) => {
+      const target = plat === "mac" ? el.dataset.keyMac : el.dataset.keyWin;
+      if (target && el.textContent !== target) {
+        el.textContent = target;
       }
-      return;
-    }
+    });
 
-    const text = el.textContent || "";
-    if (isHotkeyString(text)) {
-      el.dataset.hotkeyParsed = "1";
-      el.dataset.rawKey = text;
-      el.classList.add("doc-keycap");
-      el.textContent = formatKeyText(text, plat);
-    }
-  });
+    // 2. 增强正文表格和正文内的快捷键代码与 kbd
+    document.querySelectorAll<HTMLElement>(".vp-doc table td code, .vp-doc kbd").forEach((el) => {
+      const currentText = el.textContent || "";
+
+      if (el.dataset.hotkeyParsed) {
+        const raw = el.dataset.rawKey;
+        if (raw) {
+          const target = formatKeyText(raw, plat);
+          if (currentText !== target) {
+            el.textContent = target;
+          }
+        }
+        return;
+      }
+
+      if (isHotkeyString(currentText)) {
+        const target = formatKeyText(currentText, plat);
+        el.dataset.hotkeyParsed = "1";
+        el.dataset.rawKey = currentText;
+        if (!el.classList.contains("doc-keycap")) {
+          el.classList.add("doc-keycap");
+        }
+        if (currentText !== target) {
+          el.textContent = target;
+        }
+      }
+    });
+  } finally {
+    isUpdating = false;
+  }
 }
 
 function isHotkeyString(text: string): boolean {
@@ -98,23 +122,33 @@ function formatKeyText(raw: string, plat: PlatformKind): string {
   }
 }
 
-export function setupPlatformKeys(): void {
-  if (typeof window === "undefined") return;
+export function setupPlatformKeys(router?: Router): void {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
 
-  const current = getActivePlatform();
-  applyPlatformClass(current);
+  // HMR / 多次执行保护
+  const win = window as unknown as { __docsPlatformKeysInitialized?: boolean };
+  if (win.__docsPlatformKeysInitialized) return;
+  win.__docsPlatformKeysInitialized = true;
 
-  const observer = new MutationObserver(() => {
-    updateHotkeyElements(getActivePlatform());
-  });
+  const initialPlat = getActivePlatform();
+  applyPlatformClass(initialPlat);
 
-  if (document.body) {
-    observer.observe(document.body, { childList: true, subtree: true });
-    updateHotkeyElements(current);
+  const scheduleUpdate = () => {
+    setTimeout(updateHotkeyElements, 60);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleUpdate, { once: true });
   } else {
-    document.addEventListener("DOMContentLoaded", () => {
-      observer.observe(document.body, { childList: true, subtree: true });
-      updateHotkeyElements(current);
-    });
+    scheduleUpdate();
+  }
+
+  // 挂载路由切换钩子（VitePress 官方标准 SPA 导航生命周期）
+  if (router) {
+    const prevHook = router.onAfterRouteChanged;
+    router.onAfterRouteChanged = (to) => {
+      prevHook?.(to);
+      scheduleUpdate();
+    };
   }
 }

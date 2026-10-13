@@ -22,7 +22,7 @@ import type { Theme } from "vitepress";
 export default {
   extends: DefaultTheme,
   Layout: DocsLayout,
-  enhanceApp({ app }) {
+  enhanceApp({ app, router }) {
     app.component("AutoImage", AutoImage);
     app.component("ExcalidrawDiagram", ExcalidrawDiagram);
     app.component("DocsHome", DocsHome);
@@ -31,6 +31,6 @@ export default {
     app.component("DocsVideo", DocsVideo);
     setupMermaidZoom();
     setupImageZoom();
-    setupPlatformKeys();
+    setupPlatformKeys(router);
   },
 } satisfies Theme;
