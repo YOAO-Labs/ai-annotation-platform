@@ -254,7 +254,7 @@ export function ToolGestureHintPill({
       aria-label="当前工具操作提示"
       data-testid="tool-gesture-hint-pill"
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/60 py-0.5 pl-2 pr-2 text-2xs select-none transition-all duration-150",
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/60 py-0 pl-2 pr-2 text-2xs select-none transition-all duration-150",
         className,
       )}
     >
