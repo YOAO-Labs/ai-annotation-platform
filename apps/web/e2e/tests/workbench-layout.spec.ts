@@ -547,7 +547,8 @@ test("a root-edge queue dock keeps the reserved group collapsed and the saved tr
 
 test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" }, async ({ page, seed }) => {
   test.setTimeout(90_000);
-  const data = await seed.owned();
+  // Screenshot text must stay identical across checkout paths and runner OSes.
+  const data = await seed.owned("layoutvisual");
   await seed.injectToken(page, data.admin_email);
   // Theme screenshots exercise the layout without depending on the seed's external ML service.
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
