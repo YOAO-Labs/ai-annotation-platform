@@ -36,7 +36,7 @@ last_reviewed: 2026-10-12
 <span id="reviewpage-入口" aria-hidden="true"></span>
 <span id="workbench-全屏审核工作台" aria-hidden="true"></span>
 
-![ReviewPage：未选批次时的批次卡片网格；选中批次后为任务列表](../images/review/review-list-page.png)
+![ReviewPage：未选中批次时的左侧批次树与右侧批次卡片](../images/review/review-list-page.png)
 
 ![审核工作台全屏视图](../images/review/workbench.png)
 
