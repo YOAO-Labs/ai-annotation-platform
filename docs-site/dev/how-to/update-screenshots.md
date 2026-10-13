@@ -188,8 +188,8 @@ Playwright skipped 测试运行。当前排除：
 `workflows/failed-prediction-recovery-jobs-list`、`superadmin/model-market/list`、
 `superadmin/ml-backend/register-form`。
 
-默认全量截图仍会严格验证其声明的 backend / capability；完整运行 ML 静态场景时，必须使用符合
-要求的真实 backend。静态非 ML profile 不会改写这些场景的 backend 要求，也不会以协议 stub、
+默认全量截图仍会严格验证其声明的 backend / capability，原有 live / stub 使用规则不变。
+静态非 ML profile 不会改写被排除场景的 backend 要求，也不会以协议 stub、
 假推理结果或空态替代它们。
 
 ### 录制高清营销母版

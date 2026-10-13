@@ -23,7 +23,7 @@
  */
 import { test } from "../fixtures/seed";
 import type { ScreenshotSeedCatalog } from "../fixtures/seed";
-import { SCENES, selectScreenshotScenes } from "./scenes/index";
+import { selectScreenshotScenes } from "./scenes/index";
 import type { Role } from "./scenes/index";
 import { injectAnnotations } from "./_helpers/annotate";
 import { setupMockState } from "./_helpers/mock-state";

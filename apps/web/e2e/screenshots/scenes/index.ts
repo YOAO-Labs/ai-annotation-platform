@@ -46,7 +46,9 @@ export function isMLScreenshotScene(scene: ScreenshotScene): boolean {
 export function selectScreenshotScenes(profile: string | undefined) {
   if (profile === undefined) return { scenes: SCENES, excluded: [] as string[] };
   if (profile !== "non-ml") {
-    throw new Error(`Unsupported SCREENSHOT_STATIC_PROFILE "${profile}"; use "non-ml" or unset it.`);
+    throw new Error(
+      `Unsupported SCREENSHOT_STATIC_PROFILE "${profile}"; use "non-ml" or unset it.`,
+    );
   }
 
   const scenes = SCENES.filter((scene) => !isMLScreenshotScene(scene));

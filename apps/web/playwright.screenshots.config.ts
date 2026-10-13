@@ -166,7 +166,7 @@ const config = defineConfig({
   ],
 });
 
-// A service-free static run has its own catalog scope and may only schedule the matrix projects.
+// An ML-service-free static run has its own catalog scope and only schedules the matrix projects.
 const staticProfile = process.env.SCREENSHOT_STATIC_PROFILE;
 const backendScope = process.env.SCREENSHOT_BACKEND_REQUIREMENTS;
 if (staticProfile !== undefined) {
