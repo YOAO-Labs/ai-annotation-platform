@@ -75,6 +75,10 @@ Mac 需要 **macOS 14 或更新系统**、Xcode Command Line Tools（`xcrun swif
 新增场景须先在 `apps/web/e2e/screenshots/recording-plan.mjs` 声明依赖，不能把 mock 推理流程归类为真实 AI 证据。
 `--validate-only` 不产视频，但仍准备和修改隔离夹具。
 
+审核退回录制使用正式的两步原因／补充说明对话框与真实退回 API。截图 seed 会为完整受管标注记录作者、
+提交者和当前审核轮次的贡献者证据；清理退回结果时恢复该夹具的审核快照，不绕过「未知贡献者」或自审校验。
+旧 seed 缺少证据时先运行 `--repair`，不要把角色分派当作标注历史。
+
 ## 快速运行
 
 截图自动化使用专用 `annotation_screenshots_test` 数据库和 `3001/8010`

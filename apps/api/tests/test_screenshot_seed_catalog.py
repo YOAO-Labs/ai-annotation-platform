@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.db.models.annotation import Annotation
@@ -24,6 +25,7 @@ from app.services.screenshot_seed_spec import (
     SEED_REVISION,
 )
 from app.services.storage import storage_service
+from app.services.annotation_evidence import assert_review_evidence_current
 from app.services.data_management.views import TaskViewService
 from scripts.seed_screenshot_profile import (
     ANNOTATION_NAMESPACE,
@@ -698,6 +700,16 @@ async def test_desired_state_reconcile_is_idempotent_and_preserves_user_project(
     )
     db_session.add(user_project)
     await db_session.flush()
+    user_task = Task(
+        project_id=user_project.id,
+        display_id="T-USER-KEEP",
+        file_name="user-owned.png",
+        file_path="user-owned.png",
+        status="review",
+    )
+    db_session.add(user_task)
+    await db_session.flush()
+    user_task.annotation_contributor_ids = None
     task_ids = {
         logical_key: {key: task.id for key, task in project_tasks.items()}
         for logical_key, project_tasks in tasks.items()
@@ -738,6 +750,17 @@ async def test_desired_state_reconcile_is_idempotent_and_preserves_user_project(
         assert tasks["image_demo"]["clean"].display_id == "T-SS-COCO8-001"
         assert tasks["image_demo"]["predicted"].display_id == "T-SS-COCO8-002"
         assert tasks["video_demo"]["tracking"].display_id == "T-SS-VIDEO-DEV-001"
+        author = await db_session.scalar(select(User).where(User.email == "anno"))
+        review_task = tasks["image_demo"]["review"]
+        with pytest.raises(HTTPException) as self_review:
+            assert_review_evidence_current(review_task, author.id)
+        assert self_review.value.status_code == 403
+        assert self_review.value.detail == {"reason": "self_review_denied"}
+        await db_session.refresh(user_task)
+        with pytest.raises(HTTPException) as unknown_review:
+            assert_review_evidence_current(user_task, owner.id)
+        assert unknown_review.value.status_code == 409
+        assert unknown_review.value.detail == {"reason": "review_contributors_unknown"}
 
     assert reports == [{"projects": 5, "tasks": 50, "batches": 5}] * 2
     assert {
