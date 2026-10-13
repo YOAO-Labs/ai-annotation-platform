@@ -217,7 +217,18 @@ export function WorkbenchLayout({
                   />
                   {stageHost.common.stageKind !== "video" && stageOverlay}
                 </div>
-                <StatusBar {...statusBar} />
+                <StatusBar
+                  {...statusBar}
+                  toolHint={
+                    statusBar.toolHint ?? {
+                      tool: toolDock.tool,
+                      videoTool: toolDock.videoTool,
+                      threeDTool: toolDock.threeDTool,
+                      stageKind: stageHost.common.stageKind,
+                      reviewMode: toolDock.reviewMode,
+                    }
+                  }
+                />
               </div>
             </div>
           ),

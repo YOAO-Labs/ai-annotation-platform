@@ -166,6 +166,31 @@ function ActiveDecisionDialog({ entry }: { entry: QueuedDecisionDialog }) {
                 </span>
               ) : null}
             </div>
+            {request.presets && request.presets.length > 0 ? (
+              <div className="flex flex-col gap-1.5 pt-0.5" data-testid="decision-dialog-presets">
+                <span className="text-2xs font-medium text-muted-foreground">快捷预设标签：</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {request.presets.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      className="cursor-pointer appearance-none rounded-md border border-border bg-muted/50 px-2 py-0.5 text-2xs text-muted-foreground transition-colors hover:border-brand/40 hover:bg-brand/10 hover:text-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:scale-95"
+                      onClick={() => {
+                        setValue((prev) => {
+                          const trimmed = prev.trim();
+                          if (!trimmed) return preset;
+                          if (trimmed.includes(preset)) return prev;
+                          return `${trimmed}；${preset}`;
+                        });
+                        setError(null);
+                      }}
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
         <AlertDialogFooter>

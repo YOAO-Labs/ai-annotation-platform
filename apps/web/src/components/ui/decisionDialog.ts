@@ -65,6 +65,8 @@ export interface InputDialogOptions {
   validate?: (value: string) => string | null;
   /** 默认 warning(danger 时) */
   icon?: IconName;
+  /** 可选预设快速标签气泡（如质检退回高频短语），点击快捷追加到输入框 */
+  presets?: string[];
 }
 
 /** alert:单按钮通知,确认/Esc/点遮罩 → void。 */
@@ -95,6 +97,7 @@ export interface DecisionDialogRequest {
   initialValue?: string;
   required: boolean;
   maxLength?: number;
+  presets?: string[];
   validate?: (value: string) => string | null;
   resolve: (value: boolean | string | null) => void;
 }
@@ -199,6 +202,7 @@ export function inputDialog(options: InputDialogOptions): Promise<string | null>
       initialValue: options.initialValue,
       required: options.required ?? false,
       maxLength: options.maxLength,
+      presets: options.presets,
       confirmLabel: options.confirmLabel,
       cancelLabel: options.cancelLabel ?? DEFAULT_CANCEL_LABEL,
       icon: options.icon ?? (tone === "danger" ? "warning" : undefined),
