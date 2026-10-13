@@ -51,8 +51,8 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     route: () => "/projects",
     prepare: async (page) => {
       await page.getByRole("heading", { name: "Dashboard" }).waitFor({ timeout: 10_000 });
-      await page.getByText("HTTP 500").first().waitFor({ timeout: 10_000 });
-      await page.getByText("没有匹配的项目").waitFor({ timeout: 10_000 });
+      await page.getByRole("alert").filter({ hasText: "项目列表暂时无法加载" }).waitFor();
+      await page.getByRole("button", { name: "重新加载", exact: true }).waitFor();
     },
     mockState: "error",
     target: "docs-site/user-guide/images/projects/error-state.png",
