@@ -27,6 +27,7 @@
     "check:orphan-images": "node scripts/check-orphan-images.mjs",
     "check:diagrams": "node --test scripts/check-excalidraw-diagrams.test.mjs && node scripts/check-excalidraw-diagrams.mjs",
     "check:navigation": "node scripts/check-navigation-coverage.mjs",
+    "check:codegen": "node scripts/generate-hotkeys.mjs --check && node scripts/generate-settings.mjs --check && node scripts/generate-api-index.mjs --check",
     "check:readability": "node scripts/check-doc-readability.mjs --strict",
     "check:all": "node scripts/check-doc-snippets.mjs && node scripts/check-adr.mjs && node scripts/check-plans-freshness.mjs && node scripts/check-changelog-version.mjs && node scripts/check-doc-frontmatter.mjs && node scripts/check-doc-freshness.mjs && node scripts/check-image-manifest.mjs --strict && node scripts/check-orphan-images.mjs --strict && node scripts/media-audit.mjs --strict && pnpm media:test && pnpm check:diagrams && node scripts/check-navigation-coverage.mjs && node scripts/check-doc-readability.mjs --strict && node scripts/generate-hotkeys.mjs --check && node scripts/generate-settings.mjs --check && node scripts/generate-api-index.mjs --check",
     "mirror:adr": "node scripts/mirror-adr.mjs",
