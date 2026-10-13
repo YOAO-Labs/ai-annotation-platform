@@ -423,4 +423,35 @@ describe("ProjectDataManagerPage failure and asynchronous state", () => {
     });
     expect(currentView()).toBe("saved:v1");
   });
+
+  it("maintains task actions bubble container styling consistently across selection states to prevent layout shift", async () => {
+    installDataManagerApi({
+      tasks: [
+        createDataManagerTask({
+          id: "task-bubble-1",
+          display_id: "T-bubble-1",
+        }),
+      ],
+    });
+
+    renderDataManager("/projects/p1/data-manager?lens=tasks&view=builtin:all");
+    expect(await screen.findByText("T-bubble-1")).toBeInTheDocument();
+
+    const actionsContainer = document.querySelector("[data-dm-task-actions]")!;
+    expect(actionsContainer).toBeInTheDocument();
+    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
+    expect(screen.getByText("可勾选任务进行批量操作")).toBeInTheDocument();
+
+    const checkbox = screen.getByRole("checkbox", { name: "选择任务 T-bubble-1" });
+    fireEvent.click(checkbox);
+
+    expect(await screen.findByText(/已选择 1 \/ 200 个任务/)).toBeInTheDocument();
+    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
+    const clearBtn = screen.getByRole("button", { name: "清除任务选择" });
+    expect(clearBtn).not.toHaveClass("invisible");
+
+    fireEvent.click(clearBtn);
+    expect(await screen.findByText("可勾选任务进行批量操作")).toBeInTheDocument();
+    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
+  });
 });

@@ -1516,27 +1516,25 @@ function TaskDataManagerPage({
                 <div
                   data-dm-task-actions
                   data-dm-task-actions-disabled={!filterReady ? "true" : "false"}
-                  className={cn(
-                    "flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-xs transition-all duration-200",
-                    effectiveSelectedTaskIds.length > 0 &&
-                      "sticky bottom-3 z-overlay rounded-lg border border-border/80 bg-card/95 p-2.5 shadow-lg backdrop-blur-md",
-                  )}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-card/95 p-2.5 text-xs shadow-xs backdrop-blur-md transition-colors"
                 >
                   <span className="text-muted-foreground">
                     {effectiveSelectedTaskIds.length
                       ? `已选择 ${effectiveSelectedTaskIds.length} / ${MAX_SELECTED_TASKS} 个任务`
                       : "可勾选任务进行批量操作"}
                   </span>
-                  {effectiveSelectedTaskIds.length > 0 && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setSelectedTaskIds([])}
-                      aria-label="清除任务选择"
-                    >
-                      清除选择
-                    </Button>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={effectiveSelectedTaskIds.length === 0}
+                    onClick={() => setSelectedTaskIds([])}
+                    aria-label="清除任务选择"
+                    className={cn(
+                      effectiveSelectedTaskIds.length === 0 && "invisible pointer-events-none",
+                    )}
+                  >
+                    清除选择
+                  </Button>
                   {!filterReady && (
                     <span className="text-status-danger">完成筛选条件后才能执行批量操作</span>
                   )}
