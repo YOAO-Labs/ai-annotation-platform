@@ -17,6 +17,7 @@
 import { defineConfig, devices } from "@playwright/test";
 import { MARKETING_PROJECT_NAME } from "./e2e/screenshots/_helpers/marketing-recorder";
 import { recordingPlan, marketingCaptureDriver } from "./e2e/screenshots/recording-plan.mjs";
+import { SCREENSHOT_MATRIX_PROJECTS } from "./e2e/screenshots/matrix";
 
 const MAC_CAPTURE = process.platform === "darwin";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
@@ -165,14 +166,39 @@ const config = defineConfig({
   ],
 });
 
-// FullConfig retains all configured projects even when CLI --project selects one.
-// A scoped catalog must never be shared with the full screenshot matrix.
-if (process.env.SCREENSHOT_BACKEND_REQUIREMENTS !== undefined) {
+// A service-free static run has its own catalog scope and may only schedule the matrix projects.
+const staticProfile = process.env.SCREENSHOT_STATIC_PROFILE;
+const backendScope = process.env.SCREENSHOT_BACKEND_REQUIREMENTS;
+if (staticProfile !== undefined) {
+  if (staticProfile !== "non-ml") {
+    throw new Error(`Unsupported SCREENSHOT_STATIC_PROFILE "${staticProfile}"; use "non-ml".`);
+  }
+  if (
+    backendScope !== undefined ||
+    process.env.SCREENSHOT_RECORDING_FLOWS !== undefined ||
+    process.env.SCREENSHOT_RECORDING_PROFILE !== undefined
+  ) {
+    throw new Error("Static screenshot selection cannot be combined with a recording scope.");
+  }
+  config.projects = config.projects?.filter((project) =>
+    SCREENSHOT_MATRIX_PROJECTS.includes(
+      project.name as (typeof SCREENSHOT_MATRIX_PROJECTS)[number],
+    ),
+  );
+  if (
+    config.projects?.length !== SCREENSHOT_MATRIX_PROJECTS.length ||
+    SCREENSHOT_MATRIX_PROJECTS.some(
+      (name) => !config.projects?.some((project) => project.name === name),
+    )
+  ) {
+    throw new Error("The non-ML static profile requires desktop-light, desktop-dark, and mobile.");
+  }
+} else if (backendScope !== undefined) {
   const plan = recordingPlan(
     (process.env.SCREENSHOT_RECORDING_FLOWS ?? "").split(","),
     process.env.SCREENSHOT_RECORDING_PROFILE,
   );
-  if (plan.backendRequirements !== process.env.SCREENSHOT_BACKEND_REQUIREMENTS) {
+  if (plan.backendRequirements !== backendScope) {
     throw new Error("Recording flow selection does not match backend requirements");
   }
   if (plan.profile === "marketing") {

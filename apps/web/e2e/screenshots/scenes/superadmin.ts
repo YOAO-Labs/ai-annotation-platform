@@ -195,6 +195,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
   },
   {
     name: "superadmin/model-market/list",
+    requiresML: true,
     role: "admin",
     route: () => "/model-market",
     prepare: async (page) => {
@@ -319,6 +320,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
   },
   {
     name: "superadmin/ml-backend/register-form",
+    requiresML: true,
     role: "admin",
     // tab 是 role="tab" 且由 URL ?tab= 驱动（ModelMarketPage.tsx），直接深链到注册管理 tab
     route: () => "/model-market?tab=registry",

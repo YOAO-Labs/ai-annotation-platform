@@ -54,6 +54,7 @@ function makeFailedJob(i: number): AsyncJob {
 export const WORKFLOW_SCENES: ScreenshotScene[] = [
   {
     name: "workflows/failed-prediction-recovery-jobs-list",
+    requiresML: true,
     role: "admin",
     route: () => "/ai-pre/jobs",
     prepare: async (page) => {

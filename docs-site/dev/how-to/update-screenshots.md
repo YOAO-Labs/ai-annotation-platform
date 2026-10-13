@@ -4,7 +4,7 @@ description: 如何新增场景、更新现有截图、维护视觉回归基线
 audience: [developer]
 type: how-to
 status: stable
-last_reviewed: 2026-09-13
+last_reviewed: 2026-10-14
 ---
 
 # 更新文档截图
@@ -82,8 +82,10 @@ Mac 需要 **macOS 14 或更新系统**、Xcode Command Line Tools（`xcrun swif
 
 ### 1. 准备、迁移并填充专用库
 
-下例是旧命令的全量 seed。使用上面的按场景入口时，先完成建库、迁移和素材缓存准备，
-跳过这里的全量 live seed，由入口按所选依赖执行 offline seed。将迁移和 broker 覆盖值一并固定，避免继承日常环境配置。
+下例为全量截图 seed。仅更新非 ML 静态截图时，在准备截图库时显式指定
+`--backend-requirements none`；这会跳过 backend 发现与绑定，但仍创建并校验 screenshots profile
+中的用户、项目、数据集、任务、批次和真实媒体夹具。完整截图仍使用不带该参数的全量 seed。
+两种模式都使用隔离数据库、Redis DB 和迁移配置：
 
 ```bash
 docker compose up -d postgres redis minio
@@ -95,13 +97,18 @@ export REDIS_URL=redis://localhost:6379/15
 export CELERY_BROKER_URL="$REDIS_URL"
 DATABASE_URL="$SCREENSHOT_DATABASE_URL" uv run python scripts/prepare_e2e_db.py
 DATABASE_URL="$SCREENSHOT_DATABASE_URL" uv run alembic upgrade head
+
+# 非 ML 静态矩阵：无需 ML Backend 或 ML worker
 DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed.py \
-  --profile screenshots --repair --ml-backend-mode live
+  --profile screenshots --repair --ml-backend-mode live --backend-requirements none
+
+# 若要运行完整静态矩阵（含 ML 场景），使用全量 backend seed 并准备相应服务：
+# DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed.py \
+#   --profile screenshots --repair --ml-backend-mode live
 ```
 
-`prepare_e2e_db.py` 可重复执行，且会拒绝库名不以 `_e2e` 或 `_test` 结尾的
-目标。无 GPU 时先启动 `screenshot-ml-stub`，再把 seed 命令的模式改为
-`stub`。
+`prepare_e2e_db.py` 可重复执行，且会拒绝库名不以 `_e2e` 或 `_test` 结尾的目标。显式
+`none` 不连接 ML backend；不带 `--backend-requirements` 仍按全量 profile 检查所有 backend。
 
 ### 2. 启动专用 API、Worker 和 Web
 
@@ -148,6 +155,7 @@ export PLAYWRIGHT_API_BASE=http://127.0.0.1:8010
 pnpm screenshots                  # desktop-light 全量（最常用）
 pnpm screenshots:dark             # desktop-dark 变体
 pnpm screenshots:matrix           # desktop-light / dark / mobile
+SCREENSHOT_STATIC_PROFILE=non-ml pnpm screenshots:matrix # desktop-light / dark / mobile，无 ML 服务
 pnpm screenshots:flows            # 流程录制 → 标准源录像及 GIF 配置归档（需 ffmpeg）
 pnpm screenshots:marketing        # Linux 原有全量母版入口；Mac 使用 screenshots:record 选择流程
 pnpm screenshots:regression       # 比较高价值视觉回归基线
@@ -156,19 +164,33 @@ pnpm screenshots:lint             # 快速检查静态引用与 manifest
 
 # 开发/验证场景：执行真实导航和 locator 校验，但不写 PNG/manifest
 SCREENSHOT_VALIDATE_ONLY=1 pnpm screenshots
+SCREENSHOT_VALIDATE_ONLY=1 SCREENSHOT_STATIC_PROFILE=non-ml pnpm screenshots:matrix
 
 # 首页 Hero 静态卡片源图更新后，按本轮范围生成轻量 WebP
 pnpm --filter @anno/docs-site media:home-hero --asset video-track --asset pointcloud --asset review
 ```
 
-按流程录制使用当前浏览器时间，与后端任务锁和作业时间一致；需要展示真实倒计时的静态场景声明 `clock: "live"`。其他截图场景继续使用固定日期，避免无关时间漂移。
+静态矩阵的 `SCREENSHOT_STATIC_PROFILE=non-ml` 会把运行限制在 `desktop-light`、`desktop-dark`
+和 `mobile`，并向只读 seed catalog 请求 `backend_requirements=none`。它不启动或调用 ML 服务，
+不改成 mock；项目、任务、批次和真实图片 / 视频媒体检查仍 fail-closed。该 profile 只与截图矩阵
+配合，不能和 `SCREENSHOT_BACKEND_REQUIREMENTS`、录制 flow/profile 混用；未知 profile 会直接失败。
 
-截图脚本从只读 screenshot catalog 获取当次运行的 UUID，并分别使用 seed 中的
-`admin`、`anno` 和 `qa` 账号呈现超管、标注员和审核员的真实项目关系。
-AI 场景必须先绑定能力匹配的 ML Backend；无 GPU 时启动
-`screenshot-ml-stub` 并把 seed 命令的模式改为 `stub`。
-stub 模式可以验证并更新普通截图与 GIF，但不得用于替换首页媒体所依赖的 4K60 SAM3 母版，
-避免协议替身进入对外展示的真实模型流程。
+非 ML 选择保留所有未声明 ML 依赖的静态场景。`fixture.backend` / `fixture.capabilities`
+自动将场景归为 ML；只展示模型 / backend / 推理 UI、但不声明 fixture 依赖的场景必须设置
+`requiresML: true`。每次运行会输出完整选中与排除的 scene ID；被排除场景不会被 mock 或作为
+Playwright skipped 测试运行。当前排除：
+`ai-pre/stepper`、`ai-pre/history-search`、`wizard/step4-backend`、
+`projects/ml-backends/register-form`、`projects/ai-pre-config-panel`、
+`projects/prediction-import-wizard`、`projects/prediction-purge-modal`、
+`sam/smart-point-toolbar`、`sam/interactive-toolbar`、`sam/magic-box-toolbar`、
+`sam/exemplar-output-mode`、`sam/ai-inspector-panel`、`workbench/video-real-scene`、
+`workbench/video-ai-tracking-panel`、`workbench/ocr-real-scene`、
+`workflows/failed-prediction-recovery-jobs-list`、`superadmin/model-market/list`、
+`superadmin/ml-backend/register-form`。
+
+默认全量截图仍会严格验证其声明的 backend / capability；完整运行 ML 静态场景时，必须使用符合
+要求的真实 backend。静态非 ML profile 不会改写这些场景的 backend 要求，也不会以协议 stub、
+假推理结果或空态替代它们。
 
 ### 录制高清营销母版
 
@@ -248,6 +270,15 @@ Playwright 在整次运行开始时只做一次严格 catalog 预检，并把同
 desktop-light、dark、mobile 和 regression project。运行期间不要 repair seed 或删除项目；
 场景自己的正常读取不会触发跨 project 的第二次全库预检。
 
+完整矩阵成功后，reporter 按原有完整清单重建 manifest；静态非 ML 等成功的部分矩阵只刷新本次
+实际生成的 target 条目，并原样保留未选择的 ML / 手工条目及其旧哈希和 provenance。部分运行的根
+清单标记 `partial-run`，根级 source commit / dirty 字段为空；新条目各自记录本次来源和工作树状态。
+`SCREENSHOT_VALIDATE_ONLY=1`、失败或没有成功的运行不改写 manifest。不要把保留的旧条目描述为本次生成。
+
+截图生成 provenance 不等于视觉 / 内容审核：自动化只证明场景执行和文件生成，不会更新
+`docs-site/maintainers/media-reviews.json`、批准资产或制造人工 reviewer 记录。只有获授权的人工
+逐张完成视觉、内容、隐私与敏感数据检查后，才可按文首媒体工作流登记审核；自动化结果或 Agent 抽查不能替代该审核。
+
 不要在文档里手写 PNG、GIF 或视频数量。当前数量由静态 `manifest.json`、流程
 `flow-manifest.json`、磁盘文件和文档引用实时计算；发布判断以这些来源的一致性为准。
 
@@ -270,7 +301,7 @@ apps/web/e2e/screenshots/
 ├── catalog-runtime.ts             # 单次运行共享的 catalog 快照
 ├── environment.ts                 # 固定时钟、禁动画、资源 ready
 ├── global-setup.ts                # 整次 Playwright 运行的 fail-closed 预检
-├── manifest-reporter.ts           # 成功矩阵后原子重建 manifest
+├── manifest-reporter.ts           # 按成功运行范围重建或局部刷新 manifest
 ├── _helpers/
 │   ├── annotate.ts            # SVG overlay 注释
 │   ├── mock-state.ts          # page.route 网络状态 mock
@@ -344,7 +375,7 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
 cd apps/web
 # 先只验证，不写正式资产
 SCREENSHOT_VALIDATE_ONLY=1 pnpm screenshots --grep "my-new-scene"
-# 需要检查画面时可定向生成目标图；这不会发布完整 manifest
+# 成功后只刷新本次生成的条目；未选择条目及旧 provenance 保留，根清单标为 partial-run
 pnpm screenshots --grep "my-new-scene"
 ```
 
@@ -375,10 +406,12 @@ node docs-site/scripts/check-orphan-images.mjs --strict
 pnpm docs:media:audit -- --release
 ```
 
-只有 desktop-light、desktop-dark、mobile 三个 project 全部成功时，reporter 才会原子
-重建 manifest；失败、定向运行、`--list` 和 `SCREENSHOT_VALIDATE_ONLY=1` 都不会替换它。
-每个自动条目记录 scene、源码文件、capture/fixture、seed revision、commit、浏览器、
-视口/主题/语言、生成时间、SHA-256 和像素尺寸。`--strict` 检查现有资产四方一致性；
+只有 desktop-light、desktop-dark、mobile 三个 project 全部成功时，reporter 才会按完整矩阵
+重建 manifest，并执行 legacy schema migration。成功的定向 / 部分运行会只刷新本次生成 target
+的条目 provenance，保留所有未选择的资产、旧哈希和 provenance；根清单标为 `partial-run`，
+不能当作完整矩阵新鲜度或 legacy migration 完成。失败、`--list` 和 `SCREENSHOT_VALIDATE_ONLY=1`
+不会更新 manifest。每个自动条目记录 scene、源码文件、capture/fixture、seed revision、commit、
+浏览器、视口/主题/语言、生成时间、SHA-256 和像素尺寸。`--strict` 检查现有资产四方一致性；
 全量重拍交付前再用 `--release` 要求所有当前 scene 和 seed revision 都已更新。
 
 人工审阅时至少检查每张 PNG 的主体内容、加载状态和敏感信息；GIF / MP4 / WebM 除首帧外
@@ -510,8 +543,8 @@ git commit -m "chore(screenshots): 更新视觉回归基线 — <变更原因>"
 ## 手动维护的图
 
 手工合成且没有可复现场景的图片使用 `auto: false`。自动 driver 在写文件前会拒绝覆盖
-这类 target，完整矩阵只会保留磁盘上真实存在的手工条目。手工图片改变后必须同步更新
-哈希、尺寸和时间，再运行严格检查：
+这类 target；完整矩阵和部分矩阵都保留手工条目，部分矩阵也不会把未选择的 ML 条目标为新鲜。
+手工图片改变后必须同步更新哈希、尺寸和时间，再运行严格检查：
 
 ```json
 {
