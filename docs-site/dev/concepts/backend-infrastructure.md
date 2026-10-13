@@ -90,7 +90,7 @@ docker compose down -v
 
 ### minio · S3 兼容对象存储
 
-- **镜像**：`quay.io/minio/minio`（Docker Hub 的 `minio/minio` 已停止分发，quay.io 为官方社区源）
+- **镜像**：`icr.io/fusion-open/minio/minio`（[IBM 镜像公告](https://www.ibm.com/support/pages/node/7289585)；Compose 与 CI 固定相同 digest，避免原 Quay 镜像停止分发造成启动失败）
 - **端口**：宿主 `9000`（S3 API）/ `9001`（Web 控制台 → http://localhost:9001 ， `minioadmin / minioadmin`）
 - **存什么**：所有大文件 — 标注任务的图片帧、缩略图（blurhash 占位 + 真图）、批量导出包（COCO/YOLO/JSON zip）、评论附件、SAM 推理 fixture、用户上传 dataset；按 bucket 分（`annotations`、`datasets`、`media-cache`、`import`、`export` 等）
 - **持久化**：volume `miniodata` → `/data`

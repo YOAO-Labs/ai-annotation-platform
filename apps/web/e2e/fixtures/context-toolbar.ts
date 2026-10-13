@@ -7,8 +7,21 @@ export async function openContextToolbar(page: Page, id: ToolbarId) {
   const capsule = page.getByTestId(`${id}-tool-capsule`);
   await expect(capsule).toBeAttached({ timeout: 20_000 });
   if ((await capsule.getAttribute("data-panel-open")) !== "true") {
-    await page.getByTestId(`${id}-settings-trigger`).click();
+    if ((await capsule.getAttribute("data-expanded")) !== "true")
+      await page.getByTestId(`${id}-settings-trigger`).click();
+    await expect(capsule).toHaveAttribute("data-expanded", "true");
+    // The disclosure animates a clipped grid. Clicking during that transition
+    // can scroll its contents and move the More button underneath the pointer.
+    await capsule.evaluate((element) =>
+      Promise.allSettled(
+        element
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+          .map((animation) => animation.finished),
+      ),
+    );
     await page.getByRole("button", { name: `更多 ${labels[id]} 工具`, exact: true }).click();
+    await expect(capsule).toHaveAttribute("data-panel-open", "true");
   }
   await expect(page.getByTestId(`${id}-toolbar`)).toBeVisible();
 }

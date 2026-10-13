@@ -29,8 +29,9 @@ services:
       retries: 5
 
   minio:
-    # Docker Hub 的 minio/minio 已下架；quay.io 是官方社区镜像源。
-    image: quay.io/minio/minio
+    # Quay 社区镜像已下架；IBM 镜像保留相同 digest，与 CI 固定为同一版本。
+    # https://www.ibm.com/support/pages/node/7289585
+    image: icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     ports:
       - "9000:9000"
       - "9001:9001"

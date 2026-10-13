@@ -8,15 +8,22 @@ export const EXPORT_SCENES: ScreenshotScene[] = [
   {
     name: "export/format-select",
     role: "admin",
+    fixture: { project: "image_demo" },
     route: () => "/projects",
-    prepare: async (page) => {
+    prepare: async (page, catalog) => {
       await page.waitForLoadState("networkidle");
-      const moreBtn = page.getByTitle("更多操作").first();
+      const projectRow = page.locator("tr", {
+        hasText: catalog.projects.image_demo.display_id,
+      });
+      await projectRow.waitFor({ state: "visible" });
+      const moreBtn = projectRow.getByTitle("更多操作");
       await moreBtn.click();
-      await page.waitForTimeout(250);
-      const exportItem = page.getByText("导出标注数据").first();
+      const exportItem = page.getByRole("menuitem", { name: "导出标注数据" });
       await exportItem.click();
-      await page.getByRole("dialog").waitFor({ timeout: 3000 });
+      const dialog = page.getByRole("dialog");
+      await dialog.waitFor({ timeout: 3000 });
+      await dialog.getByText("COCO", { exact: true }).waitFor();
+      await dialog.getByText("YOLO", { exact: true }).waitFor();
     },
     capture: { kind: "locator", selector: '[role="dialog"]', padding: 0 },
     target: "docs-site/user-guide/images/export/format-select.png",

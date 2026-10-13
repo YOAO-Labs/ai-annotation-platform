@@ -16,6 +16,20 @@ from app.db.models.task_event import TaskEvent
 from tests.factory import create_membership
 
 
+@pytest.fixture(autouse=True)
+async def historical_audit_partition(db_session):
+    """Prepare the fixed event month independently of the migration date."""
+    # The real monthly partition inherits audit indexes and immutability triggers.
+    # Its DDL shares the per-test transaction and rolls back with the fixture data.
+    await db_session.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS audit_logs_y2026m09 PARTITION OF audit_logs "
+            "FOR VALUES FROM ('2026-09-01 00:00:00+00') "
+            "TO ('2026-10-01 00:00:00+00')"
+        )
+    )
+
+
 def _project(owner_id: uuid.UUID) -> Project:
     suffix = uuid.uuid4().hex[:8]
     return Project(

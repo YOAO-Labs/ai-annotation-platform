@@ -71,11 +71,14 @@ async function annotations(
   fixture: ReviewCase,
   taskId = fixture.taskId,
 ) {
-  return json<Annotation[]>(
+  const rows = await json<Annotation[]>(
     await request.get(`${API_BASE}/api/v1/tasks/${taskId}/annotations`, {
       headers: auth(fixture.token),
     }),
   );
+  // Seeded rows share created_at values, so the API can reorder equal-time rows.
+  // Compare complete annotation state by stable identity, not database tie order.
+  return rows.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 async function preview(request: APIRequestContext, fixture: ReviewCase, jobId: string) {
@@ -247,14 +250,14 @@ async function expectScope(
       ).toHaveCount(0);
   }
   const summary = `审阅 ${targets.length} 个目标 · F${from}–F${to} · 所选待审 ${selected} · 全部待审 ${pending}`;
-  for (const id of [
-    "tracker-review-scope-summary",
-    "video-track-review-scope",
-    "timeline-tracker-review-scope",
+  for (const locator of [
+    review(page).getByTestId("tracker-review-scope-summary"),
+    page.getByTestId("video-track-review-scope"),
+    page.getByTestId("timeline-tracker-review-scope"),
   ]) {
-    await expect(page.getByTestId(id)).toBeVisible();
-    await expect(page.getByTestId(id)).toHaveAttribute("data-review-job-id", jobId);
-    await expect(page.getByTestId(id)).toContainText(summary);
+    await expect(locator).toBeVisible();
+    await expect(locator).toHaveAttribute("data-review-job-id", jobId);
+    await expect(locator).toContainText(summary);
   }
 }
 
