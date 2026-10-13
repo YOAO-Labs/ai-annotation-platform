@@ -30,6 +30,12 @@ Linux 以 1.8 设备像素倍率渲染为 2592×1458，经 X11 / NVIDIA 采集�
 2880×1620 内容区，经 ScreenCaptureKit 单窗口采集。均按校准色块确定裁切边界，再以 Lanczos
 生成 4K 交付文件。Mac 仅接纳不依赖 ML 能力、也不执行推理的已注册流程。
 
+Mac 母版选择由 `recording-plan.mjs` 的 `MAC_MARKETING_FLOWS` 显式白名单定义；所选 flow ID 与本目录
+的 asset ID 一一对应，并由规格测试核验。`MAC_MARKETING_EXCLUDED_FLOWS` 明确排除 ML Backend、
+AI 推理和追踪作业视图，即使某个视图自身声明的 capability 为空也不例外。未纳入白名单的资产不得用
+Mac 4K60 入口录制；目录中其他资产的存在不代表其符合 Mac 资格。项目创建、异步导出和存储连接器流程
+使用隔离截图夹具，均声明 ML capability `none` 且不执行推理。
+
 平台选择不降低质量门禁：硬件合成、120 帧 rAF 的 p95 ≤ 20ms，以及 1.1 秒校准段至少 58 个采样帧、
 有效独立画面 ≥ 55fps、独立帧比例 ≥ 90% 均须通过。分辨率、帧率、有效节奏、画面信号或时长不合格时不归档。
 环境与命令见[更新文档截图](../how-to/update-screenshots#mac-linux-分工录制)。
