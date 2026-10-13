@@ -43,6 +43,12 @@ async function reloadWithSidebarLayout(
   }
 }
 
+async function waitForToastToDisappear(page: Page, message: string): Promise<void> {
+  const toast = page.locator("[data-sonner-toast]").filter({ hasText: message });
+  await expect(toast).toBeVisible({ timeout: 5_000 });
+  await expect(toast).toBeHidden({ timeout: 15_000 });
+}
+
 export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
   {
     name: "workbench/video-real-scene",
@@ -134,26 +140,62 @@ export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
         workspace: { context: "annotate:3d", preset: "standard" },
         layout: { cameraPanels: EXPANDED_MULTI_CAMERA_PANELS },
       });
-      await page.getByTestId("pc-viewport").waitFor({ state: "visible", timeout: 20_000 });
+      const viewport = page.getByTestId("pc-viewport");
+      await viewport.waitFor({ state: "visible", timeout: 20_000 });
       await recordingLayoutCommand(page, "传感器融合");
+      await waitForToastToDisappear(page, "已切换到传感器融合");
       await recordingLayoutCommand(page, "全部相机停靠");
       await waitForRecordingPanels(page, ["canvas", "camera-view"]);
-      const cameraImages = page.locator("[data-camera-dock-panel] img");
+      await expect(viewport).toHaveAttribute("data-pointcloud-renderer-count", "1");
+      await expect(page.getByTestId("pointcloud-loading")).toBeHidden({ timeout: 20_000 });
+      await expect(page.getByTestId("pointcloud-renderer-error")).toBeHidden();
+      const pointStats = page.getByTestId("pointcloud-stats");
+      await expect(pointStats).toBeVisible({ timeout: 20_000 });
+      await expect
+        .poll(
+          async () => {
+            const count = (await pointStats.textContent())?.match(/^\s*([\d,]+)\s*点/)?.[1];
+            return count ? Number(count.replace(/,/g, "")) : 0;
+          },
+          { timeout: 20_000 },
+        )
+        .toBeGreaterThan(0);
+
+      const taskId = new URL(page.url()).searchParams.get("task");
+      if (!taskId) throw new Error("[pointcloud-real-scene] 页面 URL 缺少 task ID");
+      const token = await page.evaluate(() => localStorage.getItem("token"));
+      if (!token) throw new Error("[pointcloud-real-scene] 缺少登录凭据");
+      const api = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
+      const annotationResponse = await page.request.get(
+        `${api}/api/v1/tasks/${taskId}/annotations`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(annotationResponse.ok(), "[pointcloud-real-scene] 读取标注列表失败").toBeTruthy();
+      expect(await annotationResponse.json()).toEqual([]);
+      const cameraGallery = page.locator("[data-camera-dock-panel]");
+      await expect(cameraGallery).toBeVisible();
+      const cameraImages = cameraGallery.locator("img");
       await expect(cameraImages).toHaveCount(6, { timeout: 10_000 });
-      await cameraImages.evaluateAll(async (images: HTMLImageElement[]) => {
-        await Promise.all(
-          images.map((image) => {
-            if (image.complete && image.naturalWidth > 0) return Promise.resolve();
-            return new Promise<void>((resolve, reject) => {
-              image.addEventListener("load", () => resolve(), { once: true });
-              image.addEventListener("error", () => reject(new Error("相机图加载失败")), {
-                once: true,
-              });
-            });
-          }),
+      const channelNames = await cameraGallery
+        .locator("section[aria-label]")
+        .evaluateAll((sections) =>
+          sections.map((section) => section.getAttribute("aria-label") ?? ""),
         );
-      });
-      await page.waitForTimeout(1800);
+      expect(channelNames).toHaveLength(6);
+      expect(channelNames.every((name) => name.trim().length > 0)).toBeTruthy();
+      expect(new Set(channelNames).size).toBe(6);
+      expect(await cameraImages.evaluateAll((images) => images.map((image) => image.alt))).toEqual(
+        channelNames,
+      );
+      await expect
+        .poll(
+          async () =>
+            cameraImages.evaluateAll((images) =>
+              images.every((image) => image.complete && image.naturalWidth > 0),
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
     },
     matrix: DARK_WORKBENCH_MATRIX,
     target: "docs-site/user-guide/images/workbench/pointcloud-real-scene.png",

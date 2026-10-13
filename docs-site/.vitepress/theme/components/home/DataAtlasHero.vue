@@ -41,7 +41,7 @@ const heroSlides: HeroSlide[] = [
     title: "点云标注工作台",
     src: pointCloudWorkspaceUrl,
     href: withBase("/user-guide/workbench/pointcloud-view"),
-    alt: "室内点云数据在三维标注工作台中渲染",
+    alt: "nuScenes 道路场景点云与相机视图在三维标注工作台中渲染",
   },
   {
     no: "04",
