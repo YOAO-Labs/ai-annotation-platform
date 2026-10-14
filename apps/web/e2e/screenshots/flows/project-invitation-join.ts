@@ -3,14 +3,14 @@
  *
  * 输出：team/project-invitation-join（母版 + 文档 MP4）。
  *
- * 前置：隔离截图库的 video_demo 项目与现有隔离账号 qa（审核员）。录制窗口前
+ * 前置：隔离截图库的 video_demo 项目与具备邀请权限的超级管理员账号。录制窗口前
  * 使用真实用户管理 UI 创建邀请（该面板一次性展示注册链接，属于窗口外准备），
  * 窗口内不再出现任何 token 字段。
  *
  * 录制窗口内的真实链路：
  *   1. 在「邀请记录」确认刚创建、等待被邀请人接受的邀请；
- *   2. 真实退出登录，再用被邀请账号真实 UI 登录；
- *   3. 打开邀请链接，由被邀请人本人点击「确认并加入」；
+ *   2. 真实退出登录，打开尚未注册邮箱的真实账号注册页；
+ *   3. 被邀请人本人填写账号资料并提交「完成注册并登录」，注册同时接受项目邀请；
  *   4. 展示真实项目成员结果与「等待分派」的诚实空态（不自动产生激活批次）。
  *
  * 返回 { drawStartMs, drawEndMs, evidence }；finally 撤销本流程拥有的邀请，
@@ -19,8 +19,11 @@
 import { expect, type Page } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
 
-// DEV.md 测试账号：隔离演示账号密码统一为 123456。
+// 本流程新建的隔离受邀账号使用专用口令；录制时密码输入框保持遮蔽。
 const INVITED_PASSWORD = "Capture1234";
+
+const INVITED_PLATFORM_ROLE = "employee";
+const INVITED_PROJECT_ROLE = "reviewer";
 
 interface InvitationCreated {
   id?: string;
@@ -29,11 +32,15 @@ interface InvitationCreated {
   expires_at: string;
   project_id?: string | null;
   project_name?: string | null;
+  project_member_role?: string | null;
 }
 
 interface InvitationRecord {
   id: string;
   email: string;
+  role: string;
+  project_id: string | null;
+  project_member_role: string | null;
   status: string;
 }
 
@@ -42,6 +49,7 @@ interface ProjectMemberRecord {
   user_id: string;
   user_email: string;
   role: string;
+  platform_role: string;
 }
 
 interface InvitationAcceptance {
@@ -54,6 +62,11 @@ interface InvitationAcceptance {
   active_batch_count: number;
 }
 
+interface InvitationRegistrationResponse {
+  user: { id: string; email: string; role: string };
+  acceptance: InvitationAcceptance | null;
+}
+
 async function token(page: Page): Promise<string> {
   const value = await page.evaluate(() => localStorage.getItem("token"));
   if (!value) throw new Error("[project-invitation-join] 缺少隔离账号令牌");
@@ -62,6 +75,25 @@ async function token(page: Page): Promise<string> {
 
 function auth(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` };
+}
+
+async function seedAdminAccessToken(page: Page): Promise<string> {
+  const response = await page.request.post("/api/v1/__test/seed/login", {
+    data: { email: "admin" },
+  });
+  if (!response.ok()) {
+    throw new Error(`[project-invitation-join] seed/login 失败: HTTP ${response.status()}`);
+  }
+  const payload: unknown = await response.json();
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("access_token" in payload) ||
+    typeof payload.access_token !== "string"
+  ) {
+    throw new Error("[project-invitation-join] seed/login 响应缺少 access_token");
+  }
+  return payload.access_token;
 }
 
 /** 只撤销本流程邮箱的待接受邀请，保留其它历史邀请不变。 */
@@ -160,7 +192,7 @@ export async function runProjectInvitationJoin(
   const accessToken = await token(page);
   let invitation: InvitationCreated | null = null;
   let invitationId = "";
-  let acceptedMembership: { id: string; user_id: string; role: string } | null = null;
+  let acceptedUserId = "";
   let adminToken = "";
   let accepted = false;
   const cleanupErrors: string[] = [];
@@ -190,7 +222,10 @@ export async function runProjectInvitationJoin(
     await projectInput.click();
     await projectInput.fill(project.name);
     await projectInput.blur();
-    await dialog.locator("select").selectOption("reviewer");
+    await dialog
+      .getByLabel("账号角色（平台身份）", { exact: false })
+      .selectOption(INVITED_PLATFORM_ROLE);
+    await dialog.getByLabel("项目职责", { exact: false }).selectOption(INVITED_PROJECT_ROLE);
     await page.waitForTimeout(900);
     const created = page.waitForResponse(
       (response) =>
@@ -202,7 +237,7 @@ export async function runProjectInvitationJoin(
     const createdResponse = await created;
     expect(createdResponse.ok(), await createdResponse.text()).toBe(true);
     invitation = (await createdResponse.json()) as InvitationCreated;
-    // 创建响应不含编号（只含 token/URL）：从邀请记录按邮箱解析本次邀请的 id。
+    // 创建响应不含编号（只含 token/URL）：从邀请记录按本流程唯一邮箱解析编号。
     const invitationRows = (
       await page.request
         .get("/api/v1/invitations", {
@@ -216,9 +251,24 @@ export async function runProjectInvitationJoin(
             );
           return response.json() as Promise<InvitationRecord[]>;
         })
-    ).filter((row) => row.email === invitedEmail);
-    invitationId = invitationRows[0]?.id ?? "";
-    if (!invitationId) throw new Error("[project-invitation-join] 邀请编号缺失");
+    );
+    const invitationRecord = invitationRows.find((row) => row.email === invitedEmail);
+    invitationId = invitationRecord?.id ?? "";
+    if (!invitationRecord) throw new Error("[project-invitation-join] 邀请编号缺失");
+    expect(createdResponse.request().postDataJSON()).toMatchObject({
+      email: invitedEmail,
+      role: INVITED_PLATFORM_ROLE,
+      project_id: project.id,
+      project_member_role: INVITED_PROJECT_ROLE,
+    });
+    expect(invitation.project_id).toBe(project.id);
+    expect(invitation.project_member_role).toBe(INVITED_PROJECT_ROLE);
+    expect(invitationRecord).toMatchObject({
+      role: INVITED_PLATFORM_ROLE,
+      project_id: project.id,
+      project_member_role: INVITED_PROJECT_ROLE,
+      status: "pending",
+    });
     onInvitationCreated({ id: invitationId, email: invitedEmail });
     // 成功面板仅此一次明文展示注册链接：在录制窗口外立即关闭，链接不进入成片。
     // 面板标题此时已切换为「邀请已生成」，不能再用创建表单的标题过滤。
@@ -230,12 +280,12 @@ export async function runProjectInvitationJoin(
 
     const drawStartMs = Date.now();
 
-    // 1. 邀请记录：只展示邮箱、角色、项目与待接受状态，不含任何 token 字段。
+    // 邀请记录列表展示的是平台身份；项目职责另由创建后的邀请 DTO 断言。
     await page.getByRole("button", { name: "邀请记录", exact: true }).click();
     const invitationRow = page.getByRole("row").filter({ hasText: invitedEmail }).first();
     await expect(invitationRow).toBeVisible({ timeout: 20_000 });
     await expect(invitationRow).toContainText("待接受");
-    await expect(invitationRow).toContainText("质检员");
+    await expect(invitationRow).toContainText("员工");
     await expect(invitationRow).toContainText(project.name);
     await page.waitForTimeout(5775);
 
@@ -255,7 +305,7 @@ export async function runProjectInvitationJoin(
       "邀请页面不得渲染一次性注册链接或 token",
     ).not.toContain(inviteToken);
     await page.waitForTimeout(5375);
-    await page.getByPlaceholder("如何在平台中称呼你").fill("受邀审核员");
+    await page.getByPlaceholder("如何在平台中称呼你").fill("受邀质检员");
     const passwordField = page.locator("input[type='password']").first();
     await passwordField.fill(INVITED_PASSWORD, { timeout: 10_000 });
     await page.locator("input[type='password']").nth(1).fill(INVITED_PASSWORD);
@@ -269,7 +319,17 @@ export async function runProjectInvitationJoin(
     const acceptedResponse = await acceptResponse;
     expect(acceptedResponse.ok(), await acceptedResponse.text()).toBe(true);
     accepted = true;
-    const acceptance = (await acceptedResponse.json()) as { acceptance?: InvitationAcceptance };
+    const registration = (await acceptedResponse.json()) as InvitationRegistrationResponse;
+    acceptedUserId = registration.user.id;
+    expect(registration.user.email).toBe(invitedEmail);
+    expect(registration.user.role).toBe(INVITED_PLATFORM_ROLE);
+    expect(registration.acceptance).toMatchObject({
+      project_id: project.id,
+      project_name: project.name,
+      project_member_role: INVITED_PROJECT_ROLE,
+      next_action: "wait_for_allocation",
+      active_batch_count: 0,
+    });
 
     // 4. 真实成员结果与「等待分派」空态。
     await expect(page.getByRole("heading", { name: "邀请已完成" })).toBeVisible({
@@ -283,24 +343,18 @@ export async function runProjectInvitationJoin(
 
     // 窗口后（成片裁掉）：API 读回验证新增的项目成员关系。注册 adopting 了新会话，
     // 管理员旧 JWT 可能被服务端登录互斥失效：改用隔离 seed 重新签发管理员令牌。
-    const seedLogin = await page.request.post("/api/v1/__test/seed/login", {
-      data: { email: "admin" },
-    });
-    if (!seedLogin.ok())
-      throw new Error(`[project-invitation-join] seed/login 失败: HTTP ${seedLogin.status()}`);
-    adminToken = ((await seedLogin.json()) as { access_token: string }).access_token;
+    adminToken = await seedAdminAccessToken(page);
     await page.getByRole("button", { name: "打开项目", exact: true }).click();
     await page.waitForURL(new RegExp(`/projects/${project.id}/`), { timeout: 20_000 });
-    // 质检员首次进入项目落在项目页（工作台仅 /annotate 路由）：到达项目 URL 即
+    // 项目质检员首次进入项目落在项目页（工作台仅 /annotate 路由）：到达项目 URL 即
     // 证明新成员具备访问权；成员关系由随后的 API 读回单独验证。
     const membership = (await readMembers(page, adminToken, project.id)).find(
       (member) => member.user_email === invitedEmail,
     );
     expect(membership, "接受邀请后必须有真实项目成员关系").toBeTruthy();
-    acceptedMembership = membership;
-    expect(membership!.role).toBe("reviewer");
-    expect(acceptance.acceptance?.next_action).toBe("wait_for_allocation");
-    expect(acceptance.acceptance?.active_batch_count).toBe(0);
+    expect(membership!.user_id).toBe(acceptedUserId);
+    expect(membership!.role).toBe(INVITED_PROJECT_ROLE);
+    expect(membership!.platform_role).toBe(INVITED_PLATFORM_ROLE);
 
     result = {
       drawStartMs,
@@ -309,47 +363,54 @@ export async function runProjectInvitationJoin(
         invitation: {
           id: invitationId,
           email: invitedEmail,
-          role: "reviewer",
+          platformRole: INVITED_PLATFORM_ROLE,
+          projectMemberRole: INVITED_PROJECT_ROLE,
           projectId: project.id,
           projectName: project.name,
         },
         residualCleanup: { revokedResiduals, removedResidualMembership },
-        acceptance: acceptance.acceptance ?? null,
-        membership: { memberId: membership!.id, role: membership!.role },
+        acceptance: registration.acceptance,
+        membership: {
+          memberId: membership!.id,
+          userId: membership!.user_id,
+          platformRole: membership!.platform_role,
+          projectRole: membership!.role,
+        },
         tokenVisibleInPage: false,
       },
     };
   } catch (error) {
     actionError = error;
   } finally {
-    if (invitation?.token) {
-      if (!accepted) {
-        try {
-          const response = await page.request.delete(`/api/v1/invitations/${invitationId}`, {
-            headers: auth(accessToken),
-          });
-          if (!response.ok() && response.status() !== 404) {
-            cleanupErrors.push(`撤销邀请失败: HTTP ${response.status()}`);
-          }
-        } catch (error) {
-          cleanupErrors.push(String(error));
+    if (invitationId && !accepted) {
+      try {
+        const response = await page.request.delete(`/api/v1/invitations/${invitationId}`, {
+          headers: auth(accessToken),
+        });
+        if (!response.ok() && response.status() !== 404) {
+          cleanupErrors.push(`撤销邀请失败: HTTP ${response.status()}`);
         }
-      }
-      if (accepted && acceptedMembership?.user_id) {
-        try {
-          await removeMembership(page, adminToken, project.id, acceptedMembership.user_id);
-        } catch (error) {
-          cleanupErrors.push(String(error));
-        }
+      } catch (error) {
+        cleanupErrors.push(String(error));
       }
     }
-    try {
-      const leftovers = (await readMembers(page, adminToken, project.id)).filter(
-        (member) => member.user_email === invitedEmail,
-      );
-      if (leftovers.length > 0) cleanupErrors.push("残留项目成员关系");
-    } catch (error) {
-      cleanupErrors.push(String(error));
+    if (accepted && acceptedUserId) {
+      try {
+        if (!adminToken) adminToken = await seedAdminAccessToken(page);
+        await removeMembership(page, adminToken, project.id, acceptedUserId);
+      } catch (error) {
+        cleanupErrors.push(String(error));
+      }
+    }
+    if (adminToken) {
+      try {
+        const leftovers = (await readMembers(page, adminToken, project.id)).filter(
+          (member) => member.user_email === invitedEmail,
+        );
+        if (leftovers.length > 0) cleanupErrors.push("残留项目成员关系");
+      } catch (error) {
+        cleanupErrors.push(String(error));
+      }
     }
   }
   if (actionError) throw actionError;
