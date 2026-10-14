@@ -149,10 +149,39 @@ export async function runProjectCreateExistingResources(
   await annotator.click();
   await moveTo(page, reviewer);
   await reviewer.click();
+
+  const annotatorProjectRole = wizard.getByLabel(`项目职责 ${catalog.users.annotator.email}`);
+  const reviewerProjectRole = wizard.getByLabel(`项目职责 ${catalog.users.reviewer.email}`);
+  await expect(annotatorProjectRole).toBeVisible();
+  await moveTo(page, annotatorProjectRole);
+  await annotatorProjectRole.selectOption("annotator");
+  await expect(annotatorProjectRole).toHaveValue("annotator");
+  await expect(reviewerProjectRole).toBeVisible();
+  await moveTo(page, reviewerProjectRole);
+  await reviewerProjectRole.selectOption("reviewer");
+  await expect(reviewerProjectRole).toHaveValue("reviewer");
+
+  expect(catalog.users.annotator.role).toBe("employee");
+  expect(catalog.users.reviewer.role).toBe("employee");
+
   const finishButton = wizard.getByRole("button", { name: "添加 2 位并完成" });
   await expect(finishButton).toBeVisible();
   await page.waitForTimeout(1_600);
 
+  const expectedMemberships = [
+    {
+      userId: catalog.users.annotator.id,
+      email: catalog.users.annotator.email,
+      projectRole: "annotator",
+      platformRole: catalog.users.annotator.role,
+    },
+    {
+      userId: catalog.users.reviewer.id,
+      email: catalog.users.reviewer.email,
+      projectRole: "reviewer",
+      platformRole: catalog.users.reviewer.role,
+    },
+  ];
   const memberResponses: Response[] = [];
   const captureMemberResponse = (response: Response) => {
     if (
@@ -163,18 +192,61 @@ export async function runProjectCreateExistingResources(
     }
   };
   page.on("response", captureMemberResponse);
-  await moveTo(page, finishButton);
-  await finishButton.click();
-  await expect(wizard).toContainText("已关联 1 个数据集 · 已添加 2 位成员", {
-    timeout: 20_000,
-  });
-  page.off("response", captureMemberResponse);
-  if (memberResponses.length !== 2) {
+  try {
+    await moveTo(page, finishButton);
+    await finishButton.click();
+    await expect(wizard).toContainText("已关联 1 个数据集 · 已添加 2 位成员", {
+      timeout: 20_000,
+    });
+  } finally {
+    page.off("response", captureMemberResponse);
+  }
+  if (memberResponses.length !== expectedMemberships.length) {
     throw new Error(
-      `[project-create-existing-resources] 应创建 2 条成员关系，实际捕获 ${memberResponses.length} 条`,
+      `[project-create-existing-resources] 应创建 ${expectedMemberships.length} 条成员关系，实际捕获 ${memberResponses.length} 条`,
     );
   }
-  memberResponses.forEach((response) => assertOk(response, "添加已有成员"));
+
+  const submittedMemberships = await Promise.all(
+    memberResponses.map(async (response) => {
+      assertOk(response, "添加已有成员");
+      const requestBody = response.request().postDataJSON() as {
+        user_id: string;
+        role: string;
+      };
+      const expected = expectedMemberships.find(({ userId }) => userId === requestBody.user_id);
+      if (!expected) {
+        throw new Error(
+          `[project-create-existing-resources] 添加了非预期成员 ${requestBody.user_id}`,
+        );
+      }
+      expect(requestBody).toMatchObject({
+        user_id: expected.userId,
+        role: expected.projectRole,
+      });
+
+      const membership = (await response.json()) as {
+        id?: string;
+        user_id?: string;
+        user_email?: string;
+        role?: string;
+        platform_role?: string;
+      };
+      expect(membership.id).toEqual(expect.any(String));
+      expect(membership).toMatchObject({
+        user_id: expected.userId,
+        user_email: expected.email,
+        role: expected.projectRole,
+        platform_role: expected.platformRole,
+      });
+      return { userId: requestBody.user_id, role: requestBody.role };
+    }),
+  );
+  expect(
+    submittedMemberships.map(({ userId, role }) => `${userId}:${role}`).sort(),
+  ).toEqual(
+    expectedMemberships.map(({ userId, projectRole }) => `${userId}:${projectRole}`).sort(),
+  );
 
   await expect(wizard.getByText(projectNameValue, { exact: true })).toBeVisible();
   await expect(wizard.getByRole("button", { name: "项目设置" })).toBeVisible();
