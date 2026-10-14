@@ -12,6 +12,7 @@ import ApiReferenceFrame from "./components/ApiReferenceFrame.vue";
 import DocsVideo from "./components/DocsVideo.vue";
 import { setupMermaidZoom } from "./mermaid-zoom";
 import { setupImageZoom } from "./image-zoom";
+import { setupPlatformKeys } from "./platform-keys";
 // 全局阅读基线优先于其他样式加载：先建立正文阅读 token，再叠加首页品牌 token
 import "./docs-theme.css";
 import "./docs-home.css";
@@ -21,7 +22,7 @@ import type { Theme } from "vitepress";
 export default {
   extends: DefaultTheme,
   Layout: DocsLayout,
-  enhanceApp({ app }) {
+  enhanceApp({ app, router }) {
     app.component("AutoImage", AutoImage);
     app.component("ExcalidrawDiagram", ExcalidrawDiagram);
     app.component("DocsHome", DocsHome);
@@ -30,5 +31,6 @@ export default {
     app.component("DocsVideo", DocsVideo);
     setupMermaidZoom();
     setupImageZoom();
+    setupPlatformKeys(router);
   },
 } satisfies Theme;

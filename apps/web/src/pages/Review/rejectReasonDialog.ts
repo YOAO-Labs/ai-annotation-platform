@@ -11,6 +11,15 @@ import {
   type RejectReasonType,
 } from "./rejectReasonTypes";
 
+export const REJECT_PRESET_COMMENTS: string[] = [
+  "边缘漏标",
+  "重叠遮挡未拆分",
+  "目标类别错误",
+  "位置与边界不准",
+  "背景噪点误检",
+  "截断漏标",
+];
+
 /**
  * 退回原因两步弹窗。count 沿用原 modal 的「退回原因（N 个任务）」标题；
  * skipReasonHint 为单任务且被标注员跳过时的提示（原紫色提示块，纯文本展示在第一步描述里）。
@@ -39,6 +48,7 @@ export async function promptRejectReason(options: {
     initialValue: options.skipReasonHint ? `标注员跳过：${options.skipReasonHint}` : undefined,
     confirmLabel: "确认退回",
     tone: "danger",
+    presets: REJECT_PRESET_COMMENTS,
   });
   if (comment === null) return null;
   return {

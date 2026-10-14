@@ -1177,6 +1177,8 @@ function TaskDataManagerPage({
     },
   ].filter((group) => group.items.length);
 
+  const hasActiveFilters = !isEmptyFilter(filterExpression) || Boolean(debouncedKeyword || keyword);
+
   return (
     <div className="text-foreground">
       <DataManagerLensTabs
@@ -1514,23 +1516,25 @@ function TaskDataManagerPage({
                 <div
                   data-dm-task-actions
                   data-dm-task-actions-disabled={!filterReady ? "true" : "false"}
-                  className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-xs"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-card/95 p-2.5 text-xs shadow-xs backdrop-blur-md transition-colors"
                 >
                   <span className="text-muted-foreground">
                     {effectiveSelectedTaskIds.length
                       ? `已选择 ${effectiveSelectedTaskIds.length} / ${MAX_SELECTED_TASKS} 个任务`
                       : "可勾选任务进行批量操作"}
                   </span>
-                  {effectiveSelectedTaskIds.length > 0 && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setSelectedTaskIds([])}
-                      aria-label="清除任务选择"
-                    >
-                      清除选择
-                    </Button>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={effectiveSelectedTaskIds.length === 0}
+                    onClick={() => setSelectedTaskIds([])}
+                    aria-label="清除任务选择"
+                    className={cn(
+                      effectiveSelectedTaskIds.length === 0 && "invisible pointer-events-none",
+                    )}
+                  >
+                    清除选择
+                  </Button>
                   {!filterReady && (
                     <span className="text-status-danger">完成筛选条件后才能执行批量操作</span>
                   )}
@@ -1579,7 +1583,35 @@ function TaskDataManagerPage({
                     )}
                     {!tasksQ.isLoading && !tasksQ.isError && !tasks.length && (
                       <div className="col-span-full p-8 text-center text-sm text-muted-foreground">
-                        无匹配任务
+                        {hasActiveFilters ? (
+                          <div
+                            data-testid="data-manager-filter-empty"
+                            className="flex flex-col items-center justify-center p-6 text-center"
+                          >
+                            <div className="mb-2 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                              <Icon name="filter" size={18} />
+                            </div>
+                            <div className="font-semibold text-foreground">未找到匹配任务</div>
+                            <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                              当前筛选条件未匹配到任何数据，可重置筛选或调整查询关键词。
+                            </p>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="mt-3 inline-flex items-center gap-1.5"
+                              onClick={() => {
+                                setFilterExpression({});
+                                setKeyword("");
+                                setPage(0);
+                              }}
+                            >
+                              <Icon name="rotate-ccw" size={12} />
+                              重置所有筛选
+                            </Button>
+                          </div>
+                        ) : (
+                          "无匹配任务"
+                        )}
                       </div>
                     )}
                     {tasks.map((task) => {
@@ -1764,9 +1796,37 @@ function TaskDataManagerPage({
                         <tr>
                           <td
                             colSpan={Math.max(2, columns.length + 2)}
-                            className="py-16 text-center text-muted-foreground"
+                            className="py-12 text-center text-muted-foreground"
                           >
-                            无匹配任务
+                            {hasActiveFilters ? (
+                              <div
+                                data-testid="data-manager-filter-empty"
+                                className="flex flex-col items-center justify-center py-4 text-center"
+                              >
+                                <div className="mb-2 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                  <Icon name="filter" size={18} />
+                                </div>
+                                <div className="font-semibold text-foreground">未找到匹配任务</div>
+                                <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                                  当前筛选条件未匹配到任何数据，可重置筛选或调整查询关键词。
+                                </p>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="mt-3 inline-flex items-center gap-1.5"
+                                  onClick={() => {
+                                    setFilterExpression({});
+                                    setKeyword("");
+                                    setPage(0);
+                                  }}
+                                >
+                                  <Icon name="rotate-ccw" size={12} />
+                                  重置所有筛选
+                                </Button>
+                              </div>
+                            ) : (
+                              "无匹配任务"
+                            )}
                           </td>
                         </tr>
                       )}

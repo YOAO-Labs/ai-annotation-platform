@@ -382,4 +382,18 @@ describe("AIInspectorPanel", () => {
     expect(screen.getByText(/已选/)).toBeInTheDocument();
     expect(screen.getAllByText(/2/).length).toBeGreaterThan(0);
   });
+
+  it("渲染实例列表粘性表头,展示待审候选与人工标注快捷锚点及总数", () => {
+    const ai = makeAiBox("ai-sticky-1");
+    const u = makeUserBox("u-sticky-1");
+    renderUI({
+      aiBoxes: [ai],
+      userBoxes: [u],
+    });
+    const stickyHeader = screen.getByTestId("boxes-list-sticky-header");
+    expect(stickyHeader).toBeInTheDocument();
+    expect(screen.getByText("待审候选")).toBeInTheDocument();
+    expect(screen.getByText("人工标注")).toBeInTheDocument();
+    expect(screen.getByText("共 2 个对象")).toBeInTheDocument();
+  });
 });

@@ -8,11 +8,9 @@ last_reviewed: 2026-09-16
 
 # 离线分析面板（DuckDB）
 
-时间范围以独立下拉切换，保留 7、30、90 天选项及默认 30 天；该范围独立于其他页面筛选。 [筛选操作说明](/user-guide/reference/filtering)。
+面向超级管理员的数据运营分析仪表盘。基于 DuckDB 高性能引擎分析全团队标注吞吐、退回原因分布与单题耗时指标。
 
-`/admin/analytics` 是 `super_admin` 专属的离线分析视图，依赖 Celery beat 每日 02:30 UTC 把
-`task_events` + `audit_logs` 增量同步到本地 DuckDB 文件（`./data/duckdb/analytics.duckdb`），
-**不**接收任意 SQL 输入，只暴露 4 个固定面板：
+`/admin/analytics` 是 `super_admin` 专属的离线分析视图，依赖 Celery beat 每日 02:30 UTC 把 `task_events` + `audit_logs` 增量同步到本地 DuckDB 文件（`./data/duckdb/analytics.duckdb`）。页面支持 7、30、90 天时间范围切换（详见 [筛选操作说明](/user-guide/reference/filtering)），提供 4 个核心分析面板：
 
 ## 面板
 

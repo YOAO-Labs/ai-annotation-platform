@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { buildSummary, main } from "./summarize-e2e-results.mjs";
+import { auditE2ERequirements } from "./audit-e2e-requirements.mjs";
 
 // Fixtures are REAL Playwright JSON reports (locked 1.59.1 contract), generated
 // from tiny controlled runs: scripts/fixtures/e2e-summary/*.json. See the
@@ -164,3 +165,45 @@ test("CLI subprocess writes a parseable status artifact and exits 0", () => {
   assert.ok(readFileSync(summaryPath, "utf8").includes("Outcome: success"));
   rmSync(outDir, { recursive: true, force: true });
 });
+
+for (const [runOutcome, artifactOutcome, exitCode] of [
+  ["skipped", "setup-failure", 0],
+  ["success", "failure", 1],
+  ["failure", "failure", 0],
+  ["cancelled", "cancelled", 0],
+]) {
+  test(`missing report: ${runOutcome} publishes ${artifactOutcome} and fails the suite audit`, () => {
+    const script = fileURLToPath(new URL("./summarize-e2e-results.mjs", import.meta.url));
+    const outDir = mkdtempSync(join(tmpdir(), "e2e-summary-missing-"));
+    try {
+      const statusPath = join(outDir, "smoke.json");
+      const result = spawnSync(
+        process.execPath,
+        [script, "smoke", runOutcome, join(outDir, "missing-report.json")],
+        {
+          encoding: "utf8",
+          env: { ...process.env, E2E_STATUS_OUT: statusPath, GITHUB_STEP_SUMMARY: "" },
+        },
+      );
+      assert.equal(result.status, exitCode, result.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(statusPath, "utf8")), {
+        suite: "smoke",
+        outcome: artifactOutcome,
+        runOutcome,
+        reportMissing: true,
+      });
+      assert.match(result.stdout, /No completed Playwright report/);
+      const audit = auditE2ERequirements({
+        requiredSuites: [{ suite: "smoke", planned: true }],
+        statusDir: outDir,
+      });
+      assert.equal(audit.ok, false);
+      assert.equal(
+        audit.blockers[0].state,
+        artifactOutcome === "failure" ? "failed" : artifactOutcome,
+      );
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+}

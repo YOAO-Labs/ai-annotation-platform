@@ -28,6 +28,7 @@ export interface MarketingRunContext {
 interface MarketingCaptureMetadata {
   assetId: string;
   source: string;
+  watchPaths?: string[];
   testTitle: string;
   projectName: string;
   seedRevision: string | null;
@@ -80,6 +81,7 @@ interface VideoProbe {
 
 interface MarketingManifestEntry {
   asset_id: string;
+  watch_paths?: string[];
   gif_variants?: SourceGifVariant[];
   source: string;
   test_title: string;
@@ -633,6 +635,9 @@ export async function archiveMarketingMaster(options: MarketingArchiveOptions): 
           }
         : {}),
       source: pathForManifest(options.source),
+      watch_paths: [...new Set([options.source, ...(options.watchPaths ?? [])])].map(
+        pathForManifest,
+      ),
       test_title: options.testTitle,
       project: options.projectName,
       seed_revision: options.seedRevision,

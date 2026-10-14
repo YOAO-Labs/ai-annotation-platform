@@ -309,6 +309,37 @@ describe("decisionDialog 服务", () => {
     await expect(promise).resolves.toBe("标注员跳过：目标不可见");
   });
 
+  it("inputDialog:presets 快捷标签气泡点击可快速追加到输入框", async () => {
+    renderHost();
+    const promise = openDialog(() =>
+      inputDialog({
+        title: "补充说明",
+        label: "补充说明（可选）",
+        presets: ["边缘漏标", "重叠遮挡未拆分"],
+        confirmLabel: "确认退回",
+      }),
+    );
+    const dialog = await screen.findByRole("alertdialog", { name: "补充说明" });
+    const textarea = within(dialog).getByLabelText(/补充说明/);
+    expect(textarea).toHaveValue("");
+
+    const preset1 = within(dialog).getByRole("button", { name: "+ 边缘漏标" });
+    const preset2 = within(dialog).getByRole("button", { name: "+ 重叠遮挡未拆分" });
+    fireEvent.click(preset1);
+    expect(textarea).toHaveValue("边缘漏标");
+
+    fireEvent.click(preset2);
+    expect(textarea).toHaveValue("边缘漏标；重叠遮挡未拆分");
+
+    // 重复点击同一标签不重复添加
+    fireEvent.click(preset1);
+    expect(textarea).toHaveValue("边缘漏标；重叠遮挡未拆分");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认退回" }));
+    await flushTeardown();
+    await expect(promise).resolves.toBe("边缘漏标；重叠遮挡未拆分");
+  });
+
   it("cancelAll:按各 kind 的取消值结算整条队列并清空(认证归属变更兜底)", async () => {
     renderHost();
     const confirmed = openDialog(() =>

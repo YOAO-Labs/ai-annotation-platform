@@ -201,6 +201,8 @@ PR 运行有界核心 smoke + 按路径触发的领域专项（Mask×3、video-p
 
 有界核心 smoke 以 `--retries=0` 运行，且被标记为 `flakyPolicy=forbid`：重试后通过的核心会阻塞必需套件审计（非核心专项保留一次诊断重试，重试后通过仍单独计为 flaky）。必需套件审计（`scripts/audit-e2e-requirements.mjs`）按计划 manifest 校验每个选中套件的结果产物，缺失、取消、setup 失败、suite 名不匹配、格式错误或核心 flaky 都会使汇总失败。
 
+准备失败导致 Playwright 未执行时，汇总仍写出 `setup-failure` 状态产物；运行失败或取消但无报告也保留对应失败证据。声称成功却没有报告会使汇总步骤失败，并写出失败状态，不会把缺失报告或未执行当作通过。
+
 顶层入口与范围（§6.7-5 显式区分，不用事件名隐含）：`push` 与夜间 `E2E extended` 工作流（每天北京时间 03:00，`E2E_SCHEDULE_SCOPE=full`）执行全量（smoke + 全部分片 + 全部专项 + visual/layout-stress）；该工作流手动触发时用 `scope` 输入显式选择 `extended` 或 `full`；`ci.yml` 的 `Frontend E2E` 手动触发用 `e2e_scope` 输入做同样选择。所有入口都运行同一必需套件审计。
 
 **回退**：设置仓库变量 `E2E_SELECTION_MODE=legacy`（未设置或为空即计划模式）即可恢复 P8 前冻结的旧全量矩阵与对应必需清单，无需改代码；回退模式仍执行审计，但只要求它实际执行的 9 个旧套件。

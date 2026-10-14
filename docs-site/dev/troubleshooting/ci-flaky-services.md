@@ -3,14 +3,14 @@ audience: [dev]
 type: how-to
 since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-09-30
 ---
 
 # CI 服务依赖踩坑
 
 GitHub Actions e2e job 跑挂的几个非典型问题，集中归档。
 
-## 症状 1：`bitnami/minio:latest` manifest not found
+## 症状 1：MinIO 镜像 manifest not found / unauthorized
 
 ```
 Error response from daemon: manifest for bitnami/minio:latest not found
@@ -18,9 +18,11 @@ Error response from daemon: manifest for bitnami/minio:latest not found
 
 ### 根因
 
-Bitnami 撤了该镜像的 manifest，CI 里 `services:` 块再也拉不到。
+Bitnami 撤了该镜像的 manifest；Quay 的社区镜像也已停止分发，原先固定的 digest 会返回 `unauthorized`。这类错误发生在容器启动前，不能靠延长 FastAPI 或 Playwright 超时修复。
 
 ### 修复
+
+使用 [IBM 公告提供的镜像](https://www.ibm.com/support/pages/node/7289585)，保留原 digest。`ci.yml`、`e2e-run.yml` 与 `docker-compose.yml` 使用相同镜像；更新时先验证 manifest digest 与运行平台，再同步三个入口，不能改为浮动 `latest`。
 
 GitHub Actions 的 `services:` 块**不接受 image 的 args**（没法给 MinIO 镜像传 `server` 子命令）。直接在 step 里 `docker run` 最干净：
 
@@ -31,13 +33,15 @@ GitHub Actions 的 `services:` 块**不接受 image 的 args**（没法给 MinIO
       -p 9000:9000 \
       -e MINIO_ROOT_USER=minioadmin \
       -e MINIO_ROOT_PASSWORD=minioadmin \
-      quay.io/minio/minio:latest server /data
+      icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
 
     # 轮询 health 端点直到就绪
     for i in $(seq 1 30); do
-      curl -sf http://localhost:9000/minio/health/ready && break
+      if curl -fsS http://127.0.0.1:9000/minio/health/live; then exit 0; fi
       sleep 1
     done
+    docker logs minio
+    exit 1
 ```
 
 桶 `annotations` 由 FastAPI lifespan `ensure_bucket` 第一次 HeadBucket 失败时自建，无需预建。

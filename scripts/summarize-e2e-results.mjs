@@ -111,6 +111,15 @@ export function buildSummary({ suite, outcome, report, prepSeconds, runSeconds, 
         heading +
         "No completed Playwright report. Inspect setup, server startup or timeout logs.\n",
       requiredMissing: true,
+      status: {
+        suite,
+        // A skipped run after failed preparation is not an allowed suite skip.
+        // Never publish a success artifact without the report that proves it.
+        outcome:
+          outcome === "skipped" ? "setup-failure" : outcome === "success" ? "failure" : outcome,
+        runOutcome: outcome,
+        reportMissing: true,
+      },
     };
   }
   const { stats, errors } = report;
@@ -155,7 +164,7 @@ export function main(argv, env, io) {
   }
   const reportPath = argv[2] ?? "apps/web/e2e-results.json";
   const statusOut = env.E2E_STATUS_OUT;
-  const report = existsSync(reportPath) ? JSON.parse(io.readFileSync(reportPath, "utf8")) : null;
+  const report = io.existsSync(reportPath) ? JSON.parse(io.readFileSync(reportPath, "utf8")) : null;
   const { text, requiredMissing, status } = buildSummary({
     suite,
     outcome,

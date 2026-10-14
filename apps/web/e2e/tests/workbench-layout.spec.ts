@@ -8,7 +8,7 @@ import type {
   WorkspaceNode,
   WorkspaceSnapshot,
 } from "../../src/pages/Workbench/layout/workbenchLayoutSnapshot";
-import { expect, test } from "../fixtures/seed";
+import { expect, ownedNamespaceFor, test } from "../fixtures/seed";
 
 const DESKTOP = { width: 1440, height: 900 };
 // 每次运行都新起 dev server，首屏要现编译整张模块图：本机实测 4.9–5.7s，
@@ -556,6 +556,7 @@ test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" 
   const taskResponse = await page.request.get(`/api/v1/tasks/${data.task_ids[0]}`, { headers });
   expect(taskResponse.ok(), await taskResponse.text()).toBe(true);
   const taskDisplayId = ((await taskResponse.json()) as { display_id: string }).display_id;
+  expect(taskDisplayId).toBe(`T-E2E-${ownedNamespaceFor(test.info())}000001`);
   const configured = await page.request.patch(`/api/v1/projects/${data.project_id}`, {
     headers,
     data: { ai_enabled: false, ai_interactive_enabled: false, ml_backend_id: null },
@@ -584,6 +585,13 @@ test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" 
   await expect(queue.getByText("1 / 5", { exact: true })).toBeVisible();
   await expect(queue.getByText(taskDisplayId, { exact: true })).toHaveClass(/text-brand/);
   await expect(queue.getByText("task-1.svg", { exact: true })).toBeVisible();
+  // Keep the fixture private to this test; only its path-derived IDs vary in screenshots.
+  // The fourth and fifth rows sit behind the category panel, so masking them would
+  // paint over that panel even though their text is occluded in the real UI.
+  const taskIdLabels = queue.getByText(/^T-E2E-[a-z0-9]{4,12}\d{6}$/);
+  await expect(taskIdLabels.first()).toHaveText(taskDisplayId);
+  await expect(taskIdLabels.nth(2)).toBeVisible();
+  const visibleTaskIds = [taskIdLabels.nth(0), taskIdLabels.nth(1), taskIdLabels.nth(2)];
   for (const floating of [false, true]) {
     if (floating) await panelCommand(page, "讨论", "浮动面板");
     for (const theme of ["light", "dark"]) {
@@ -594,6 +602,7 @@ test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" 
         `workspace-${floating ? "floating" : "standard"}-${theme}.png`,
         {
           animations: "disabled",
+          mask: visibleTaskIds,
           maxDiffPixelRatio: 0.01,
         },
       );

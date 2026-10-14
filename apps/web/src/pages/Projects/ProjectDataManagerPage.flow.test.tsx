@@ -238,6 +238,31 @@ describe("ProjectDataManagerPage task data", () => {
     expect(within(row).getByText("4")).toBeInTheDocument();
   });
 
+  it("renders empty filter state with reset button when active filter returns no tasks", async () => {
+    installDataManagerApi({ tasks: [] });
+    const filter = { field: "task.status", op: "eq" as const, value: "completed" };
+    const search = updateDataManagerUrl("", {
+      lens: "tasks",
+      view: "builtin:all",
+      query: "",
+      filter,
+      sort: null,
+      columns: ["display_id"],
+      selected: null,
+    }).toString();
+
+    renderDataManager(`/projects/p1/data-manager?${search}`);
+
+    expect(await screen.findByText("未找到匹配任务")).toBeInTheDocument();
+    const resetBtn = screen.getByRole("button", { name: "重置所有筛选" });
+    expect(resetBtn).toBeInTheDocument();
+
+    fireEvent.click(resetBtn);
+    await waitFor(() => {
+      expect(screen.queryByText("未找到匹配任务")).toBeNull();
+    });
+  });
+
   it("does not open task detail from the gallery selection checkbox", async () => {
     const captured = installDataManagerApi({
       tasks: [
@@ -397,5 +422,36 @@ describe("ProjectDataManagerPage failure and asynchronous state", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
     });
     expect(currentView()).toBe("saved:v1");
+  });
+
+  it("maintains task actions bubble container styling consistently across selection states to prevent layout shift", async () => {
+    installDataManagerApi({
+      tasks: [
+        createDataManagerTask({
+          id: "task-bubble-1",
+          display_id: "T-bubble-1",
+        }),
+      ],
+    });
+
+    renderDataManager("/projects/p1/data-manager?lens=tasks&view=builtin:all");
+    expect(await screen.findByText("T-bubble-1")).toBeInTheDocument();
+
+    const actionsContainer = document.querySelector("[data-dm-task-actions]")!;
+    expect(actionsContainer).toBeInTheDocument();
+    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
+    expect(screen.getByText("可勾选任务进行批量操作")).toBeInTheDocument();
+
+    const checkbox = screen.getByRole("checkbox", { name: "选择任务 T-bubble-1" });
+    fireEvent.click(checkbox);
+
+    expect(await screen.findByText(/已选择 1 \/ 200 个任务/)).toBeInTheDocument();
+    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
+    const clearBtn = screen.getByRole("button", { name: "清除任务选择" });
+    expect(clearBtn).not.toHaveClass("invisible");
+
+    fireEvent.click(clearBtn);
+    expect(await screen.findByText("可勾选任务进行批量操作")).toBeInTheDocument();
+    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
   });
 });
