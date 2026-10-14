@@ -302,6 +302,7 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
         width: 0.0875,
         height: 0.05555555555555555,
         fromSeconds: 0.5,
+        untilSeconds: 0.9,
       },
     ];
     const recipes = [
@@ -344,7 +345,7 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
     });
     for (const recipe of recipes) {
       const rawFrame = path.join(root, `${recipe.kind}.rgb`);
-      const frameTimes = recipe.kind === "webp" ? [0] : [0, 0.3];
+      const frameTimes = recipe.kind === "webp" ? [0] : [0, 0.3, 0.7];
       for (const frameTime of frameTimes) {
         checked("ffmpeg", [
           "-y",
@@ -365,7 +366,7 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
         const frame = fs.readFileSync(rawFrame);
         assert.equal(frame.length, 160 * 90 * 3);
         const pixelAt = (x, y) => [...frame.subarray((y * 160 + x) * 3, (y * 160 + x + 1) * 3)];
-        if (recipe.kind === "webp" || frameTime > 0) {
+        if (recipe.kind === "webp" || frameTime === 0.3) {
           assert.ok(
             pixelAt(56, 42).every((channel) => channel < 48),
             `${recipe.kind} leaks masked pixels after the source-time boundary`,
@@ -373,7 +374,7 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
         } else {
           assert.ok(
             pixelAt(56, 42)[0] > 180 && pixelAt(56, 42)[1] < 80,
-            `${recipe.kind} masks an unrelated earlier phase`,
+            `${recipe.kind} masks an unrelated earlier or later phase`,
           );
         }
         for (const [x, y] of [

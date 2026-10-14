@@ -9,6 +9,7 @@ import {
   installRecordingWorkbenchLayout,
   waitForRecordingWorkbenchLayout,
 } from "./_workbench-layout";
+import { movePointerAtRefreshRate } from "./_canvas";
 
 interface PropagateResponseBody {
   annotation: SeedTaskAnnotation;
@@ -304,25 +305,58 @@ export async function runPointcloudCrossframeTrack(
     .poll(
       () =>
         viewport.evaluate((element, annotationId) => {
-          const scene = (
-            element as HTMLElement & {
-              __pointCloudScene?: {
-                boxGroups?: Map<string, unknown>;
-                referenceBoxes?: Array<{ material?: { type?: string } }>;
-              };
-            }
-          ).__pointCloudScene;
-          const references = scene?.referenceBoxes ?? [];
+          const scene = "__pointCloudScene" in element ? element.__pointCloudScene : null;
+          if (typeof scene !== "object" || scene === null) {
+            return { currentSolid: false, dashedReferences: 0 };
+          }
+          const groups = "boxGroups" in scene ? scene.boxGroups : null;
+          const references =
+            "referenceBoxes" in scene && Array.isArray(scene.referenceBoxes)
+              ? scene.referenceBoxes
+              : [];
           return {
-            currentSolid: scene?.boxGroups?.has(annotationId) ?? false,
-            dashedReferences: references.filter(
-              (reference) => reference.material?.type === "LineDashedMaterial",
-            ).length,
+            currentSolid: groups instanceof Map && groups.has(annotationId),
+            dashedReferences: references.filter((reference: unknown) => {
+              if (
+                typeof reference !== "object" ||
+                reference === null ||
+                !("material" in reference)
+              ) {
+                return false;
+              }
+              const material = reference.material;
+              return (
+                typeof material === "object" &&
+                material !== null &&
+                "type" in material &&
+                material.type === "LineDashedMaterial"
+              );
+            }).length,
           };
         }, first.annotation.id),
       { timeout: 10_000 },
     )
     .toEqual({ currentSolid: true, dashedReferences: 2 });
+  // Change only the real viewing angle. Propagation keeps F2 at the same world
+  // geometry as corrected F1, so that reference can coincide with the current box.
+  const viewBounds = await viewport.boundingBox();
+  if (!viewBounds) throw new Error("[pointcloud-crossframe-track] 主视图不可见");
+  const orbitStart = {
+    x: viewBounds.x + viewBounds.width * 0.28,
+    y: viewBounds.y + viewBounds.height * 0.78,
+  };
+  await page.mouse.move(orbitStart.x, orbitStart.y);
+  await page.mouse.down();
+  await movePointerAtRefreshRate(
+    page,
+    orbitStart,
+    {
+      x: viewBounds.x + viewBounds.width * 0.48,
+      y: viewBounds.y + viewBounds.height * 0.64,
+    },
+    1_100,
+  );
+  await page.mouse.up();
   await page.waitForTimeout(4_000); // Compare the current solid box with both same-track references.
 
   return {

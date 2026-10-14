@@ -152,16 +152,22 @@ function privacyMaskFilter(masks, sourceOffsetSeconds) {
         x + width > 1 ||
         y + height > 1 ||
         (mask.fromSeconds !== undefined &&
-          (!Number.isFinite(mask.fromSeconds) || mask.fromSeconds < 0))
+          (!Number.isFinite(mask.fromSeconds) || mask.fromSeconds < 0)) ||
+        (mask.untilSeconds !== undefined &&
+          (!Number.isFinite(mask.untilSeconds) || mask.untilSeconds <= (mask.fromSeconds ?? 0)))
       );
     })
   ) {
     throw new Error("Privacy masks must be normalized rectangles");
   }
   return masks
-    .map(({ x, y, width, height, fromSeconds }) => {
-      const enable =
-        fromSeconds === undefined ? "" : `:enable='gte(t+${sourceOffsetSeconds},${fromSeconds})'`;
+    .map(({ x, y, width, height, fromSeconds, untilSeconds }) => {
+      let condition = "";
+      if (fromSeconds !== undefined) condition = `gte(t+${sourceOffsetSeconds},${fromSeconds})`;
+      if (untilSeconds !== undefined) {
+        condition += `${condition ? "*" : ""}lt(t+${sourceOffsetSeconds},${untilSeconds})`;
+      }
+      const enable = condition ? `:enable='${condition}'` : "";
       return `drawbox=x=iw*${x}:y=ih*${y}:w=iw*${width}:h=ih*${height}:color=black:t=fill${enable}`;
     })
     .join(",");
