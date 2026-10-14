@@ -4,9 +4,11 @@ import asyncio
 import hashlib
 import importlib
 import io
+import sys
 import threading
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import httpx
 import numpy as np
@@ -27,6 +29,7 @@ from predictor import (
     PredictionArrays,
     ProducerUnavailable,
     preprocessing_for,
+    strict_gpu_cleanup,
     validate_vendor,
     validate_weights,
 )
@@ -122,6 +125,50 @@ def test_source_snapshot_and_weights_integrity(tmp_path):
     wrong.write_bytes(b"wrong checkpoint")
     with pytest.raises(ProducerUnavailable, match="integrity"):
         validate_weights(wrong)
+
+
+def test_empty_unload_does_not_create_cuda_context(monkeypatch):
+    def forbidden():
+        raise AssertionError("empty unload must not initialize CUDA")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            cuda=SimpleNamespace(
+                is_available=lambda: True,
+                is_initialized=lambda: False,
+                synchronize=forbidden,
+            )
+        ),
+    )
+    strict_gpu_cleanup()
+
+
+def test_unload_clears_workspaces_and_surfaces_cleanup_failure(monkeypatch):
+    calls = []
+
+    def ipc_failure():
+        raise RuntimeError("IPC cleanup failed")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            cuda=SimpleNamespace(
+                is_available=lambda: True,
+                is_initialized=lambda: True,
+                synchronize=lambda: calls.append("synchronize"),
+                empty_cache=lambda: calls.append("empty_cache"),
+                ipc_collect=ipc_failure,
+            ),
+            clear_autocast_cache=lambda: calls.append("autocast"),
+            _C=SimpleNamespace(_cuda_clearCublasWorkspaces=lambda: calls.append("cublas")),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="IPC cleanup failed"):
+        strict_gpu_cleanup()
+    assert calls == ["synchronize", "autocast", "cublas", "empty_cache"]
 
 
 def test_pixel_center_affine_and_qualified_grid():

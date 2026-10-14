@@ -169,7 +169,12 @@ def strict_gpu_cleanup() -> None:
         import torch
     except ImportError:
         return
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+    if not torch.cuda.is_available() or not torch.cuda.is_initialized():
+        return
+    torch.cuda.synchronize()
+    torch.clear_autocast_cache()
+    clear_workspaces = getattr(torch._C, "_cuda_clearCublasWorkspaces", None)
+    if callable(clear_workspaces):
+        clear_workspaces()
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
