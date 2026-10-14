@@ -432,11 +432,50 @@ export async function runWorkspaceNamedPreset(
       "inspector",
       "discussion",
     ]);
+    const reloadedTaskResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname.endsWith(`/tasks/${imageTask.id}`) &&
+        response.ok(),
+      { timeout: 20_000 },
+    );
     await page.reload();
+    const taskBody: unknown = await (await reloadedTaskResponse).json();
+    if (
+      typeof taskBody !== "object" ||
+      taskBody === null ||
+      !("id" in taskBody) ||
+      taskBody.id !== imageTask.id ||
+      !("project_id" in taskBody) ||
+      taskBody.project_id !== catalog.projects.image_demo.id ||
+      !("file_name" in taskBody) ||
+      taskBody.file_name !== imageTask.file_name ||
+      !("file_type" in taskBody) ||
+      taskBody.file_type !== "image"
+    ) {
+      throw new Error("[workspace-named-preset] 刷新后服务端未返回原图像任务");
+    }
+    if (
+      "dataset_item_id" in taskBody &&
+      taskBody.dataset_item_id !== null &&
+      typeof taskBody.dataset_item_id !== "string"
+    ) {
+      throw new Error("[workspace-named-preset] 刷新后任务返回了无效媒体标识");
+    }
+    const expectedMediaIdentity =
+      "dataset_item_id" in taskBody && typeof taskBody.dataset_item_id === "string"
+        ? taskBody.dataset_item_id
+        : imageTask.id;
     await waitForImage(page);
     await waitForDesktop(page);
-    const reloadTask = new URL(page.url()).searchParams.get("task");
-    expect(reloadTask, "刷新后仍在同一任务").toBe(imageTask.id);
+    const reloadTaskId = new URL(page.url()).searchParams.get("task");
+    expect(reloadTaskId, "刷新后仍在同一任务").toBe(imageTask.id);
+    const reloadedStage = page.getByTestId("workbench-stage");
+    expect(await reloadedStage.getAttribute("data-image-identity")).toContain(
+      expectedMediaIdentity,
+    );
+    await expect(reloadedStage.locator("canvas").first()).toBeVisible({ timeout: 20_000 });
+
     const afterReload = await readPreferences(page);
     const storedPresetNamesAfterReload = storedPresetNames(afterReload);
     expect(storedPresetNamesAfterReload, "刷新后预设必须仍随账号保存").toContain(PRESET_NAME);
@@ -445,7 +484,6 @@ export async function runWorkspaceNamedPreset(
       menu.getByRole("button", { name: `应用预设 ${PRESET_NAME}`, exact: true }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(menu).toContainText(`${storedPresetNamesAfterReload.length} / 5`);
-    await page.waitForTimeout(1_600);
 
     const drawEndMs = Date.now();
     result = {
@@ -457,7 +495,7 @@ export async function runWorkspaceNamedPreset(
         namedPresetWrites,
         storedPresetNamesAfterSave,
         storedPresetNamesAfterReload,
-        reloadTask: reloadTask!,
+        reloadTask: reloadTaskId!,
         panelsAfterCustom,
         panelsAfterStandard,
         panelsAfterApply,
