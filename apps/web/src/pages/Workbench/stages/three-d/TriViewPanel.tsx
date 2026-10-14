@@ -236,7 +236,7 @@ export function TriViewPanel({
           />
           <TriAxisGlyph view={view} />
           <figcaption className={TRI_CAPTION}>
-            {TRI_LABEL[view]} · {Math.round(zoomByView[view] * 100)}%
+            {TRI_LABEL[view]} · {Math.round(zoomByView[view] * 100)}% · 当前实测
           </figcaption>
         </div>
       ))}

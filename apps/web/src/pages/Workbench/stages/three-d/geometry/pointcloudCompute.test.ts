@@ -73,6 +73,28 @@ describe("colorizePointsAsync", () => {
 });
 
 describe("PointCloudComputeSession", () => {
+  it("retires auxiliary decode without terminating the shared measured-frame worker", async () => {
+    const worker = {
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+      onmessage: null,
+      onerror: null,
+    } as unknown as Worker;
+    const factory = vi.fn(() => worker);
+    const session = new PointCloudComputeSession(factory);
+    const controller = new AbortController();
+    const pending = session.decodeAuxiliaryPcd(
+      new Uint8Array([1]).buffer,
+      "iso_8855",
+      100,
+      controller.signal,
+    );
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(worker.terminate).not.toHaveBeenCalled();
+    expect(session.getDiagnostics().pendingRequests).toBe(0);
+    session.dispose();
+  });
   it("reuses one worker across requests until the workbench session is disposed", async () => {
     const factory = vi.fn();
     const worker = {

@@ -12,6 +12,7 @@ import {
   buildFieldPatch,
   getFieldValue,
   lockableFieldName,
+  isWorkbenchSettingDisabled,
 } from "./workbenchSettingsFields";
 
 describe("workbenchSettingsFields 注册表", () => {
@@ -46,7 +47,7 @@ describe("workbenchSettingsFields 注册表", () => {
   });
 
   it("注册表默认值与现状一致", () => {
-    expect(WORKBENCH_SETTING_FIELDS).toHaveLength(50);
+    expect(WORKBENCH_SETTING_FIELDS).toHaveLength(51);
     const byKey = Object.fromEntries(
       WORKBENCH_SETTING_FIELDS.map((f) => [f.key, getFieldValue(DEFAULT_WORKBENCH_PREFERENCES, f)]),
     );
@@ -84,6 +85,7 @@ describe("workbenchSettingsFields 注册表", () => {
       "video.autoFitOnResize": true,
       "video.trackContinueAutoAdvance": false,
       "pointcloud.displayStyle": "points",
+      "pointcloud.augmentationSource": "none",
       "pointcloud.pointSize": 0.06,
       "pointcloud.persistCameraView": false,
       "pointcloud.colorizeWithCamera": false,
@@ -118,6 +120,37 @@ describe("workbenchSettingsFields 注册表", () => {
   it("local fields do not build preference patches", () => {
     const field = WORKBENCH_SETTING_FIELDS.find((f) => f.key === "experiment.webcodecs")!;
     expect(() => buildFieldPatch(field, true)).toThrow(/Local workbench setting/);
+  });
+
+  it("source settings use the viewport compound writer and enable only neighbor details", () => {
+    const source = WORKBENCH_SETTING_FIELDS.find(
+      (field) => field.key === "pointcloud.augmentationSource",
+    )!;
+    const radius = WORKBENCH_SETTING_FIELDS.find(
+      (field) => field.key === "pointcloud.neighborPointOverlayK",
+    )!;
+    expect(buildFieldPatch(source, "vggt_omega")).toEqual({
+      pointcloud: { augmentationSource: "vggt_omega", neighborPointOverlay: false },
+    });
+    expect(
+      getVisibleWorkbenchSettingFields().some(
+        (field) => field.key === "pointcloud.neighborPointOverlay",
+      ),
+    ).toBe(false);
+    expect(isWorkbenchSettingDisabled(DEFAULT_WORKBENCH_PREFERENCES, radius)).toBe(true);
+    const legacySurface = {
+      ...DEFAULT_WORKBENCH_PREFERENCES,
+      pointcloud: { ...DEFAULT_WORKBENCH_PREFERENCES.pointcloud, displayStyle: "surface" as const },
+    };
+    expect(getFieldValue(legacySurface, source)).toBe("neighbors");
+    expect(isWorkbenchSettingDisabled(legacySurface, radius)).toBe(false);
+    expect(buildFieldPatch(radius, 3)).toEqual({
+      pointcloud: {
+        augmentationSource: "neighbors",
+        neighborPointOverlay: true,
+        neighborPointOverlayK: 3,
+      },
+    });
   });
 
   it("lockableFieldName:image 4 个可锁字段映射平铺名,其余 null", () => {

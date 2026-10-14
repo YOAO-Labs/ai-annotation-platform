@@ -40357,6 +40357,22 @@
         "additionalProperties": false,
         "description": "v0.15.3 · 点云模态偏好。v0.15.6 填充渲染 / 导航字段（默认值 = 拆分前现状值）。",
         "properties": {
+          "augmentationSource": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "neighbors",
+                  "vggt_omega"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Augmentationsource"
+          },
           "cameraDamping": {
             "default": 0.1,
             "maximum": 0.3,

@@ -138,6 +138,7 @@ export interface WorkbenchImagePreferences {
 export type VideoDefaultPlaybackRate = 0.25 | 0.5 | 1 | 2 | 4;
 export type VideoLargeFrameStep = 5 | 10 | 30 | "grid";
 export type PointCloudDisplayStyle = "points" | "surface";
+export type PointCloudAugmentationSource = "none" | "neighbors" | "vggt_omega";
 
 /** v0.15.5 · 视频工作台播放 / 步进偏好。 */
 export interface WorkbenchVideoPreferences {
@@ -155,6 +156,8 @@ export interface WorkbenchVideoPreferences {
 export interface WorkbenchPointcloudPreferences {
   /** View-only profile; surface uses soft splats without changing point/annotation truth. */
   displayStyle: PointCloudDisplayStyle;
+  /** Null preserves the visible behavior of legacy neighbor/surface preferences. */
+  augmentationSource?: PointCloudAugmentationSource | null;
   pointSize: number;
   persistCameraView: boolean;
   colorizeWithCamera: boolean;
@@ -434,6 +437,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     trackContinueAutoAdvance: false,
   },
   pointcloud: {
+    augmentationSource: null,
     displayStyle: "points",
     pointSize: 0.06,
     persistCameraView: false,

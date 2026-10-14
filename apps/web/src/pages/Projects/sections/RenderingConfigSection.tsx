@@ -10,12 +10,33 @@ import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { useToastStore } from "@/components/ui/Toast";
 import { useUpdateProject } from "@/hooks/useProjects";
-import type { ProjectResponse, ProjectRenderingConfig } from "@/api/projects";
+import { useProjectAccess } from "@/hooks/useProjectAccess";
+import { Switch } from "@/components/ui/Switch";
+import {
+  DEFAULT_POINT_CLOUD_ENHANCEMENT_CONFIG,
+  type PointCloudEnhancementConfig,
+  type ProjectResponse,
+  type ProjectRenderingConfig,
+} from "@/api/projects";
 import { RenderingConfigEditor } from "./RenderingConfigEditor";
+import { PointCloudPreparation } from "./PointCloudPreparation";
 
 export function RenderingConfigSection({ project }: { project: ProjectResponse }) {
   const pushToast = useToastStore((s) => s.push);
   const update = useUpdateProject(project.id);
+  const access = useProjectAccess(project.id);
+  const canManage = access.hasCapability("project.manage");
+  const enhancement =
+    project.point_cloud_enhancement_config ?? DEFAULT_POINT_CLOUD_ENHANCEMENT_CONFIG;
+  const onEnhancementChange = (config: PointCloudEnhancementConfig) => {
+    if (!canManage || update.isPending) return;
+    update.mutate(
+      { point_cloud_enhancement_config: config },
+      {
+        onError: () => pushToast({ msg: "AI 补强实验设置保存失败", kind: "warning" }),
+      },
+    );
+  };
   const [draft, setDraft] = useState<ProjectRenderingConfig>(project.rendering_config ?? {});
 
   const onChange = (next: ProjectRenderingConfig) => {
@@ -41,6 +62,31 @@ export function RenderingConfigSection({ project }: { project: ProjectResponse }
         <RenderingConfigEditor value={draft} onChange={onChange} disabled={update.isPending} />
         {update.isPending && <div className="mt-3 text-xs text-muted-foreground">保存中…</div>}
       </div>
+      <section className="border-t border-border p-4" aria-label="AI 点云补强实验">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h4 className="m-0 text-sm font-semibold">AI 当前帧点云补强（实验）</h4>
+            <p className="m-0 mt-1 text-xs text-muted-foreground">
+              VGGT-Ω 生成辅助形状；当前真实 LiDAR 始终用于标注。成员需自行选择 AI
+              补强，查看不会启动推理。
+            </p>
+          </div>
+          <Switch
+            checked={enhancement.enabled}
+            disabled={!canManage || update.isPending}
+            label="允许成员使用实验"
+            data-testid="pointcloud-enhancement-project-toggle"
+            onChange={(enabled) => onEnhancementChange({ ...enhancement, enabled })}
+          />
+        </div>
+        <PointCloudPreparation
+          projectId={project.id}
+          config={enhancement}
+          canManage={canManage}
+          saving={update.isPending}
+          onConfigChange={onEnhancementChange}
+        />
+      </section>
     </Card>
   );
 }

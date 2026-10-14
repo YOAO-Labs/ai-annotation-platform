@@ -2,7 +2,12 @@ import type { SensorCalibration } from "@/types";
 
 import type { CameraSample } from "./colorize";
 import type { GpuDepthRaster } from "./depthmap";
-import { decodePointCloudFrame, type DecodedPointCloudFrame } from "./pointcloudFrame";
+import {
+  decodePointCloudFrame,
+  decodeAuxiliaryPointCloudFrame,
+  type DecodedPointCloudFrame,
+  type DecodedAuxiliaryPointCloudFrame,
+} from "./pointcloudFrame";
 import type { LidarAxisConvention } from "./axisConvention";
 
 type WorkerFactory = () => Worker;
@@ -12,7 +17,7 @@ export type PointCloudDecodeLane = "shared" | "active" | "prefetch";
 type WorkerRequest =
   | {
       reqId: number;
-      kind: "decode_pcd";
+      kind: "decode_pcd" | "decode_auxiliary_pcd";
       buffer: ArrayBuffer;
       convention: LidarAxisConvention;
       decimateThreshold: number;
@@ -39,6 +44,12 @@ type WorkerRequestPayload = WorkerRequest extends infer Request
 
 type WorkerSuccess =
   | { reqId: number; ok: true; kind: "decode_pcd"; frame: DecodedPointCloudFrame }
+  | {
+      reqId: number;
+      ok: true;
+      kind: "decode_auxiliary_pcd";
+      frame: DecodedAuxiliaryPointCloudFrame;
+    }
   | { reqId: number; ok: true; kind: "colorize"; colors: Float32Array }
   | { reqId: number; ok: true; kind: "build_depth_rasters"; rasters: GpuDepthRaster[] };
 type WorkerResponse = WorkerSuccess | { reqId: number; ok: false; error: string };
@@ -194,6 +205,28 @@ export class PointCloudComputeSession {
     return response.colors;
   }
 
+  async decodeAuxiliaryPcd(
+    buffer: ArrayBuffer,
+    convention: LidarAxisConvention,
+    targetCount: number,
+    signal?: AbortSignal,
+  ): Promise<DecodedAuxiliaryPointCloudFrame> {
+    const transferable = buffer.slice(0);
+    const response = await this.run(
+      {
+        kind: "decode_auxiliary_pcd",
+        buffer: transferable,
+        convention,
+        decimateThreshold: targetCount,
+      },
+      [transferable],
+      { signal },
+    );
+    if (response.kind !== "decode_auxiliary_pcd")
+      throw new Error("unexpected auxiliary worker response");
+    return response.frame;
+  }
+
   async buildDepthRasters(
     positions: Float32Array,
     cameras: Array<{ calib: SensorCalibration; width: number; height: number }>,
@@ -338,4 +371,17 @@ export async function decodePointCloudFrameAsync(
     console.warn("[pointcloud-worker] PCD decode fallback to main thread", error);
     return decodePointCloudFrame(buffer, convention, decimateThreshold);
   }
+}
+
+/** Low-priority caller starts this only after the measured frame is ready. */
+export async function decodeAuxiliaryPointCloudFrameAsync(
+  buffer: ArrayBuffer,
+  convention: LidarAxisConvention,
+  targetCount: number,
+  signal?: AbortSignal,
+): Promise<DecodedAuxiliaryPointCloudFrame> {
+  if (signal?.aborted) throw new DOMException("Auxiliary decode aborted", "AbortError");
+  if (typeof Worker === "undefined")
+    return decodeAuxiliaryPointCloudFrame(buffer, convention, targetCount);
+  return getPointCloudComputeSession().decodeAuxiliaryPcd(buffer, convention, targetCount, signal);
 }

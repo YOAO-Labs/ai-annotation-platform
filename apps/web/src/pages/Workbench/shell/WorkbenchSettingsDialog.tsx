@@ -25,6 +25,7 @@ import {
   buildFieldPatch,
   filterWorkbenchSettings,
   getFieldValue,
+  isWorkbenchSettingDisabled,
   groupWorkbenchSettings,
   getVisibleWorkbenchSettingFields,
   isLocalSettingField,
@@ -124,12 +125,11 @@ export function WorkbenchSettingsDialog({
 
   const entries: SettingsEntry[] = visibleFields.map((field) => {
     const lockName = lockableFieldName(field);
-    const parent = visibleFields.find((candidate) => candidate.key === field.parentKey);
     return {
       ...field,
       value: getFieldValue(config, field),
       locked: lockName !== null && lockedFields.includes(lockName),
-      disabled: parent ? !getFieldValue(config, parent) : false,
+      disabled: isWorkbenchSettingDisabled(config, field),
       onCommit: (value) => {
         if (isLocalSettingField(field)) {
           field.write(value);

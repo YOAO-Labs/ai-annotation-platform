@@ -406,6 +406,8 @@ class WorkbenchPointcloudPreferences(BaseModel):
 
     # View-only rendering profile. ``surface`` never changes source points or annotation indices.
     displayStyle: Literal["points", "surface"] = "points"
+    # Null retains legacy surface assistance until a source is explicitly selected.
+    augmentationSource: Literal["none", "neighbors", "vggt_omega"] | None = None
     pointSize: float = Field(default=0.06, ge=0.01, le=0.3)
     persistCameraView: bool = False
     colorizeWithCamera: bool = False

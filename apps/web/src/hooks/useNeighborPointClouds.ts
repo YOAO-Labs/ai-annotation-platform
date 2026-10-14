@@ -9,6 +9,7 @@ import { tasksApi } from "@/api/tasks";
 import type { PointCloudDisplayStyle } from "@/api/auth";
 import { loadNeighborPcdPositions } from "@/pages/Workbench/stages/three-d/geometry/loadNeighborPcd";
 import type { LidarAxisConvention } from "@/pages/Workbench/stages/three-d/geometry/axisConvention";
+import { resolvePointCloudAugmentation } from "@/pages/Workbench/state/pointCloudAugmentation";
 
 export interface NeighborPcd {
   taskId: string;
@@ -27,16 +28,12 @@ export function resolveNeighborPointCloudPlan(
   overlayEnabled: boolean,
   overlayFrameCount: number,
 ): NeighborPointCloudPlan {
-  const explicitFrameCount = overlayEnabled
-    ? overlayFrameCount === 2 || overlayFrameCount === 3
-      ? overlayFrameCount
-      : 1
-    : 0;
-  const surfaceFrameCount = displayStyle === "surface" ? 1 : 0;
-  return {
-    frameCount: Math.max(explicitFrameCount, surfaceFrameCount) as 0 | 1 | 2 | 3,
-    displayMode: overlayEnabled ? "diagnostic" : "surface",
-  };
+  return resolvePointCloudAugmentation({
+    augmentationSource: null,
+    displayStyle,
+    neighborPointOverlay: overlayEnabled,
+    neighborPointOverlayK: overlayFrameCount as 1 | 2 | 3,
+  }).neighborPlan;
 }
 
 export function useNeighborPointClouds(

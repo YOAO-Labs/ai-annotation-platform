@@ -266,6 +266,24 @@ _LEGACY_WORKBENCH_KEYS: dict[str, str] = {
 }
 
 
+def _normalize_pointcloud_augmentation(payload: dict) -> dict:
+    """Resolve a compound source write before deep merge, without rewriting reads."""
+    workbench = payload.get("workbench")
+    pointcloud = workbench.get("pointcloud") if isinstance(workbench, dict) else None
+    if not isinstance(pointcloud, dict):
+        return payload
+    source = pointcloud.get("augmentationSource")
+    if isinstance(source, str) and source in {"none", "neighbors", "vggt_omega"}:
+        pointcloud = {**pointcloud, "neighborPointOverlay": source == "neighbors"}
+    elif (
+        "neighborPointOverlay" in pointcloud and "augmentationSource" not in pointcloud
+    ):
+        pointcloud = {**pointcloud, "augmentationSource": None}
+    else:
+        return payload
+    return {**payload, "workbench": {**workbench, "pointcloud": pointcloud}}
+
+
 def _promote_legacy_workbench_keys(payload: dict) -> dict:
     """把 workbench 子树里的旧平铺键提升到对应子树；新旧位置同时出现以新子树值为准。
 
@@ -721,6 +739,7 @@ async def update_preferences(
     入参收 raw dict：先过 legacy 平铺键提升器 + 移除键剥离器（均 v0.16 移除）再手动走
     pydantic 校验，校验失败按 FastAPI 原生 422 形态抛出。"""
     promoted = _strip_removed_workbench_keys(_promote_legacy_workbench_keys(payload))
+    promoted = _normalize_pointcloud_augmentation(promoted)
     user = (
         await db.execute(
             select(User)

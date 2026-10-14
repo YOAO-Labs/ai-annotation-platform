@@ -91,4 +91,51 @@ describe("PointCloudScene display style", () => {
     scene.setNeighborPoints([]);
     expect(neighborLayer.children).toHaveLength(0);
   });
+
+  it("keeps generated RGB geometry outside measured geometry, raycast and tri-view owners", () => {
+    const scene = Object.create(PointCloudScene.prototype) as PointCloudScene;
+    const positions = new Float32Array([1, 2, 3]);
+    const primary = new THREE.BufferGeometry().setAttribute(
+      "position",
+      new THREE.BufferAttribute(positions, 3),
+    );
+    const raycast = new THREE.Points(primary, new THREE.PointsMaterial());
+    const layer = new THREE.Group();
+    const triViewPass = { setGeometry: vi.fn(), setDisplayStyle: vi.fn() };
+    Object.assign(scene, {
+      rendererStatus: { actualBackend: "legacy-webgl2" },
+      pointSize: 0.1,
+      displayStyle: "points",
+      augmentationLayer: layer,
+      augmentationPoints: null,
+      neighborPoints: [],
+      pointGeometry: primary,
+      renderedPointCount: 1,
+      pointRaycastObject: raycast,
+      triViewPass,
+      disposed: false,
+      renderScheduler: null,
+    });
+    const frame = {
+      positions: new Float32Array([10, 20, 30]),
+      colors: new Float32Array([0.25, 0.5, 0.75]),
+      renderedPoints: 1,
+      totalPoints: 1,
+    };
+    scene.setAugmentationPoints(frame);
+    expect(scene.getPointPositions()).toEqual(positions);
+    expect(scene.getPointPositions()?.buffer).toBe(positions.buffer);
+    expect(raycast.geometry).toBe(primary);
+    expect(triViewPass.setGeometry).not.toHaveBeenCalled();
+    const visual = layer.children[0] as THREE.Points;
+    expect(visual.geometry.getAttribute("color").array).toBe(frame.colors);
+    expect((visual.material as THREE.PointsMaterial).depthWrite).toBe(false);
+    const disposed = vi.spyOn(visual.geometry, "dispose");
+    scene.setAugmentationPoints(null);
+    expect(disposed).toHaveBeenCalledOnce();
+    expect(layer.children).toHaveLength(0);
+    expect(scene.getPointPositions()).toEqual(positions);
+    primary.dispose();
+    raycast.material.dispose();
+  });
 });
