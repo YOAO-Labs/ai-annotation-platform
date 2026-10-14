@@ -3,6 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { ApiError } from "@/api/client";
 import {
+  canAcquireWorkbenchTaskLock,
   annotationsForTask,
   classifyAccessLookupError,
   resolveMaskEditorSize,
@@ -36,6 +37,21 @@ describe("videoAnnotationQueriesEnabled", () => {
     expect(videoAnnotationQueriesEnabled(true, true, true, "segment-1")).toBe(true);
     expect(videoAnnotationQueriesEnabled(true, true, false, null)).toBe(true);
     expect(videoAnnotationQueriesEnabled(false, false, false, null)).toBe(true);
+  });
+});
+
+describe("canAcquireWorkbenchTaskLock", () => {
+  it("locks only tasks in the phase authorized by the active workbench mode", () => {
+    expect(canAcquireWorkbenchTaskLock("annotate", "pending", false)).toBe(true);
+    expect(canAcquireWorkbenchTaskLock("annotate", "rejected", false)).toBe(true);
+    expect(canAcquireWorkbenchTaskLock("annotate", "review", false)).toBe(false);
+    expect(canAcquireWorkbenchTaskLock("annotate", "completed", false)).toBe(false);
+    expect(canAcquireWorkbenchTaskLock("annotate", "uploading", false)).toBe(false);
+    expect(canAcquireWorkbenchTaskLock("review", "review", false)).toBe(true);
+    expect(canAcquireWorkbenchTaskLock("review", "rejected", false)).toBe(false);
+    expect(canAcquireWorkbenchTaskLock("review", "completed", false)).toBe(false);
+    expect(canAcquireWorkbenchTaskLock("review", "review", true)).toBe(false);
+    expect(canAcquireWorkbenchTaskLock("annotate", "in_progress", true)).toBe(false);
   });
 });
 

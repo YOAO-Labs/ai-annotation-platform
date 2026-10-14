@@ -70,6 +70,26 @@ describe("useTaskLock", () => {
     expect(tasksApi.heartbeatLock).not.toHaveBeenCalled();
   });
 
+  it("releases and pauses the task lock before a task phase transition", async () => {
+    const { result } = renderHook(() => useTaskLock("a"));
+    await settle();
+    expect(result.current.isLocked).toBe(true);
+
+    await act(async () => {
+      await result.current.releaseForPhaseTransition("a");
+    });
+    expect(tasksApi.releaseLockKeepalive).toHaveBeenCalledTimes(1);
+    expect(result.current.isLocked).toBe(false);
+
+    await act(async () => vi.advanceTimersByTimeAsync(180_000));
+    expect(tasksApi.heartbeatLock).not.toHaveBeenCalled();
+
+    act(() => result.current.resumeAfterPhaseTransitionFailure("a"));
+    await settle();
+    expect(tasksApi.acquireLock).toHaveBeenCalledTimes(2);
+    expect(tasksApi.releaseLockKeepalive).toHaveBeenCalledTimes(1);
+  });
+
   it("never exposes the previous task lock while a new task is loading", async () => {
     const next = deferred<TaskLockResponse>();
     const { result, rerender } = renderHook(({ id }) => useTaskLock(id), {

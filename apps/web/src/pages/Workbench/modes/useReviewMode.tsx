@@ -13,6 +13,8 @@ interface UseReviewModeParams {
   navigateTask: NavigateTask;
   pushToast: PushToast;
   isCurrentContext?: () => boolean;
+  releaseTaskLock?: (taskId: string) => Promise<void>;
+  resumeTaskLock?: (taskId: string) => void;
 }
 
 const noop = () => {};
@@ -33,6 +35,8 @@ export function useReviewMode({
   navigateTask,
   pushToast,
   isCurrentContext,
+  releaseTaskLock,
+  resumeTaskLock,
 }: UseReviewModeParams): WorkbenchModeState {
   const [diffMode, setDiffMode] = useState<DiffMode>("diff");
   const [claimInfo, setClaimInfo] = useState<ReviewClaimResponse | null>(null);
@@ -41,51 +45,79 @@ export function useReviewMode({
   const claimMut = useReviewClaim();
   const currentTaskIdRef = useRef(taskId);
   currentTaskIdRef.current = taskId;
+  const currentReviewContextRef = useRef({ taskId, status: task?.status, mode });
+  currentReviewContextRef.current = { taskId, status: task?.status, mode };
   const ownsContext = useCallback(
     (ownerTaskId: string) => () =>
       currentTaskIdRef.current === ownerTaskId && isCurrentContext?.() !== false,
     [isCurrentContext],
   );
+  const ownsReviewTask = useCallback(
+    (ownerTaskId: string) => {
+      const current = currentReviewContextRef.current;
+      return (
+        current.taskId === ownerTaskId &&
+        current.status === "review" &&
+        current.mode === "review" &&
+        isCurrentContext?.() !== false
+      );
+    },
+    [isCurrentContext],
+  );
 
   useEffect(() => {
     if (mode !== "review" || !taskId || task?.status !== "review") return;
-    const owns = ownsContext(taskId);
+    const owns = ownsReviewTask;
     claimMut.mutate(taskId, {
       onSuccess: (data) => {
-        if (owns()) setClaimInfo(data);
+        if (owns(taskId)) setClaimInfo(data);
       },
       onError: () => {},
     });
     // claimMut 故意不在依赖数组中（每次 taskId 变化只 fire 一次）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, taskId, task?.status, ownsContext]);
-
-  const handleApproveTask = useCallback(() => {
-    if (!taskId) return;
-    const owns = ownsContext(taskId);
-    approveMut.mutate(taskId, {
+  }, [mode, taskId, task?.status, ownsReviewTask]);
+  const handleApproveTask = useCallback(async () => {
+    if (!taskId || !ownsReviewTask(taskId)) return;
+    const ownerTaskId = taskId;
+    const owns = ownsContext(ownerTaskId);
+    await releaseTaskLock?.(ownerTaskId);
+    if (!ownsReviewTask(ownerTaskId)) return;
+    approveMut.mutate(ownerTaskId, {
       onSuccess: () => {
         if (!owns()) return;
         pushToast({ msg: "任务已通过", kind: "success" });
         navigateTask("next");
       },
-      onError: () => owns() && pushToast({ msg: "通过失败，请重试", kind: "error" }),
+      onError: () => {
+        if (!owns()) return;
+        resumeTaskLock?.(ownerTaskId);
+        pushToast({ msg: "通过失败，请重试", kind: "error" });
+      },
     });
-  }, [taskId, ownsContext, approveMut, pushToast, navigateTask]);
+  }, [
+    taskId,
+    ownsReviewTask,
+    ownsContext,
+    releaseTaskLock,
+    approveMut,
+    pushToast,
+    navigateTask,
+    resumeTaskLock,
+  ]);
 
-  // 退回走 rejectReasonDialog 两步流（choiceDialog 选 reason_type + 可选 inputDialog 补充说明，
-  // 原 RejectReasonModal / rejectingTask open state 随 plan T3.5 移除）。任一步取消即整次放弃。
+  // 退回走 rejectReasonDialog 两步流；任一步取消即整次放弃。
   const handleRejectTask = useCallback(async () => {
-    if (!taskId) return;
+    if (!taskId || !ownsReviewTask(taskId)) return;
     const ownerTaskId = taskId;
     const payload = await promptRejectReason({
       count: 1,
       skipReasonHint: task?.skip_reason ?? null,
     });
-    if (!payload) return;
-    // async-await gap：两步弹窗期间任务 / 上下文可能已切换，复验后再提交（与 owns() 同口径）。
-    if (currentTaskIdRef.current !== ownerTaskId || isCurrentContext?.() === false) return;
+    if (!payload || !ownsReviewTask(ownerTaskId)) return;
     const owns = ownsContext(ownerTaskId);
+    await releaseTaskLock?.(ownerTaskId);
+    if (!ownsReviewTask(ownerTaskId)) return;
     rejectMut.mutate(
       { taskId: ownerTaskId, ...payload },
       {
@@ -94,17 +126,23 @@ export function useReviewMode({
           pushToast({ msg: "任务已退回", kind: "success" });
           navigateTask("next");
         },
-        onError: () => owns() && pushToast({ msg: "退回失败，请重试", kind: "error" }),
+        onError: () => {
+          if (!owns()) return;
+          resumeTaskLock?.(ownerTaskId);
+          pushToast({ msg: "退回失败，请重试", kind: "error" });
+        },
       },
     );
   }, [
     taskId,
     task?.skip_reason,
-    isCurrentContext,
+    ownsReviewTask,
     ownsContext,
+    releaseTaskLock,
     rejectMut,
     pushToast,
     navigateTask,
+    resumeTaskLock,
   ]);
 
   useEffect(() => {
@@ -121,7 +159,7 @@ export function useReviewMode({
         return;
       if (e.key === "a" || e.key === "A") {
         e.preventDefault();
-        handleApproveTask();
+        void handleApproveTask();
       } else if (e.key === "r" || e.key === "R") {
         e.preventDefault();
         void handleRejectTask();
@@ -131,21 +169,29 @@ export function useReviewMode({
     return () => window.removeEventListener("keydown", handler);
   }, [mode, handleApproveTask, handleRejectTask]);
 
+  const reviewTaskAvailable = mode === "review" && task?.status === "review";
   const topbarActions = useMemo(
     () => ({
-      canApprove: mode === "review",
-      canReject: mode === "review",
+      canApprove: reviewTaskAvailable,
+      canReject: reviewTaskAvailable,
       onApprove: handleApproveTask,
       onReject: () => void handleRejectTask(),
       isApproving: approveMut.isPending,
       isRejecting: rejectMut.isPending,
       reviewInfoSlot: mode === "review" ? <ReviewerMiniPanel /> : undefined,
     }),
-    [mode, handleApproveTask, handleRejectTask, approveMut.isPending, rejectMut.isPending],
+    [
+      mode,
+      reviewTaskAvailable,
+      handleApproveTask,
+      handleRejectTask,
+      approveMut.isPending,
+      rejectMut.isPending,
+    ],
   );
 
   return {
-    isLocked: task?.status === "completed",
+    isLocked: mode === "review" ? task?.status !== "review" : task?.status === "completed",
     diffMode: mode === "review" ? diffMode : undefined,
     onSetDiffMode: mode === "review" ? setDiffMode : undefined,
     banners: null,
