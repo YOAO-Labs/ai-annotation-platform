@@ -9,8 +9,8 @@ import type { DrawWindow } from "./rotated-bbox";
 
 export const STORAGE_CONNECTOR_RECORDING_NAME = "道路场景素材（演示）";
 
-const ENDPOINT = "172.17.0.1:9000";
-const BUCKET = "datasets";
+const ENDPOINT = process.env.MINIO_ENDPOINT ?? "172.17.0.1:9000";
+const BUCKET = process.env.MINIO_DATASETS_BUCKET ?? "datasets";
 const BASE_PREFIX = "coco8-dev/train/";
 const DEMO_CREDENTIAL = "minioadmin";
 const EXPECTED_SAMPLE_COUNT = 4;

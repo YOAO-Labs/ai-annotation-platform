@@ -118,32 +118,29 @@ export async function runWorkspaceLayoutBasics(
     if (!oldInspector) throw new Error("[workspace-layout-basics] Inspector has no bounds");
     const sash = await page
       .locator("[data-workbench-workspace] .dv-sash:not(.dv-disabled)")
-      .evaluateAll((elements, geometry) => {
-        const rect = elements
-          .map((element) => element.getBoundingClientRect())
-          .find(
-            (candidate) =>
-              candidate.height > candidate.width &&
-              candidate.width > 0 &&
-              Math.abs(candidate.left + candidate.width / 2 - geometry.boundary) < 5,
-          );
-        if (!rect) return null;
-        // The canvas render overlay meets the sash on its centerline. Start on
-        // the Inspector-side hit area and align vertically with its actual body.
-        return {
-          x: Math.min(
-            rect.right - 0.5,
-            Math.max(rect.left + 0.5, geometry.boundary + 1),
-          ),
-          y: Math.max(
-            rect.top + 0.5,
-            Math.min(geometry.inspectorCenterY, rect.bottom - 0.5),
-          ),
-        };
-      }, {
-        boundary: oldInspector.x,
-        inspectorCenterY: oldInspector.y + oldInspector.height / 2,
-      });
+      .evaluateAll(
+        (elements, geometry) => {
+          const rect = elements
+            .map((element) => element.getBoundingClientRect())
+            .find(
+              (candidate) =>
+                candidate.height > candidate.width &&
+                candidate.width > 0 &&
+                Math.abs(candidate.left + candidate.width / 2 - geometry.boundary) < 5,
+            );
+          if (!rect) return null;
+          // The canvas render overlay meets the sash on its centerline. Start on
+          // the Inspector-side hit area and align vertically with its actual body.
+          return {
+            x: Math.min(rect.right - 0.5, Math.max(rect.left + 0.5, geometry.boundary + 1)),
+            y: Math.max(rect.top + 0.5, Math.min(geometry.inspectorCenterY, rect.bottom - 0.5)),
+          };
+        },
+        {
+          boundary: oldInspector.x,
+          inspectorCenterY: oldInspector.y + oldInspector.height / 2,
+        },
+      );
     if (!sash) throw new Error("[workspace-layout-basics] Inspector divider is missing");
     await page.mouse.move(sash.x, sash.y);
     await page.waitForTimeout(450);
@@ -199,7 +196,7 @@ export async function runWorkspaceLayoutBasics(
       .toBeGreaterThan(restoredWidth + 100);
     await sameState();
     await page.waitForTimeout(1800);
-    await recordingLayoutCommand(page, "恢复画布");
+    await recordingLayoutCommand(page, "恢复画布布局");
     await waitForRecordingPanels(
       page,
       ["canvas", "task-queue", "class-palette", "discussion"],

@@ -2943,19 +2943,20 @@ test.describe("flow recordings", () => {
 
 // 由绘制起止时间戳算 GIF 裁剪窗口：startSec 跳过开头(加载/隐藏预测/选工具)，
 // durationSec 只留绘制段(裁掉结尾的删除清理)。win 为 null(工具缺失)时不裁。
+// 只保留生产者明确标记的稳定内容；额外首尾 padding 会把加载与 finally 清理重新收进片段。
 function drawTrim(
   win: { drawStartMs: number; drawEndMs: number } | null,
   t0: number,
 ): Pick<GifOptions, "startSec" | "durationSec" | "captureWindow"> {
   if (!win) return {};
-  const startSec = Math.max(0, (win.drawStartMs - t0) / 1000 - 0.4);
-  const durationSec = (win.drawEndMs - win.drawStartMs) / 1000 + 0.8;
+  const startSec = Math.max(0, (win.drawStartMs - t0) / 1000);
+  const durationSec = (win.drawEndMs - win.drawStartMs) / 1000;
   return {
     startSec,
     durationSec,
     captureWindow: {
-      startEpochMs: win.drawStartMs - 400,
-      endEpochMs: win.drawEndMs + 400,
+      startEpochMs: win.drawStartMs,
+      endEpochMs: win.drawEndMs,
     },
   };
 }

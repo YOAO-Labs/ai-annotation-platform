@@ -225,7 +225,7 @@ export async function runProjectInvitationJoin(
     await dialog
       .getByLabel("账号角色（平台身份）", { exact: false })
       .selectOption(INVITED_PLATFORM_ROLE);
-    await dialog.getByLabel("项目职责", { exact: false }).selectOption(INVITED_PROJECT_ROLE);
+    await dialog.getByRole("combobox", { name: /^项目职责/ }).selectOption(INVITED_PROJECT_ROLE);
     await page.waitForTimeout(900);
     const created = page.waitForResponse(
       (response) =>
@@ -238,20 +238,16 @@ export async function runProjectInvitationJoin(
     expect(createdResponse.ok(), await createdResponse.text()).toBe(true);
     invitation = (await createdResponse.json()) as InvitationCreated;
     // 创建响应不含编号（只含 token/URL）：从邀请记录按本流程唯一邮箱解析编号。
-    const invitationRows = (
-      await page.request
-        .get("/api/v1/invitations", {
-          headers: auth(accessToken),
-          params: { status: "pending", scope: "all" },
-        })
-        .then((response) => {
-          if (!response.ok())
-            throw new Error(
-              `[project-invitation-join] 读取邀请记录失败: HTTP ${response.status()}`,
-            );
-          return response.json() as Promise<InvitationRecord[]>;
-        })
-    );
+    const invitationRows = await page.request
+      .get("/api/v1/invitations", {
+        headers: auth(accessToken),
+        params: { status: "pending", scope: "all" },
+      })
+      .then((response) => {
+        if (!response.ok())
+          throw new Error(`[project-invitation-join] 读取邀请记录失败: HTTP ${response.status()}`);
+        return response.json() as Promise<InvitationRecord[]>;
+      });
     const invitationRecord = invitationRows.find((row) => row.email === invitedEmail);
     invitationId = invitationRecord?.id ?? "";
     if (!invitationRecord) throw new Error("[project-invitation-join] 邀请编号缺失");
@@ -330,6 +326,9 @@ export async function runProjectInvitationJoin(
       next_action: "wait_for_allocation",
       active_batch_count: 0,
     });
+
+    // 新账号的首次登录会显示版本说明；通过真实按钮确认，不遮蔽产品弹窗。
+    await page.getByRole("button", { name: "知道了", exact: true }).click();
 
     // 4. 真实成员结果与「等待分派」空态。
     await expect(page.getByRole("heading", { name: "邀请已完成" })).toBeVisible({

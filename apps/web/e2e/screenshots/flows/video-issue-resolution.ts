@@ -19,6 +19,7 @@
  */
 import { expect, type Page } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
+import { recordingPanelCommand } from "./_workbench-layout";
 
 // F4 左侧公交车 / F8 中间卡车：来自 catalog 的已复核录制锚点。
 const READING_FRAME = 0;
@@ -335,6 +336,7 @@ export async function runVideoIssueResolution(
     // 1. 在另一源帧打开已存在的问题：阅读详情不改变当前帧。
     await revealFab(page);
     await page.getByTestId("issue-fab").click();
+    await recordingPanelCommand(page, "讨论", "停靠到右侧");
     await expect(panel.getByRole("tab", { name: /^问题/ })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -348,8 +350,14 @@ export async function runVideoIssueResolution(
     const targetRoot = detail.getByTestId(`discussion-issue-root-${targetIssue.id}`);
     await expect(targetRoot).toContainText(TARGET_TITLE);
     await expect(targetRoot).toContainText(TARGET_BODY);
-    await targetRoot.scrollIntoViewIfNeeded();
-    await expect(targetRoot.getByRole("heading", { name: TARGET_TITLE, exact: true })).toBeInViewport();
+    await targetRoot
+      .getByRole("heading", { name: TARGET_TITLE, exact: true })
+      .scrollIntoViewIfNeeded();
+    await expect(
+      targetRoot.getByRole("heading", { name: TARGET_TITLE, exact: true }),
+    ).toBeInViewport();
+    await page.waitForTimeout(800);
+    await targetRoot.getByText(TARGET_BODY, { exact: true }).scrollIntoViewIfNeeded();
     await expect(targetRoot.getByText(TARGET_BODY, { exact: true })).toBeInViewport();
     await page.waitForTimeout(3600);
     const frameAfterReading = await stage.getAttribute("data-video-frame-index");
@@ -441,6 +449,7 @@ export async function runVideoIssueResolution(
       .getByTestId(`discussion-issue-root-${targetIssue.id}`)
       .getByText("已解决", { exact: true });
     await expect(resolvedStatus).toBeVisible({ timeout: 10_000 });
+    await resolvedStatus.scrollIntoViewIfNeeded();
     await expect(resolvedStatus).toBeInViewport();
     await page.waitForTimeout(3_800); // 继续阅读已解决的完整详情
 
@@ -450,7 +459,7 @@ export async function runVideoIssueResolution(
     const nextRoot = detail.getByTestId(`discussion-issue-root-${nextIssue.id}`);
     await expect(nextRoot).toContainText(NEXT_TITLE);
     await expect(nextRoot).toContainText(NEXT_BODY);
-    await nextRoot.scrollIntoViewIfNeeded();
+    await nextRoot.getByRole("heading", { name: NEXT_TITLE, exact: true }).scrollIntoViewIfNeeded();
     await expect(nextRoot.getByRole("heading", { name: NEXT_TITLE, exact: true })).toBeInViewport();
     await expect(nextRoot.getByText(NEXT_BODY, { exact: true })).toBeInViewport();
     await expect(nextRoot.getByText("未解决", { exact: true })).toBeInViewport();

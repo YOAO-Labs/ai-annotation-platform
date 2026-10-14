@@ -168,11 +168,16 @@ export async function runVideoTrackCarryover(
   }
   await expect(source).toHaveJSProperty("paused", true);
   await setVideoRecordingTimeline(page, true);
+  await page
+    .getByRole("tab")
+    .filter({ has: page.getByRole("button", { name: "隐藏标注详情", exact: true }) })
+    .click();
   await expect(page.getByTestId("video-track-row")).toHaveCount(1);
   const reloadedRow = page
     .getByTestId("video-track-row")
     .filter({ hasText: bus.geometry.track_id.slice(0, 8) });
   await expect(reloadedRow).toContainText("2 关键帧");
+  await expect(reloadedRow).toBeVisible({ timeout: 10_000 });
   await reloadedRow.click();
   await expect(reloadedRow).toHaveAttribute("aria-selected", "true");
   await seekVideoRecordingFrame(page, manifest, 1);

@@ -86,6 +86,15 @@ caffeinate -dimsu pnpm --filter @anno/web screenshots:record -- --flow bbox-draw
 提交者和当前审核轮次的贡献者证据；清理退回结果时恢复该夹具的审核快照，不绕过「未知贡献者」或自审校验。
 旧 seed 缺少证据时先运行 `--repair`，不要把角色分派当作标注历史。
 
+S3 连接器演示从现有 `MINIO_ENDPOINT`、`MINIO_DATASETS_BUCKET` 读取隔离存储目标，使用受管
+`coco8-dev/train/` 的 4 个样本和演示凭据。API 进程必须设置 `CONNECTOR_ENCRYPTION_KEY`；
+通过超管连接器主机白名单显式批准实际可达的存储主机。Mac 宿主机采集不能假定 Linux Docker
+网关可达，也不能把 loopback／link-local 加入白名单来绕过硬阻断。只在隔离库和进程内配置，
+不要把真实密钥或机器路径写入素材、清单或版本库。
+
+交互校验和录制期间不要编辑当前工作树或运行生成源码的命令：Vite 会对 E2E 流程脚本的变化
+触发整页重载，破坏正在执行的导航和画面就绪检查。并行修改应留在代理的独立工作树，整合后再采集。
+
 ## 快速运行
 
 截图自动化使用专用 `annotation_screenshots_test` 数据库和 `3001/8010`

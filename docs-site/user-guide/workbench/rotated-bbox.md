@@ -21,8 +21,8 @@ last_reviewed: 2026-09-10
 <DocsVideo
   src="/media/workbench/rotated-bbox.mp4"
   poster="/media/workbench/rotated-bbox-poster.webp"
-  alt="先拖出轴对齐矩形，再拖顶部手柄调整旋转框角度"
-  caption="在标准标注布局中拖框确定中心和尺寸，选择目标类别，再拖顶部手柄调整角度。"
+  alt="绘制车辆旋转框并拖动顶部手柄改变角度，再调回贴合车身的方向"
+  caption="拖框确定中心和尺寸，选择目标类别；拖动顶部手柄展示角度变化后，调回与实际车身对齐的方向再保存。"
 />
 
 1. 按 `W` 切到旋转框工具。图片和暂停的视频帧使用相同操作。

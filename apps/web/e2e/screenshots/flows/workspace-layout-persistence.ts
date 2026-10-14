@@ -154,10 +154,6 @@ function writeStoredPreferences(user: string, preferences: unknown): void {
   }
 }
 
-function clearStoredPreferences(user: string): void {
-  writeStoredPreferences(user, {});
-}
-
 async function waitForDesktop(page: Page, context: string): Promise<void> {
   await expect(page.locator("[data-workbench-workspace]")).toHaveAttribute("data-compact", "false");
   await expect(page.getByRole("button", { name: "布局", exact: true })).toBeEnabled({
@@ -388,29 +384,17 @@ export async function runWorkspaceLayoutPersistence(
         // debounced layout writer from racing the cleanup after the test.
         await page.goto("/", { waitUntil: "domcontentloaded", timeout: 20_000 });
         await page.waitForTimeout(500);
-        // The public PATCH endpoint deep-merges context keys and intentionally
-        // has no delete operation. Clear the isolated row first, then use the
-        // normal endpoint to validate and store the exact original document.
-        clearStoredPreferences(originalUserId);
-        const response = await page.request.patch("/api/v1/auth/me/preferences", {
-          headers: { Authorization: `Bearer ${await token(page)}` },
-          data: originalPreferences,
-        });
-        if (!response.ok()) {
-          writeStoredPreferences(originalUserId, originalPreferences);
+        // Named preset revisions are read-only through the public PATCH API.
+        // Restore the exact isolated seed snapshot through its existing owner guard.
+        writeStoredPreferences(originalUserId, originalPreferences);
+        const restored = await readPreferences(page);
+        if (
+          stableJson(restored.workbench?.layout) !==
+          stableJson(originalPreferences.workbench?.layout)
+        ) {
           cleanupError = new Error(
-            `[workspace-layout-persistence] 恢复原始布局偏好失败: HTTP ${response.status()} ${await response.text()}`,
+            "[workspace-layout-persistence] 恢复后 GET 的 workbench.layout 与原始偏好不一致",
           );
-        } else {
-          const restored = await readPreferences(page);
-          const originalLayout = originalPreferences.workbench?.layout;
-          const restoredLayout = restored.workbench?.layout;
-          if (stableJson(restoredLayout) !== stableJson(originalLayout)) {
-            writeStoredPreferences(originalUserId, originalPreferences);
-            cleanupError = new Error(
-              "[workspace-layout-persistence] 恢复后 GET 的 workbench.layout 与原始偏好不一致",
-            );
-          }
         }
       } catch (error) {
         try {

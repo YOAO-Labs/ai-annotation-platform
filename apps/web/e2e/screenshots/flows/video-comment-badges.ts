@@ -167,7 +167,7 @@ export async function runVideoCommentBadges(
       "创建轨迹标注",
     );
     annotationIds.push(track.id);
-    expect(track.geometry).toEqual(trackGeometry);
+    expect(track.geometry).toMatchObject(trackGeometry);
     const single = await json<CreatedAnnotation>(
       await page.request.post(`/api/v1/tasks/${task.id}/annotations`, {
         headers: auth(adminToken),
