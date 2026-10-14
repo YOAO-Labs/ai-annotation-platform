@@ -291,7 +291,7 @@ export async function runWorkspaceLayoutPersistence(
             ?.schemaVersion,
       )
       .toBe(WORKSPACE_SCHEMA_VERSION);
-    await recordingLayoutCommand(page, "恢复画布");
+    await recordingLayoutCommand(page, "恢复画布布局");
     await waitForRecordingPanels(page, [
       "canvas",
       "task-queue",
