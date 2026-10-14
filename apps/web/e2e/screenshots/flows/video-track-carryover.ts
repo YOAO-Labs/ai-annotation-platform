@@ -1,4 +1,4 @@
-/** Two real tracks at F0; Tab selects the bus reference at F1 and a drag adds only its keyframe. */
+/** One saved bus track carries its selected F0 ghost into an aligned F1 keyframe. */
 import { expect, type Page } from "@playwright/test";
 import type { ScreenshotRecordingAnchor, ScreenshotSeedCatalog } from "../../fixtures/seed";
 import {
@@ -35,10 +35,9 @@ async function drawTrack(
   anchor: ScreenshotRecordingAnchor,
   taskId: string,
   onCreated: VideoTrackCreated,
-  preselectClass = true,
 ) {
   const stage = page.getByTestId("video-konva-stage");
-  if (preselectClass) await selectVideoRecordingClass(page, stage, anchor.label);
+  await selectVideoRecordingClass(page, stage, anchor.label);
   const { start, end } = mediaBbox(await renderedMediaBounds(stage), anchor.bbox);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
@@ -67,54 +66,39 @@ export async function runVideoTrackCarryover(
 ): Promise<VideoKeyframeRecordingWindow> {
   const { taskId, manifest, stage } = await openVideoKeyframeRecording(page, catalog);
   const trackButton = page.getByTestId("video-tool-btn-track");
-  const leftBus = recordingAnchor(catalog, "video_demo", "tracking", "left_bus_f0", 0);
-  const frontTruck = recordingAnchor(catalog, "video_demo", "tracking", "front_truck_f0", 0);
-  const nextFrame = recordingAnchor(catalog, "video_demo", "tracking", "left_bus_f1", 1);
-  expect(nextFrame.label).toBe(leftBus.label);
+  const busStart = recordingAnchor(catalog, "video_demo", "tracking", "left_bus_f0", 0);
+  const busNext = recordingAnchor(catalog, "video_demo", "tracking", "left_bus_f1", 1);
+  if (busStart.label !== "bus" || busNext.label !== busStart.label) {
+    throw new Error("[video-track-carryover] 续写锚点必须是同一辆公交车");
+  }
   await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
   await trackButton.click();
   const drawStartMs = Date.now();
-  const bus = await drawTrack(page, leftBus, taskId, onCreated);
-  // The same-frame track tool creates another object. Use its required class picker;
-  // a numeric shortcut here would relabel the selected bus instead of the new truck.
-  await expect(page.getByTestId("video-sticky-track-hint")).toContainText("本帧已有关键帧");
-  const truck = await drawTrack(page, frontTruck, taskId, onCreated, false);
-  expect(bus.id).not.toBe(truck.id);
-  expect(bus.geometry.track_id).not.toBe(truck.geometry.track_id);
-  const row = (trackId: string) =>
-    page.getByTestId("video-track-row").filter({ hasText: trackId.slice(0, 8) });
-  await expect(page.getByTestId("video-track-row")).toHaveCount(2);
-  await expect(row(truck.geometry.track_id)).toHaveAttribute("aria-selected", "true");
+
+  // One annotation owns both frames: the F1 ghost must be the same bus that was saved at F0.
+  const bus = await drawTrack(page, busStart, taskId, onCreated);
+  const row = page
+    .getByTestId("video-track-row")
+    .filter({ hasText: bus.geometry.track_id.slice(0, 8) });
+  await expect(page.getByTestId("video-track-row")).toHaveCount(1);
+  await expect(row).toHaveAttribute("aria-selected", "true");
   await waitForVideoRecordingShape(page, manifest, bus.geometry.keyframes[0].bbox, {
-    dashed: false,
-  });
-  await waitForVideoRecordingShape(page, manifest, truck.geometry.keyframes[0].bbox, {
     dashed: false,
   });
   await holdVideoRecording(page, 900);
 
   await page.keyboard.press("ArrowRight");
   await waitForVideoRecordingFrame(page, manifest, 1);
+  await expect(row).toHaveAttribute("aria-selected", "true");
   const hint = page.getByTestId("video-sticky-track-hint");
-  await expect(hint).toContainText(frontTruck.label);
+  await expect(hint).toContainText(busStart.label);
   await expect(hint).toContainText("画框延展到本帧");
-  await waitForVideoRecordingShape(page, manifest, truck.geometry.keyframes[0].bbox, {
+  await waitForVideoRecordingShape(page, manifest, bus.geometry.keyframes[0].bbox, {
     ghost: true,
   });
-  await holdVideoRecording(page, 900);
+  await holdVideoRecording(page, 1_200);
 
-  // Switch through the real track-navigation hotkey, without clicking a row that would seek back to F0.
-  await page.keyboard.press("Tab");
-  await expect(row(bus.geometry.track_id)).toHaveAttribute("aria-selected", "true");
-  await expect(row(truck.geometry.track_id)).toHaveAttribute("aria-selected", "false");
-  await expect(hint).toContainText(leftBus.label);
-  await expect(hint).toContainText("画框延展到本帧");
-  await waitForVideoRecordingFrame(page, manifest, 1);
-  await waitForVideoRecordingShape(page, manifest, bus.geometry.keyframes[0].bbox, { ghost: true });
-  await collapseVideoSelectionCard(page);
-  await holdVideoRecording(page, 650);
-
-  const [dragFrom, dragTo] = nextFrame.polyline;
+  const [dragFrom, dragTo] = busNext.polyline;
   if (!dragFrom || !dragTo)
     throw new Error("[video-track-carryover] left_bus_f1 缺少续写拖动路径锚点");
   const bounds = await renderedMediaBounds(stage);
@@ -138,8 +122,10 @@ export async function runVideoTrackCarryover(
   const response = await pending;
   expect(response.ok(), `F1 carryover save HTTP ${response.status()}`).toBeTruthy();
   const updatedBus = verifyVideoKeyframeUpdate(bus, await response.json(), 1, expected);
+  expect(updatedBus.id).toBe(bus.id);
+  expect(updatedBus.geometry.track_id).toBe(bus.geometry.track_id);
   const updatedBox = updatedBus.geometry.keyframes[1].bbox;
-  const target = anchorVideoBbox(nextFrame.bbox);
+  const target = anchorVideoBbox(busNext.bbox);
   const intersection =
     Math.max(
       0,
@@ -153,37 +139,52 @@ export async function runVideoTrackCarryover(
     intersection / (updatedBox.w * updatedBox.h + target.w * target.h - intersection);
   expect(
     targetIou,
-    "The manual correction must remain aligned with the F1 bus anchor",
+    "The continued keyframe must remain aligned with the same bus at F1",
   ).toBeGreaterThanOrEqual(0.75);
   await expect(page.getByTestId("class-picker-popover")).toHaveCount(0);
-  await expect(row(bus.geometry.track_id)).toContainText("2 关键帧");
-  await expect(row(truck.geometry.track_id)).toContainText("1 关键帧");
-  await expect(row(truck.geometry.track_id)).toHaveAttribute("aria-selected", "true");
-  await expect(hint).toContainText(frontTruck.label);
+  await expect(page.getByTestId("video-track-row")).toHaveCount(1);
+  await expect(row).toContainText("2 关键帧");
+  await expect(row).toHaveAttribute("aria-selected", "true");
+  await expect(hint).toContainText(busStart.label);
   await waitForVideoRecordingShape(page, manifest, updatedBox, { dashed: false });
-  await waitForVideoRecordingShape(page, manifest, truck.geometry.keyframes[0].bbox, {
-    ghost: true,
-  });
   await collapseVideoSelectionCard(page);
   await setVideoRecordingTimeline(page, true);
-  await holdVideoRecording(page, 2_000);
-  const drawEndMs = Date.now();
+  await holdVideoRecording(page, 1_500);
+
   const verifyStored = async () => {
     const saved = await readSavedVideoTracks(page, taskId);
-    expect(saved.map((annotation) => annotation.id).sort()).toEqual([bus.id, truck.id].sort());
-    expect(saved.find((annotation) => annotation.id === bus.id)?.geometry).toEqual(
-      updatedBus.geometry,
-    );
-    expect(saved.find((annotation) => annotation.id === truck.id)?.geometry).toEqual(
-      truck.geometry,
-    );
+    expect(saved.map((annotation) => annotation.id)).toEqual([bus.id]);
+    expect(saved[0]!.geometry).toEqual(updatedBus.geometry);
   };
   await verifyStored();
   await page.reload();
-  await expect(page.getByTestId("video-track-row")).toHaveCount(2);
-  await verifyStored();
+  await expect(stage).toBeVisible();
+  const source = page.getByTestId("video-konva-source");
+  await expect
+    .poll(() => source.evaluate((video: HTMLVideoElement) => video.readyState))
+    .toBeGreaterThanOrEqual(2);
+  if (!(await source.evaluate((video: HTMLVideoElement) => video.paused))) {
+    await page.getByRole("button", { name: "播放 / 暂停", exact: true }).click();
+  }
+  await expect(source).toHaveJSProperty("paused", true);
+  await setVideoRecordingTimeline(page, true);
+  await expect(page.getByTestId("video-track-row")).toHaveCount(1);
+  const reloadedRow = page
+    .getByTestId("video-track-row")
+    .filter({ hasText: bus.geometry.track_id.slice(0, 8) });
+  await expect(reloadedRow).toContainText("2 关键帧");
+  await reloadedRow.click();
+  await expect(reloadedRow).toHaveAttribute("aria-selected", "true");
   await seekVideoRecordingFrame(page, manifest, 1);
   await waitForVideoRecordingShape(page, manifest, updatedBox, { dashed: false });
+  const reloaded = await readSavedVideoTracks(page, taskId);
+  expect(reloaded.map((annotation) => annotation.id)).toEqual([bus.id]);
+  expect(inspectVideoTrack(reloaded[0]!, taskId, busStart.label, [0, 1]).geometry).toEqual(
+    updatedBus.geometry,
+  );
+  await expect(stage).toHaveAttribute("data-video-frame-index", "1");
+  await holdVideoRecording(page, 2_000);
+  const drawEndMs = Date.now();
   return {
     drawStartMs,
     drawEndMs,
@@ -195,13 +196,13 @@ export async function runVideoTrackCarryover(
         fps: manifest.metadata.fps,
         frame_count: manifest.metadata.frame_count,
       },
-      initial_tracks: [bus, truck],
-      tab_selected_annotation_id: bus.id,
+      initial_track: bus,
+      selected_track_annotation_id: bus.id,
       updated_track: updatedBus,
-      unchanged_track: truck,
       continued_frame: 1,
+      same_annotation_identity: updatedBus.id === bus.id,
+      same_track_identity: updatedBus.geometry.track_id === bus.geometry.track_id,
       target_iou: targetIou,
-      next_selected_annotation_id: truck.id,
       reload_verified: true,
     },
   };

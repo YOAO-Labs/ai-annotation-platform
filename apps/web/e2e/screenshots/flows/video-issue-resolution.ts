@@ -44,6 +44,10 @@ interface FeedbackIssue {
   anchor_position: { x: number; y: number; frame?: number } | null;
   resolved_at: string | null;
 }
+interface FeedbackThread {
+  root: FeedbackIssue;
+  items: FeedbackIssue[];
+}
 
 type FrameRegion = readonly [number, number];
 
@@ -132,6 +136,22 @@ async function listIssues(
     throw new Error("[video-issue-resolution] 问题列表返回结构异常");
   }
   return body.items as FeedbackIssue[];
+}
+async function readIssueThread(
+  page: Page,
+  accessToken: string,
+  rootId: string,
+): Promise<FeedbackThread> {
+  const response = await page.request.get(`/api/v1/feedbacks/${rootId}/thread`, {
+    headers: auth(accessToken),
+    params: { limit: 50 },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `[video-issue-resolution] 读取问题回复失败: HTTP ${response.status()} ${await response.text()}`,
+    );
+  }
+  return (await response.json()) as FeedbackThread;
 }
 
 /** 采样真实媒体层（第 1 个 canvas）像素，用于证明目标帧已经被绘制。 */
@@ -267,6 +287,19 @@ export async function runVideoIssueResolution(
     });
     created.push(nextIssue);
     onIssueCreated({ id: nextIssue.id, title: nextIssue.title ?? NEXT_TITLE });
+    expect(nextIssue).toMatchObject({
+      id: expect.any(String),
+      kind: "issue",
+      status: "open",
+      title: NEXT_TITLE,
+      body: NEXT_BODY,
+      task_id: task.id,
+      thread_parent_id: null,
+      anchor_position: {
+        ...NEXT_ISSUE_ANCHOR,
+        frame: NEXT_ISSUE_FRAME,
+      },
+    });
     const targetIssue = await createIssue(page, accessToken, {
       projectId: project.id,
       taskId: task.id,
@@ -277,6 +310,19 @@ export async function runVideoIssueResolution(
     });
     created.push(targetIssue);
     onIssueCreated({ id: targetIssue.id, title: targetIssue.title ?? TARGET_TITLE });
+    expect(targetIssue).toMatchObject({
+      id: expect.any(String),
+      kind: "issue",
+      status: "open",
+      title: TARGET_TITLE,
+      body: TARGET_BODY,
+      task_id: task.id,
+      thread_parent_id: null,
+      anchor_position: {
+        ...TARGET_ANCHOR,
+        frame: TARGET_FRAME,
+      },
+    });
 
     await page.goto(`/projects/${project.id}/annotate?task=${task.id}`);
     await page.getByTestId("video-timeline-shell").waitFor({ state: "visible", timeout: 20_000 });
@@ -299,9 +345,12 @@ export async function runVideoIssueResolution(
     await page.waitForTimeout(3200);
     await panel.getByTestId(`discussion-issue-open-${targetIssue.id}`).click();
     await expect(detail).toHaveAttribute("data-issue-id", targetIssue.id, { timeout: 10_000 });
-    await expect(detail.getByTestId(`discussion-issue-root-${targetIssue.id}`)).toContainText(
-      TARGET_BODY,
-    );
+    const targetRoot = detail.getByTestId(`discussion-issue-root-${targetIssue.id}`);
+    await expect(targetRoot).toContainText(TARGET_TITLE);
+    await expect(targetRoot).toContainText(TARGET_BODY);
+    await targetRoot.scrollIntoViewIfNeeded();
+    await expect(targetRoot.getByRole("heading", { name: TARGET_TITLE, exact: true })).toBeInViewport();
+    await expect(targetRoot.getByText(TARGET_BODY, { exact: true })).toBeInViewport();
     await page.waitForTimeout(3600);
     const frameAfterReading = await stage.getAttribute("data-video-frame-index");
     expect(frameAfterReading, "阅读问题不得改变当前源帧").toBe(String(READING_FRAME));
@@ -315,6 +364,7 @@ export async function runVideoIssueResolution(
     await expect(navigation).toHaveAttribute("data-frame-index", String(TARGET_FRAME));
     await expect(stage).toHaveAttribute("data-video-frame-index", String(TARGET_FRAME));
     const renderedFrameIndex = await stage.getAttribute("data-video-painted-frame-index");
+    expect(renderedFrameIndex).toBe(String(TARGET_FRAME));
     const targetSignature = await mediaSignature(page);
     const changedRegions = MEDIA_REGIONS.filter((_, index) =>
       [0, 1, 2].some(
@@ -353,10 +403,25 @@ export async function runVideoIssueResolution(
     const replyResponse = await replyCreated;
     expect(replyResponse.ok(), await replyResponse.text()).toBe(true);
     const reply = (await replyResponse.json()) as FeedbackIssue;
-    await expect(detail.getByTestId(`discussion-issue-reply-${reply.id}`)).toContainText(
-      REPLY_BODY,
-    );
-    await page.waitForTimeout(3200);
+    expect(reply.thread_parent_id).toBe(targetIssue.id);
+    expect(reply.body).toBe(REPLY_BODY);
+    const submittedThread = await readIssueThread(page, accessToken, targetIssue.id);
+    expect(submittedThread.root.id).toBe(targetIssue.id);
+    expect(submittedThread.items.find((item) => item.id === reply.id)).toMatchObject({
+      id: reply.id,
+      thread_parent_id: targetIssue.id,
+      body: REPLY_BODY,
+    });
+    const replyCard = detail.getByTestId(`discussion-issue-reply-${reply.id}`);
+    await expect(replyCard).toContainText(REPLY_BODY);
+    const replyBody = replyCard.getByText(REPLY_BODY, { exact: true });
+    await expect(replyBody).toBeVisible();
+    await replyBody.scrollIntoViewIfNeeded();
+    await expect(replyBody).toBeInViewport();
+    await replyCard.scrollIntoViewIfNeeded();
+    await expect(replyCard).toBeInViewport();
+    await expect(detail).toHaveAttribute("data-issue-id", targetIssue.id);
+    await page.waitForTimeout(3_800);
 
     const resolved = page.waitForResponse(
       (response) =>
@@ -367,27 +432,49 @@ export async function runVideoIssueResolution(
     await detail.getByRole("button", { name: "解决", exact: true }).click();
     const resolvedResponse = await resolved;
     expect(resolvedResponse.ok(), await resolvedResponse.text()).toBe(true);
-    await expect(
-      detail.getByTestId(`discussion-issue-root-${targetIssue.id}`).getByText("已解决", {
-        exact: true,
-      }),
-    ).toBeVisible({ timeout: 10_000 });
-    await page.waitForTimeout(3800); // 继续阅读已解决的完整详情
+    const resolvedIssue = (await resolvedResponse.json()) as FeedbackIssue;
+    expect(resolvedIssue.id).toBe(targetIssue.id);
+    expect(resolvedIssue.status).toBe("resolved");
+    expect(resolvedIssue.resolved_at).toBeTruthy();
+    await expect(detail).toHaveAttribute("data-issue-id", targetIssue.id);
+    const resolvedStatus = detail
+      .getByTestId(`discussion-issue-root-${targetIssue.id}`)
+      .getByText("已解决", { exact: true });
+    await expect(resolvedStatus).toBeVisible({ timeout: 10_000 });
+    await expect(resolvedStatus).toBeInViewport();
+    await page.waitForTimeout(3_800); // 继续阅读已解决的完整详情
 
     // 4. 打开下一条未解决问题，保持连续处理。
     await detail.getByTestId(`discussion-issue-next-${targetIssue.id}`).click();
     await expect(detail).toHaveAttribute("data-issue-id", nextIssue.id, { timeout: 15_000 });
-    await expect(
-      detail.getByTestId(`discussion-issue-root-${nextIssue.id}`).getByText("未解决", {
-        exact: true,
-      }),
-    ).toBeVisible({ timeout: 10_000 });
-    await page.waitForTimeout(3800);
+    const nextRoot = detail.getByTestId(`discussion-issue-root-${nextIssue.id}`);
+    await expect(nextRoot).toContainText(NEXT_TITLE);
+    await expect(nextRoot).toContainText(NEXT_BODY);
+    await nextRoot.scrollIntoViewIfNeeded();
+    await expect(nextRoot.getByRole("heading", { name: NEXT_TITLE, exact: true })).toBeInViewport();
+    await expect(nextRoot.getByText(NEXT_BODY, { exact: true })).toBeInViewport();
+    await expect(nextRoot.getByText("未解决", { exact: true })).toBeInViewport();
+    await page.waitForTimeout(3_800);
 
-    const drawEndMs = Date.now();
-
-    // 真实读回：目标问题已解决且带回复，下一条问题仍未解决。
-    // 回复以 kind=comment 落库，不出现在 kind=issue 的列表里：父子链以创建响应为准。
+    // Read the same root thread after moving on: its reply and resolved identity must persist.
+    const storedThread = await readIssueThread(page, accessToken, targetIssue.id);
+    const storedReply = storedThread.items.find((item) => item.id === reply.id);
+    expect(storedThread.root).toMatchObject({
+      id: targetIssue.id,
+      title: TARGET_TITLE,
+      body: TARGET_BODY,
+      task_id: task.id,
+      status: "resolved",
+      anchor_position: {
+        ...TARGET_ANCHOR,
+        frame: TARGET_FRAME,
+      },
+    });
+    expect(storedReply).toMatchObject({
+      id: reply.id,
+      thread_parent_id: targetIssue.id,
+      body: REPLY_BODY,
+    });
     const issues = await listIssues(page, accessToken, project.id, task.id);
     const storedTarget = issues.find((issue) => issue.id === targetIssue.id);
     const storedNext = issues.find((issue) => issue.id === nextIssue.id);
@@ -395,6 +482,7 @@ export async function runVideoIssueResolution(
     expect(storedTarget?.resolved_at, "已解决时间戳必须落库").toBeTruthy();
     expect(reply.thread_parent_id, "回复必须挂在目标问题线程下").toBe(targetIssue.id);
     expect(storedNext?.status, "下一条问题必须仍未解决").toBe("open");
+    const drawEndMs = Date.now();
 
     result = {
       drawStartMs,
@@ -410,7 +498,13 @@ export async function runVideoIssueResolution(
           pinSamples,
         },
         targetIssue: { id: targetIssue.id, title: TARGET_TITLE, status: storedTarget?.status },
-        reply: { id: reply.id, body: REPLY_BODY },
+        reply: {
+          id: reply.id,
+          body: REPLY_BODY,
+          parentIssueId: targetIssue.id,
+          persisted: true,
+          visibleInViewport: true,
+        },
         nextIssue: { id: nextIssue.id, title: NEXT_TITLE, status: storedNext?.status },
       },
     };
