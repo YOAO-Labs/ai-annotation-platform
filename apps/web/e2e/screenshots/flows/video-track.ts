@@ -222,6 +222,8 @@ export async function runVideoTrack(
     await playToggle.click();
   }
   await expect(source).toHaveJSProperty("paused", true);
+  // Reload resets the compact/expanded timeline state; reveal frame controls before seeking.
+  await setVideoRecordingTimeline(page, true);
   await page.getByRole("button", { name: "回到首帧", exact: true }).click();
   await waitForVideoRecordingFrame(page, manifest, 0);
   await expect(page.getByTestId("video-track-row")).toHaveCount(1);

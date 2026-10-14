@@ -153,11 +153,10 @@ export async function runProjectGuideAutosave(
     await expect(cell).toBeFocused();
     await page.waitForTimeout(2000);
     await observeSaveStatus(page);
-    // 与 e2e/tests/guide-autosave.spec.ts 相同的 fill() 输入；状态文本可能因初始
-    // 自动保存早已是「已保存」而不变化，持久化以 API 轮询为准（防抖 1s + PATCH）。
-    await cell.fill(EDITED_RULE);
+    // The real one-second debounce exposes the pending state; the brief request state is optional.
     const status = page.getByTestId("guide-save-status");
-    await expect(status).toHaveText("已保存", { timeout: 15_000 });
+    await cell.fill(EDITED_RULE);
+    await expect(status).toHaveText("等待自动保存", { timeout: 5_000 });
     await expect
       .poll(
         async () => {
@@ -168,14 +167,10 @@ export async function runProjectGuideAutosave(
       )
       .toBe(true);
     const statusTransitions = await finishSaveStatusObservation(page);
-    // 「保存中…」是 React 同一批次内 saving→saved 的过渡态，快速本地 API 下两次
-    // setStatus 可能合并为一次提交而不单独绘制（人为使用中同样观察不到）。
-    // 这里以结果为准：无手动保存点击、状态收敛为「已保存」、内容真实落库。
-    expect(statusTransitions[statusTransitions.length - 1]).toBe("已保存");
-    expect(
-      statusTransitions.includes("保存中…"),
-      "如出现保存中过渡态则记录为附加证据",
-    ).toBeDefined();
+    // Keep the real debounce visible; the brief request state is recorded if naturally rendered.
+    expect(statusTransitions).toContain("等待自动保存");
+    expect(statusTransitions.at(-1)).toBe("已保存");
+    const savingObserved = statusTransitions.includes("保存中…");
 
     await page.waitForTimeout(2900);
 
@@ -189,14 +184,14 @@ export async function runProjectGuideAutosave(
     await expect(richTextBody(page)).toBeVisible();
     await page.reload();
     await expect(richTextBody(page)).toBeVisible({ timeout: 30_000 });
-    await page.waitForTimeout(2500);
+    await expect(status).toHaveText("已保存", { timeout: 15_000 });
+    await page.waitForTimeout(2_500);
     await editor(page).getByRole("tab", { name: "预览", exact: true }).click();
-    await expect(page.getByTestId("markdown-preview")).toContainText(EDITED_RULE, {
-      timeout: 15_000,
-    });
+    const refreshedPreview = page.getByTestId("markdown-preview");
+    await expect(refreshedPreview).toContainText(EDITED_RULE, { timeout: 15_000 });
     const persistedGuide = await readGuide(page, accessToken, project.id);
     expect(persistedGuide).toContain(EDITED_RULE);
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(5_000);
 
     result = {
       drawStartMs,
@@ -204,6 +199,8 @@ export async function runProjectGuideAutosave(
       evidence: {
         projectId: project.id,
         statusTransitions,
+        savingObserved,
+        savedStatusAfterReload: true,
         savedRule: EDITED_RULE,
         previewAfterReload: true,
         persisted: persistedGuide.includes(EDITED_RULE),

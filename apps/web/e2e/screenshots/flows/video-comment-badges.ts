@@ -19,6 +19,7 @@ const TRACK_ID = "trk_marketing_comment_badges";
 interface CreatedAnnotation {
   id: string;
   task_id: string;
+  geometry: Record<string, unknown>;
 }
 
 interface CreatedComment {
@@ -35,6 +36,8 @@ interface OwnedComment {
 export interface VideoCommentBadgesResult extends DrawWindow {
   evidence: {
     counts: Record<string, number>;
+    globalTaskCommentCount: number;
+    scopedTrackCommentCount: number;
     trackBadgeLabel: string;
     singleBadgeLabel: string;
     frames: { start: number; end: number };
@@ -120,13 +123,37 @@ export async function runVideoCommentBadges(
     });
     const comment = await json<CreatedComment>(response, "创建标注评论");
     comments.push({ id: comment.id, token });
-    return comment.id;
+    return comment;
   };
 
   let result: VideoCommentBadgesResult | undefined;
   let actionError: unknown;
   let cleanupError: unknown;
   try {
+    const trackGeometry = {
+      type: "video_track_bbox",
+      track_id: TRACK_ID,
+      keyframes: [
+        {
+          frame_index: FRAME_START,
+          bbox: normalizedBbox(trackStart.bbox),
+          source: "manual",
+          occluded: false,
+        },
+        {
+          frame_index: FRAME_END,
+          bbox: normalizedBbox(trackEnd.bbox),
+          source: "manual",
+          occluded: false,
+        },
+      ],
+      outside: [],
+    };
+    const singleGeometry = {
+      type: "video_bbox",
+      frame_index: FRAME_START,
+      ...normalizedBbox(singleFrame.bbox),
+    };
     const track = await json<CreatedAnnotation>(
       await page.request.post(`/api/v1/tasks/${task.id}/annotations`, {
         headers: auth(adminToken),
@@ -134,30 +161,13 @@ export async function runVideoCommentBadges(
           annotation_type: "video_track_bbox",
           tool_unit_id: "bbox",
           class_name: trackStart.label,
-          geometry: {
-            type: "video_track_bbox",
-            track_id: TRACK_ID,
-            keyframes: [
-              {
-                frame_index: FRAME_START,
-                bbox: normalizedBbox(trackStart.bbox),
-                source: "manual",
-                occluded: false,
-              },
-              {
-                frame_index: FRAME_END,
-                bbox: normalizedBbox(trackEnd.bbox),
-                source: "manual",
-                occluded: false,
-              },
-            ],
-            outside: [],
-          },
+          geometry: trackGeometry,
         },
       }),
       "创建轨迹标注",
     );
     annotationIds.push(track.id);
+    expect(track.geometry).toEqual(trackGeometry);
     const single = await json<CreatedAnnotation>(
       await page.request.post(`/api/v1/tasks/${task.id}/annotations`, {
         headers: auth(adminToken),
@@ -165,16 +175,29 @@ export async function runVideoCommentBadges(
           annotation_type: "video_bbox",
           tool_unit_id: "bbox",
           class_name: singleFrame.label,
-          geometry: {
-            type: "video_bbox",
-            frame_index: FRAME_START,
-            ...normalizedBbox(singleFrame.bbox),
-          },
+          geometry: singleGeometry,
         },
       }),
       "创建单帧标注",
     );
     annotationIds.push(single.id);
+    expect(single.geometry).toEqual(singleGeometry);
+    const savedAnnotations = await json<CreatedAnnotation[]>(
+      await page.request.get(`/api/v1/tasks/${task.id}/annotations`, {
+        headers: auth(adminToken),
+      }),
+      "读取标注几何",
+    );
+    expect(savedAnnotations.find(({ id }) => id === track.id)).toMatchObject({
+      id: track.id,
+      task_id: task.id,
+      geometry: trackGeometry,
+    });
+    expect(savedAnnotations.find(({ id }) => id === single.id)).toMatchObject({
+      id: single.id,
+      task_id: task.id,
+      geometry: singleGeometry,
+    });
 
     // 两位作者的评论：轨迹两条、单帧一条。角标展示评论总数，而不是当前账号的未读数。
     const trackCommentOwner = await createComment(
@@ -192,6 +215,27 @@ export async function runVideoCommentBadges(
       ownerToken,
       "左侧公交车单帧框确认通过，不需要延续到后续帧。",
     );
+    const storedTrackComments = await json<CreatedComment[]>(
+      await page.request.get(`/api/v1/annotations/${track.id}/comments`, {
+        headers: auth(adminToken),
+      }),
+      "读取轨迹评论",
+    );
+    expect(storedTrackComments).toHaveLength(2);
+    expect(storedTrackComments.find(({ id }) => id === trackCommentOwner.id)).toMatchObject(
+      trackCommentOwner,
+    );
+    expect(storedTrackComments.find(({ id }) => id === trackCommentAdmin.id)).toMatchObject(
+      trackCommentAdmin,
+    );
+    const storedSingleComments = await json<CreatedComment[]>(
+      await page.request.get(`/api/v1/annotations/${single.id}/comments`, {
+        headers: auth(adminToken),
+      }),
+      "读取单帧评论",
+    );
+    expect(storedSingleComments).toHaveLength(1);
+    expect(storedSingleComments[0]).toMatchObject(singleComment);
 
     const counts = await json<{ counts: Record<string, number> }>(
       await page.request.get(`/api/v1/tasks/${task.id}/discussion/annotation-counts`, {
@@ -201,6 +245,11 @@ export async function runVideoCommentBadges(
     );
     expect(counts.counts[track.id]).toBe(2);
     expect(counts.counts[single.id]).toBe(1);
+    const globalTaskCommentCount = Object.values(counts.counts).reduce(
+      (total, count) => total + count,
+      0,
+    );
+    expect(globalTaskCommentCount).toBe(3);
 
     await page.goto(`/projects/${project.id}/annotate?task=${task.id}`);
     const stage = page.getByTestId("video-konva-stage");
@@ -276,16 +325,22 @@ export async function runVideoCommentBadges(
       { timeout: 10_000 },
     );
     await expect(
-      discussion.locator(`[data-comment-key="annotation_comment:${trackCommentOwner}"]`),
-    ).toBeVisible({ timeout: 10_000 });
+      discussion.getByRole("tab", { name: "评论 3 条评论", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(discussion.locator('[data-testid="discussion-comment-row"]')).toHaveCount(2);
+    for (const comment of [trackCommentOwner, trackCommentAdmin]) {
+      const row = discussion.locator(`[data-comment-key="annotation_comment:${comment.id}"]`);
+      await expect(row).toContainText(comment.body);
+      await row.scrollIntoViewIfNeeded();
+      await expect(row).toBeVisible();
+      await expect(row).toBeInViewport();
+      await page.waitForTimeout(1_600);
+    }
+    // The selected annotation contains both track comments, not the third task-wide comment.
     await expect(
-      discussion.locator(`[data-comment-key="annotation_comment:${trackCommentAdmin}"]`),
-    ).toBeVisible();
-    // 单帧对象的评论不属于当前对象，必须留在讨论之外。
-    await expect(
-      discussion.locator(`[data-comment-key="annotation_comment:${singleComment}"]`),
+      discussion.locator(`[data-comment-key="annotation_comment:${singleComment.id}"]`),
     ).toHaveCount(0);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(1_600);
 
     result = {
       drawStartMs,
@@ -295,13 +350,15 @@ export async function runVideoCommentBadges(
           [track.id]: counts.counts[track.id] ?? 0,
           [single.id]: counts.counts[single.id] ?? 0,
         },
+        globalTaskCommentCount,
+        scopedTrackCommentCount: 2,
         trackBadgeLabel,
         singleBadgeLabel,
         frames: { start: FRAME_START, end: FRAME_END },
         discussionScope: "annotation",
         discussionTarget,
-        trackCommentIds: [trackCommentOwner, trackCommentAdmin],
-        singleCommentId: singleComment,
+        trackCommentIds: [trackCommentOwner.id, trackCommentAdmin.id],
+        singleCommentId: singleComment.id,
       },
     };
   } catch (error) {
