@@ -1,66 +1,51 @@
-# AI 标注平台深度调研报告
+# 研究与试验索引
 
-> 拆分自《AI标注平台深度调研报告》§0-§1
+本目录保存选型依据、实验协议、实测结果与限制。当前功能以 `docs-site/` 为准，
+待实施事项见[计划索引](../plans/README.md)，历史研究不自动授权新的实现或部署。
 
-> 面向 CV(图像 / 视频)生产级私有部署平台。聚焦"模型预标注 + 人工校正"与"Agent 自动化标注流水线"两大方向。
->
-> 对标基准:`yyq19990828/ai-annotation-platform` v0.2.0（2026-04-27）
->
-> 调研者:Claude · 调研日期:2026-04-27
+## 当前点云增密路线
 
----
+优先验证“完整当前真实 LiDAR + 可关闭的当前相机 VGGT-Ω 辅助层”。当前帧不累积其他
+时刻的模型几何；单图与当前六相机仍需比较筛选影响、薄小目标和多 scene 表现。
+历史整场景与重叠窗口用于对照，不作为默认标注底图。
 
-## 0. 摘要（给赶时间的人）
+| 记录                                                      | 范围与用途                                                      | 评测边界                                                                       |
+| --------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [当前帧对照](71-vggt-omega-current-frame.md)              | 39 个时刻、234 张图；当前 LiDAR、传统邻帧、独立单图和当前六相机 | 当前扫描内固定回波留出；最终运动分组偏向单图，但过滤前深度没有显示单图普遍更准 |
+| [三/五帧与纹理网格](68-vggt-omega-lidar-densification.md) | 12 个短窗口；416 reproduction 权重与固定几何 RGB 网格           | 整次扫描留出；覆盖增加伴随共同支持误差变差                                     |
+| [整场景联合](69-vggt-omega-full-sequence.md)              | 234 张关键帧一次联合；512 实用权重                              | 三整次扫描全局留出；保留显存失败与几何长尾                                     |
+| [全曝光重叠窗口](70-vggt-omega-all-exposures.md)          | 1,318 张图、18 个窗口；静态融合与动态策略                       | 静态正确支持下降；动态补偿依赖真实实例且样本集中                               |
 
-调研了 4 个**仍在活跃迭代**的开源平台 + 5 个商业产品的最新动向:
+不同留出协议与权重的百分比不能直接排名；点数、稀疏近邻支持和原图 RGB 重投影
+都不能单独证明新表面准确或提高标注效率。历史协议、指标和负面结果保留归档。
 
-| 维度            | 你 (v0.2.0)                          | Label Studio                                       | CVAT                                 | X-AnyLabeling           | Adala                     |
-| --------------- | ------------------------------------ | -------------------------------------------------- | ------------------------------------ | ----------------------- | ------------------------- |
-| 形态            | Web 全栈                             | Web 全栈(Django)                                   | Web 全栈(Django)                     | 桌面端 + 远程服务       | LLM Agent 框架            |
-| AI 模型集成     | 字段占位                             | HTTP MLBackend 抽象                                | Nuclio Serverless                    | 本地 ONNX + 远程 server | Skill / Runtime / LiteLLM |
-| 数据模型层级    | User/Project/Task/Annotation(4 张表) | + Org / Pred / TaskLock / Draft / PredMeta(20+ 张) | + Job / Segment / Track / GT(20+ 张) | 文件级,无后端           | Skill 注册表              |
-| Active Learning | 未实现                               | uncertainty + cluster 采样                         | 通过 Job stage 流转                  | 阈值过滤                | LLM judge + 反馈          |
-| 视频/Tracking   | 未实现                               | 弱(主要图像)                                       | **强**(LabeledTrack/TrackedShape)    | SAM2 视频               | 不适用                    |
-| 质检 / 一致性   | 未实现                               | LSE 才有 IAA + 低一致性队列                        | quality_control + consensus 模块     | 无                      | LLM judge                 |
-| LLM/Agent       | 无                                   | 通过 Adala 衔接                                    | AI Agents (2024-2025)                | Florence2/Gemini API    | 原生                      |
-| Cost tracking   | 无                                   | **PredictionMeta 含 token cost**                   | 无                                   | 无                      | runtime cost estimate     |
+- [平台开发入口](../../docs-site/dev/reference/point-cloud-data-model.md#vggt-ω-点云增密主路线)
+- [平台脚本与试验归档](../../apps/api/scripts/README.md#vggt-ω-平台链路与试验归档)
+- [合并后的后续计划与验收门](../plans/1791963159_pointcloud-densification-route.md)
 
-**最值得抄给你 repo 的 5 件事**（后面有详细说明）:
+## 试验归档与清理
 
-1. **把 Annotation 和 Prediction 拆成两张表**——你现在用 `source` 字段区分 `human / ai / ai-accepted`,会在多模型/多版本场景立刻爆掉
-2. **抽象出 `MLBackend` 表,模型即 HTTP 服务**——LS 把模型当远端 REST 服务的设计是教科书级
-3. **加 `TaskLock` + `is_labeled` + `overlap`**——分布式标注必备,缺一个就出脏数据
-4. **`PredictionMeta` 记录 token cost / 推理耗时**——LLM 时代,谁不记账谁亏钱
-5. **任务调度抽象成 `next_task` 策略链**——你 Workbench 现在是按 ID 顺序取的,这块直接抄 LS 的 6 策略链最快
+独立预览及离线预测、构建、审计入口已经退役。平台容器、当前帧生成、辅助资产
+导入/对账、工作台显示与传统邻帧补强继续维护。报告 68–71 记录当时的实验方法和验收，
+其中旧命令、预览地址和完整产物说明不再代表当前可用入口。
 
----
+本地 `.artifacts/model-review/vggt-omega-lidar-densification/` 保留冻结协议、阶段源码、
+指标、失败日志、评分目标和浏览器证据；`retired-runtime-source/` 保存清理前的
+20 个试验脚本、六个试验测试文件和四组 UI。当前帧另保留 39 个单图预测、
+234 份逐相机点云、互补分区和导入绑定记录。原始数据集、共享权重及模型源码缓存不在清理范围内。
 
-## 1. 调研范围与方法
+旧预测窗口、联合预测、校正深度、融合点云、显示缓冲、原图副本、渲染与失败尝试数组
+已经删除。旧 manifest 和审计保持原样，表示清理前的历史状态；重新做完整产物审计
+需要恢复归档源码、对应环境与输入，并在新目录重新生成缺失产物。
+逐文件删除摘要与保留文件校验记录位于本地
+`.artifacts/model-review/reconstruction-cleanup-20261014/`。
+平台接入验收目录 `vggt-omega-platform-integration/20261014/` 独立保留。
 
-### 1.1 入选标准
+## 历史调研
 
-- **仍在活跃迭代**（2025-2026 年有 release / 商业更新）
-- **CV 优先**（图像 / 视频 / 检测 / 分割 / 追踪）
-- **AI 能力是产品核心而非附属**
-- 至少能拉到源码或者有详细公开文档
-
-### 1.2 入选名单与定位
-
-| 平台                           | 类型          | 定位                       | 调研深度     |
-| ------------------------------ | ------------- | -------------------------- | ------------ |
-| **Label Studio** (HumanSignal) | 开源 + 企业版 | 通用全栈 + 配置驱动        | **源码深读** |
-| **CVAT** (CVAT.ai)             | 开源 + 企业版 | CV 专用,视频追踪强         | **源码深读** |
-| **X-AnyLabeling** (CVHub520)   | 纯开源        | 桌面端 SAM/foundation 模型 | **源码深读** |
-| **Adala** (HumanSignal)        | 纯开源        | LLM Agent 标注框架         | **源码深读** |
-| Roboflow                       | 商业          | 一站式 + Universe 模型市场 | 文档分析     |
-| Encord                         | 商业          | 数据策展 + SAM2 + GPT-4o   | 文档分析     |
-| V7 Darwin                      | 商业          | 医疗影像 + 视频 + SAM3     | 文档分析     |
-| Refuel Autolabel               | 开源库        | LLM 批量标注(NLP 主)       | 文档分析     |
-| Argilla                        | 开源(HF)      | LLM/NLP 数据策展           | 文档分析     |
-
-> 商业平台:无法拉到源码,基于公开文档与博客分析其暴露出来的工作流和能力点。
-
----
+最初的平台能力摘要已移至[历史基线](archive/2026-04-27-platform-research-baseline.md)。
+下列报告保留各自调研时的上下文；已完成的仓库优化记录是执行证据，不是新的待办清单。
+报告编号保持稳定，缺号沿用此前试验清理结果。
 
 ## 子文档索引
 
@@ -116,8 +101,9 @@
 | 48   | [仓库优化 P9 Markdown 表格单元格图片重试修复](./48-repository-optimization-markdown-retry-fix.md) | 根因证实 + 产品修复 `69960028d` 预览验收；删除测试 `:889` 最终由 `default-one` 覆盖（旧 19PASS 属修正前测试修订）                                                                                                                                                                      |
 | 49   | [仓库优化 P9 顶部栏中等宽度重叠修复](./49-repository-optimization-topbar-fix.md)                  | `min-w-max` + `<1000px` 分层；边界/审核/位置几何证据；视频选择器探针仅覆盖 `collaboration_enabled`，其余为真实 video/claim API（不称完全未 mock）                                                                                                                                      |
 | 50   | [仓库优化 P9 工作台根边停靠与保留分组](./50-repository-optimization-workbench-root-edge-dock.md)  | 100px parking 真实网格范围 → 1px 恢复异常 → `failRestore`；最终修复在 restore 前再折叠 live parking；`normalizeParking` 掩盖 live 几何的变体被拒                                                                                                                                       |
-| 68   | [VGGT-Ω 与 LiDAR 约束点云增密](./68-vggt-omega-lidar-densification.md)                            | 选定的三维增密主路线；连续三/五帧六相机、LiDAR 校准与筛选、RGB 纹理网格；保留固定目标覆盖、动态时差、源码复现和文件清理边界                                                                                                                                                            |
+| 68   | [VGGT-Ω 与 LiDAR 约束点云增密](./68-vggt-omega-lidar-densification.md)                            | 三/五帧历史对照；六相机、LiDAR 校准与筛选、RGB 纹理网格；保留固定目标覆盖、动态时差、源码复现和文件清理边界                                                                                                                                                                            |
 | 69   | [VGGT-Ω 整场景联合重建](./69-vggt-omega-full-sequence.md)                                         | 39 关键时刻、六相机的 234 张 RGB 单次联合推理；全场景点云、相机轨迹、逐帧 RGB 渲染与全局 LiDAR 留出验证                                                                                                                                                                                |
 | 70   | [VGGT-Ω 全曝光重叠窗口与动态补偿](./70-vggt-omega-all-exposures.md)                               | 1,318 个独立曝光、18 个重叠窗口；关键/全部 LiDAR 校准、单曝光与刚体补偿对照、全局留出及来源审计                                                                                                                                                                                        |
+| 71   | [VGGT-Ω 当前帧增密对照](./71-vggt-omega-current-frame.md)                                         | 39 个独立时刻；当前真实 LiDAR、传统叠帧、真单图及当前六相机对照；固定回波补全、运动目标与筛选影响，保留完整原始属性和审阅开关                                                                                                                                                          |
 
 > 注：P8 的 CI 选择与报告证据（`36-repository-optimization-p8-ci.md`）已随 P8 收口并入本树（root `6c47d68de`）；P9 影子验证/门禁切换（`43`）、聚焦修复（`46`–`50`）与 P10 最终验收记录（`45`）均已在集成根收口。`45` 现为 P10 完成记录（原草案性质已由本轮收尾取代）。

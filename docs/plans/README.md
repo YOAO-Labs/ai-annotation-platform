@@ -2,6 +2,21 @@
 
 Each file in `docs/plans/` records an implementation plan for one development session. **Plans are session logs and historical indexes, not the source of lasting knowledge.** Content intended for developers or users must be incorporated into `docs-site/` and `CHANGELOG.md`.
 
+## Current work
+
+| Plan                                                                                     | Remaining scope                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Point-cloud densification route](1791963159_pointcloud-densification-route.md)          | Experimental integration implemented: one augmentation selector, traditional compatibility, prepared assets and managed generation; broader qualification remains open |
+| [Project-scoped employee roles](1789807315_project-scoped-employee-roles.md)             | Shared-development/production cutover and compatibility cleanup remain separately gated                                                                                |
+| [Internal usability and admin settings](1788952434_internal-usability-admin-settings.md) | Implementation completed locally; first-time colleague trial and target-deployment acceptance remain                                                                   |
+| [Documentation media refresh](1789269444_docs-media-refresh-macos.md)                    | Point-cloud canary, one layout recording and the Linux/GPU batch remain                                                                                                |
+| [Raster-mask workbench Epic](2026-07-21-raster-mask-workbench-unification-epic.md)       | Retains cross-workflow invariants; semantic/panoptic work is an unscheduled backlog draft                                                                              |
+
+Unscheduled directions are indexed in [backlog/](backlog/README.md). Completed
+session records remain in [archive/](archive/), with their original filenames and
+evidence. The point-cloud route links its six predecessor sessions; research
+results are indexed separately in [docs/research/](../research/README.md).
+
 ## Naming conventions
 
 New plan files in both the root directory and `backlog/` must use `<unix-seconds>_<topic>.md`:

@@ -45,6 +45,7 @@ CANCELLABLE_KINDS = {
     "mask_format_import",
     "point_cloud_cross_frame",
     "point_cloud_quality",
+    "point_cloud_densification",
 }
 RETRY_FAILED_KINDS = {"batch_predict"}
 #: Export jobs carry a signed download URL in ``result``; every read path must
@@ -285,6 +286,21 @@ async def cancel_async_job(
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if job.kind == "point_cloud_densification":
+        # The worker retains its physical GPU lease until the in-flight call
+        # returns. Never revoke a queued message or publish after this fence.
+        job = (
+            await db.execute(
+                select(AsyncJob)
+                .where(AsyncJob.id == job_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        await async_job_svc.request_cancel(db, job.id)
+        await db.commit()
+        return {"status": "cancel_requested", "id": str(job_id)}
 
     if job.kind == "mask_qc":
         if job.celery_task_id:

@@ -199,6 +199,10 @@ PYTHONPATH=. uv run python scripts/seed.py
 
 ## 可选服务
 
+点云项目可选用默认关闭的 [VGGT-Ω 当前帧补强实验](./docs-site/ops/vggt-omega.md)：
+独立容器生成深度，后台任务使用真实 LiDAR 校准，工作台加载来源可辨的辅助点云。
+该实验与传统邻帧实测补强共用一个入口；模型点不参与标注、测量和导出。
+
 ```bash
 # Celery 后台任务：通用队列、GPU / CPU 预标、导出、视频帧、通知等
 docker compose up -d celery-worker celery-worker-maintenance celery-worker-gpu celery-worker-cpu celery-worker-export celery-beat

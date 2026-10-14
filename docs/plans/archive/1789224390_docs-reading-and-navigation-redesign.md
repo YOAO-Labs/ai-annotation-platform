@@ -44,7 +44,7 @@ The inspected browser session reported no page errors. The preview emitted exist
 
 - Follow [ADR-0016](../../adr/archive/0016-docs-ia-redesign.md): logical navigation may change independently of file ownership. Keep current public routes, canonical sources, and existing rewrites.
 - Follow the current [documentation design tokens](../../../docs-site/dev/reference/design-system.md#documentation-site-tokens-vitepress): local font stacks, `html.dark`, `--docs-*` reading tokens, and royal blue as the single reading-layer brand accent. Keep acid green and full-bleed brand sections on the marketing homepage.
-- Reuse the task/reference/concept/runbook distinctions already documented in [AI documentation layering](../2026-07-11-ai-documentation-layering-governance-draft.md). This proposal does not introduce another taxonomy or metadata schema.
+- Reuse the task/reference/concept/runbook distinctions already documented in [AI documentation layering](../backlog/2026-07-11-ai-documentation-layering-governance-draft.md). This proposal does not introduce another taxonomy or metadata schema.
 - Keep the root marketing composition, application UI, public API/schema, database, content generators, search provider, and release versions outside this redesign.
 - Preserve screenshots, video sources, manifests, editable diagrams, and the isolated Scalar reference page. This task changes placement and presentation, not media capture or provenance approval.
 - Do not copy all 167 pages into a new format. Shared styling is site-wide; manual reorganization is explicitly limited to the ten pages below. The resulting authoring guide is the convention for subsequent ordinary documentation edits.

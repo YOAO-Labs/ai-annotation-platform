@@ -5,7 +5,7 @@ export 等）在 enqueue / progress / finish 三时点写入此表。
 
 v0.10.49 · batch_predict 已收敛为单一真值（prediction_jobs 专表删除），
 domain 字段进 payload/result JSONB。video_tracker 保留 video_tracker_jobs 专表
-（带活标注 FK + 运行时状态机，见 ROADMAP/2026-05-23-async-jobs-unification.md）。
+（带活标注 FK + 运行时状态机，见 ROADMAP/archive/2026-05-23-async-jobs-unification.md）。
 """
 
 import enum
@@ -38,6 +38,7 @@ class AsyncJobKind(str, enum.Enum):
     MASK_FORMAT_IMPORT = "mask_format_import"  # staged receipt 驱动的格式导入
     POINT_CLOUD_CROSS_FRAME = "point_cloud_cross_frame"  # 3D Scene 跨帧传播
     POINT_CLOUD_QUALITY = "point_cloud_quality"  # 3D 点云与 SceneTrack 质量扫描
+    POINT_CLOUD_DENSIFICATION = "point_cloud_densification"
 
 
 class AsyncJobStatus(str, enum.Enum):

@@ -6,7 +6,7 @@
 ## 目标与独立边界
 
 在内部使用出现具体需求后，分别交付企业统一登录、跨项目职责、自动化凭据治理或高级运行策略。
-本批不阻塞[第一批](../1788952434_internal-launch-readiness.md)和[第二批](../1788952434_internal-usability-admin-settings.md)，各工作包也不互相依赖；不能因统一登录尚未接通而阻止凭据提醒或超时策略的单独交付。
+本批不阻塞[第一批](../archive/1788952434_internal-launch-readiness.md)和[第二批](../1788952434_internal-usability-admin-settings.md)，各工作包也不互相依赖；不能因统一登录尚未接通而阻止凭据提醒或超时策略的单独交付。
 
 本文件放在 backlog，是因为触发条件和外部系统会改变实施合同；不代表前三批要一次性做完。
 实施前按 [backlog promotion gate](README.md#promotion-gate) 复核代码、已交付能力、迁移 head 和实际条件，移动到计划根目录并保持文件名。此处保存的规划不等于已经授权执行或连接外部身份系统。

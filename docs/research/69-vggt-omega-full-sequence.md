@@ -1,12 +1,14 @@
 # VGGT-Ω 整场景联合重建
 
+> 归档状态：独立预览和离线试验入口已退役，大体积派生产物已清理。下文保留当时的方法与验收结果，旧地址和命令不再是运行入口。冻结协议、指标、失败记录、评分目标及源码快照保留；完整产物审计需重新生成缺失文件。清理范围见[研究索引](README.md#试验归档与清理)。
+
 ## 范围与输入
 
 本轮按用户提供的[项目主页](https://vggt-omega.github.io/)展示方式，新增一个可旋转的整场景彩色点云预览，配有前视相机轨迹、当前时刻六路相机视锥、39 帧时间轴，以及输入 RGB 和实际点云投影渲染对照。
 
 试验使用 `scene-0061` 的全部 **39 个标注关键时刻 × 六路相机 = 234 张 RGB**，跨度约 19.15 秒。所有输入在同一次模型前向中联合参与，没有按短窗口分开推理后拼接。原始 nuScenes 压缩包还包含该场景 1,084 张非关键帧 RGB 和 343 个额外 LiDAR sweep；它们没有解压、没有参与本轮，页面明确标注全部可用关键帧范围。
 
-本轮独立保存在 `.artifacts/model-review/vggt-omega-lidar-densification/full-sequence/`，没有修改上一轮三/五帧预测、评分、纹理网格和源码快照。新页面地址为 `http://localhost:8780/full-sequence/`，原有短窗口和纹理网格页继续位于 `http://localhost:8780/`。
+本轮独立保存在 `.artifacts/model-review/vggt-omega-lidar-densification/full-sequence/`，没有修改上一轮三/五帧预测、评分、纹理网格和源码快照。当时页面地址为 `http://localhost:8780/full-sequence/`；独立预览现已退役。
 
 ## 模型与显存尝试
 
@@ -84,24 +86,15 @@ CPU 校准、筛选、体素化、完整评分与 234 张相机 RGB 渲染合计
 - 实际鼠标拖动能改变视角，重置后的惯性漂移约 2.84×10⁻¹⁴m。390px 移动视口没有横向溢出。
 - 本机 Chrome 无法创建 WebGL context，实际采用 Canvas2D CPU 绘制；网页提供相同几何的兼容交互。
   GPU 点颜色做 sRGB 到线性空间转换，但本轮没有获得 WebGL 硬件渲染验收。应用内浏览器未连接，
-  页面在独立测试浏览器验证，本地服务继续保留；没有声称已替用户切换其应用内标签。
+  页面在独立测试浏览器验证，当时保留了本地服务，现已停止；没有声称已替用户切换其应用内标签。
 
 原始记录位于 `sequence-artifact-audit.json`、`browser-sequence-behavior.json`、
 `browser-sequence-projection.json` 及各推理尝试目录，实际页面截图与环境记录一并保留。
 
-## 复现入口
+## 历史复现记录
 
-在独立 Python 环境中安装 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、NumPy 1.26.4、SciPy 1.15.3、Numba 0.63.1、Pillow、einops、safetensors 和 nvidia-ml-py。`hf` 已登录并具备权重访问权限后，按固定 revision 下载权重。
+当时使用独立 Python 环境中的 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、NumPy 1.26.4、SciPy 1.15.3、Numba 0.63.1、Pillow、einops、safetensors 和 nvidia-ml-py，以及固定 revision 的权重。
 
-```bash
-python apps/api/scripts/qualify_vggt_omega_sequence.py freeze \
-  --resolution 480 --output /path/to/new-sequence-run
-CUDA_VISIBLE_DEVICES=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-  python apps/api/scripts/qualify_vggt_omega_sequence.py infer \
-  --output /path/to/new-sequence-run --weights /path/to/vggt_omega_1b_512.pt
-python apps/api/scripts/build_vggt_omega_sequence.py \
-  --output /path/to/new-sequence-run
-python apps/api/scripts/audit_vggt_omega_sequence.py --output /path/to/new-sequence-run
-```
+预测、构建和审计入口现已移出运行目录，清理前源码位于本地产物根目录的 `retired-runtime-source/apps/api/scripts/`；本组最初阶段源码仍在 `inference-source/`、`build-source/` 与尝试记录中。协议、指标、失败日志、评分目标和浏览器证据保留。联合预测、完整/显示点云、原图副本、逐视角渲染及失败尝试数组已删除，旧 manifest 是清理前的快照。
 
-重新试验使用新的目录，保留已冻结协议与记录。离线页面复用上一轮的 Three vendor 与相机辅助函数，位于原预览目录的子路径；独立分发时需要一并携带这些资源。
+若要重做完整试验，需要恢复对应源码与依赖、核对原始输入，并在新目录重新生成缺失产物。当前维护入口为[平台生成与部署](../../docs-site/ops/vggt-omega.md)。

@@ -1,8 +1,10 @@
 # VGGT-Ω 全曝光重叠窗口与动态补偿
 
+> 归档状态：独立预览和离线试验入口已退役，大体积派生产物已清理。下文保留当时的方法与验收结果，旧地址和命令不再是运行入口。冻结协议、指标、失败记录、评分目标及源码快照保留；完整产物审计需重新生成缺失文件。清理范围见[研究索引](README.md#试验归档与清理)。
+
 ## 目的与范围
 
-用 scene-0061 的全部 1,318 张独立 RGB 曝光丰富静态点云，同时验证动态目标如何减少跨时刻叠加产生的重影。独立离线预览：`http://localhost:8780/sweeps-sequence/`。上一组 234 张关键帧联合推理保留在 `/full-sequence/`。
+用 scene-0061 的全部 1,318 张独立 RGB 曝光丰富静态点云，同时验证动态目标如何减少跨时刻叠加产生的重影。当时的独立离线预览及上一组关键帧预览现已退役。
 
 这组使用真实传感器标定与真实实例标注辅助实验。窗口重建会受到上下文、遮挡、深度误差和输入运动模糊影响，不能保证动态目标完全不糊，也不能把额外点数直接视为额外准确表面。
 
@@ -127,18 +129,8 @@
 
 输入提取仅从已有数据包取出本 scene 缺失的 RGB/LiDAR sweeps，写到实验目录的 `source-inputs/`，保留原始数据。产物根目录为 `.artifacts/model-review/vggt-omega-lidar-densification/sweeps-sequence/`。
 
-在独立 Python 环境中使用 Torch 2.6.0/cu124、NumPy 1.26.4、SciPy、Pillow、Numba、einops、safetensors 和 opencv-python-headless，具体版本随 `sweeps-environment.json` 保存。入口：
+当时在独立 Python 环境中使用 Torch 2.6.0/cu124、NumPy 1.26.4、SciPy、Pillow、Numba、einops、safetensors 和 opencv-python-headless，具体版本随 `sweeps-environment.json` 保存。离线入口现已移出运行目录，清理前源码位于本地产物根目录的 `retired-runtime-source/apps/api/scripts/`。
 
-```bash
-python apps/api/scripts/qualify_vggt_omega_sweeps.py freeze --output "$EXPERIMENT"
-CUDA_VISIBLE_DEVICES=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-  python apps/api/scripts/qualify_vggt_omega_sweeps.py infer \
-  --output "$EXPERIMENT" --weights "$CHECKPOINT"
-OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
-  python apps/api/scripts/build_vggt_omega_sweeps.py --output "$EXPERIMENT"
-python apps/api/scripts/audit_vggt_omega_sweeps.py --output "$EXPERIMENT"
-```
+协议、输入摘要、逐窗尺度、评分目标、指标、失败记录、阶段源码及浏览器证据保留。逐窗预测、局部终点、融合/动态点云、显示索引、源数据副本和渲染已清理。正式标注平台接入仍需用实际跟踪器替代真实实例标注，并验证非刚体、遮挡和失跟场景。
 
-协议、输入摘要、逐窗预测、逐窗尺度、局部终点、完整点云及像素/扫描来源、显示索引、动态目标/三组点云和浏览器证据分别保存。正式标注平台接入仍需用实际跟踪器替代真实实例标注，并验证非刚体、遮挡和失跟场景。
-
-主要结果为 `static-validation.json`、`dynamic-validation.json`、`dynamic-derived-summary.json`、`overlap-validation.json` 和 `fusion-projection-loss-audit.json`。来源审计为 `sweeps-artifact-audit.json`；两组浏览器检查为 `browser-behavior.json` 与 `browser-interaction.json`。`sweeps-manifest.json` 保存正式产物及共享渲染依赖的 SHA256，`cleanup.json` 记录本轮临时环境和测试中间产物的清理。未运行远程 CI。
+主要结果为 `static-validation.json`、`dynamic-validation.json`、`dynamic-derived-summary.json`、`overlap-validation.json` 和 `fusion-projection-loss-audit.json`。来源审计为 `sweeps-artifact-audit.json`；两组浏览器检查为 `browser-behavior.json` 与 `browser-interaction.json`。`sweeps-manifest.json` 保存清理前正式产物及共享渲染依赖的 SHA256，`cleanup.json` 记录本轮临时环境和测试中间产物的清理。未运行远程 CI。

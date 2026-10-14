@@ -32,7 +32,9 @@ interface AugmentationState {
 
 export function defaultAugmentationCameraRole(cameras: readonly { role: string }[]): string | null {
   const roles = cameras.map((camera) => camera.role).sort();
-  return roles.find((role) => /^(?:cam(?:era)?[_:-])?front$/i.test(role)) ?? roles[0] ?? null;
+  return (
+    roles.find((role) => /^(?:camera[_:-])?(?:cam[_:-])?front$/i.test(role)) ?? roles[0] ?? null
+  );
 }
 
 /** This hook owns display-only data. It never contributes to playback/frame readiness. */

@@ -177,6 +177,13 @@ describe("augmentation display lifecycle", () => {
         { role: "CAM_FRONT_LEFT" },
       ]),
     ).toBe("CAM_FRONT");
+    expect(
+      defaultAugmentationCameraRole([
+        { role: "camera_CAM_BACK" },
+        { role: "camera_CAM_FRONT_LEFT" },
+        { role: "camera_CAM_FRONT" },
+      ]),
+    ).toBe("camera_CAM_FRONT");
     expect(defaultAugmentationCameraRole([{ role: "right" }, { role: "left" }])).toBe("left");
   });
 });

@@ -185,6 +185,40 @@ function renderUI() {
 }
 
 describe("CapabilityCatalogPanel · 协议双层视图", () => {
+  it("资产生成服务的空模型列表不合成预标注模型", async () => {
+    mockOverview.mockResolvedValue({
+      projects: [
+        {
+          project_id: "p-omega",
+          project_name: "项目甲",
+          backends: [
+            {
+              id: "b-omega",
+              project_id: "p-omega",
+              name: "Omega Auxiliary",
+              url: "http://omega:8006",
+              state: "connected",
+              health_meta: null,
+            },
+          ],
+        },
+      ],
+      total_backends: 1,
+      connected_backends: 1,
+    });
+    const { mlBackendsApi } = await import("@/api/ml-backends");
+    vi.mocked(mlBackendsApi.capabilities).mockResolvedValue({
+      name: "Omega Auxiliary",
+      supported_prompts: [],
+      models: [],
+      point_cloud_densification: { protocol_version: "1", endpoint: "/reconstruct", profiles: [] },
+    });
+    renderUI();
+    await waitFor(() => expect(mlBackendsApi.capabilities).toHaveBeenCalled());
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "backend" } });
+    await screen.findByText("暂无可用模型条目");
+    expect(screen.queryByText("Omega Auxiliary")).toBeNull();
+  });
   it("目录搜索逐字输入保留空格", async () => {
     const user = userEvent.setup();
     renderUI();
@@ -228,7 +262,9 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     const card = screen.getByText("SAM 2").parentElement!.parentElement!;
     expect(within(card).getByText("检测")).toBeVisible();
   });
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { mlBackendsApi } = await import("@/api/ml-backends");
+    vi.mocked(mlBackendsApi.capabilities).mockReset();
     mockOverview.mockReset();
     mockGetProtocol.mockReset();
     mockGetInstances.mockReset();

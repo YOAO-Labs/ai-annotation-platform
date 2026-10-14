@@ -1,5 +1,7 @@
 # 标注员绩效能力对标调研（Annotator Performance）
 
+> 历史源码定位：外部路径来自当时的本地 CVAT / Label Studio 检出，本文未记录固定 commit，当前仓库也不包含这些检出。下文保留代码路径作历史索引，不将它们当成可用本地链接或已验证的当前上游源码。
+
 > 调研日期:2026-06-03 · 调研者:Claude
 >
 > **目的**:为平台「绩效相关页面」的下一步深化做对标输入。源码级深读 CVAT(`../cvat`)、Label Studio(`../label-studio`),web 调研 6 个商业产品(Labelbox / Kili / Scale Rapid / Encord / Supervisely / Segments.ai / SuperAnnotate)。
@@ -87,13 +89,13 @@
 ### 2.1 工时:客户端事件流 + 服务端聚合
 
 - 客户端收集 `draw:object` / `change:frame` / ... 事件,3 触发器(90s 定时 / Save / 开关视图)批量推送。
-- 服务端 `compute_working_time_per_ids`([events/utils.py:84-121](../../../cvat/cvat/apps/events/handlers.py)):事件间隔 **<100s** 才计入工时(空闲剔除),`change:frame` 这类带 duration 的累加。落 `send:working_time` 事件。
+- 服务端 `compute_working_time_per_ids`(events/utils.py:84-121（历史路径 `cvat/apps/events/handlers.py`）):事件间隔 **<100s** 才计入工时(空闲剔除),`change:frame` 这类带 duration 的累加。落 `send:working_time` 事件。
 - 存 ClickHouse `events` 表(scope/obj_id/duration/count/user_id/project/task/job + payload JSON),按月分区。Grafana 看板 `sum(working_time)` + `count() as Activity` GROUP BY user×project×task×job。
 - **借鉴**:工时"空闲剔除"规则要透明(我们 active_minutes 口径需明确);ClickHouse 路线我们已有 DuckDB 离线档对应,暂不上。
 
 ### 2.2 质量:GT job + 8 类冲突 + 混淆矩阵
 
-- `quality_control` app:把某 job 标为 `GROUND_TRUTH`,`DatasetComparator` 用 IoU/OKS 匹配标注员标注 vs GT,产出 **Job→Task→Project 三级报告**([quality_control/models.py:91-246](../../../cvat/cvat/apps/quality_control/models.py))。
+- `quality_control` app:把某 job 标为 `GROUND_TRUTH`,`DatasetComparator` 用 IoU/OKS 匹配标注员标注 vs GT,产出 **Job→Task→Project 三级报告**(quality_control/models.py:91-246（历史路径 `cvat/apps/quality_control/models.py`）)。
 - **8 类冲突**(比我们 4 类 reject 原因更细):`MISSING_ANNOTATION`/`EXTRA_ANNOTATION`/`MISMATCHING_LABEL`(error)、`LOW_OVERLAP`/`MISMATCHING_ATTRIBUTES`/`MISMATCHING_DIRECTION`/`MISMATCHING_GROUPS`/`COVERED_ANNOTATION`(warning)。
 - 指标:accuracy = valid/(ds∪gt)、precision = valid/ds_count、recall = valid/gt_count、mean_iou、**confusion_matrix**(label×label,带 jaccard_index)。
 - 可配阈值:`iou_threshold`(0.4)、`low_overlap_threshold`(0.8)、`oks_sigma`(0.09)、`target_metric`(accuracy)+ `target_metric_threshold`(0.7)。
@@ -108,7 +110,7 @@
 
 ### 3.1 lead_time / 成员统计(OSS 已有)
 
-- `Annotation.lead_time`(秒,[tasks/models.py:723](../../../label-studio/label_studio/tasks/models.py)),FSM `annotation_created` transition 捕获;Data Manager `Avg('annotations__lead_time')` 出 per-task `avg_lead_time`。
+- `Annotation.lead_time`(秒,tasks/models.py:723（历史路径 `label_studio/tasks/models.py`）),FSM `annotation_created` transition 捕获;Data Manager `Avg('annotations__lead_time')` 出 per-task `avg_lead_time`。
 - `annotators` 列 = `ArrayAgg('annotations__completed_by')` 任务级标注员聚合;`total_annotations`/`cancelled_annotations` per-task 计数。
 - **借鉴**:per-task-annotator 对的聚合(我们按 user 聚合,缺"某题谁标的"维度)。
 

@@ -282,153 +282,69 @@ Project 质量配置支持全局阈值和按 class 的稀疏 override；旧 sche
 
 ## VGGT-Ω 点云增密主路线
 
-三维模型试验统一保留 VGGT-Ω 路线：连续多帧六相机预测，使用真实 LiDAR
-校准尺度与局部深度、进行时序与可见性筛选，再生成增密点云和 RGB 纹理网格。
-当前三帧方案作为默认起点；五帧保留对照。已有资产和离线审阅可复用，
-标注工作台的辅助显示层接入属于后续工作。
+三维模型试验统一保留 VGGT-Ω 系列，当前增密验证优先围绕完整的当前帧真实 LiDAR，
+比较传统邻帧、独立单图与当前六相机预测，并用真实测量校准和保护已有几何。
+连续多帧、整场景及重叠窗口保留为历史对照；全曝光实验中的正确支持下降和动态残影
+使其尚不适合作为默认标注底图。历史结论与可导入的当前帧资产继续复用；工作台实验接入使用
+独立的 `point_cloud_auxiliary_assets` / `point_cloud_auxiliary_generations` 注册结果，
+不写入 `predictions` 或标注表。
 
-VGGT 的几何、插值、掩码、采集链和资源监控公共函数集中在
-`apps/api/scripts/vggt_common.py`；运行链路独立于已清理的其他模型试验脚本。
-nuScenes 原始数据仍复用平台自己的导入工具。
+### 当前帧实验资产
 
-`qualify_vggt_omega.py` 固定两个 nuScenes mini 场景，各取三个中心帧，
-对连续三帧和五帧六相机窗口进行官方深度预测。需要已登录且有下载权限的
-HF CLI，以及干净的 `facebookresearch/vggt-omega` 检出。默认源码位置为
-`~/.x-repo/github.com/facebookresearch/vggt-omega`，要求固定提交
-`48b23c8ce72c9a8fcf987f0d7f43d8e4870759f6`。
+部署开关 `POINT_CLOUD_AI_ENHANCEMENT_ENABLED` 默认关闭，项目的
+`point_cloud_enhancement_config` 另外控制启用、profile 和生成服务池。
+`omega-current-mono-512` 表示带留出协议的离线资产；
+`omega-current-mono-512-full-lidar` 表示后台使用完整当前帧 LiDAR 校准的资产，
+不能把后者的校准残差当作独立精度评估。
 
-使用 416 reproduction 权重；原始图经过官方 balanced 预处理变为
-560×320，投影内参带 PIL 像素中心仿射。不要复用假定最长边 512 的上游
-评估包装器，也不要混用训练辅助函数的 `u+0.5` 反投影。
+资产按主 DatasetItem、相机绑定和 profile 归属，generation 不可变。
+输入摘要包含对象 SHA-256、大小、存储指纹、相机角色、逐帧标定版本、
+源位姿和轴约定。发布前重新检查所有输入；先保留 building 租约，再上传，
+验证通过后才原子切换 active 指针。失败或中断保留先前有效结果，
+reconcile 命令清理过期租约和经过宽限期的孤儿对象。
 
-完整环境锁定见保存产物的 `requirements-portable.txt`，下例创建新的输出。
-Torch 从官方 CUDA 索引安装，其余依赖从 PyPI 安装，避免额外索引遮蔽通用包。
+点云存储在原主 LiDAR 坐标系，前端只归一化一次。六路相机分别保留
+PCD 和像素、置信度审计资产，主视图一次只显示一路相机。
+浏览器通过任务权限检查后的短时签名 URL 加载，最多缓存三组、32 MiB；
+完整实测 geometry 与标注点索引不变。
 
-```bash
-uv venv --python 3.10.18 .artifacts/model-review/.vggt-omega-venv
-uv pip install --python .artifacts/model-review/.vggt-omega-venv/bin/python \
-  'torch==2.6.0+cu124' 'torchvision==0.21.0+cu124' \
-  --index-url https://download.pytorch.org/whl/cu124
-uv pip install --python .artifacts/model-review/.vggt-omega-venv/bin/python \
-  --index-url https://pypi.org/simple \
-  -r .artifacts/model-review/vggt-omega-lidar-densification/requirements-portable.txt
-HF_HUB_DISABLE_XET=1 hf download facebook/VGGT-Omega \
-  vggt_omega_1b_416_reproduce.pt \
-  --revision 1041e80fc0e911235d3426b0a3d9a81075111a53 \
-  --local-dir .artifacts/model-review/.vggt-omega-weights
+新 nuScenes 导入使用每个曝光的真实位姿计算外参。旧数据标定不符时，
+读取返回 stale；运维先准备修复清单，再按摘要 CAS 显式应用，人工编辑不会被覆盖。
+运行命令见 [部署与生成](../../ops/vggt-omega)。
 
-export CUDA_VISIBLE_DEVICES=1
-export PYTHONDONTWRITEBYTECODE=1
-export OMP_NUM_THREADS=8
-export OPENBLAS_NUM_THREADS=8
-.artifacts/model-review/.vggt-omega-venv/bin/python \
-  apps/api/scripts/qualify_vggt_omega.py freeze \
-  --output .artifacts/model-review/vggt-omega-lidar-densification-new
-.artifacts/model-review/.vggt-omega-venv/bin/python \
-  apps/api/scripts/qualify_vggt_omega.py infer \
-  --output .artifacts/model-review/vggt-omega-lidar-densification-new \
-  --weights .artifacts/model-review/.vggt-omega-weights/vggt_omega_1b_416_reproduce.pt
-.artifacts/model-review/.vggt-omega-venv/bin/python \
-  apps/api/scripts/build_vggt_omega_review.py \
-  --output .artifacts/model-review/vggt-omega-lidar-densification-new
-.artifacts/model-review/.vggt-omega-venv/bin/python \
-  apps/api/scripts/qualify_vggt_omega.py infer --verify-existing \
-  --output .artifacts/model-review/vggt-omega-lidar-densification-new \
-  --weights .artifacts/model-review/.vggt-omega-weights/vggt_omega_1b_416_reproduce.pt
-.artifacts/model-review/.vggt-omega-venv/bin/python \
-  apps/api/scripts/audit_vggt_omega_artifacts.py \
-  --output .artifacts/model-review/vggt-omega-lidar-densification-new
-.artifacts/model-review/.vggt-omega-venv/bin/python \
-  apps/api/scripts/build_vggt_omega_mesh.py \
-  --output .artifacts/model-review/vggt-omega-lidar-densification-new
-.artifacts/model-review/.vggt-omega-venv/bin/python \
-  apps/api/scripts/audit_vggt_omega_mesh.py \
-  --output .artifacts/model-review/vggt-omega-lidar-densification-new
-python3 apps/api/scripts/serve_vggt_review.py --port 8780 \
-  --directory .artifacts/model-review/vggt-omega-lidar-densification-new
-```
+### 运行代码与维护边界
 
-中心 RGB 参与输入；中心 LiDAR 按完整采集 token 留出，校正仅用窗口内其他
-扫描。尺度拟合按原始回波去重；局部校正使用有限邻域和端点颜色/深度门控，
-不保证完全隔离所有物面。静态候选通过不同采集的一致性、真实锚点和可见
-冲突筛选，模型窗口内支持不属于独立模型估计。静态遮挡使用全部可能 actor
-类别的真值框；动态候选只取中心 RGB 曝光，不做跨时刻物体运动补偿。
+| 职责                           | 当前实现                                                         |
+| ------------------------------ | ---------------------------------------------------------------- |
+| 当前六路相机独立推理           | `apps/vggt-omega-backend/`，独立 GPU 容器                        |
+| LiDAR 校准、筛选与任务         | `apps/api/app/services/point_cloud_densification/` 与对应 worker |
+| 不可变辅助资产与来源校验       | `apps/api/app/services/point_cloud_auxiliary/`                   |
+| 已验证结果导入、标定修复与对账 | `apps/api/scripts/` 中三个点云辅助资产运维入口                   |
+| 实测、邻帧和 AI 的统一显示     | 现有三维工作台与点云渲染器                                       |
 
-实际输出点云按相同 0.1m 体素和 1.5px 投影半径评分，每个可见回波计一次。
-固定目标上的正确深度支持率把缺失计为未命中；MAE 另区分自身及共同支持，
-并报告相对多帧实测的新增和损失。新增体素数不能证明空白区域几何正确。
+生产链路不依赖离线试验脚本、独立预览、GT 实例轨迹或历史融合点云。
+管理员通过项目设置后台准备，使用 `omega-current-mono-512-full-lidar`，
+完整当前扫描参与校准与测量保护。独立单图的执行形状为 B6S1，六相机输出
+分别发布，工作台一次显示所选方向。部署步骤见 [运维说明](../../ops/vggt-omega)。
 
-`infer --verify-existing` 可将最终执行源码归档并逐值核对已有预测数组，
-不覆盖首次推理文件；比较入口核对初始 NPZ 的 SHA256。
-`audit_vggt_omega_artifacts.py` 独立核对包含评分 LiDAR 的全部传感器文件、
-三/五帧目标身份、动态时间来源，并从二进制点云重建抽样点的原始回波或图像像素。
-`build_vggt_omega_mesh.py` 在点云比较完成后冻结网格协议，需要锁定环境中的
-Numba。顶点直接复用筛选后的二进制点云，按曝光及种类连面；检查原接受掩码、
-6px 边长和三维深度断面，用原始 RGB 纹理进行透视正确的三角形渲染。
-不覆盖已有网格协议；初次全层评分的审计修复通过显式
-`--repair-layer-scoring` 保存 amendment，不能当作常规重跑入口。
-静态和动态各用同类网格深度评分，全部图层另保留遮挡预览；网格实际覆盖像素
-与点云 1.5px 查询足迹不同。右移 0.5m 的 RGB 图无独立真值，只作视觉探针。
-`audit_vggt_omega_mesh.py` 核对原顶点/纹理摘要、每个三角的来源与掩码、
-边长断面及已保存深度与分层分数。
+### 试验证据与归档
 
-构建网格后，离线预览默认展示三帧纹理网格和前视相机，可切回点云方法对照。
-浏览器无法创建 WebGL2 时，使用同一份点云/三角网格的 Canvas2D CPU 兼容绘制，
-保留旋转、缩放、贴近六路相机和来源图层，不将其当作硬件性能验收。
-保留协议、预测深度/置信度、校正终点、点云来源、量化与浏览器证据，完成后
-清理私有虚拟环境、权重副本和测试中间产物。具体结果见
-`docs/research/68-vggt-omega-lidar-densification.md`。
+三/五帧网格、234 张关键帧联合、1,318 张全曝光重叠窗口和当前帧对照已完成
+研究记录。独立预览、专用预览服务及离线预测/构建/审计脚本已退役，后续通过
+平台链路继续验证。各组结果和限制见仓库 `docs/research/README.md`。
 
-### 整理后的源码与复现证据
+当前帧实验在 39 个时刻比较独立单图和六相机联合，显示当前方向的模型点，
+不跨时刻累积。该实验按扫描/回波身份冻结约 80%/20% 互补分区，三个固定时刻
+的留出点仅用于评分；平台后台生成使用完整 LiDAR，两者 profile 分开。
+实验最终运动分组偏向单图，过滤前深度并未显示单图普遍更准。
+当前帧回波补全百分比与旧整扫描留出结果不能直接排名，也不能据此解释实测精度。
 
-保留产物中的原协议、预测数组、点云、网格、原图纹理、指标和原始源码快照。
-历史快照保留当时使用的依赖文件名，便于核对原来的逐值复现证明；运行代码
-已只保留 VGGT 自有模块。`code-consolidation.json` 单列整理后的源码摘要、
-历史证明摘要和九个迁移符号的 AST 等价检查，避免把代码整理误报为新的 GPU 复现。
+历史实验目录保留协议、指标、评分目标、失败记录、阶段源码和浏览器证据。
+清理前的试验脚本、测试和 UI 快照位于该目录的 `retired-runtime-source/`。
+窗口预测、校正/融合中间数组、显示缓冲、原图副本和逐视角渲染已经清理，
+旧 manifest 和审计表示清理前的状态；重跑完整审计需要重新生成缺失产物。
 
-在保留产物上运行两个审计入口，会另外写出
-`artifact-audit-consolidated.json` 和 `mesh-artifact-audit-consolidated.json`，
-核对历史来源及当前源码，同时保留原评分和审计记录。
-已有 `verification-source.json` 时，再次执行 `infer --verify-existing` 会使用
-独立的 consolidated 验证文件和源码目录，保留原证明；同一新阶段拒绝重复覆盖。
-
-其他深度、Gaussian 和四维高斯试验的脚本、页面、报告、训练终点及预览服务
-已清理。保留数据集、生产导入工具、全局共享模型缓存与共享仓库。
-选型和当前限制集中记录在 `docs/research/68-vggt-omega-lidar-densification.md`。
-
-### 整场景联合重建审阅
-
-`qualify_vggt_omega_sequence.py` 可冻结一个 scene 的全部标注关键帧、六路 RGB、
-传感器摘要与全局留出扫描集合，再进行单次联合前向。当前验证使用 512 实用权重，
-在 RTX 3090 上将输入缩放为 640×352，234 张 RGB 一次参与；高频非关键帧未参与。
-两次较大输入的显存失败记录独立保留，没有替换成分块拼接并继续称为联合推理。
-
-`build_vggt_omega_sequence.py` 分别保存原始预测几何、LiDAR 校准模型、实测和融合，
-提供大幅全局点云、前视相机轨迹、六路当前视锥、39 帧时间轴及 RGB 投影渲染。
-模型颜色来自输入 RGB，完整点云保存来源，浏览器显示预算不参与评分。
-动态候选限于当前时刻，并经对应曝光的 oracle 三维框内检验；没有运动补偿。
-三整次留出扫描在所有曝光的校准、筛选及融合中统一排除。
-
-`audit_vggt_omega_sequence.py` 核对联合输入、全局扫描隔离、完整点云来源、
-显示样本、原图与渲染文件，并验证上一轮整理后的源码保护仍通过。
-离线入口为 `http://localhost:8780/full-sequence/`；方法、显存尝试、
-验证结果与复现命令见 `docs/research/69-vggt-omega-full-sequence.md`。
-
-### 全曝光重叠窗口与动态补偿
-
-`qualify_vggt_omega_sweeps.py` 纳入 scene 的全部 1,318 个独立 RGB 曝光，
-按真实时间组织 18 个重叠窗口，每图固定唯一输出窗口。`build_vggt_omega_sweeps.py`
-逐窗拟合尺度，用真实相机标定统一坐标，分别比较 36 次关键扫描和 371 次允许扫描的
-校准与实测融合。三次评测扫描及其前后 100ms 邻域共 11 次扫描全局排除；
-静态评测复用上一组固定目标，同一曝光的重复窗口不计作独立时间支持。
-
-动态层按实例独立校准，比较单曝光对齐、未补偿短时叠加和刚体运动补偿；
-六路遮挡检查使用各相机实际曝光时间，行人等非刚体仅取一个曝光。
-当前依赖真实实例标注辅助，缺少可靠运动或足够锚点时不生成多帧对象候选。
-动态稀疏表面支持和局部散布都是代理指标，不能保证清晰度或稠密表面正确。
-
-`audit_vggt_omega_sweeps.py` 核对唯一曝光、窗口所有权、全局扫描隔离、
-像素/回波来源和实例运动，并重新计算保存点云的抽样静态分数及动态实例分数。
-离线入口为 `http://localhost:8780/sweeps-sequence/`，包含 224 个前视参考时刻、
-六路最近曝光及时间差、动态策略和前视 RGB 点渲染。方法与结果见
-`docs/research/70-vggt-omega-all-exposures.md`。
+当前帧另保留离线导入需要的 39 个单图预测、234 份逐相机点云及绑定记录，
+导入仍核对原数据集里的 PCD/RGB 身份、行顺序和标定。数据集、共享权重与
+模型源码缓存保留。平台接入的真实生成、复用和浏览器验收证据独立保存。
+逐文件清理摘要见本地 `.artifacts/model-review/reconstruction-cleanup-20261014/`。

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import json
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import httpx
@@ -555,6 +556,62 @@ class MLBackendClient:
                 )
             )
         return results
+
+    async def reconstruct(self, payload: dict | Callable[[], Awaitable[dict]]):
+        """Produce bounded depth artifacts under the normal GPU admission owner."""
+        from app.schemas.point_cloud_densification import ReconstructionResponse
+
+        started = time.monotonic()
+        outcome = "error"
+        try:
+            async with await self._acquire():
+                async with self._gpu_dispatch(
+                    "predict", AdmissionScope.PREDICT
+                ) as grant:
+                    if callable(payload):
+                        # Sign after queueing/admission and recheck queued
+                        # cancellation through the orchestration owner.
+                        payload = await payload()
+                    async with httpx.AsyncClient(
+                        timeout=settings.ml_predict_timeout, follow_redirects=False
+                    ) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{self.base_url}/reconstruct",
+                            json=payload,
+                            headers=self._headers(grant),
+                        ) as raw:
+                            response = await _bounded_stream_response(
+                                raw, max_bytes=128 * 1024
+                            )
+                        if grant is not None:
+                            grant.report_response(response.status_code)
+                        _raise_for_backend_status(response)
+                        result = ReconstructionResponse.model_validate_json(
+                            response.content
+                        )
+            for key in ("request_id", "idempotency_key", "input_digest", "profile"):
+                if getattr(result, key) != payload[key]:
+                    raise ValueError("reconstruction response identity mismatch")
+            expected = [
+                (camera["role"], camera["sha256"], camera["width"], camera["height"])
+                for camera in payload["cameras"]
+            ]
+            actual = [
+                (
+                    camera.role,
+                    camera.source_sha256,
+                    camera.source_width,
+                    camera.source_height,
+                )
+                for camera in result.cameras
+            ]
+            if actual != expected:
+                raise ValueError("reconstruction camera identity mismatch")
+            outcome = "success"
+            return result
+        finally:
+            observe_ml_backend(self.backend_id, outcome, time.monotonic() - started)
 
     async def predict_interactive(
         self,

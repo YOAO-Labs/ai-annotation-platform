@@ -400,6 +400,18 @@ uv run --project apps/_shared/mask_utils python scripts/eval_simplify.py \
 
 ## 部署
 
+### VGGT-Ω 当前帧补强实验
+
+API 与 Celery 的 `POINT_CLOUD_AI_ENHANCEMENT_ENABLED` 默认 `false`。
+模型使用独立的 `gpu-vggt-omega` Compose profile、明确指定的一张物理 GPU，
+权重只读挂载，不在平台 API/worker 内加载 PyTorch。
+先在一次性测试环境验证迁移，再在目标开发环境应用迁移并刷新 API、普通 worker 和 beat。
+Celery 任务 `app.workers.point_cloud_densification.run` 路由至 `media`；
+后台 HTTP 调用经过现有服务池和 GPU admission，CPU 侧完成几何处理与发布。
+实卡生命周期验收前保留 `VGGT_OMEGA_MANAGED_LIFECYCLE_VERIFIED=0`。
+配置、预生成资产导入、旧标定修复与清理见 [运维说明](docs-site/ops/vggt-omega.md)
+及 [容器协议](apps/vggt-omega-backend/README.md)。
+
 > 开发态 / staging / 生产态的整体差异（谁进容器、profile、`ENVIRONMENT` 断言行为）见概念页 [运行环境形态](docs-site/dev/concepts/runtime-environments.md)；逐项环境变量与运维细则见 [部署指南](docs-site/ops/deploy/docker-compose.md)。
 
 ### 开发环境

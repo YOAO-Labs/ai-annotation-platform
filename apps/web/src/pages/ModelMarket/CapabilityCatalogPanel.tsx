@@ -244,6 +244,8 @@ export function CapabilityCatalogPanel() {
       if (!r.data) continue;
       seenBackendIds.add(r.backend.id);
       const cap = r.data;
+      // Artifact producers intentionally expose no annotation models.
+      if (cap.point_cloud_densification && !cap.models?.length) continue;
       // capabilities 端点对老 backend 会合成 models[]; 若仍为空, 兜底从顶层字段合成一个.
       const models: MLModelCapability[] =
         cap.models && cap.models.length > 0

@@ -24,6 +24,15 @@ Before implementing any draft, complete the following steps in order. If any ste
 
 Promotion requires a fresh decision based on the actual repository, not a few notes appended to the original text. Research sources and rejected directions may remain, but the file scope, contracts, and test criteria must be regenerated.
 
+## Other unscheduled drafts
+
+| Draft                                                                                                | Retained context and promotion requirement                                                                              |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [Semantic/panoptic mask workflows](2026-07-21-semantic-panoptic-mask-workflows.md)                   | Deferred raster-mask Epic scope; reassess concrete project demand, current instance-mask contracts and ADR-0055         |
+| [New capability marketing masters](1789230200_new-capability-marketing-masters.md)                   | Twelve unregistered stories; native Mac recording integration is completed, but capture/publication needs its own scope |
+| [AI documentation layering and governance](2026-07-11-ai-documentation-layering-governance-draft.md) | Initial layering is implemented; reassess only the remaining governance decisions against current documentation tooling |
+| [Internal identity governance](1788952434_internal-identity-governance.md)                           | Unscheduled enterprise identity and advanced policy directions; recheck the implemented project-scoped role model       |
+
 ## 当前 3D 工作台草案集
 
 ### 可在精修计划后优先转定稿
@@ -31,9 +40,6 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 [持续创建与持续自动拟合](../archive/2026-08-24-v0.24.3-3d-continuous-creation.md) 已转为 v0.24.3 实施计划，不再属于 backlog。
 
 [跨帧任务中心](../archive/2026-08-25-v0.24.8-3d-cross-frame-job-center-mvp.md) 已拆出 registration 并转为实施计划，不再属于 backlog；registration 仍需单独通过准确率门。
-
-| 草案 | 独立结果 | 关键依赖 |
-| ---- | -------- | -------- |
 
 [3D 专属质量流程](../archive/2026-08-26-v0.24.13-3d-quality-workflow.md) 已完成转定稿并进入实施，不再属于 backlog。
 

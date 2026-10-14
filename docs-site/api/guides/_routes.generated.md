@@ -396,6 +396,13 @@
 | GET | `/notification-preferences` |
 | PUT | `/notification-preferences` |
 
+## `point_cloud_densification.py`
+
+| Method | Path |
+|---|---|
+| GET | `/projects/{project_id}/point-cloud/augmentation/preparation` |
+| POST | `/projects/{project_id}/point-cloud/augmentation/jobs` |
+
 ## `point_cloud_quality.py`
 
 | Method | Path |
@@ -756,4 +763,4 @@
 
 ---
 
-_共 69 模块 / 434 路由_
+_共 70 模块 / 436 路由_

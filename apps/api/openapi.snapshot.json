@@ -4702,6 +4702,16 @@
             ],
             "title": "Name"
           },
+          "point_cloud_densification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PointCloudDensificationCapability"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "protocol_version": {
             "default": "1",
             "title": "Protocol Version",
@@ -22981,6 +22991,88 @@
         "title": "PointCloudCameraOut",
         "type": "object"
       },
+      "PointCloudDensificationCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "const": "/reconstruct",
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ProducerProfile"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Profiles",
+            "type": "array"
+          },
+          "protocol_version": {
+            "const": "1",
+            "title": "Protocol Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "endpoint",
+          "profiles"
+        ],
+        "title": "PointCloudDensificationCapability",
+        "type": "object"
+      },
+      "PointCloudDensificationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "retry_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Job Id"
+          },
+          "scene_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Id"
+          },
+          "scope": {
+            "enum": [
+              "task_ids",
+              "scene_id"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Task Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "PointCloudDensificationRequest",
+        "type": "object"
+      },
       "PointCloudEnhancementConfig": {
         "additionalProperties": false,
         "properties": {
@@ -23018,6 +23110,95 @@
           }
         },
         "title": "PointCloudEnhancementConfig",
+        "type": "object"
+      },
+      "PointCloudPreparationOptions": {
+        "properties": {
+          "deployment_enabled": {
+            "title": "Deployment Enabled",
+            "type": "boolean"
+          },
+          "producers": {
+            "items": {
+              "$ref": "#/components/schemas/PointCloudProducerOption"
+            },
+            "title": "Producers",
+            "type": "array"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/PointCloudSceneOption"
+            },
+            "title": "Scenes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deployment_enabled",
+          "producers",
+          "scenes"
+        ],
+        "title": "PointCloudPreparationOptions",
+        "type": "object"
+      },
+      "PointCloudPreparationResponse": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "reused": {
+            "default": false,
+            "title": "Reused",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_tasks": {
+            "title": "Total Tasks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "total_tasks"
+        ],
+        "title": "PointCloudPreparationResponse",
+        "type": "object"
+      },
+      "PointCloudProducerOption": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "profile"
+        ],
+        "title": "PointCloudProducerOption",
         "type": "object"
       },
       "PointCloudQualityConfig": {
@@ -24237,6 +24418,25 @@
         "title": "PointCloudQualityThresholdOverride",
         "type": "object"
       },
+      "PointCloudSceneOption": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "PointCloudSceneOption",
+        "type": "object"
+      },
       "PointMaskGeometry": {
         "additionalProperties": false,
         "description": "v0.13.0 · 3D 点云语义/实例分割掩码。point_indices 为指向点云的整数索引列表。",
@@ -25443,6 +25643,59 @@
           "latency_ms"
         ],
         "title": "ProbeResponse",
+        "type": "object"
+      },
+      "ProducerProfile": {
+        "additionalProperties": true,
+        "properties": {
+          "camera_count": {
+            "const": 6,
+            "title": "Camera Count",
+            "type": "integer"
+          },
+          "execution_shape": {
+            "const": "B6S1",
+            "title": "Execution Shape",
+            "type": "string"
+          },
+          "id": {
+            "const": "omega-current-mono-512",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 4096.0,
+            "title": "Max Height",
+            "type": "integer"
+          },
+          "max_width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 4096.0,
+            "title": "Max Width",
+            "type": "integer"
+          },
+          "outputs": {
+            "items": {
+              "enum": [
+                "depth",
+                "confidence"
+              ],
+              "type": "string"
+            },
+            "title": "Outputs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "camera_count",
+          "execution_shape",
+          "max_width",
+          "max_height",
+          "outputs"
+        ],
+        "title": "ProducerProfile",
         "type": "object"
       },
       "ProfileUpdate": {
@@ -58805,6 +59058,112 @@
         "summary": "Get Run",
         "tags": [
           "point-cloud-quality"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/point-cloud/augmentation/jobs": {
+      "post": {
+        "operationId": "prepare_scene_api_v1_projects__project_id__point_cloud_augmentation_jobs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PointCloudDensificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PointCloudPreparationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prepare Scene",
+        "tags": [
+          "point-cloud-densification"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/point-cloud/augmentation/preparation": {
+      "get": {
+        "operationId": "preparation_options_api_v1_projects__project_id__point_cloud_augmentation_preparation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PointCloudPreparationOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preparation Options",
+        "tags": [
+          "point-cloud-densification"
         ]
       }
     },

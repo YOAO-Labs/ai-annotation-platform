@@ -30,6 +30,7 @@ TERMINAL_NOTIFY_KINDS = {
     "mask_repair_rollback",
     "mask_format_import",
     "point_cloud_cross_frame",
+    "point_cloud_densification",
 }
 
 _STATUS_TO_TYPE = {
