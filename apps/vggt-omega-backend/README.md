@@ -42,6 +42,8 @@ docker compose -f docker-compose.yml -f docker-compose.ml.yml \
 
 `VGGT_OMEGA_CHECKPOINTS_DIR` 中必须存在上述权重文件。GPU 必须明确选择一张物理设备，未配置时采用 `none` 并拒绝启动推理。默认启动不启用此 profile，不影响已有模型服务。容器内该设备映射为 `cuda:0`；健康检查同时报告物理设备身份。
 
+HF snapshot 中的文件通常是指向 `blobs/` 的相对软链；仅挂载 snapshot 目录会使软链失效。部署目录应放置已校验文件的硬链接或副本，也可在单独启动时将 `readlink -f` 得到的真实文件直接只读挂载到容器内权重路径。不要把 HF token 或整个个人缓存作为服务卷。
+
 平台注册地址可使用 `http://vggt-omega-backend:8006`，宿主调试地址为 `http://127.0.0.1:8006`。注册时选择 token 认证并填写与 `VGGT_OMEGA_AUTH_TOKEN` 相同的值。所有端点遵循 `Authorization: Bearer ...`。空 token 仅适合隔离的本机开发，Compose 只将端口发布到回环地址。
 
 ## 接口
