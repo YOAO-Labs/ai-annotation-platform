@@ -42,6 +42,7 @@ async function parsePropagation(
     body.annotation.annotation_type !== "box_3d" ||
     body.annotation.geometry.type !== "box_3d" ||
     !body.annotation.track_id ||
+    !body.motion_compensated ||
     (expectedTrackId && body.annotation.track_id !== expectedTrackId)
   ) {
     throw new Error(`[pointcloud-crossframe-track] 跨帧结果无效: ${JSON.stringify(body)}`);
@@ -144,6 +145,11 @@ export async function runPointcloudCrossframeTrack(
 
   await installRecordingWorkbenchLayout(page, "both", {
     workspace: { context: "annotate:3d", preset: "standard" },
+    common: {
+      crossFrameOverlayEnabled: false,
+      crossFrameOverlayK: 1,
+      crossFrameOverlayScope: "selected",
+    },
   });
 
   // 录制窗口外预热后续两帧的 manifest 与 PCD：跨帧操作依然发生真实导航，
@@ -230,19 +236,95 @@ export async function runPointcloudCrossframeTrack(
   await focusBoxWithDoubleClick(page, second.annotation.id);
   await page.waitForTimeout(3_000);
 
-  // 回看中间帧：当前实线框 + 同 track_id 的邻帧虚线框同时可见。
+  // 最后停在 F1：两侧邻帧都已有提交框。直到 F2 落库后才通过产品设置打开叠加，
+  // 避免复用此前只有 F0 参考的 F1 查询缓存。
   await page.keyboard.press("Control+ArrowLeft");
   await expect(page).toHaveURL(new RegExp(`task=${frame1.id}`), { timeout: 15_000 });
   await selectBox(page, first.annotation.id);
   await focusBoxWithDoubleClick(page, first.annotation.id);
-  await page.waitForTimeout(3_200);
 
-  // 继续回到首帧，核对源框也已获得同一轨迹身份，并参照下一帧虚线框。
-  await page.keyboard.press("Control+ArrowLeft");
-  await expect(page).toHaveURL(new RegExp(`task=${frame0.id}`), { timeout: 15_000 });
-  await selectBox(page, source.id);
-  await focusBoxWithDoubleClick(page, source.id);
-  await page.waitForTimeout(4_500);
+  await page.getByRole("button", { name: "工作台设置" }).first().click();
+  const settings = page.getByTestId("workbench-settings-dialog");
+  await expect(settings).toBeVisible();
+  await settings.getByRole("tab", { name: "标注显示", exact: true }).click();
+  const overlayField = page.getByTestId("setting-field-common.crossFrameOverlayEnabled");
+  await overlayField.scrollIntoViewIfNeeded();
+  const overlayToggle = overlayField.getByRole("switch");
+  await expect(overlayToggle).toHaveAttribute("data-state", "unchecked");
+
+  const referenceResponsePromise = page.waitForResponse(
+    (response) => {
+      if (response.request().method() !== "GET" || !response.ok()) return false;
+      const url = new URL(response.url());
+      return (
+        url.pathname === `/api/v1/tasks/${frame1.id}/neighbor-annotations` &&
+        url.searchParams.get("k") === "1" &&
+        url.searchParams.get("track_id") === first.annotation.track_id
+      );
+    },
+    { timeout: 10_000 },
+  );
+  await overlayToggle.click();
+  await expect(overlayToggle).toHaveAttribute("data-state", "checked");
+  const referenceResponse = await referenceResponsePromise;
+  const neighborPayload = (await referenceResponse.json()) as {
+    frame_index?: number | null;
+    frames?: Array<{
+      task_id: string;
+      annotations?: Array<{
+        annotation_type?: string;
+        track_id?: string | null;
+        geometry?: { type?: string };
+      }>;
+    }>;
+  };
+  const neighborFrames = neighborPayload.frames ?? [];
+  const receivedTaskIds = neighborFrames.map((frame) => frame.task_id).sort();
+  const expectedTaskIds = [frame0.id, frame2.id].sort();
+  if (
+    neighborPayload.frame_index !== 1 ||
+    JSON.stringify(receivedTaskIds) !== JSON.stringify(expectedTaskIds) ||
+    !neighborFrames.every((frame) =>
+      frame.annotations?.some(
+        (annotation) =>
+          annotation.annotation_type === "box_3d" &&
+          annotation.geometry?.type === "box_3d" &&
+          annotation.track_id === first.annotation.track_id,
+      ),
+    )
+  ) {
+    throw new Error(
+      `[pointcloud-crossframe-track] F1 邻帧参考不完整: ${JSON.stringify(neighborPayload)}`,
+    );
+  }
+
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  const viewport = page.getByTestId("pc-viewport");
+  await expect
+    .poll(
+      () =>
+        viewport.evaluate((element, annotationId) => {
+          const scene = (
+            element as HTMLElement & {
+              __pointCloudScene?: {
+                boxGroups?: Map<string, unknown>;
+                referenceBoxes?: Array<{ material?: { type?: string } }>;
+              };
+            }
+          ).__pointCloudScene;
+          const references = scene?.referenceBoxes ?? [];
+          return {
+            currentSolid: scene?.boxGroups?.has(annotationId) ?? false,
+            dashedReferences: references.filter(
+              (reference) => reference.material?.type === "LineDashedMaterial",
+            ).length,
+          };
+        }, first.annotation.id),
+      { timeout: 10_000 },
+    )
+    .toEqual({ currentSolid: true, dashedReferences: 2 });
+  await page.waitForTimeout(2_500);
 
   return {
     drawStartMs,

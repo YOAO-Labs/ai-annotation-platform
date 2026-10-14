@@ -1,21 +1,26 @@
 /**
- * 高清母版：在放大的相机图上圈定经复核的前景物体，由真实标定与点云视锥拟合生成 3D 框，
- * 再回到主点云与三视图核对。该能力是几何辅助种框，不依赖 ML 后端，也不存在候选采纳步骤。
+ * 由真实视锥点拟合生成可复核提案，再用 3D PSR 数值控件按原始 2D 提示人工收尺寸，
+ * 并保留提案与 PATCH 回读几何；该能力不依赖 ML 后端，也不存在候选采纳步骤。
  */
-import { expect, type Page } from "@playwright/test";
-import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
+import { expect, type Locator, type Page } from "@playwright/test";
+import type { ScreenshotSeedCatalog, SeedTaskAnnotation } from "../../fixtures/seed";
 import { movePointerAtRefreshRate, recordingAnchor } from "./_canvas";
 import type { DrawWindow } from "./rotated-bbox";
 import { recordingLayoutCommand, waitForRecordingPanels } from "./_workbench-layout";
 
+type PointcloudBoxGeometry = {
+  type: string;
+  center: number[];
+  size: number[];
+  rotation: number[];
+};
+
 export interface PointcloudCameraSeedResult extends DrawWindow {
   created: { taskId: string; annotationId: string };
-  geometry: {
-    type: string;
-    center: number[];
-    size: number[];
-    rotation: number[];
-  };
+  /** The untouched geometry returned by the real camera-seed POST. */
+  geometry: PointcloudBoxGeometry;
+  /** The geometry read back from the real PSR-field PATCH after visual refinement. */
+  refinedGeometry: PointcloudBoxGeometry;
 }
 
 interface CreatedPointcloudAnnotation {
@@ -23,7 +28,7 @@ interface CreatedPointcloudAnnotation {
   task_id: string;
   annotation_type: string;
   class_name: string;
-  geometry: PointcloudCameraSeedResult["geometry"];
+  geometry: PointcloudBoxGeometry;
 }
 
 function normalizedRect(
@@ -34,6 +39,46 @@ function normalizedRect(
     start: { x: box.x + box.width * bbox[0], y: box.y + box.height * bbox[1] },
     end: { x: box.x + box.width * bbox[2], y: box.y + box.height * bbox[3] },
   };
+}
+
+interface NormalizedProjectionBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Read the actual rendered 3D projection overlay, not a synthetic geometry estimate. */
+async function readProjectionBounds(
+  cameraCanvas: Locator,
+): Promise<NormalizedProjectionBounds | null> {
+  return cameraCanvas.evaluate((element) => {
+    if (!(element instanceof HTMLCanvasElement) || !element.width || !element.height) return null;
+    const context = element.getContext("2d");
+    if (!context) return null;
+    const { data } = context.getImageData(0, 0, element.width, element.height);
+    let minX = element.width;
+    let minY = element.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let offset = 3; offset < data.length; offset += 4) {
+      if (data[offset] <= 8) continue;
+      const pixel = (offset - 3) / 4;
+      const x = pixel % element.width;
+      const y = Math.floor(pixel / element.width);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    if (maxX < minX || maxY < minY) return null;
+    return {
+      x: minX / element.width,
+      y: minY / element.height,
+      width: (maxX - minX + 1) / element.width,
+      height: (maxY - minY + 1) / element.height,
+    };
+  });
 }
 
 /** Locate the rendered box, then use the product's double-click focus gesture. */
@@ -163,7 +208,28 @@ export async function runPointcloudCameraSeed3dBox(
   await expect(page.locator(`[data-testid="box-list-item-${created.id}"]`)).toBeVisible({
     timeout: 10_000,
   });
-  await page.waitForTimeout(2_200);
+  await page.waitForTimeout(1_500);
+  const proposalProjection = await readProjectionBounds(cameraCanvas);
+  if (!proposalProjection) {
+    throw new Error("[pointcloud-camera-seed-3d-box] 相机图未渲染已保存 3D 框投影");
+  }
+  const targetWidth = anchor.bbox[2] - anchor.bbox[0];
+  const targetHeight = anchor.bbox[3] - anchor.bbox[1];
+  const targetCenterX = (anchor.bbox[0] + anchor.bbox[2]) / 2;
+  const targetCenterY = (anchor.bbox[1] + anchor.bbox[3]) / 2;
+  const sizeScale = Math.min(
+    1,
+    (targetWidth * 0.96) / proposalProjection.width,
+    (targetHeight * 0.96) / proposalProjection.height,
+  );
+  if (!Number.isFinite(sizeScale) || sizeScale <= 0 || sizeScale >= 0.98) {
+    throw new Error(
+      `[pointcloud-camera-seed-3d-box] 种框提案无需收缩或投影目标无效: ${JSON.stringify({
+        proposalProjection,
+        target: anchor.bbox,
+      })}`,
+    );
+  }
 
   await page.getByRole("button", { name: "关闭 ✕" }).click();
   await expect(page.getByRole("button", { name: "种框 ⊹" })).toBeHidden();
@@ -174,7 +240,49 @@ export async function runPointcloudCameraSeed3dBox(
   await expect(page.getByTestId("tri-view-renderer-panel")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByLabel(/^俯视精修视图，缩放 /)).toBeVisible();
   await focusCreatedBox(page, created.id);
-  await page.waitForTimeout(2_200);
+  await page.waitForTimeout(1_500);
+  const selectionPanel = page.getByTestId("three-d-selection-panel").first();
+  await expect(selectionPanel).toBeVisible({ timeout: 5_000 });
+  const expandDetails = selectionPanel.getByRole("button", { name: "展开详情" });
+  if (await expandDetails.isVisible()) await expandDetails.click();
+  const sizeFields = ["l", "w", "h"].map((field) =>
+    selectionPanel.getByLabel(field, { exact: true }),
+  );
+  const currentSize = await Promise.all(
+    sizeFields.map(async (field) => Number(await field.inputValue())),
+  );
+  if (!currentSize.every((value) => Number.isFinite(value) && value > 0)) {
+    throw new Error("[pointcloud-camera-seed-3d-box] PSR 尺寸字段无效");
+  }
+
+  const updatePath = `/api/v1/tasks/${task.id}/annotations/${created.id}`;
+  const updatePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH" &&
+      new URL(response.url()).pathname === updatePath &&
+      response.ok(),
+    { timeout: 10_000 },
+  );
+  for (const [index, field] of sizeFields.entries()) {
+    await field.fill((currentSize[index] * sizeScale).toFixed(2));
+  }
+  await selectionPanel.getByText("尺寸 长宽高 (m)", { exact: true }).click();
+  const updated = (await (await updatePromise).json()) as SeedTaskAnnotation;
+  const refinedGeometry = updated.geometry as PointcloudBoxGeometry;
+  if (
+    updated.id !== created.id ||
+    updated.task_id !== task.id ||
+    refinedGeometry.type !== "box_3d" ||
+    ![...refinedGeometry.center, ...refinedGeometry.size, ...refinedGeometry.rotation].every(
+      Number.isFinite,
+    ) ||
+    refinedGeometry.size.some((value, index) => value >= created.geometry.size[index])
+  ) {
+    throw new Error(
+      `[pointcloud-camera-seed-3d-box] 人工尺寸修正未从 API 读回: ${JSON.stringify(updated)}`,
+    );
+  }
+  await page.waitForTimeout(1_500);
 
   const viewport = page.getByTestId("pc-viewport");
   const viewportBox = await viewport.boundingBox();
@@ -201,13 +309,30 @@ export async function runPointcloudCameraSeed3dBox(
   await expect(page.getByRole("button", { name: "关闭 ✕" })).toBeVisible();
   await expect(page.getByRole("button", { name: "种框 ⊹" })).toBeVisible();
   await page.waitForTimeout(2_800);
-  await page.getByRole("button", { name: "关闭 ✕" }).click();
-  await page.waitForTimeout(1_200);
+  const finalProjection = await readProjectionBounds(cameraCanvas);
+  if (
+    !finalProjection ||
+    finalProjection.width > targetWidth * 1.12 ||
+    finalProjection.width < targetWidth * 0.6 ||
+    finalProjection.height > targetHeight * 1.12 ||
+    finalProjection.height < targetHeight * 0.6 ||
+    Math.abs(finalProjection.x + finalProjection.width / 2 - targetCenterX) > targetWidth * 0.16 ||
+    Math.abs(finalProjection.y + finalProjection.height / 2 - targetCenterY) > targetHeight * 0.16
+  ) {
+    throw new Error(
+      `[pointcloud-camera-seed-3d-box] 精修框仍未与二维目标对齐: ${JSON.stringify({
+        finalProjection,
+        target: anchor.bbox,
+      })}`,
+    );
+  }
+  await page.waitForTimeout(2_400);
 
   return {
     drawStartMs,
     drawEndMs: Date.now(),
     created: { taskId: task.id, annotationId: created.id },
     geometry: created.geometry,
+    refinedGeometry,
   };
 }
