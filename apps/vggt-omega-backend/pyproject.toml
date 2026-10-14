@@ -1,0 +1,39 @@
+[project]
+name = "vggt-omega-backend"
+version = "0.1.0"
+description = "VGGT-Omega current-frame reconstruction artifact producer"
+requires-python = ">=3.10,<3.13"
+# torch/torchvision are pinned by the CUDA image and checked before loading.
+dependencies = [
+  "fastapi==0.135.1",
+  "uvicorn==0.42.0",
+  "pydantic==2.12.5",
+  "httpx==0.28.1",
+  "numpy==1.26.4",
+  "Pillow==12.3.0",
+  "cryptography==47.0.0",
+  "PyJWT==2.12.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.15"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["config", "schemas", "predictor", "service", "gpu_lifecycle", "main"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = ["vendor"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

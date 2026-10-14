@@ -8,6 +8,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu      up -d grounded-sam2-backend
 #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up -d sam3-backend
 #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up -d yolo-backend
+#   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-vggt-omega up -d vggt-omega-backend
 #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile screenshots up -d screenshot-ml-stub
 #
 # 嫌每次敲两个 -f 麻烦, 可在 shell / .env 固化:
@@ -15,7 +16,7 @@
 # 之后 `docker compose --profile gpu up -d grounded-sam2-backend` 即可（profile-gated 不影响默认 `up`）。
 #
 # 各 backend 使用独立 profile，用户可按显存预算组合 GPU 服务，或只启动 CPU 截图 stub。
-# 端口: grounded-sam2 → 8001 · sam3 → 8002 · yolo → 8003 · onnxtools → 8004 · stub → 9100。
+# 端口: grounded-sam2 → 8001 · sam3 → 8002 · yolo → 8003 · onnxtools → 8004 · VGGT-Ω → 8006 · stub → 9100。
 
 services:
   # 截图/视觉回归专用 CPU 协议 stub。平台宿主进程与 Celery 容器都通过已发布端口访问，
@@ -240,6 +241,56 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # VGGT-Ω 实验性当前帧深度/置信度生产器；不在打开工作台时在线推理。
+  # 必须明确配置一张物理 GPU 和已取得权限的只读权重目录；默认 none 不能启动推理。
+  # 权重、GPU 生命周期验收和 bearer token 配置见 apps/vggt-omega-backend/README.md。
+  vggt-omega-backend:
+    image: aap-vggt-omega-backend:experimental
+    build:
+      context: ./apps
+      dockerfile: vggt-omega-backend/Dockerfile
+    profiles: ["gpu-vggt-omega"]
+    ports:
+      - "127.0.0.1:8006:8006"
+    environment:
+      VGGT_OMEGA_WEIGHTS: /app/checkpoints/vggt_omega_1b_512.pt
+      VGGT_OMEGA_AUTH_TOKEN: ${VGGT_OMEGA_AUTH_TOKEN:-}
+      VGGT_OMEGA_BUILD_TIMEOUT: ${VGGT_OMEGA_BUILD_TIMEOUT:-240}
+      VGGT_OMEGA_TRANSFER_TIMEOUT: ${VGGT_OMEGA_TRANSFER_TIMEOUT:-60}
+      VGGT_OMEGA_IDLE_UNLOAD_SECONDS: ${VGGT_OMEGA_IDLE_UNLOAD_SECONDS:-600}
+      VGGT_OMEGA_IDLE_CHECK_INTERVAL: ${VGGT_OMEGA_IDLE_CHECK_INTERVAL:-60}
+      VGGT_OMEGA_CACHE_ENTRIES: ${VGGT_OMEGA_CACHE_ENTRIES:-2}
+      VGGT_OMEGA_CACHE_BYTES: ${VGGT_OMEGA_CACHE_BYTES:-33554432}
+      VGGT_OMEGA_CACHE_TTL: ${VGGT_OMEGA_CACHE_TTL:-300}
+      VGGT_OMEGA_MANAGED_LIFECYCLE_VERIFIED: ${VGGT_OMEGA_MANAGED_LIFECYCLE_VERIFIED:-0}
+      GPU_LIFECYCLE_VERIFY_KEYS_JSON: ${GPU_LIFECYCLE_VERIFY_KEYS_JSON:-}
+      NVIDIA_VISIBLE_DEVICES: ${VGGT_OMEGA_GPU_DEVICE_ID:-none}
+      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${VGGT_OMEGA_GPU_DEVICE_ID:-none}
+    volumes:
+      - type: bind
+        source: ${VGGT_OMEGA_CHECKPOINTS_DIR:-./apps/vggt-omega-backend/checkpoints}
+        target: /app/checkpoints
+        read_only: true
+        bind:
+          create_host_path: false
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${VGGT_OMEGA_GPU_DEVICE_ID:-none}"]
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, urllib.request; r=urllib.request.Request('http://localhost:8006/health'); t=os.environ.get('VGGT_OMEGA_AUTH_TOKEN'); r.add_header('Authorization', 'Bearer '+t) if t else None; urllib.request.urlopen(r, timeout=3)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # v0.20.0 · rapidocr-backend (RapidOCR OCR: det 原子 + rec 原子 + e2e composite).
   #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-rapidocr up rapidocr-backend
