@@ -46,21 +46,47 @@ class ClassifyChainTests(unittest.TestCase):
         self.assertEqual(policy.reversible_floor, "0173")
         self.assertEqual(policy.irreversible, ("0174",))
         self.assertEqual(policy.reversible_segment, ("0173", "0172"))
+        self.assertEqual(policy.reversible_suffix, ())
 
     def test_fully_reversible_chain_returns_head(self):
         revisions = {"0002": rev("0002", "0001"), "0001": rev("0001", None)}
-        self.assertEqual(classify_chain(revisions, "0002").reversible_floor, "0002")
+        policy = classify_chain(revisions, "0002")
+        self.assertEqual(policy.reversible_floor, "0002")
+        self.assertEqual(policy.reversible_segment, ("0002", "0001"))
+        self.assertEqual(policy.reversible_suffix, ())
 
-    def test_reversible_suffix_above_irreversible_fails_closed(self):
-        # head -> irreversible is a valid segment, but the runner does not
-        # implement suffix validation yet, so it refuses the shape.
+    def test_reversible_suffix_stops_before_irreversible_revision(self):
         revisions = {
             "0175": rev("0175", "0174"),
             "0174": rev("0174", "0173", irreversible=True),
             "0173": rev("0173", None),
         }
+        policy = classify_chain(revisions, "0175")
+        self.assertEqual(policy.reversible_floor, "0173")
+        self.assertEqual(policy.irreversible, ("0174",))
+        self.assertEqual(policy.reversible_segment, ("0173",))
+        self.assertEqual(policy.reversible_suffix, ("0175",))
+
+    def test_multiple_reversible_suffix_revisions_preserve_both_boundaries(self):
+        revisions = {
+            "0176": rev("0176", "0175"),
+            "0175": rev("0175", "0174"),
+            "0174": rev("0174", "0173", irreversible=True),
+            "0173": rev("0173", "0172"),
+            "0172": rev("0172", None),
+        }
+        policy = classify_chain(revisions, "0176")
+        self.assertEqual(policy.reversible_floor, "0173")
+        self.assertEqual(policy.reversible_segment, ("0173", "0172"))
+        self.assertEqual(policy.reversible_suffix, ("0176", "0175"))
+
+    def test_irreversible_at_base_with_reversible_suffix_fails_closed(self):
+        revisions = {
+            "0002": rev("0002", "0001"),
+            "0001": rev("0001", None, irreversible=True),
+        }
         with self.assertRaises(UnsupportedChain):
-            classify_chain(revisions, "0175")
+            classify_chain(revisions, "0002")
 
     def test_multiple_irreversible_revisions_fail_closed(self):
         revisions = {

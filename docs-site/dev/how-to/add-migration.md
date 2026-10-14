@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-14
 ---
 
 # How-to：Alembic 迁移
@@ -17,7 +16,7 @@ cd apps/api
 uv run alembic revision --autogenerate -m "add widgets table"
 ```
 
-打开生成的 `app/migrations/versions/<hash>_add_widgets_table.py`，**人工 review**：
+打开生成的 `alembic/versions/<hash>_add_widgets_table.py`，**人工 review**：
 
 - 检查列类型、约束是否对
 - 删除无关变更（Alembic 偶尔误识别）
@@ -36,17 +35,20 @@ uv run alembic history             # 查看版本历史
 
 `scripts/validate_migrations.py` 在一次性数据库上执行真实验证，不使用 `alembic stamp`：
 
-1. `fresh`：新库完整 `upgrade head`（174 步）。
+1. `fresh`：新库完整 `upgrade head`。
 2. `reversible`：新库先 `upgrade <floor>`（真实 schema，不是 stamp），再真实
-   `downgrade base`（173 步）并重新 `upgrade head`；`<floor>` 是唯一不可逆迁移之下
+   `downgrade base` 并重新 `upgrade head`；`<floor>` 是唯一不可逆迁移之下
    的最新版本，因此不可逆迁移的 `downgrade()` 从不执行。
-3. `forward`：在 `<floor>` 播种真实历史行，做前向数据断言（角色转换、历史行保留、
-   新 server default、不伪造成员关系），并证明不可逆迁移的 `downgrade()` 会拒绝。
-4. `restore`：把转换前的 `pg_dump` 快照恢复到独立数据库，证明恢复路径真实可用。
+3. `suffix`：不可逆迁移之后存在可逆后缀时，执行 `head → 不可逆版本 → head`，
+   核对实际降级步数、版本边界和已转换的历史数据。没有后缀时跳过此阶段。
+4. `forward`：在 `<floor>` 播种真实历史行，升级到不可逆版本后做数据断言（角色转换、
+   历史行保留、新 server default、不伪造成员关系），证明该版本的 `downgrade()` 会拒绝，
+   再升级到 head 并复核数据。
+5. `restore`：把转换前的 `pg_dump` 快照恢复到独立数据库，证明恢复路径真实可用。
 
 ```yaml
 # ci.yml（pytest job，Postgres service 已就绪）
-- name: Migration validation (fresh / reversible / forward / restore)
+- name: Migration validation (fresh / reversible / suffix / forward / restore)
   working-directory: apps/api
   env:
     AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
@@ -56,14 +58,15 @@ uv run alembic history             # 查看版本历史
 
 运行要求：目标是一次性本地库且连接角色可 `CREATE DATABASE`；宿主机有
 `pg_dump`/`pg_restore`，或 Postgres 运行在可被 `docker ps` 发现的容器中（
-容器镜像自带客户端）。脚本只创建/删除 `<库名>__mv_{fresh,reversible,forward,restore}`
+容器镜像自带客户端）。脚本只创建/删除 `<库名>__mv_{fresh,reversible,suffix,forward,restore}`
 并做归属标记，成功与失败都会清理，绝不改动基础库 schema。
 
 确实无法无损回滚的迁移（如 `0174` 员工角色切换）在迁移文件里声明模块级
 `IRREVERSIBLE = True` 并让 `downgrade()` 抛错。`scripts/alembic_reversible_floor.py`
 只用于**报告**可逆边界：默认打印 floor，`--json` 输出完整策略；它不授权 `stamp`。
-修订图出现多 head、merge、孤儿分支、多个不可逆迁移、基线处不可逆，或在不可逆迁移之上还有
-可逆版本（后缀段验证尚未实现）时，脚本会 fail closed（非零退出），而不是给出一个会漏检的 floor。
+`--json` 中的 `reversible_suffix` 单独列出不可逆版本之上的可逆修订。
+修订图出现多 head、merge、孤儿分支、缺失祖先、环、多个不可逆迁移或基线处不可逆时，
+脚本会 fail closed（非零退出），而不是给出一个会漏检的 floor。
 
 本地验证：
 

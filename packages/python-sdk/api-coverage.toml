@@ -71,6 +71,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/tasks/{task_id}/mask-capabilities" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/neighbor-annotations" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/neighbors" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/tasks/{task_id}/point-cloud/augmentation" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/point-cloud/camera-members" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/point-cloud/cameras/{camera_role}/calibration" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/point-cloud/manifest" = { status = "excluded", reason = "workbench-internal" }
@@ -187,6 +188,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/tasks/{task_id}/lock" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/tasks/{task_id}/lock/heartbeat" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/tasks/{task_id}/mask-content" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/tasks/{task_id}/point-cloud/augmentation/assets" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/tasks/{task_id}/point-cloud/camera-members" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/tasks/{task_id}/point-cloud/camera-members/{member_id}/restore" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/tasks/{task_id}/predictions/{prediction_id}/accept" = { status = "excluded", reason = "workbench-internal" }

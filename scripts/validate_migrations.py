@@ -5,7 +5,7 @@ The old CI round trip was ``upgrade head`` -> ``alembic stamp <floor>`` ->
 marker; it does not execute the skipped schema/data rollback, so the irreversible
 segment was never validated.
 
-This runner performs the four checks the plan asks for, each on its own freshly
+This runner performs the following checks, each on its own freshly
 created, ownership-tagged database derived from the current disposable target:
 
 1. ``fresh``     - a brand new database upgraded straight to head.
@@ -13,12 +13,15 @@ created, ownership-tagged database derived from the current disposable target:
                    ``downgrade base`` and ``upgrade head``.  ``<floor>`` is the
                    revision below the unique irreversible revision, so the
                    irreversible ``downgrade()`` is never executed.
-3. ``forward``   - seed authentic legacy rows at ``<floor>``, snapshot them, run
+3. ``suffix``    - when reversible revisions follow the irreversible boundary,
+                   exercise ``head -> <irreversible> -> head`` and verify that
+                   converted legacy rows survive both directions.
+4. ``forward``   - seed authentic legacy rows at ``<floor>``, snapshot them, run
                    the irreversible ``upgrade`` and assert the forward data
                    semantics (converted roles, preserved history, new server
                    default, no invented memberships).  It also proves the
                    irreversible ``downgrade`` refuses.
-4. ``restore``   - restore the pre-conversion ``pg_dump`` snapshot into an
+5. ``restore``   - restore the pre-conversion ``pg_dump`` snapshot into an
                    independent database and assert the authentic pre-conversion
                    state is recoverable.
 
@@ -811,6 +814,40 @@ async def assert_forward_conversion(anchor: Anchor, database: str, ids: dict) ->
         raise ValidationError(f"head users.role default is not {HEAD_DEFAULT!r}")
 
 
+async def phase_suffix(anchor: Anchor, state: RunState) -> None:
+    policy = graph_policy()
+    if not policy.reversible_suffix:
+        return
+    database = derived_database(anchor, "suffix")
+    boundary = policy.irreversible[0]
+    await create_owned_database(anchor, state, database)
+    run_alembic(anchor, database, "upgrade", policy.reversible_floor)
+    ids = await seed_legacy_rows(anchor, database)
+    run_alembic(anchor, database, "upgrade", "head")
+    if await current_revision(anchor, database) != [policy.head]:
+        raise ValidationError("suffix start is not at head")
+    await assert_forward_conversion(anchor, database, ids)
+
+    output = run_alembic(anchor, database, "downgrade", boundary)
+    downgrades = sum(1 for line in output.splitlines() if "Running downgrade" in line)
+    if downgrades != len(policy.reversible_suffix):
+        raise ValidationError(
+            f"suffix downgrade executed {downgrades} steps; "
+            f"expected {len(policy.reversible_suffix)}"
+        )
+    if await current_revision(anchor, database) != [boundary]:
+        raise ValidationError("suffix downgrade did not stop at irreversible boundary")
+    await assert_forward_conversion(anchor, database, ids)
+
+    run_alembic(anchor, database, "upgrade", "head")
+    if await current_revision(anchor, database) != [policy.head]:
+        raise ValidationError("suffix re-upgrade did not reach head")
+    await assert_forward_conversion(anchor, database, ids)
+    state.phases.append(
+        f"suffix:{database}@{policy.head}->{boundary}({downgrades} downgrades)->{policy.head}"
+    )
+
+
 async def phase_forward(anchor: Anchor, state: RunState, backend: DumpBackend) -> Path:
     database = derived_database(anchor, "forward")
     policy = graph_policy()
@@ -821,15 +858,23 @@ async def phase_forward(anchor: Anchor, state: RunState, backend: DumpBackend) -
     snapshot = anchor.dump_dir / f"{database}__pre_conversion.dump"
     state.dumps.append(snapshot)
     pg_dump_database(backend, anchor, database, snapshot)
-    run_alembic(anchor, database, "upgrade", "head")
+    boundary = policy.irreversible[0]
+    run_alembic(anchor, database, "upgrade", boundary)
+    if await current_revision(anchor, database) != [boundary]:
+        raise ValidationError("forward conversion did not reach irreversible boundary")
     await assert_forward_conversion(anchor, database, ids)
     refusal = run_alembic(anchor, database, "downgrade", floor, check=False)
     if "not reversible" not in refusal.lower():
         raise ValidationError(
             "irreversible downgrade did not refuse with the documented error"
         )
-    if await current_revision(anchor, database) != [policy.head]:
+    if await current_revision(anchor, database) != [boundary]:
         raise ValidationError("refused downgrade mutated the version marker")
+    await assert_forward_conversion(anchor, database, ids)
+    run_alembic(anchor, database, "upgrade", "head")
+    if await current_revision(anchor, database) != [policy.head]:
+        raise ValidationError("forward upgrade did not reach head")
+    await assert_forward_conversion(anchor, database, ids)
     state.phases.append(f"forward:{database}@base->{floor}->{policy.head}")
     return snapshot
 
@@ -928,7 +973,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--fail-after",
-        choices=["create", "fresh", "reversible", "forward"],
+        choices=["create", "fresh", "reversible", "suffix", "forward"],
         help="test hook: abort after the named phase to prove failure cleanup",
     )
     parser.add_argument("--json", action="store_true", help="emit a JSON summary")
@@ -952,6 +997,9 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(phase_reversible(anchor, state))
         if arguments.fail_after == "reversible":
             raise ValidationError("injected failure after reversible")
+        asyncio.run(phase_suffix(anchor, state))
+        if arguments.fail_after == "suffix":
+            raise ValidationError("injected failure after suffix")
         snapshot = asyncio.run(phase_forward(anchor, state, backend))
         if arguments.fail_after == "forward":
             raise ValidationError("injected failure after forward")
@@ -961,6 +1009,7 @@ def main(argv: list[str] | None = None) -> int:
                 "head": policy.head,
                 "reversible_floor": policy.reversible_floor,
                 "irreversible": list(policy.irreversible),
+                "reversible_suffix": list(policy.reversible_suffix),
                 "phases": state.phases,
                 "result": "passed",
             }

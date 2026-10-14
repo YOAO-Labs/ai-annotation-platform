@@ -111,7 +111,7 @@ jobs:
       - name: alembic upgrade head
         working-directory: apps/api
         run: uv run alembic upgrade head
-      - name: Migration validation (fresh / reversible / forward / restore)
+      - name: Migration validation (fresh / reversible / suffix / forward / restore)
         working-directory: apps/api
         env:
           AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
