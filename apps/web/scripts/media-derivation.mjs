@@ -349,7 +349,7 @@ export function deriveMedia({
           "-i",
           palette,
           "-lavfi",
-          `${filter}[x];[x][1:v]paletteuse`,
+          `${filter}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
           target,
         ]);
       } else {
@@ -416,6 +416,16 @@ export function deriveMedia({
           sha256: job.source.sha256,
           quality,
           clip: job.window,
+          ...(job.recipe.kind === "gif"
+            ? {
+                gif_encoding: {
+                  palette_colors: job.colors,
+                  dither: "bayer",
+                  bayer_scale: 5,
+                  diff_mode: "rectangle",
+                },
+              }
+            : {}),
           ...(job.recipe.privacyMasks?.length
             ? { normalized_privacy_masks: job.recipe.privacyMasks }
             : {}),
