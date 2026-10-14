@@ -1,9 +1,9 @@
 # 高清母版录制 backlog
 
 新增选题见[近期能力高清母版计划](../../docs/plans/1789230200_new-capability-marketing-masters.md)：
-首批 8 条，第二批 4 条，当前均为规划，尚未注册或录制；每条只录一种主题。
+选题的注册状态以 `marketing-assets.ts` 为准，是否已录制和通过质量验收以归档 manifest 为准，不再将整批统一视作待录。
 下方五批保留已录制历史，“已录”不代表当前源码复核或云端归档已经完成。
-本批不依赖 ML 的操作允许在通过同等画质验收后使用 Mac 录制；4K60、有效独立帧率和来源记录要求保持不变。Mac 原生录制已接入正式命令，接入验证使用无后端的合成页面；上述计划中的具体素材仍待排期。
+不依赖 ML 的素材已通过正式 Mac 原生路径重录。屏幕采集源为 2880×1620，母版按既定编码规范归一化为 3840×2160 / 60fps；这不代表物理原生 4K 采集或渲染器性能认证。有效独立帧率、硬件合成与来源记录门槛保持不变；ML 相关素材保留原记录，本轮不重新认证。
 
 真正开始实现某项时，先把规格写入
 `apps/web/e2e/screenshots/_helpers/marketing-assets.ts`，再增加一个只表达该目标的独立 flow；
@@ -66,6 +66,26 @@
 | P1     | `video-propagate-track-vs-copy`        | 同一真实轨迹分别展示 AI 延展与纯几何复制 → 对比作业、结果与适用边界     | 18–36 秒 | `workbench/video-propagate` | 已录 |
 | P1     | `pointcloud-billboard-label`           | 启用 3D 标签内容 → 绕框旋转视角 → 核对文字持续正对相机并保留类别 / 属性 | 14–26 秒 | `workbench/3d-box`          | 已录 |
 | P1     | `storage-connector-create-test`        | 新建脱敏 S3 / OSS 连接器 → 测试连接 → 展示成功状态与样本计数 → 精确清理 | 14–28 秒 | `datasets/index`            | 已录 |
+
+## 录制模板预览
+
+以下 GIF 从已审阅的非 ML 原始采集源派生，供维护者检查模板动作与结果。它们不是高清母版，也不替换使用手册中的 MP4 或恢复已退休的 GIF 手册引用。原始采集源与高清母版保存在私有 `.artifacts/marketing/` 归档，文件哈希、动作窗口与编码参数见生成来源清单。
+
+| 模板动作            | 预览                                                                              |
+| ------------------- | --------------------------------------------------------------------------------- |
+| 矩形绘制与提交      | ![矩形绘制模板](../user-guide/images/bbox/draw-in-progress.gif)                   |
+| Mask 笔刷绘制与提交 | ![Mask 笔刷模板](../user-guide/images/mask-brush/draw-in-progress.gif)            |
+| 多边形闭合与提交    | ![多边形绘制模板](../user-guide/images/polygon/draw-in-progress.gif)              |
+| 折线绘制与提交      | ![折线绘制模板](../user-guide/images/polyline/draw-in-progress.gif)               |
+| 批次批量操作        | ![批次操作模板](../user-guide/images/projects/batch-bulk-actions.gif)             |
+| 质检退回与队列更新  | ![质检退回模板](../user-guide/images/review/reject-flow.gif)                      |
+| 章节笔刷创建        | ![章节创建模板](../user-guide/images/video-timeline/brush-create-chapter.gif)     |
+| 章节边界调整        | ![章节调整模板](../user-guide/images/video-timeline/chapter-resize-hover.gif)     |
+| 时间轴水平缩放      | ![时间轴缩放模板](../user-guide/images/video-timeline/horizontal-zoom.gif)        |
+| 快捷键帮助          | ![快捷键模板](../user-guide/images/workbench/hotkey-cheatsheet.gif)               |
+| 旋转矩形            | ![旋转矩形模板](../user-guide/images/workbench/rotated-bbox.gif)                  |
+| 视频相邻帧携带      | ![相邻帧携带模板](../user-guide/images/workbench/video-track-carryover-ghost.gif) |
+| 视频帧绘制与提交    | ![视频绘制模板](../user-guide/images/workbench/video-track-trajectory.gif)        |
 
 ## 版本与复核
 
