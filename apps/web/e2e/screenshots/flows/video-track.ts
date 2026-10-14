@@ -70,8 +70,7 @@ export async function runVideoTrack(
     await commitPendingAnnotationClass(page, {
       label: firstAnchor.label,
       taskId,
-      onCreated: (id, annotation) =>
-        registerVideoTrack(id, annotation, (annotationId) => onCreated(annotationId)),
+      onCreated: (id, annotation) => registerVideoTrack(id, annotation, onCreated),
     }),
     taskId,
     firstAnchor.label,
@@ -148,7 +147,8 @@ export async function runVideoTrack(
     await expect.poll(currentFrame).toBeGreaterThan(before);
     const frame = await currentFrame();
     await waitForVideoRecordingFrame(page, manifest, frame);
-    if (frame === 4) await waitForVideoRecordingShape(page, manifest, interpolated, { dashed: true });
+    if (frame === 4)
+      await waitForVideoRecordingShape(page, manifest, interpolated, { dashed: true });
     if (frame === 8)
       await waitForVideoRecordingShape(page, manifest, updated.geometry.keyframes[1]!.bbox, {
         dashed: false,
@@ -236,9 +236,9 @@ export async function runVideoTrack(
   await waitForVideoRecordingShape(page, manifest, interpolated, { dashed: true });
   const reloaded = await readSavedVideoTracks(page, taskId);
   expect(reloaded.map((annotation) => annotation.id)).toEqual([initial.id]);
-  expect(
-    inspectVideoTrack(reloaded[0], taskId, firstAnchor.label, [0, 8]).geometry,
-  ).toEqual(updated.geometry);
+  expect(inspectVideoTrack(reloaded[0], taskId, firstAnchor.label, [0, 8]).geometry).toEqual(
+    updated.geometry,
+  );
   await expect(stage).toHaveAttribute("data-video-frame-index", "4");
   await expect(timeline).toBeVisible();
   await holdVideoRecording(page, 2_000);

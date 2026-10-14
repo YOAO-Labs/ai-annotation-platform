@@ -76,7 +76,7 @@ export function useTaskLock(taskId: string | undefined, enabled = true) {
     };
     activeSessionRef.current = { taskId: tid, session, stop };
 
-    async function acquire(allowRetry = true, recovering = false): Promise<void> {
+    const acquire = async (allowRetry = true, recovering = false): Promise<void> => {
       if (cancelled) return;
       try {
         const lock = await tasksApi.acquireLock(tid);
@@ -102,7 +102,7 @@ export function useTaskLock(taskId: string | undefined, enabled = true) {
               : null,
         });
       }
-    }
+    };
 
     void enqueueLockOperation(tid, async () => {
       await acquire();

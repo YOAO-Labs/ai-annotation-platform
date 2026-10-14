@@ -95,17 +95,13 @@ async function verifyScreenshotDatabase(page: Page, catalog: ScreenshotSeedCatal
   }
 }
 
-async function listScreenshotUsers(page: Page, token: string): Promise<ScreenshotUserRow[]> {
-  return screenshotApi<ScreenshotUserRow[]>(page, "GET", "/users?status=all", token);
-}
-
 export async function prepareScreenshotGroup(
   page: Page,
   catalog: ScreenshotSeedCatalog,
 ): Promise<{ group: ScreenshotGroupRow; cleanup: () => Promise<void> }> {
   const token = await screenshotToken(page);
   await verifyScreenshotDatabase(page, catalog);
-  const users = await listScreenshotUsers(page, token);
+  const users = await screenshotApi<ScreenshotUserRow[]>(page, "GET", "/users?status=all", token);
   const members = [catalog.users.annotator, catalog.users.reviewer].map((seeded) => {
     const user = users.find((candidate) => candidate.id === seeded.id);
     if (!user || !user.is_active || user.role !== seeded.role) {
@@ -121,7 +117,12 @@ export async function prepareScreenshotGroup(
     GROUP_FIXTURE,
   );
   const cleanup = async () => {
-    const currentUsers = await listScreenshotUsers(page, token);
+    const currentUsers = await screenshotApi<ScreenshotUserRow[]>(
+      page,
+      "GET",
+      "/users?status=all",
+      token,
+    );
     if (
       currentUsers.some(
         (user) => user.group_id === group.id && !members.some((member) => member.id === user.id),

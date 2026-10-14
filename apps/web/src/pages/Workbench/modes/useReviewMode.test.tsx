@@ -131,7 +131,9 @@ describe("useReviewMode", () => {
     expect(result.current.isLocked).toBe(true);
     expect(result.current.topbarActions.canApprove).toBe(false);
     expect(result.current.topbarActions.canReject).toBe(false);
-    act(() => result.current.topbarActions.onApprove?.());
+    act(() => {
+      void result.current.topbarActions.onApprove?.();
+    });
     expect(mocks.approveMutate).not.toHaveBeenCalled();
   });
 
@@ -144,7 +146,9 @@ describe("useReviewMode", () => {
     const resumeTaskLock = vi.fn();
     const { result } = renderReview("review", {}, { releaseTaskLock, resumeTaskLock });
 
-    act(() => result.current.topbarActions.onApprove?.());
+    act(() => {
+      void result.current.topbarActions.onApprove?.();
+    });
     expect(releaseTaskLock).toHaveBeenCalledWith("t1");
     expect(mocks.approveMutate).not.toHaveBeenCalled();
 
@@ -172,9 +176,7 @@ describe("useReviewMode", () => {
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
     });
-    await waitFor(() =>
-      expect(mocks.approveMutate).toHaveBeenCalledWith("t1", expect.any(Object)),
-    );
+    await waitFor(() => expect(mocks.approveMutate).toHaveBeenCalledWith("t1", expect.any(Object)));
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
@@ -189,11 +191,7 @@ describe("useReviewMode", () => {
       finishRelease = resolve;
     });
     const releaseTaskLock = vi.fn(() => releasePending);
-    const { result } = renderReview(
-      "review",
-      { skip_reason: "no_target" },
-      { releaseTaskLock },
-    );
+    const { result } = renderReview("review", { skip_reason: "no_target" }, { releaseTaskLock });
 
     await act(async () => {
       result.current.topbarActions.onReject?.();

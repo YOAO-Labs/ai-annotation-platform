@@ -68,7 +68,8 @@ export interface DiscussionMentionReturnResult extends DrawWindow {
 
 const discussionPanel = (page: Page) => page.locator('[data-workbench-panel="discussion"]');
 const editor = (page: Page) => discussionPanel(page).getByRole("textbox", { name: "留言" });
-const notificationBell = (page: Page) => page.getByRole("button", { name: "通知", exact: true });
+const notificationBell = (page: Page) =>
+  page.getByRole("button", { name: /^通知，(?:\d+ 条未读|未读数暂不可用)$/ });
 const commentRow = (page: Page, commentId: string) =>
   discussionPanel(page).locator(`[data-comment-key="feedback:${commentId}"]`);
 

@@ -81,7 +81,7 @@ export async function runBackgroundExportDownload(
   await expect(jobsDialog).toBeVisible();
   const jobRow = page.getByTestId(`job-row-${body.job_id}`);
   await expect(jobRow).toBeVisible({ timeout: 10_000 });
-  await expect(jobRow).toContainText(`${project.display_id} · COCO + AAP JSON`);
+  await expect(jobRow).toContainText(`${project.name} · COCO + AAP JSON`);
   await expect(jobRow).toContainText("等待中");
   await page.waitForTimeout(1_200);
 
