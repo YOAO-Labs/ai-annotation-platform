@@ -46,7 +46,8 @@ export async function runProjectCreateExistingResources(
   }
 
   if (options.navigate !== false) await page.goto("/projects");
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({
+  const createEntry = page.getByRole("button", { name: "新建项目", exact: true });
+  await expect(createEntry).toBeVisible({
     timeout: 10_000,
   });
   await expect(page.getByText(sourceProject.name, { exact: true }).first()).toBeVisible({
@@ -56,7 +57,6 @@ export async function runProjectCreateExistingResources(
   const drawStartMs = Date.now();
   await page.waitForTimeout(900);
 
-  const createEntry = page.getByRole("button", { name: "新建项目", exact: true });
   await moveTo(page, createEntry);
   await createEntry.click();
 
@@ -242,9 +242,7 @@ export async function runProjectCreateExistingResources(
       return { userId: requestBody.user_id, role: requestBody.role };
     }),
   );
-  expect(
-    submittedMemberships.map(({ userId, role }) => `${userId}:${role}`).sort(),
-  ).toEqual(
+  expect(submittedMemberships.map(({ userId, role }) => `${userId}:${role}`).sort()).toEqual(
     expectedMemberships.map(({ userId, projectRole }) => `${userId}:${projectRole}`).sort(),
   );
 

@@ -151,7 +151,7 @@ export async function runWorkspaceLayoutBasics(
       .poll(async () => (await inspector.boundingBox())?.width)
       .toBeGreaterThan(oldInspector.width + 60);
     await sameState();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2800); // Read the widened Inspector with selection and draft preserved.
 
     await recordingPanelCommand(page, "讨论", "与标注详情合并为标签");
     const discussionTab = page.getByRole("tab").filter({
@@ -172,7 +172,7 @@ export async function runWorkspaceLayoutBasics(
     await discussionTab.click();
     await waitForRecordingPanels(page, ["discussion"], ["inspector"]);
     await sameState();
-    await page.waitForTimeout(1300);
+    await page.waitForTimeout(2300); // Read the retained discussion draft after switching tabs.
 
     // The title-bar X hides only the active discussion tab; inspector remains available.
     await page.getByRole("button", { name: "隐藏讨论", exact: true }).click();
@@ -208,7 +208,7 @@ export async function runWorkspaceLayoutBasics(
     await sameState();
     await expect(editor).toBeVisible();
     expect(commentWrites, "The discussion must remain an unsent draft").toEqual([]);
-    await page.waitForTimeout(2200);
+    await page.waitForTimeout(3500); // Show the restored editable canvas and unchanged unsent draft.
     return { drawStartMs, drawEndMs: Date.now() };
   } finally {
     page.off("request", observeCommentWrite);

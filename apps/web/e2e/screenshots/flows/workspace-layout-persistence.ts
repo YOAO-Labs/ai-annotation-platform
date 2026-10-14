@@ -295,7 +295,7 @@ export async function runWorkspaceLayoutPersistence(
       "inspector",
       "discussion",
     ]);
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(3_000); // Read the image layout before switching to video.
 
     await page.goto(`/projects/${catalog.projects.video_demo.id}/annotate?task=${videoTask.id}`);
     await waitForVideo(page);
@@ -306,7 +306,7 @@ export async function runWorkspaceLayoutPersistence(
     // in their Dockview groups; class-palette and inspector are alternate
     // views and therefore do not render as independent panel elements.
     await waitForRecordingPanels(page, ["canvas", "task-queue", "video-tracker"]);
-    await page.waitForTimeout(1_800);
+    await page.waitForTimeout(3_000); // Read the distinct persisted video layout.
     const afterVideo = await readPreferences(page);
     const imageContext = savedContext(afterVideo, "annotate:image");
     const videoContext = savedContext(afterVideo, "annotate:video");
@@ -362,7 +362,7 @@ export async function runWorkspaceLayoutPersistence(
     expect(snapshotFacts(savedContext(restored, "annotate:image").snapshot)).toEqual(
       snapshotFacts(savedContext(beforeCompact, "annotate:image").snapshot),
     );
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(3_500); // Show the restored desktop layout after the compact view.
     result = {
       drawStartMs,
       drawEndMs: Date.now(),

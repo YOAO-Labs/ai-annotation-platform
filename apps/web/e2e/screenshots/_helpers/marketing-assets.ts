@@ -996,10 +996,14 @@ const assetSpecs = [
   defineAsset({
     assetId: "pointcloud-controls",
     title: "点云显示控件",
-    theme: "上色、点大小和深度范围调节",
+    theme: "相机上色、点大小与相机深度提示",
     objective: "展示通过控件改变点云的显示方式。",
     duration: { minSeconds: 10, targetSeconds: 15, maxSeconds: 40 },
-    shots: ["展示初始点云。", "切换上色方式并调整点大小。", "调整深度范围并展示最终效果。"],
+    shots: [
+      "展示初始点云与同步相机。",
+      "切换相机上色方式并调整点大小。",
+      "开启深度提示，展示相机图上的真实深度热力。",
+    ],
     editingNotes: ["每次参数更改后保留稳定画面，便于做前后对比。"],
   }),
   defineAsset({

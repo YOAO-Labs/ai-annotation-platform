@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Viewport } from "../state/useViewportTransform";
 import { imageTileDeviceBudget, visibleImageRect, type WorkbenchImageSource } from "./imagePyramid";
-import {
-  ImageTileScheduler,
-  type ImageTileResourceSnapshot,
-  type LoadedImageTile,
-} from "./imageTileScheduler";
+import { ImageTileScheduler, type ImageTileResourceSnapshot } from "./imageTileScheduler";
 import {
   clearImageTileDiagnostics,
   publishImageTileDiagnostics,
@@ -23,7 +19,8 @@ interface UseImageTileSchedulerOptions {
 }
 
 interface ImageTileSchedulerState {
-  tiles: LoadedImageTile[];
+  scheduler: ImageTileScheduler | null;
+  revision: number;
   snapshot: ImageTileResourceSnapshot | null;
 }
 
@@ -34,7 +31,7 @@ interface ImageTileSchedulerHandle {
 
 function navigatorDeviceMemory(): number | null {
   if (typeof navigator === "undefined") return null;
-  const value = (navigator as Navigator & { deviceMemory?: unknown }).deviceMemory;
+  const value = "deviceMemory" in navigator ? navigator.deviceMemory : undefined;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
@@ -129,11 +126,10 @@ export function useImageTileScheduler(
     const scheduler =
       source && handle?.sourceIdentity === source.identity ? handle.scheduler : null;
     return {
-      tiles: scheduler?.getTiles() ?? [],
+      scheduler,
+      revision,
       snapshot: scheduler?.getSnapshot() ?? null,
     };
-    // revision is the external-store invalidation signal.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, source]);
   useEffect(() => {
     if (state.snapshot) publishImageTileDiagnostics(state.snapshot);

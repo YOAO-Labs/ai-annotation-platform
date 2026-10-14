@@ -183,8 +183,7 @@ export async function runPointcloudCrossframeTrack(
   await selectBox(page, source.id);
   await page.waitForTimeout(700);
   const drawStartMs = Date.now();
-  await page.waitForTimeout(3_000);
-  await page.waitForTimeout(1_200);
+  await page.waitForTimeout(4_200);
 
   const firstResponsePromise = propagateResponse(page, frame0.id, source.id);
   await page.keyboard.press("Shift+ArrowRight");
@@ -324,7 +323,7 @@ export async function runPointcloudCrossframeTrack(
       { timeout: 10_000 },
     )
     .toEqual({ currentSolid: true, dashedReferences: 2 });
-  await page.waitForTimeout(2_500);
+  await page.waitForTimeout(4_000); // Compare the current solid box with both same-track references.
 
   return {
     drawStartMs,

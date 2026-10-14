@@ -330,6 +330,27 @@ export async function runVideoIssueResolution(
     await expect(stage).toHaveAttribute("data-video-frame-index", String(READING_FRAME), {
       timeout: 20_000,
     });
+    await expect(stage).toHaveAttribute("data-video-painted-frame-index", String(READING_FRAME), {
+      timeout: 20_000,
+    });
+    await expect
+      .poll(async () => {
+        const pixels = await mediaSignature(page);
+        return MEDIA_REGIONS.filter((_, index) => {
+          const offset = index * 4;
+          return (
+            (pixels[offset + 3] ?? 0) > 0 &&
+            (pixels[offset] ?? 0) + (pixels[offset + 1] ?? 0) + (pixels[offset + 2] ?? 0) > 90
+          );
+        }).length;
+      })
+      .toBeGreaterThanOrEqual(4);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
 
     const drawStartMs = Date.now();
 

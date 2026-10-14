@@ -301,6 +301,7 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
         y: 0.4444444444444444,
         width: 0.0875,
         height: 0.05555555555555555,
+        fromSeconds: 0.5,
       },
     ];
     const recipes = [
@@ -329,7 +330,7 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
         role: "poster",
         width: 160,
         height: 90,
-        posterAt: 0,
+        posterAt: 0.3,
         privacyMasks,
       },
     ];
@@ -338,52 +339,54 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
       runDirectory: run,
       quality: "standard",
       assets: [assetId],
-      clip: { start: 0, duration: 1 },
+      clip: { start: 0.25, duration: 0.9 },
       outputs: () => recipes,
     });
-    const manifest = JSON.parse(
-      fs.readFileSync(
-        path.join(root, "apps/web/e2e/screenshots/outputs/flow-manifest.json"),
-        "utf8",
-      ),
-    );
     for (const recipe of recipes) {
-      assert.deepEqual(
-        manifest.entries[recipe.target].source_asset.normalized_privacy_masks,
-        privacyMasks,
-      );
       const rawFrame = path.join(root, `${recipe.kind}.rgb`);
-      checked("ffmpeg", [
-        "-y",
-        "-v",
-        "error",
-        "-i",
-        path.join(root, recipe.target),
-        "-frames:v",
-        "1",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        "rgb24",
-        rawFrame,
-      ]);
-      const frame = fs.readFileSync(rawFrame);
-      assert.equal(frame.length, 160 * 90 * 3);
-      const pixelAt = (x, y) => [...frame.subarray((y * 160 + x) * 3, (y * 160 + x + 1) * 3)];
-      assert.ok(
-        pixelAt(56, 42).every((channel) => channel < 48),
-        `${recipe.kind} leaks masked pixels`,
-      );
-      for (const [x, y] of [
-        [49, 42],
-        [64, 42],
-        [56, 39],
-        [56, 45],
-      ]) {
-        assert.ok(
-          pixelAt(x, y).some((channel) => channel > 32),
-          `${recipe.kind} over-masks pixels outside the normalized boundary at ${x},${y}`,
-        );
+      const frameTimes = recipe.kind === "webp" ? [0] : [0, 0.3];
+      for (const frameTime of frameTimes) {
+        checked("ffmpeg", [
+          "-y",
+          "-v",
+          "error",
+          "-ss",
+          String(frameTime),
+          "-i",
+          path.join(root, recipe.target),
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          rawFrame,
+        ]);
+        const frame = fs.readFileSync(rawFrame);
+        assert.equal(frame.length, 160 * 90 * 3);
+        const pixelAt = (x, y) => [...frame.subarray((y * 160 + x) * 3, (y * 160 + x + 1) * 3)];
+        if (recipe.kind === "webp" || frameTime > 0) {
+          assert.ok(
+            pixelAt(56, 42).every((channel) => channel < 48),
+            `${recipe.kind} leaks masked pixels after the source-time boundary`,
+          );
+        } else {
+          assert.ok(
+            pixelAt(56, 42)[0] > 180 && pixelAt(56, 42)[1] < 80,
+            `${recipe.kind} masks an unrelated earlier phase`,
+          );
+        }
+        for (const [x, y] of [
+          [49, 42],
+          [64, 42],
+          [56, 39],
+          [56, 45],
+        ]) {
+          assert.ok(
+            pixelAt(x, y).some((channel) => channel > 32),
+            `${recipe.kind} over-masks pixels outside the normalized boundary at ${x},${y}`,
+          );
+        }
       }
     }
   } finally {

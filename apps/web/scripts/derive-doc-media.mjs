@@ -15,7 +15,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../../..");
 
 const POSTER_AT_SECONDS = new Map([
-  ["project-onboarding", 21.5],
+  ["project-onboarding", 19],
   ["ai-preannotate", 12.5],
   ["video-tracker-range", 32.8],
   ["video-tracker-cross-frame-points", 26],
@@ -23,7 +23,7 @@ const POSTER_AT_SECONDS = new Map([
   ["video-tracker-box-seed", 20.6],
   ["video-tracker-text-discovery", 14.2],
   ["video-mask-track-edit", 17],
-  ["video-track-carryover", 10.1],
+  ["video-track-carryover", 9.2],
   ["video-draw", 8],
   ["video-timeline-zoom", 8],
   ["video-chapter", 15],
@@ -42,15 +42,15 @@ const POSTER_AT_SECONDS = new Map([
   ["workspace-named-preset", 22.1],
   ["polygon-boundary-trace", 17],
   ["polygon-slice-undo", 18.5],
-  ["video-comment-badges", 18.7],
-  ["discussion-mention-return", 23.8],
+  ["video-comment-badges", 21],
+  ["discussion-mention-return", 18],
   ["mask-slice-instances", 15.5],
   ["discussion-target-drafts", 18],
   ["task-drawing-comment", 14],
-  ["rotated-bbox", 10],
+  ["rotated-bbox", 10.5],
   ["mask-draw", 8.2],
   ["ai-tracker-panel", 8],
-  ["review-reject", 8],
+  ["review-reject", 18],
   ["jobs-retry-recovery", 15],
   ["model-market-runtime-pool", 10],
   ["model-market-video-pool", 10],
@@ -68,27 +68,27 @@ const POSTER_AT_SECONDS = new Map([
   ["project-create-existing-resources", 14],
   ["large-image-pyramid-recovery", 17.5],
   ["large-image-mask-limit", 12],
-  ["pointcloud-view", 0.8],
-  ["pointcloud-camera-seed-3d-box", 10],
+  ["pointcloud-view", 11.5],
+  ["pointcloud-camera-seed-3d-box", 17],
   ["pointcloud-crossframe-track", 15],
   ["pointcloud-billboard-label", 14],
-  ["pointcloud-panel-layout", 28],
-  ["storage-connector-create-test", 15],
+  ["pointcloud-panel-layout", 2],
+  ["storage-connector-create-test", 16],
   ["video-track-batch-propagate", 2.5],
-  ["video-track", 19.9],
+  ["video-track", 24],
   ["video-propagate-track-vs-copy", 14],
   ["video-mask-correction-propagate", 25],
   ["video-issue-resolution", 27.2],
-  ["project-guide-autosave", 20.4],
-  ["project-invitation-join", 20],
+  ["project-guide-autosave", 16],
+  ["project-invitation-join", 21],
 ]);
-// Normalized source-frame masks cover only the endpoint value in the form and saved row.
+// Masks are reviewed against this immutable source; the saved row appears after the form closes.
 const NORMALIZED_PRIVACY_MASKS = new Map([
   [
     "storage-connector-create-test",
     [
       { x: 0.3052, y: 0.4653, width: 0.0862, height: 0.0227 },
-      { x: 0.3542, y: 0.3713, width: 0.0797, height: 0.019 },
+      { x: 0.3542, y: 0.3713, width: 0.0797, height: 0.019, fromSeconds: 13.1 },
     ],
   ],
 ]);
@@ -257,6 +257,12 @@ deriveMedia({
   outputs(assetId, item) {
     const outputs = [];
     const privacyMasks = NORMALIZED_PRIVACY_MASKS.get(assetId);
+    if (
+      privacyMasks &&
+      item.main.sha256 !== "4eddd1ffecc3b9216577bffa2ad7f47570639ee0131880c745b20aba26ba7279"
+    ) {
+      throw new Error("Review connector privacy-mask coordinates and timing for the new source");
+    }
     const privacy = privacyMasks ? { privacyMasks } : {};
     if (values.format !== "gif") {
       for (const [map, root, videoRole, posterRole] of [

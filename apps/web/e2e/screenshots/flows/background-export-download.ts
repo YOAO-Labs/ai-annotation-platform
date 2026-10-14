@@ -92,9 +92,10 @@ export async function runBackgroundExportDownload(
   await page.waitForTimeout(2_000);
 
   const downloadLink = page.getByTestId(`job-download-${body.job_id}`);
-  await moveTo(page, downloadLink);
+  await page.mouse.move(128, 90);
+  await downloadLink.focus();
   const downloadPromise = page.waitForEvent("download", { timeout: 20_000 });
-  await downloadLink.click();
+  await page.keyboard.press("Enter");
   const download = await downloadPromise;
   const downloadPath = await download.path();
   if (!downloadPath) throw new Error("[background-export-download] 浏览器未保存 ZIP 下载");

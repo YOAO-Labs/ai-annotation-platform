@@ -136,7 +136,7 @@ export function outputGeometry(media, maxWidth = 1280, maxHeight = 720, fps = 30
     fps: Math.min(fps, media.fps),
   };
 }
-function privacyMaskFilter(masks) {
+function privacyMaskFilter(masks, sourceOffsetSeconds) {
   if (masks === undefined) return "";
   if (
     !Array.isArray(masks) ||
@@ -150,17 +150,20 @@ function privacyMaskFilter(masks) {
         width <= 0 ||
         height <= 0 ||
         x + width > 1 ||
-        y + height > 1
+        y + height > 1 ||
+        (mask.fromSeconds !== undefined &&
+          (!Number.isFinite(mask.fromSeconds) || mask.fromSeconds < 0))
       );
     })
   ) {
     throw new Error("Privacy masks must be normalized rectangles");
   }
   return masks
-    .map(
-      ({ x, y, width, height }) =>
-        `drawbox=x=iw*${x}:y=ih*${y}:w=iw*${width}:h=ih*${height}:color=black:t=fill`,
-    )
+    .map(({ x, y, width, height, fromSeconds }) => {
+      const enable =
+        fromSeconds === undefined ? "" : `:enable='gte(t+${sourceOffsetSeconds},${fromSeconds})'`;
+      return `drawbox=x=iw*${x}:y=ih*${y}:w=iw*${width}:h=ih*${height}:color=black:t=fill${enable}`;
+    })
     .join(",");
 }
 
@@ -262,7 +265,12 @@ export function deriveMedia({
       const colors = recipe.colors ?? 256;
       if (!Number.isInteger(colors) || colors < 4 || colors > 256)
         throw new Error("Invalid GIF palette size");
-      const privacyFilter = privacyMaskFilter(recipe.privacyMasks);
+      const absolutePosterAt =
+        window.start + Math.min(posterAt, Math.max(0, window.duration - 0.1));
+      const privacyFilter = privacyMaskFilter(
+        recipe.privacyMasks,
+        ["webp", "png"].includes(recipe.kind) ? absolutePosterAt : window.start,
+      );
       jobs.push({
         assetId,
         item,
@@ -272,7 +280,7 @@ export function deriveMedia({
         geometry,
         colors,
         privacyFilter,
-        posterAt: window.start + Math.min(posterAt, Math.max(0, window.duration - 0.1)),
+        posterAt: absolutePosterAt,
       });
     }
   }

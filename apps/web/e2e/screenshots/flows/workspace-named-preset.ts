@@ -484,6 +484,7 @@ export async function runWorkspaceNamedPreset(
       menu.getByRole("button", { name: `应用预设 ${PRESET_NAME}`, exact: true }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(menu).toContainText(`${storedPresetNamesAfterReload.length} / 5`);
+    await page.waitForTimeout(3_500); // Read the retained preset alongside the ready original task.
 
     const drawEndMs = Date.now();
     result = {

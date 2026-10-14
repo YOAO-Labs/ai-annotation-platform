@@ -2347,7 +2347,7 @@ test.describe("flow recordings", () => {
   test("project-create-existing-resources — 创建项目并复用已有资源", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     test.setTimeout(120_000);
-    const userEmail = cached.users.admin.email;
+    const userEmail = cached.users.project_admin.email;
     let createdProjectId: string | undefined;
     const t0 = Date.now();
 
@@ -2544,8 +2544,18 @@ test.describe("flow recordings", () => {
     await installRecordingWorkbenchLayout(page, "both", {
       workspace: { context: "annotate:image", preset: "focus" },
     });
-    const win = await runLargeImageProgressive(page, cached);
-    await finalize(page, "large-image-progressive", undefined, drawTrim(win, t0));
+    const browserErrors: string[] = [];
+    const onPageError = (error: Error) => {
+      browserErrors.push(error.message);
+    };
+    page.on("pageerror", onPageError);
+    try {
+      const win = await runLargeImageProgressive(page, cached);
+      expect(browserErrors, "large-image-progressive rendered tile errors").toEqual([]);
+      await finalize(page, "large-image-progressive", undefined, drawTrim(win, t0));
+    } finally {
+      page.off("pageerror", onPageError);
+    }
   });
 
   test("large-image-pyramid-recovery — 单切片失败后自动恢复", async ({ page, seed }) => {
