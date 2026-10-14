@@ -55,6 +55,13 @@ Mac 需要 **macOS 14 或更新系统**、Xcode Command Line Tools（`xcrun swif
 录制时保持目标 Chromium 窗口在前台，不切入台前调度缩略状态；原生窗口须通过进程、标题和校准色块核对。
 不依赖 ML 的 Mac 录制校验隔离 API / 数据库，不要求额外启动 ML worker。
 
+定时息屏也会让采集窗口失去有效可见边界。需要保持显示器开启时，让临时防休眠覆盖整个命令（含预检），
+而不是等开始写帧后才启用；命令退出即释放，不修改永久系统设置：
+
+```bash
+caffeinate -dimsu pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile marketing
+```
+
 入口必须设置 `SCREENSHOT_DATABASE_URL`，以及完全相同、显式选择非零 Redis DB 的
 `REDIS_URL` 和 `CELERY_BROKER_URL`。同时核对 API、Worker 的实际目标；入口只固定自己子进程的
 `DATABASE_URL` / `MIGRATION_DATABASE_URL`，不会改已运行服务。真实推理检查隔离 broker 上只存在

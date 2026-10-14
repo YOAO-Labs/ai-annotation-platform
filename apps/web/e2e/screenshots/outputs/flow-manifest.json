@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-12T06:16:21.069Z",
+  "updated_at": "2026-10-14T01:19:34.446Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
       "role": "hero-image",
-      "generated_at": "2026-09-14T02:06:28.389Z",
-      "captured_commit": "8f4d6dbffc64fe8b250c64255022d36813331085",
+      "generated_at": "2026-10-14T01:19:34.356Z",
+      "captured_commit": "b9974aca51e009ae040f6958e9040f2a19c3ae62",
       "source_worktree_dirty": false,
-      "derived_commit": "8f4d6dbffc64fe8b250c64255022d36813331085",
+      "derived_commit": "20be03aca88352d8c63f8d422fbfd22296784fba",
       "derivation_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "docs-site/scripts/generate-home-hero-media.mjs",
@@ -18,8 +18,8 @@
         "docs-site/scripts/generate-home-hero-media.mjs",
         "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
       ],
-      "sha256": "f44c7144ef9f9e91b14fcced41b93ff725d456f74ef0e0a2d057cd5e4ddc02b6",
-      "bytes": 52738,
+      "sha256": "e3ae8b3ee777a90d575f62b828741ce96e20ef45655b204a55f04abd02ecc710",
+      "bytes": 56334,
       "media": {
         "codec": "webp",
         "width": 1440,
@@ -31,18 +31,18 @@
       },
       "source_asset": {
         "path": "docs-site/user-guide/images/projects/data-manager-overview.png",
-        "sha256": "a7657a3f51d8e59a0ca1f3ea397dba111f4c755c991ec34e7eda21ddd453c1a2",
-        "captured_commit": "8f4d6dbffc64fe8b250c64255022d36813331085"
+        "sha256": "fe0015b78263c27508f232767fe97fa9e917dbaafad61513bfbf27a6374c3116",
+        "captured_commit": "b9974aca51e009ae040f6958e9040f2a19c3ae62"
       }
     },
     "docs-site/.vitepress/theme/assets/home/hero/pointcloud.webp": {
       "asset_id": "home-hero/pointcloud",
       "role": "hero-image",
-      "generated_at": "2026-09-13T18:36:17.252Z",
-      "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618",
-      "source_worktree_dirty": null,
-      "derived_commit": "7768ea35a9c4e0b6b44174768b347632bf8c44a7",
-      "derivation_worktree_dirty": false,
+      "generated_at": "2026-10-14T01:19:34.288Z",
+      "captured_commit": "20be03aca88352d8c63f8d422fbfd22296784fba",
+      "source_worktree_dirty": false,
+      "derived_commit": "20be03aca88352d8c63f8d422fbfd22296784fba",
+      "derivation_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "docs-site/scripts/generate-home-hero-media.mjs",
       "watch_paths": [
@@ -51,8 +51,8 @@
         "docs-site/scripts/generate-home-hero-media.mjs",
         "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
       ],
-      "sha256": "bd2357c112feb1dd718c4d16b6378a718e17eb48315463d13e081b2b86c0c6a4",
-      "bytes": 110210,
+      "sha256": "69b134b55c3a488ee4fe0db925ff7debd702e8a05fbf072e1eb73e4e2ddc6ad4",
+      "bytes": 112840,
       "media": {
         "codec": "webp",
         "width": 1440,
@@ -64,18 +64,18 @@
       },
       "source_asset": {
         "path": "docs-site/user-guide/images/workbench/pointcloud-real-scene.png",
-        "sha256": "b7c50cb8adc6d15ada0574015ea447ba552ed3880170703d6ea23f23d69c738b",
-        "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618"
+        "sha256": "38adc691a057bbe2e2fbeda9878786f7f8ed50df72bfb5849d2cac5d0f8f6ac4",
+        "captured_commit": "20be03aca88352d8c63f8d422fbfd22296784fba"
       }
     },
     "docs-site/.vitepress/theme/assets/home/hero/review.webp": {
       "asset_id": "home-hero/review",
       "role": "hero-image",
-      "generated_at": "2026-09-13T18:36:17.506Z",
-      "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618",
-      "source_worktree_dirty": null,
-      "derived_commit": "7768ea35a9c4e0b6b44174768b347632bf8c44a7",
-      "derivation_worktree_dirty": false,
+      "generated_at": "2026-10-14T01:19:34.446Z",
+      "captured_commit": "20be03aca88352d8c63f8d422fbfd22296784fba",
+      "source_worktree_dirty": false,
+      "derived_commit": "20be03aca88352d8c63f8d422fbfd22296784fba",
+      "derivation_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "docs-site/scripts/generate-home-hero-media.mjs",
       "watch_paths": [
@@ -84,8 +84,8 @@
         "docs-site/scripts/generate-home-hero-media.mjs",
         "docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"
       ],
-      "sha256": "6392f51d11c845e758bc4498e0fc22e536d39b2376bfa4b5daefb82f9f661c6c",
-      "bytes": 133928,
+      "sha256": "7b7cc8e9f32703eb8b02b070a3a2ba7c8357e85503fc1fd1a7c7cd71afcd09c4",
+      "bytes": 134906,
       "media": {
         "codec": "webp",
         "width": 1440,
@@ -97,8 +97,8 @@
       },
       "source_asset": {
         "path": "docs-site/user-guide/images/review/workbench.png",
-        "sha256": "8ba6f1c5898c2778525dace225ecfce11fc419b3d95576f8a9870d89d5c95a1a",
-        "captured_commit": "7a805d2a8d5e915ace4bb439b639fb07ba98b618"
+        "sha256": "ffc2ec6be84acbee9155514d37144dba67ed41cb947e4fe06025ae7a84b37679",
+        "captured_commit": "20be03aca88352d8c63f8d422fbfd22296784fba"
       }
     },
     "docs-site/.vitepress/theme/assets/home/hero/video-track.webp": {
