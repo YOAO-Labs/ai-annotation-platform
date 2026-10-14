@@ -1,6 +1,449 @@
+import { expect, type Page } from "@playwright/test";
+import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
 import type { ScreenshotScene } from "./_types";
 import type { NotificationItem, NotificationsResponse } from "../../../src/api/notifications";
 
+const API_PREFIX = "/api/v1";
+const GROUP_FIXTURE = {
+  name: "截图示例 · 项目协作组",
+  description: "文档截图示例组；成员为截图种子中的标注员与质检员。",
+};
+const TEMPLATE_FIXTURES = [
+  {
+    name: "截图示例 · 项目模板",
+    description: "从截图种子项目导出的项目配置示例。",
+    scope: "private",
+  },
+  {
+    name: "截图示例 · 公共模板",
+    description: "由超级管理员发布的公共项目配置示例。",
+    scope: "public",
+  },
+] as const;
+
+type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+interface ScreenshotUserRow {
+  id: string;
+  email: string;
+  role: string;
+  group_id: string | null;
+  is_active: boolean;
+}
+
+interface ScreenshotGroupRow {
+  id: string;
+  name: string;
+  description: string | null;
+  member_count: number;
+}
+
+interface ScreenshotTemplateRow {
+  id: string;
+  name: string;
+  description: string | null;
+  scope: "private" | "organization" | "public";
+  created_by: string;
+  source_project_id: string | null;
+  usage_count: number;
+}
+
+async function screenshotApi<T>(
+  page: Page,
+  method: ApiMethod,
+  path: string,
+  token: string,
+  data?: unknown,
+): Promise<T> {
+  const response = await page.request.fetch(`${API_PREFIX}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, Connection: "close" },
+    ...(data === undefined ? {} : { data }),
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `[superadmin screenshot] ${method} ${path}: HTTP ${response.status()} ${await response.text()}`,
+    );
+  }
+  if (response.status() === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+async function screenshotToken(page: Page): Promise<string> {
+  const token = await page.evaluate(() => localStorage.getItem("token"));
+  if (!token) throw new Error("[superadmin screenshot] 缺少截图管理员令牌");
+  return token;
+}
+
+/** The seed endpoint itself refuses non-test databases and validates the screenshots profile. */
+async function verifyScreenshotDatabase(
+  page: Page,
+  catalog: ScreenshotSeedCatalog,
+): Promise<void> {
+  const response = await page.request.get(
+    `${API_PREFIX}/__test/seed/catalog?profile=screenshots&backend_requirements=none`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `[superadmin screenshot] screenshot database verification failed: HTTP ${response.status()} ${await response.text()}`,
+    );
+  }
+  const live = (await response.json()) as ScreenshotSeedCatalog;
+  if (
+    live.seed_revision !== catalog.seed_revision ||
+    live.users.admin.id !== catalog.users.admin.id ||
+    live.users.annotator.id !== catalog.users.annotator.id ||
+    live.users.reviewer.id !== catalog.users.reviewer.id ||
+    live.projects.image_demo.id !== catalog.projects.image_demo.id
+  ) {
+    throw new Error("[superadmin screenshot] screenshot seed catalog changed during capture");
+  }
+}
+
+async function listScreenshotUsers(page: Page, token: string): Promise<ScreenshotUserRow[]> {
+  return screenshotApi<ScreenshotUserRow[]>(page, "GET", "/users?status=all", token);
+}
+
+async function removePreviousScreenshotGroup(
+  page: Page,
+  token: string,
+  catalog: ScreenshotSeedCatalog,
+): Promise<void> {
+  const groups = await screenshotApi<ScreenshotGroupRow[]>(page, "GET", "/groups", token);
+  const matches = groups.filter((group) => group.name === GROUP_FIXTURE.name);
+  if (matches.length === 0) return;
+  if (matches.length !== 1 || matches[0].description !== GROUP_FIXTURE.description) {
+    throw new Error("[superadmin screenshot] refusing to remove an unowned same-name data group");
+  }
+  const group = matches[0];
+  const createParams = new URLSearchParams({
+    action: "group.create",
+    target_type: "group",
+    target_id: group.id,
+    actor_id: catalog.users.admin.id,
+    detail_key: "name",
+    detail_value: GROUP_FIXTURE.name,
+    page: "1",
+    page_size: "50",
+  });
+  const createAudit = await screenshotApi<{
+    items: Array<{ detail_json: Record<string, unknown> | null }>;
+  }>(page, "GET", `/audit-logs?${createParams}`, token);
+  if (!createAudit.items.some((item) => item.detail_json?.name === GROUP_FIXTURE.name)) {
+    throw new Error("[superadmin screenshot] refusing to remove a data group without its creation audit");
+  }
+  const users = await listScreenshotUsers(page, token);
+  const members = users.filter((user) => user.group_id === group.id);
+  const allowedMemberIds: Record<string, true> = {
+    [catalog.users.annotator.id]: true,
+    [catalog.users.reviewer.id]: true,
+  };
+  if (members.some((member) => !(member.id in allowedMemberIds))) {
+    throw new Error("[superadmin screenshot] owned group contains an unexpected member");
+  }
+  for (const member of members) {
+    const params = new URLSearchParams({
+      action: "user.group_change",
+      target_type: "user",
+      target_id: member.id,
+      actor_id: catalog.users.admin.id,
+      detail_key: "new_group_id",
+      detail_value: group.id,
+      page: "1",
+      page_size: "50",
+    });
+    const audit = await screenshotApi<{
+      items: Array<{ detail_json: Record<string, unknown> | null }>;
+    }>(page, "GET", `/audit-logs?${params}`, token);
+    const assignment = audit.items.find(
+      (item) => item.detail_json?.new_group_id === group.id,
+    );
+    const oldGroupId = assignment?.detail_json?.old_group_id;
+    if (!assignment || (oldGroupId !== null && typeof oldGroupId !== "string")) {
+      throw new Error(
+        `[superadmin screenshot] cannot restore the prior data group for seeded user ${member.id}`,
+      );
+    }
+    if (typeof oldGroupId === "string" && !groups.some((candidate) => candidate.id === oldGroupId)) {
+      throw new Error("[superadmin screenshot] prior data group no longer exists; refusing cleanup");
+    }
+    const restored = await screenshotApi<ScreenshotUserRow>(
+      page,
+      "PATCH",
+      `/users/${member.id}/group`,
+      token,
+      { group_id: oldGroupId },
+    );
+    const expectedRole =
+      member.id === catalog.users.annotator.id
+        ? catalog.users.annotator.role
+        : catalog.users.reviewer.role;
+    if (restored.group_id !== oldGroupId || restored.role !== expectedRole) {
+      throw new Error("[superadmin screenshot] seeded member restoration did not match its audit record");
+    }
+  }
+  if ((await listScreenshotUsers(page, token)).some((user) => user.group_id === group.id)) {
+    throw new Error("[superadmin screenshot] refusing to delete a data group with remaining members");
+  }
+  await screenshotApi<void>(page, "DELETE", `/groups/${group.id}`, token);
+}
+
+async function prepareScreenshotGroup(
+  page: Page,
+  catalog: ScreenshotSeedCatalog,
+): Promise<ScreenshotGroupRow> {
+  const token = await screenshotToken(page);
+  await verifyScreenshotDatabase(page, catalog);
+  await removePreviousScreenshotGroup(page, token, catalog);
+
+  const users = await listScreenshotUsers(page, token);
+  const members = [
+    catalog.users.annotator,
+    catalog.users.reviewer,
+  ].map((seeded) => {
+    const user = users.find((candidate) => candidate.id === seeded.id);
+    if (!user || !user.is_active || user.role !== seeded.role) {
+      throw new Error(`[superadmin screenshot] seeded member ${seeded.email} is not ready`);
+    }
+    return user;
+  });
+  const group = await screenshotApi<ScreenshotGroupRow>(
+    page,
+    "POST",
+    "/groups",
+    token,
+    GROUP_FIXTURE,
+  );
+  try {
+    for (const member of members) {
+      const assigned = await screenshotApi<ScreenshotUserRow>(
+        page,
+        "PATCH",
+        `/users/${member.id}/group`,
+        token,
+        { group_id: group.id },
+      );
+      if (assigned.group_id !== group.id || assigned.role !== member.role) {
+        throw new Error("[superadmin screenshot] data-group API changed a seeded member role");
+      }
+    }
+    const savedGroup = (await screenshotApi<ScreenshotGroupRow[]>(
+      page,
+      "GET",
+      "/groups",
+      token,
+    )).find((candidate) => candidate.id === group.id);
+    if (!savedGroup || savedGroup.member_count !== members.length) {
+      throw new Error("[superadmin screenshot] data-group member count did not reflect real assignments");
+    }
+    return savedGroup;
+  } catch (error) {
+    const currentUsers = await listScreenshotUsers(page, token);
+    for (const original of members) {
+      if (currentUsers.find((candidate) => candidate.id === original.id)?.group_id === group.id) {
+        await screenshotApi<ScreenshotUserRow>(
+          page,
+          "PATCH",
+          `/users/${original.id}/group`,
+          token,
+          { group_id: original.group_id },
+        );
+      }
+    }
+    await screenshotApi<void>(page, "DELETE", `/groups/${group.id}`, token);
+    throw error;
+  }
+}
+
+async function removePreviousScreenshotTemplates(
+  page: Page,
+  token: string,
+  catalog: ScreenshotSeedCatalog,
+): Promise<void> {
+  const templates = await screenshotApi<ScreenshotTemplateRow[]>(
+    page,
+    "GET",
+    "/project-templates",
+    token,
+  );
+  for (const fixture of TEMPLATE_FIXTURES) {
+    const matches = templates.filter((template) => template.name === fixture.name);
+    if (matches.length === 0) continue;
+    const template = matches[0];
+    if (
+      matches.length !== 1 ||
+      template.created_by !== catalog.users.admin.id ||
+      template.source_project_id !== catalog.projects.image_demo.id ||
+      template.scope !== fixture.scope ||
+      template.description !== fixture.description
+    ) {
+      throw new Error("[superadmin screenshot] refusing to remove an unowned same-name template");
+    }
+    if (template.usage_count !== 0) {
+      throw new Error("[superadmin screenshot] refusing to delete a template that has real usage");
+    }
+    await screenshotApi<void>(page, "DELETE", `/project-templates/${template.id}`, token);
+  }
+}
+
+async function prepareScreenshotTemplates(
+  page: Page,
+  catalog: ScreenshotSeedCatalog,
+): Promise<ScreenshotTemplateRow[]> {
+  const token = await screenshotToken(page);
+  await verifyScreenshotDatabase(page, catalog);
+  await removePreviousScreenshotTemplates(page, token, catalog);
+  const project = await screenshotApi<{
+    id: string;
+    name: string;
+    type_label: string;
+    type_key: string;
+  }>(page, "GET", `/projects/${catalog.projects.image_demo.id}`, token);
+  if (
+    project.id !== catalog.projects.image_demo.id ||
+    !project.name ||
+    !project.type_label ||
+    !project.type_key
+  ) {
+    throw new Error("[superadmin screenshot] catalog project is missing template source fields");
+  }
+  const created: ScreenshotTemplateRow[] = [];
+  try {
+    for (const fixture of TEMPLATE_FIXTURES) {
+      const template = await screenshotApi<ScreenshotTemplateRow>(
+        page,
+        "POST",
+        "/project-templates",
+        token,
+        {
+          name: fixture.name,
+          description: fixture.description,
+          type_label: project.type_label,
+          type_key: project.type_key,
+          source_project_id: project.id,
+          scope: fixture.scope,
+        },
+      );
+      created.push(template);
+      if (
+        template.created_by !== catalog.users.admin.id ||
+        template.source_project_id !== project.id ||
+        template.scope !== fixture.scope ||
+        template.usage_count !== 0
+      ) {
+        throw new Error("[superadmin screenshot] project-template API returned unexpected fixture data");
+      }
+    }
+  } catch (error) {
+    for (const template of created.reverse()) {
+      if (template.usage_count === 0) {
+        await screenshotApi<void>(page, "DELETE", `/project-templates/${template.id}`, token);
+      }
+    }
+    throw error;
+  }
+  return created;
+}
+
+async function waitForHealthyAnalytics(page: Page): Promise<void> {
+  const panels = [
+    { endpoint: "throughput_daily", testId: "panel-throughput" },
+    { endpoint: "reject_rate_by_type", testId: "panel-reject-rate" },
+    { endpoint: "duration_dist", testId: "panel-duration" },
+    { endpoint: "activity_heatmap", testId: "panel-heatmap" },
+  ] as const;
+  const responses = Promise.all(
+    panels.map(({ endpoint }) =>
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === `${API_PREFIX}/admin/analytics/${endpoint}`,
+        { timeout: 15_000 },
+      ),
+    ),
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  const bodies = await Promise.all(
+    (await responses).map(async (response, index) => {
+      if (!response.ok()) {
+        throw new Error(
+          `[superadmin analytics] ${panels[index].endpoint}: HTTP ${response.status()}`,
+        );
+      }
+      const body = (await response.json()) as { panel?: unknown; data?: unknown };
+      if (body.panel !== panels[index].endpoint || body.data === undefined || body.data === null) {
+        throw new Error(`[superadmin analytics] ${panels[index].endpoint} returned an invalid panel`);
+      }
+      return body.data;
+    }),
+  );
+  const arrayData = (value: unknown, name: string): Array<Record<string, unknown>> => {
+    if (!Array.isArray(value)) throw new Error(`[superadmin analytics] ${name} data is not an array`);
+    return value as Array<Record<string, unknown>>;
+  };
+  const throughput = arrayData(bodies[0], "throughput_daily");
+  const reject = arrayData(bodies[1], "reject_rate_by_type");
+  const duration = bodies[2] as Record<string, unknown>;
+  const heatmap = arrayData(bodies[3], "activity_heatmap");
+  if (
+    !throughput.every((row) => typeof row.day === "string" && typeof row.event_count === "number") ||
+    !reject.every(
+      (row) =>
+        typeof row.reason_type === "string" &&
+        typeof row.count === "number" &&
+        typeof row.pct === "number",
+    ) ||
+    !["n", "p50", "p95", "mean"].every(
+      (field) => typeof duration[field] === "number" && Number.isFinite(duration[field]),
+    ) ||
+    !heatmap.every(
+      (row) =>
+        typeof row.weekday === "number" &&
+        typeof row.hour === "number" &&
+        typeof row.count === "number",
+    )
+  ) {
+    throw new Error("[superadmin analytics] healthy endpoint returned malformed panel data");
+  }
+  for (const { testId } of panels) await expect(page.getByTestId(testId)).toBeVisible();
+  await expect(
+    page.getByText(/数据初始化中|DuckDB 文件不存在|HTTP 503|HTTP 500/),
+  ).toHaveCount(0);
+  if (throughput.length > 0) {
+    await expect(page.getByTestId("panel-throughput").locator("svg")).toBeVisible();
+  } else {
+    await expect(page.getByText("所选范围内暂无数据")).toBeVisible();
+  }
+  if (reject.length > 0) {
+    await expect(page.getByTestId("panel-reject-rate").locator("svg")).toBeVisible();
+  } else {
+    await expect(page.getByText("所选范围内无 reject 记录")).toBeVisible();
+  }
+  await expect(page.getByTestId("panel-duration")).toContainText("样本数");
+  if (heatmap.some((row) => Number(row.count) > 0)) {
+    await expect(page.getByTestId("panel-heatmap").locator("[title]")).toHaveCount(168);
+  } else {
+    await expect(page.getByText("所选范围内暂无工时数据")).toBeVisible();
+  }
+}
+
+async function fitPermissionMatrix(page: Page): Promise<void> {
+  const grid = page.locator("div.grid.grid-cols-2.gap-3.p-4");
+  const cards = grid.locator(":scope > div");
+  await expect(cards).toHaveCount(4);
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("[superadmin screenshot] viewport is unavailable");
+  const measuredBottom = await grid.evaluate((element) =>
+    Math.ceil(element.getBoundingClientRect().bottom),
+  );
+  const height = Math.max(viewport.height, measuredBottom + 24);
+  if (height !== viewport.height) {
+    await page.setViewportSize({ width: viewport.width, height });
+  }
+  for (const card of await cards.all()) {
+    await expect(card).toBeInViewport({ ratio: 0.95 });
+  }
+}
 // notifications/panel-overview 使用确定性列表：截图库没有持久通知，
 // created_at 对齐固定截图时钟（2026-07-13 10:00 +08），保证日期分组与相对时间稳定。
 const NOTIFICATION_FIXTURE_ITEMS: NotificationItem[] = [
@@ -163,10 +606,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/analytics/overview",
     role: "admin",
     route: () => "/admin/analytics",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(800); // recharts 渲染：时间范围下拉 + 4 面板
-    },
+    prepare: waitForHealthyAnalytics,
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/analytics/overview.png",
   },
@@ -174,11 +614,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/analytics/heatmap",
     role: "admin",
     route: () => "/admin/analytics",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      await page.locator('[data-testid="panel-heatmap"]').waitFor({ timeout: 4000 });
-      await page.waitForTimeout(500);
-    },
+    prepare: waitForHealthyAnalytics,
     capture: { kind: "locator", selector: '[data-testid="panel-heatmap"]', padding: 0 },
     target: "docs-site/user-guide/images/superadmin/analytics/heatmap.png",
   },
@@ -261,13 +697,14 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/users/groups-tab",
     role: "admin",
     route: () => "/users",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      // 切「数据组」tab（组创建 + 成员添加）
+    prepare: async (page, catalog) => {
+      const group = await prepareScreenshotGroup(page, catalog);
+      await page.reload({ waitUntil: "networkidle" });
       const tab = page.getByRole("button", { name: /数据组|用户组/ }).first();
       await tab.click();
-      await page.waitForTimeout(400);
-      await page.waitForLoadState("networkidle");
+      await expect(page.getByText(GROUP_FIXTURE.name, { exact: true })).toBeVisible();
+      const memberCount = new RegExp(`^${group.member_count} 名成员`);
+      await expect(page.getByText(memberCount)).toBeVisible();
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/users/groups-tab.png",
@@ -278,11 +715,11 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     route: () => "/users",
     prepare: async (page) => {
       await page.waitForLoadState("networkidle");
-      // 切「角色」tab 展示权限矩阵预览
+      // 切「角色」tab 后按卡片真实高度扩展截图视口，避免内部滚动容器裁掉下排角色。
       const tab = page.getByRole("button", { name: /角色/ }).first();
       await tab.click();
-      await page.waitForTimeout(400);
       await page.waitForLoadState("networkidle");
+      await fitPermissionMatrix(page);
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/users/permission-matrix.png",
@@ -349,14 +786,22 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/public-templates/templates-list",
     role: "admin",
     route: () => "/project-templates",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(400);
-      // 切「全部」tab 展示四 tab + scope chip + usage_count
-      const allTab = page.getByRole("button", { name: /^全部$|全部/ }).first();
+    prepare: async (page, catalog) => {
+      const templates = await prepareScreenshotTemplates(page, catalog);
+      await page.reload({ waitUntil: "networkidle" });
+      const allTab = page.getByRole("button", { name: "全部", exact: true });
       await allTab.click();
-      await page.waitForTimeout(300);
-      await page.waitForLoadState("networkidle");
+      await page.getByPlaceholder("搜索模板名称…").fill("截图示例");
+      const cards = page.locator('[data-testid^="template-card-"]');
+      await expect(cards).toHaveCount(templates.length);
+      for (const template of templates) {
+        const card = page.getByTestId(`template-card-${template.id}`);
+        await expect(card).toContainText(template.name);
+        await expect(card).toContainText(`使用 ${template.usage_count} 次`);
+        await expect(page.getByTestId(`template-scope-${template.id}`)).toHaveText(
+          template.scope === "public" ? "公共" : "私有",
+        );
+      }
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/public-templates/templates-list.png",

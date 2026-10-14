@@ -3,7 +3,7 @@ audience: [super_admin]
 type: how-to
 since: v0.10.14
 status: stable
-last_reviewed: 2026-06-10
+last_reviewed: 2026-10-14
 ---
 
 # 公共模板治理
@@ -32,7 +32,9 @@ last_reviewed: 2026-06-10
 
 ## 推荐流程
 
-![模板库四 tab + scope chip + usage_count](../images/superadmin/public-templates/templates-list.png)
+![模板库「全部」视图：项目示例模板与公共模板的范围标签和实际使用次数](../images/superadmin/public-templates/templates-list.png)
+
+截图中项目模板由种子项目导出，公共模板由超级管理员发布；使用次数来自真实 API 返回，未应用的示例模板显示 0。
 
 1. 项目管理员先在自己组织内打磨模板（`scope=private` → 灰度试用 → 推到 `scope=organization`）。
 2. 跑通后将模板 ID / 用例报给超管，超管 PATCH `scope=public`。
