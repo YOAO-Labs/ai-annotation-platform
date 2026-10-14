@@ -184,14 +184,19 @@ export const WORKBENCH_MEDIA_SCENES: ScreenshotScene[] = [
       expect(channelNames).toHaveLength(6);
       expect(channelNames.every((name) => name.trim().length > 0)).toBeTruthy();
       expect(new Set(channelNames).size).toBe(6);
-      expect(await cameraImages.evaluateAll((images) => images.map((image) => image.alt))).toEqual(
-        channelNames,
-      );
+      expect(
+        await cameraImages.evaluateAll((images) =>
+          images.map((image) => (image as HTMLImageElement).alt),
+        ),
+      ).toEqual(channelNames);
       await expect
         .poll(
           async () =>
             cameraImages.evaluateAll((images) =>
-              images.every((image) => image.complete && image.naturalWidth > 0),
+              images.every((element) => {
+                const image = element as HTMLImageElement;
+                return image.complete && image.naturalWidth > 0;
+              }),
             ),
           { timeout: 10_000 },
         )

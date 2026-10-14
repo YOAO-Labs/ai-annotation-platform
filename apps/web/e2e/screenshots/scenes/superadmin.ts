@@ -76,10 +76,7 @@ async function screenshotToken(page: Page): Promise<string> {
 }
 
 /** The seed endpoint itself refuses non-test databases and validates the screenshots profile. */
-async function verifyScreenshotDatabase(
-  page: Page,
-  catalog: ScreenshotSeedCatalog,
-): Promise<void> {
+async function verifyScreenshotDatabase(page: Page, catalog: ScreenshotSeedCatalog): Promise<void> {
   const response = await page.request.get(
     `${API_PREFIX}/__test/seed/catalog?profile=screenshots&backend_requirements=none`,
   );
@@ -104,103 +101,14 @@ async function listScreenshotUsers(page: Page, token: string): Promise<Screensho
   return screenshotApi<ScreenshotUserRow[]>(page, "GET", "/users?status=all", token);
 }
 
-async function removePreviousScreenshotGroup(
-  page: Page,
-  token: string,
-  catalog: ScreenshotSeedCatalog,
-): Promise<void> {
-  const groups = await screenshotApi<ScreenshotGroupRow[]>(page, "GET", "/groups", token);
-  const matches = groups.filter((group) => group.name === GROUP_FIXTURE.name);
-  if (matches.length === 0) return;
-  if (matches.length !== 1 || matches[0].description !== GROUP_FIXTURE.description) {
-    throw new Error("[superadmin screenshot] refusing to remove an unowned same-name data group");
-  }
-  const group = matches[0];
-  const createParams = new URLSearchParams({
-    action: "group.create",
-    target_type: "group",
-    target_id: group.id,
-    actor_id: catalog.users.admin.id,
-    detail_key: "name",
-    detail_value: GROUP_FIXTURE.name,
-    page: "1",
-    page_size: "50",
-  });
-  const createAudit = await screenshotApi<{
-    items: Array<{ detail_json: Record<string, unknown> | null }>;
-  }>(page, "GET", `/audit-logs?${createParams}`, token);
-  if (!createAudit.items.some((item) => item.detail_json?.name === GROUP_FIXTURE.name)) {
-    throw new Error("[superadmin screenshot] refusing to remove a data group without its creation audit");
-  }
-  const users = await listScreenshotUsers(page, token);
-  const members = users.filter((user) => user.group_id === group.id);
-  const allowedMemberIds: Record<string, true> = {
-    [catalog.users.annotator.id]: true,
-    [catalog.users.reviewer.id]: true,
-  };
-  if (members.some((member) => !(member.id in allowedMemberIds))) {
-    throw new Error("[superadmin screenshot] owned group contains an unexpected member");
-  }
-  for (const member of members) {
-    const params = new URLSearchParams({
-      action: "user.group_change",
-      target_type: "user",
-      target_id: member.id,
-      actor_id: catalog.users.admin.id,
-      detail_key: "new_group_id",
-      detail_value: group.id,
-      page: "1",
-      page_size: "50",
-    });
-    const audit = await screenshotApi<{
-      items: Array<{ detail_json: Record<string, unknown> | null }>;
-    }>(page, "GET", `/audit-logs?${params}`, token);
-    const assignment = audit.items.find(
-      (item) => item.detail_json?.new_group_id === group.id,
-    );
-    const oldGroupId = assignment?.detail_json?.old_group_id;
-    if (!assignment || (oldGroupId !== null && typeof oldGroupId !== "string")) {
-      throw new Error(
-        `[superadmin screenshot] cannot restore the prior data group for seeded user ${member.id}`,
-      );
-    }
-    if (typeof oldGroupId === "string" && !groups.some((candidate) => candidate.id === oldGroupId)) {
-      throw new Error("[superadmin screenshot] prior data group no longer exists; refusing cleanup");
-    }
-    const restored = await screenshotApi<ScreenshotUserRow>(
-      page,
-      "PATCH",
-      `/users/${member.id}/group`,
-      token,
-      { group_id: oldGroupId },
-    );
-    const expectedRole =
-      member.id === catalog.users.annotator.id
-        ? catalog.users.annotator.role
-        : catalog.users.reviewer.role;
-    if (restored.group_id !== oldGroupId || restored.role !== expectedRole) {
-      throw new Error("[superadmin screenshot] seeded member restoration did not match its audit record");
-    }
-  }
-  if ((await listScreenshotUsers(page, token)).some((user) => user.group_id === group.id)) {
-    throw new Error("[superadmin screenshot] refusing to delete a data group with remaining members");
-  }
-  await screenshotApi<void>(page, "DELETE", `/groups/${group.id}`, token);
-}
-
 async function prepareScreenshotGroup(
   page: Page,
   catalog: ScreenshotSeedCatalog,
-): Promise<ScreenshotGroupRow> {
+): Promise<{ group: ScreenshotGroupRow; cleanup: () => Promise<void> }> {
   const token = await screenshotToken(page);
   await verifyScreenshotDatabase(page, catalog);
-  await removePreviousScreenshotGroup(page, token, catalog);
-
   const users = await listScreenshotUsers(page, token);
-  const members = [
-    catalog.users.annotator,
-    catalog.users.reviewer,
-  ].map((seeded) => {
+  const members = [catalog.users.annotator, catalog.users.reviewer].map((seeded) => {
     const user = users.find((candidate) => candidate.id === seeded.id);
     if (!user || !user.is_active || user.role !== seeded.role) {
       throw new Error(`[superadmin screenshot] seeded member ${seeded.email} is not ready`);
@@ -214,6 +122,36 @@ async function prepareScreenshotGroup(
     token,
     GROUP_FIXTURE,
   );
+  const cleanup = async () => {
+    const currentUsers = await listScreenshotUsers(page, token);
+    if (
+      currentUsers.some(
+        (user) => user.group_id === group.id && !members.some((member) => member.id === user.id),
+      )
+    ) {
+      throw new Error("[superadmin screenshot] fixture group contains an unexpected member");
+    }
+    for (const original of members) {
+      const current = currentUsers.find((user) => user.id === original.id);
+      if (
+        !current ||
+        current.role !== original.role ||
+        (current.group_id !== group.id && current.group_id !== original.group_id)
+      ) {
+        throw new Error("[superadmin screenshot] seeded member changed outside this capture");
+      }
+      if (current.group_id === group.id) {
+        await screenshotApi<ScreenshotUserRow>(
+          page,
+          "PATCH",
+          `/users/${original.id}/group`,
+          token,
+          { group_id: original.group_id },
+        );
+      }
+    }
+    await screenshotApi<void>(page, "DELETE", `/groups/${group.id}`, token);
+  };
   try {
     for (const member of members) {
       const assigned = await screenshotApi<ScreenshotUserRow>(
@@ -227,72 +165,27 @@ async function prepareScreenshotGroup(
         throw new Error("[superadmin screenshot] data-group API changed a seeded member role");
       }
     }
-    const savedGroup = (await screenshotApi<ScreenshotGroupRow[]>(
-      page,
-      "GET",
-      "/groups",
-      token,
-    )).find((candidate) => candidate.id === group.id);
+    const savedGroup = (
+      await screenshotApi<ScreenshotGroupRow[]>(page, "GET", "/groups", token)
+    ).find((candidate) => candidate.id === group.id);
     if (!savedGroup || savedGroup.member_count !== members.length) {
-      throw new Error("[superadmin screenshot] data-group member count did not reflect real assignments");
+      throw new Error(
+        "[superadmin screenshot] data-group member count did not reflect real assignments",
+      );
     }
-    return savedGroup;
+    return { group: savedGroup, cleanup };
   } catch (error) {
-    const currentUsers = await listScreenshotUsers(page, token);
-    for (const original of members) {
-      if (currentUsers.find((candidate) => candidate.id === original.id)?.group_id === group.id) {
-        await screenshotApi<ScreenshotUserRow>(
-          page,
-          "PATCH",
-          `/users/${original.id}/group`,
-          token,
-          { group_id: original.group_id },
-        );
-      }
-    }
-    await screenshotApi<void>(page, "DELETE", `/groups/${group.id}`, token);
+    await cleanup();
     throw error;
-  }
-}
-
-async function removePreviousScreenshotTemplates(
-  page: Page,
-  token: string,
-  catalog: ScreenshotSeedCatalog,
-): Promise<void> {
-  const templates = await screenshotApi<ScreenshotTemplateRow[]>(
-    page,
-    "GET",
-    "/project-templates",
-    token,
-  );
-  for (const fixture of TEMPLATE_FIXTURES) {
-    const matches = templates.filter((template) => template.name === fixture.name);
-    if (matches.length === 0) continue;
-    const template = matches[0];
-    if (
-      matches.length !== 1 ||
-      template.created_by !== catalog.users.admin.id ||
-      template.source_project_id !== catalog.projects.image_demo.id ||
-      template.scope !== fixture.scope ||
-      template.description !== fixture.description
-    ) {
-      throw new Error("[superadmin screenshot] refusing to remove an unowned same-name template");
-    }
-    if (template.usage_count !== 0) {
-      throw new Error("[superadmin screenshot] refusing to delete a template that has real usage");
-    }
-    await screenshotApi<void>(page, "DELETE", `/project-templates/${template.id}`, token);
   }
 }
 
 async function prepareScreenshotTemplates(
   page: Page,
   catalog: ScreenshotSeedCatalog,
-): Promise<ScreenshotTemplateRow[]> {
+): Promise<{ templates: ScreenshotTemplateRow[]; cleanup: () => Promise<void> }> {
   const token = await screenshotToken(page);
   await verifyScreenshotDatabase(page, catalog);
-  await removePreviousScreenshotTemplates(page, token, catalog);
   const project = await screenshotApi<{
     id: string;
     name: string;
@@ -308,6 +201,27 @@ async function prepareScreenshotTemplates(
     throw new Error("[superadmin screenshot] catalog project is missing template source fields");
   }
   const created: ScreenshotTemplateRow[] = [];
+  const cleanup = async () => {
+    const templates = await screenshotApi<ScreenshotTemplateRow[]>(
+      page,
+      "GET",
+      "/project-templates",
+      token,
+    );
+    for (const original of created) {
+      const current = templates.find((template) => template.id === original.id);
+      if (
+        !current ||
+        current.created_by !== catalog.users.admin.id ||
+        current.source_project_id !== project.id ||
+        current.scope !== original.scope ||
+        current.usage_count !== 0
+      ) {
+        throw new Error("[superadmin screenshot] fixture template changed outside this capture");
+      }
+      await screenshotApi<void>(page, "DELETE", `/project-templates/${current.id}`, token);
+    }
+  };
   try {
     for (const fixture of TEMPLATE_FIXTURES) {
       const template = await screenshotApi<ScreenshotTemplateRow>(
@@ -331,18 +245,16 @@ async function prepareScreenshotTemplates(
         template.scope !== fixture.scope ||
         template.usage_count !== 0
       ) {
-        throw new Error("[superadmin screenshot] project-template API returned unexpected fixture data");
+        throw new Error(
+          "[superadmin screenshot] project-template API returned unexpected fixture data",
+        );
       }
     }
   } catch (error) {
-    for (const template of created.reverse()) {
-      if (template.usage_count === 0) {
-        await screenshotApi<void>(page, "DELETE", `/project-templates/${template.id}`, token);
-      }
-    }
+    await cleanup();
     throw error;
   }
-  return created;
+  return { templates: created, cleanup };
 }
 
 async function waitForHealthyAnalytics(page: Page): Promise<void> {
@@ -372,13 +284,16 @@ async function waitForHealthyAnalytics(page: Page): Promise<void> {
       }
       const body = (await response.json()) as { panel?: unknown; data?: unknown };
       if (body.panel !== panels[index].endpoint || body.data === undefined || body.data === null) {
-        throw new Error(`[superadmin analytics] ${panels[index].endpoint} returned an invalid panel`);
+        throw new Error(
+          `[superadmin analytics] ${panels[index].endpoint} returned an invalid panel`,
+        );
       }
       return body.data;
     }),
   );
   const arrayData = (value: unknown, name: string): Array<Record<string, unknown>> => {
-    if (!Array.isArray(value)) throw new Error(`[superadmin analytics] ${name} data is not an array`);
+    if (!Array.isArray(value))
+      throw new Error(`[superadmin analytics] ${name} data is not an array`);
     return value as Array<Record<string, unknown>>;
   };
   const throughput = arrayData(bodies[0], "throughput_daily");
@@ -386,7 +301,9 @@ async function waitForHealthyAnalytics(page: Page): Promise<void> {
   const duration = bodies[2] as Record<string, unknown>;
   const heatmap = arrayData(bodies[3], "activity_heatmap");
   if (
-    !throughput.every((row) => typeof row.day === "string" && typeof row.event_count === "number") ||
+    !throughput.every(
+      (row) => typeof row.day === "string" && typeof row.event_count === "number",
+    ) ||
     !reject.every(
       (row) =>
         typeof row.reason_type === "string" &&
@@ -406,9 +323,7 @@ async function waitForHealthyAnalytics(page: Page): Promise<void> {
     throw new Error("[superadmin analytics] healthy endpoint returned malformed panel data");
   }
   for (const { testId } of panels) await expect(page.getByTestId(testId)).toBeVisible();
-  await expect(
-    page.getByText(/数据初始化中|DuckDB 文件不存在|HTTP 503|HTTP 500/),
-  ).toHaveCount(0);
+  await expect(page.getByText(/数据初始化中|DuckDB 文件不存在|HTTP 503|HTTP 500/)).toHaveCount(0);
   if (throughput.length > 0) {
     await expect(page.getByTestId("panel-throughput").locator("svg")).toBeVisible();
   } else {
@@ -697,8 +612,9 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/users/groups-tab",
     role: "admin",
     route: () => "/users",
-    prepare: async (page, catalog) => {
-      const group = await prepareScreenshotGroup(page, catalog);
+    prepare: async (page, catalog, registerCleanup) => {
+      const { group, cleanup } = await prepareScreenshotGroup(page, catalog);
+      registerCleanup(cleanup);
       await page.reload({ waitUntil: "networkidle" });
       const tab = page.getByRole("button", { name: /数据组|用户组/ }).first();
       await tab.click();
@@ -786,11 +702,15 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/public-templates/templates-list",
     role: "admin",
     route: () => "/project-templates",
-    prepare: async (page, catalog) => {
-      const templates = await prepareScreenshotTemplates(page, catalog);
+    prepare: async (page, catalog, registerCleanup) => {
+      const { templates, cleanup } = await prepareScreenshotTemplates(page, catalog);
+      registerCleanup(cleanup);
       await page.reload({ waitUntil: "networkidle" });
       const allTab = page.getByRole("button", { name: "全部", exact: true });
       await allTab.click();
+      await expect(page).toHaveURL(/(?:\?|&)scope=all(?:&|$)/);
+      const publicTemplate = templates.find((template) => template.scope === "public")!;
+      await expect(page.getByTestId(`template-card-${publicTemplate.id}`)).toBeVisible();
       await page.getByPlaceholder("搜索模板名称…").fill("截图示例");
       const cards = page.locator('[data-testid^="template-card-"]');
       await expect(cards).toHaveCount(templates.length);

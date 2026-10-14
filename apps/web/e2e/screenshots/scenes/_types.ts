@@ -23,8 +23,12 @@ export interface ScreenshotScene {
    */
   requiresML?: true;
   route: (catalog: ScreenshotSeedCatalog) => string;
-  /** 进页面后的准备步骤（开 modal / 切 tab / 键盘交互等） */
-  prepare?: (page: Page, catalog: ScreenshotSeedCatalog) => Promise<void>;
+  /** Prepare UI and register owned fixture cleanup before any later assertion can fail. */
+  prepare?: (
+    page: Page,
+    catalog: ScreenshotSeedCatalog,
+    registerCleanup: (cleanup: () => Promise<void>) => void,
+  ) => Promise<void>;
 
   /**
    * 自动红框 / 编号注释（截图前用 SVG overlay 注入，截图后自动移除）。

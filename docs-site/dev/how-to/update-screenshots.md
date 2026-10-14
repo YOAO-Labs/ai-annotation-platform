@@ -373,6 +373,10 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
 ];
 ```
 
+需要创建持久化示例时，在 `prepare(page, catalog, registerCleanup)` 中通过正式 API 创建受管夹具，
+并在后续界面断言前注册清理函数。截图与视觉回归驱动均在 `finally` 中执行清理；数据组示例恢复原成员分组，
+模板示例只删除本次创建且未被应用的记录。不要从历史审计日志推测待恢复状态，也不要删除同名但不属于本次采集的记录。
+
 ### 2. 定向验证场景
 
 ```bash

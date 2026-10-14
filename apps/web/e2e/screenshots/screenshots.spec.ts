@@ -106,6 +106,7 @@ test.describe("screenshots automation", () => {
       let cleanupMock: () => Promise<void> = async () => {};
       let cleanupAnnotations: () => Promise<void> = async () => {};
 
+      let cleanupScene: () => Promise<void> = async () => {};
       try {
         // 激活网络 mock（如有）
         cleanupMock = await setupMockState(page, scene.mockState);
@@ -114,7 +115,11 @@ test.describe("screenshots automation", () => {
         await seed.injectToken(page, roleEmail);
         await applyScreenshotTheme(page, axis.theme);
         await page.goto(route);
-        if (scene.prepare) await scene.prepare(page, catalog);
+        if (scene.prepare) {
+          await scene.prepare(page, catalog, (cleanup) => {
+            cleanupScene = cleanup;
+          });
+        }
         await applyScreenshotTheme(page, axis.theme);
         await waitForScreenshotReady(page);
 
@@ -226,8 +231,12 @@ test.describe("screenshots automation", () => {
           try {
             await cleanupMock();
           } finally {
-            // scene.prepare 也可能注册局部 route；测试失败时一并清除。
-            await page.unrouteAll({ behavior: "ignoreErrors" });
+            try {
+              await cleanupScene();
+            } finally {
+              // scene.prepare 也可能注册局部 route；测试失败时一并清除。
+              await page.unrouteAll({ behavior: "ignoreErrors" });
+            }
           }
         }
       }
