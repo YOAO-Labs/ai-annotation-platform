@@ -768,6 +768,13 @@ async def create_project(
         )
 
     new_project_id = uuid.uuid4()
+    # Experiment consent and backend bindings never transfer through creation,
+    # cloning or templates. Managers opt in explicitly on the created project.
+    from app.schemas.point_cloud_auxiliary import PointCloudEnhancementConfig
+
+    payload["point_cloud_enhancement_config"] = (
+        PointCloudEnhancementConfig().model_dump(mode="json")
+    )
     # v0.19.0 ADR-0044 · 直接指定主 backend (非克隆路径) 时, 同步在新项目建启用关联;
     # 不然 project_ml_backend_pool 缺行, trigger_preannotation 的 is_enabled 校验 404 +
     # ai_enabled 又派生为 true → 工作台显示「已启用 AI 却跑不起来」。
@@ -1056,6 +1063,35 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     payload = data.model_dump(exclude_unset=True)
+    if "point_cloud_enhancement_config" in payload:
+        from app.db.models.ml_backend_registry import ProjectMLBackendPool
+        from app.schemas.point_cloud_auxiliary import PointCloudEnhancementConfig
+
+        enhancement = PointCloudEnhancementConfig.model_validate(
+            payload["point_cloud_enhancement_config"]
+        )
+        if (
+            enhancement.enabled
+            and payload.get("data_type", project.data_type) != "lidar"
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={"reason": "point_cloud_enhancement_requires_lidar"},
+            )
+        if enhancement.ml_backend_pool_id is not None:
+            association = await db.scalar(
+                select(ProjectMLBackendPool.id).where(
+                    ProjectMLBackendPool.project_id == project.id,
+                    ProjectMLBackendPool.pool_id == enhancement.ml_backend_pool_id,
+                    ProjectMLBackendPool.enabled.is_(True),
+                )
+            )
+            if association is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"reason": "point_cloud_enhancement_pool_not_enabled"},
+                )
+        payload["point_cloud_enhancement_config"] = enhancement.model_dump(mode="json")
     if (
         "video_collaboration" in payload
         or "video_sampling" in payload

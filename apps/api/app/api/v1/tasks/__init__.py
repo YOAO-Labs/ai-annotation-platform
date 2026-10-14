@@ -14,6 +14,7 @@ from app.api.v1.tasks import (
     mask_mutations,
     multicamera_annotations,
     predictions,
+    point_cloud_auxiliary,
     review,
     scene_timeline,
     track_operations,
@@ -38,6 +39,7 @@ router.include_router(cross_frame_jobs.router, prefix="/tasks")
 router.include_router(track_operations.router, prefix="/tasks")
 router.include_router(video.router, prefix="/tasks")
 router.include_router(image_pyramid.router, prefix="/tasks")
+router.include_router(point_cloud_auxiliary.router, prefix="/tasks")
 router.include_router(mask_capabilities.router, prefix="/tasks")
 router.include_router(mask_mutations.router, prefix="/tasks")
 router.include_router(annotation_slices.router, prefix="/tasks")

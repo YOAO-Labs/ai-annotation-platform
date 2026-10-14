@@ -215,6 +215,9 @@ class Settings(BaseSettings):
     image_pyramid_vips_concurrency: int = 4
     image_pyramid_srgb_profile: str = "/usr/share/color/icc/sRGB.icc"
 
+    # Auxiliary model geometry is opt-in and never replaces measured geometry.
+    point_cloud_ai_enhancement_enabled: bool = False
+
     # v0.9.4 · 当 ML backend 在 docker compose 网内、平台 api 在 host 进程时,
     # SAM 容器无法 hit host 的 localhost:9000; 设为 docker bridge gateway
     # (Linux: 172.17.0.1:9000) 或 host.docker.internal:9000 (macOS/Win) 即可。

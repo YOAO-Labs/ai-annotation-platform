@@ -626,6 +626,13 @@
 | GET | `/{task_id}/point-cloud/cameras/{camera_role}/calibration` |
 | PATCH | `/{task_id}/point-cloud/cameras/{camera_role}/calibration` |
 
+## `tasks/point_cloud_auxiliary.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{task_id}/point-cloud/augmentation` |
+| POST | `/{task_id}/point-cloud/augmentation/assets` |
+
 ## `tasks/predictions.py`
 
 | Method | Path |
@@ -749,4 +756,4 @@
 
 ---
 
-_共 68 模块 / 432 路由_
+_共 69 模块 / 434 路由_
