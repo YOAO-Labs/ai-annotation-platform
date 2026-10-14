@@ -513,6 +513,7 @@ pnpm docs:media:derive -- --run /absolute/path/to/run --article 06-video-track -
 旧营销清单没有 GIF 配置时仍可派生视频；要生成对应 GIF，须先重新录制，不能猜测窗口。
 
 每个成品在 `flow-manifest.json` 中记录来源批次、资产 ID、源 SHA、质量等级、实际裁剪范围及派生哈希。
+特定资产可在配方声明归一化隐私矩形；同一遮挡会先在源帧坐标上应用于视频、GIF 和海报，再缩放，并在对应 `source_asset.normalized_privacy_masks` 留下精确矩形记录。
 该流程不生成或更新人工审核结论，也不自动重做已有发布资产。
 文档正文继续使用 `<DocsVideo>`；组件先加载封面，进入可视区域后才挂载视频。短微交互才使用 GIF。
 

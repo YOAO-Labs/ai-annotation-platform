@@ -136,6 +136,33 @@ export function outputGeometry(media, maxWidth = 1280, maxHeight = 720, fps = 30
     fps: Math.min(fps, media.fps),
   };
 }
+function privacyMaskFilter(masks) {
+  if (masks === undefined) return "";
+  if (
+    !Array.isArray(masks) ||
+    masks.some((mask) => {
+      if (!mask || typeof mask !== "object" || Array.isArray(mask)) return true;
+      const { x, y, width, height } = mask;
+      return (
+        ![x, y, width, height].every(Number.isFinite) ||
+        x < 0 ||
+        y < 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        x + width > 1 ||
+        y + height > 1
+      );
+    })
+  ) {
+    throw new Error("Privacy masks must be normalized rectangles");
+  }
+  return masks
+    .map(
+      ({ x, y, width, height }) =>
+        `drawbox=x=iw*${x}:y=ih*${y}:w=iw*${width}:h=ih*${height}:color=black:t=fill`,
+    )
+    .join(",");
+}
 
 // Both publishers use this path: validate the complete request, encode to staging,
 // then update only selected files and their provenance. No review is implied.
@@ -235,6 +262,7 @@ export function deriveMedia({
       const colors = recipe.colors ?? 256;
       if (!Number.isInteger(colors) || colors < 4 || colors > 256)
         throw new Error("Invalid GIF palette size");
+      const privacyFilter = privacyMaskFilter(recipe.privacyMasks);
       jobs.push({
         assetId,
         item,
@@ -243,6 +271,7 @@ export function deriveMedia({
         window,
         geometry,
         colors,
+        privacyFilter,
         posterAt: window.start + Math.min(posterAt, Math.max(0, window.duration - 0.1)),
       });
     }
@@ -255,7 +284,11 @@ export function deriveMedia({
     for (const [index, job] of jobs.entries()) {
       const { recipe, source, window, geometry } = job;
       const target = path.join(stage, `${index}.${recipe.kind}`);
-      const filter = `fps=${geometry.fps},scale=${geometry.width}:${geometry.height}:flags=lanczos,setsar=1`;
+      const scaleFilter = `scale=${geometry.width}:${geometry.height}:flags=lanczos`;
+      const filter = [job.privacyFilter, `fps=${geometry.fps}`, scaleFilter, "setsar=1"]
+        .filter(Boolean)
+        .join(",");
+      const posterFilter = [job.privacyFilter, scaleFilter].filter(Boolean).join(",");
       const input = [
         "-y",
         "-v",
@@ -283,7 +316,7 @@ export function deriveMedia({
           "-frames:v",
           "1",
           "-vf",
-          `scale=${geometry.width}:${geometry.height}:flags=lanczos`,
+          posterFilter,
           "-c:v",
           recipe.kind === "webp" && !useCwebp ? "libwebp" : "png",
           frameTarget,
@@ -369,6 +402,9 @@ export function deriveMedia({
           sha256: job.source.sha256,
           quality,
           clip: job.window,
+          ...(job.recipe.privacyMasks?.length
+            ? { normalized_privacy_masks: job.recipe.privacyMasks }
+            : {}),
         },
         capture: {
           source_quality: quality,

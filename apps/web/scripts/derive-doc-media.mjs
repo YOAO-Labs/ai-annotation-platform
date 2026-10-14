@@ -82,6 +82,16 @@ const POSTER_AT_SECONDS = new Map([
   ["project-guide-autosave", 20.4],
   ["project-invitation-join", 20],
 ]);
+// Normalized source-frame masks cover only the endpoint value in the form and saved row.
+const NORMALIZED_PRIVACY_MASKS = new Map([
+  [
+    "storage-connector-create-test",
+    [
+      { x: 0.3052, y: 0.4653, width: 0.0862, height: 0.0227 },
+      { x: 0.3542, y: 0.3713, width: 0.0797, height: 0.019 },
+    ],
+  ],
+]);
 
 const TARGETS = new Map(
   [
@@ -246,6 +256,8 @@ deriveMedia({
   clip: parseClip(values.clip),
   outputs(assetId, item) {
     const outputs = [];
+    const privacyMasks = NORMALIZED_PRIVACY_MASKS.get(assetId);
+    const privacy = privacyMasks ? { privacyMasks } : {};
     if (values.format !== "gif") {
       for (const [map, root, videoRole, posterRole] of [
         [TARGETS, "docs-site/public/media", "docs-video", "poster"],
@@ -253,14 +265,25 @@ deriveMedia({
       ]) {
         const stem = map.get(assetId);
         if (!stem) continue;
-        outputs.push({ target: `${root}/${stem}.mp4`, kind: "mp4", role: videoRole });
+        outputs.push({
+          target: `${root}/${stem}.mp4`,
+          kind: "mp4",
+          role: videoRole,
+          ...privacy,
+        });
         if (map === HOME_TARGETS)
-          outputs.push({ target: `${root}/${stem}.webm`, kind: "webm", role: videoRole });
+          outputs.push({
+            target: `${root}/${stem}.webm`,
+            kind: "webm",
+            role: videoRole,
+            ...privacy,
+          });
         outputs.push({
           target: `${root}/${stem}-poster.webp`,
           kind: "webp",
           role: posterRole,
           posterAt: POSTER_AT_SECONDS.get(assetId),
+          ...privacy,
         });
       }
     }
@@ -284,6 +307,7 @@ deriveMedia({
             gif.durationSec === undefined
               ? undefined
               : { start: gif.startSec ?? 0, duration: gif.durationSec },
+          ...privacy,
         });
       }
       if (values.format === "gif" && !item.gifs.length)
