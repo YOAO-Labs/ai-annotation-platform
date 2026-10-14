@@ -62,6 +62,10 @@ function task(overrides: Partial<TaskResponse> = {}): TaskResponse {
 function renderReview(
   mode: "annotate" | "review" = "review",
   overrides: Partial<TaskResponse> = {},
+  lockLifecycle: {
+    releaseTaskLock?: (taskId: string) => Promise<void>;
+    resumeTaskLock?: (taskId: string) => void;
+  } = {},
 ) {
   const navigateTask = vi.fn();
   const pushToast = vi.fn();
@@ -72,6 +76,7 @@ function renderReview(
     task: task(overrides),
     navigateTask,
     pushToast,
+    ...lockLifecycle,
   };
   const rendered = renderHook((props: typeof initialProps) => useReviewMode(props), {
     initialProps,
@@ -119,6 +124,40 @@ describe("useReviewMode", () => {
     expect(mocks.claimMutate).not.toHaveBeenCalled();
   });
 
+  it("locks retired review tasks and does not expose review decisions", () => {
+    const { result, rerender, initialProps } = renderReview();
+    rerender({ ...initialProps, task: task({ status: "rejected" }) });
+
+    expect(result.current.isLocked).toBe(true);
+    expect(result.current.topbarActions.canApprove).toBe(false);
+    expect(result.current.topbarActions.canReject).toBe(false);
+    act(() => result.current.topbarActions.onApprove?.());
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+  });
+
+  it("releases the review lock before a decision and resumes it after mutation failure", async () => {
+    let finishRelease!: () => void;
+    const releasePending = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    const releaseTaskLock = vi.fn(() => releasePending);
+    const resumeTaskLock = vi.fn();
+    const { result } = renderReview("review", {}, { releaseTaskLock, resumeTaskLock });
+
+    act(() => result.current.topbarActions.onApprove?.());
+    expect(releaseTaskLock).toHaveBeenCalledWith("t1");
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishRelease();
+      await releasePending;
+    });
+    await waitFor(() => expect(mocks.approveMutate).toHaveBeenCalledWith("t1", expect.any(Object)));
+    const callbacks = mocks.approveMutate.mock.calls[0]?.[1] as { onError: () => void };
+    act(() => callbacks.onError());
+    expect(resumeTaskLock).toHaveBeenCalledWith("t1");
+  });
+
   it("exposes diff mode state for review mode", () => {
     const { result } = renderReview();
 
@@ -133,7 +172,9 @@ describe("useReviewMode", () => {
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
     });
-    expect(mocks.approveMutate).toHaveBeenCalledWith("t1", expect.any(Object));
+    await waitFor(() =>
+      expect(mocks.approveMutate).toHaveBeenCalledWith("t1", expect.any(Object)),
+    );
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
@@ -142,8 +183,17 @@ describe("useReviewMode", () => {
     await waitFor(() => expect(queuedTitle()).toBe("退回原因（1 个任务）"));
   });
 
-  it("routes the two-step reject flow to reject mutation with skip hint", async () => {
-    const { result } = renderReview("review", { skip_reason: "no_target" });
+  it("releases the review lock before the two-step reject mutation", async () => {
+    let finishRelease!: () => void;
+    const releasePending = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    const releaseTaskLock = vi.fn(() => releasePending);
+    const { result } = renderReview(
+      "review",
+      { skip_reason: "no_target" },
+      { releaseTaskLock },
+    );
 
     await act(async () => {
       result.current.topbarActions.onReject?.();
@@ -153,12 +203,20 @@ describe("useReviewMode", () => {
     expect(choice?.request.title).toBe("退回原因（1 个任务）");
     expect(choice?.request.description).toContain("此任务被标注员跳过：no_target");
     await settleDecisionDialog("wrong_geometry");
-    // 第二步：可选补充说明
     await waitFor(() => expect(queuedTitle()).toBe("补充说明"));
     await settleDecisionDialog("框不完整");
-    expect(mocks.rejectMutate).toHaveBeenCalledWith(
-      { taskId: "t1", reason_type: "wrong_geometry", reason: "框不完整" },
-      expect.any(Object),
+    await waitFor(() => expect(releaseTaskLock).toHaveBeenCalledWith("t1"));
+    expect(mocks.rejectMutate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishRelease();
+      await releasePending;
+    });
+    await waitFor(() =>
+      expect(mocks.rejectMutate).toHaveBeenCalledWith(
+        { taskId: "t1", reason_type: "wrong_geometry", reason: "框不完整" },
+        expect.any(Object),
+      ),
     );
   });
 
@@ -187,7 +245,7 @@ describe("useReviewMode", () => {
     expect(mocks.rejectMutate).not.toHaveBeenCalled();
   });
 
-  it("ignores A/R from settings buttons and restores review shortcuts after close", () => {
+  it("ignores A/R from settings buttons and restores review shortcuts after close", async () => {
     renderReview();
     const settings = document.createElement("button");
     settings.dataset.workbenchSettings = "";
@@ -201,6 +259,6 @@ describe("useReviewMode", () => {
     expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
     settings.remove();
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" })));
-    expect(mocks.approveMutate).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.approveMutate).toHaveBeenCalledTimes(1));
   });
 });
