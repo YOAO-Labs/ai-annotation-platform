@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T15:10:27.327Z",
+  "updated_at": "2026-10-15T15:41:40.970Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -2493,8 +2493,8 @@
     "docs-site/public/media/jobs/video-tracker-job-states-poster.webp": {
       "asset_id": "video-tracker-job-states",
       "role": "poster",
-      "generated_at": "2026-09-08T05:14:29.738Z",
-      "captured_commit": "464d9591cf062a3a389c65e3ee52e928014ba613",
+      "generated_at": "2026-10-15T15:15:04.893Z",
+      "captured_commit": "a68802252068421cd65592d78b7b7d0b8a625fcd",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -2513,8 +2513,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "f96dec974da655574b4e835e3450a9f20e6e70f61a0fcf89e74587e0f73f6755",
-      "bytes": 29814,
+      "sha256": "320f14b446c2f6eb68ef2cf23b9413c7c6d76f35be9bf60be68fb7ef5a3a9170",
+      "bytes": 29108,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -2528,21 +2528,21 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-40-09-990Z-362226",
+        "runId": "2026-10-15T14-45-04-997Z-2023723",
         "assetId": "video-tracker-job-states",
-        "sha256": "6261b088a4a5995d8c03fabcb2cbf903a2348f6c52542d3a2f954839e64e0c55",
+        "sha256": "14ca022d50e8a659563c1e899dd6b89b3ab2722cf3902afe23b21faaa043307d",
         "quality": "standard",
         "clip": {
-          "start": 209.3,
-          "duration": 16.5
+          "start": 116,
+          "duration": 13.4
         }
       }
     },
     "docs-site/public/media/jobs/video-tracker-job-states.mp4": {
       "asset_id": "video-tracker-job-states",
       "role": "docs-video",
-      "generated_at": "2026-09-08T05:14:29.663Z",
-      "captured_commit": "464d9591cf062a3a389c65e3ee52e928014ba613",
+      "generated_at": "2026-10-15T15:15:04.858Z",
+      "captured_commit": "a68802252068421cd65592d78b7b7d0b8a625fcd",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -2561,28 +2561,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "07043d7af08f6e10a04fb0bbae6ba946310a397384295f139dac514b9351adc3",
-      "bytes": 285734,
+      "sha256": "573d94956f09e0281814ba740e792cc6653fcf39b2815fd45f1ed65aa0e66f0d",
+      "bytes": 258391,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 16.56
+        "duration_seconds": 13.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-40-09-990Z-362226",
+        "runId": "2026-10-15T14-45-04-997Z-2023723",
         "assetId": "video-tracker-job-states",
-        "sha256": "6261b088a4a5995d8c03fabcb2cbf903a2348f6c52542d3a2f954839e64e0c55",
+        "sha256": "14ca022d50e8a659563c1e899dd6b89b3ab2722cf3902afe23b21faaa043307d",
         "quality": "standard",
         "clip": {
-          "start": 209.3,
-          "duration": 16.5
+          "start": 116,
+          "duration": 13.4
         }
       }
     },
@@ -6269,8 +6269,8 @@
     "docs-site/public/media/video/propagate-track-vs-copy-poster.webp": {
       "asset_id": "video-propagate-track-vs-copy",
       "role": "poster",
-      "generated_at": "2026-09-08T07:41:34.121Z",
-      "captured_commit": "3adad68bc4c28f96fda7435da06f9adf07275119",
+      "generated_at": "2026-10-15T15:34:10.207Z",
+      "captured_commit": "b130a0d87d7b36805070587d9da054b35f6eca36",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -6289,8 +6289,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "c6c68a2dbc859cdd44d0f504ab09896f4ead81c28cead687cef231d289782878",
-      "bytes": 56106,
+      "sha256": "44f6c2b70f961500829a0b11e10ea3c5adf451365b57223d9ba89967e2121c2b",
+      "bytes": 72656,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6304,21 +6304,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T07-15-00-000Z-video-remaining",
+        "runId": "2026-10-15T15-26-25-614Z-2182584",
         "assetId": "video-propagate-track-vs-copy",
-        "sha256": "4962bed440fefc4c71da3303ff5d31c1118e4e25687f33f3ab3ab4266234c6f3",
+        "sha256": "2da8afd4817f3bb9077e283cd7a9d17aee742354f278d2352abba09412b2334b",
         "quality": "standard",
         "clip": {
-          "start": 5,
-          "duration": 35.48
+          "start": 85,
+          "duration": 31.2
         }
       }
     },
     "docs-site/public/media/video/propagate-track-vs-copy.mp4": {
       "asset_id": "video-propagate-track-vs-copy",
       "role": "docs-video",
-      "generated_at": "2026-09-08T07:41:34.044Z",
-      "captured_commit": "3adad68bc4c28f96fda7435da06f9adf07275119",
+      "generated_at": "2026-10-15T15:34:10.165Z",
+      "captured_commit": "b130a0d87d7b36805070587d9da054b35f6eca36",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -6337,28 +6337,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "05d4271665e28ad8557dd75d80a2c74ee66e66baa2e2e574800b2f705b7a02b1",
-      "bytes": 1659553,
+      "sha256": "84bdef1e3ea9e80020dcf8e032ff657c71868628225e1fc482f00b27eb9f28f9",
+      "bytes": 1547367,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 35.48
+        "duration_seconds": 31.2
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T07-15-00-000Z-video-remaining",
+        "runId": "2026-10-15T15-26-25-614Z-2182584",
         "assetId": "video-propagate-track-vs-copy",
-        "sha256": "4962bed440fefc4c71da3303ff5d31c1118e4e25687f33f3ab3ab4266234c6f3",
+        "sha256": "2da8afd4817f3bb9077e283cd7a9d17aee742354f278d2352abba09412b2334b",
         "quality": "standard",
         "clip": {
-          "start": 5,
-          "duration": 35.48
+          "start": 85,
+          "duration": 31.2
         }
       }
     },

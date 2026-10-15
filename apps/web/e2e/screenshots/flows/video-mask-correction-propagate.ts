@@ -205,9 +205,7 @@ export async function runVideoMaskCorrectionPropagate(
   // 录制窗口外创建一条有意带漏分与右侧外溢的 F0 Mask；正式母版从 F5 错误边界开始。
   await page.getByRole("button", { name: "轨迹范围", exact: true }).click();
   await page.getByTestId("video-tool-btn-mask-track").click();
-  await page.getByTestId("mask-tool-capsule").waitFor({ state: "visible", timeout: 5000 });
-  await page.getByTestId("mask-settings-trigger").click();
-  await page.getByLabel("更多 Mask 工具").click();
+  await openContextToolbar(page, "mask");
   const toolbar = page.getByTestId("mask-toolbar");
   await toolbar.waitFor({ timeout: 10_000 });
   const initialPath = initial.brush_strokes.flatMap((path, index) => {
@@ -225,8 +223,10 @@ export async function runVideoMaskCorrectionPropagate(
     ],
     650,
   );
-  const confirmed = toolbar.getByTitle("确认 (Enter)");
+  await openContextToolbar(page, "mask");
+  const confirmed = toolbar.getByTestId("mask-primary-action");
   await confirmed.waitFor({ state: "visible", timeout: 10_000 });
+  await expect(confirmed).toBeEnabled();
   await confirmed.click();
   await commitPendingAnnotationClass(page, {
     label: initial.label,
@@ -242,12 +242,8 @@ export async function runVideoMaskCorrectionPropagate(
     throw new Error("[video-mask-correction-propagate] 无法读取初始 Mask 轨迹 ID");
   }
   const collapseSelection = page.getByRole("button", { name: "收起浮窗" });
-  await collapseSelection.waitFor({ state: "visible", timeout: 5_000 });
-  await collapseSelection.click();
-  for (let frame = 0; frame < 5; frame += 1) {
-    await page.keyboard.press("ArrowRight");
-    await page.waitForTimeout(150);
-  }
+  if (await collapseSelection.isVisible()) await collapseSelection.click();
+  await seekFrame(page, 5);
   await page
     .getByText(/保持 F0/)
     .first()
@@ -292,6 +288,7 @@ export async function runVideoMaskCorrectionPropagate(
     await toolbar.waitFor({ timeout: 10_000 });
     const collapseEditorSelection = page.getByRole("button", { name: "收起浮窗" });
     if (await collapseEditorSelection.isVisible()) await collapseEditorSelection.click();
+    await openContextToolbar(page, "mask");
     await toolbar.getByTitle("笔刷 (B)").click();
     // F5 的真实目标是前景白色 Skyline 驾驶室；其车顶约在 y=.45，
     // 上方 y=.38-.43 是后方公交/车辆。把补入笔迹限制在驾驶室上沿内，
@@ -308,6 +305,7 @@ export async function runVideoMaskCorrectionPropagate(
     );
     await page.waitForTimeout(800);
 
+    await openContextToolbar(page, "mask");
     await toolbar.getByTitle("橡皮 (E)").click();
     await page.waitForTimeout(450);
     await stroke(page, [mediaPoint(bounds, [0.48, 0.425]), mediaPoint(bounds, [0.72, 0.425])], 900);
@@ -317,6 +315,7 @@ export async function runVideoMaskCorrectionPropagate(
     await stroke(page, [mediaPoint(bounds, [0.75, 0.44]), mediaPoint(bounds, [0.75, 0.75])], 1_050);
     await page.waitForTimeout(900);
 
+    await openContextToolbar(page, "mask");
     await toolbar.getByRole("button", { name: "保存并传播" }).click();
     const correctionDialog = page.getByRole("dialog", { name: "保存 Mask 纠错帧" });
     await correctionDialog.waitFor({ state: "visible", timeout: 5_000 });
@@ -390,9 +389,9 @@ export async function runVideoMaskCorrectionPropagate(
     await review.waitFor({ state: "hidden", timeout: 8_000 });
     // 采纳后切一帧再返回，展示正式轨迹 Mask；等待 Konva 的 Mask 与标签层都完成重绘，
     // 防止旧 ImageBitmap 阻塞同帧队列后把“保持 F0”残影录进母版。
-    await page.keyboard.press("ArrowRight");
+    await seekFrame(page, 11);
     await page.waitForTimeout(450);
-    await page.keyboard.press("ArrowLeft");
+    await seekFrame(page, 10);
     const canvasSettled = await page.waitForFunction(
       () => {
         const runtime = (
