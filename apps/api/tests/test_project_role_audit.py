@@ -905,6 +905,9 @@ def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None
         try:
             if action == "seed":
                 async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                    state["original_revision"] = await db.scalar(
+                        text("SELECT version_num FROM alembic_version")
+                    )
                     owner = await create_user(
                         db,
                         "project_admin",
@@ -961,7 +964,9 @@ def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None
                 async with engine.begin() as conn:
                     if not await conn.run_sync(_has_preparation_column):
                         await conn.run_sync(_replay_migration, migration, "upgrade")
-                    await conn.run_sync(_set_alembic_version, "0174")
+                    await conn.run_sync(
+                        _set_alembic_version, state["original_revision"]
+                    )
             elif action == "audit":
                 async with read_only_audit_session(engine) as db:
                     state["report"] = await collect_report(db, run_id="pre-0173")
@@ -993,6 +998,9 @@ def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None
                             {"u": state["users"]},
                         )
                     await db.commit()
+                    state["restored_revision"] = await db.scalar(
+                        text("SELECT version_num FROM alembic_version")
+                    )
         finally:
             await engine.dispose()
 
@@ -1004,6 +1012,7 @@ def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None
         asyncio.run(step("restore_head"))
         asyncio.run(step("cleanup"))
 
+    assert state["restored_revision"] == state["original_revision"]
     report = state["report"]
     assert report["baseline"]["schema_in_sync"] is False
     assert not any(report["baseline"]["schema_capabilities"].values())

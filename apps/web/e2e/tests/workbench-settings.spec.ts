@@ -152,7 +152,7 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   await page.goto("/settings");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "标注偏好", exact: true }).click();
-  await expect(page.getByTestId(/^setting-field-/)).toHaveCount(45);
+  await expect(page.getByTestId(/^setting-field-/)).toHaveCount(46);
   await expect(page.getByTestId("setting-field-common.showAnnotationComments")).toHaveCount(1);
   await expect(page.getByText("画布与视角", { exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("settings-personal.png"), animations: "disabled" });
