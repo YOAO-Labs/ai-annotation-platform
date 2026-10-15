@@ -33,6 +33,7 @@ export const apiSidebar: DefaultTheme.SidebarItem[] = [
       { text: "预测导入", link: "/api/guides/import" },
       { text: "WebSocket", link: "/api/guides/websocket" },
       { text: "导出", link: "/api/guides/export" },
+      { text: "训练数据版本", link: "/api/guides/training-datasets" },
       { text: "存储连接器", link: "/api/guides/storage-connections" },
       { text: "系统设置", link: "/api/guides/system-settings" },
     ],

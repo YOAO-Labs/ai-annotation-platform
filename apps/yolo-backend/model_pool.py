@@ -103,7 +103,7 @@ class ModelPool:
         self._entries: OrderedDict[ModelKey, _PoolEntry] = OrderedDict()
         self._builders: dict[ModelKey, asyncio.Task[_BuildResult]] = {}
         self._waiters: dict[ModelKey, int] = {}
-        self._class_names: dict[str, list[dict[str, Any]]] = {}
+        self._class_names: dict[ModelKey, list[dict[str, Any]]] = {}
         self._last_evict: dict[str, Any] | None = None
         self._cleanup_in_progress = False
         self._cleanup_failed = False
@@ -125,10 +125,21 @@ class ModelPool:
     def has(self, key: ModelKey) -> bool:
         return key in self._entries
 
-    def class_names(self, task: str) -> list[dict[str, Any]] | None:
+    def class_names(
+        self, task: str, series: str | None = None, size: str | None = None
+    ) -> list[dict[str, Any]] | None:
         """Return the class table cached after the first successful task build."""
 
-        return self._class_names.get(task)
+        if series is not None and size is not None:
+            return self._class_names.get((task, series, size))
+        return next(
+            (
+                names
+                for key, names in self._class_names.items()
+                if key[0] == task and not key[1].startswith("trained:")
+            ),
+            None,
+        )
 
     @staticmethod
     def _key_str(key: ModelKey) -> str:
@@ -315,7 +326,7 @@ class ModelPool:
             async with self._lock:
                 if self._builders.get(key) is not current_task:
                     raise RuntimeError(f"builder ownership changed for {key!r}")
-                self._cache_class_names_locked(task, model)
+                self._cache_class_names_locked(key, model)
                 self._entries[key] = entry
                 self._assert_capacity_locked()
                 update_pool_size(len(self._entries))
@@ -505,12 +516,12 @@ class ModelPool:
         if not task.cancelled():
             task.exception()
 
-    def _cache_class_names_locked(self, task: str, model: "YOLO") -> None:
-        if task in self._class_names:
+    def _cache_class_names_locked(self, key: ModelKey, model: "YOLO") -> None:
+        if key in self._class_names:
             return
         names = getattr(model, "names", None)
         if isinstance(names, dict) and names:
-            self._class_names[task] = [
+            self._class_names[key] = [
                 {"index": int(index), "name": str(name)}
                 for index, name in sorted(names.items(), key=lambda item: int(item[0]))
             ]

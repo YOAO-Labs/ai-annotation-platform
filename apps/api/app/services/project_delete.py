@@ -2,14 +2,38 @@
 
 from __future__ import annotations
 
-from sqlalchemy import text
+from fastapi import HTTPException
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
+from app.db.models.training_dataset import TrainingDatasetVersion
 
 
 async def delete_project_records(db: AsyncSession, project: Project) -> None:
     """Delete one project and its non-cascading children without committing."""
+    # Serialize with snapshot creators' project SHARE lock before deleting children.
+    await db.execute(
+        select(Project.id).where(Project.id == project.id).with_for_update()
+    )
+    from app.db.models.learning_policy import LearningPolicy
+
+    if await db.scalar(
+        select(LearningPolicy.id)
+        .where(LearningPolicy.project_id == project.id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=409, detail="项目包含自动训练策略，请先关闭并移除策略及其依赖"
+        )
+    if await db.scalar(
+        select(TrainingDatasetVersion.id)
+        .where(TrainingDatasetVersion.project_id == project.id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=409, detail="项目包含训练数据版本，请先删除无引用的数据版本"
+        )
     params = {"pid": str(project.id)}
     await db.execute(
         text("DELETE FROM annotation_comments WHERE project_id = :pid"), params

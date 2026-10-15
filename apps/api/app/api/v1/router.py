@@ -44,6 +44,11 @@ from app.api.v1 import (
     storage_connections,
     system_settings,
     tasks,
+    training_datasets,
+    training_runs,
+    training_hub,
+    trained_models,
+    learning_policies,
     users,
     video_tracker_jobs,
     videos,
@@ -77,6 +82,12 @@ api_router.include_router(
     tags=["admin-alias-freq"],
 )
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
+api_router.include_router(training_datasets.router, tags=["training-datasets"])
+api_router.include_router(training_runs.router, tags=["training-runs"])
+api_router.include_router(training_hub.router, tags=["training-hub"])
+api_router.include_router(training_runs.executor_router, tags=["training-executor"])
+api_router.include_router(trained_models.router, tags=["trained-models"])
+api_router.include_router(learning_policies.router, tags=["learning-policies"])
 api_router.include_router(project_performance.router, tags=["project-performance"])
 api_router.include_router(task_views.router, tags=["task-views"])
 api_router.include_router(data_manager.router, tags=["data-manager"])

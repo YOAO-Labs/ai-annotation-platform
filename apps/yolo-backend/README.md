@@ -42,6 +42,7 @@ ai-annotation-platform 的第三个 ML backend（v0.14.12）—— 基于 [ultra
 | --------------------------------- | ------------------ | ----------------------------------------------------- |
 | `YOLO_DEVICE`                     | `cuda:0`           | torch device                                          |
 | `YOLO_MODEL_POOL_CAP`             | `2`                | LRU 池容量                                            |
+| `YOLO_MANAGED_MODELS_TOKEN`       | 空                 | 至少 32 个随机字符；受控模型安装和推理的 Bearer 凭据  |
 | `YOLO_BUILD_TIMEOUT`              | `30`               | 单次 build 超时(秒)                                   |
 | `YOLO_IDLE_UNLOAD_SECONDS`        | `600`              | 空闲卸载触发阈值；`<=0` 关闭                          |
 | `YOLO_IDLE_CHECK_INTERVAL`        | `60`               | 空闲检查周期(秒)                                      |

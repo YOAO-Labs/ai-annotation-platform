@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 
 # v0.10.51 · batch_predict 支持协作取消；其它长任务保持软取消。
 CANCELLABLE_KINDS = {
+    "training_dataset",
     "batch_predict",
     "predictions_import",
     "audit_archive",
@@ -285,6 +286,45 @@ async def cancel_async_job(
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if job.kind == "training_dataset":
+        from app.db.models.training_dataset import TrainingDatasetVersion
+        from app.services.project_access import resolve_project_access_by_id
+        from app.services.project_write_guard import lock_actor_project_authority
+
+        await lock_actor_project_authority(db, current_user.id, job.project_id)
+        _, access = await resolve_project_access_by_id(
+            db, user=current_user, project_id=job.project_id
+        )
+        if not access.is_manager:
+            raise HTTPException(status_code=403, detail="需要项目管理权限")
+        version = (
+            await db.execute(
+                select(TrainingDatasetVersion)
+                .where(TrainingDatasetVersion.async_job_id == job.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        await db.refresh(job)
+        if (
+            version is None
+            or version.status not in {"pending", "running"}
+            or job.status not in {"pending", "running"}
+        ):
+            raise HTTPException(status_code=409, detail="训练数据构建已结束")
+        if job.celery_task_id:
+            try:
+                from app.workers.celery_app import celery_app
+
+                celery_app.control.revoke(job.celery_task_id, terminate=False)
+            except Exception:
+                log.exception("Training dataset revoke failed job=%s", job.id)
+        await async_job_svc.mark_cancelled(db, job.id)
+        await reconcile_domain_terminal(db, job, cancelled=True)
+        await notify_job_terminal(db, job_id=job.id)
+        await db.commit()
+        return {"status": "cancelled", "id": str(job_id)}
 
     if job.kind == "mask_qc":
         if job.celery_task_id:

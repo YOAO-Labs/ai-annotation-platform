@@ -52,6 +52,7 @@ async def get_current_user(
     # v0.15.11 · None = JWT/密码登录 principal（视为 full-access，不受 require_scopes 约束）；
     # 非 None = api_key principal 的 scopes 列表，供 require_scopes 校验。
     request.state.api_key_scopes = None
+    request.state.api_key_id = None
 
     # v0.9.3 · ak_ 前缀走 api_key 路径；不走 JWT 解码（避免 jose 抛形错日志）
     from app.services import api_key_service
@@ -62,6 +63,7 @@ async def get_current_user(
             raise exc
         key, user = resolved
         request.state.api_key_scopes = list(key.scopes or [])
+        request.state.api_key_id = str(key.id)
         await db.commit()  # 持久化 last_used_at
         return user
 

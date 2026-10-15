@@ -75,6 +75,7 @@ last_reviewed: 2026-08-14
 | `MINIO_DATASETS_BUCKET`             | `datasets`       | 上传 dataset 桶。                                                                                                                                                                               |
 | `MINIO_BUG_REPORTS_BUCKET`          | `bug-reports`    | bug 反馈附件桶。                                                                                                                                                                                |
 | `MINIO_AVATARS_BUCKET`              | `avatars`        | 用户头像桶（上传后规范化的 256×256 WebP；永久保留、纳入备份、不挂 lifecycle）。                                                                                                                 |
+| `MINIO_TRAINING_BUCKET`             | `training`       | 训练数据版本、冻结原图与训练包；永久保留、纳入备份，不挂 lifecycle。                                                                                                                            |
 | `MINIO_DATA_DIR`                    | `miniodata`      | Compose 的 MinIO `/data` 来源；可设宿主机绝对路径改为 bind mount。切换只改变挂载位置，不会自动迁移旧卷数据，切换前先停服务并复制 / 校验数据。                                                   |
 | `MINIO_PUBLIC_URL`                  | 空               | 客户端拿 presigned URL 时走的外网地址；与 `MINIO_ENDPOINT` 不同时必填（容器内/外网络两层视角）。                                                                                                |
 | `MINIO_USE_SSL`                     | `false`          | 决定 API / worker 连 `MINIO_ENDPOINT` 以 HTTP 还是 HTTPS；只有该 endpoint 本身提供 TLS 时才设 `true`。公网预签名 URL 是否 HTTPS 由 `MINIO_PUBLIC_URL` 决定，不要因外层 LB 终结 TLS 而误改本项。 |
@@ -408,6 +409,8 @@ mc mirror anno/avatars     s3-backup/anno/avatars
 ```
 
 桶名见 `MINIO_BUCKET` / `MINIO_DATASETS_BUCKET` / `MINIO_AVATARS_BUCKET`（默认 `annotations` / `datasets` / `avatars`）。恢复时先恢复数据库再回灌这三个桶，确保 `users.avatar_ref` 指向的对象已就位。
+
+启用在线学习数据版本后，另需备份并恢复 `MINIO_TRAINING_BUCKET`（默认 `training`）；数据库中的版本引用不能替代冻结原图和训练包。
 
 ### 5.3 Redis
 

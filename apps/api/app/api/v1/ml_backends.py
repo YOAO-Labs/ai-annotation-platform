@@ -810,6 +810,12 @@ async def _prepare_safe_interactive_context(
     task_id: uuid.UUID,
     frame_index: int | None = None,
 ) -> tuple[dict, str | None]:
+    from app.services.trained_models import is_controlled
+
+    if is_controlled(context.get("model_id")) or context.get("frozen_model_ref"):
+        raise HTTPException(
+            status_code=422, detail="受控模型当前不支持交互式或单帧预标注"
+        )
     uses_mask_contract = any(
         key in context
         for key in (
@@ -1421,6 +1427,10 @@ async def predict_frame(
         raise HTTPException(status_code=400, detail="Invalid config JSON")
     if not isinstance(cfg, dict):
         raise HTTPException(status_code=400, detail="config must be a JSON object")
+    from app.services.trained_models import is_controlled
+
+    if is_controlled(cfg.get("model_id")) or cfg.get("frozen_model_ref"):
+        raise HTTPException(status_code=422, detail="受控模型当前不支持视频单帧预标注")
 
     # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 workers/tasks.py `_run_batch`)。
     project = await db.get(Project, project_id)

@@ -20,6 +20,7 @@ from aap_protocol_v2 import (
     normalize_context_model_variants,
 )
 from pydantic import BaseModel, Field, model_validator
+from managed_models import ManagedModelRef
 
 __all__ = [
     "BatchPredictRequest",
@@ -112,7 +113,8 @@ class Context(BaseModel):
         "detection", "segmentation", "keypoint", "obb", "text", "exemplar", "tracker"
     ]
     model_variants: dict[str, str] | None = None
-    variants: Variants
+    variants: Variants | None = None
+    frozen_model_ref: ManagedModelRef | None = None
     params: PredictParams = Field(default_factory=PredictParams)
     # 类别白名单 (模型原生类别 index 子集). 非空时只检出这些类; 空/缺=全部类别.
     # 平台不做类→项目标签映射 (NG6), 仅在推理层用 ultralytics model.predict(classes=) 过滤.
@@ -136,6 +138,9 @@ class Context(BaseModel):
             return data
         normalized, deprecated = normalize_context_model_variants(data)
         log_deprecated_model_variant_fields(logger, deprecated)
+        if normalized.get("frozen_model_ref"):
+            normalized.pop("variants", None)
+            return normalized
         if "variants" not in normalized and "model_variants" in normalized:
             normalized["variants"] = normalized["model_variants"]
         # exemplar 交互路径前端可能不带 model_variants (exemplar 工具暂无变体选择器);
@@ -160,7 +165,39 @@ class Context(BaseModel):
     def _validate_combination(self) -> "Context":
         # 真实组合是否在 MODEL_MATRIX 内, 留到 main /predict 处理;
         # schema 层只防住 enum 之外的 series/size 字符串拼写错误.
+        if self.frozen_model_ref:
+            expected_id = f"trained:{self.frozen_model_ref.model_version_id}"
+            if (
+                self.type != "detection"
+                or self.model_id != expected_id
+                or self.text
+                or self.exemplars
+            ):
+                raise ValueError("Controlled weights support image detection only")
+        elif (
+            self.variants is None
+            or (self.model_id or "").startswith("trained:")
+            or self.model_id == "project-release"
+        ):
+            raise ValueError(
+                "Builtin variants or a frozen controlled identity are required"
+            )
         return self
+
+
+def model_key_for_context(ctx: Context) -> tuple[str, str, str]:
+    if ctx.frozen_model_ref:
+        return (
+            "detection",
+            f"trained:{ctx.frozen_model_ref.model_version_id}",
+            ctx.frozen_model_ref.sha256,
+        )
+    from model_registry import POOL_TASK_OPENVOCAB, POOL_TASK_OPENVOCAB_VP
+
+    task = {"text": POOL_TASK_OPENVOCAB, "exemplar": POOL_TASK_OPENVOCAB_VP}.get(
+        ctx.type, ctx.type
+    )
+    return task, ctx.variants.series, ctx.variants.size
 
 
 class InteractiveRequest(BaseModel):

@@ -24,6 +24,35 @@ Before implementing any draft, complete the following steps in order. If any ste
 
 Promotion requires a fresh decision based on the actual repository, not a few notes appended to the original text. Research sources and rejected directions may remain, but the file scope, contracts, and test criteria must be regenerated.
 
+## 在线学习闭环
+
+| 草案                                                                | 独立结果                                                                         | 阶段依赖                                                        |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| [在线学习闭环多阶段计划](1791971285_online-learning-closed-loop.md) | 首批 A–E 已验收：固定数据、平台训练、Ultralytics 回流、自动策略与 LibreYOLO 下载 | 后续范围为 LibreYOLO 回流及其他任务类型；各阶段链接包含验收证据 |
+
+### 训练体验与后续能力草案集
+
+[总览与依赖图](1792035920_online-learning-experience-roadmap.md) 将已交付能力作为基础，保留项目内新建实验入口，按独立结果组织以下草案。它们尚未排期，不分配发布版本，也不授权实施；启动前必须通过本页的 promotion gate。
+
+| 草案                                                                        | 独立结果                                                     | 依赖或启动条件                         |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------- |
+| [T01 完整训练参数目录](1792035920_training-parameter-catalog.md)            | 按框架、版本、模型家族与任务列全参数，统一校验并冻结有效配置 | 现有训练适配器；建议优先               |
+| [T02 训练配置工作区](1792035920_training-configuration-workspace.md)        | 分组、搜索、默认值来源、草稿恢复和 YAML 导入导出             | T01；建议优先                          |
+| [T03 模板与实验克隆](1792035920_training-recipes-and-cloning.md)            | 项目模板修订、配置差异及自动策略显式采用                     | T01、T02                               |
+| [T04 数据版本洞察](1792035920_training-data-insights.md)                    | 冻结数据差异、类别分布、质量解释与样本查看                   | 现有数据版本，可独立推进               |
+| [T05 跨实验比较](1792036036_training-experiment-comparison.md)              | 参数差异、曲线及具有明确评估身份的最终报告                   | 现有实验与已校验产物，可独立推进       |
+| [T06 原生增强预览](1792036036_training-augmentation-preview.md)             | 展示真实原生增强后的图片、框及变换信息                       | T01、T02、T04；受限 CPU 原生执行验证   |
+| [T07 训练遥测与故障指导](1792036036_training-observability-and-recovery.md) | 实际资源数据、有界日志、错误解释和恢复操作                   | 现有执行器与尝试隔离，可独立推进       |
+| [T08 样本评估与错误分析](1792036036_training-sample-evaluation.md)          | 固定样本误检漏检分析、候选对照及工作台回链                   | T04、T05；已验证的评估与推理合同       |
+| [T09 模型血缘与候选决策](1792036036_training-model-lineage.md)              | 查询来源链、发布历史及候选决策记录                           | 现有来源记录与发布合同，可独立推进     |
+| [T10 自训练模型初始化](1792036132_training-controlled-warm-start.md)        | 从兼容项目模型开始新实验，与断点续训区分                     | T01、T02、T09；原生权重兼容验证        |
+| [T11 有预算的参数搜索](1792036132_training-bounded-parameter-sweeps.md)     | 有界网格实验、预算执行与兼容结果排名                         | T01、T03、T05、T07；显式预算与可靠取消 |
+| [T12 主动学习选样](1792036132_training-active-learning.md)                  | 可解释的下一批人工标注建议及选样审计                         | T04、T08；候选池、可信推理及对照试点   |
+| [T13 LibreYOLO 模型回流](1792036132_training-libreyolo-model-return.md)     | 原生模型注册、推理、人工发布与回退                           | 原生加载、输出、依赖及路由资格验证     |
+| [T14 其他任务类型资格验证](1792036132_training-task-qualification.md)       | 首个独立候选为图片实例分割，后续任务各自验证                 | T01；数据、训练、评估和推理分别验收    |
+
+推荐先推进 T01/T02，再按需要选择 T03/T04/T05；T07/T09 可作为独立分支。T06/T08/T10–T14 保留各自启动条件，不能因相邻草案完成而自动开放。所有草案包含候选代码入口、兼容边界、验收方向、最小替代方案与回退方式。
+
 ## 当前 3D 工作台草案集
 
 ### 可在精修计划后优先转定稿

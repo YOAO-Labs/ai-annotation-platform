@@ -1,6 +1,6 @@
 # 开发指南
 
-同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、八个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
+同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、九个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
 
 > 完整的开发文档（架构、How-to、测试、规范）在 VitePress 文档站：
 > 本地预览 `pnpm docs:dev`，部署版 [GitHub Pages](https://yyq19990828.github.io/ai-annotation-platform/dev/)。
@@ -137,9 +137,29 @@ pnpm dev:worktree
 pnpm dev:worktree -- up --with-worker
 ```
 
-启动器给工作树分配稳定身份，创建专属数据库、带归属标签的 Redis 容器和八个
+启动器给工作树分配稳定身份，创建专属数据库、带归属标签的 Redis 容器和九个
 MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配置；迁移、API、
 测试和可选 worker 的目标通过子进程环境统一覆盖，不改共享库。
+
+在线学习使用 `MINIO_TRAINING_BUCKET`（默认 `training`）持久保存冻结原图和训练包，不设置自动过期。旧八桶工作树在显式 `init/up` 时核验归属并扩展为九桶；原资源与数据保留，`doctor/stop/destroy` 兼容旧清单。升级中断留下未标记新桶时，按 `.worktree/<mode>/training-bucket-upgrade.json` 核对空桶后处理，不能跳过归属检查。运行环境更新需应用迁移并刷新 export worker，核验 `app.workers.training_dataset.run_training_dataset` 已注册。
+
+受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
+
+已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0，均只支持图片检测。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
+
+```bash
+hf download LibreYOLO/LibreYOLO9t LibreYOLO9t.pt \
+  --revision 66ac39d1ac9b880076b96ad4674ef9235ca1a15e --local-dir ./training/models
+sha256sum ./training/models/LibreYOLO9t.pt
+```
+
+LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultralytics 专属参数。最终指标记录实际最佳权重摘要，原生 `precision`／`recall` 别名分别表示 mAP50-95／AR100，暂无分类别指标；训练可取消并续训，但不保证逐位复现。当前下载原生产物，不支持平台模型注册。移除该目录项即可停止新建，保留已有实验、下载及 Ultralytics 发布。
+
+可用 `docker compose -f docker-compose.training.yml --profile training up -d training-executor` 启动独立服务。先设置 `TRAINING_IMAGE` 为固定 digest 引用，`TRAINING_IMAGE_DIGEST` 为实际 inspect 的镜像身份，`TRAINING_EXECUTOR_TOKEN_PATH` 为仅管理员可读的凭据文件，`TRAINING_MODELS_PATH` 为校验过的只读基础权重目录，`TRAINING_API_URL` 指向目标 API 的 `/api/v1/internal/training`。不要将 executor 指向其他工作树。该服务不挂 Docker socket，不读取 API `.env`，不持有数据库或 MinIO 管理凭据。
+
+模型回流需要重建 YOLO 镜像、应用迁移并刷新预测 worker。`YOLO_MANAGED_MODELS_TOKEN` 至少 32 个随机字符；将相同凭据配置到平台已启用的 YOLO 推理实例（认证方式 `token`）。训练与推理使用相同的已验证 Ultralytics 版本，安装文件持久保存于 YOLO checkpoints 卷的 `managed/`。先更新实例健康与能力，再执行候选加载、固定验证图试用和发布。路由仅允许对应部署的确切实例；`off/observe` 模式下该实例还须是服务池的 legacy 实例。重新加载可恢复缺失或损坏的本地副本，不能改变版本身份。
+
+同一物理 GPU 的所有执行器必须共享同一个持久 `/state` 卷和一致的节点 ID；子进程继承其中的资源锁。不要在进程运行时删除状态卷或强行释放数据库租约。先停止接收新实验，等待当前进程退出和产物上传，再轮换认证凭据或镜像；旧实验续训仍需其原镜像。执行器重启后恢复持久日志，上传故障只重试上传。
 
 `--with-worker` 同时启动普通 worker 和单并发维护 worker。普通 worker 使用运行账号；
 维护 worker 只消费 `maintenance`，使用同库的 owner 连接处理分区维护和统计刷新。
@@ -706,3 +726,5 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 ## 下一步计划
 
 详见 [CHANGELOG.md](CHANGELOG.md) 顶部的 roadmap 与 [docs/plans/](docs/plans/) 下的具体计划。
+
+自动训练策略默认关闭。部署迁移后刷新 default/export worker 与 beat，确认注册 `app.workers.learning_policy.check_policies`；beat 每分钟分批检查策略，独立训练执行器仍按固定 GPU 领取。负责人明确保存门槛、检查间隔和冷却时间后才启用；没有 beat 的工作树环境可通过「立即检查与同步」验收相同路径。关闭策略不要求训练目录仍在线，成功训练不会自动发布。

@@ -174,6 +174,7 @@ services:
     environment:
       YOLO_DEVICE: ${YOLO_DEVICE:-cuda:0}
       YOLO_MODEL_POOL_CAP: ${YOLO_MODEL_POOL_CAP:-2}
+      YOLO_MANAGED_MODELS_TOKEN: ${YOLO_MANAGED_MODELS_TOKEN:-}
       YOLO_BUILD_TIMEOUT: ${YOLO_BUILD_TIMEOUT:-30}
       YOLO_IDLE_UNLOAD_SECONDS: ${YOLO_IDLE_UNLOAD_SECONDS:-600}
       YOLO_IDLE_CHECK_INTERVAL: ${YOLO_IDLE_CHECK_INTERVAL:-60}
@@ -193,7 +194,13 @@ services:
               device_ids: ["${YOLO_GPU_DEVICE_ID:-0}"]
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3

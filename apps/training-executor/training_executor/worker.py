@@ -1,0 +1,566 @@
+"""Single-resource supervisor with durable claims, heartbeats and upload recovery."""
+
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import importlib.metadata
+import json
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from pathlib import Path
+
+import httpx
+import psutil
+
+from .files import atomic_json, digest_file, extract_dataset
+
+
+class RetiredAttempt(Exception):
+    pass
+
+
+class StopTraining(Exception):
+    pass
+
+
+def runtime_identity():
+    import torch
+
+    gpu = os.environ["TRAINING_GPU_UUID"]
+    devices = (
+        subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader"], text=True
+        )
+        .strip()
+        .splitlines()
+    )
+    if (
+        devices != [gpu]
+        or not torch.cuda.is_available()
+        or torch.cuda.device_count() != 1
+    ):
+        raise RuntimeError("Executor must expose exactly the configured physical GPU")
+    image = os.environ["TRAINING_IMAGE_DIGEST"]
+    if not image.startswith("sha256:") or len(image) != 71:
+        raise ValueError("An immutable executor image identity is required")
+    frameworks = {"ultralytics": importlib.metadata.version("ultralytics")}
+    try:
+        frameworks["libreyolo"] = importlib.metadata.version("libreyolo")
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    return {
+        "image_digest": image,
+        "gpu_uuid": gpu,
+        "frameworks": frameworks,
+        "python": sys.version.split()[0],
+        "torch": torch.__version__,
+        "torchvision": importlib.metadata.version("torchvision"),
+        "cuda": torch.version.cuda,
+        "gpu_name": torch.cuda.get_device_name(0),
+    }
+
+
+def live_group(pgid: int):
+    found = []
+    for process in psutil.process_iter(["pid", "status"]):
+        try:
+            if (
+                process.info["status"] != psutil.STATUS_ZOMBIE
+                and os.getpgid(process.pid) == pgid
+            ):
+                found.append(process.pid)
+        except (ProcessLookupError, PermissionError, psutil.NoSuchProcess):
+            continue
+    return found
+
+
+def stop_process(process: subprocess.Popen):
+    # The process group is created by this Popen and its inherited lock remains
+    # held until every member exits. Never infer exit from heartbeat expiry.
+    pgid = process.pid
+    for sig, grace in ((signal.SIGINT, 10), (signal.SIGTERM, 10), (signal.SIGKILL, 10)):
+        if not live_group(pgid):
+            process.wait()
+            return
+        os.killpg(pgid, sig)
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            process.poll()
+            if not live_group(pgid):
+                process.wait()
+                return
+            time.sleep(0.2)
+    raise RuntimeError("Training process group did not stop; lease must remain held")
+
+
+class Supervisor:
+    def __init__(self):
+        self.state = Path(os.environ.get("TRAINING_STATE_DIR", "/state"))
+        self.state.mkdir(parents=True, exist_ok=True)
+        self.state.chmod(0o700)
+        self.models = Path(os.environ.get("TRAINING_MODELS_DIR", "/models"))
+        self.boot = str(uuid.uuid4())
+        self.runtime = runtime_identity()
+        identity_path = self.state / "executor.json"
+        if not identity_path.exists():
+            atomic_json(identity_path, {"id": "executor-" + uuid.uuid4().hex})
+        self.executor_id = json.loads(identity_path.read_text())["id"]
+        self.resource = (
+            os.environ.get("TRAINING_NODE_ID", "local") + "/" + self.runtime["gpu_uuid"]
+        )
+        token_file = os.environ.get("TRAINING_EXECUTOR_TOKEN_FILE")
+        token = (
+            Path(token_file).read_text().strip()
+            if token_file
+            else os.environ["TRAINING_EXECUTOR_TOKEN"]
+        )
+        if len(token) < 32:
+            raise ValueError("Executor authentication token is too short")
+        self.client = httpx.Client(
+            base_url=os.environ["TRAINING_API_URL"].rstrip("/") + "/",
+            headers={"X-Training-Executor-Token": token},
+            timeout=15,
+            trust_env=False,
+        )
+        self.journal_path = self.state / "assignment.json"
+        self.shutdown = threading.Event()
+        self.stop_training = threading.Event()
+        self.heartbeat_done = threading.Event()
+        self.heartbeat_thread = None
+        self.stop_reason = None
+        self.lock = None
+
+    def api(self, endpoint, payload):
+        response = self.client.post(endpoint, json=payload)
+        if response.status_code in {404, 409}:
+            detail = response.json().get("detail")
+            if response.status_code == 404 or (
+                isinstance(detail, dict) and detail.get("code") == "stale_attempt"
+            ):
+                raise RetiredAttempt("Attempt was retired")
+        response.raise_for_status()
+        return response.json()
+
+    def save(self, journal):
+        atomic_json(self.journal_path, journal)
+        self.journal_path.chmod(0o600)
+
+    def fence(self, journal):
+        return {
+            "executor_id": journal["claim"]["executor_id"],
+            "boot_id": journal["claim"]["boot_id"],
+            "lease_token": journal["assignment"]["lease_token"],
+        }
+
+    def endpoint(self, journal, suffix):
+        return "attempts/" + journal["assignment"]["attempt_id"] + "/" + suffix
+
+    def claim(self, journal):
+        result = self.api("claim", journal["claim"])["assignment"]
+        if result:
+            journal["assignment"] = result
+            journal["phase"] = "preparing"
+            self.save(journal)
+        return result
+
+    def events(self, directory):
+        path = directory / "events.jsonl"
+        if not path.exists():
+            return []
+        result = []
+        with path.open() as source:
+            for line in source:
+                if not line.endswith("\n"):
+                    break
+                event = json.loads(line)
+                result.append({"sequence": len(result) + 1, **event})
+        return result
+
+    def heartbeat(self, journal, directory):
+        acknowledged = 0
+        last_success = time.monotonic()
+        # Use a separate transport: storage upload or preparation can block the
+        # main thread without blocking cancellation and liveness reports.
+        with httpx.Client(
+            base_url=self.client.base_url,
+            headers=self.client.headers,
+            timeout=10,
+            trust_env=False,
+        ) as transport:
+            while not self.heartbeat_done.is_set():
+                events = []
+                try:
+                    events = self.events(directory)[acknowledged : acknowledged + 100]
+                    response = transport.post(
+                        self.endpoint(journal, "heartbeat"),
+                        json={**self.fence(journal), "events": events},
+                    )
+                    if response.status_code in {403, 404}:
+                        self.stop_reason = "executor_authority_lost"
+                        self.stop_training.set()
+                        return
+                    response.raise_for_status()
+                    if response.json()["stop"]:
+                        self.stop_reason = (
+                            response.json().get("reason") or "cancel_requested"
+                        )
+                        self.stop_training.set()
+                    acknowledged += len(events)
+                    last_success = time.monotonic()
+                except Exception:
+                    if time.monotonic() - last_success > 30:
+                        self.stop_reason = "heartbeat_unavailable"
+                        self.stop_training.set()
+                self.heartbeat_done.wait(0.2 if len(events) == 100 else 5)
+
+    def download(self, url, path, expected_sha, maximum, *, exact_size=None):
+        temporary = path.with_suffix(".download")
+        digest = hashlib.sha256()
+        size = 0
+        # Never send the executor credential to the object store.
+        with (
+            httpx.stream("GET", url, timeout=60, trust_env=False) as response,
+            temporary.open("wb") as target,
+        ):
+            response.raise_for_status()
+            for chunk in response.iter_bytes(1024 * 1024):
+                if self.shutdown.is_set() or self.stop_training.is_set():
+                    raise StopTraining()
+                size += len(chunk)
+                if size > maximum:
+                    raise ValueError("Downloaded input exceeds its limit")
+                target.write(chunk)
+                digest.update(chunk)
+            target.flush()
+            os.fsync(target.fileno())
+        if digest.hexdigest() != expected_sha or (
+            exact_size is not None and size != exact_size
+        ):
+            raise ValueError(
+                "Downloaded input digest or size differs from the frozen configuration"
+            )
+        os.replace(temporary, path)
+
+    def inventory(self, journal, directory):
+        artifacts = []
+        checkpoint = directory / "checkpoint.json"
+        if checkpoint.is_file():
+            artifacts.append(json.loads(checkpoint.read_text()))
+        for name, role in (
+            ("best.pt", "weights"),
+            ("metrics.json", "metrics"),
+            ("config.json", "config"),
+            ("train.log", "log"),
+        ):
+            path = directory / name
+            if path.is_file() and path.stat().st_size:
+                artifacts.append(
+                    {
+                        "name": name,
+                        "role": role,
+                        "sha256": digest_file(path),
+                        "size_bytes": path.stat().st_size,
+                    }
+                )
+        manifest = {
+            "run_id": journal["assignment"]["run_id"],
+            "attempt_id": journal["assignment"]["attempt_id"],
+            "config_digest": journal["assignment"]["config_digest"],
+            "config": journal["assignment"]["config"],
+            "runtime": journal["claim"]["runtime"],
+            "publication_runtime": self.runtime,
+            "artifacts": artifacts,
+        }
+        atomic_json(directory / "manifest.json", manifest)
+        artifacts.append(
+            {
+                "name": "manifest.json",
+                "role": "manifest",
+                "sha256": digest_file(directory / "manifest.json"),
+                "size_bytes": (directory / "manifest.json").stat().st_size,
+            }
+        )
+        return artifacts
+
+    def upload_and_finish(self, journal, directory):
+        if "artifacts" not in journal:
+            journal["artifacts"] = self.inventory(journal, directory)
+            journal["phase"] = "uploading"
+            self.save(journal)
+        while not self.shutdown.is_set():
+            try:
+                # The child has exited. Flush every durable event before final
+                # publication, including the last epoch inside a heartbeat gap.
+                events = self.events(directory)
+                for offset in range(0, len(events), 100):
+                    self.api(
+                        self.endpoint(journal, "heartbeat"),
+                        {
+                            **self.fence(journal),
+                            "events": events[offset : offset + 100],
+                        },
+                    )
+                urls = self.api(
+                    self.endpoint(journal, "uploads"),
+                    {**self.fence(journal), "artifacts": journal["artifacts"]},
+                )
+                for spec in journal["artifacts"]:
+                    path = directory / spec["name"]
+                    if digest_file(path) != spec["sha256"]:
+                        raise ValueError("Local immutable artifact changed")
+                    target = urls[spec["name"]]
+                    with path.open("rb") as source:
+                        response = httpx.put(
+                            target["url"],
+                            content=source,
+                            headers={
+                                **target["headers"],
+                                "Content-Length": str(spec["size_bytes"]),
+                            },
+                            timeout=120,
+                            trust_env=False,
+                        )
+                    response.raise_for_status()
+                self.api(
+                    self.endpoint(journal, "finish"),
+                    {
+                        **self.fence(journal),
+                        "status": journal["outcome"],
+                        "process_exited": True,
+                        "error_message": journal.get("error"),
+                    },
+                )
+                return True
+            except RetiredAttempt:
+                return True
+            except Exception:
+                print(
+                    "Artifact publication pending; retaining local files for upload retry.",
+                    flush=True,
+                )
+                self.shutdown.wait(5)
+        return False
+
+    def execute(self, journal, *, recovery=False):
+        assignment = journal["assignment"]
+        directory = self.state / "attempts" / assignment["attempt_id"]
+        directory.mkdir(parents=True, exist_ok=True)
+        self.stop_training.clear()
+        self.stop_reason = None
+        self.heartbeat_done.clear()
+        self.heartbeat_thread = threading.Thread(
+            target=self.heartbeat, args=(journal, directory), daemon=True
+        )
+        self.heartbeat_thread.start()
+        process = None
+        try:
+            if recovery:
+                previous = journal.get("process")
+                if (
+                    previous
+                    and journal["claim"]["boot_id"] == self.boot
+                    and live_group(previous["pid"])
+                ):
+                    raise RuntimeError(
+                        "Previous training group is still alive; retaining its lease"
+                    )
+                if "outcome" not in journal:
+                    journal["outcome"] = "failed"
+                    journal["error"] = "执行器重启；已通过独占资源锁确认旧训练进程退出"
+            else:
+                config = assignment["config"]
+                atomic_json(directory / "config.json", config)
+                (directory / "train.log").write_text(
+                    "Controlled training preparation started.\n"
+                )
+                base = self.models / config["base_model"]["filename"]
+                if (
+                    not base.is_file()
+                    or digest_file(base) != config["base_model"]["sha256"]
+                ):
+                    raise ValueError("Controlled base weights are missing or changed")
+                self.download(
+                    assignment["dataset_url"],
+                    directory / "dataset.zip",
+                    config["dataset_sha256"],
+                    24 * 1024**3,
+                )
+                data_yaml = extract_dataset(
+                    directory / "dataset.zip", directory / "dataset"
+                )
+                resume_path = None
+                if assignment["resume"]:
+                    resume = assignment["resume"]
+                    resume_path = directory / "resume.pt"
+                    self.download(
+                        resume["url"],
+                        resume_path,
+                        resume["sha256"],
+                        2 * 1024**3,
+                        exact_size=resume["size_bytes"],
+                    )
+                spec = {
+                    "framework": config["framework"],
+                    "parameters": config["parameters"],
+                    "base_path": str(base),
+                    "resume_path": str(resume_path) if resume_path else None,
+                    "data_yaml": str(data_yaml),
+                    "frozen_config": config,
+                }
+                atomic_json(directory / "spec.json", spec)
+                journal["phase"] = "training"
+                self.save(journal)
+                if self.stop_training.is_set() or self.shutdown.is_set():
+                    raise StopTraining()
+                with (directory / "train.log").open("ab") as log:
+                    environment = {
+                        key: value
+                        for key, value in os.environ.items()
+                        if not key.startswith("TRAINING_")
+                    }
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-m",
+                            "training_executor.train",
+                            "--spec",
+                            str(directory / "spec.json"),
+                        ],
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                        pass_fds=(self.lock.fileno(),),
+                        env=environment,
+                    )
+                    journal["process"] = {
+                        "pid": process.pid,
+                        "started_at": psutil.Process(process.pid).create_time(),
+                    }
+                    self.save(journal)
+                    while process.poll() is None:
+                        if self.stop_training.is_set() or self.shutdown.is_set():
+                            stop_process(process)
+                            break
+                        time.sleep(0.2)
+                    if live_group(process.pid):
+                        stop_process(process)
+                interrupted = self.stop_reason in {
+                    "heartbeat_expired",
+                    "heartbeat_unavailable",
+                    "executor_authority_lost",
+                }
+                journal["outcome"] = (
+                    "failed"
+                    if interrupted
+                    else "cancelled"
+                    if self.stop_training.is_set()
+                    else "succeeded"
+                    if process.returncode == 0
+                    else "failed"
+                )
+                if journal["outcome"] == "failed":
+                    journal["error"] = (
+                        f"训练进程退出码 {process.returncode}；请下载日志查看原因"
+                    )
+            if (
+                self.shutdown.is_set()
+                and journal.get("outcome") == "succeeded"
+                and not (directory / "result.json").exists()
+            ):
+                journal["outcome"] = "failed"
+        except StopTraining:
+            journal["outcome"] = "cancelled"
+        except Exception as exc:
+            if process and live_group(process.pid):
+                stop_process(process)
+            if (
+                recovery
+                and journal.get("process")
+                and journal["claim"]["boot_id"] == self.boot
+                and live_group(journal["process"]["pid"])
+            ):
+                raise
+            journal["outcome"] = "failed"
+            journal["error"] = f"训练准备失败：{type(exc).__name__}"
+        finally:
+            self.save(journal)
+        try:
+            published = self.upload_and_finish(journal, directory)
+        finally:
+            self.heartbeat_done.set()
+            self.heartbeat_thread.join(timeout=20)
+        if published:
+            # Only remove this attempt after the platform acknowledged durable
+            # publication or fenced it out in favor of a later attempt.
+            import shutil
+
+            shutil.rmtree(directory)
+            self.journal_path.unlink(missing_ok=True)
+
+    def run(self):
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, lambda signum, frame: self.shutdown.set())
+        lock_path = self.state / (
+            "gpu-" + hashlib.sha256(self.resource.encode()).hexdigest()[:24] + ".lock"
+        )
+        self.lock = lock_path.open("a+")
+        while not self.shutdown.is_set():
+            try:
+                fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                self.shutdown.wait(2)
+        if self.shutdown.is_set():
+            return
+        while not self.shutdown.is_set():
+            if self.journal_path.exists():
+                journal = json.loads(self.journal_path.read_text())
+                try:
+                    if "assignment" not in journal:
+                        journal["claim"]["recover_only"] = True
+                        if not self.claim(journal):
+                            self.journal_path.unlink()
+                            continue
+                    self.execute(
+                        journal,
+                        recovery=journal["claim"]["boot_id"] != self.boot
+                        or journal["phase"] != "preparing",
+                    )
+                except Exception:
+                    self.shutdown.wait(5)
+                continue
+            journal = {
+                "claim": {
+                    "executor_id": self.executor_id,
+                    "boot_id": self.boot,
+                    "claim_id": str(uuid.uuid4()),
+                    "resource_id": self.resource,
+                    "runtime": self.runtime,
+                },
+                "phase": "claiming",
+            }
+            # Persist BEFORE the HTTP request. A lost claim response can be
+            # recovered by the same request identity without an orphaned lease.
+            self.save(journal)
+            try:
+                if self.claim(journal):
+                    self.execute(journal)
+                else:
+                    self.journal_path.unlink(missing_ok=True)
+                    self.shutdown.wait(5)
+            except Exception:
+                self.shutdown.wait(5)
+
+
+def main():
+    Supervisor().run()
+
+
+if __name__ == "__main__":
+    main()

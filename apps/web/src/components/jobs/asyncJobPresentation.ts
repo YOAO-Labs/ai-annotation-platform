@@ -10,6 +10,8 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   dataset_import: "数据集导入",
   create_tasks: "建任务",
   export: "数据导出",
+  training_dataset: "训练数据构建",
+  training_run: "模型训练",
   mask_qc: "Mask 质检",
   mask_repair: "Mask 批量修复",
   mask_repair_rollback: "Mask 修复回滚",

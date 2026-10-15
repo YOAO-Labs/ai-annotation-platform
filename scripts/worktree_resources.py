@@ -108,11 +108,21 @@ class LocalResources:
                 "ssl": settings.minio_use_ssl,
             },
         }
+        self.target_manifest = self.manifest
         path = state_path(self.root, resources["mode"], "resources.json")
-        if path.exists() and read_state(path) != self.manifest:
-            raise WorktreeError(
-                "基础设施目标与已有资源清单不一致；先用原配置销毁旧环境"
-            )
+        if path.exists():
+            saved = read_state(path)
+            if saved != self.manifest:
+                legacy = json.loads(json.dumps(self.manifest))
+                legacy["resources"]["buckets"].pop("MINIO_TRAINING_BUCKET")
+                if saved != legacy:
+                    raise WorktreeError(
+                        "基础设施目标与已有资源清单不一致；先用原配置销毁旧环境"
+                    )
+                # Inspection/destruction use exactly the saved owned inventory.
+                # Only explicit preparation upgrades this known old topology.
+                self.manifest = saved
+                self.resources = saved["resources"]
         scheme = "https" if settings.minio_use_ssl else "http"
         self.s3 = boto3.client(
             "s3",
@@ -393,6 +403,7 @@ class LocalResources:
             await engine.dispose()
 
     def prepare(self, *, skip_migrations: bool = False) -> None:
+        self.upgrade_training_bucket()
         revisions, heads = migration_graph(self.code_root)
         inventory = self.inspect()
         validate_inventory(self.resources, inventory)
@@ -439,6 +450,63 @@ class LocalResources:
             f"[dev:worktree] {self.resources['database']} 已在 head {heads[0]}",
             file=sys.stderr,
         )
+
+    def upgrade_training_bucket(self) -> None:
+        """Called only under the mode lock; retain old data on partial failure."""
+        if self.manifest == self.target_manifest:
+            return
+        path = state_path(self.root, self.resources["mode"], "resources.json")
+        saved = read_state(path)
+        if saved == self.target_manifest:
+            self.manifest = saved
+            self.resources = saved["resources"]
+            return
+        if saved != self.manifest:
+            raise WorktreeError("资源清单在准备期间变化；请重新检查环境")
+        validate_inventory(self.resources, self.inspect())
+        name = self.target_manifest["resources"]["buckets"]["MINIO_TRAINING_BUCKET"]
+        journal = state_path(
+            self.root, self.resources["mode"], "training-bucket-upgrade.json"
+        )
+        observed = self.bucket_info(name)
+        recovery = read_state(journal) if journal.exists() else None
+        if recovery and recovery != {"bucket": name, "owner": self.resources["owner"]}:
+            raise WorktreeError("训练 bucket 恢复记录与当前环境不一致")
+        if recovery and observed is not None and observed.get("owner") is None:
+            raise WorktreeError(
+                f"训练 bucket {name} 的创建曾中断且缺少归属标签；"
+                "请管理员核对恢复记录和桶内容，确认空桶后仅删除该空桶，再运行 init。"
+                "不会自动接管或清空未标记的桶"
+            )
+        require_owner(name, observed, self.resources["owner"])
+        if observed is None:
+            atomic_json(journal, {"bucket": name, "owner": self.resources["owner"]})
+            self.s3.create_bucket(Bucket=name)
+            try:
+                self.s3.put_bucket_tagging(
+                    Bucket=name,
+                    Tagging={
+                        "TagSet": [{"Key": OWNER_TAG, "Value": self.resources["owner"]}]
+                    },
+                )
+            except Exception:
+                # This invocation received a successful creation response. Compensate
+                # only that new, still untagged empty bucket; never delete its objects.
+                current = self.bucket_info(name)
+                if current is not None and current.get("owner") is None:
+                    try:
+                        self.s3.delete_bucket(Bucket=name)
+                    except Exception:
+                        pass  # Keep the journal for explicit recovery after a crash.
+                    else:
+                        journal.unlink(missing_ok=True)
+                raise
+        if not require_owner(name, self.bucket_info(name), self.resources["owner"]):
+            raise WorktreeError("训练 bucket 创建后未能验证；保留旧资源清单")
+        atomic_json(path, self.target_manifest)
+        self.manifest = self.target_manifest
+        self.resources = self.manifest["resources"]
+        journal.unlink(missing_ok=True)
 
     def stop_redis(self) -> None:
         observed = self.redis_info()

@@ -2296,6 +2296,10 @@ def _stage_model(backend, model_id: str | None) -> dict:
 
 def _stage_device(backend, model_id: str | None) -> str | None:
     """v0.19.5 · 取某 model 的 resource_profile.device (gpu/cpu); 无快照/未自报 → None。"""
+    from app.services.trained_models import controlled_device, is_controlled
+
+    if is_controlled(model_id):
+        return controlled_device(backend)
     rp = _stage_model(backend, model_id).get("resource_profile") or {}
     d = rp.get("device")
     return d if isinstance(d, str) else None
@@ -2514,6 +2518,35 @@ async def trigger_preannotation(
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
     from app.workers.tasks import _build_predict_context, _retryable_request_context
+    from app.services import trained_models
+
+    uses_controlled_model = trained_models.is_controlled(body.model_id) or any(
+        trained_models.is_controlled(stage.model_id)
+        for stage in (body.pipeline_stages or [])
+    )
+    frozen_model_ref = None
+    if uses_controlled_model:
+        root_source = (
+            next(
+                (
+                    s.source
+                    for s in (body.pipeline_stages or [])
+                    if s.parent_stage is None
+                ),
+                None,
+            )
+            or {}
+        )
+        trained_models.assert_image_scope(
+            project,
+            prompt=body.prompt,
+            task_type=body.task_type,
+            model_variants=body.model_variants,
+            pipeline_stages=body.pipeline_stages,
+            execution_unit=root_source.get("execution_unit"),
+        )
+        if root_source.get("data_type") not in {None, "image"}:
+            raise HTTPException(status_code=422, detail="受控模型不支持该数据源")
 
     retry_context = _build_predict_context(
         prompt=body.prompt,
@@ -2675,7 +2708,6 @@ async def trigger_preannotation(
     if body.batch_id:
         from app.db.models.task_batch import TaskBatch
         from app.db.enums import BatchStatus
-        from sqlalchemy import select, func
         from app.db.models.task import Task as TaskModel
 
         batch = await db.get(TaskBatch, body.batch_id)
@@ -2738,6 +2770,37 @@ async def trigger_preannotation(
         if src_stage is not None and src_stage.source:
             execution_unit = (src_stage.source or {}).get("execution_unit")
 
+    if uses_controlled_model:
+        media_scope = [Task.project_id == project.id, Task.file_type != "image"]
+        if explicit_task_ids is not None:
+            media_scope.append(Task.id.in_(explicit_task_ids))
+        else:
+            media_scope.append(Task.status == "pending")
+        if body.batch_id:
+            media_scope.append(Task.batch_id == body.batch_id)
+        if await db.scalar(select(Task.id).where(*media_scope).limit(1)):
+            raise HTTPException(status_code=422, detail="所选任务包含非图片素材")
+
+    async def freeze_controlled_model():
+        ref = await trained_models.resolve_reference(
+            db, project, body.model_id, source_backend_id
+        )
+        checked = _build_predict_context(
+            prompt=body.prompt,
+            output_mode=body.output_mode,
+            params=body.params,
+            model_id=body.model_id,
+            task_type=body.task_type,
+            model_variants=body.model_variants,
+            class_filter=body.class_filter,
+            frozen_model_ref=ref,
+        )
+        if checked is not None and _retryable_request_context(checked) is None:
+            raise HTTPException(
+                status_code=422, detail="模型类别与来源上下文超过 8 KiB 限制"
+            )
+        return ref
+
     # 派发前预建持久作业, 让客户端可轮询同一 job、并发重试不会重复入队。
     # - 数据管理重试可带幂等键 (复用/去重)。
     # - 工作台单题请求 (无幂等键) 也预建, 使 worker 在派发前的范围复校验失败时
@@ -2789,6 +2852,12 @@ async def trigger_preannotation(
             # before publishing to Celery. Reuse the row and safely republish;
             # the worker's row lock makes a duplicate delivery a no-op.
             precreated_job = existing
+            if uses_controlled_model:
+                frozen_model_ref = (existing.payload or {}).get("frozen_model_ref")
+                if not frozen_model_ref:
+                    raise HTTPException(
+                        status_code=409, detail="原任务缺少冻结模型身份"
+                    )
         else:
             scoped_ids = (
                 [str(task_id) for task_id in explicit_task_ids]
@@ -2809,6 +2878,9 @@ async def trigger_preannotation(
             if scoped_ids is not None:
                 precreated_payload["scope"] = {"task_ids": scoped_ids}
                 precreated_payload["task_ids"] = scoped_ids
+            if uses_controlled_model:
+                frozen_model_ref = await freeze_controlled_model()
+                precreated_payload["frozen_model_ref"] = frozen_model_ref
             precreated_job = await async_job_svc.create_job(
                 db,
                 kind="batch_predict",
@@ -2821,24 +2893,38 @@ async def trigger_preannotation(
         # request reaches its post-dispatch commit.
         precreated_job.celery_task_id = str(precreated_job.id)
         await db.commit()
-    elif body.execution_scope == "workbench" and explicit_task_ids is not None:
+    elif (
+        body.execution_scope == "workbench" and explicit_task_ids is not None
+    ) or uses_controlled_model:
         # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
         # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
         # 工作台面板不会因找不到终态记录而无限轮询。
-        scoped_ids = [str(task_id) for task_id in explicit_task_ids]
+        scoped_ids = (
+            [str(task_id) for task_id in explicit_task_ids]
+            if explicit_task_ids is not None
+            else None
+        )
+        if uses_controlled_model:
+            frozen_model_ref = await freeze_controlled_model()
         precreated_job = await async_job_svc.create_job(
             db,
             kind="batch_predict",
             user_id=current_user.id,
             project_id=project.id,
             payload={
-                "batch_id": None,
+                "batch_id": str(body.batch_id) if body.batch_id else None,
                 "ml_backend_id": str(source_backend_id),
-                "total_tasks": len(scoped_ids),
+                "total_tasks": len(scoped_ids)
+                if scoped_ids is not None
+                else total_tasks_hint,
                 "project_display_id": project.display_id,
                 "project_name": project.name,
-                "scope": {"task_ids": scoped_ids},
-                "task_ids": scoped_ids,
+                **(
+                    {"scope": {"task_ids": scoped_ids}, "task_ids": scoped_ids}
+                    if scoped_ids is not None
+                    else {}
+                ),
+                **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
             },
         )
         precreated_job.celery_task_id = str(precreated_job.id)
@@ -2864,7 +2950,9 @@ async def trigger_preannotation(
                 "params": body.params or None,
                 "predict_mode": body.predict_mode,
                 # v0.14.9 · 协议 v2: 多模型路由 + task 别名透传到 /predict context
-                "model_id": body.model_id,
+                "model_id": f"trained:{frozen_model_ref['model_version_id']}"
+                if frozen_model_ref
+                else body.model_id,
                 "task_type": body.task_type,
                 # v0.14.17 · 协议 v2 结构化 variant 路径 (YOLO) + 类别白名单
                 "model_variants": body.model_variants,
@@ -2876,6 +2964,7 @@ async def trigger_preannotation(
                 # issue #121 · 执行场景透传 worker: workbench 单题允许 in_progress / draft,
                 # bulk 保持 pending + active 批次前置条件。
                 "execution_scope": body.execution_scope,
+                **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
                 **(
                     {"async_job_id": str(precreated_job.id)}
                     if precreated_job is not None

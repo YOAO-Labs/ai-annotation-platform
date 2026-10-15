@@ -505,6 +505,22 @@ class MLBackendClient:
             return _NullCtx()
         return semaphore
 
+    async def install_trained_model(self, payload: dict) -> dict:
+        async with httpx.AsyncClient(timeout=180) as client:
+            response = await client.post(
+                f"{self.base_url}/managed-models", json=payload, headers=self._headers()
+            )
+            _raise_for_backend_status(response)
+            return response.json()
+
+    async def trained_model_receipt(self, version_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/managed-models/{version_id}", headers=self._headers()
+            )
+            _raise_for_backend_status(response)
+            return response.json()
+
     async def predict(
         self, tasks: list[dict], context: dict | None = None
     ) -> list[PredictionResult]:

@@ -32,6 +32,8 @@ celery_app = Celery(
         "app.workers.async_jobs_cleanup",
         # v0.10.27 · 导出异步化 + 过期产物清理
         "app.workers.export",
+        "app.workers.training_dataset",
+        "app.workers.learning_policy",
         "app.workers.export_cleanup",
         # v0.11.15 · 外部连接器数据集导入
         "app.workers.dataset_import",
@@ -95,6 +97,8 @@ celery_app.conf.update(
         "app.workers.async_jobs_cleanup.purge_old_async_jobs": {"queue": "cleanup"},
         # v0.10.27 · 导出 worker 独立 export 队列；过期产物清理走 cleanup
         "app.workers.export.run_export": {"queue": "export"},
+        "app.workers.training_dataset.run_training_dataset": {"queue": "export"},
+        "app.workers.learning_policy.check_policies": {"queue": "default"},
         "app.workers.export_cleanup.purge_expired_export_artifacts": {
             "queue": "cleanup"
         },
@@ -128,6 +132,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "check-learning-policies": {
+            "task": "app.workers.learning_policy.check_policies",
+            "schedule": crontab(minute="*"),
+        },
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",
             "schedule": crontab(hour=3, minute=0),  # 每日 03:00 UTC

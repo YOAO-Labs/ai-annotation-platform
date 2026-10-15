@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import uuid
+
+import pytest
 from unittest.mock import patch
 
 from sqlalchemy import select
@@ -144,8 +146,9 @@ async def test_list_failed_predictions_requires_manager(httpx_client, annotator)
     assert resp.status_code == 403
 
 
+@pytest.mark.parametrize("controlled", [False, True])
 async def test_retry_failed_prediction_queues_celery_and_returns_202(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, controlled
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -154,6 +157,17 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     fp = await _seed_failed(
         db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
     )
+    if controlled:
+        backend.health_meta = {
+            "compute": {"effective_device": "cpu"},
+            "capabilities": {},
+        }
+        fp.extra = {
+            "request_context": {
+                "model_id": "trained:" + str(uuid.uuid4()),
+                "frozen_model_ref": {"version": "fixed"},
+            }
+        }
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -173,7 +187,7 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     call_kwargs = mock_apply.call_args.kwargs
     assert call_kwargs["args"] == [str(fp.id), str(user.id)]
     # 未自报 device 的 backend 保守落 gpu(ml)队列。
-    assert call_kwargs["queue"] == "ml"
+    assert call_kwargs["queue"] == ("ml.cpu" if controlled else "ml")
 
     repeated = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
@@ -225,8 +239,9 @@ def _passthrough_session_factory(db_session: AsyncSession):
     return lambda: _Ctx()
 
 
+@pytest.mark.parametrize("controlled", [False, True])
 async def test_retry_worker_tracks_success_in_async_jobs(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, controlled
 ):
     from app.services.ml_client import PredictionResult
     from app.workers import predictions_retry as retry_worker
@@ -238,7 +253,17 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     fp = await _seed_failed(
         db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
     )
-    fp.extra = {"request_context": {"type": "ocr", "model_id": "ocr-e2e"}}
+    frozen = {"model_version_id": str(uuid.uuid4()), "sha256": "a" * 64}
+    request_context = (
+        {
+            "type": "detection",
+            "model_id": "trained:" + frozen["model_version_id"],
+            "frozen_model_ref": frozen,
+        }
+        if controlled
+        else {"type": "ocr", "model_id": "ocr-e2e"}
+    )
+    fp.extra = {"request_context": request_context}
     await db_session.commit()
     session_factory = _passthrough_session_factory(db_session)
     authority_marker = object()
@@ -259,10 +284,24 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     )
 
     async def fake_predict(self, tasks_payload, context=None):
-        assert self._shadow_session_factory is session_factory
-        assert self._dispatch_context_factory is authority_marker
+        assert (
+            getattr(
+                self,
+                "shadow_session_factory" if controlled else "_shadow_session_factory",
+            )
+            is session_factory
+        )
+        assert (
+            getattr(
+                self,
+                "dispatch_context_factory"
+                if controlled
+                else "_dispatch_context_factory",
+            )
+            is authority_marker
+        )
         assert tasks_payload[0]["file_path"] == "http://minio.test/x.jpg"
-        assert context == {"type": "ocr", "model_id": "ocr-e2e"}
+        assert context == request_context
         return [
             PredictionResult(
                 task_id=tasks_payload[0]["id"],
@@ -270,10 +309,16 @@ async def test_retry_worker_tracks_success_in_async_jobs(
                 score=0.95,
                 model_version="retry-v1",
                 inference_time_ms=12,
+                meta={"retry_receipt": "preserved"},
             )
         ]
 
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
+    monkeypatch.setattr(
+        "app.services.ml_routing.client.RoutedMLBackendClient.predict"
+        if controlled
+        else "app.services.ml_client.MLBackendClient.predict",
+        fake_predict,
+    )
 
     result = await retry_worker._do_retry_with_factory(
         session_factory, str(fp.id), str(user.id)
@@ -303,6 +348,15 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     assert job.result["failed_count"] == 0
 
     assert await db_session.get(FailedPrediction, fp.id) is None
+    if controlled:
+        from app.db.models.prediction import PredictionMeta
+
+        meta = await db_session.scalar(
+            select(PredictionMeta).where(
+                PredictionMeta.prediction_id == uuid.UUID(result["prediction_id"])
+            )
+        )
+        assert meta.extra["trained_model"] == frozen
     notifications = (
         (
             await db_session.execute(

@@ -146,6 +146,10 @@ async def run_secondary_inference(
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import to_internal_shape
     from app.services.storage import StorageService
+    from app.services.trained_models import is_controlled
+
+    if is_controlled(model_id):
+        raise HTTPException(status_code=422, detail="受控模型当前不支持框内二次推理")
 
     # 1. 内部几何 (0-1) → LS 标准 box (百分比 0-100), 供 crop 复用批量投递。
     #    起始不带 attributes: merge 后 box["attributes"] 里的键即全为 AI 写入 (精确标 origin)。

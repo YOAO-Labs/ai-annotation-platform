@@ -1,0 +1,140 @@
+"""Manager and trusted executor contracts; parameters are deliberately bounded."""
+
+import math
+import re
+import uuid
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class TrainingParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    epochs: int = Field(default=50, ge=1, le=1000)
+    batch: int = Field(default=8, ge=1, le=64)
+    imgsz: int = Field(default=640, ge=128, le=1280, multiple_of=32)
+    seed: int = Field(default=42, ge=0, le=2147483647)
+    lr0: float = Field(default=0.01, gt=0, le=0.1)
+    patience: int = Field(default=50, ge=0, le=1000)
+
+
+class TrainingRunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    dataset_id: uuid.UUID
+    framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
+    base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    parameters: TrainingParameters = Field(default_factory=TrainingParameters)
+    request_id: uuid.UUID
+    preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value):
+        if not value.strip():
+            raise ValueError("实验名称不能为空")
+        return value.strip()
+
+
+class TrainingRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    project_id: uuid.UUID
+    creator_id: uuid.UUID | None
+    dataset_id: uuid.UUID
+    async_job_id: uuid.UUID | None
+    auto_trigger_id: uuid.UUID | None = None
+    name: str
+    status: str
+    config: dict
+    config_digest: str
+    current_attempt_id: uuid.UUID | None
+    metrics: dict
+    error_message: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class TrainingAttemptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    ordinal: int
+    status: str
+    resume_from_id: uuid.UUID | None
+    executor_id: str | None
+    resource_id: str | None
+    runtime: dict
+    artifacts: dict
+    error_message: str | None
+    heartbeat_at: datetime | None
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+class ExecutorClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    executor_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,100}$")
+    boot_id: uuid.UUID
+    claim_id: uuid.UUID
+    recover_only: bool = False
+    resource_id: str = Field(min_length=1, max_length=200)
+    runtime: dict
+
+
+class ExecutorFence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    executor_id: str = Field(min_length=1, max_length=100)
+    boot_id: uuid.UUID
+    lease_token: str = Field(min_length=32, max_length=128)
+
+
+class ExecutorEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    sequence: int = Field(ge=1, le=100000)
+    kind: Literal["preparing", "training", "epoch", "evaluating", "uploading"]
+    epoch: int | None = Field(default=None, ge=1, le=1000)
+    metrics: dict[str, float] = Field(default_factory=dict, max_length=100)
+
+    @field_validator("metrics")
+    @classmethod
+    def finite_metrics(cls, value):
+        if any(not math.isfinite(v) or len(k) > 100 for k, v in value.items()):
+            raise ValueError("指标必须为有限数值")
+        return value
+
+
+class ExecutorHeartbeat(ExecutorFence):
+    events: list[ExecutorEvent] = Field(default_factory=list, max_length=100)
+
+
+class TrainingArtifactSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}$")
+    role: Literal["weights", "checkpoint", "metrics", "config", "log", "manifest"]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(gt=0, le=2 * 1024 * 1024 * 1024)
+    epoch: int | None = Field(default=None, ge=1, le=1000)
+
+    @field_validator("name")
+    @classmethod
+    def no_hidden_path(cls, value):
+        if ".." in value or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}", value):
+            raise ValueError("产物文件名不合法")
+        return value
+
+
+class ExecutorUpload(ExecutorFence):
+    artifacts: list[TrainingArtifactSpec] = Field(min_length=1, max_length=12)
+
+
+class ExecutorFinish(ExecutorFence):
+    status: Literal["succeeded", "failed", "cancelled"]
+    process_exited: Literal[True]
+    error_message: str | None = Field(default=None, max_length=1000)
+
+
+class ExecutorRecovery(ExecutorFence):
+    new_boot_id: uuid.UUID
+    exclusive_resource_lock: Literal[True]
+    process_exited: Literal[True]

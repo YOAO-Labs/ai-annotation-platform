@@ -109,6 +109,7 @@ def _build_predict_context(
     class_filter: list[int] | None = None,
     box_threshold: float | None = None,
     text_threshold: float | None = None,
+    frozen_model_ref: dict | None = None,
 ) -> dict | None:
     """构造发往 backend /predict 的 context (纯函数, 便于单测).
 
@@ -122,6 +123,22 @@ def _build_predict_context(
       `is not None` 而非真值: variant 轴未就位时为空 dict `{}` 仍须走 v2 才能透传 class_filter。
     - **老扁平路径** (OCR / doc_layout: 仅 model_id + task_type, 无 prompt 无 variants)。
     """
+    if frozen_model_ref:
+        if class_filter and any(
+            type(i) is not int or not 0 <= i < len(frozen_model_ref["classes"])
+            for i in class_filter
+        ):
+            raise ValueError("Controlled class filter is outside native classes")
+        ctx = {
+            "type": "detection",
+            "model_id": f"trained:{frozen_model_ref['model_version_id']}",
+            "model_variants": {},
+            "params": params or {},
+            "frozen_model_ref": frozen_model_ref,
+        }
+        if class_filter:
+            ctx["classes"] = class_filter
+        return ctx
     # ── 文本 prompt 扁平路径 (gsam2 / sam3): 顶层 params + model_id + model_variants 统一 wire。 ──
     if prompt:
         context: dict = {"type": "text", "text": prompt, "output": output_mode}
@@ -132,7 +149,14 @@ def _build_predict_context(
             context["model_id"] = model_id
         if model_variants:
             context["model_variants"] = model_variants
-        _reserved = {"type", "text", "output", "model_id", "model_variants"}
+        _reserved = {
+            "type",
+            "text",
+            "output",
+            "model_id",
+            "model_variants",
+            "frozen_model_ref",
+        }
         if params:
             context.update(
                 {
@@ -168,7 +192,7 @@ def _build_predict_context(
         # 透传 params: 多阶段下游 (如 onnxtools 纯分类) 经 StageCard 带 params, 早期 flat 路径
         # 漏了透传; 顶层保留键 (type/model_id) 不被 params 覆盖, 与文本路径一致。
         if params:
-            _reserved2 = {"type", "model_id"}
+            _reserved2 = {"type", "model_id", "frozen_model_ref"}
             context2.update(
                 {
                     k: v
@@ -572,6 +596,7 @@ async def _run_batch(
     execution_unit: str | None = None,
     execution_scope: str = "bulk",
     async_job_id: str | None = None,
+    frozen_model_ref: dict | None = None,
 ):
     """v0.9.5 · 批量预标 worker.
 
@@ -705,6 +730,10 @@ async def _run_batch(
             # selected tasks a second time. The row lock serializes this check.
             if precreated_job.status != AsyncJobStatus.PENDING.value:
                 return
+            saved_ref = (precreated_job.payload or {}).get("frozen_model_ref")
+            if frozen_model_ref is not None and saved_ref != frozen_model_ref:
+                raise ValueError("Queued model identity differs from the durable job")
+            frozen_model_ref = saved_ref
             precreated_job.celery_task_id = celery_task_id
             await async_job_svc.mark_running(
                 db, precreated_job.id, celery_task_id=celery_task_id
@@ -774,6 +803,33 @@ async def _run_batch(
                     locked_by_other = bool(locks)
                 if locked_by_other:
                     raise ValueError("preannotation task scope is locked for editing")
+        from app.services import trained_models
+
+        controlled = (
+            trained_models.is_controlled(model_id)
+            or frozen_model_ref is not None
+            or any(
+                trained_models.is_controlled(s.get("model_id"))
+                for s in (pipeline_stages or [])
+            )
+        )
+        if controlled:
+            trained_models.assert_image_scope(
+                project,
+                prompt=prompt,
+                task_type=task_type,
+                model_variants=model_variants,
+                pipeline_stages=pipeline_stages,
+                execution_unit=execution_unit,
+            )
+            if not frozen_model_ref:
+                raise ValueError(
+                    "Controlled preannotation is missing its frozen identity"
+                )
+            await trained_models.validate_frozen_reference(
+                db, project_uuid, frozen_model_ref
+            )
+            model_id = f"trained:{frozen_model_ref['model_version_id']}"
         context = _build_predict_context(
             prompt=prompt,
             output_mode=output_mode,
@@ -786,6 +842,7 @@ async def _run_batch(
             text_threshold=float(project.text_threshold)
             if project is not None
             else None,
+            frozen_model_ref=frozen_model_ref,
         )
 
         # v0.11.24 · 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
@@ -816,6 +873,9 @@ async def _run_batch(
         result = await db.execute(sel)
         tasks = list(result.scalars().all())
         total = len(tasks)
+
+        if controlled and any(task.file_type != "image" for task in tasks):
+            raise ValueError("Controlled detection task is not an image")
 
         # v0.11.24 · overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
         # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
@@ -848,6 +908,8 @@ async def _run_batch(
         }
         if model_id:
             job_payload["model_id"] = model_id
+        if frozen_model_ref:
+            job_payload["frozen_model_ref"] = frozen_model_ref
         if task_type:
             job_payload["task_type"] = task_type
         if model_variants is not None:
@@ -1212,6 +1274,11 @@ async def _run_batch(
                         token_meta=pred_result.meta,
                         pipeline_extra=pipeline_extra,
                         ml_backend_pool_id=executed_pool_id,
+                        **(
+                            {"model_provenance": frozen_model_ref}
+                            if frozen_model_ref
+                            else {}
+                        ),
                     )
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
@@ -1426,6 +1493,7 @@ def batch_predict(
     execution_unit: str | None = None,
     execution_scope: str = "bulk",
     async_job_id: str | None = None,
+    frozen_model_ref: dict | None = None,
 ):
     asyncio.run(
         _run_batch(
@@ -1447,5 +1515,6 @@ def batch_predict(
             execution_unit=execution_unit,
             execution_scope=execution_scope,
             async_job_id=async_job_id,
+            frozen_model_ref=frozen_model_ref,
         )
     )

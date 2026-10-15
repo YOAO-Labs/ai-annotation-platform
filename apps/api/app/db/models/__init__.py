@@ -38,6 +38,12 @@ from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
+from app.db.models.trained_model import (
+    ModelDeployment,
+    ModelRelease,
+    ProjectModelSelection,
+    TrainedModelVersion,
+)
 from app.db.models.video_tracker_job import (
     VideoTrackerJob,
     VideoTrackerJobKind,
@@ -76,6 +82,13 @@ from app.db.models.system_setting import SystemSetting
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.export_artifact import ExportArtifact
+from app.db.models.training_dataset import TrainingDatasetVersion
+from app.db.models.training_run import (
+    TrainingRun,
+    TrainingAttempt,
+    TrainingEvent,
+    TrainingResourceLease,
+)
 from app.db.models.storage_connection import (
     StorageConnection,
     StorageConnectionKind,
@@ -83,6 +96,14 @@ from app.db.models.storage_connection import (
 )
 
 __all__ = [
+    "TrainedModelVersion",
+    "ModelDeployment",
+    "ModelRelease",
+    "ProjectModelSelection",
+    "TrainingRun",
+    "TrainingAttempt",
+    "TrainingEvent",
+    "TrainingResourceLease",
     "User",
     "Group",
     "Organization",
@@ -160,7 +181,12 @@ __all__ = [
     "AsyncJobKind",
     "AsyncJobStatus",
     "ExportArtifact",
+    "TrainingDatasetVersion",
     "StorageConnection",
     "StorageConnectionKind",
     "StorageConnectionScope",
 ]
+
+from app.db.models.learning_policy import LearningPolicy, LearningTrigger
+
+__all__ += ["LearningPolicy", "LearningTrigger"]

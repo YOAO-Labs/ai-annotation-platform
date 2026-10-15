@@ -1,0 +1,254 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
+import { trainedModelsApi } from "@/api/trainedModels";
+import { trainingRunsApi } from "@/api/trainingRuns";
+import { mlBackendsApi } from "@/api/ml-backends";
+import { tasksApi } from "@/api/tasks";
+import { dataManagerTaskActionsApi } from "@/api/dataManagerActions";
+import { ProjectModelsPanel } from "./ProjectModelsPanel";
+
+vi.mock("@/api/trainedModels", async (original) => ({
+  ...(await original<typeof import("@/api/trainedModels")>()),
+  trainedModelsApi: {
+    list: vi.fn(),
+    get: vi.fn(),
+    register: vi.fn(),
+    deploy: vi.fn(),
+    releases: vi.fn(),
+    publish: vi.fn(),
+    download: vi.fn(),
+  },
+}));
+vi.mock("@/api/trainingRuns", () => ({ trainingRunsApi: { list: vi.fn(), get: vi.fn() } }));
+vi.mock("@/api/ml-backends", () => ({ mlBackendsApi: { listAvailable: vi.fn() } }));
+vi.mock("@/api/tasks", () => ({ tasksApi: { listByProject: vi.fn() } }));
+vi.mock("@/api/dataManagerActions", () => ({
+  dataManagerTaskActionsApi: { preannotate: vi.fn() },
+}));
+vi.mock("@/api/asyncJobs", () => ({
+  asyncJobsApi: {
+    get: vi.fn().mockResolvedValue({ id: "job-1", status: "completed", progress_pct: 100 }),
+  },
+}));
+vi.mock("@/components/ui/decisionDialog", () => ({
+  confirmDialog: vi.fn().mockResolvedValue(true),
+}));
+
+const model = {
+  id: "model-1",
+  project_id: "project-1",
+  run_id: "run-1",
+  attempt_id: "attempt-1",
+  name: "第一候选",
+  framework: "ultralytics",
+  framework_version: "8.4.177",
+  artifact: { sha256: "a".repeat(64) },
+  classes: ["car", "person"],
+  bindings: ["车辆", "行人"],
+  binding_digest: "binding-1",
+  provenance: { dataset_id: "data-1", validation_digest: "val-1" },
+  evaluation: {
+    summary: { "metrics/mAP50-95(B)": 0.4 },
+    validation_digest: "val-1",
+    evaluation: { framework: "ultralytics", split: "val", imgsz: 640, independent_test_set: false },
+    per_class: [
+      { index: 0, name: "car", precision: 0.5, recall: 0.6, mAP50: 0.7, "mAP50-95": 0.4 },
+    ],
+  },
+  created_at: "2026-10-14T12:00:00Z",
+};
+const deployment = {
+  id: "deployment-1",
+  model_version_id: "model-1",
+  registry_id: "backend-1",
+  status: "ready",
+  receipt: {},
+  trial: { result: [], inference_time_ms: 10 },
+  error_message: null,
+  checked_at: null,
+  created_at: model.created_at,
+};
+const releases = { generation: 7, total: 0, items: [], current_release_id: null, current: null };
+const clients: QueryClient[] = [];
+
+function mount() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  clients.push(client);
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <ProjectModelsPanel projectId="project-1" classes={["车辆", "行人"]} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(trainingRunsApi.list).mockResolvedValue({
+    total: 1,
+    items: [{ id: "run-1", name: "成功训练", status: "succeeded" }],
+  } as never);
+  vi.mocked(trainingRunsApi.get).mockResolvedValue({
+    run: { id: "run-1", config: { framework: "ultralytics", classes: ["car", "person"] } },
+    attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
+  } as never);
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 1, items: [model] });
+  vi.mocked(trainedModelsApi.get).mockResolvedValue({ model, deployments: [deployment] });
+  vi.mocked(trainedModelsApi.releases).mockResolvedValue(releases);
+  vi.mocked(trainedModelsApi.register).mockResolvedValue(model);
+  vi.mocked(trainedModelsApi.publish).mockResolvedValue({ id: "release-8" } as never);
+  vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({
+    items: [
+      {
+        enabled: true,
+        backend: { id: "backend-1", name: "受控推理", auth_method: "token", state: "connected" },
+      },
+    ],
+  } as never);
+  vi.mocked(tasksApi.listByProject).mockResolvedValue({
+    total: 1,
+    items: [{ id: "task-1", display_id: "T-1", file_name: "car.png" }],
+  } as never);
+  vi.mocked(dataManagerTaskActionsApi.preannotate).mockResolvedValue({
+    job_id: "job-1",
+    status: "pending",
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  clients.splice(0).forEach((client) => client.clear());
+});
+
+describe("ProjectModelsPanel", () => {
+  it("requires explicit complete class binding and preserves registration identity after a lost response", async () => {
+    const user = userEvent.setup();
+    vi.mocked(trainedModelsApi.register)
+      .mockRejectedValueOnce(new Error("响应中断"))
+      .mockResolvedValue(model);
+    mount();
+    await user.type(screen.getByLabelText("模型名称"), "回流候选");
+    await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
+    await screen.findByLabelText(/原生类别 0/);
+    const button = screen.getByRole("button", { name: "注册候选模型" });
+    expect(button).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText(/原生类别 0/), "车辆");
+    expect(button).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText(/原生类别 1/), "行人");
+    await user.click(button);
+    await screen.findByText("响应中断");
+    const first = vi.mocked(trainedModelsApi.register).mock.calls[0][1];
+    expect(first.bindings).toEqual(["车辆", "行人"]);
+    await user.click(button);
+    await waitFor(() => expect(trainedModelsApi.register).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(trainedModelsApi.register).mock.calls[1][1]).toEqual(first);
+  });
+
+  it("requires sample confirmation and publishes against the current generation", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "评估与部署" }));
+    const detail = await screen.findByLabelText("模型版本详情");
+    const publish = within(detail).getByRole("button", { name: "发布此模型" });
+    expect(publish).toBeDisabled();
+    await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
+    await user.click(publish);
+    await waitFor(() => expect(trainedModelsApi.publish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(trainedModelsApi.publish).mock.calls[0]).toEqual([
+      "project-1",
+      expect.objectContaining({
+        expected_generation: 7,
+        model_version_id: "model-1",
+        deployment_id: "deployment-1",
+        sample_confirmed: true,
+      }),
+    ]);
+  });
+
+  it("retains the exact release request after a network error even if polling sees a newer generation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(trainedModelsApi.publish)
+      .mockRejectedValueOnce(new Error("发布响应丢失"))
+      .mockResolvedValue({ id: "release-8" } as never);
+    mount();
+    await user.click(await screen.findByRole("button", { name: "评估与部署" }));
+    const detail = await screen.findByLabelText("模型版本详情");
+    await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
+    vi.mocked(trainedModelsApi.releases).mockResolvedValue({ ...releases, generation: 8 });
+    await user.click(within(detail).getByRole("button", { name: "发布此模型" }));
+    await screen.findByText("发布响应丢失");
+    const first = vi.mocked(trainedModelsApi.publish).mock.calls[0][1];
+    await user.click(within(detail).getByRole("button", { name: "发布此模型" }));
+    await waitFor(() => expect(trainedModelsApi.publish).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(trainedModelsApi.publish).mock.calls[1][1]).toEqual(first);
+    expect(first.expected_generation).toBe(7);
+  });
+
+  it("queues selected images through the existing idempotent preannotation action", async () => {
+    const user = userEvent.setup();
+    vi.mocked(trainedModelsApi.releases).mockResolvedValue({
+      ...releases,
+      current_release_id: "release-7",
+      current: {
+        id: "release-7",
+        generation: 7,
+        model_version_id: "model-1",
+        snapshot: { registry_id: "backend-1" },
+      },
+    } as never);
+    mount();
+    await user.click(await screen.findByLabelText("T-1 · car.png"));
+    await user.click(screen.getByRole("button", { name: "用当前发布模型预标注" }));
+    await waitFor(() => expect(dataManagerTaskActionsApi.preannotate).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(dataManagerTaskActionsApi.preannotate).mock.calls[0]).toEqual([
+      "project-1",
+      expect.objectContaining({
+        model_id: "project-release",
+        ml_backend_id: "backend-1",
+        task_ids: ["task-1"],
+        params: { conf: 0.25 },
+      }),
+      { idempotencyKey: expect.any(String) },
+    ]);
+    await screen.findByText("预标注完成 · 100%");
+  });
+
+  it("separates reports from different validation scopes", async () => {
+    const user = userEvent.setup();
+    const second = {
+      ...model,
+      id: "model-2",
+      name: "另一基准",
+      provenance: { ...model.provenance, validation_digest: "val-2" },
+    };
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 2, items: [model, second] });
+    mount();
+    await user.click((await screen.findAllByRole("button", { name: "评估与部署" }))[0]);
+    await user.selectOptions(await screen.findByLabelText("对比另一候选"), "model-2");
+    await screen.findByText(
+      "验证基准、类别绑定或评估配置不同，不计算新旧提升。请分别查看各自报告。",
+    );
+    expect(screen.queryByText("同一验证范围")).not.toBeInTheDocument();
+  });
+});
+
+it("explains and disables registration for native LibreYOLO artifacts", async () => {
+  const user = userEvent.setup();
+  vi.mocked(trainingRunsApi.get).mockResolvedValue({
+    run: { id: "run-1", config: { framework: "libreyolo", classes: ["car", "person"] } },
+    attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
+  } as never);
+  mount();
+  await user.type(screen.getByLabelText("模型名称"), "Libre候选");
+  await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
+  await screen.findByText(/该训练器当前提供训练和产物下载/);
+  expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
+  expect(screen.queryByLabelText(/原生类别 0/)).not.toBeInTheDocument();
+  expect(trainedModelsApi.register).not.toHaveBeenCalled();
+});

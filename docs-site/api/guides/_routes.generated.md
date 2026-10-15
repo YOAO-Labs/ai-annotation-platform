@@ -308,6 +308,14 @@
 | POST | `/register` |
 | POST | `/invitations/accept` |
 
+## `learning_policies.py`
+
+| Method | Path |
+|---|---|
+| POST | `/disable` |
+| POST | `/check` |
+| GET | `/triggers` |
+
 ## `mask_formats.py`
 
 | Method | Path |
@@ -695,6 +703,49 @@
 | POST | `/{task_id}/video/tracks/{annotation_id}:propagate` |
 | POST | `/{task_id}/video:track` |
 
+## `trained_models.py`
+
+| Method | Path |
+|---|---|
+| POST | `/trained-models` |
+| GET | `/trained-models` |
+| GET | `/trained-models/{version_id}` |
+| POST | `/trained-models/{version_id}/deploy` |
+| GET | `/trained-models/{version_id}/download` |
+| GET | `/model-releases` |
+| POST | `/model-releases` |
+
+## `training_datasets.py`
+
+| Method | Path |
+|---|---|
+| POST | `:preflight` |
+| GET | `/{version_id}` |
+| POST | `/{version_id}/retry` |
+| GET | `/{version_id}/download` |
+| DELETE | `/{version_id}` |
+
+## `training_hub.py`
+
+| Method | Path |
+|---|---|
+| GET | `/catalog` |
+| GET | `/projects` |
+| GET | `/runs` |
+
+## `training_runs.py`
+
+| Method | Path |
+|---|---|
+| GET | `/catalog` |
+| POST | `:preflight` |
+| GET | `/{run_id}` |
+| GET | `/{run_id}/events` |
+| POST | `/{run_id}/cancel` |
+| POST | `/{run_id}/resume` |
+| GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download` |
+| DELETE | `/{run_id}` |
+
 ## `users.py`
 
 | Method | Path |
@@ -749,4 +800,4 @@
 
 ---
 
-_共 68 模块 / 432 路由_
+_共 73 模块 / 458 路由_

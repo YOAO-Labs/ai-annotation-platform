@@ -45,6 +45,12 @@ const StoragePage = lazy(() =>
 const ProjectSettingsPage = lazy(() =>
   import("@/pages/Projects/ProjectSettingsPage").then((m) => ({ default: m.ProjectSettingsPage })),
 );
+const ProjectLearningPage = lazy(() =>
+  import("@/pages/Projects/ProjectLearningPage").then((m) => ({ default: m.ProjectLearningPage })),
+);
+const TrainingPage = lazy(() =>
+  import("@/pages/Training/TrainingPage").then((m) => ({ default: m.TrainingPage })),
+);
 const ProjectDataManagerPage = lazy(() =>
   import("@/pages/Projects/ProjectDataManagerPage").then((m) => ({
     default: m.ProjectDataManagerPage,
@@ -215,16 +221,6 @@ function AppShell() {
       )}
       {/* v0.9.11 PerfHud · 全局浮窗 (内部按角色 gating + visibility store 控制渲染) */}
       <PerfHud />
-    </div>
-  );
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className={styles.placeholder}>
-      <div className={styles.placeholderIcon}>🚧</div>
-      <h2 className={styles.placeholderTitle}>{title}</h2>
-      <p className={styles.placeholderText}>此功能模块正在开发中</p>
     </div>
   );
 }
@@ -460,7 +456,7 @@ export function App() {
             path="/training"
             element={
               <RequirePagePermission pageKey="training">
-                <PlaceholderPage title="训练队列" />
+                <TrainingPage />
               </RequirePagePermission>
             }
           />
@@ -493,6 +489,14 @@ export function App() {
             element={
               <RequireProjectAccess capability="project.manage">
                 <ProjectSettingsPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ProjectLearningPage />
               </RequireProjectAccess>
             }
           />

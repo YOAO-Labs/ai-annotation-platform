@@ -91,6 +91,7 @@ class MLBackendRouter:
         owner: str,
         operation: str,
         project_id: uuid.UUID | None = None,
+        required_instance_id: uuid.UUID | None = None,
     ) -> RouteSelection:
         """Acquire a route lease for ``pool_id``. Returns RouteSelection.
 
@@ -129,6 +130,21 @@ class MLBackendRouter:
 
         # off / observe: legacy dispatch — return legacy_instance_id, no lease.
         if self.mode in (RouterMode.OFF, RouterMode.OBSERVE):
+            if required_instance_id is not None:
+                candidates = await self._build_candidates(
+                    pool, required_instance_id=required_instance_id
+                )
+                if pool.legacy_instance_id != required_instance_id or not any(
+                    c.instance_id == required_instance_id
+                    and c.health_fresh
+                    and c.fingerprint_ok
+                    for c in candidates
+                ):
+                    return RouteSelection(
+                        lease=None,
+                        instance_id=None,
+                        rejection=RejectionReason.POOL_UNAVAILABLE,
+                    )
             selection = RouteSelection(
                 lease=None,
                 instance_id=pool.legacy_instance_id,
@@ -136,7 +152,15 @@ class MLBackendRouter:
             )
             # observe: also compute would-select for diagnostics (shadow, non-gating).
             if self.mode == RouterMode.OBSERVE and self.ledger is not None:
-                selection = await self._shadow_would_select(pool, selection)
+                selection = await self._shadow_would_select(
+                    pool,
+                    selection,
+                    **(
+                        {"required_instance_id": required_instance_id}
+                        if required_instance_id is not None
+                        else {}
+                    ),
+                )
             return selection
 
         # enforce: acquire via ledger.
@@ -147,7 +171,14 @@ class MLBackendRouter:
                 rejection=RejectionReason.ROUTER_UNAVAILABLE,
             )
 
-        candidates = await self._build_candidates(pool)
+        candidates = await self._build_candidates(
+            pool,
+            **(
+                {"required_instance_id": required_instance_id}
+                if required_instance_id is not None
+                else {}
+            ),
+        )
         if not candidates:
             return RouteSelection(
                 lease=None, instance_id=None, rejection=RejectionReason.POOL_UNAVAILABLE
@@ -173,7 +204,10 @@ class MLBackendRouter:
         )
 
     async def _build_candidates(
-        self, pool: MLBackendServicePool
+        self,
+        pool: MLBackendServicePool,
+        *,
+        required_instance_id: uuid.UUID | None = None,
     ) -> list[RoutingCandidate]:
         """Read DB topology under pool.routing_generation → validated candidates."""
         members = await self.db.execute(
@@ -190,6 +224,11 @@ class MLBackendRouter:
         now = datetime.now(UTC)
         max_age = timedelta(seconds=settings.ml_backend_router_health_max_age_seconds)
         for member in member_rows:
+            if (
+                required_instance_id is not None
+                and member.registry_id != required_instance_id
+            ):
+                continue
             registry = await self.db.get(MLBackendRegistry, member.registry_id)
             if registry is None:
                 continue
@@ -251,7 +290,11 @@ class MLBackendRouter:
         return 4
 
     async def _shadow_would_select(
-        self, pool: MLBackendServicePool, legacy_selection: RouteSelection
+        self,
+        pool: MLBackendServicePool,
+        legacy_selection: RouteSelection,
+        *,
+        required_instance_id: uuid.UUID | None = None,
     ) -> RouteSelection:
         """observe-mode: compute what enforce WOULD select, without gating actual dispatch.
 
@@ -259,7 +302,14 @@ class MLBackendRouter:
         validation gate (ADR-0050 §14). Best-effort: ledger errors are swallowed.
         """
         try:
-            candidates = await self._build_candidates(pool)
+            candidates = await self._build_candidates(
+                pool,
+                **(
+                    {"required_instance_id": required_instance_id}
+                    if required_instance_id is not None
+                    else {}
+                ),
+            )
             if not candidates:
                 return legacy_selection
             circuit_open = await self.ledger.circuit_open_instances(str(pool.id))  # type: ignore[union-attr]
@@ -340,6 +390,7 @@ async def route_context(
     owner: str,
     operation: str,
     project_id: uuid.UUID | None = None,
+    required_instance_id: uuid.UUID | None = None,
 ) -> AsyncIterator[tuple[uuid.UUID | None, RouteLease | None, RouteSelection]]:
     """Context manager that acquires a route and guarantees finish/cancel exactly once.
 
@@ -348,7 +399,15 @@ async def route_context(
     router.finish/cancel themselves before exit (the context detects the idempotent no-op).
     """
     selection = await router.acquire(
-        pool_id, owner=owner, operation=operation, project_id=project_id
+        pool_id,
+        owner=owner,
+        operation=operation,
+        project_id=project_id,
+        **(
+            {"required_instance_id": required_instance_id}
+            if required_instance_id is not None
+            else {}
+        ),
     )
     if selection.rejection is not None:
         raise RoutingError(

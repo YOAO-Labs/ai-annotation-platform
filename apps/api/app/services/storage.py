@@ -53,6 +53,7 @@ class StorageService:
         self.import_bucket = settings.minio_import_bucket
         self.export_bucket = settings.minio_export_bucket
         self.avatars_bucket = settings.minio_avatars_bucket
+        self.training_bucket = settings.minio_training_bucket
 
     def ensure_bucket(self, bucket: str | None = None) -> None:
         b = bucket or self.bucket
@@ -70,6 +71,7 @@ class StorageService:
         self.ensure_bucket(self.import_bucket)
         self.ensure_bucket(self.export_bucket)
         self.ensure_bucket(self.avatars_bucket)
+        self.ensure_bucket(self.training_bucket)
         self._ensure_lifecycle()
 
     def _ensure_lifecycle(self) -> None:
@@ -178,15 +180,15 @@ class StorageService:
         (宿主可达) 在 backend 容器内解析不到; 重写成容器可达地址。v0.18.4 从
         ``ml_backends._resolve_task_url`` 抽出共用 (task URL 与 ROI crop URL 共享), 行为逐字一致。
         """
-        if settings.ml_backend_storage_host:
-            # generate_download_url 已换成浏览器地址。DEV 同源 /minio 无
-            # host，必须先还原内部绝对 URL，再改成 Docker 网关地址。
-            if settings.minio_public_url:
+        # Browser proxy paths have no origin, even when no gateway override is needed.
+        if settings.minio_public_url:
+            public = settings.minio_public_url.rstrip("/")
+            if (
+                settings.ml_backend_storage_host or public.startswith("/")
+            ) and url.startswith(public + "/"):
                 scheme = "https" if settings.minio_use_ssl else "http"
-                internal = f"{scheme}://{settings.minio_endpoint}"
-                public = settings.minio_public_url.rstrip("/")
-                if url.startswith(public + "/"):
-                    url = internal + url[len(public) :]
+                url = f"{scheme}://{settings.minio_endpoint}" + url[len(public) :]
+        if settings.ml_backend_storage_host:
             return re.sub(
                 r"://[^/]+", f"://{settings.ml_backend_storage_host}", url, count=1
             )
@@ -323,10 +325,12 @@ class StorageService:
             response = self.client.list_objects_v2(**kwargs)
             objects = [{"Key": obj["Key"]} for obj in response.get("Contents", [])]
             if objects:
-                self.client.delete_objects(
+                result = self.client.delete_objects(
                     Bucket=b,
                     Delete={"Objects": objects, "Quiet": True},
                 )
+                if result.get("Errors"):
+                    raise RuntimeError("对象存储未能删除全部对象，请重试")
                 deleted += len(objects)
             if not response.get("IsTruncated"):
                 return deleted
@@ -387,6 +391,7 @@ class StorageService:
 
     def list_all_buckets(self) -> list[str]:
         return [
+            self.training_bucket,
             self.bucket,
             self.datasets_bucket,
             self.bug_reports_bucket,

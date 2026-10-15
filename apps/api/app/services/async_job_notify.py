@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 
 TERMINAL_NOTIFY_KINDS = {
+    "training_dataset",
+    "training_run",
     "batch_predict",
     "video_tracker",
     "video_correction",

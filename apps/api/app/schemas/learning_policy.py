@@ -1,0 +1,59 @@
+"""Explicit project policy settings; no automatic threshold is guessed."""
+
+import uuid
+from datetime import datetime
+from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.training_run import TrainingParameters
+
+
+class LearningPolicySave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=0)
+    enabled: bool = False
+    parent_id: uuid.UUID
+    batch_id: uuid.UUID | None = None
+    framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
+    base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    parameters: TrainingParameters
+    min_changed_samples: int = Field(ge=1, le=20000)
+    check_interval_minutes: int = Field(ge=1, le=1440)
+    cooldown_minutes: int = Field(ge=0, le=10080)
+
+
+class LearningPolicyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    project_id: uuid.UUID
+    creator_id: uuid.UUID | None
+    revision: int
+    enabled: bool
+    config: dict
+    baseline_dataset_id: uuid.UUID | None
+    blocked_train_digest: str | None
+    last_checked_at: datetime | None
+    next_check_at: datetime | None
+    last_started_at: datetime | None
+    state: str
+    message: str | None
+
+
+class LearningTriggerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    policy_revision: int
+    dataset_id: uuid.UUID
+    status: str
+    candidate_digest: str | None
+    train_digest: str | None
+    validation_digest: str | None
+    changed_samples: int
+    message: str | None
+    created_at: datetime
+    completed_at: datetime | None
+    run_id: uuid.UUID | None = None
+
+
+class LearningTriggerPage(BaseModel):
+    total: int
+    items: list[LearningTriggerOut]

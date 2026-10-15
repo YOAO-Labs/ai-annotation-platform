@@ -66,6 +66,11 @@ from pydantic import ValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 import class_names
+from managed_models import (
+    InstallRequest,
+    ManagedModelStore,
+    authenticate as authenticate_managed,
+)
 from gpu_lifecycle import WorkloadOperation, YoloGpuLifecycle
 from model_pool import ModelBuildTimeout, ModelPool, PoolBusyError
 from model_registry import (
@@ -101,6 +106,7 @@ from schemas import (
     InteractiveRequest,
     WarmupRequest,
     WarmupResponse,
+    model_key_for_context,
 )
 
 logger = logging.getLogger("yolo-backend")
@@ -124,6 +130,7 @@ STRICT_OFFLINE = os.environ.get("YOLO_STRICT_OFFLINE", "0") not in (
     "False",
 )
 CHECKPOINTS_DIR = Path(os.environ.get("YOLO_CHECKPOINTS_DIR", "/app/checkpoints"))
+_managed_models = ManagedModelStore(CHECKPOINTS_DIR / "managed")
 # Code support and deployment verification are separate. The backend does not
 # advertise or enter enforce mode until real-card load/unload evidence exists.
 MANAGED_LIFECYCLE_VERIFIED = deployment_verified_flag("YOLO_MANAGED_LIFECYCLE_VERIFIED")
@@ -152,6 +159,12 @@ def _build_model(task: str, series: str, size: str):
     开集 series (world/yoloe) 用 YOLOWorld/YOLOE 类加载; 闭集用 YOLO. 文件名按各自规则解析.
     """
     from ultralytics import YOLO  # noqa: PLC0415, 延迟到首次 build 避免 import 阻塞启动
+
+    if series.startswith("trained:"):
+        if task != "detection":
+            raise ValueError("Controlled models support detection only")
+        path, receipt = _managed_models.resolve(series.removeprefix("trained:"), size)
+        return _move_model_to_effective_device(_managed_models.inspect(path, receipt))
 
     if is_openvocab_series(series):
         filename = resolve_openvocab_weight_filename(series, size)
@@ -895,6 +908,21 @@ def versions() -> dict[str, Any]:
     return versions_payload(MODEL_VERSION, BACKEND_VERSION, ultralytics=ul_ver)
 
 
+@app.post("/managed-models")
+async def install_managed_model(body: InstallRequest, request: Request):
+    authenticate_managed(request)
+    return await _managed_models.install(body)
+
+
+@app.get("/managed-models/{version_id}")
+async def managed_model_receipt(version_id: str, request: Request):
+    authenticate_managed(request)
+    try:
+        return await asyncio.to_thread(_managed_models.receipt, version_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid model version") from exc
+
+
 async def _run_predict(
     req: BatchPredictRequest,
     *,
@@ -904,6 +932,19 @@ async def _run_predict(
     if _predictor is None or _model_pool is None:
         raise HTTPException(status_code=503, detail="backend not ready")
     ctx: Context = req.context
+    key = model_key_for_context(ctx)
+    controlled_identity = None
+    if ctx.frozen_model_ref:
+        receipt = await asyncio.to_thread(
+            _managed_models.receipt, str(ctx.frozen_model_ref.model_version_id)
+        )
+        controlled_identity = {
+            k: receipt[k] for k in ("model_version_id", "sha256", "classes_digest")
+        }
+        if controlled_identity != ctx.frozen_model_ref.model_dump(mode="json"):
+            raise HTTPException(
+                status_code=409, detail="Controlled model identity differs"
+            )
     if not _is_supported_combo(ctx):
         raise _unsupported_combo_error(ctx.type, ctx.variants.series, ctx.variants.size)
     results: list[PredictionResult] = []
@@ -918,7 +959,12 @@ async def _run_predict(
                     task=t.id,
                     result=result_items,
                     score=score,
-                    model_version=f"{ctx.variants.series}{ctx.variants.size}",
+                    model_version=ctx.model_id
+                    if controlled_identity
+                    else f"{ctx.variants.series}{ctx.variants.size}",
+                    meta={"trained_model": controlled_identity}
+                    if controlled_identity
+                    else None,
                     inference_time_ms=infer_ms,
                     cache_hit=cache_hit,
                     model_load_ms=load_ms,
@@ -928,31 +974,24 @@ async def _run_predict(
             raise VariantNotSupportedError("model_variants", str(exc), []) from exc
         except FileNotFoundError as exc:
             raise ModelUnavailableError(
-                _pool_key(ctx.type, ctx.variants.series, ctx.variants.size),
+                _pool_key(*key),
                 str(exc),
             ) from exc
         except ModelBuildTimeout as exc:
             if operation is not None:
                 operation.track_future(exc.builder)
             raise ModelUnavailableError(
-                _pool_key(ctx.type, ctx.variants.series, ctx.variants.size),
+                _pool_key(*key),
                 str(exc),
             ) from exc
         except PoolBusyError as exc:
             raise ModelUnavailableError(
-                _pool_key(ctx.type, ctx.variants.series, ctx.variants.size),
+                _pool_key(*key),
                 str(exc),
             ) from exc
         except asyncio.CancelledError:
             if operation is not None:
-                pool_task = _pool_task_for_context(ctx)
-                operation.track_future(
-                    _model_pool.builder_for_now(
-                        pool_task,
-                        ctx.variants.series,
-                        ctx.variants.size,
-                    )
-                )
+                operation.track_future(_model_pool.builder_for_now(*key))
             raise
         except HTTPException:
             raise
@@ -977,6 +1016,13 @@ async def predict(request: Request) -> dict[str, Any]:
         body = await _request_json(request)
         is_single = isinstance(body, dict) and "task" in body and "tasks" not in body
         req = _validate_body(BatchPredictRequest, body)
+        if req.context.frozen_model_ref:
+            authenticate_managed(request)
+            if is_single:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Controlled models support batch image detection only",
+                )
         results = await _run_predict(req, operation=operation)
         if is_single:
             return results[0].model_dump(exclude_none=True)
@@ -991,6 +1037,11 @@ async def predict_interactive(request: Request) -> dict[str, Any]:
     operation = await _begin_workload(request, AdmissionScope.PREDICT)
     try:
         req = _validate_body(InteractiveRequest, await _request_json(request))
+        if req.context.frozen_model_ref:
+            raise HTTPException(
+                status_code=422,
+                detail="Controlled models do not support interactive prediction",
+            )
         results = await _run_predict(
             BatchPredictRequest(tasks=[req.task], context=req.context),
             operation=operation,
@@ -1001,6 +1052,8 @@ async def predict_interactive(request: Request) -> dict[str, Any]:
 
 
 def _is_supported_combo(ctx: Context) -> bool:
+    if ctx.frozen_model_ref:
+        return ctx.type == "detection"
     series = ctx.variants.series
     size = ctx.variants.size
     if ctx.type == "text" or is_openvocab_series(series):

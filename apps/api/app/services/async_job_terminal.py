@@ -183,6 +183,28 @@ DOMAIN_TERMINAL_RECONCILERS = {
 }
 
 
+async def reconcile_training_dataset(db, job, *, cancelled, error):
+    from app.db.models.training_dataset import TrainingDatasetVersion
+
+    version = (
+        await db.execute(
+            select(TrainingDatasetVersion)
+            .where(TrainingDatasetVersion.async_job_id == job.id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if version is not None and _locks_open(version.status):
+        version.status = "cancelled" if cancelled else "failed"
+        version.error_code = "cancelled" if cancelled else "worker_failed"
+        version.error_message = (
+            "训练数据构建已取消" if cancelled else "构建进程异常终止，可重试同一快照"
+        )
+        version.completed_at = _now()
+
+
+DOMAIN_TERMINAL_RECONCILERS["training_dataset"] = reconcile_training_dataset
+
+
 async def reconcile_domain_terminal(
     db: AsyncSession,
     job: AsyncJob,

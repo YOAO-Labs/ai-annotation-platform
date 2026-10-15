@@ -32,6 +32,7 @@ export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
       { text: "Data Manager", link: "/user-guide/projects/data-manager" },
       { text: "批次与分配", link: "/user-guide/projects/batch" },
       { text: "AI 预标注", link: "/user-guide/projects/ai-preannotate" },
+      { text: "在线学习数据版本", link: "/user-guide/projects/online-learning" },
       { text: "全局编排库", link: "/user-guide/projects/pipeline-library" },
       { text: "ML 后端绑定", link: "/user-guide/projects/ml-backends" },
       { text: "项目模板", link: "/user-guide/projects/project-templates" },

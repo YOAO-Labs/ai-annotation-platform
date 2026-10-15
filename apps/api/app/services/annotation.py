@@ -386,6 +386,9 @@ class AnnotationService:
             )
         ).scalar_one_or_none()
         pipeline_meta = (pred_meta.extra or {}).get("pipeline") if pred_meta else None
+        controlled_binding = bool(
+            pred_meta and (pred_meta.extra or {}).get("trained_model")
+        )
         if isinstance(pipeline_meta, dict):
             for st in pipeline_meta.get("stages") or []:
                 if not isinstance(st, dict) or st.get("write_target") != "attributes":
@@ -444,6 +447,8 @@ class AnnotationService:
             mapped_class = (
                 override_class_name
                 if override_class_name
+                else raw_class
+                if controlled_binding
                 else alias_to_name.get(raw_class.strip().lower(), raw_class)
             )
             # v0.10.17 · 走与 create 同一段 class_name 软校验, 避免 accept_prediction 写入

@@ -42,7 +42,7 @@ Kubernetes 编排目前不是既定路线；如果 Compose 和服务池已无法
 
 ## 生产入口与端口
 
-需要在现有主机上保留开发环境并新增独立生产业务数据时，另有[局域网生产部署](/ops/deploy/lan-production)：`docker-compose.lan-prod.yml` 使用独立 Compose 项目，Caddy 在局域网 3030/8080 终结内部 HTTPS；PostgreSQL 实例、MinIO 实例和模型服务复用，新数据库、八个桶、Redis、Worker、Beat、DuckDB 和 CA 卷独立。下面的 8088 拓扑仍适用于整栈生产覆盖文件，两个入口不要叠加使用。
+需要在现有主机上保留开发环境并新增独立生产业务数据时，另有[局域网生产部署](/ops/deploy/lan-production)：`docker-compose.lan-prod.yml` 使用独立 Compose 项目，Caddy 在局域网 3030/8080 终结内部 HTTPS；PostgreSQL 实例、MinIO 实例和模型服务复用，新数据库、九个桶、Redis、Worker、Beat、DuckDB 和 CA 卷独立。下面的 8088 拓扑仍适用于整栈生产覆盖文件，两个入口不要叠加使用。
 
 <ExcalidrawDiagram
   src="/diagrams/shared/deployment/production-network-boundaries.svg"

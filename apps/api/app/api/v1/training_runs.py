@@ -1,0 +1,465 @@
+"""Project training and the separately authenticated executor protocol."""
+
+import asyncio
+import secrets
+import uuid
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.db.models.project import Project
+from app.db.models.training_run import (
+    TrainingAttempt,
+    TrainingEvent,
+    TrainingResourceLease,
+    TrainingRun,
+)
+from app.db.models.user import User
+from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.schemas.training_run import (
+    ExecutorClaim,
+    ExecutorFinish,
+    ExecutorHeartbeat,
+    ExecutorRecovery,
+    ExecutorUpload,
+    TrainingAttemptOut,
+    TrainingRunCreate,
+    TrainingRunOut,
+)
+from app.api.v1.training_datasets import lock_owner
+from app.services import training_runs as service
+from app.services.storage import storage_service as storage
+from app.services.training_dataset_bridge import content_digest
+
+router = APIRouter(
+    prefix="/projects/{project_id}/training-runs",
+    dependencies=[Depends(require_scopes("annotations:read", "datasets:read"))],
+)
+
+
+async def executor_auth(x_training_executor_token: str = Header(default="")):
+    expected = settings.training_executor_token
+    if (
+        not settings.training_enabled
+        or len(expected) < 32
+        or not secrets.compare_digest(expected, x_training_executor_token)
+    ):
+        raise HTTPException(status_code=403, detail="执行器认证失败")
+
+
+executor_router = APIRouter(
+    prefix="/internal/training", dependencies=[Depends(executor_auth)]
+)
+
+
+async def load_run(db, project_id, run_id, *, lock=False):
+    statement = select(TrainingRun).where(
+        TrainingRun.id == run_id, TrainingRun.project_id == project_id
+    )
+    if lock:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
+    run = await db.scalar(statement)
+    if run is None:
+        raise HTTPException(status_code=404, detail="训练实验不存在")
+    return run
+
+
+@router.get("/catalog")
+async def catalog(
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    result = service.catalog()
+    lease = await db.get(TrainingResourceLease, service.resource_id())
+    result["online"] = bool(
+        lease
+        and lease.last_seen_at
+        and lease.last_seen_at > service.now() - timedelta(seconds=30)
+    )
+    result["busy"] = bool(lease and lease.attempt_id)
+    return result
+
+
+@router.post(":preflight", dependencies=[Depends(require_scopes("datasets:write"))])
+async def preflight(
+    body: TrainingRunCreate,
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    config = await service.frozen_config(db, project.id, body)
+    return {"config": config, "config_digest": content_digest(config)}
+
+
+@router.post(
+    "",
+    response_model=TrainingRunOut,
+    status_code=202,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def create_run(
+    body: TrainingRunCreate,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await db.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
+    )
+    await lock_owner(db, user, project)
+    request_digest = content_digest(body.model_dump(mode="json"))
+    existing = await db.scalar(
+        select(TrainingRun).where(
+            TrainingRun.project_id == project.id,
+            TrainingRun.request_id == body.request_id,
+        )
+    )
+    if existing:
+        if existing.request_digest != request_digest:
+            raise HTTPException(status_code=409, detail="同一请求标识不能用于不同实验")
+        return existing
+    config = await service.frozen_config(db, project.id, body)
+    if body.preflight_digest != content_digest(config):
+        raise HTTPException(
+            status_code=409, detail="训练配置已变化或尚未检查，请重新预检"
+        )
+    run = TrainingRun(
+        project_id=project.id,
+        creator_id=user.id,
+        dataset_id=body.dataset_id,
+        request_id=body.request_id,
+        request_digest=request_digest,
+        name=body.name,
+        config=config,
+        config_digest=content_digest(config),
+        authorization={"api_key_id": getattr(request.state, "api_key_id", None)},
+    )
+    db.add(run)
+    await db.flush()
+    await service.new_attempt(db, run)
+    await db.commit()
+    return run
+
+
+@router.get("")
+async def list_runs(
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    if service.catalog()["enabled"]:
+        lease = await service.lock_resource(db)
+        await service.observe_lost(db, lease)
+        await db.commit()
+    total = await db.scalar(
+        select(func.count())
+        .select_from(TrainingRun)
+        .where(TrainingRun.project_id == project.id)
+    )
+    items = (
+        await db.scalars(
+            select(TrainingRun)
+            .where(TrainingRun.project_id == project.id)
+            .order_by(TrainingRun.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    return {
+        "total": total,
+        "items": [
+            TrainingRunOut.model_validate(item).model_dump(mode="json")
+            for item in items
+        ],
+    }
+
+
+@router.get("/{run_id}")
+async def get_run(
+    run_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    run = await load_run(db, project.id, run_id)
+    attempts = (
+        await db.scalars(
+            select(TrainingAttempt)
+            .where(TrainingAttempt.run_id == run.id)
+            .order_by(TrainingAttempt.ordinal.desc())
+        )
+    ).all()
+    return {
+        "run": TrainingRunOut.model_validate(run).model_dump(mode="json"),
+        "attempts": [
+            TrainingAttemptOut.model_validate(attempt).model_dump(mode="json")
+            for attempt in attempts
+        ],
+    }
+
+
+@router.get("/{run_id}/events")
+async def get_events(
+    run_id: uuid.UUID,
+    attempt_id: uuid.UUID | None = None,
+    after: int = Query(0, ge=0),
+    latest: bool = False,
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    run = await load_run(db, project.id, run_id)
+    attempt = await db.get(TrainingAttempt, attempt_id or run.current_attempt_id)
+    if attempt is None or attempt.run_id != run.id:
+        raise HTTPException(status_code=404, detail="执行尝试不存在")
+    statement = (
+        select(TrainingEvent)
+        .where(TrainingEvent.attempt_id == attempt.id, TrainingEvent.sequence > after)
+        .order_by(TrainingEvent.sequence.desc() if latest else TrainingEvent.sequence)
+    )
+    events = (await db.scalars(statement.limit(100))).all()
+    if latest:
+        events.reverse()
+    return {
+        "attempt_id": str(attempt.id),
+        "items": [
+            {"sequence": e.sequence, "kind": e.kind, **e.payload} for e in events
+        ],
+    }
+
+
+@router.post(
+    "/{run_id}/cancel",
+    response_model=TrainingRunOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def cancel_run(
+    run_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await lock_owner(db, user, project)
+    run = await load_run(db, project.id, run_id, lock=True)
+    attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+    if run.status in service.TERMINAL:
+        raise HTTPException(status_code=409, detail="训练实验已结束")
+    if run.status == "queued":
+        await service.mark_terminal(db, run, attempt, "cancelled")
+    else:
+        run.status = attempt.status = "cancelling"
+    await db.commit()
+    return run
+
+
+@router.post(
+    "/{run_id}/resume",
+    response_model=TrainingRunOut,
+    status_code=202,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def resume_run(
+    run_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    preliminary = await load_run(db, project.id, run_id)
+    if preliminary.auto_trigger_id:
+        from app.services import learning_policies
+
+        await learning_policies.project_lock(db, project.id)
+        from app.db.models.learning_policy import LearningTrigger
+
+        if await learning_policies.active_run(
+            db, project.id, excluding=run_id
+        ) or await db.scalar(
+            select(LearningTrigger.id)
+            .where(
+                LearningTrigger.project_id == project.id,
+                LearningTrigger.status.in_(learning_policies.ACTIVE_TRIGGERS),
+                LearningTrigger.id != preliminary.auto_trigger_id,
+            )
+            .limit(1)
+        ):
+            raise HTTPException(
+                status_code=409, detail="项目已有其他自动候选或实验，请先结束它"
+            )
+    lease = await service.lock_resource(db, preliminary.config["resource_id"])
+    await lock_owner(db, user, project)
+    run = await load_run(db, project.id, run_id, lock=True)
+    if (
+        run.status not in {"failed", "cancelled"}
+        or lease.attempt_id == run.current_attempt_id
+    ):
+        raise HTTPException(status_code=409, detail="旧训练必须确认停止后才可恢复")
+    await service.authority(db, run)
+    parent = await db.get(TrainingAttempt, run.current_attempt_id)
+    checkpoint = next(
+        (item for item in parent.artifacts.values() if item["role"] == "checkpoint"),
+        None,
+    )
+    if (
+        not checkpoint
+        or not checkpoint.get("epoch")
+        or checkpoint["epoch"] >= run.config["parameters"]["epochs"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="没有可恢复的未完成 checkpoint，请创建新实验"
+        )
+    await service.new_attempt(db, run, resume_from=parent.id)
+    if run.auto_trigger_id:
+        run.authorization = {**run.authorization, "manual_resume": True}
+        trigger = await db.get(LearningTrigger, run.auto_trigger_id)
+        trigger.status, trigger.completed_at = "queued", None
+    await db.commit()
+    return run
+
+
+@router.get("/{run_id}/attempts/{attempt_id}/artifacts/{name}/download")
+async def download_artifact(
+    run_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    name: str,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await lock_owner(db, user, project)
+    run = await load_run(db, project.id, run_id)
+    attempt = await db.get(TrainingAttempt, attempt_id)
+    artifact = (
+        (attempt.artifacts or {}).get(name)
+        if attempt and attempt.run_id == run.id
+        else None
+    )
+    if not artifact or attempt.status not in service.TERMINAL:
+        raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
+    if not await asyncio.to_thread(
+        storage.verify_upload, artifact["key"], bucket=storage.training_bucket
+    ):
+        raise HTTPException(status_code=409, detail="训练产物已不可用，请联系管理员")
+    return {
+        "url": storage.generate_download_url(
+            artifact["key"],
+            expires_in=600,
+            bucket=storage.training_bucket,
+            download_name=name,
+            align=False,
+        ),
+        "sha256": artifact["sha256"],
+        "size_bytes": artifact["size_bytes"],
+    }
+
+
+@router.delete(
+    "/{run_id}",
+    status_code=204,
+    response_class=Response,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def delete_run(
+    run_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    preliminary = await load_run(db, project.id, run_id)
+    if preliminary.auto_trigger_id:
+        from app.services.learning_policies import project_lock
+
+        await project_lock(db, project.id)
+    await lock_owner(db, user, project)
+    run = await load_run(db, project.id, run_id, lock=True)
+    if run.status not in service.TERMINAL:
+        raise HTTPException(status_code=409, detail="训练尚未结束，不能删除")
+    if run.auto_trigger_id:
+        from app.db.models.learning_policy import LearningTrigger
+
+        trigger = await db.get(LearningTrigger, run.auto_trigger_id)
+        if trigger.status in {"building", "queued", "running"}:
+            raise HTTPException(
+                status_code=409, detail="请先检查自动策略以同步实验终态，再删除实验"
+            )
+    from app.db.models.trained_model import TrainedModelVersion
+
+    if await db.scalar(
+        select(TrainedModelVersion.id)
+        .where(TrainedModelVersion.run_id == run.id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=409, detail="训练产物已被模型版本引用，不能删除"
+        )
+    await asyncio.to_thread(
+        storage.delete_prefix,
+        f"projects/{project.id}/runs/{run.id}/",
+        bucket=storage.training_bucket,
+    )
+    await db.delete(run)
+    await db.commit()
+
+
+@executor_router.post("/claim")
+async def claim(body: ExecutorClaim, db: AsyncSession = Depends(get_db)) -> dict:
+    result = await service.claim(db, body)
+    await db.commit()
+    return {"assignment": result}
+
+
+@executor_router.post("/attempts/{attempt_id}/heartbeat")
+async def heartbeat(
+    attempt_id: uuid.UUID, body: ExecutorHeartbeat, db: AsyncSession = Depends(get_db)
+) -> dict:
+    result = await service.heartbeat(db, attempt_id, body)
+    await db.commit()
+    return result
+
+
+@executor_router.post("/attempts/{attempt_id}/uploads")
+async def uploads(
+    attempt_id: uuid.UUID, body: ExecutorUpload, db: AsyncSession = Depends(get_db)
+) -> dict:
+    result = await service.authorize_upload(db, attempt_id, body)
+    await db.commit()
+    return result
+
+
+@executor_router.post(
+    "/attempts/{attempt_id}/finish", response_model=TrainingAttemptOut
+)
+async def finish(
+    attempt_id: uuid.UUID, body: ExecutorFinish, db: AsyncSession = Depends(get_db)
+):
+    result = await service.finish(db, attempt_id, body)
+    await db.commit()
+    return result
+
+
+@executor_router.post("/attempts/{attempt_id}/recover")
+async def recover(
+    attempt_id: uuid.UUID, body: ExecutorRecovery, db: AsyncSession = Depends(get_db)
+) -> dict:
+    if body.new_boot_id == body.boot_id:
+        raise HTTPException(status_code=422, detail="恢复需要新的执行器启动身份")
+    lease, run, attempt = await service.fenced(
+        db, attempt_id, body, allow_terminal=True
+    )
+    if attempt.status not in service.TERMINAL:
+        if lease.attempt_id != attempt.id:
+            raise HTTPException(status_code=409, detail="GPU 租约已变化")
+        await service.mark_terminal(
+            db,
+            run,
+            attempt,
+            "cancelled" if run.status == "cancelling" else "failed",
+            "执行器重启，已通过独占资源锁确认旧进程退出",
+        )
+        attempt.runtime = {**attempt.runtime, "recovery_boot_id": str(body.new_boot_id)}
+        lease.attempt_id = None
+    await db.commit()
+    return {"recovered": True}
