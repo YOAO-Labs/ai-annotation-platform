@@ -4,10 +4,9 @@ import { expect } from "@playwright/test";
 import type { AsyncJob } from "../../../src/api/asyncJobs";
 
 // Deterministic management observations, not model-inference evidence.
-function makeJob(i: number, status: AsyncJob["status"] = "completed"): AsyncJob {
-  const startedAt = new Date(Date.now() - (i + 1) * 3600_000).toISOString();
-  const completedAt =
-    status === "running" ? null : new Date(Date.now() - i * 3600_000).toISOString();
+function makeJob(i: number, status: AsyncJob["status"], now: number): AsyncJob {
+  const startedAt = new Date(now - (i + 1) * 3600_000).toISOString();
+  const completedAt = status === "running" ? null : new Date(now - i * 3600_000).toISOString();
   const prompts = [
     "person, car, truck",
     "traffic light, stop sign",
@@ -67,10 +66,11 @@ export const AI_PRE_SCENES: ScreenshotScene[] = [
     route: () => "/ai-pre/jobs",
     prepare: async (page) => {
       // Match the current async-jobs API and its server-side prompt search.
+      const now = await page.evaluate(() => Date.now());
       await page.route("**/api/v1/async-jobs*", async (route) => {
         const search = new URL(route.request().url()).searchParams.get("search") ?? "";
         const items = Array.from({ length: 8 }, (_, i) =>
-          makeJob(i, i === 1 ? "running" : i === 7 ? "failed" : "completed"),
+          makeJob(i, i === 1 ? "running" : i === 7 ? "failed" : "completed", now),
         ).filter((job) => String(job.payload.prompt).includes(search));
         await route.fulfill({
           status: 200,
