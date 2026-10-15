@@ -256,7 +256,7 @@ jobs:
           node --test scripts/audit-e2e-requirements.test.mjs
           scripts/check-workflow-names.test.mjs scripts/dev-worktree.test.mjs
           scripts/image-reference-utils.test.mjs scripts/plan-e2e-suites.test.mjs
-          scripts/summarize-e2e-results.test.mjs
+          scripts/summarize-e2e-results.test.mjs scripts/select-e2e-report-artifacts.test.mjs
       - name: Workflow naming
         run: node scripts/check-workflow-names.mjs --strict
 
@@ -370,17 +370,28 @@ jobs:
   e2e:
     name: Frontend E2E
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     needs: [e2e-plan, e2e-suites]
     if: always()
     steps:
       - uses: actions/checkout@v4
-      - name: Collect per-suite status artifacts
+      - name: Collect latest per-suite status artifacts
         if: always()
-        uses: actions/download-artifact@v4
-        with:
-          pattern: playwright-report-*
-          path: suite-status-raw
-          merge-multiple: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ids=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" | jq -r -f scripts/select-e2e-report-artifacts.jq)
+          IFS=',' read -r -a artifact_ids <<< "$ids"
+          archive=$(mktemp)
+          trap 'rm -f "$archive"' EXIT
+          mkdir -p suite-status-raw/suite-status
+          for artifact_id in "${artifact_ids[@]}"; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
+            unzip -joq "$archive" 'suite-status/*.json' -d suite-status-raw/suite-status
+          done
       - name: Audit planned suites against actual results
         if: needs.e2e-plan.outputs.required != ''
         env:

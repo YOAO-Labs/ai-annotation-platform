@@ -14,6 +14,7 @@ import {
   READ_CAPABILITIES,
 } from "@/test/dataManagerApi";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { useAuthStore } from "@/stores/authStore";
 
 import { ProjectDataManagerPage } from "./ProjectDataManagerPage";
 import { updateDataManagerUrl } from "./data-manager/dataManagerUrlState";
@@ -324,32 +325,54 @@ describe("ProjectDataManagerPage task data", () => {
     expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
   });
 
-  it("rejects a deeply nested URL filter before querying", async () => {
-    const captured = installDataManagerApi();
-    let filter: Record<string, unknown> = {
-      field: "task.status",
-      op: "eq",
-      value: "pending",
-    };
-    for (let index = 0; index < 1000; index += 1) {
-      filter = { op: "and", rules: [filter] };
-    }
-    const search = updateDataManagerUrl("", {
-      lens: "tasks",
-      view: "builtin:all",
-      query: "",
-      filter,
-      sort: [{ field: "task.created_at", direction: "asc" }],
-      columns: ["display_id"],
-      selected: null,
-    }).toString();
+  it.each([false, true])(
+    "rejects a deeply nested URL filter before querying (profile refresh: %s)",
+    async (refreshProfile) => {
+      const captured = installDataManagerApi();
+      let filter: Record<string, unknown> = {
+        field: "task.status",
+        op: "eq",
+        value: "pending",
+      };
+      for (let index = 0; index < 1000; index += 1) {
+        filter = { op: "and", rules: [filter] };
+      }
+      const search = updateDataManagerUrl("", {
+        lens: "tasks",
+        view: "builtin:all",
+        query: "",
+        filter,
+        sort: [{ field: "task.created_at", direction: "asc" }],
+        columns: ["display_id"],
+        selected: null,
+      }).toString();
 
-    renderDataManager(`/projects/p1/data-manager?${search}`);
+      const { queryClient } = renderDataManager(`/projects/p1/data-manager?${search}`);
+      let refreshed = false;
+      const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+        if (!refreshProfile || refreshed || event.type !== "observerOptionsUpdated") return;
+        if (event.query.queryKey[0] !== "project-task-query") return;
+        const views = queryClient.getQueryCache().find({
+          queryKey: ["task-views", "p1", "tasks"],
+          exact: false,
+        });
+        const user = useAuthStore.getState().user;
+        if (!views?.state.data || !user) return;
+        // A profile notification can interrupt pending filter restoration state.
+        refreshed = true;
+        useAuthStore.setState({ user: { ...user, name: "Updated profile" } });
+      });
 
-    await waitFor(() => expect(screen.getByText(/筛选条件嵌套超过/)).toBeInTheDocument());
-    expect(captured.taskQueries).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
-  });
+      try {
+        await waitFor(() => expect(screen.getByText(/筛选条件嵌套超过/)).toBeInTheDocument());
+        expect(refreshed).toBe(refreshProfile);
+        expect(captured.taskQueries).toHaveLength(0);
+        expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
 });
 
 describe("ProjectDataManagerPage project permissions", () => {

@@ -506,7 +506,9 @@ function TaskDataManagerPage({
     () => typeof window !== "undefined" && localStorage.getItem("dm-analytics-open") === "1",
   );
   const [viewsRailOpen, setViewsRailOpen] = useState(true);
+  // The ref blocks effects immediately; state enables queries after filters commit.
   const urlHydratedRef = useRef(false);
+  const [queryHydrated, setQueryHydrated] = useState(false);
   const lastWrittenUrlRef = useRef<string | null>(null);
   const pendingViewKeyRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
@@ -574,6 +576,7 @@ function TaskDataManagerPage({
     const requestedKey = requestedDataManagerViewKey(currentUrl);
     if (requestedKey !== selectedKey) {
       urlHydratedRef.current = false;
+      setQueryHydrated(false);
       setSelectedKey(requestedKey);
     }
   }, [currentUrl.lens, currentUrl.view, searchParams, selectedKey]);
@@ -584,6 +587,7 @@ function TaskDataManagerPage({
       const firstKey = resolveDataManagerViewKey(selectedKey, views);
       if (!firstKey) return;
       urlHydratedRef.current = false;
+      setQueryHydrated(false);
       setSelectedKey(firstKey);
       setSearchParams(
         updateDataManagerUrl(searchParams, {
@@ -608,6 +612,7 @@ function TaskDataManagerPage({
       lastWrittenUrlRef.current = null;
       if (pendingViewKeyRef.current !== selectedKey) {
         urlHydratedRef.current = true;
+        setQueryHydrated(true);
         return;
       }
       pendingViewKeyRef.current = null;
@@ -658,6 +663,7 @@ function TaskDataManagerPage({
           }),
     );
     urlHydratedRef.current = true;
+    setQueryHydrated(true);
     skipUrlSyncRef.current = true;
     setPage(0);
   }, [
@@ -684,6 +690,7 @@ function TaskDataManagerPage({
       selectedTasks: null,
     });
     urlHydratedRef.current = false;
+    setQueryHydrated(false);
     pendingViewKeyRef.current = key;
     lastWrittenUrlRef.current = next.toString();
     setSelectedTaskIds([]);
@@ -762,6 +769,7 @@ function TaskDataManagerPage({
     selectedView &&
     schemaQ.data &&
     urlHydratedRef.current &&
+    queryHydrated &&
     expressionValid &&
     sort.length &&
     sort.every((item) => schemaQ.data.sort_fields.some((field) => field.value === item.field)),

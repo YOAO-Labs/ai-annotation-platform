@@ -52,17 +52,28 @@ jobs:
   audit:
     name: Frontend extended audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     needs: [plan, suites]
     if: always()
     steps:
       - uses: actions/checkout@v4
-      - name: Collect per-suite status artifacts
+      - name: Collect latest per-suite status artifacts
         if: always()
-        uses: actions/download-artifact@v4
-        with:
-          pattern: playwright-report-*
-          path: suite-status-raw
-          merge-multiple: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ids=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" | jq -r -f scripts/select-e2e-report-artifacts.jq)
+          IFS=',' read -r -a artifact_ids <<< "$ids"
+          archive=$(mktemp)
+          trap 'rm -f "$archive"' EXIT
+          mkdir -p suite-status-raw/suite-status
+          for artifact_id in "${artifact_ids[@]}"; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
+            unzip -joq "$archive" 'suite-status/*.json' -d suite-status-raw/suite-status
+          done
       - name: Audit planned suites against actual results
         if: needs.plan.outputs.required != ''
         env:
