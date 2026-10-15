@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T13:05:06.328Z",
+  "updated_at": "2026-10-15T13:09:23.670Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -1642,8 +1642,8 @@
     "docs-site/public/media/ai/secondary-inference-attribute-poster.webp": {
       "asset_id": "secondary-inference-attribute",
       "role": "poster",
-      "generated_at": "2026-09-08T06:40:44.949Z",
-      "captured_commit": "4b648ef86076ec48efbc6141ead0fc1365aded62",
+      "generated_at": "2026-10-15T13:09:23.670Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1662,8 +1662,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "db120778656467ebb1562831ed6d5ba29764bf2728db62b0236c7253cd7dd1b1",
-      "bytes": 68136,
+      "sha256": "81e59ad64cdedeeff1b249be2550a449b21ba8d4610f3f1f8c7e347311644c2c",
+      "bytes": 64178,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1677,21 +1677,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-57-41-296Z-414962",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "secondary-inference-attribute",
-        "sha256": "1e67ee24f388a5f810709b1594dd66cdbe9f6ef4d17ce51f73ea8c076a29e1ac",
+        "sha256": "5b107cfd3b6d109171f1418e83b63232d8a7cbb5740c43cb01db6c0063efeb3f",
         "quality": "standard",
         "clip": {
-          "start": 266.25,
-          "duration": 19.15
+          "start": 237,
+          "duration": 14.9
         }
       }
     },
     "docs-site/public/media/ai/secondary-inference-attribute.mp4": {
       "asset_id": "secondary-inference-attribute",
       "role": "docs-video",
-      "generated_at": "2026-09-08T06:40:44.865Z",
-      "captured_commit": "4b648ef86076ec48efbc6141ead0fc1365aded62",
+      "generated_at": "2026-10-15T13:09:23.627Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1710,28 +1710,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "421d079efc439e289c80a129d7c76f2b5f218661230af194b33e5805f86a7a10",
-      "bytes": 474276,
+      "sha256": "b2ea1753c6bbcb039aa2841dca6c1200cebc22272e95ae585c60541a782b7acb",
+      "bytes": 464521,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 19.16
+        "duration_seconds": 14.92
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-57-41-296Z-414962",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "secondary-inference-attribute",
-        "sha256": "1e67ee24f388a5f810709b1594dd66cdbe9f6ef4d17ce51f73ea8c076a29e1ac",
+        "sha256": "5b107cfd3b6d109171f1418e83b63232d8a7cbb5740c43cb01db6c0063efeb3f",
         "quality": "standard",
         "clip": {
-          "start": 266.25,
-          "duration": 19.15
+          "start": 237,
+          "duration": 14.9
         }
       }
     },
