@@ -36,7 +36,6 @@ import {
 
 import { macCaptureReady } from "../../../scripts/mac-marketing-capture.mjs";
 
-
 const RUN: MarketingRunContext = {
   runId: "20260814T000000Z-0123456789ab",
   createdAt: "2026-08-14T00:00:00.000Z",

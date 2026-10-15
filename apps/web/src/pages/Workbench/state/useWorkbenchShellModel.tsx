@@ -1670,11 +1670,7 @@ export function useWorkbenchShellModel({
   } = usePreannotationProgress(projectId);
   const sceneMayEdit =
     mode === "annotate" && !!task && task.status !== "review" && task.status !== "completed";
-  const taskLockPhaseAllowed = canAcquireWorkbenchTaskLock(
-    mode,
-    task?.status,
-    projectWriteBlocked,
-  );
+  const taskLockPhaseAllowed = canAcquireWorkbenchTaskLock(mode, task?.status, projectWriteBlocked);
   const {
     lockError,
     lockConflict,
@@ -2741,10 +2737,7 @@ export function useWorkbenchShellModel({
     projectWriteBlocked ||
     sceneWriteBlocked ||
     (mode === "review"
-      ? task?.status !== "review" ||
-        videoCollaborationEnabled ||
-        !!lockConflict ||
-        !!lockError
+      ? task?.status !== "review" || videoCollaborationEnabled || !!lockConflict || !!lockError
       : task?.status === "review" ||
         task?.status === "completed" ||
         !!lockConflict ||
