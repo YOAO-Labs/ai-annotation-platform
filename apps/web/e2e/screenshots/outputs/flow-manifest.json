@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T12:57:48.792Z",
+  "updated_at": "2026-10-15T13:05:06.328Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -1258,9 +1258,9 @@
     "docs-site/public/media/ai/current-task-image-inference-poster.webp": {
       "asset_id": "current-task-image-inference",
       "role": "poster",
-      "generated_at": "2026-09-07T10:20:53.377Z",
-      "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T13:05:06.328Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › current-task-image-inference",
@@ -1269,6 +1269,7 @@
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
         "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/current-task-image-inference.ts",
@@ -1277,8 +1278,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "b206768a92fb343ef6bbb1d22662776d4b666308ecd66513c170a23d868d47e8",
-      "bytes": 75702,
+      "sha256": "7b715384aacf72c99fc5591138fedc8cb2575575afc5f85373a38e19d64f04ed",
+      "bytes": 80316,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1292,22 +1293,22 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-12-40-536Z-2091508",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "current-task-image-inference",
-        "sha256": "49c511e4bc403085429eda2600096769a09ced9516b3b8da1c4cb0099a51acc1",
+        "sha256": "9c6b5d01a702678aa65e5843c93ee22e84db87355f2deb4c009acd4638931660",
         "quality": "standard",
         "clip": {
-          "start": 126.3,
-          "duration": 18
+          "start": 376,
+          "duration": 18.4
         }
       }
     },
     "docs-site/public/media/ai/current-task-image-inference.mp4": {
       "asset_id": "current-task-image-inference",
       "role": "docs-video",
-      "generated_at": "2026-09-07T10:20:53.290Z",
-      "captured_commit": "a6044bbf4fef17967a90e4c0600ff0145f15e12a",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T13:05:06.289Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › current-task-image-inference",
@@ -1316,6 +1317,7 @@
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
         "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/current-task-image-inference.ts",
@@ -1324,28 +1326,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "97917b7f54cc655cf5280a71ceb9476609f382e428a29fbe206db5ea88ed3fc5",
-      "bytes": 578229,
+      "sha256": "5ed134b1481f9952b689159a786dc4e8ada03943a546cf7e6d871e9cd8dbdc45",
+      "bytes": 606590,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 18.04
+        "duration_seconds": 18.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T10-12-40-536Z-2091508",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "current-task-image-inference",
-        "sha256": "49c511e4bc403085429eda2600096769a09ced9516b3b8da1c4cb0099a51acc1",
+        "sha256": "9c6b5d01a702678aa65e5843c93ee22e84db87355f2deb4c009acd4638931660",
         "quality": "standard",
         "clip": {
-          "start": 126.3,
-          "duration": 18
+          "start": 376,
+          "duration": 18.4
         }
       }
     },
