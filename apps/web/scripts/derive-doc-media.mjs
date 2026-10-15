@@ -78,7 +78,7 @@ const POSTER_AT_SECONDS = new Map([
   ["storage-connector-create-test", 16],
   ["video-track-batch-propagate", 2.5],
   ["video-track", 24],
-  ["video-propagate-track-vs-copy", 14],
+  ["video-propagate-track-vs-copy", 31],
   ["video-mask-correction-propagate", 25],
   ["video-issue-resolution", 23],
   ["project-guide-autosave", 16],
