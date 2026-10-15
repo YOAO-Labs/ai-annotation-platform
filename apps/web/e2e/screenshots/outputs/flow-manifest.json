@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T13:33:38.365Z",
+  "updated_at": "2026-10-15T13:37:05.661Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -1066,9 +1066,9 @@
     "docs-site/public/media/ai/candidate-review-lifecycle-poster.webp": {
       "asset_id": "candidate-review-lifecycle",
       "role": "poster",
-      "generated_at": "2026-09-07T14:51:49.659Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T13:37:05.661Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › candidate-review-lifecycle",
@@ -1087,8 +1087,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "478dd5b9463191123ab7d2fb04ede102a936385c8af7ec9b8bbf0ac6234f2652",
-      "bytes": 54316,
+      "sha256": "5445dd0b3730729244ff3eb011af3ab5f270848bb849c68055c8695747a87beb",
+      "bytes": 68624,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1102,12 +1102,12 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "candidate-review-lifecycle",
-        "sha256": "a93c2d73c6d4556902e8d463345a32bf7fe42f4e44f48b417b1a03430d8d8485",
+        "sha256": "1c96089c4c274aa401c3f3207de67d5e26c842d10876a93e1277a3dd243c7ac6",
         "quality": "standard",
         "clip": {
-          "start": 4.6,
+          "start": 174,
           "duration": 15
         }
       }
@@ -1115,9 +1115,9 @@
     "docs-site/public/media/ai/candidate-review-lifecycle.mp4": {
       "asset_id": "candidate-review-lifecycle",
       "role": "docs-video",
-      "generated_at": "2026-09-07T14:51:49.578Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T13:37:05.618Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › candidate-review-lifecycle",
@@ -1136,8 +1136,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "2a860751f56a274f5af554646b25b8ac23c29783c1a16bbef7800b2351337a91",
-      "bytes": 466133,
+      "sha256": "868e40d2285ca0518fd022872c841a6551f557253d2890c81fd4db99198994eb",
+      "bytes": 568205,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
@@ -1151,12 +1151,12 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "candidate-review-lifecycle",
-        "sha256": "a93c2d73c6d4556902e8d463345a32bf7fe42f4e44f48b417b1a03430d8d8485",
+        "sha256": "1c96089c4c274aa401c3f3207de67d5e26c842d10876a93e1277a3dd243c7ac6",
         "quality": "standard",
         "clip": {
-          "start": 4.6,
+          "start": 174,
           "duration": 15
         }
       }
