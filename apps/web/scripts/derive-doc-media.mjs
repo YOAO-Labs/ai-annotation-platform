@@ -16,7 +16,7 @@ const REPO_ROOT = path.resolve(HERE, "../../..");
 
 const POSTER_AT_SECONDS = new Map([
   ["project-onboarding", 19],
-  ["ai-preannotate", 12.5],
+  ["ai-preannotate", 14.2],
   ["video-tracker-range", 32.8],
   ["video-tracker-cross-frame-points", 26],
   ["video-tracker-positive-negative", 29.3],

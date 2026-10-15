@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T12:32:41.951Z",
+  "updated_at": "2026-10-15T12:38:49.029Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -1403,8 +1403,8 @@
     "docs-site/public/media/ai/preannotate-poster.webp": {
       "asset_id": "ai-preannotate",
       "role": "poster",
-      "generated_at": "2026-09-08T04:55:58.591Z",
-      "captured_commit": "43a4f9f80cd1059375ac555ab903d1068d301d4c",
+      "generated_at": "2026-10-15T12:38:49.029Z",
+      "captured_commit": "9eed9a12a37085fe8b769fcfe8e147713a4e4ac5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1423,8 +1423,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "67e0414f5d2d546d368faaaa0c8f951ed558b9e927407ee17da9df4af8c4305e",
-      "bytes": 87086,
+      "sha256": "1afb01cc7f1c94035c54aae25724016d09452cbb6922f690e6a28f160759b9f7",
+      "bytes": 89516,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1438,21 +1438,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-40-38-568Z-363088",
+        "runId": "2026-10-15T12-14-23-799Z-1492310",
         "assetId": "ai-preannotate",
-        "sha256": "95b20e918064b9991f353f659c03d5b152f17df23d940b9b9d6a637fe4e8cf65",
+        "sha256": "4fa9e935cf8487ea5ab8a728a3c98a2113f3e3a799e1c4c0c9ee74489342c61d",
         "quality": "standard",
         "clip": {
-          "start": 211,
-          "duration": 14.2
+          "start": 268.6,
+          "duration": 16.4
         }
       }
     },
     "docs-site/public/media/ai/preannotate.mp4": {
       "asset_id": "ai-preannotate",
       "role": "docs-video",
-      "generated_at": "2026-09-08T04:55:58.517Z",
-      "captured_commit": "43a4f9f80cd1059375ac555ab903d1068d301d4c",
+      "generated_at": "2026-10-15T12:38:48.995Z",
+      "captured_commit": "9eed9a12a37085fe8b769fcfe8e147713a4e4ac5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1471,28 +1471,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "517f569d427456f4095e7eff31a404d137d7c5d19130b895c2e181d6cd7b5ede",
-      "bytes": 518822,
+      "sha256": "7ec4afbf314f88cecb68778f0d94acc7e1df0ed3bd2392c2be392e43cf29fdd0",
+      "bytes": 536948,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 14.2
+        "duration_seconds": 16.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-40-38-568Z-363088",
+        "runId": "2026-10-15T12-14-23-799Z-1492310",
         "assetId": "ai-preannotate",
-        "sha256": "95b20e918064b9991f353f659c03d5b152f17df23d940b9b9d6a637fe4e8cf65",
+        "sha256": "4fa9e935cf8487ea5ab8a728a3c98a2113f3e3a799e1c4c0c9ee74489342c61d",
         "quality": "standard",
         "clip": {
-          "start": 211,
-          "duration": 14.2
+          "start": 268.6,
+          "duration": 16.4
         }
       }
     },
