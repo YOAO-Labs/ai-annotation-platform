@@ -657,7 +657,7 @@ export async function runModelMarketRuntimePartialFailure(
   await expect(page.getByRole("heading", { name: "模型市场" })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("车辆检测多实例池", { exact: true })).toBeVisible();
   await expect(page.getByText("OCR 文档识别池", { exact: true })).toBeVisible();
-  await expect(page.getByText("4 / 5", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("4 / 5 新鲜", { exact: true }).first()).toBeVisible();
 
   const drawStartMs = Date.now();
   await page.waitForTimeout(2_200);
@@ -693,14 +693,14 @@ export async function runModelMarketGpuResourceOverview(
   await installRuntimeFixture(page, catalog);
   await page.goto("/model-market?tab=registry");
   await expect(page.getByRole("heading", { name: "模型市场" })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole("tab", { name: "服务池", exact: true })).toBeVisible({
+  await expect(page.getByRole("tab", { name: /^服务池(?: \d+)?$/ })).toBeVisible({
     timeout: 10_000,
   });
 
   const drawStartMs = Date.now();
   await page.waitForTimeout(2_200);
 
-  const gpuTab = page.getByRole("tab", { name: "GPU 资源", exact: true });
+  const gpuTab = page.getByRole("tab", { name: /^GPU 资源(?: \d+)?$/ });
   await moveTo(page, gpuTab);
   await gpuTab.click();
   const summary = page.getByTestId("gpu-resource-summary");
@@ -709,8 +709,8 @@ export async function runModelMarketGpuResourceOverview(
   await expect(summary).toContainText("enforce");
   await expect(summary).toContainText("Observe 就绪");
   await expect(summary).toContainText("Enforce 未就绪");
-  await expect(page.getByText("demo-node-a/GPU-0", { exact: true })).toBeVisible();
-  const blockedRow = page.locator("tr").filter({ hasText: "demo-node-b/GPU-0" }).first();
+  await expect(page.locator('[data-gpu-row="demo-node-a/GPU-0"]')).toBeVisible();
+  const blockedRow = page.locator('[data-gpu-row="demo-node-b/GPU-0"]');
   await expect(blockedRow).toContainText("阻断");
   await expect(blockedRow).toContainText("配置 · enforce");
   await expect(blockedRow).toContainText("1 个 backend");

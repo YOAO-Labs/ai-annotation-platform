@@ -1,34 +1,15 @@
 import type { ScreenshotScene } from "./_types";
 
-// v0.10.18 · 用 page.route mock 后端响应填充空白态截图; 不污染真实 DB.
-// 真实 PredictionJobOut shape 见 apps/api/app/api/v1/admin_preannotate_jobs.py:33.
+import { expect } from "@playwright/test";
+import type { AsyncJob } from "../../../src/api/asyncJobs";
 
-interface MockJob {
-  id: string;
-  project_id: string;
-  project_name: string;
-  project_display_id: string | null;
-  batch_id: string | null;
-  ml_backend_id: string | null;
-  prompt: string;
-  output_mode: string;
-  status: "running" | "completed" | "failed";
-  total_tasks: number;
-  success_count: number;
-  failed_count: number;
-  started_at: string;
-  completed_at: string | null;
-  duration_ms: number | null;
-  total_cost: number | null;
-  error_message: string | null;
-}
-
-function makeJob(i: number, status: MockJob["status"] = "completed"): MockJob {
-  const startedAt = new Date(Date.now() - i * 3600_000).toISOString();
-  const duration = 60_000 + i * 12_000;
+// Deterministic management observations, not model-inference evidence.
+function makeJob(i: number, status: AsyncJob["status"], now: number): AsyncJob {
+  const startedAt = new Date(now - (i + 1) * 3600_000).toISOString();
+  const completedAt = status === "running" ? null : new Date(now - i * 3600_000).toISOString();
   const prompts = [
     "person, car, truck",
-    "traffic light, stop sign, pedestrian crossing",
+    "traffic light, stop sign",
     "person",
     "bicycle, motorcycle",
     "dog, cat",
@@ -38,21 +19,29 @@ function makeJob(i: number, status: MockJob["status"] = "completed"): MockJob {
   ];
   return {
     id: `mock-job-${i}-${"0".repeat(28)}`.slice(0, 36),
+    kind: "batch_predict",
     project_id: `mock-proj-${i}-${"0".repeat(26)}`.slice(0, 36),
     project_name: `演示项目 ${i + 1}`,
     project_display_id: `P-${100 + i}`,
-    batch_id: `mock-batch-${i}-${"0".repeat(25)}`.slice(0, 36),
-    ml_backend_id: null,
-    prompt: prompts[i % prompts.length],
-    output_mode: i % 3 === 0 ? "auto" : "manual",
+    user_id: null,
     status,
-    total_tasks: 80 + i * 20,
-    success_count: status === "running" ? 30 : 80 + i * 20 - (status === "failed" ? 3 : 0),
-    failed_count: status === "failed" ? 3 : 0,
+    progress_pct: status === "running" ? 38 : 100,
+    payload: {
+      prompt: prompts[i % prompts.length],
+      output_mode: "manual",
+      total_tasks: 80 + i * 20,
+      model_label: "YOLO 目标检测",
+    },
+    result: {
+      success_count: status === "running" ? 30 : 80 + i * 20,
+      failed_count: status === "failed" ? 3 : 0,
+      duration_ms: 60_000 + i * 12_000,
+    },
     started_at: startedAt,
-    completed_at: status === "running" ? null : new Date().toISOString(),
-    duration_ms: status === "running" ? null : duration,
-    total_cost: null,
+    completed_at: completedAt,
+    created_at: startedAt,
+    updated_at: completedAt ?? startedAt,
+    celery_task_id: null,
     error_message: status === "failed" ? "model timeout" : null,
   };
 }
@@ -76,25 +65,27 @@ export const AI_PRE_SCENES: ScreenshotScene[] = [
     role: "admin",
     route: () => "/ai-pre/jobs",
     prepare: async (page) => {
-      // v0.10.18 · mock /admin/preannotate-jobs list 让搜索框 + 表格有内容可截
-      await page.route("**/api/v1/admin/preannotate-jobs*", async (route) => {
+      // Match the current async-jobs API and its server-side prompt search.
+      const now = await page.evaluate(() => Date.now());
+      await page.route("**/api/v1/async-jobs*", async (route) => {
+        const search = new URL(route.request().url()).searchParams.get("search") ?? "";
         const items = Array.from({ length: 8 }, (_, i) =>
-          makeJob(i, i === 1 ? "running" : i === 7 ? "failed" : "completed"),
-        );
+          makeJob(i, i === 1 ? "running" : i === 7 ? "failed" : "completed", now),
+        ).filter((job) => String(job.payload.prompt).includes(search));
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ items, next_cursor: null }),
+          body: JSON.stringify({ items, total: items.length }),
         });
       });
       await page.goto("/ai-pre/jobs");
       await page.waitForLoadState("networkidle");
       // 在搜索框打个示例查询词, 截搜索 + 列表态
       const searchInput = page.getByPlaceholder("搜索 prompt...");
-      if (await searchInput.count()) {
-        await searchInput.fill("person");
-      }
-      await page.waitForLoadState("networkidle");
+      await expect(searchInput).toBeVisible();
+      await searchInput.fill("person");
+      await expect(page).toHaveURL(/[?&]q=person(?:&|$)/);
+      await expect(page.getByRole("row").filter({ hasText: "person, car, truck" })).toBeVisible();
     },
     target: "docs-site/user-guide/images/projects/ai-pre-history-search.png",
   },

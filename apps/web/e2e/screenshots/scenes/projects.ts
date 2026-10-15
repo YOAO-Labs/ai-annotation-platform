@@ -149,6 +149,14 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
       await reg.click();
       await page.waitForTimeout(300);
       await page.waitForSelector('[role="dialog"]', { timeout: 3000 });
+      // Redact endpoint text only; preserve live registry state and capability labels.
+      await page.locator('[role="dialog"] .mono[title]').evaluateAll((elements) => {
+        elements.forEach((element, index) => {
+          const endpoint = `https://ml.example.invalid/backend-${index + 1}`;
+          element.textContent = endpoint;
+          element.setAttribute("title", endpoint);
+        });
+      });
     },
     capture: { kind: "locator", selector: '[role="dialog"]', padding: 0 },
     target: "docs-site/user-guide/images/projects/ml-backends/register-form.png",

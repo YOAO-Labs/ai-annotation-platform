@@ -431,6 +431,19 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     prepare: async (page) => {
       await page.waitForLoadState("networkidle");
       await page.waitForTimeout(400);
+      // Preserve resource readiness/budgets while replacing the physical GPU identity.
+      await page.route("**/api/v1/admin/ml-integrations/gpu-resources", async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        body.resources = body.resources.map(
+          (resource: { gpu_resource_id: string }, index: number) => ({
+            ...resource,
+            gpu_resource_id: `demo-node/GPU-${index}`,
+          }),
+        );
+        await route.fulfill({ response, json: body });
+      });
+      await page.reload({ waitUntil: "networkidle" });
       const reg = page.getByRole("button", { name: "注册实例", exact: true });
       await reg.click({ timeout: 3000 });
       const dialog = page.getByRole("dialog");
