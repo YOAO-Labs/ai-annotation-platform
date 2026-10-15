@@ -2,14 +2,14 @@
 
 > Status: trigger-gated research-draft
 > Priority: after the configuration workspace
-> Depends on: [T01](../1792035920_training-parameter-catalog.md), [T02](../1792035920_training-configuration-workspace.md), [T04](1792035920_training-data-insights.md)
+> Depends on: [T01](../1792035920_training-parameter-catalog.md), [T02](../1792035920_training-configuration-workspace.md), [T04](../1792035920_training-data-insights.md)
 > Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and promotion trigger
 
 Managers inspect real augmented images and transformed boxes before spending training time. Promotion requires a bounded CPU invocation of the pinned model-family training dataset/transform pipeline that matches training semantics and does not update model weights.
 
-Reuse [qualified adapter identities](../../../apps/training-executor/training_executor/adapters.py), [native runners](../../../apps/training-executor/training_executor/train.py), [LibreYOLO runner](../../../apps/training-executor/training_executor/libreyolo_adapter.py), [supervised worker](../../../apps/training-executor/training_executor/worker.py), and [frozen datasets](../../../apps/api/app/services/training_datasets.py). Authorized immutable sample access is specified by [T04](1792035920_training-data-insights.md).
+Reuse [qualified adapter identities](../../../apps/training-executor/training_executor/adapters.py), [native runners](../../../apps/training-executor/training_executor/train.py), [LibreYOLO runner](../../../apps/training-executor/training_executor/libreyolo_adapter.py), [supervised worker](../../../apps/training-executor/training_executor/worker.py), and [frozen datasets](../../../apps/api/app/services/training_datasets.py). Authorized immutable sample access is specified by [T04](../1792035920_training-data-insights.md).
 
 ## Decisions and interfaces
 

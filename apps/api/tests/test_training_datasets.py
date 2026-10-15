@@ -76,6 +76,9 @@ async def test_snapshot_is_fixed_after_task_edits_and_creation_is_idempotent(
     assert response.status_code == 202, response.text
     version_id = uuid.UUID(response.json()["id"])
     version = await db_session.get(TrainingDatasetVersion, version_id)
+    assert version.preparation_report["snapshot_digest"] == version.snapshot_digest
+    assert version.preparation_report["summary"] == preflight.json()["summary"]
+    assert version.preparation_report["excluded"] == preflight.json()["excluded"]
     saved = json.dumps(version.snapshot, sort_keys=True)
     task = tasks[0]
     task.status = "in_progress"

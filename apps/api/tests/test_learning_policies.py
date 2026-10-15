@@ -100,7 +100,19 @@ def frozen_source(monkeypatch):
             },
             "source_revision": source["revision"],
         }
-        return snapshot, {"ready": True, "issues": []}
+        return snapshot, {
+            "ready": True,
+            "issues": [],
+            "excluded": [],
+            "digest": service.content_digest(snapshot),
+            "summary": {
+                "selected": 0,
+                "eligible": 0,
+                "positives": 0,
+                "negatives": 0,
+                "excluded": 0,
+            },
+        }
 
     monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
     monkeypatch.setattr(service.datasets, "dispatch_dataset", AsyncMock())
@@ -145,6 +157,8 @@ async def build_candidate(db, policy, value=None):
     )
     assert trigger
     data = await db.get(TrainingDatasetVersion, trigger.dataset_id)
+    assert data.preparation_report["snapshot_digest"] == data.snapshot_digest
+    assert data.preparation_report["schema"] == 1
     data.status, data.package_sha256, data.package_key = (
         "ready",
         "e" * 64,

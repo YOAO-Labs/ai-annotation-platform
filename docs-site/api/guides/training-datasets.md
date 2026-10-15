@@ -15,10 +15,29 @@ last_reviewed: 2026-10-15
 | POST   | `:preflight`             | 校验范围、冻结候选数据，返回预检报告和 `digest`      |
 | POST   | 空                       | 创建版本并排队，返回 `202` 与版本、`async_job_id`    |
 | GET    | 空                       | `limit=20`、`offset=0` 分页；返回摘要列表与 `total`  |
-| GET    | `/{version_id}`          | 读取版本详情与完整物化清单                           |
+| GET    | `/{version_id}`          | 默认读取完整清单；`include_manifest=false` 只读摘要  |
 | POST   | `/{version_id}/retry`    | 对失败或取消版本重试同一快照，返回 `202`             |
 | GET    | `/{version_id}/download` | 就绪且对象可用时，返回 10 分钟 `url` 和包的 `sha256` |
 | DELETE | `/{version_id}`          | 删除无后代引用的终态版本及其存储，返回 `204`         |
+
+### 冻结数据洞察
+
+就绪版本提供以下 GET 接口，与原版本读取使用相同项目管理权限和 API Key scope：
+
+| 路径后缀                                         | 返回与参数                                                                  |
+| ------------------------------------------------ | --------------------------------------------------------------------------- |
+| `/{version_id}/insights`                         | 静态统计、已知／未知计数、准备记录、验证身份和媒体读取时间                  |
+| `/{version_id}/insights/classes`                 | 类别图片／实例频次；`search`、`limit`、`offset`                             |
+| `/{version_id}/insights/compare`                 | `baseline_id` 指定同项目就绪版本，返回基线到当前版本的方向性变化            |
+| `/{version_id}/insights/samples`                 | 先筛选后分页；`class_index`、`split`、`kind`、`baseline_id`、`change`       |
+| `/{version_id}/insights/samples/{task_id}`       | 冻结归一化框；`limit=500`（最多 1,000）、`offset`                           |
+| `/{version_id}/insights/samples/{task_id}/media` | 认证二进制读取；默认原始冻结图片，`preview=true` 返回最大边 1,600 px 的 PNG |
+
+类别和样本页默认 25、最多 100 项，返回 `items`、过滤后 `total`、`limit` 和 `offset`。`kind` 为 `all`、`positive`、`negative`、`excluded` 或 `unavailable`；`change` 为 `all`、`added`、`removed`、`labels_changed`、`split_changed`、`multiplicity_changed`、`task_ids_changed`、`reintroduced`、`unchanged` 或 `unknown`。非 `all` 变化必须提供基线。移除项返回基线 `source_version_id` 和成员 `version_id`，预览应使用该身份。
+
+统计按实际包内图片项计算，比较按唯一内容 SHA 计算，变化类别可重叠。`status` 区分 `complete`、`partial`、`unavailable`；标注缺失时详情 `total=null`，不能解释为无目标。`preparation.recorded=false` 表示历史准备记录未保留。比较同时返回既有清单摘要、去重语义摘要和保留重复次数／有序类别的评估摘要，不替换运行或自动策略的原摘要。
+
+媒体仅读取训练桶该版本的冻结成员；验证保留身份、大小及实际字节 SHA 后才响应，不回退可变源。缺失或损坏返回明确错误；`media` 记录 `verified`、`unavailable`、`unchecked` 与最近检查时间，静态报告不保证当前对象仍可读。未就绪版本返回 `409`，跨项目版本或非成员返回 `404`；洞察失败不改变训练包状态。
 
 预检请求示例：
 

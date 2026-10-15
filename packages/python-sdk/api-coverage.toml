@@ -235,6 +235,12 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/projects/{project_id}/training-datasets/{version_id}/retry" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-datasets/{version_id}/download" = { status = "excluded", reason = "web-only" }
 "DELETE /api/v1/projects/{project_id}/training-datasets/{version_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/classes" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/compare" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/media" = { status = "excluded", reason = "web-only" }
 
 "POST /api/v1/internal/training/attempts/{attempt_id}/finish" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/internal/training/attempts/{attempt_id}/heartbeat" = { status = "excluded", reason = "web-only" }

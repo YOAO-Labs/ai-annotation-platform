@@ -715,6 +715,16 @@
 | GET | `/model-releases` |
 | POST | `/model-releases` |
 
+## `training_dataset_analysis.py`
+
+| Method | Path |
+|---|---|
+| GET | `/classes` |
+| GET | `/compare` |
+| GET | `/samples` |
+| GET | `/samples/{task_id}` |
+| GET | `/samples/{task_id}/media` |
+
 ## `training_datasets.py`
 
 | Method | Path |
@@ -812,4 +822,4 @@
 
 ---
 
-_共 74 模块 / 465 路由_
+_共 75 模块 / 470 路由_

@@ -45,6 +45,7 @@ from app.api.v1 import (
     system_settings,
     tasks,
     training_datasets,
+    training_dataset_analysis,
     training_runs,
     training_hub,
     trained_models,
@@ -84,6 +85,7 @@ api_router.include_router(
 )
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(training_datasets.router, tags=["training-datasets"])
+api_router.include_router(training_dataset_analysis.router, tags=["training-datasets"])
 api_router.include_router(training_runs.router, tags=["training-runs"])
 api_router.include_router(training_hub.router, tags=["training-hub"])
 api_router.include_router(training_runs.executor_router, tags=["training-executor"])

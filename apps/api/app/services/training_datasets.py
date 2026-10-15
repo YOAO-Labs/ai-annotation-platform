@@ -36,6 +36,17 @@ MAX_IMAGE_BYTES = 256 * 1024 * 1024
 MAX_DATASET_BYTES = 20 * 1024 * 1024 * 1024
 
 
+def frozen_preparation_report(snapshot_digest: str, report: dict) -> dict:
+    return {
+        "schema": 1,
+        "snapshot_digest": snapshot_digest,
+        "preflight_digest": report["digest"],
+        "summary": report["summary"],
+        "excluded": report["excluded"],
+        "issues": report["issues"],
+    }
+
+
 def selection_of(body) -> TrainingDatasetSelection:
     return TrainingDatasetSelection.model_validate(
         body.model_dump(include=set(TrainingDatasetSelection.model_fields))

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, FlaskConical, GitBranch, Layers } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
@@ -21,6 +21,8 @@ import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectTrainingPanel } from "./ProjectTrainingPanel";
 import { ProjectModelsPanel } from "./ProjectModelsPanel";
 import { ProjectLearningPolicyPanel } from "./ProjectLearningPolicyPanel";
+import { TrainingDatasetInsights } from "./TrainingDatasetInsights";
+import { useAuthStore } from "@/stores/authStore";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring";
@@ -41,6 +43,12 @@ const exclusionReasons: Record<string, string> = {
 export function ProjectLearningPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
+  const userId = useAuthStore((state) => state.user?.id);
+  const token = useAuthStore((state) => state.token);
+  const owner = useMemo(
+    () => ({ id, userId, token, key: crypto.randomUUID() }),
+    [id, userId, token],
+  );
   if (params.get("new") === "1") {
     const next = new URLSearchParams();
     const framework = params.get("framework");
@@ -48,10 +56,10 @@ export function ProjectLearningPage() {
     if (params.get("run")) next.set("return_run", params.get("run")!);
     return <Navigate replace to={`/projects/${id}/learning/new${next.size ? `?${next}` : ""}`} />;
   }
-  return <ProjectLearningContent key={id} projectId={id} />;
+  return <ProjectLearningContent key={owner.key} projectId={id} scope={owner.key} />;
 }
 
-function ProjectLearningContent({ projectId }: { projectId: string }) {
+function ProjectLearningContent({ projectId, scope }: { projectId: string; scope: string }) {
   const [params, setParams] = useSearchParams();
   const tab = ["training", "data", "models", "automation"].includes(params.get("tab") ?? "")
     ? params.get("tab")!
@@ -75,7 +83,29 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
   const [negatives, setNegatives] = useState<string[]>([]);
   const [taskPage, setTaskPage] = useState(0);
   const [page, setPage] = useState(0);
-  const [detailId, setDetailId] = useState("");
+  const detailId = params.get("dataset") ?? "";
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const setDetailId = (value: string) => {
+    if (!alive.current) return;
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (value) next.set("dataset", value);
+      else next.delete("dataset");
+      ["data_class", "data_split", "data_kind", "data_page"].forEach((key) => next.delete(key));
+      if (!value || next.get("data_baseline") === value) {
+        next.delete("data_baseline");
+        next.delete("data_change");
+      }
+      if (!value) next.delete("data_view");
+      return next;
+    });
+  };
   const [report, setReport] = useState<TrainingDatasetPreflight | null>(null);
   const [error, setError] = useState("");
   const requestId = useRef(crypto.randomUUID());
@@ -93,7 +123,7 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
     [batchId, parentId, mode, seed, fraction, selected, negatives],
   );
   const versions = useQuery({
-    queryKey: ["training-datasets", projectId, page],
+    queryKey: ["training-datasets", projectId, scope, page],
     queryFn: () => trainingDatasetsApi.list(projectId, page * 20),
     enabled: tab === "data",
     refetchInterval: (query) =>
@@ -103,12 +133,12 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
         : false,
   });
   const batches = useQuery({
-    queryKey: ["batches", projectId],
+    queryKey: ["batches", projectId, scope],
     queryFn: () => batchesApi.list(projectId),
     enabled: tab === "data",
   });
   const taskList = useQuery({
-    queryKey: ["learning-tasks", projectId, batchId, taskPage],
+    queryKey: ["learning-tasks", projectId, scope, batchId, taskPage],
     queryFn: () =>
       tasksApi.listByProject(projectId, {
         batch_id: batchId || undefined,
@@ -118,8 +148,8 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
     enabled: tab === "data" && mode === "manager_confirmed",
   });
   const detail = useQuery({
-    queryKey: ["training-dataset", projectId, detailId],
-    queryFn: () => trainingDatasetsApi.get(projectId, detailId),
+    queryKey: ["training-dataset", projectId, scope, detailId],
+    queryFn: ({ signal }) => trainingDatasetsApi.getSummary(projectId, detailId, { signal }),
     enabled: tab === "data" && !!detailId,
     refetchInterval: (query) =>
       query.state.data && ["pending", "running"].includes(query.state.data.status) ? 2000 : false,
@@ -173,6 +203,7 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
     }) => {
       if (kind === "download") {
         const result = await trainingDatasetsApi.download(projectId, version.id);
+        if (!alive.current) return;
         const link = document.createElement("a");
         link.href = result.url;
         link.download = `${version.name}.zip`;
@@ -189,8 +220,24 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
           confirmLabel: "删除数据版本",
         })
       ) {
+        if (!alive.current) return;
         await trainingDatasetsApi.remove(projectId, version.id);
-        if (detailId === version.id) setDetailId("");
+        if (!alive.current) return;
+        setParams((previous) => {
+          if (previous.get("dataset") !== version.id) return previous;
+          const next = new URLSearchParams(previous);
+          [
+            "dataset",
+            "data_baseline",
+            "data_view",
+            "data_change",
+            "data_class",
+            "data_split",
+            "data_kind",
+            "data_page",
+          ].forEach((key) => next.delete(key));
+          return next;
+        });
       }
     },
     onSuccess: refresh,
@@ -624,29 +671,22 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
               </Button>
             </div>
           </section>
-          {detail.data && (
-            <section className="mt-6 rounded-md bg-muted p-4" aria-label="数据版本详情">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">{detail.data.name}</h2>
-                <Button size="sm" variant="ghost" onClick={() => setDetailId("")}>
-                  收起
-                </Button>
-              </div>
-              <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
-                快照摘要：{detail.data.snapshot_digest}
-              </p>
-              {detail.data.size_bytes != null && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  训练包大小：{(detail.data.size_bytes / 1024 / 1024).toFixed(2)} MiB
-                </p>
-              )}
-              <details className="mt-3 text-xs">
-                <summary className="cursor-pointer">查看训练与验证清单</summary>
-                <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
-                  {JSON.stringify(detail.data.manifest, null, 2)}
-                </pre>
-              </details>
-            </section>
+          {detailId && detail.isLoading && (
+            <p role="status" className="mt-5 text-sm text-muted-foreground">
+              正在加载所选数据版本…
+            </p>
+          )}
+          {detail.error && (
+            <p role="alert" className="mt-5 text-sm text-status-danger">
+              {detail.error.message}
+            </p>
+          )}
+          {tab === "data" && detail.data && (
+            <TrainingDatasetInsights
+              projectId={projectId}
+              version={detail.data}
+              onClose={() => setDetailId("")}
+            />
           )}
         </TabsContent>
         <TabsContent value="training">

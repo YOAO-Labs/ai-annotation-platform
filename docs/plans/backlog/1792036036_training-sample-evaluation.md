@@ -2,7 +2,7 @@
 
 > Status: trigger-gated research-draft
 > Priority: after data and comparison basics
-> Depends on: [T04](1792035920_training-data-insights.md), [T05](1792036036_training-experiment-comparison.md)
+> Depends on: [T04](../1792035920_training-data-insights.md), [T05](1792036036_training-experiment-comparison.md)
 > Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and promotion trigger

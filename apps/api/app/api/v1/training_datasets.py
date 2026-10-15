@@ -19,6 +19,7 @@ from app.schemas.training_dataset import (
     TrainingDatasetPage,
     TrainingDatasetPreflight,
     TrainingDatasetSelection,
+    TrainingDatasetSummary,
 )
 from app.services import training_datasets as service
 from app.services.project_write_guard import lock_actor_project_authority
@@ -128,6 +129,9 @@ async def create_version(
             name=body.name.strip(),
             snapshot=snapshot,
             snapshot_digest=report["digest"],
+            preparation_report=service.frozen_preparation_report(
+                report["digest"], report
+            ),
         )
         db.add(version)
         await db.flush()
@@ -155,6 +159,7 @@ async def list_versions(
         .options(
             defer(TrainingDatasetVersion.snapshot),
             defer(TrainingDatasetVersion.manifest),
+            defer(TrainingDatasetVersion.preparation_report),
         )
         .where(TrainingDatasetVersion.project_id == project.id)
     )
@@ -183,7 +188,27 @@ async def get_version(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    include_manifest: bool = True,
 ):
+    if not include_manifest:
+        version = await db.scalar(
+            select(TrainingDatasetVersion)
+            .options(
+                defer(TrainingDatasetVersion.snapshot),
+                defer(TrainingDatasetVersion.manifest),
+                defer(TrainingDatasetVersion.preparation_report),
+            )
+            .where(
+                TrainingDatasetVersion.id == version_id,
+                TrainingDatasetVersion.project_id == project.id,
+            )
+        )
+        if version is None:
+            raise HTTPException(status_code=404, detail="训练数据版本不存在")
+        return {
+            **TrainingDatasetSummary.model_validate(version).model_dump(),
+            "manifest": {},
+        }
     return await load_version(db, project, version_id)
 
 

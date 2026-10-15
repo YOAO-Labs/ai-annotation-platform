@@ -83,6 +83,10 @@ from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.training_dataset import TrainingDatasetVersion
+from app.db.models.training_dataset_analysis import (
+    TrainingDatasetAnalysis,
+    TrainingDatasetAnalyzedSample,
+)
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.db.models.training_run import (
     TrainingRun,
@@ -183,6 +187,8 @@ __all__ = [
     "AsyncJobStatus",
     "ExportArtifact",
     "TrainingDatasetVersion",
+    "TrainingDatasetAnalysis",
+    "TrainingDatasetAnalyzedSample",
     "StorageConnection",
     "StorageConnectionKind",
     "StorageConnectionScope",

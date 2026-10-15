@@ -419,6 +419,7 @@ async def check_policy(db, policy_id, *, force=False):
         name=f"自动候选 · 策略 {policy.revision}",
         snapshot=snapshot,
         snapshot_digest=digest,
+        preparation_report=datasets.frozen_preparation_report(digest, report),
     )
     db.add(version)
     await db.flush()

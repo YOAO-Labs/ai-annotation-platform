@@ -30,7 +30,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 工作台支持按账号保存图片、视频和通用命令的自定义快捷键；类别直选使用 `1–9` 和 `0`，更多类别可搜索。使用方式见[工作台快捷键](./docs-site/user-guide/workbench/index.md#完整快捷键)，偏好读写契约见[认证与账号 API](./docs-site/api/guides/auth.md)。
 
-项目负责人可通过[在线学习数据版本](./docs-site/user-guide/projects/online-learning.md)冻结图片检测标注，下载包含原图、类别映射和独立训练/验证划分的 Ultralytics 数据包；接口见[训练数据版本 API](./docs-site/api/guides/training-datasets.md)。
+项目负责人可通过[在线学习数据版本](./docs-site/user-guide/projects/online-learning.md)冻结图片检测标注，下载包含原图、类别映射和独立训练/验证划分的 Ultralytics 数据包；就绪版本可查看类别与尺寸分布、分页预览冻结图片和框，并比较内容、标注与验证基准变化；接口见[训练数据版本 API](./docs-site/api/guides/training-datasets.md)。
 
 成功训练的权重可在同一页面注册为候选模型，完成类别绑定、认证推理实例加载及固定样本试用后发布。受控模型支持单阶段图片检测预标注，任务保留创建时的模型、实验和数据版本来源；发布与回退仅影响新任务。
 

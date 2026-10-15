@@ -36012,6 +36012,267 @@
         "title": "TrainingConfigurationResolve",
         "type": "object"
       },
+      "TrainingDatasetAnalyzedSampleOut": {
+        "properties": {
+          "class_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Class Ids",
+            "type": "array"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusion Reason"
+          },
+          "explicit_negative": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explicit Negative"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "included": {
+            "title": "Included",
+            "type": "boolean"
+          },
+          "instances": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instances"
+          },
+          "is_negative": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Negative"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue"
+          },
+          "label_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Sha256"
+          },
+          "media_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Checked At"
+          },
+          "media_state": {
+            "enum": [
+              "unchecked",
+              "verified",
+              "unavailable"
+            ],
+            "title": "Media State",
+            "type": "string"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "train",
+                  "val"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "version_id",
+          "task_id",
+          "included",
+          "exclusion_reason",
+          "issue",
+          "sha256",
+          "label_sha256",
+          "split",
+          "width",
+          "height",
+          "size_bytes",
+          "instances",
+          "is_negative",
+          "explicit_negative",
+          "class_ids",
+          "media_state",
+          "media_checked_at"
+        ],
+        "title": "TrainingDatasetAnalyzedSampleOut",
+        "type": "object"
+      },
+      "TrainingDatasetClassPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetClassStatistics"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TrainingDatasetClassPage",
+        "type": "object"
+      },
+      "TrainingDatasetClassStatistics": {
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "train_images": {
+            "title": "Train Images",
+            "type": "integer"
+          },
+          "train_instances": {
+            "title": "Train Instances",
+            "type": "integer"
+          },
+          "val_images": {
+            "title": "Val Images",
+            "type": "integer"
+          },
+          "val_instances": {
+            "title": "Val Instances",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "name",
+          "train_images",
+          "val_images",
+          "train_instances",
+          "val_instances"
+        ],
+        "title": "TrainingDatasetClassStatistics",
+        "type": "object"
+      },
       "TrainingDatasetCreate": {
         "additionalProperties": false,
         "properties": {
@@ -36104,6 +36365,317 @@
           "preflight_digest"
         ],
         "title": "TrainingDatasetCreate",
+        "type": "object"
+      },
+      "TrainingDatasetDistributionBin": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "train": {
+            "title": "Train",
+            "type": "integer"
+          },
+          "val": {
+            "title": "Val",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "train",
+          "val"
+        ],
+        "title": "TrainingDatasetDistributionBin",
+        "type": "object"
+      },
+      "TrainingDatasetInsightComparison": {
+        "properties": {
+          "baseline_id": {
+            "format": "uuid",
+            "title": "Baseline Id",
+            "type": "string"
+          },
+          "baseline_validation": {
+            "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
+          },
+          "class_encoding_changed": {
+            "title": "Class Encoding Changed",
+            "type": "boolean"
+          },
+          "class_order_changed": {
+            "title": "Class Order Changed",
+            "type": "boolean"
+          },
+          "classes_added": {
+            "title": "Classes Added",
+            "type": "integer"
+          },
+          "classes_removed": {
+            "title": "Classes Removed",
+            "type": "integer"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "evaluation_benchmark_changed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Benchmark Changed"
+          },
+          "semantic_validation_changed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Validation Changed"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "partial",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_validation": {
+            "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseline_id",
+          "version_id",
+          "status",
+          "counts",
+          "classes_added",
+          "classes_removed",
+          "class_order_changed",
+          "class_encoding_changed",
+          "semantic_validation_changed",
+          "evaluation_benchmark_changed",
+          "baseline_validation",
+          "target_validation"
+        ],
+        "title": "TrainingDatasetInsightComparison",
+        "type": "object"
+      },
+      "TrainingDatasetInsightOverview": {
+        "properties": {
+          "box_area_bins": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetDistributionBin"
+            },
+            "title": "Box Area Bins",
+            "type": "array"
+          },
+          "classes_total": {
+            "title": "Classes Total",
+            "type": "integer"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "dimension_bins": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetDistributionBin"
+            },
+            "title": "Dimension Bins",
+            "type": "array"
+          },
+          "dimensions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Dimensions",
+            "type": "object"
+          },
+          "input_digest": {
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "manifest_digest": {
+            "title": "Manifest Digest",
+            "type": "string"
+          },
+          "media": {
+            "$ref": "#/components/schemas/TrainingDatasetMediaObservations"
+          },
+          "observations": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Observations",
+            "type": "object"
+          },
+          "preparation": {
+            "$ref": "#/components/schemas/TrainingDatasetPreparationSummary"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "snapshot_digest": {
+            "title": "Snapshot Digest",
+            "type": "string"
+          },
+          "splits": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "title": "Splits",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "partial",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "schema_version",
+          "input_digest",
+          "snapshot_digest",
+          "manifest_digest",
+          "status",
+          "counts",
+          "splits",
+          "classes_total",
+          "dimensions",
+          "dimension_bins",
+          "box_area_bins",
+          "preparation",
+          "observations",
+          "validation",
+          "media"
+        ],
+        "title": "TrainingDatasetInsightOverview",
+        "type": "object"
+      },
+      "TrainingDatasetMediaObservations": {
+        "properties": {
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked At"
+          },
+          "unavailable": {
+            "title": "Unavailable",
+            "type": "integer"
+          },
+          "unchecked": {
+            "title": "Unchecked",
+            "type": "integer"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "verified",
+          "unavailable",
+          "unchecked",
+          "last_checked_at"
+        ],
+        "title": "TrainingDatasetMediaObservations",
+        "type": "object"
+      },
+      "TrainingDatasetNormalizedBox": {
+        "properties": {
+          "class_index": {
+            "title": "Class Index",
+            "type": "integer"
+          },
+          "class_name": {
+            "title": "Class Name",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x_center": {
+            "title": "X Center",
+            "type": "number"
+          },
+          "y_center": {
+            "title": "Y Center",
+            "type": "number"
+          }
+        },
+        "required": [
+          "class_index",
+          "class_name",
+          "x_center",
+          "y_center",
+          "width",
+          "height"
+        ],
+        "title": "TrainingDatasetNormalizedBox",
         "type": "object"
       },
       "TrainingDatasetOut": {
@@ -36331,6 +36903,118 @@
         "title": "TrainingDatasetPreflight",
         "type": "object"
       },
+      "TrainingDatasetPreparationSummary": {
+        "properties": {
+          "issues": {
+            "title": "Issues",
+            "type": "integer"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "recorded",
+          "summary",
+          "issues"
+        ],
+        "title": "TrainingDatasetPreparationSummary",
+        "type": "object"
+      },
+      "TrainingDatasetSampleDetail": {
+        "properties": {
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetNormalizedBox"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/TrainingDatasetAnalyzedSampleOut"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "sample",
+          "labels",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TrainingDatasetSampleDetail",
+        "type": "object"
+      },
+      "TrainingDatasetSamplePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetAnalyzedSampleOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "source_version_id": {
+            "format": "uuid",
+            "title": "Source Version Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_version_id",
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TrainingDatasetSamplePage",
+        "type": "object"
+      },
       "TrainingDatasetSelection": {
         "additionalProperties": false,
         "properties": {
@@ -36547,6 +37231,55 @@
           "completed_at"
         ],
         "title": "TrainingDatasetSummary",
+        "type": "object"
+      },
+      "TrainingDatasetValidationIdentity": {
+        "properties": {
+          "evaluation_multiset_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Multiset Digest"
+          },
+          "manifest_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Digest"
+          },
+          "ordered_classes_digest": {
+            "title": "Ordered Classes Digest",
+            "type": "string"
+          },
+          "semantic_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Digest"
+          }
+        },
+        "required": [
+          "manifest_digest",
+          "semantic_digest",
+          "evaluation_multiset_digest",
+          "ordered_classes_digest"
+        ],
+        "title": "TrainingDatasetValidationIdentity",
         "type": "object"
       },
       "TrainingHubCatalog": {
@@ -63602,6 +64335,16 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "include_manifest",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Manifest",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -63694,6 +64437,577 @@
           }
         ],
         "summary": "Download Version",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-datasets/{version_id}/insights": {
+      "get": {
+        "operationId": "overview_api_v1_projects__project_id__training_datasets__version_id__insights_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDatasetInsightOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Overview",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-datasets/{version_id}/insights/classes": {
+      "get": {
+        "operationId": "classes_api_v1_projects__project_id__training_datasets__version_id__insights_classes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Search",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDatasetClassPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Classes",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-datasets/{version_id}/insights/compare": {
+      "get": {
+        "operationId": "comparison_api_v1_projects__project_id__training_datasets__version_id__insights_compare_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseline_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Baseline Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDatasetInsightComparison"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Comparison",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples": {
+      "get": {
+        "operationId": "samples_api_v1_projects__project_id__training_datasets__version_id__insights_samples_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "split",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "train",
+                    "val"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Split"
+            }
+          },
+          {
+            "in": "query",
+            "name": "class_index",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Class Index"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "positive",
+                "negative",
+                "excluded",
+                "unavailable"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseline_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Baseline Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "change",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "added",
+                "removed",
+                "labels_changed",
+                "split_changed",
+                "multiplicity_changed",
+                "task_ids_changed",
+                "reintroduced",
+                "unchanged",
+                "unknown"
+              ],
+              "title": "Change",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDatasetSamplePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Samples",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}": {
+      "get": {
+        "operationId": "sample_detail_api_v1_projects__project_id__training_datasets__version_id__insights_samples__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDatasetSampleDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sample Detail",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/media": {
+      "get": {
+        "operationId": "sample_media_api_v1_projects__project_id__training_datasets__version_id__insights_samples__task_id__media_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "preview",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Preview",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sample Media",
         "tags": [
           "training-datasets"
         ]

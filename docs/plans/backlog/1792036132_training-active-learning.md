@@ -2,7 +2,7 @@
 
 > Status: trigger-gated research-draft
 > Priority: after sample analysis and trustworthy inference provenance
-> Depends on: [T04](1792035920_training-data-insights.md), [T08](1792036036_training-sample-evaluation.md); T13 only for a LibreYOLO source
+> Depends on: [T04](../1792035920_training-data-insights.md), [T08](1792036036_training-sample-evaluation.md); T13 only for a LibreYOLO source
 > Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and promotion trigger

@@ -9,6 +9,12 @@ import { tasksApi } from "@/api/tasks";
 import { asyncJobsApi } from "@/api/asyncJobs";
 import { ProjectLearningPage } from "./ProjectLearningPage";
 
+vi.mock("./TrainingDatasetInsights", () => ({
+  TrainingDatasetInsights: ({ version }: { version: { name: string } }) => (
+    <p>冻结详情 {version.name}</p>
+  ),
+}));
+
 vi.mock("./ProjectTrainingPanel", () => ({ ProjectTrainingPanel: () => null }));
 vi.mock("./ProjectModelsPanel", () => ({ ProjectModelsPanel: () => null }));
 vi.mock("./ProjectLearningPolicyPanel", () => ({ ProjectLearningPolicyPanel: () => null }));
@@ -25,6 +31,7 @@ vi.mock("@/api/trainingDatasets", () => ({
   trainingDatasetsApi: {
     list: vi.fn(),
     get: vi.fn(),
+    getSummary: vi.fn(),
     preflight: vi.fn(),
     create: vi.fn(),
     retry: vi.fn(),
@@ -86,6 +93,7 @@ beforeEach(() => {
   vi.mocked(tasksApi.listByProject).mockResolvedValue({ items: [], total: 0 } as never);
   vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [], total: 0 });
   vi.mocked(trainingDatasetsApi.get).mockResolvedValue(version as never);
+  vi.mocked(trainingDatasetsApi.getSummary).mockResolvedValue(version as never);
   vi.mocked(trainingDatasetsApi.preflight).mockResolvedValue(report);
   vi.mocked(trainingDatasetsApi.create).mockResolvedValue(version as never);
 });
@@ -174,6 +182,19 @@ describe("project learning data versions", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("素材不可用");
     await user.click(screen.getByRole("button", { name: "检查训练数据" }));
     await screen.findByText("数据检查通过");
+  });
+
+  it("restores a selected version outside the current list page without loading its heavy manifest", async () => {
+    mount(
+      "/projects/project-1/learning?tab=data&dataset=dataset-1&data_view=compare&data_baseline=older",
+    );
+    expect(await screen.findByText("冻结详情 第一轮")).toBeVisible();
+    expect(trainingDatasetsApi.getSummary).toHaveBeenCalledWith(
+      "project-1",
+      "dataset-1",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(trainingDatasetsApi.get).not.toHaveBeenCalled();
   });
 
   it("downloads through the authorized version endpoint", async () => {
