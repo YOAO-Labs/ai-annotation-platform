@@ -57,7 +57,7 @@ export async function runAiTrackerPanel(
   const canvasBounds = await canvas.boundingBox();
   expect(floatingBounds).not.toBeNull();
   expect(canvasBounds).not.toBeNull();
-  const dragHandle = floating
+  const dragHandle = page
     .getByRole("tab", { name: "视频追踪", exact: true })
     .locator("span")
     .first();
