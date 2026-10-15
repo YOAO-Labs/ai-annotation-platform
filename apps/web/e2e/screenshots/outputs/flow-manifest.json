@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T13:37:05.661Z",
+  "updated_at": "2026-10-15T13:40:56.394Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -3051,8 +3051,8 @@
     "docs-site/public/media/pipeline/apply-project-poster.webp": {
       "asset_id": "pipeline-apply-project",
       "role": "poster",
-      "generated_at": "2026-09-08T06:40:32.929Z",
-      "captured_commit": "4b648ef86076ec48efbc6141ead0fc1365aded62",
+      "generated_at": "2026-10-15T13:40:56.394Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -3071,8 +3071,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "0bd6c5485bcb53ea76ea62ffc5b8f1f80b04d165a7b067227a70c480f3aaaef7",
-      "bytes": 81306,
+      "sha256": "b7ac218c0153c16e12a17fc6935514210fba475bfb2876aa10e25c5cd73a1fd7",
+      "bytes": 95172,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -3086,21 +3086,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-57-41-296Z-414962",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "pipeline-apply-project",
-        "sha256": "d0e221dfa0c2aeb9d2d66a9daef3e3679fc79eabf6073302e3fb12c696fcc916",
+        "sha256": "2412f6c7d36515ef170722ff91a938fba46344d4fc9e5d2cd0de50e93ee9fb46",
         "quality": "standard",
         "clip": {
-          "start": 226.75,
-          "duration": 39.53
+          "start": 171.3,
+          "duration": 33
         }
       }
     },
     "docs-site/public/media/pipeline/apply-project.mp4": {
       "asset_id": "pipeline-apply-project",
       "role": "docs-video",
-      "generated_at": "2026-09-08T06:40:32.852Z",
-      "captured_commit": "4b648ef86076ec48efbc6141ead0fc1365aded62",
+      "generated_at": "2026-10-15T13:40:56.356Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -3119,28 +3119,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "0d338fc3273b72f9a5de138faf33b89063b75135079dc5d347379e91487ef595",
-      "bytes": 1229346,
+      "sha256": "b56a64aa01a08bdfc99efa8b3022064389fe7b80343b9f4d6e12d1894407f893",
+      "bytes": 1292500,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 39.52
+        "duration_seconds": 33
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-57-41-296Z-414962",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "pipeline-apply-project",
-        "sha256": "d0e221dfa0c2aeb9d2d66a9daef3e3679fc79eabf6073302e3fb12c696fcc916",
+        "sha256": "2412f6c7d36515ef170722ff91a938fba46344d4fc9e5d2cd0de50e93ee9fb46",
         "quality": "standard",
         "clip": {
-          "start": 226.75,
-          "duration": 39.53
+          "start": 171.3,
+          "duration": 33
         }
       }
     },
