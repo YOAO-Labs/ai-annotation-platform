@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { asyncJobsApi } from "@/api/asyncJobs";
@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/trainingViewOwner";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 
 const inputClass =
@@ -164,22 +165,77 @@ function TrialImage({ trial }: { trial: Record<string, unknown> }) {
   );
 }
 
-export function ProjectModelsPanel({
+export function ProjectModelsPanel(props: { projectId: string; classes: string[] }) {
+  const revision = useTrainingSessionRevision();
+  const scope = useMemo(
+    () => ({ key: crypto.randomUUID(), projectId: props.projectId, revision }),
+    [props.projectId, revision],
+  );
+  return <ModelsContent key={scope.key} {...props} scope={scope.key} />;
+}
+
+function ModelsContent({
   projectId,
   classes,
+  scope,
 }: {
   projectId: string;
   classes: string[];
+  scope: string;
 }) {
   const client = useQueryClient();
+  const location = useLocation();
+  const session = useTrainingViewOwner(projectId, scope);
+  const viewIdentity = useMemo(
+    () => ({ key: crypto.randomUUID(), location: location.key }),
+    [location.key],
+  );
+  const viewKey = viewIdentity.key;
+  const currentView = useRef(viewKey);
+  currentView.current = viewKey;
+  type View = { owner: typeof session.owner; key: string };
+  const captureView = (): View => ({ owner: session.owner, key: currentView.current });
+  const ownsView = (view: View) =>
+    session.owns() && view.owner === session.owner && view.key === currentView.current;
+  const assertView = (view: View) => {
+    session.assert();
+    if (!ownsView(view)) throw new DOMException("查看位置已变化", "AbortError");
+  };
+  const read = async <T,>(signal: AbortSignal, fn: () => Promise<T>): Promise<T> => {
+    session.assert(signal);
+    const result = await fn();
+    session.assert(signal);
+    return result;
+  };
+  const [params, setParams] = useSearchParams();
+  const archive =
+    params.get("archive") === "only"
+      ? "only"
+      : params.get("archive") === "include"
+        ? "include"
+        : "exclude";
+  const page = Math.min(5000, Math.max(0, Math.floor(Number(params.get("model_page"))) || 0));
+  const detailId = params.get("model") ?? "";
+  const updateModelParams = (values: Record<string, string | undefined>) =>
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("tab", "models");
+      Object.entries(values).forEach(([key, value]) =>
+        value === undefined ? next.delete(key) : next.set(key, value),
+      );
+      return next;
+    });
+  const setDetailId = (id: string) => updateModelParams({ model: id || undefined });
+  const setPage = (change: (page: number) => number) =>
+    updateModelParams({ model_page: String(change(page)) });
+  const lineageHref = (id: string) =>
+    `/projects/${projectId}/learning/lineage/model/${id}?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
   const [name, setName] = useState("");
   const [runId, setRunId] = useState("");
   const [attemptId, setAttemptId] = useState("");
   const [bindings, setBindings] = useState<Record<number, string>>({});
   const [sourcePage, setSourcePage] = useState(0);
-  const [page, setPage] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
-  const [detailId, setDetailId] = useState("");
   const [registryId, setRegistryId] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
   const [compareId, setCompareId] = useState("");
@@ -195,44 +251,48 @@ export function ProjectModelsPanel({
     id: crypto.randomUUID(),
   });
   const runs = useQuery({
-    queryKey: ["training-runs", projectId, sourcePage],
-    queryFn: () => trainingRunsApi.list(projectId, sourcePage * 20),
+    queryKey: ["training-runs", projectId, scope, sourcePage],
+    queryFn: ({ signal }) => read(signal, () => trainingRunsApi.list(projectId, sourcePage * 20)),
     refetchInterval: 5000,
   });
   const source = useQuery({
-    queryKey: ["training-run", projectId, runId],
-    queryFn: () => trainingRunsApi.get(projectId, runId),
+    queryKey: ["training-run", projectId, scope, runId],
+    queryFn: ({ signal }) => read(signal, () => trainingRunsApi.get(projectId, runId)),
     enabled: !!runId,
   });
   const models = useQuery({
-    queryKey: ["trained-models", projectId, page],
-    queryFn: () => trainedModelsApi.list(projectId, page * 20),
+    queryKey: ["trained-models", projectId, scope, archive, page],
+    queryFn: ({ signal }) =>
+      read(signal, () => trainedModelsApi.list(projectId, page * 20, undefined, archive)),
     refetchInterval: 5000,
   });
   const detail = useQuery({
-    queryKey: ["trained-model", projectId, detailId],
-    queryFn: () => trainedModelsApi.get(projectId, detailId),
+    queryKey: ["trained-model", projectId, scope, detailId],
+    queryFn: ({ signal }) => read(signal, () => trainedModelsApi.get(projectId, detailId)),
     enabled: !!detailId,
     refetchInterval: 5000,
   });
   const backends = useQuery({
-    queryKey: ["learning-backends", projectId],
-    queryFn: () => mlBackendsApi.listAvailable(projectId),
+    queryKey: ["learning-backends", projectId, scope],
+    queryFn: ({ signal }) => read(signal, () => mlBackendsApi.listAvailable(projectId)),
     refetchInterval: 10000,
   });
   const releases = useQuery({
-    queryKey: ["model-releases", projectId, historyPage],
-    queryFn: () => trainedModelsApi.releases(projectId, historyPage * 20),
+    queryKey: ["model-releases", projectId, scope, historyPage],
+    queryFn: ({ signal }) =>
+      read(signal, () => trainedModelsApi.releases(projectId, historyPage * 20)),
     refetchInterval: 5000,
   });
   const pendingTasks = useQuery({
-    queryKey: ["learning-pending-tasks", projectId, taskPage],
-    queryFn: () =>
-      tasksApi.listByProject(projectId, { status: "pending", limit: 25, offset: taskPage * 25 }),
+    queryKey: ["learning-pending-tasks", projectId, scope, taskPage],
+    queryFn: ({ signal }) =>
+      read(signal, () =>
+        tasksApi.listByProject(projectId, { status: "pending", limit: 25, offset: taskPage * 25 }),
+      ),
   });
   const job = useQuery({
-    queryKey: ["learning-prediction-job", projectId, jobId],
-    queryFn: () => asyncJobsApi.get(jobId),
+    queryKey: ["learning-prediction-job", projectId, scope, jobId],
+    queryFn: ({ signal }) => read(signal, () => asyncJobsApi.get(jobId)),
     enabled: !!jobId,
     refetchInterval: (query) =>
       ["pending", "running"].includes(query.state.data?.status ?? "") ? 1500 : false,
@@ -244,6 +304,12 @@ export function ProjectModelsPanel({
   const selectedAttempt =
     attemptId || source.data?.attempts.find((item) => item.status === "succeeded")?.id || "";
   const current = releases.data?.current;
+  const currentModel = useQuery({
+    queryKey: ["trained-model", projectId, scope, current?.model_version_id],
+    queryFn: ({ signal }) =>
+      read(signal, () => trainedModelsApi.get(projectId, current!.model_version_id!)),
+    enabled: !!current?.model_version_id,
+  });
   const activeModel = detail.data?.model;
   const comparison = models.data?.items.find((item) => item.id === compareId);
   const comparable =
@@ -272,29 +338,39 @@ export function ProjectModelsPanel({
     setError("");
   };
   const register = useMutation({
-    mutationFn: () =>
-      trainedModelsApi.register(projectId, {
+    mutationFn: (view: View) => {
+      assertView(view);
+      return trainedModelsApi.register(projectId, {
         request_id: registrationId.current,
         name: name.trim(),
         run_id: runId,
         attempt_id: selectedAttempt,
         bindings: nativeClasses.map((_, index) => bindings[index] ?? ""),
-      }),
-    onSuccess: (model) => {
+      });
+    },
+    onSuccess: (model, view) => {
+      if (!ownsView(view)) return;
       showDetail(model.id);
       setName("");
       registrationId.current = crypto.randomUUID();
       refresh();
     },
-    onError: (reason: Error) => setError(reason.message),
+    onError: (reason: Error, view) => {
+      if (ownsView(view)) setError(reason.message);
+    },
   });
   const deploy = useMutation({
-    mutationFn: () => trainedModelsApi.deploy(projectId, detailId, registryId),
-    onSuccess: () => {
+    mutationFn: (view: View) => {
+      assertView(view);
+      return trainedModelsApi.deploy(projectId, detailId, registryId);
+    },
+    onSuccess: (_, view) => {
+      if (!ownsView(view)) return;
       setConfirmed({});
       refresh();
     },
-    onError: (reason: Error) => {
+    onError: (reason: Error, view) => {
+      if (!ownsView(view)) return;
       setError(reason.message);
       refresh();
     },
@@ -304,7 +380,9 @@ export function ProjectModelsPanel({
       modelId: string | null;
       deploymentId: string | null;
       rollbackFromId?: string;
+      view: View;
     }) => {
+      assertView(target.view);
       const allowed = await confirmDialog({
         title: target.rollbackFromId
           ? "回退项目模型"
@@ -314,8 +392,8 @@ export function ProjectModelsPanel({
         description: "操作只影响之后新建的预标注任务。已排入的任务继续使用其固定模型。",
         confirmLabel: target.rollbackFromId ? "确认回退" : target.modelId ? "确认发布" : "确认停用",
       });
-      if (!allowed) return null;
-      const intent = JSON.stringify(target);
+      if (!allowed || !ownsView(target.view)) return null;
+      const intent = JSON.stringify([target.modelId, target.deploymentId, target.rollbackFromId]);
       if (publishRequest.current?.intent !== intent)
         publishRequest.current = {
           intent,
@@ -330,14 +408,16 @@ export function ProjectModelsPanel({
         };
       return trainedModelsApi.publish(projectId, publishRequest.current.body);
     },
-    onSuccess: (release) => {
+    onSuccess: (release, target) => {
+      if (!ownsView(target.view)) return;
       if (release) {
         publishRequest.current = null;
         setError("");
         refresh();
       }
     },
-    onError: (reason: Error) => {
+    onError: (reason: Error, target) => {
+      if (!ownsView(target.view)) return;
       setError(reason.message);
       if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500)
         publishRequest.current = null;
@@ -345,22 +425,29 @@ export function ProjectModelsPanel({
     },
   });
   const download = useMutation({
-    mutationFn: () => trainedModelsApi.download(projectId, detailId),
-    onSuccess: ({ url }) => {
+    mutationFn: (view: View) => {
+      assertView(view);
+      return trainedModelsApi.download(projectId, detailId);
+    },
+    onSuccess: ({ url }, view) => {
+      if (!ownsView(view)) return;
       const link = document.createElement("a");
       link.href = url;
       link.download = "best.pt";
       link.rel = "noopener";
       link.click();
     },
-    onError: (reason: Error) => setError(reason.message),
+    onError: (reason: Error, view) => {
+      if (ownsView(view)) setError(reason.message);
+    },
   });
   const resetPrediction = () => {
     predictRequest.current = { id: crypto.randomUUID() };
     setError("");
   };
   const predict = useMutation({
-    mutationFn: () => {
+    mutationFn: (view: View) => {
+      assertView(view);
       if (!predictRequest.current.payload)
         predictRequest.current.payload = {
           ml_backend_id: String(current?.snapshot.registry_id),
@@ -375,13 +462,16 @@ export function ProjectModelsPanel({
         idempotencyKey: predictRequest.current.id,
       });
     },
-    onSuccess: (value) => {
+    onSuccess: (value, view) => {
+      if (!ownsView(view)) return;
       setJobId(value.job_id);
       predictRequest.current = { id: crypto.randomUUID() };
       setError("");
       void client.invalidateQueries({ queryKey: ["learning-pending-tasks", projectId] });
     },
-    onError: (reason: Error) => setError(reason.message),
+    onError: (reason: Error, view) => {
+      if (ownsView(view)) setError(reason.message);
+    },
   });
   const validRegistration =
     source.data?.run.config.framework === "ultralytics" &&
@@ -395,6 +485,9 @@ export function ProjectModelsPanel({
     (!!jobId && job.isPending) ||
     ["pending", "running"].includes(job.data?.status ?? "");
   const modelName = (release: ModelReleaseOut) =>
+    (release.model_version_id === currentModel.data?.model.id
+      ? currentModel.data.model.name
+      : undefined) ??
     models.data?.items.find((item) => item.id === release.model_version_id)?.name ??
     (release.model_version_id ? `模型 ${release.model_version_id.slice(0, 8)}` : "未启用受控模型");
   return (
@@ -431,7 +524,7 @@ export function ProjectModelsPanel({
         onSubmit={(event) => {
           event.preventDefault();
           setError("");
-          register.mutate();
+          register.mutate(captureView());
         }}
       >
         <label className="space-y-1 text-xs">
@@ -557,6 +650,20 @@ export function ProjectModelsPanel({
           </Button>
         </div>
       </form>
+      <label className="mt-5 block max-w-xs space-y-1 text-xs">
+        候选显示范围
+        <select
+          className={inputClass}
+          value={archive}
+          onChange={(event) =>
+            updateModelParams({ archive: event.target.value, model_page: undefined })
+          }
+        >
+          <option value="exclude">默认候选（保留当前发布）</option>
+          <option value="include">全部候选，包含归档</option>
+          <option value="only">仅已归档候选</option>
+        </select>
+      </label>
       <div className="mt-5 overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="text-muted-foreground">
@@ -569,7 +676,12 @@ export function ProjectModelsPanel({
           <tbody>
             {models.data?.items.map((model) => (
               <tr key={model.id} className="border-t border-border">
-                <td className="p-2 font-medium">{model.name}</td>
+                <td className="p-2 font-medium">
+                  {model.name}
+                  {model.archived && (
+                    <Badge>已归档{model.is_current_release ? " · 当前发布" : ""}</Badge>
+                  )}
+                </td>
                 <td className="p-2">
                   {model.framework} {model.framework_version}
                 </td>
@@ -577,6 +689,12 @@ export function ProjectModelsPanel({
                   <Button size="sm" variant="ghost" onClick={() => showDetail(model.id)}>
                     评估与部署
                   </Button>
+                  <Link
+                    className="ml-2 inline-block text-primary hover:underline"
+                    to={lineageHref(model.id)}
+                  >
+                    谱系与决策
+                  </Link>
                 </td>
               </tr>
             ))}
@@ -607,8 +725,18 @@ export function ProjectModelsPanel({
         <div className="mt-4 rounded-md bg-muted p-4" aria-label="模型版本详情">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{activeModel.name}</h3>
-            <div className="flex gap-2">
-              <Button size="sm" disabled={download.isPending} onClick={() => download.mutate()}>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                className="rounded-md border border-border px-3 py-2 text-xs text-primary"
+                to={lineageHref(activeModel.id)}
+              >
+                谱系与决策
+              </Link>
+              <Button
+                size="sm"
+                disabled={download.isPending}
+                onClick={() => download.mutate(captureView())}
+              >
                 下载模型
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setDetailId("")}>
@@ -692,7 +820,7 @@ export function ProjectModelsPanel({
             <Button
               size="sm"
               disabled={!registryId || deploy.isPending}
-              onClick={() => deploy.mutate()}
+              onClick={() => deploy.mutate(captureView())}
             >
               {deploy.isPending ? "加载与试用中…" : "加载检查与样本试用"}
             </Button>
@@ -747,7 +875,11 @@ export function ProjectModelsPanel({
                     className="mt-3"
                     disabled={!confirmed[deployment.id] || publish.isPending || !releases.data}
                     onClick={() =>
-                      publish.mutate({ modelId: activeModel.id, deploymentId: deployment.id })
+                      publish.mutate({
+                        view: captureView(),
+                        modelId: activeModel.id,
+                        deploymentId: deployment.id,
+                      })
                     }
                   >
                     发布此模型
@@ -765,7 +897,9 @@ export function ProjectModelsPanel({
             <Button
               size="sm"
               disabled={publish.isPending}
-              onClick={() => publish.mutate({ modelId: null, deploymentId: null })}
+              onClick={() =>
+                publish.mutate({ view: captureView(), modelId: null, deploymentId: null })
+              }
             >
               停用受控模型
             </Button>
@@ -872,7 +1006,7 @@ export function ProjectModelsPanel({
                 Number(confidence) < 0 ||
                 Number(confidence) > 1
               }
-              onClick={() => predict.mutate()}
+              onClick={() => predict.mutate(captureView())}
             >
               {predict.isPending ? "正在排入…" : "用当前发布模型预标注"}
             </Button>
@@ -924,6 +1058,7 @@ export function ProjectModelsPanel({
                     disabled={publish.isPending}
                     onClick={() =>
                       publish.mutate({
+                        view: captureView(),
                         modelId: release.model_version_id,
                         deploymentId: release.deployment_id,
                         rollbackFromId: release.id,

@@ -497,4 +497,12 @@ describe("frozen evaluation evidence navigation", () => {
     expect(screen.queryByRole("columnheader", { name: "第二减当前" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /同一冻结成员/ })).not.toBeInTheDocument();
   });
+  it("returns to the exact lineage route after opening a sample report", async () => {
+    const target = `/projects/${project}/learning/lineage/evaluation/${evaluation}?relation=evaluations&cursor=owned`;
+    mount(`attempt=${attempt}&returnTo=${encodeURIComponent(target)}`);
+    expect(await screen.findByRole("link", { name: "返回模型谱系" })).toHaveAttribute(
+      "href",
+      target,
+    );
+  });
 });

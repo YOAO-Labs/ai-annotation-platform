@@ -16,9 +16,14 @@ export type {
 };
 const base = (projectId: string) => `/projects/${projectId}`;
 export const trainedModelsApi = {
-  list: (projectId: string, offset = 0, options?: RequestInit) =>
+  list: (
+    projectId: string,
+    offset = 0,
+    options?: RequestInit,
+    archive: "exclude" | "include" | "only" = "exclude",
+  ) =>
     apiClient.get<{ items: TrainedModelOut[]; total: number }>(
-      `${base(projectId)}/trained-models?limit=20&offset=${offset}`,
+      `${base(projectId)}/trained-models?limit=20&offset=${offset}&archive=${archive}`,
       options,
     ),
   get: (projectId: string, versionId: string, options?: RequestInit) =>

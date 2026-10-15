@@ -52,6 +52,7 @@ from app.api.v1 import (
     training_observability,
     training_hub,
     trained_models,
+    model_lineage,
     learning_policies,
     training_recipes,
     users,
@@ -100,6 +101,7 @@ api_router.include_router(
     training_observability.executor_router, tags=["training-executor"]
 )
 api_router.include_router(trained_models.router, tags=["trained-models"])
+api_router.include_router(model_lineage.router, tags=["trained-models"])
 api_router.include_router(learning_policies.router, tags=["learning-policies"])
 api_router.include_router(training_recipes.router, tags=["training-recipes"])
 api_router.include_router(project_performance.router, tags=["project-performance"])

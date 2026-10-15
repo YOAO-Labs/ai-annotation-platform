@@ -15,7 +15,17 @@ vi.mock("./TrainingDatasetInsights", () => ({
   ),
 }));
 
-vi.mock("./ProjectTrainingPanel", () => ({ ProjectTrainingPanel: () => null }));
+vi.mock("./ProjectTrainingPanel", () => ({
+  ProjectTrainingPanel: ({
+    onAttemptSelect,
+  }: {
+    onAttemptSelect: (id: string, runId: string) => void;
+  }) => (
+    <button onClick={() => onAttemptSelect("historical-attempt", "source-run")}>
+      测试历史执行
+    </button>
+  ),
+}));
 vi.mock("./ProjectModelsPanel", () => ({ ProjectModelsPanel: () => null }));
 vi.mock("./ProjectLearningPolicyPanel", () => ({ ProjectLearningPolicyPanel: () => null }));
 
@@ -79,7 +89,15 @@ function mount(path = "/projects/project-1/learning?tab=data") {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/projects/:id/learning" element={<ProjectLearningPage />} />
+          <Route
+            path="/projects/:id/learning"
+            element={
+              <>
+                <ProjectLearningPage />
+                <Location />
+              </>
+            }
+          />
           <Route path="/projects/:id/learning/new" element={<Location />} />
         </Routes>
       </MemoryRouter>
@@ -223,5 +241,13 @@ describe("project learning data versions", () => {
     mount();
     await user.click(await screen.findByRole("button", { name: "取消构建" }));
     await waitFor(() => expect(asyncJobsApi.cancel).toHaveBeenCalledWith("job-1"));
+  });
+  it("pins the owning run when selecting an attempt from the default experiment", async () => {
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=training");
+    await user.click(await screen.findByRole("button", { name: "测试历史执行" }));
+    expect(
+      screen.getByText(/tab=training&attempt=historical-attempt&run=source-run/),
+    ).toBeInTheDocument();
   });
 });

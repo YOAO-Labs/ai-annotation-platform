@@ -21,31 +21,35 @@ import { confirmDialog } from "@/components/ui/decisionDialog";
 export function ProjectTrainingPanel({
   projectId,
   initialRunId = "",
+  initialAttemptId = "",
   visible = true,
   onRunSelect,
+  onAttemptSelect,
   scope = "",
 }: {
   projectId: string;
   initialRunId?: string;
+  initialAttemptId?: string;
   visible?: boolean;
   onRunSelect?: (id: string) => void;
+  onAttemptSelect?: (id: string, runId: string) => void;
   scope?: string;
 }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const session = useTrainingViewOwner(projectId, scope);
   const revision = useRef(0);
-  const [attemptId, setAttemptId] = useState("");
+  const [attemptId, setAttemptId] = useState(initialAttemptId);
   const [error, setError] = useState("");
   const [page, setPage] = useState(0);
   const [selectedId, setDetailId] = useState(initialRunId);
   useEffect(() => {
     setDetailId(initialRunId);
-    setAttemptId("");
+    setAttemptId(initialAttemptId);
     setError("");
     setPage(0);
     revision.current++;
-  }, [initialRunId, projectId, scope]);
+  }, [initialRunId, initialAttemptId, projectId, scope]);
   const catalog = useQuery({
     queryKey: ["training-catalog", projectId, scope],
     queryFn: async ({ signal }) => {
@@ -310,7 +314,13 @@ export function ProjectTrainingPanel({
             </div>
           )}
         </aside>
-        {current ? (
+        {current &&
+        (initialAttemptId || attemptId) &&
+        !detail.data?.attempts.some((item) => item.id === selectedAttemptId) ? (
+          <p role="alert" className="p-4 text-sm text-status-warning">
+            指定的执行尝试不存在或不属于此实验，请明确选择其他尝试。
+          </p>
+        ) : current ? (
           <TrainingRunMonitor
             key={current.id}
             run={current}
@@ -321,6 +331,7 @@ export function ProjectTrainingPanel({
               session.assert();
               revision.current++;
               setAttemptId(id);
+              onAttemptSelect?.(id, current.id);
               setError("");
             }}
             eventsPending={events.isLoading}

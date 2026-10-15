@@ -272,3 +272,19 @@ YOLO 的 `POST /managed-models` 和 `GET /managed-models/{version_id}` 使用 `B
 扩展执行器在 runtime 中声明 `executor_protocol: 2` 和精确的 `supported_configs` 身份列表。缺少握手的旧执行器只能领取原六参数实验；定义摘要或适配器修订不匹配不能领取扩展实验。全局目录的 `parameter_schemas[].compatible` 使用相同能力判定，离线为 `null`。旧租约的心跳、结束和恢复不依赖当前创建目录。
 
 自动策略可显式保存 `configuration`，固定同一参数定义与有效值，后续子实验按该快照解析。旧策略不自动采用扩展默认值。镜像、基础权重或参数定义发生变化时仍暂停策略，要求负责人检查并重新保存。
+
+## 模型谱系与候选决策
+
+以下路径以 `/api/v1/projects/{project_id}` 为前缀，仅项目管理者可读；API Key 同时需要 `annotations:read` 和 `datasets:read`，追加还需 `datasets:write`。
+
+| 方法 | 路径                                     | 说明                                               |
+| ---- | ---------------------------------------- | -------------------------------------------------- |
+| GET  | `/model-lineage/{kind}/{node_id}`        | 单跳节点、直接来源／gap、可选关联列表              |
+| GET  | `/trained-models/{version_id}/decisions` | 决策序号倒序，`limit=1..20`，`before` 游标         |
+| POST | `/trained-models/{version_id}/decisions` | 追加 `request_id`、`disposition`、`note`，返回 201 |
+
+节点类型为 `dataset/run/attempt/model/deployment/release/recipe/recipe_revision/evaluation`。不带 `relation` 时不展开后续记录；可用类型见响应 `sections`。关系页使用 `limit=1..20` 与 `cursor`，后续游标绑定当前项目、根节点和关系，不可跨关系复用。根节点不存在或属于其他项目返回 404；己方来源缺失、无效或归属不一致则只返回该边的 gap。查询不检查执行器或生成下载链接。
+
+`model` 的 `predictions` 关系返回 `usage`，匹配候选权重 SHA、类别及绑定身份，同时核对预测复合主键与项目。`retained_count` 最多 1,000，`truncated=true` 表示还有记录；缺少候选身份时计数为 null 并返回 `unavailable_reason`。此范围不含旧格式和删除历史。
+
+决策处置为 `active/research/declined/archived`；说明去除首尾空白后长度 1–2,000。相同模型内相同 UUID 与内容重试返回原记录；变更内容复用 UUID 返回 409。历史只追加，最新序号决定列表处置，不更新项目发布选择或代次。模型列表支持 `archive=exclude/include/only`，默认 `exclude` 仍保留当前发布；模型输出增加处置、决策序号、归档及当前发布标记。历史模型仍可按 ID 读取。

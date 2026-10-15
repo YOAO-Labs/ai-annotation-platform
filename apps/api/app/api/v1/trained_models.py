@@ -26,6 +26,8 @@ from app.schemas.trained_model import (
     TrainedModelOut,
 )
 from app.services import trained_models as service
+from app.services import model_lineage as lineage
+from app.schemas.model_lineage import ArchiveFilter
 
 router = APIRouter(
     prefix="/projects/{project_id}",
@@ -64,27 +66,37 @@ async def list_models(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    archive: ArchiveFilter = "exclude",
 ) -> dict:
+    condition = lineage.archive_condition(project.id, archive)
     total = await db.scalar(
         select(func.count())
         .select_from(TrainedModelVersion)
-        .where(TrainedModelVersion.project_id == project.id)
+        .where(TrainedModelVersion.project_id == project.id, condition)
     )
     items = (
         await db.scalars(
             select(TrainedModelVersion)
             .where(
                 TrainedModelVersion.project_id == project.id,
+                condition,
             )
-            .order_by(TrainedModelVersion.created_at.desc())
+            .order_by(
+                TrainedModelVersion.created_at.desc(), TrainedModelVersion.id.desc()
+            )
             .limit(limit)
             .offset(offset)
         )
     ).all()
+    metadata = await lineage.model_metadata(db, project.id, [i.id for i in items])
     return {
         "total": total,
         "items": [
-            TrainedModelOut.model_validate(i).model_dump(mode="json") for i in items
+            {
+                **TrainedModelOut.model_validate(i).model_dump(mode="json"),
+                **metadata[i.id],
+            }
+            for i in items
         ],
     }
 
@@ -121,8 +133,12 @@ async def model_detail(
             )
             rendered["trial"] = {**rendered["trial"], "sample_url": url}
         rendered_deployments.append(rendered)
+    metadata = await lineage.model_metadata(db, project.id, [version.id])
     return {
-        "model": TrainedModelOut.model_validate(version).model_dump(mode="json"),
+        "model": {
+            **TrainedModelOut.model_validate(version).model_dump(mode="json"),
+            **metadata[version.id],
+        },
         "deployments": rendered_deployments,
     }
 

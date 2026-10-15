@@ -122,3 +122,4 @@
 - [0077](archive/0077-native-augmentation-preview-cpu-ownership.md) — 原生增强预览采用独立且有界的 CPU 所有权，确认退出后发布并保留过期清理墓碑
 - [0078](archive/0078-attempt-observability-and-redacted-logs.md) — 执行观测独立于训练所有权，日志保存前脱敏并通过不可变历史副本下载
 - [0079](archive/0079-frozen-sample-evaluation.md) — 冻结逐样本证据、后端请求锁／收据与当前源核对
+- [0080](0080-model-lineage-and-decisions.md) — 模型谱系按需读取，候选决策独立追加并保留当前发布

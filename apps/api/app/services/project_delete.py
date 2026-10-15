@@ -16,6 +16,17 @@ async def delete_project_records(db: AsyncSession, project: Project) -> None:
     await db.execute(
         select(Project.id).where(Project.id == project.id).with_for_update()
     )
+    from app.db.models.trained_model import TrainedModelVersion
+    from app.db.models.model_decision import ModelDecision
+
+    for model in (TrainedModelVersion, ModelDecision):
+        if await db.scalar(
+            select(model.id).where(model.project_id == project.id).limit(1)
+        ):
+            raise HTTPException(
+                status_code=409, detail="项目包含候选模型或决策历史，来源数据须保留"
+            )
+
     from app.db.models.learning_policy import LearningPolicy
     from app.db.models.sample_evaluation import SampleEvaluationRun
 

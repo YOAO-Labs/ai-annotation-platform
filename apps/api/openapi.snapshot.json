@@ -18581,6 +18581,212 @@
         "title": "LidarExportPreflightResponse",
         "type": "object"
       },
+      "LineageLink": {
+        "properties": {
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineageNode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "relation"
+        ],
+        "title": "LineageLink",
+        "type": "object"
+      },
+      "LineageNode": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "facts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Facts",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "dataset",
+              "run",
+              "attempt",
+              "model",
+              "deployment",
+              "release",
+              "recipe",
+              "recipe_revision",
+              "evaluation"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "created_at"
+        ],
+        "title": "LineageNode",
+        "type": "object"
+      },
+      "LineageOut": {
+        "properties": {
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/LineageLink"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LineageNode"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "node": {
+            "$ref": "#/components/schemas/LineageNode"
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation"
+          },
+          "sections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineageUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "node",
+          "inputs",
+          "sections"
+        ],
+        "title": "LineageOut",
+        "type": "object"
+      },
+      "LineageUsage": {
+        "properties": {
+          "limit": {
+            "default": 1000,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "retained_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retained Count"
+          },
+          "scope": {
+            "default": "retained_attributable_predictions",
+            "title": "Scope",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "retained_count",
+          "truncated"
+        ],
+        "title": "LineageUsage",
+        "type": "object"
+      },
       "LogItem": {
         "additionalProperties": false,
         "properties": {
@@ -22719,6 +22925,137 @@
           "id"
         ],
         "title": "ModelCapability",
+        "type": "object"
+      },
+      "ModelDecisionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "enum": [
+              "active",
+              "research",
+              "declined",
+              "archived"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "disposition",
+          "note"
+        ],
+        "title": "ModelDecisionCreate",
+        "type": "object"
+      },
+      "ModelDecisionOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "creator_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator Id"
+          },
+          "creator_label": {
+            "title": "Creator Label",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "active",
+              "research",
+              "declined",
+              "archived"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model_version_id": {
+            "format": "uuid",
+            "title": "Model Version Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "model_version_id",
+          "sequence",
+          "creator_id",
+          "creator_label",
+          "disposition",
+          "note",
+          "created_at"
+        ],
+        "title": "ModelDecisionOut",
+        "type": "object"
+      },
+      "ModelDecisionPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ModelDecisionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ModelDecisionPage",
         "type": "object"
       },
       "ModelDeploymentCreate": {
@@ -38730,6 +39067,11 @@
       },
       "TrainedModelOut": {
         "properties": {
+          "archived": {
+            "default": false,
+            "title": "Archived",
+            "type": "boolean"
+          },
           "artifact": {
             "additionalProperties": true,
             "title": "Artifact",
@@ -38763,6 +39105,22 @@
             "title": "Created At",
             "type": "string"
           },
+          "decision_sequence": {
+            "default": 0,
+            "title": "Decision Sequence",
+            "type": "integer"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition"
+          },
           "evaluation": {
             "additionalProperties": true,
             "title": "Evaluation",
@@ -38780,6 +39138,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_current_release": {
+            "default": false,
+            "title": "Is Current Release",
+            "type": "boolean"
           },
           "name": {
             "title": "Name",
@@ -65477,6 +65840,130 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/model-lineage/{kind}/{node_id}": {
+      "get": {
+        "operationId": "get_lineage_api_v1_projects__project_id__model_lineage__kind___node_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "dataset",
+                "run",
+                "attempt",
+                "model",
+                "deployment",
+                "release",
+                "recipe",
+                "recipe_revision",
+                "evaluation"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "relation",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Relation"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Lineage",
+        "tags": [
+          "trained-models"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/model-releases": {
       "get": {
         "operationId": "list_releases_api_v1_projects__project_id__model_releases_get",
@@ -68888,6 +69375,21 @@
               "title": "Offset",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "archive",
+            "required": false,
+            "schema": {
+              "default": "exclude",
+              "enum": [
+                "exclude",
+                "include",
+                "only"
+              ],
+              "title": "Archive",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -69036,6 +69538,159 @@
           }
         ],
         "summary": "Model Detail",
+        "tags": [
+          "trained-models"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/trained-models/{version_id}/decisions": {
+      "get": {
+        "operationId": "get_decisions_api_v1_projects__project_id__trained_models__version_id__decisions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDecisionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Decisions",
+        "tags": [
+          "trained-models"
+        ]
+      },
+      "post": {
+        "operationId": "create_decision_api_v1_projects__project_id__trained_models__version_id__decisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelDecisionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDecisionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Decision",
         "tags": [
           "trained-models"
         ]

@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectTrainingPanel } from "./ProjectTrainingPanel";
+import { lineageReturn } from "@/api/modelLineage";
 import { ProjectModelsPanel } from "./ProjectModelsPanel";
 import { ProjectLearningPolicyPanel } from "./ProjectLearningPolicyPanel";
 import { TrainingDatasetInsights } from "./TrainingDatasetInsights";
@@ -262,6 +263,14 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
 
   return (
     <PageContainer>
+      {params.get("returnTo") && (
+        <Link
+          className="mb-4 inline-block text-xs text-primary hover:underline"
+          to={lineageReturn(projectId, params.get("returnTo"))}
+        >
+          返回模型谱系
+        </Link>
+      )}
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
@@ -699,11 +708,21 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
               projectId={projectId}
               scope={scope}
               initialRunId={params.get("run") ?? ""}
+              initialAttemptId={params.get("attempt") ?? ""}
+              onAttemptSelect={(attemptId, runId) =>
+                setParams((previous) => {
+                  const next = new URLSearchParams(previous);
+                  next.set("attempt", attemptId);
+                  next.set("run", runId);
+                  return next;
+                })
+              }
               onRunSelect={(runId) =>
                 setParams((previous) => {
                   const next = new URLSearchParams(previous);
                   next.set("tab", "training");
                   next.set("run", runId);
+                  next.delete("attempt");
                   next.delete("new");
                   return next;
                 })

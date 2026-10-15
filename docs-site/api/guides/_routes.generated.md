@@ -391,6 +391,14 @@
 | GET | `/protocol` |
 | GET | `/instances` |
 
+## `model_lineage.py`
+
+| Method | Path |
+|---|---|
+| GET | `/model-lineage/{kind}/{node_id}` |
+| GET | `/trained-models/{version_id}/decisions` |
+| POST | `/trained-models/{version_id}/decisions` |
+
 ## `notifications.py`
 
 | Method | Path |
@@ -856,4 +864,4 @@
 
 ---
 
-_共 78 模块 / 489 路由_
+_共 79 模块 / 492 路由_

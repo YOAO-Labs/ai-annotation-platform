@@ -88,6 +88,7 @@ from app.db.models.training_dataset_analysis import (
     TrainingDatasetAnalysis,
     TrainingDatasetAnalyzedSample,
 )
+from app.db.models.model_decision import ModelDecision
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.db.models.sample_evaluation import (
     SampleEvaluationRun,
@@ -215,3 +216,5 @@ __all__ += ["TrainingRecipe", "TrainingRecipeRevision"]
 __all__ += ["TrainingPreview", "TrainingPreviewResourceLease"]
 
 __all__ += ["TrainingTelemetrySample", "TrainingLogChunk"]
+
+__all__ += ["ModelDecision"]

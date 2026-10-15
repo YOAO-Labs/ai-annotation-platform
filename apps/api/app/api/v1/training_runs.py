@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import or_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -487,7 +487,14 @@ async def delete_run(
 
     if await db.scalar(
         select(TrainedModelVersion.id)
-        .where(TrainedModelVersion.run_id == run.id)
+        .where(
+            or_(
+                TrainedModelVersion.run_id == run.id,
+                TrainedModelVersion.attempt_id.in_(
+                    select(TrainingAttempt.id).where(TrainingAttempt.run_id == run.id)
+                ),
+            )
+        )
         .limit(1)
     ):
         raise HTTPException(

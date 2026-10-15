@@ -56,6 +56,9 @@ const TrainingComparisonPage = lazy(() =>
     default: m.TrainingComparisonPage,
   })),
 );
+const ModelLineagePage = lazy(() =>
+  import("@/pages/Training/ModelLineagePage").then((m) => ({ default: m.ModelLineagePage })),
+);
 const SampleEvaluationPage = lazy(() =>
   import("@/pages/Training/SampleEvaluationPage").then((m) => ({
     default: m.SampleEvaluationPage,
@@ -507,6 +510,14 @@ export function App() {
             element={
               <RequireProjectAccess capability="project.manage">
                 <ProjectSettingsPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/lineage/:kind/:nodeId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ModelLineagePage />
               </RequireProjectAccess>
             }
           />

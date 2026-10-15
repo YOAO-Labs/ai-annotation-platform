@@ -11,6 +11,7 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { lineageReturn } from "@/api/modelLineage";
 import { useAuthStore } from "@/stores/authStore";
 import { trainingInputClass } from "./TrainingParameterField";
 import {
@@ -231,6 +232,15 @@ function EvaluationContent({
   });
   return (
     <PageContainer>
+      {params.get("returnTo") && (
+        <Link
+          className="mb-3 inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+          to={lineageReturn(projectId, params.get("returnTo"))}
+        >
+          <ArrowLeft className="size-3.5" />
+          返回模型谱系
+        </Link>
+      )}
       <Link
         to={
           evaluationId

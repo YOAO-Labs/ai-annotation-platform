@@ -309,3 +309,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/projects/{project_id}/sample-evaluations" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/cancel" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/retry" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/model-lineage/{kind}/{node_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/trained-models/{version_id}/decisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/trained-models/{version_id}/decisions" = { status = "excluded", reason = "web-only" }

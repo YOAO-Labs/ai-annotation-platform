@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { trainedModelsApi } from "@/api/trainedModels";
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { mlBackendsApi } from "@/api/ml-backends";
 import { tasksApi } from "@/api/tasks";
 import { dataManagerTaskActionsApi } from "@/api/dataManagerActions";
+import { useAuthStore } from "@/stores/authStore";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectModelsPanel } from "./ProjectModelsPanel";
 
 vi.mock("@/api/trainedModels", async (original) => ({
@@ -74,14 +76,21 @@ const deployment = {
 const releases = { generation: 7, total: 0, items: [], current_release_id: null, current: null };
 const clients: QueryClient[] = [];
 
-function mount() {
+let navigate: ReturnType<typeof useNavigate>;
+function Navigation() {
+  navigate = useNavigate();
+  return null;
+}
+
+function mount(entry = "/") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   clients.push(client);
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entry]}>
+        <Navigation />
         <ProjectModelsPanel projectId="project-1" classes={["车辆", "行人"]} />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -90,6 +99,7 @@ function mount() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useAuthStore.getState().setAuth("token-a", { id: "owner" } as never);
   vi.mocked(trainingRunsApi.list).mockResolvedValue({
     total: 1,
     items: [{ id: "run-1", name: "成功训练", status: "succeeded" }],
@@ -251,4 +261,48 @@ it("explains and disables registration for native LibreYOLO artifacts", async ()
   expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
   expect(screen.queryByLabelText(/原生类别 0/)).not.toBeInTheDocument();
   expect(trainedModelsApi.register).not.toHaveBeenCalled();
+});
+
+it("loads a deep-linked archived candidate independently of the list page and preserves return context", async () => {
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({ items: [], total: 100 });
+  vi.mocked(trainedModelsApi.get).mockResolvedValue({
+    model: { ...model, archived: true },
+    deployments: [],
+  });
+  mount("/projects/project-1/learning?tab=models&archive=only&model_page=2&model=model-1");
+  expect(await screen.findByRole("heading", { name: "第一候选" })).toBeInTheDocument();
+  expect(trainedModelsApi.list).toHaveBeenCalledWith("project-1", 40, undefined, "only");
+  const link = screen.getByRole("link", { name: "谱系与决策" });
+  expect(decodeURIComponent(link.getAttribute("href")!)).toContain(
+    "returnTo=/projects/project-1/learning?tab=models&archive=only&model_page=2&model=model-1",
+  );
+});
+
+it("rejects delayed publication confirmation after candidate navigation ABA", async () => {
+  const user = userEvent.setup();
+  let resolve!: (value: boolean) => void;
+  vi.mocked(confirmDialog).mockImplementationOnce(
+    () =>
+      new Promise((yes) => {
+        resolve = yes;
+      }),
+  );
+  mount("/projects/project-1/learning?tab=models&model=model-1");
+  await user.click(await screen.findByRole("checkbox", { name: /已查看.*样本/ }));
+  await user.click(screen.getByRole("button", { name: "发布此模型" }));
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalled());
+  await act(async () => navigate("?tab=models&archive=include&model=model-1"));
+  await act(async () => navigate(-1));
+  await act(async () => resolve(true));
+  expect(trainedModelsApi.publish).not.toHaveBeenCalled();
+});
+
+it("loads the current release name when its candidate is outside the displayed page", async () => {
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({ items: [], total: 90 });
+  vi.mocked(trainedModelsApi.releases).mockResolvedValue({
+    ...releases,
+    current: { model_version_id: "model-1", generation: 7, snapshot: {} } as never,
+  });
+  mount("/projects/project-1/learning?tab=models&model_page=2");
+  expect(await screen.findByText("第一候选 · 发布代次 7")).toBeInTheDocument();
 });

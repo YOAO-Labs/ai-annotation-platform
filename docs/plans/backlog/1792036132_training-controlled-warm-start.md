@@ -2,7 +2,7 @@
 
 > Status: trigger-gated research-draft
 > Priority: after configuration and provenance
-> Depends on: [T01](../1792035920_training-parameter-catalog.md), [T02](../1792035920_training-configuration-workspace.md), [T09](1792036036_training-model-lineage.md)
+> Depends on: [T01](../1792035920_training-parameter-catalog.md), [T02](../1792035920_training-configuration-workspace.md), [T09](../1792036036_training-model-lineage.md)
 > Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and promotion trigger

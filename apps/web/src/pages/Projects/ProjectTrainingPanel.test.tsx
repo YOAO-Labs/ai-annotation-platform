@@ -43,7 +43,7 @@ const run = {
 function Location() {
   return <p>{useLocation().pathname}</p>;
 }
-function mount() {
+function mount(initialAttemptId = "") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -51,7 +51,11 @@ function mount() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <ProjectTrainingPanel projectId="project" />
+        <ProjectTrainingPanel
+          projectId="project"
+          initialRunId={initialAttemptId ? "run" : ""}
+          initialAttemptId={initialAttemptId}
+        />
         <Location />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -289,5 +293,37 @@ describe("managed project training", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "查看执行记录" }), "attempt");
     await act(async () => confirm(true));
     expect(trainingRunsApi.remove).not.toHaveBeenCalled();
+  });
+  it("opens an explicit historical attempt and never falls back for a missing attempt", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: run as never,
+      attempts: [
+        { id: "attempt", ordinal: 2, status: "training", artifacts: {} } as never,
+        { id: "old", ordinal: 1, status: "failed", artifacts: {} } as never,
+      ],
+    });
+    vi.mocked(trainingRunsApi.events).mockImplementation(async (_p, _r, id) => ({
+      attempt_id: id!,
+      items: [],
+    }));
+    vi.mocked(trainingObservabilityApi.telemetry).mockImplementation(async (_p, _r, id) => ({
+      attempt_id: id,
+      items: [],
+      stream_id: null,
+      latest_cursor: 0,
+      earliest_cursor: null,
+      next_cursor: 0,
+      has_more: false,
+      gaps: [],
+      summary: null,
+      metric_definitions: {},
+    }));
+    const mounted = mount("old");
+    expect(await screen.findByRole("combobox", { name: "查看执行记录" })).toHaveValue("old");
+    mounted.unmount();
+    mount("missing");
+    await screen.findByRole("alert");
+    expect(screen.getByText(/指定的执行尝试不存在/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "查看执行记录" })).not.toBeInTheDocument();
   });
 });

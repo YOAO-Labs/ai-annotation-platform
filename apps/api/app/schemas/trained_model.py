@@ -31,6 +31,10 @@ class TrainedModelOut(BaseModel):
     provenance: dict
     evaluation: dict
     created_at: datetime
+    disposition: str | None = None
+    decision_sequence: int = 0
+    archived: bool = False
+    is_current_release: bool = False
 
 
 class ModelDeploymentCreate(BaseModel):
