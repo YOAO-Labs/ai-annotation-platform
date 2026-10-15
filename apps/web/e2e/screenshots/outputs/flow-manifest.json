@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T14:32:10.033Z",
+  "updated_at": "2026-10-15T14:56:38.698Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -6420,9 +6420,9 @@
     "docs-site/public/media/video/tracker-cross-frame-points-poster.webp": {
       "asset_id": "video-tracker-cross-frame-points",
       "role": "poster",
-      "generated_at": "2026-09-08T02:42:00.445Z",
-      "captured_commit": "3795c2a275ef35238e38a76f5d05b49b7d748d14",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T14:56:38.698Z",
+      "captured_commit": "a98e8712dd874405bfd327fe3cd365d992dc9003",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › video-tracker-cross-frame-points",
@@ -6440,8 +6440,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "ce0e95b41bbf22d2e9d50faad5798b56173c281d0e0cadb1cdb95191d8db978e",
-      "bytes": 61424,
+      "sha256": "fcc457f004ed4082aa344ce191969d52abfe82641b6da77a0ac55947f03b7f0a",
+      "bytes": 75902,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6455,22 +6455,22 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T02-29-09-027Z-6986",
+        "runId": "2026-10-15T14-45-04-997Z-2023723",
         "assetId": "video-tracker-cross-frame-points",
-        "sha256": "ac42c0626ca12f08135ca8336085c1195b0d6c81ae66252f2cf865a85074a0ad",
+        "sha256": "dba436b2ccd9a0bc1b0777c41897dba6456791edf54c7acdd262458c1f9832ea",
         "quality": "standard",
         "clip": {
-          "start": 64.95,
-          "duration": 26.25
+          "start": 93,
+          "duration": 24
         }
       }
     },
     "docs-site/public/media/video/tracker-cross-frame-points.mp4": {
       "asset_id": "video-tracker-cross-frame-points",
       "role": "docs-video",
-      "generated_at": "2026-09-08T02:42:00.364Z",
-      "captured_commit": "3795c2a275ef35238e38a76f5d05b49b7d748d14",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T14:56:38.656Z",
+      "captured_commit": "a98e8712dd874405bfd327fe3cd365d992dc9003",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › video-tracker-cross-frame-points",
@@ -6488,28 +6488,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "8ae206de2fddd93ac0b016e9c21d244153f3f53de1e1cd3d26c31dbc807c2a22",
-      "bytes": 1041601,
+      "sha256": "63f0f8e2a10126ad21133f0db9faa14ca107ee33485eecfddfb8dbbe4ac2a852",
+      "bytes": 1380937,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 26.28
+        "duration_seconds": 24
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T02-29-09-027Z-6986",
+        "runId": "2026-10-15T14-45-04-997Z-2023723",
         "assetId": "video-tracker-cross-frame-points",
-        "sha256": "ac42c0626ca12f08135ca8336085c1195b0d6c81ae66252f2cf865a85074a0ad",
+        "sha256": "dba436b2ccd9a0bc1b0777c41897dba6456791edf54c7acdd262458c1f9832ea",
         "quality": "standard",
         "clip": {
-          "start": 64.95,
-          "duration": 26.25
+          "start": 93,
+          "duration": 24
         }
       }
     },
