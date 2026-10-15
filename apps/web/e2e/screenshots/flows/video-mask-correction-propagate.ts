@@ -285,7 +285,7 @@ export async function runVideoMaskCorrectionPropagate(
       "true",
       { timeout: 10_000 },
     );
-    await toolbar.waitFor({ timeout: 10_000 });
+    await openContextToolbar(page, "mask");
     const collapseEditorSelection = page.getByRole("button", { name: "收起浮窗" });
     if (await collapseEditorSelection.isVisible()) await collapseEditorSelection.click();
     await openContextToolbar(page, "mask");
