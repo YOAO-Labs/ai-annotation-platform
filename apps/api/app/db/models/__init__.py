@@ -1,4 +1,5 @@
 from app.db.models.user import User
+from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
 from app.db.models.group import Group
 from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
@@ -199,3 +200,4 @@ from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 __all__ += ["LearningPolicy", "LearningTrigger"]
 
 __all__ += ["TrainingRecipe", "TrainingRecipeRevision"]
+__all__ += ["TrainingPreview", "TrainingPreviewResourceLease"]

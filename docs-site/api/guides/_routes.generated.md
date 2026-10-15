@@ -743,6 +743,16 @@
 | GET | `/projects` |
 | GET | `/runs` |
 
+## `training_previews.py`
+
+| Method | Path |
+|---|---|
+| GET | `/capabilities` |
+| GET | `/{preview_id}` |
+| POST | `/{preview_id}/cancel` |
+| DELETE | `/{preview_id}` |
+| GET | `/{preview_id}/images/{index}` |
+
 ## `training_recipes.py`
 
 | Method | Path |
@@ -823,4 +833,4 @@
 
 ---
 
-_共 75 模块 / 471 路由_
+_共 76 模块 / 476 路由_

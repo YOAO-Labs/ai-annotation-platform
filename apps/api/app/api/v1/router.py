@@ -47,6 +47,7 @@ from app.api.v1 import (
     training_datasets,
     training_dataset_analysis,
     training_runs,
+    training_previews,
     training_hub,
     trained_models,
     learning_policies,
@@ -89,6 +90,8 @@ api_router.include_router(training_dataset_analysis.router, tags=["training-data
 api_router.include_router(training_runs.router, tags=["training-runs"])
 api_router.include_router(training_hub.router, tags=["training-hub"])
 api_router.include_router(training_runs.executor_router, tags=["training-executor"])
+api_router.include_router(training_previews.router, tags=["training-previews"])
+api_router.include_router(training_previews.executor_router, tags=["training-executor"])
 api_router.include_router(trained_models.router, tags=["trained-models"])
 api_router.include_router(learning_policies.router, tags=["learning-policies"])
 api_router.include_router(training_recipes.router, tags=["training-recipes"])

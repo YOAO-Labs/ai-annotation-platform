@@ -131,6 +131,27 @@ last_reviewed: 2026-10-15
 
 独立执行器使用 `/api/v1/internal/training`，通过 `X-Training-Executor-Token` 认证，调用 `claim` 以及 `attempts/{id}/heartbeat`、`uploads`、`finish`、`recover`。这些接口不使用用户 JWT。回报同时校验当前执行、执行器、启动标识和租约凭据。执行器收到短期对象 URL，没有数据库或存储管理凭据；claim 发送前持久化请求标识，丢失响应后恢复同一个分配。
 
+## 原生增强预览 API
+
+基路径 `/api/v1/projects/{project_id}/training-previews`。读取要求当前项目负责人或超级管理员及 `datasets:read`、`annotations:read`；创建、取消和删除另需 `datasets:write`。
+
+| 方法   | 路径后缀                       | 行为                                                           |
+| ------ | ------------------------------ | -------------------------------------------------------------- |
+| GET    | `/capabilities`                | 当前 CPU 协议、镜像、在线／忙闲状态与固定资源策略              |
+| POST   | 空                             | 创建冻结预览，返回 `202`；相同主体、请求 UUID 和内容可精确重试 |
+| GET    | `/{preview_id}`                | 当前状态与经字节验证的完整报告                                 |
+| POST   | `/{preview_id}/cancel`         | 排队立即取消；运行中等待进程退出确认                           |
+| DELETE | `/{preview_id}`                | 立即过期并隐藏，保留上传窗口关闭前的清理墓碑                   |
+| GET    | `/{preview_id}/images/{index}` | 读取 0–3 号经完整校验的 PNG；认证私有流、禁止缓存              |
+
+创建包含 `dataset_id`、`framework`、`base_model`、完整 `configuration`、UUID `request_id`、整数 `seed`（0–2147483647）、一基 `epoch`（不超过训练轮数）和 `count`（1–4）。只接受通过资格验证的 Ultralytics YOLO11 图片检测，不接受任意代码、路径、存储键或运行资源参数。每项目最多三个活跃预览。
+
+状态为 `queued`、`running`、`cancelling`、`lost`、`succeeded`、`failed`、`cancelled`、`expired`。`lost` 不等于进程已退出。报告绑定预览、完整配置／镜像／参数定义、冻结数据和来源池、策略、种子及轮次；包含完整归一化框、输出 SHA、实际来源取用／读取记录及累计原生裁剪／过滤操作。原始来源继续通过冻结样本媒体接口授权读取。
+
+每次报告读取核验实际 JSON 大小、SHA 和预览／输入元数据，图片另核验完整字节、PNG 格式及尺寸。纯解析缓存不代替存储验证或授权。跨项目或不存在返回 `404`，未完成／能力不匹配返回 `409`，过期图片返回 `410`，损坏或不符证据返回 `422`。结果 24 小时过期；清理等待最后一次 60 秒 PUT 授权关闭，期间保留数据引用。
+
+执行器通过原有 `X-Training-Executor-Token` 调用 `/api/v1/internal/training/previews/claim`、`/{preview_id}/heartbeat`、`uploads` 和 `finish`。claim 的 `purpose` 固定为 `augmentation-preview`，资源为节点的 `augmentation-preview/cpu-0`；协议与策略摘要及镜像必须匹配。回报以原 claim 的执行器、boot 和 CPU 租约凭据 fencing；`finish.process_exited` 必须为 true。失联、取消和过期不直接释放未知进程的租约，撤权后允许有效 fence 确认停止，但禁止发布成功。
+
 ## 项目训练配方与克隆
 
 基路径 `/api/v1/projects/{project_id}/training-recipes`。所有操作要求当前项目负责人或超级管理员及 `annotations:read`、`datasets:read`；写入和纯配置解析另需 `datasets:write`。

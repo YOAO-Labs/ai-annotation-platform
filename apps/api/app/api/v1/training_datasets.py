@@ -11,6 +11,7 @@ from sqlalchemy.orm import defer
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
+from app.db.models.training_preview import TrainingPreview
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_dataset import (
@@ -311,9 +312,15 @@ async def delete_version(
         or await db.scalar(
             select(TrainingRun.id).where(TrainingRun.dataset_id == version.id).limit(1)
         )
+        or await db.scalar(
+            select(TrainingPreview.id)
+            .where(TrainingPreview.dataset_id == version.id)
+            .limit(1)
+        )
     ):
         raise HTTPException(
-            status_code=409, detail="运行中或被后续版本、训练实验引用的数据版本不能删除"
+            status_code=409,
+            detail="运行中或被后续版本、训练实验、未清理增强预览引用的数据版本不能删除",
         )
     await asyncio.to_thread(
         storage_service.delete_prefix,

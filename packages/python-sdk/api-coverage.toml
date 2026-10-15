@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews"]
 
 [operations]
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
@@ -247,6 +247,16 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/internal/training/attempts/{attempt_id}/recover" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/internal/training/attempts/{attempt_id}/uploads" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/internal/training/claim" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/claim" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/{preview_id}/heartbeat" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/{preview_id}/uploads" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/{preview_id}/finish" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-previews/capabilities" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-previews" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-previews/{preview_id}" = { status = "excluded", reason = "web-only" }
+"DELETE /api/v1/projects/{project_id}/training-previews/{preview_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-previews/{preview_id}/cancel" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-previews/{preview_id}/images/{index}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-runs" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/catalog" = { status = "excluded", reason = "web-only" }

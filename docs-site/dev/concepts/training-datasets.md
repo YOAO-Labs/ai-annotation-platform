@@ -28,6 +28,20 @@ last_reviewed: 2026-10-15
 
 `TrainingDatasetVersion` 是项目内持久领域记录，保存冻结快照、父版本、请求幂等身份、执行尝试、清单及训练包校验值。`AsyncJob` 承接进度和通知，清理任务历史不会删除数据版本。
 
+## 原生增强预览与 CPU 所有权
+
+`TrainingPreview` 冻结完整配置、镜像／参数定义、数据快照／包、确定性来源池、策略、种子和轮次。来源只取实际包内训练分区，按 seed/task/SHA 排序，在最多 512 个候选中选择满足资源预算的最多 16 张；保留精确图片和重新生成且与清单一致的标签。完整输入摘要包含原生生效参数和来源选择结果，不改变训练配置摘要。
+
+执行器主进程保留 GPU 监督循环，独立 `PreviewSupervisor` 线程持有 CPU HTTP 客户端、取消标志、持久 journal 和继承 flock。预览子进程隐藏 CUDA，在导入原生框架前限制虚拟地址 16 GiB、CPU 30／35 秒、墙钟 45 秒、单核与单线程；服务器在开始后 60 秒请求停止。固定池同时限制字节、像素和对象数量。CPU 和主机内存仍与训练共享，不能据此承诺零训练延迟。
+
+原生执行使用固定镜像中的 `YOLODataset`、增强流水线和 `DetectionTrainer.preprocess_batch`，冻结默认关闭的检测不适用 Copy/Paste，按所选轮次执行 `close_mosaic`。独立进程隔离 RNG、私有缓存与权重，没有优化器和反向传播。观察包装器仅记录原生来源与裁剪／过滤掩码，不改变数组或消耗 RNG；回归验证带观察和无观察的像素／框一致。报告包含完整框、原生参数、镜像／适配器及数据集、构建、变换、实例和预处理源码的联合指纹。
+
+独立 `TrainingPreviewResourceLease` 保护节点 CPU 槽，不使用 `TrainingAttempt` 或 GPU 租约。claim 先持久化再请求，响应丢失恢复同一 claim；finish 收据先落盘再发送，丢失响应只重放原收据。同 boot 重试必须通过保留的 `Popen` 确认进程组退出，PID 落盘失败也不例外。新 boot 重新取得子进程继承的 flock 后才能恢复；不向旧 boot 的可能复用 PID 发信号。取消、撤权、失联与超时均保留未知进程租约。
+
+产物位于 `projects/{project}/previews/{preview}/`。签名 PUT 固定清单、长度和预览／输入／SHA 元数据。发布前验证报告和完整 PNG；授权读取持预览共享行锁直至读取完成，前端以认证 Blob 展示并释放 URL。结果 24 小时过期，最后一次 PUT 授权关闭后才能删除前缀和引用。每分钟 cleanup 先在短事务中处理 CPU 租约／活跃记录，再只锁过期 queued／terminal 行执行存储删除，避免无关清理阻塞心跳。
+
+部署需应用预览迁移、重建受控执行器并更新实际镜像摘要、刷新包含 cleanup 注册的 worker 与 beat。旧执行器没有匹配协议／策略时，能力接口保持不可用，训练入口继续可用。完整取舍见 [原生预览 CPU 所有权](../adr/archive/0077-native-augmentation-preview-cpu-ownership)。
+
 ## 冻结和物化
 
 `services/training_datasets.py` 用一个 PostgreSQL 查询读取工具类别、任务审核状态、素材引用和活跃标注，保证同一语句快照。随后记录 S3 ETag、版本和大小；大文件复制不持有这次数据库读取事务。

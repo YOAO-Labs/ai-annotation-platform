@@ -31,6 +31,7 @@ class AsyncJobKind(str, enum.Enum):
     EXPORT = "export"  # 标注导出（异步化 + 目录镜像）
     TRAINING_DATASET = "training_dataset"
     TRAINING_RUN = "training_run"
+    TRAINING_PREVIEW = "training_preview"
     DATASET_IMPORT = "dataset_import"  # 外部连接器数据集导入
     CREATE_TASKS = "create_tasks"  # dataset link → 建 task
     MASK_QC = "mask_qc"  # Raster / Video Mask 异步质量扫描

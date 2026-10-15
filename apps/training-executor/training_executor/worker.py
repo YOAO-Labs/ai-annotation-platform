@@ -32,6 +32,7 @@ class StopTraining(Exception):
 def runtime_identity():
     import torch
     from training_contract.catalog import supported_identities
+    from training_contract.preview import POLICY_DIGEST
 
     gpu = os.environ["TRAINING_GPU_UUID"]
     devices = (
@@ -57,6 +58,8 @@ def runtime_identity():
         pass
     return {
         "executor_protocol": 2,
+        "preview_protocol": 1,
+        "preview_policy_digest": POLICY_DIGEST,
         "supported_configs": supported_identities(),
         "image_digest": image,
         "gpu_uuid": gpu,
@@ -523,6 +526,22 @@ class Supervisor:
     def run(self):
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, lambda signum, frame: self.shutdown.set())
+        from .preview_worker import PreviewSupervisor
+
+        preview = PreviewSupervisor(self)
+        thread = threading.Thread(target=preview.run, name="native-preview-cpu")
+        thread.start()
+        try:
+            self.run_training()
+        finally:
+            self.shutdown.set()
+            thread.join(timeout=90)
+            if thread.is_alive():
+                raise RuntimeError(
+                    "CPU preview is still stopping; its lease remains held"
+                )
+
+    def run_training(self):
         lock_path = self.state / (
             "gpu-" + hashlib.sha256(self.resource.encode()).hexdigest()[:24] + ".lock"
         )

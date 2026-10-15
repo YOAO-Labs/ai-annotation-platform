@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-rou
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRunsApi } from "@/api/trainingRuns";
+import { trainingPreviewsApi } from "@/api/trainingPreviews";
 import { trainingRecipesApi, type TrainingRecipeOut } from "@/api/trainingRecipes";
 import type { TrainingParameterField, TrainingParameterSchema } from "@/api/generated/types.gen";
 import { useAuthStore } from "@/stores/authStore";
@@ -29,6 +30,15 @@ vi.mock("@/api/trainingRuns", () => ({
   },
 }));
 vi.mock("./TrainingParameterInventory", () => ({ TrainingParameterInventory: () => null }));
+vi.mock("@/api/trainingPreviews", () => ({
+  trainingPreviewsApi: {
+    capabilities: vi.fn(),
+    create: vi.fn(),
+    get: vi.fn(),
+    cancel: vi.fn(),
+    image: vi.fn(),
+  },
+}));
 vi.mock("@/api/trainingRecipes", async (original) => ({
   ...(await original<typeof import("@/api/trainingRecipes")>()),
   trainingRecipesApi: {
@@ -174,6 +184,15 @@ beforeEach(() => {
   vi.mocked(trainingRunsApi.parameterSchema).mockResolvedValue(schema);
   vi.mocked(trainingRunsApi.preflight).mockResolvedValue(report);
   vi.mocked(trainingRunsApi.create).mockResolvedValue({ id: "run-1" } as never);
+  vi.mocked(trainingPreviewsApi.capabilities).mockResolvedValue({
+    qualified: true,
+    online: true,
+    busy: false,
+    resource_id: "cpu",
+    policy: {},
+    policy_digest: "p",
+    reason: null,
+  });
   vi.mocked(trainingRecipesApi.list).mockResolvedValue({ total: 0, items: [] });
   vi.mocked(trainingRecipesApi.resolve).mockImplementation(
     async (_id, body) =>
@@ -380,6 +399,24 @@ async function check() {
 }
 
 describe("training creation ownership", () => {
+  it("keeps preview controls and failures out of the persisted draft and training requests", async () => {
+    vi.mocked(trainingPreviewsApi.create).mockRejectedValue(new Error("preview unavailable"));
+    const { user } = await prepare(false);
+    const key = trainingDraftKey(trainingDraftOwner("user-1", "project-1"));
+    const before = localStorage.getItem(key);
+    await user.clear(screen.getByLabelText("预览种子"));
+    await user.type(screen.getByLabelText("预览种子"), "97");
+    await user.click(screen.getByRole("button", { name: "生成原生预览" }));
+    await screen.findByText("preview unavailable");
+    expect(localStorage.getItem(key)).toBe(before);
+    expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await check();
+    expect(vi.mocked(trainingRunsApi.preflight).mock.calls[0][1]).not.toHaveProperty("seed");
+    await user.click(screen.getByRole("button", { name: "开始训练" }));
+    await screen.findByText("实验列表");
+    expect(vi.mocked(trainingRunsApi.create).mock.calls[0][1]).not.toHaveProperty("preview");
+  });
   it("invalidates review and rotates the request when an execution input changes", async () => {
     const { user } = await prepare();
     await check();

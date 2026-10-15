@@ -119,3 +119,4 @@
 - [0073](archive/0073-shared-surface-for-3d-docking.md) — 3D 自由布局采用工作区共享渲染 surface 与整组相机呈现
 - [0074](archive/0074-atomic-annotation-slice-restore.md) — 图片对象切割采用受限操作账本与原子恢复
 - [0076](archive/0076-controlled-trained-model-identity.md) — 受控模型、部署与发布分离，预测冻结权重及类别来源
+- [0077](archive/0077-native-augmentation-preview-cpu-ownership.md) — 原生增强预览采用独立且有界的 CPU 所有权，确认退出后发布并保留过期清理墓碑

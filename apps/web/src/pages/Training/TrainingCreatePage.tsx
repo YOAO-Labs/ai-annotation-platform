@@ -23,6 +23,7 @@ import { TrainingConfigurationEditor } from "./TrainingConfigurationEditor";
 import { TrainingParameterInventory } from "./TrainingParameterInventory";
 import { trainingInputClass, trainingValueLabel } from "./TrainingParameterField";
 import { TrainingRunReview } from "./TrainingRunReview";
+import { TrainingAugmentationPreview } from "./TrainingAugmentationPreview";
 import {
   TrainingRecipeLibrary,
   TrainingRecipeSave,
@@ -1113,6 +1114,37 @@ function TrainingCreateContent({
                   keys.forEach((key) => delete fields[key]);
                   update({ fields });
                 }}
+              />
+              <TrainingAugmentationPreview
+                projectId={projectId}
+                input={{
+                  dataset_id: draft.datasetId,
+                  framework: draft.framework as "ultralytics" | "libreyolo",
+                  base_model: draft.baseModel,
+                  configuration: {
+                    schema_id: draft.schemaId,
+                    schema_digest: draft.schemaDigest,
+                    values: collected.values,
+                  },
+                }}
+                binding={JSON.stringify([
+                  draft.revision,
+                  runtime,
+                  selectedDataset.data?.snapshot_digest,
+                  selectedDataset.data?.package_sha256,
+                  selectedDataset.data?.manifest?.content_digest,
+                ])}
+                epochs={Number(
+                  collected.values.epochs ??
+                    schema.fields.find((field) => field.key === "epochs")?.default ??
+                    50,
+                )}
+                classes={
+                  Array.isArray(selectedDataset.data?.manifest?.classes)
+                    ? selectedDataset.data.manifest.classes.map(String)
+                    : []
+                }
+                disabled={locked || !valid}
               />
               <details
                 className="mt-5 rounded-lg border border-border p-4 text-xs"
