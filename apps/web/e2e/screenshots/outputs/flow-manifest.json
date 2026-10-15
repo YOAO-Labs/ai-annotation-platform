@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T13:43:43.353Z",
+  "updated_at": "2026-10-15T13:51:19.285Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -4539,8 +4539,8 @@
     "docs-site/public/media/projects/ml-routing-poster.webp": {
       "asset_id": "project-ml-routing",
       "role": "poster",
-      "generated_at": "2026-09-08T06:40:57.348Z",
-      "captured_commit": "3cb60477dcc8f48522d577fb11b4ee62bd24858b",
+      "generated_at": "2026-10-15T13:51:19.285Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -4559,8 +4559,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "57c8bed284a13e9cc0fefd5ce270b57a971656b541c9497afccc373019a1e2f5",
-      "bytes": 43966,
+      "sha256": "360c955e45aee6345159b81016e811d978c93dfb79ecdbb1cbb52cf80262a390",
+      "bytes": 44386,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -4574,21 +4574,21 @@
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-08T06-04-03-061Z-588549",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "project-ml-routing",
-        "sha256": "437288b551258a04a73be4e72d59b44e55673dc85a9a4ac1d314d4e39d15d3b8",
+        "sha256": "3292236ddc4ca213af9311dd2a8b0332c3b57a89fc9318d4927f5d913fa94b07",
         "quality": "standard",
         "clip": {
-          "start": 86,
-          "duration": 24.6
+          "start": 2.2,
+          "duration": 26.2
         }
       }
     },
     "docs-site/public/media/projects/ml-routing.mp4": {
       "asset_id": "project-ml-routing",
       "role": "docs-video",
-      "generated_at": "2026-09-08T06:40:57.268Z",
-      "captured_commit": "3cb60477dcc8f48522d577fb11b4ee62bd24858b",
+      "generated_at": "2026-10-15T13:51:19.248Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -4607,28 +4607,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "707bc53736961071c6897668246a1dfe0a99195ccfea29df1b80884a522cda04",
-      "bytes": 1045245,
+      "sha256": "4abe842ad42265ee6b5e9fea5b106b464018200ea34012673229fb384730be5f",
+      "bytes": 1056430,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 24.6
+        "duration_seconds": 26.2
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-09-08T06-04-03-061Z-588549",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "project-ml-routing",
-        "sha256": "437288b551258a04a73be4e72d59b44e55673dc85a9a4ac1d314d4e39d15d3b8",
+        "sha256": "3292236ddc4ca213af9311dd2a8b0332c3b57a89fc9318d4927f5d913fa94b07",
         "quality": "standard",
         "clip": {
-          "start": 86,
-          "duration": 24.6
+          "start": 2.2,
+          "duration": 26.2
         }
       }
     },
