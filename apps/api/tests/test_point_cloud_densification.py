@@ -57,6 +57,21 @@ def capability():
     }
 
 
+@pytest.mark.parametrize("models", [None, "absent"])
+def test_densification_keeps_legacy_prediction_models(models):
+    setup = {
+        "name": "hybrid",
+        "supported_prompts": ["bbox"],
+        "supported_geometric_outputs": ["bbox"],
+        "point_cloud_densification": capability(),
+    }
+    if models != "absent":
+        setup["models"] = models
+    caps = extract_capabilities(setup)
+    assert len(caps["models"]) == 1
+    assert caps["supported_prompts"] == ["bbox"]
+
+
 def preprocessing():
     identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
     return {
@@ -238,8 +253,9 @@ def test_generation_preserves_measured_array_and_excludes_its_rays():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mismatch", [None, "request_id", "camera"])
 @pytest.mark.parametrize("use_factory", [False, True])
+@pytest.mark.parametrize("request_timeout", [None, 2400])
 async def test_reconstruction_uses_gpu_dispatch_and_rejects_stale_responses(
-    mismatch, use_factory
+    mismatch, use_factory, request_timeout
 ):
     response = producer_response()
     request = {
@@ -262,6 +278,12 @@ async def test_reconstruction_uses_gpu_dispatch_and_rejects_stale_responses(
     backend = MLBackendRegistry(
         id=uuid.uuid4(), url="http://producer:8006", auth_method="none", extra_params={}
     )
+    if request_timeout is not None:
+        advertised = capability()
+        advertised["profiles"][0]["request_timeout_seconds"] = request_timeout
+        backend.health_meta = {
+            "capabilities": {"point_cloud_densification": advertised}
+        }
     client = MLBackendClient(backend)
     events = []
 
@@ -280,9 +302,12 @@ async def test_reconstruction_uses_gpu_dispatch_and_rejects_stale_responses(
 
     payload = signed_payload if use_factory else request
     real = httpx.AsyncClient
-    transport = httpx.MockTransport(
-        lambda _: httpx.Response(200, content=json.dumps(response).encode())
-    )
+
+    def respond(http_request):
+        assert http_request.extensions["timeout"]["read"] == (request_timeout or 1800)
+        return httpx.Response(200, content=json.dumps(response).encode())
+
+    transport = httpx.MockTransport(respond)
     with patch(
         "app.services.ml_client.httpx.AsyncClient",
         side_effect=lambda **kwargs: real(transport=transport, **kwargs),

@@ -559,9 +559,17 @@ class MLBackendClient:
 
     async def reconstruct(self, payload: dict | Callable[[], Awaitable[dict]]):
         """Produce bounded depth artifacts under the normal GPU admission owner."""
-        from app.schemas.point_cloud_densification import ReconstructionResponse
+        from app.schemas.point_cloud_densification import (
+            ReconstructionResponse,
+            reconstruction_timeout_seconds,
+        )
 
         started = time.monotonic()
+        timeout = reconstruction_timeout_seconds(
+            ((self._backend.health_meta or {}).get("capabilities") or {}).get(
+                "point_cloud_densification"
+            )
+        )
         outcome = "error"
         try:
             async with await self._acquire():
@@ -573,7 +581,7 @@ class MLBackendClient:
                         # cancellation through the orchestration owner.
                         payload = await payload()
                     async with httpx.AsyncClient(
-                        timeout=settings.ml_predict_timeout, follow_redirects=False
+                        timeout=timeout, follow_redirects=False
                     ) as client:
                         async with client.stream(
                             "POST",

@@ -25,6 +25,8 @@ ready 响应包含 `asset_id`、`generation`、`input_digest`、`profile`、
 签名请求为 `{"asset_id":"UUID","generation":1,"camera_role":"camera_front"}`，
 返回的 URL 有效期不超过 300 秒，格式为 binary PCD。源文件、标定或 generation
 已变化时不签发旧 URL。
+读取时同时校验 PCD 与审计 NPZ；审计文件缺失、大小或哈希不符时返回 `failed`，不再复用该 generation。
+旧源对象缺少 SHA-256 元数据时，服务按对象版本和 ETag 缓存成功的内容校验，后续读取仍检查 HEAD，标识变化后重新校验。
 
 生成请求指定一种范围：
 
@@ -37,6 +39,8 @@ ready 响应包含 `asset_id`、`generation`、`input_digest`、`profile`、
 进度和结果读取 [AsyncJob](./async-jobs)，kind 为 `point_cloud_densification`；
 结果包含新生成、复用、失败计数及 `failed_task_ids`。
 重试请求同时携带 `retry_job_id` 和该历史任务的失败帧 ID。
+中断恢复时 `failed_task_ids` 包含已有失败帧和未处理帧，排除已成功和已跳过的帧。
+创建请求遇到源文件大小缺失或无效时返回 HTTP 409，`detail.reason=source_size_mismatch`。
 取消通过现有 `/async-jobs/{id}/cancel`，协作终止于当前推理结束后的边界。
 
 这些资产与预标注 prediction 分开，不能通过接受预测写入标注。

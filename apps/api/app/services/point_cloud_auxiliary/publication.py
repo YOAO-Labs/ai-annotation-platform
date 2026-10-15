@@ -83,12 +83,24 @@ async def find_asset(
 
 def verify_descriptor(descriptor: dict, storage=storage_service) -> bool:
     head = storage.verify_upload(descriptor["key"], bucket=storage.datasets_bucket)
-    return bool(
+    display_valid = bool(
         head
         and head.get("ContentLength") == descriptor["byte_size"]
         and head.get("Metadata", {}).get("sha256") == descriptor["sha256"]
         and str(head.get("ETag") or "").strip('"') == descriptor.get("etag", "")
         and head.get("VersionId") == descriptor.get("version_id")
+    )
+    if not display_valid or not all(
+        descriptor.get(key) for key in ("audit_key", "audit_byte_size", "audit_sha256")
+    ):
+        return False
+    audit = storage.verify_upload(
+        descriptor["audit_key"], bucket=storage.datasets_bucket
+    )
+    return bool(
+        audit
+        and audit.get("ContentLength") == descriptor["audit_byte_size"]
+        and audit.get("Metadata", {}).get("sha256") == descriptor["audit_sha256"]
     )
 
 

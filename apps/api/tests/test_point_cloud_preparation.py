@@ -1,6 +1,9 @@
 """Durable preparation scope, access, cancellation and source identity."""
 
 import uuid
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -13,7 +16,7 @@ from app.schemas.point_cloud_densification import (
     GENERATION_PROFILE,
     PointCloudDensificationRequest,
 )
-from app.services.point_cloud_auxiliary import resolve_task_inputs
+from app.services.point_cloud_auxiliary import AuxiliaryError, resolve_task_inputs
 from app.services.point_cloud_densification.service import (
     create_preparation,
     logical_input_digest,
@@ -72,6 +75,128 @@ async def prepare_fixture(db, actor_id, storage):
     }
     await db.flush()
     return project, task, primary, camera, pool
+
+
+@pytest.mark.parametrize("source", ["primary", "camera"])
+async def test_null_source_size_returns_controlled_conflict(
+    db_session, super_admin, httpx_client, memory_storage, source
+):
+    project, task, primary, camera, _ = await prepare_fixture(
+        db_session, super_admin[0].id, memory_storage
+    )
+    (primary if source == "primary" else camera).file_size = None
+    await db_session.flush()
+    # A verified resolution can derive the size; lightweight creation must fail closed.
+    verified = await resolve_task_inputs(db_session, task, GENERATION_PROFILE)
+    assert verified.primary.file_size > 0 and all(
+        c.item.file_size > 0 for c in verified.cameras
+    )
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/point-cloud/augmentation/jobs",
+        headers={"Authorization": f"Bearer {super_admin[1]}"},
+        json={"scope": "task_ids", "task_ids": [str(task.id)]},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "reason": "source_size_mismatch",
+        "task_id": str(task.id),
+    }
+
+
+async def test_preparation_signed_urls_cover_reconstruction_budget(
+    db_session, super_admin, memory_storage, monkeypatch
+):
+    project, task, _, _, pool = await prepare_fixture(
+        db_session, super_admin[0].id, memory_storage
+    )
+    advertised = capability()
+    advertised["profiles"][0]["request_timeout_seconds"] = 2400
+    pool.capability_snapshot = {"point_cloud_densification": advertised}
+    job, _ = await create_preparation(
+        db_session,
+        project,
+        super_admin[0].id,
+        PointCloudDensificationRequest(scope="task_ids", task_ids=[task.id]),
+    )
+    reserve = AsyncMock(
+        return_value=SimpleNamespace(
+            asset_id=uuid.uuid4(),
+            generation=1,
+            lease_token=uuid.uuid4(),
+            status="building",
+        )
+    )
+    download = Mock(return_value="https://storage/source")
+    upload = Mock(return_value="https://storage/staging")
+    monkeypatch.setattr(worker, "reserve_generation", reserve)
+    monkeypatch.setattr(worker, "fail_generation", AsyncMock(return_value=True))
+    monkeypatch.setattr(worker, "_clean_staging", Mock())
+    monkeypatch.setattr(worker.storage_service, "generate_download_url", download)
+    monkeypatch.setattr(worker.storage_service, "generate_upload_url", upload)
+    monkeypatch.setattr(
+        worker.storage_service, "rewrite_host_for_ml_backend", lambda url: url
+    )
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def reconstruct(self, payload):
+            envelope = await payload()
+            assert (
+                len(envelope["cameras"]) == 6 and len(envelope["upload_targets"]) == 6
+            )
+            assert download.call_count == 6 and upload.call_count == 12
+            assert all(
+                call.kwargs["expires_in"] == 2460
+                for call in [*download.call_args_list, *upload.call_args_list]
+            )
+            raise AuxiliaryError("test_producer_stopped")
+
+    monkeypatch.setattr(worker, "RoutedMLBackendClient", Client)
+    with pytest.raises(AuxiliaryError, match="test_producer_stopped"):
+        await worker.prepare_one(db_session, job.id, task.id)
+
+
+@pytest.mark.parametrize(
+    "counts,failed,expected",
+    [
+        ((1, 1, 1), ["c"], ["c", "d", "e"]),
+        ((0, 0, 0), [], ["a", "b", "c", "d", "e"]),
+        ((3, 1, 1), ["c"], ["c"]),
+    ],
+)
+async def test_reconcile_retries_only_failures_and_unprocessed_suffix(
+    monkeypatch, counts, failed, expected
+):
+    job = SimpleNamespace(
+        id=uuid.uuid4(),
+        payload={"task_ids": list("abcde")},
+        result={
+            "success_count": counts[0],
+            "skipped_count": counts[1],
+            "failed_count": counts[2],
+            "failed_task_ids": failed,
+        },
+    )
+    rows = Mock()
+    rows.scalars.return_value = [job]
+    db = AsyncMock()
+    db.execute.return_value = rows
+
+    @asynccontextmanager
+    async def session():
+        yield db
+
+    mark_failed = AsyncMock()
+    monkeypatch.setattr(worker, "task_session", session)
+    monkeypatch.setattr(worker.jobs, "mark_failed", mark_failed)
+    monkeypatch.setattr(worker, "notify_job_terminal", AsyncMock())
+    assert await worker._reconcile() == {"failed": 1}
+    result = mark_failed.call_args.kwargs["result"]
+    assert result["failed_task_ids"] == expected
+    assert result["failed_count"] == len(expected)
+    assert result["success_count"] == counts[0] and result["skipped_count"] == counts[1]
 
 
 async def test_preparation_freezes_logical_identity_and_reuses_active_job(

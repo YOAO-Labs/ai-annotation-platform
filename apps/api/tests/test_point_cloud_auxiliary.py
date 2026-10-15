@@ -40,7 +40,10 @@ from app.services.point_cloud_auxiliary.publication import (
     MODEL_SOURCE_COMMIT,
     WEIGHT_SHA256,
 )
-from app.services.point_cloud_auxiliary.sources import nuscenes_calibration
+from app.services.point_cloud_auxiliary.sources import (
+    nuscenes_calibration,
+    object_fingerprint,
+)
 from app.services.sensor_calibration import (
     calibration_digest,
     resolve_calibration_state,
@@ -66,7 +69,12 @@ class MemoryS3:
             "ETag": hashlib.md5(body).hexdigest(),
         }
 
-    def get_object(self, *, Bucket, Key):
+    def get_object(self, *, Bucket, Key, **conditions):
+        if "IfMatch" in conditions:
+            assert (
+                conditions["IfMatch"]
+                == self.head_object(Bucket=Bucket, Key=Key)["ETag"]
+            )
         return {"Body": io.BytesIO(self.objects[(Bucket, Key)][0])}
 
 
@@ -217,6 +225,73 @@ def test_pcd_roundtrip_and_audit_are_row_aligned():
     with np.load(io.BytesIO(sidecar), allow_pickle=False) as audit:
         np.testing.assert_array_equal(audit["pixel"], source["pixel"])
     assert count == 2
+
+
+def test_legacy_fingerprint_reuses_hash_only_for_unchanged_object(
+    memory_storage, monkeypatch
+):
+    body = b"legacy-cloud"
+    item = DatasetItem(
+        file_path="legacy.pcd",
+        file_size=len(body),
+        content_hash=hashlib.sha256(body).hexdigest(),
+    )
+    memory_storage.put_object(
+        Bucket=storage_service.datasets_bucket, Key=item.file_path, Body=body
+    )
+    from unittest.mock import Mock
+
+    get = Mock(wraps=memory_storage.get_object)
+    head = Mock(wraps=storage_service.verify_upload)
+    monkeypatch.setattr(memory_storage, "get_object", get)
+    monkeypatch.setattr(storage_service, "verify_upload", head)
+    first = object_fingerprint(item)
+    assert object_fingerprint(item) == first
+    assert get.call_count == 1 and head.call_count == 2
+    memory_storage.put_object(
+        Bucket=storage_service.datasets_bucket,
+        Key=item.file_path,
+        Body=b"changed-data",
+    )
+    with pytest.raises(AuxiliaryError, match="source_hash_mismatch"):
+        object_fingerprint(item)
+    assert get.call_count == 2
+
+
+@pytest.mark.parametrize("damage", ["missing", "size", "hash"])
+async def test_damaged_audit_blocks_reads_and_generation_reuse(
+    db_session, super_admin, httpx_client, memory_storage, damage
+):
+    _, _, task, _, _ = await seed(db_session, super_admin[0].id, memory_storage)
+    inputs = await resolve_task_inputs(db_session, task)
+    generation = await publish_auxiliary(
+        db_session, task, inputs, {"camera_front": cloud()}, provenance()
+    )
+    descriptor = generation.cameras[0]
+    key = (storage_service.datasets_bucket, descriptor["audit_key"])
+    body, metadata = memory_storage.objects.pop(key)
+    if damage != "missing":
+        memory_storage.objects[key] = (
+            body + b"x" if damage == "size" else body,
+            metadata if damage == "size" else {"sha256": "0" * 64},
+        )
+    base = f"/api/v1/tasks/{task.id}/point-cloud/augmentation"
+    headers = {"Authorization": f"Bearer {super_admin[1]}"}
+    response = await httpx_client.get(base, headers=headers)
+    assert response.status_code == 200 and response.json()["status"] == "failed"
+    asset_url = await httpx_client.post(
+        base + "/assets",
+        headers=headers,
+        json={
+            "asset_id": str(generation.asset_id),
+            "generation": generation.generation,
+            "camera_role": "camera_front",
+        },
+    )
+    assert asset_url.status_code == 409
+    assert (await get_ready_generation(db_session, task))[2] is None
+    replacement = await reserve_generation(db_session, task, inputs)
+    assert replacement.status == "building" and replacement.generation == 2
 
 
 @pytest.mark.parametrize(

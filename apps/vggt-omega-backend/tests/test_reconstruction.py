@@ -329,19 +329,27 @@ def test_setup_health_auth_and_unprovisioned_warmup(backend):
     assert setup["models"] == []
     assert setup["supported_geometric_outputs"] == []
     assert setup["point_cloud_densification"]["profiles"][0]["execution_shape"] == "B6S1"
+    assert setup["point_cloud_densification"]["profiles"][0]["request_timeout_seconds"] == (
+        main._config.build_timeout + 18 * main._config.transfer_timeout + 300
+    )
     assert client.get("/health", headers={"Authorization": "Bearer wrong"}).status_code == 401
     health = client.get(
         "/health",
         params={"aap_gpu_health_challenge": "a" * 64},
         headers={"X-AAP-GPU-Health-Challenge": "a" * 64},
     )
-    assert health.status_code == 200
+    assert health.status_code == 503
     assert health.headers["X-AAP-GPU-Health-Challenge"] == "a" * 64
     assert health.json()["compute"]["cpu_fallback_supported"] is False
     assert health.json()["ready"] is False
     assert health.json()["residency"]["gpu_loaded"] is False
     assert client.post("/warmup").status_code == 503
     assert client.post("/unload").json() == {"ok": True, "unloaded": 0}
+    main._config.weights.touch()
+    provisioned = client.get("/health")
+    assert provisioned.status_code == 200
+    assert provisioned.json()["ready"] is True
+    assert provisioned.json()["weights_provisioned"] is True
 
 
 def test_reconstruct_lifecycle_header_validation_precedes_body(backend):

@@ -25685,6 +25685,12 @@
             },
             "title": "Outputs",
             "type": "array"
+          },
+          "request_timeout_seconds": {
+            "default": 1800,
+            "exclusiveMinimum": 0.0,
+            "title": "Request Timeout Seconds",
+            "type": "number"
           }
         },
         "required": [

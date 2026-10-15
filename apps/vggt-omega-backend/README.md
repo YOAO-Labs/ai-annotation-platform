@@ -50,6 +50,8 @@ HF snapshot 中的文件通常是指向 `blobs/` 的相对软链；仅挂载 sna
 
 `GET /setup` 返回可选的 `point_cloud_densification` 能力：protocol `1`、endpoint `/reconstruct`、固定 profile、六相机数量和输入/输出限额。它不声明框、Mask 或点云标注预测能力。
 
+Profile 的 `request_timeout_seconds` 声明重建请求预算：模型构建等待、六次下载与十二次上传的传输预算，再加 300 秒推理与序列化余量。平台使用该预算等待回复，并让源文件及暂存上传链接多保留 60 秒；旧服务未声明预算时按 1800 秒等待。
+
 `POST /reconstruct` 请求：
 
 ```json
@@ -95,7 +97,7 @@ CPU 结果缓存默认最多两组、32 MiB、300 秒，只保留二进制输出
 
 一个 HTTP 进程、容量一的共享 `ManagedLruPool`、每次一个重建请求。另一个重建请求收到可重试的 503，不建立第二个任务队列。借用模型、构建、卸载及真实 executor 结束都保持显式跟踪；HTTP 取消不提前释放正在执行的模型或源图临时目录。
 
-`/health`、`/warmup`、`/unload`、`/drain`、`/drain/cancel`、`/lifecycle/mode`、`/lifecycle/reset` 沿用平台 GPU 生命周期协议。`/reconstruct` 使用 `predict` admission scope，在解析业务请求前校验完整 admission headers。未配置权重时 `/health.ready=false`，`/warmup` 返回 503；不支持 CPU fallback。
+`/health`、`/warmup`、`/unload`、`/drain`、`/drain/cancel`、`/lifecycle/mode`、`/lifecycle/reset` 沿用平台 GPU 生命周期协议。`/reconstruct` 使用 `predict` admission scope，在解析业务请求前校验完整 admission headers。未配置权重时 `/health` 返回 503，并保留 `ready=false`、`weights_provisioned=false` 与生命周期信息；`/warmup` 也返回 503。不支持 CPU fallback。
 
 `VGGT_OMEGA_MANAGED_LIFECYCLE_VERIFIED` 默认 `0`：不发布 `managed_lifecycle` 能力，拒绝切换到 enforce。只有目标镜像、设备与 profile 完成实卡加载、推理、取消、drain、full unload 及显存回落验收后，部署方才能设为 `1`。CPU 合同测试和离线实验的显存记录不能替代这项验收；注册 VRAM 预算需来自目标部署的实测峰值和运行余量。
 

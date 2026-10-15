@@ -62,31 +62,33 @@ export function RenderingConfigSection({ project }: { project: ProjectResponse }
         <RenderingConfigEditor value={draft} onChange={onChange} disabled={update.isPending} />
         {update.isPending && <div className="mt-3 text-xs text-muted-foreground">保存中…</div>}
       </div>
-      <section className="border-t border-border p-4" aria-label="AI 点云补强实验">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h4 className="m-0 text-sm font-semibold">AI 当前帧点云补强（实验）</h4>
-            <p className="m-0 mt-1 text-xs text-muted-foreground">
-              VGGT-Ω 生成辅助形状；当前真实 LiDAR 始终用于标注。成员需自行选择 AI
-              补强，查看不会启动推理。
-            </p>
+      {project.data_type === "lidar" && (
+        <section className="border-t border-border p-4" aria-label="AI 点云补强实验">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 className="m-0 text-sm font-semibold">AI 当前帧点云补强（实验）</h4>
+              <p className="m-0 mt-1 text-xs text-muted-foreground">
+                VGGT-Ω 生成辅助形状；当前真实 LiDAR 始终用于标注。成员需自行选择 AI
+                补强，查看不会启动推理。
+              </p>
+            </div>
+            <Switch
+              checked={enhancement.enabled}
+              disabled={!canManage || update.isPending}
+              label="允许成员使用实验"
+              data-testid="pointcloud-enhancement-project-toggle"
+              onChange={(enabled) => onEnhancementChange({ ...enhancement, enabled })}
+            />
           </div>
-          <Switch
-            checked={enhancement.enabled}
-            disabled={!canManage || update.isPending}
-            label="允许成员使用实验"
-            data-testid="pointcloud-enhancement-project-toggle"
-            onChange={(enabled) => onEnhancementChange({ ...enhancement, enabled })}
+          <PointCloudPreparation
+            projectId={project.id}
+            config={enhancement}
+            canManage={canManage}
+            saving={update.isPending}
+            onConfigChange={onEnhancementChange}
           />
-        </div>
-        <PointCloudPreparation
-          projectId={project.id}
-          config={enhancement}
-          canManage={canManage}
-          saving={update.isPending}
-          onConfigChange={onEnhancementChange}
-        />
-      </section>
+        </section>
+      )}
     </Card>
   );
 }

@@ -154,17 +154,20 @@ def _echo_challenge(request: Request, response: Response) -> None:
 
 
 @app.get("/health", dependencies=[Depends(_echo_challenge)])
-async def health() -> dict[str, Any]:
+async def health(response: Response) -> dict[str, Any]:
     if _lifecycle is None:
         raise HTTPException(status_code=503, detail="backend not ready")
     snapshot, residency = await _lifecycle.snapshot_and_residency()
+    provisioned = _config.weights.is_file()
+    if not provisioned:
+        response.status_code = 503
     return {
-        "status": "ok",
+        "status": "ok" if provisioned else "unavailable",
         "service": "vggt-omega-backend",
         "version": BACKEND_VERSION,
         "model_version": MODEL_VERSION,
-        "ready": _config.weights.is_file(),
-        "weights_provisioned": _config.weights.is_file(),
+        "ready": provisioned,
+        "weights_provisioned": provisioned,
         "pool": {
             key: snapshot[key] for key in ("cap", "current_size", "loaded_keys", "last_evict")
         },
@@ -203,6 +206,11 @@ def setup() -> dict[str, Any]:
                     "max_height": MAX_DIMENSION,
                     "max_image_bytes": MAX_IMAGE_BYTES,
                     "execution_shape": EXECUTION_SHAPE,
+                    # Build, sequential source/artifact transfers, and five
+                    # minutes for inference/serialization before the response.
+                    "request_timeout_seconds": (
+                        _config.build_timeout + 3 * CAMERA_COUNT * _config.transfer_timeout + 300
+                    ),
                     "outputs": ["depth", "confidence"],
                     "output_width": OUTPUT_WIDTH,
                     "output_height": OUTPUT_HEIGHT,

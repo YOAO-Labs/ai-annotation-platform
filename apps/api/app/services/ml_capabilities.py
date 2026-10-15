@@ -376,7 +376,7 @@ def extract_capabilities(setup: dict | None) -> dict | None:
     raw_models = setup.get("models")
     if isinstance(raw_models, list) and raw_models:
         models = [_normalize_model(m, infra) for m in raw_models if isinstance(m, dict)]
-    elif "point_cloud_densification" in setup:
+    elif raw_models == [] and "point_cloud_densification" in setup:
         models = []
     else:
         models = [_synthesize_single_model(setup, infra)]
@@ -414,7 +414,7 @@ def extract_capabilities(setup: dict | None) -> dict | None:
         try:
             densification = PointCloudDensificationCapability.model_validate(
                 setup["point_cloud_densification"]
-            ).model_dump(mode="json")
+            ).model_dump(mode="json", exclude_unset=True)
         except (TypeError, ValidationError):
             warnings.append(
                 {

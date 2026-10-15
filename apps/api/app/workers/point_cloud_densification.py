@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
+import math
 import uuid
 
 from fastapi import HTTPException
@@ -16,7 +17,11 @@ from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.schemas.point_cloud_densification import GENERATION_PROFILE, INFERENCE_PROFILE
+from app.schemas.point_cloud_densification import (
+    GENERATION_PROFILE,
+    INFERENCE_PROFILE,
+    reconstruction_timeout_seconds,
+)
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
@@ -183,12 +188,22 @@ async def prepare_one(db, job_id: uuid.UUID, task_id: uuid.UUID) -> str:
         )
 
         async def signed_payload():
-            await check_authority(db, job_id)
+            _, _, current_pool = await check_authority(db, job_id)
+            url_ttl = (
+                math.ceil(
+                    reconstruction_timeout_seconds(
+                        (current_pool.capability_snapshot or {}).get(
+                            "point_cloud_densification"
+                        )
+                    )
+                )
+                + 60
+            )
             camera_requests, uploads = [], []
             for index, camera in enumerate(inputs.cameras):
                 source_url = storage_service.generate_download_url(
                     camera.file_path,
-                    expires_in=300,
+                    expires_in=url_ttl,
                     align=False,
                     bucket=storage_service.datasets_bucket,
                 )
@@ -207,7 +222,7 @@ async def prepare_one(db, job_id: uuid.UUID, task_id: uuid.UUID) -> str:
                 for offset, artifact in enumerate(("depth", "confidence")):
                     target = storage_service.generate_upload_url(
                         staging[index * 2 + offset],
-                        expires_in=300,
+                        expires_in=url_ttl,
                         bucket=storage_service.import_bucket,
                     )
                     targets[artifact] = {
@@ -441,10 +456,14 @@ async def _reconcile() -> dict:
         count = 0
         for job in rows:
             result = dict(job.result or {})
-            completed = set(result.get("failed_task_ids", []))
-            result["failed_task_ids"] = sorted(
-                completed | set(job.payload.get("task_ids", []))
+            processed = sum(
+                result.get(f"{outcome}_count", 0)
+                for outcome in ("success", "skipped", "failed")
             )
+            failed = set(result.get("failed_task_ids", []))
+            unfinished = job.payload.get("task_ids", [])[processed:]
+            result["failed_task_ids"] = sorted(failed | set(unfinished))
+            result["failed_count"] = len(result["failed_task_ids"])
             await jobs.mark_failed(
                 db, job.id, error="preparation_interrupted", result=result
             )

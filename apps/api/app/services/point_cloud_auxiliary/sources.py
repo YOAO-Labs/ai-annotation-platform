@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from functools import lru_cache
 import hashlib
 import json
 import re
@@ -132,6 +133,38 @@ def validate_calibration(calibration: SensorCalibration) -> None:
             raise AuxiliaryError("camera_calibration_invalid")
 
 
+@lru_cache(maxsize=1024)
+def _verify_legacy_source(
+    client,
+    bucket: str,
+    key: str,
+    content_hash: str,
+    size: int,
+    etag: str,
+    version_id: str | None,
+    last_modified: str,
+) -> None:
+    """Cache successful verification by storage client and HEAD mutation identity."""
+    conditions = {}
+    if version_id:
+        conditions["VersionId"] = version_id
+    if etag:
+        conditions["IfMatch"] = etag
+    response = client.get_object(Bucket=bucket, Key=key, **conditions)
+    body = response["Body"]
+    try:
+        digest, read = hashlib.sha256(), 0
+        while chunk := body.read(1024 * 1024):
+            read += len(chunk)
+            if read > MAX_SOURCE_BYTES:
+                raise AuxiliaryError("source_size_mismatch")
+            digest.update(chunk)
+        if read != size or digest.hexdigest() != content_hash:
+            raise AuxiliaryError("source_hash_mismatch")
+    finally:
+        body.close()
+
+
 def object_fingerprint(item: DatasetItem, storage=storage_service) -> dict:
     """Verify trusted content hashes and freeze storage mutation indicators."""
     content_hash = (item.content_hash or "").lower()
@@ -140,9 +173,10 @@ def object_fingerprint(item: DatasetItem, storage=storage_service) -> dict:
     head = storage.verify_upload(item.file_path, bucket=storage.datasets_bucket)
     if not head:
         raise AuxiliaryError("source_object_missing")
-    size = int(head.get("ContentLength", -1))
+    size = head.get("ContentLength")
     if (
-        size < 1
+        not isinstance(size, int)
+        or size < 1
         or size > MAX_SOURCE_BYTES
         or (item.file_size is not None and size != item.file_size)
     ):
@@ -152,21 +186,23 @@ def object_fingerprint(item: DatasetItem, storage=storage_service) -> dict:
         if metadata_hash != content_hash:
             raise AuxiliaryError("source_hash_mismatch")
     else:
-        response = storage.client.get_object(
-            Bucket=storage.datasets_bucket, Key=item.file_path
+        etag, version_id = head.get("ETag") or "", head.get("VersionId")
+        # Without a mutation indicator, a prior verification cannot be reused.
+        verify = (
+            _verify_legacy_source
+            if etag or version_id
+            else _verify_legacy_source.__wrapped__
         )
-        body = response["Body"]
-        try:
-            digest, read = hashlib.sha256(), 0
-            while chunk := body.read(1024 * 1024):
-                read += len(chunk)
-                if read > MAX_SOURCE_BYTES:
-                    raise AuxiliaryError("source_size_mismatch")
-                digest.update(chunk)
-            if read != size or digest.hexdigest() != content_hash:
-                raise AuxiliaryError("source_hash_mismatch")
-        finally:
-            body.close()
+        verify(
+            storage.client,
+            storage.datasets_bucket,
+            item.file_path,
+            content_hash,
+            size,
+            etag,
+            version_id,
+            str(head.get("LastModified") or ""),
+        )
     return {
         "sha256": content_hash,
         "byte_size": size,
@@ -384,12 +420,15 @@ async def resolve_task_inputs(
             if verify_objects
             else {"sha256": item.content_hash, "byte_size": item.file_size}
         )
+        size = fingerprint["byte_size"]
+        if not isinstance(size, int) or not 1 <= size <= MAX_SOURCE_BYTES:
+            raise AuxiliaryError("source_size_mismatch")
         frozen[item.id] = FrozenItem(
             item.id,
             item.dataset_id,
             item.file_path,
             item.content_hash or "",
-            item.file_size or int(fingerprint["byte_size"]),
+            size,
             fingerprint,
             json.loads(json.dumps((item.metadata_ or {}).get("nuscenes_export") or {})),
         )

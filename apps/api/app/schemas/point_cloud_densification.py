@@ -15,6 +15,7 @@ OMEGA_WEIGHTS_SHA256 = (
 )
 INFERENCE_PROFILE = "omega-current-mono-512"
 GENERATION_PROFILE = "omega-current-mono-512-full-lidar"
+DEFAULT_RECONSTRUCTION_TIMEOUT_SECONDS = 1800
 SHA256 = r"^[0-9a-f]{64}$"
 
 
@@ -27,6 +28,9 @@ class ProducerProfile(BaseModel):
     max_width: int = Field(gt=0, le=4096)
     max_height: int = Field(gt=0, le=4096)
     outputs: list[Literal["depth", "confidence"]]
+    request_timeout_seconds: float = Field(
+        default=DEFAULT_RECONSTRUCTION_TIMEOUT_SECONDS, gt=0, allow_inf_nan=False
+    )
 
     @model_validator(mode="after")
     def complete_outputs(self):
@@ -41,6 +45,16 @@ class PointCloudDensificationCapability(BaseModel):
     protocol_version: Literal["1"]
     endpoint: Literal["/reconstruct"]
     profiles: list[ProducerProfile] = Field(min_length=1, max_length=1)
+
+
+def reconstruction_timeout_seconds(capability: dict | None) -> float:
+    if capability is None:
+        return DEFAULT_RECONSTRUCTION_TIMEOUT_SECONDS
+    return (
+        PointCloudDensificationCapability.model_validate(capability)
+        .profiles[0]
+        .request_timeout_seconds
+    )
 
 
 class ArrayArtifact(BaseModel):
