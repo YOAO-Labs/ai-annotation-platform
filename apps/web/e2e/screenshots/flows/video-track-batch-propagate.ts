@@ -209,7 +209,7 @@ export async function runVideoTrackBatchPropagate(
     if (!createdPayload.id) throw new Error("[video-track-batch-propagate] 追踪作业未返回 ID");
     onJobCreated(createdPayload.id);
 
-    await page.getByTestId("tool-btn-select").click();
+    await page.getByTestId("video-tool-btn-select").click();
     await page
       .getByTestId("tracker-review-tool-capsule")
       .waitFor({ state: "visible", timeout: 120_000 });

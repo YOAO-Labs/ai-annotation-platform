@@ -158,7 +158,10 @@ export async function runCurrentFrameVideoInference(
       candidateResponse.ok(),
     { timeout: 20_000 },
   );
-  await page.getByTitle("采纳预测").last().click();
+  const acceptCandidate = page.getByTestId("ai-candidate-accept");
+  await expect(acceptCandidate).toBeVisible();
+  await expect(acceptCandidate).toBeEnabled();
+  await acceptCandidate.click();
   const acceptedBody = (await (await accepted).json()) as Array<{ id?: string }>;
   cleanupRecord.annotationIds.push(
     ...acceptedBody.flatMap((annotation) =>

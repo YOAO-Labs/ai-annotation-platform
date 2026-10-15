@@ -162,7 +162,7 @@ export async function runVideoTrackerComboDiscovery(
   page.on("response", collectServerError);
   try {
     await dialog.getByRole("button", { name: "开始发现" }).click();
-    await page.getByTestId("tool-btn-select").click();
+    await page.getByTestId("video-tool-btn-select").click();
     await page
       .getByTestId("tracker-review-tool-capsule")
       .waitFor({ state: "visible", timeout: 120_000 });

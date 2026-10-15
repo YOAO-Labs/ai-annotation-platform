@@ -1323,7 +1323,7 @@ test.describe("flow recordings", () => {
 
   test("current-frame-video-inference — 当前帧车辆推理与作用域核对", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -1709,7 +1709,7 @@ test.describe("flow recordings", () => {
 
   test("video-timeline-prediction-navigation — AI 预测密度与帧导航", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000); // 真实双目标视频推理 + 4K H.264 归档转码
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000); // 真实双目标视频推理 + 4K H.264 归档转码
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -1768,7 +1768,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-range — 时间轴刷选追踪范围", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1786,7 +1786,7 @@ test.describe("flow recordings", () => {
 
   test("video-track-batch-propagate — 双轨迹批量延展并复核", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000); // 双轨迹真实视频推理 + 候选审阅 + 4K H.264 归档
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000); // 双轨迹真实视频推理 + 候选审阅 + 4K H.264 归档
     const project = cached.projects.video_demo;
     const task = project.tasks.tracking;
     const userEmail = cached.users.project_admin.email;
@@ -1865,7 +1865,7 @@ test.describe("flow recordings", () => {
 
   test("video-propagate-track-vs-copy — 几何复制与 AI 延展对比", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000); // 真实 30 帧 SAM3 追踪 + 候选审阅 + 4K H.264 归档
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000); // 真实 30 帧 SAM3 追踪 + 候选审阅 + 4K H.264 归档
     const project = cached.projects.video_demo;
     const task = project.tasks.tracking;
     const userEmail = cached.users.project_admin.email;
@@ -1935,7 +1935,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-cross-frame-points — 双目标跨帧多正点", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1958,7 +1958,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-positive-negative — 双目标正负点修正", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1981,7 +1981,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-box-seed — 双目标整车框种子", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1998,7 +1998,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-text-discovery — 文本发现双目标并采纳轨迹", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -2015,7 +2015,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-combo-discovery — 文本发现后逐对象记忆追踪", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000); // 真实两趟视频推理 + 4K H.264 归档转码
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000); // 真实两趟视频推理 + 4K H.264 归档转码
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -2032,7 +2032,7 @@ test.describe("flow recordings", () => {
 
   test("video-mask-correction-propagate — 错帧加减笔迹后重传播", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000); // 两次 Mask 提交 + 真实视频重传播 + 4K H.264 归档
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000); // 两次 Mask 提交 + 真实视频重传播 + 4K H.264 归档
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -2268,7 +2268,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-job-states — 四状态、筛选与返回视频工作台", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2415,6 +2415,7 @@ test.describe("flow recordings", () => {
 
   test("ai-tracker-panel — AI 与追踪面板停靠、隐藏恢复与并存", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
+    if (SELECTED_CAPTURE) test.setTimeout(600_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
