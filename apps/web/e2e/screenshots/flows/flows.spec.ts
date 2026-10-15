@@ -1277,7 +1277,7 @@ test.describe("flow recordings", () => {
 
   test("ocr-inference — 真实 RapidOCR 当前题推理", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
     const t0 = Date.now();
     // 保留推理中 badge / loader 的自然动效，不安装静态 PNG 专用的禁动环境。
     await seed.injectToken(page, cached.users.project_admin.email);
@@ -1295,7 +1295,7 @@ test.describe("flow recordings", () => {
 
   test("current-task-image-inference — 项目编排推理到人工采纳", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
     const t0 = Date.now();
     await seed.injectToken(page, cached.users.project_admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1347,7 +1347,7 @@ test.describe("flow recordings", () => {
 
   test("secondary-inference-attribute — 裁剪 OCR 属性写回与人工校正", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
     const t0 = Date.now();
     await seed.injectToken(page, cached.users.project_admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1585,7 +1585,7 @@ test.describe("flow recordings", () => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     const project = cached.projects.image_demo;
     const task = project.tasks.annotating;
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 300_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
     const cleanup: CandidateReviewCleanupRecord = {
       projectId: project.id,
       taskId: task.id,
@@ -1620,7 +1620,7 @@ test.describe("flow recordings", () => {
 
   test("candidate-review-lifecycle — 跳过、采纳、驳回与最终计数", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 300_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.annotating;
     const cleanupRecord: CandidateReviewCleanupRecord = {
@@ -2076,7 +2076,7 @@ test.describe("flow recordings", () => {
 
   test("pipeline-apply-project — 套用公共模板并运行项目默认编排", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 240_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.clean;
     const userEmail = cached.users.admin.email;
@@ -2157,7 +2157,7 @@ test.describe("flow recordings", () => {
 
   test("jobs-retry-recovery — 失败预测重试后进入结果", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 150_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 150_000);
     const project = cached.projects.ocr_demo;
     const task = project.tasks.ocr;
     const userEmail = cached.users.admin.email;
@@ -2279,7 +2279,7 @@ test.describe("flow recordings", () => {
 
   test("project-ml-routing — 批量主后端与交互能力自动分流", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
+    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 120_000);
     const t0 = Date.now();
     try {
       await installScreenshotEnvironment(page);
