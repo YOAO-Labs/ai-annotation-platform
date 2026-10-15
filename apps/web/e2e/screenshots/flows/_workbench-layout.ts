@@ -204,9 +204,7 @@ export async function installRecordingWorkbenchLayout(
     }
     if (method === "PATCH") {
       const patch = route.request().postDataJSON() as Partial<UserPreferences>;
-      sandbox = overrides.workspace
-        ? mergePreferences(sandbox, patch)
-        : applyRecordingLayout(mergePreferences(sandbox, patch), mode);
+      sandbox = mergePreferences(sandbox, patch);
       await route.fulfill({ status: 200, json: sandbox });
       return;
     }
