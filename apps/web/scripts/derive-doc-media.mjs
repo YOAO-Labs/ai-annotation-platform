@@ -19,7 +19,7 @@ const POSTER_AT_SECONDS = new Map([
   ["ai-preannotate", 12.5],
   ["video-tracker-range", 32.8],
   ["video-tracker-cross-frame-points", 26],
-  ["video-tracker-positive-negative", 29.3],
+  ["video-tracker-positive-negative", 27],
   ["video-tracker-box-seed", 20.6],
   ["video-tracker-text-discovery", 14.2],
   ["video-mask-track-edit", 17],
