@@ -242,8 +242,7 @@ export async function runVideoMaskCorrectionPropagate(
     throw new Error("[video-mask-correction-propagate] 无法读取初始 Mask 轨迹 ID");
   }
   const collapseSelection = page.getByRole("button", { name: "收起浮窗" });
-  await collapseSelection.waitFor({ state: "visible", timeout: 5_000 });
-  await collapseSelection.click();
+  if (await collapseSelection.isVisible()) await collapseSelection.click();
   await seekFrame(page, 5);
   await page
     .getByText(/保持 F0/)

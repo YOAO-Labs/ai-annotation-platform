@@ -57,9 +57,15 @@ export async function runAiTrackerPanel(
   const canvasBounds = await canvas.boundingBox();
   expect(floatingBounds).not.toBeNull();
   expect(canvasBounds).not.toBeNull();
+  const dragHandle = floating
+    .getByRole("tab", { name: "视频追踪", exact: true })
+    .locator("span")
+    .first();
+  const handleBounds = await dragHandle.boundingBox();
+  expect(handleBounds).not.toBeNull();
   const start = {
-    x: floatingBounds!.x + floatingBounds!.width / 2,
-    y: floatingBounds!.y + Math.min(100, floatingBounds!.height / 2),
+    x: handleBounds!.x + handleBounds!.width / 2,
+    y: handleBounds!.y + handleBounds!.height / 2,
   };
   await page.keyboard.down("Shift");
   try {
