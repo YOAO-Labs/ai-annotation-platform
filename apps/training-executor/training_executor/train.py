@@ -8,19 +8,30 @@ import io
 import json
 import math
 import os
+import sys
 from pathlib import Path
 
 from .files import atomic_json, atomic_bytes, immutable_copy
 from training_contract import verify_native
 from training_contract.catalog import digest
 from training_contract.validation import normalized
+from training_contract.observability import (
+    InputMismatchError,
+    NativeConfigurationMismatch,
+    NativeRuntimeMismatch,
+    failure_receipt,
+)
+from .observability import NativeProgress
 
 
 def record_native_configuration(spec, output, observed, runtime_options, evidence=None):
     if spec["frozen_config"]["adapter_revision"] != 2:
         return
     observed = normalized(observed)
-    verification = verify_native(spec["frozen_config"], observed, runtime_options)
+    try:
+        verification = verify_native(spec["frozen_config"], observed, runtime_options)
+    except ValueError as exc:
+        raise NativeConfigurationMismatch(str(exc)) from exc
     atomic_json(
         output / "native-config.json",
         {
@@ -68,13 +79,13 @@ class UltralyticsCheckpoints:
                 not full.get("optimizer")
                 or not 0 < epoch < spec["parameters"]["epochs"]
             ):
-                raise ValueError(
+                raise InputMismatchError(
                     "A complete unfinished native optimizer checkpoint is required"
                 )
             state = full.get("aap_resume")
             if state is not None:
                 if not isinstance(state, dict):
-                    raise ValueError("Historical best receipt is invalid")
+                    raise InputMismatchError("Historical best receipt is invalid")
                 best = state.get("best_weights")
                 if (
                     state.get("schema") != 1
@@ -83,7 +94,7 @@ class UltralyticsCheckpoints:
                     or not best
                     or hashlib.sha256(best).hexdigest() != state.get("best_sha256")
                 ):
-                    raise ValueError(
+                    raise InputMismatchError(
                         "Historical best weights do not match the frozen resume checkpoint"
                     )
                 self.best_bytes = best
@@ -94,11 +105,11 @@ class UltralyticsCheckpoints:
                 if selected["epoch"] > full["epoch"] or selected.get(
                     "train_metrics", {}
                 ).get("fitness") != full.get("best_fitness"):
-                    raise ValueError(
+                    raise InputMismatchError(
                         "Historical best fitness or epoch does not match the resume checkpoint"
                     )
             elif spec["frozen_config"]["adapter_revision"] == 2:
-                raise ValueError(
+                raise InputMismatchError(
                     "The versioned checkpoint lacks verified historical best weights"
                 )
             self.checkpoint = immutable_copy(
@@ -121,7 +132,7 @@ class UltralyticsCheckpoints:
             or type(blob.get("best_fitness")) not in {int, float}
             or not math.isfinite(blob["best_fitness"])
         ):
-            raise ValueError(
+            raise InputMismatchError(
                 "Native checkpoint version, task, class or epoch identity mismatch"
             )
 
@@ -213,7 +224,8 @@ def ultralytics_report(result, spec, comparison=None):
     return report
 
 
-def ultralytics_train(spec: dict, output: Path):
+def ultralytics_train(spec: dict, output: Path, progress=None):
+    progress = progress or NativeProgress(spec, output)
     # The framework checks the parent before creating its config subdirectory.
     # Materialize our writable state directory before importing it.
     config_directory = Path(
@@ -226,7 +238,7 @@ def ultralytics_train(spec: dict, output: Path):
     from ultralytics.utils import USER_CONFIG_DIR
 
     if ultralytics.__version__ != "8.4.177":
-        raise RuntimeError("Unexpected Ultralytics runtime")
+        raise NativeRuntimeMismatch("Unexpected Ultralytics runtime")
     settings.update(
         {"sync": False, "wandb": False, "mlflow": False, "tensorboard": False}
     )
@@ -242,8 +254,15 @@ def ultralytics_train(spec: dict, output: Path):
             )
 
     class FixedBatchTrainer(DetectionTrainer):
+        def preprocess_batch(self, batch):
+            result = super().preprocess_batch(batch)
+            self._platform_batch_images = int(result["img"].shape[0])
+            return result
+
         def final_eval(self):
             self._platform_final_eval = True
+            progress.phase("evaluating")
+            emit(output, "evaluating")
             try:
                 return super().final_eval()
             finally:
@@ -273,6 +292,7 @@ def ultralytics_train(spec: dict, output: Path):
                 epoch=trainer.epoch + 1,
                 metrics=metrics_of(trainer.metrics or {}),
             )
+            progress.epoch(trainer.epoch + 1)
 
     model = YOLO(spec.get("resume_path") or spec["base_path"], task="detect")
 
@@ -308,8 +328,17 @@ def ultralytics_train(spec: dict, output: Path):
             },
         )
         emit(output, "training")
+        progress.started(closing_epochs=trainer.args.close_mosaic)
 
     model.add_callback("on_train_start", started)
+    model.add_callback(
+        "on_train_batch_end",
+        lambda trainer: progress.batch(
+            getattr(trainer, "_platform_batch_images", None)
+        ),
+    )
+    model.add_callback("on_val_start", lambda validator: progress.phase("evaluating"))
+    model.add_callback("on_val_end", lambda validator: progress.phase("training"))
     # Upstream resets its OOM counter after on_train_start. Set it at epoch start
     # so an OOM propagates instead of silently changing this fixed batch size.
     model.add_callback(
@@ -363,6 +392,29 @@ def ultralytics_train(spec: dict, output: Path):
     )
 
 
+def native_failure(spec, progress, exc):
+    torch = sys.modules.get("torch")
+    code = (
+        "cuda_oom"
+        if torch is not None and isinstance(exc, torch.cuda.OutOfMemoryError)
+        else "input_mismatch"
+        if isinstance(exc, InputMismatchError)
+        else "runtime_mismatch"
+        if isinstance(exc, NativeRuntimeMismatch)
+        else "config_mismatch"
+        if isinstance(exc, NativeConfigurationMismatch)
+        else "native_exception"
+    )
+    return failure_receipt(
+        code,
+        progress.phase_name,
+        digest(spec["frozen_config"]),
+        str(exc),
+        exception_type=type(exc).__name__,
+        source="native",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=Path, required=True)
@@ -373,7 +425,16 @@ def main():
     emit(output, "preparing")
     from .adapters import train
 
-    train(spec, output)
+    progress = NativeProgress(spec, output)
+    progress.write(force=True)
+    try:
+        train(spec, output, progress=progress)
+    except Exception as exc:
+        try:
+            atomic_json(output / "failure.json", native_failure(spec, progress, exc))
+        except Exception:
+            pass
+        raise
 
 
 if __name__ == "__main__":

@@ -17,6 +17,12 @@ from pathlib import Path
 
 import httpx
 import psutil
+from training_contract.observability import (
+    FAILURE_CODES,
+    PHASES,
+    InputMismatchError,
+    failure_receipt,
+)
 
 from .files import atomic_json, digest_file, extract_dataset, immutable_copy
 
@@ -59,6 +65,7 @@ def runtime_identity():
     return {
         "executor_protocol": 2,
         "preview_protocol": 1,
+        "observability_protocol": 1,
         "preview_policy_digest": POLICY_DIGEST,
         "supported_configs": supported_identities(),
         "image_digest": image,
@@ -128,6 +135,7 @@ class Supervisor:
         )
         if len(token) < 32:
             raise ValueError("Executor authentication token is too short")
+        self.redaction_secrets = (token,)
         self.client = httpx.Client(
             base_url=os.environ["TRAINING_API_URL"].rstrip("/") + "/",
             headers={"X-Training-Executor-Token": token},
@@ -141,6 +149,9 @@ class Supervisor:
         self.heartbeat_thread = None
         self.stop_reason = None
         self.lock = None
+        self.active_process = None
+        self.active_capture = None
+        self.retiring_observation = None
 
     def api(self, endpoint, payload):
         response = self.client.post(endpoint, json=payload)
@@ -240,7 +251,7 @@ class Supervisor:
                     raise StopTraining()
                 size += len(chunk)
                 if size > maximum:
-                    raise ValueError("Downloaded input exceeds its limit")
+                    raise InputMismatchError("Downloaded input exceeds its limit")
                 target.write(chunk)
                 digest.update(chunk)
             target.flush()
@@ -248,7 +259,7 @@ class Supervisor:
         if digest.hexdigest() != expected_sha or (
             exact_size is not None and size != exact_size
         ):
-            raise ValueError(
+            raise InputMismatchError(
                 "Downloaded input digest or size differs from the frozen configuration"
             )
         os.replace(temporary, path)
@@ -264,6 +275,7 @@ class Supervisor:
             ("config.json", "config"),
             ("native-config.json", "config"),
             ("train.log", "log"),
+            ("observability.json", "telemetry"),
         ):
             path = directory / name
             if path.is_file() and path.stat().st_size:
@@ -334,15 +346,17 @@ class Supervisor:
                             trust_env=False,
                         )
                     response.raise_for_status()
-                self.api(
-                    self.endpoint(journal, "finish"),
-                    {
+                if "finish_body" not in journal:
+                    journal["finish_body"] = {
                         **self.fence(journal),
                         "status": journal["outcome"],
                         "process_exited": True,
                         "error_message": journal.get("error"),
-                    },
-                )
+                    }
+                    if journal.get("failure") is not None:
+                        journal["finish_body"]["failure"] = journal["failure"]
+                    self.save(journal)
+                self.api(self.endpoint(journal, "finish"), journal["finish_body"])
                 return True
             except RetiredAttempt:
                 return True
@@ -354,10 +368,42 @@ class Supervisor:
                 self.shutdown.wait(5)
         return False
 
+    def retire_observation(self, observation):
+        observation.done.set()
+        try:
+            observation.stop()
+        except Exception:
+            # Keep the owner until its threads exit; do not start another optional
+            # session or let its shutdown override execution/publication truth.
+            self.retiring_observation = observation
+        else:
+            if getattr(self, "retiring_observation", None) is observation:
+                self.retiring_observation = None
+
+    def reap_observation(self):
+        observation = getattr(self, "retiring_observation", None)
+        if observation and not any(thread.is_alive() for thread in observation.threads):
+            self.retire_observation(observation)
+
     def execute(self, journal, *, recovery=False):
+        from .log_capture import LogCapture
+        from .observability import ObservationSession
+
         assignment = journal["assignment"]
         directory = self.state / "attempts" / assignment["attempt_id"]
         directory.mkdir(parents=True, exist_ok=True)
+        config_digest = assignment.get("config_digest", "")
+        secrets = getattr(self, "redaction_secrets", ())
+        observation = None
+        self.reap_observation()
+        capture = getattr(self, "active_capture", None)
+        published = False
+        process = getattr(self, "active_process", None)
+        if process is not None:
+            # Retain the actual Popen across a failed stop/journal write, reap it,
+            # and prove every inherited-lock holder exited before publication.
+            stop_process(process)
+            self.active_process = None
         self.stop_training.clear()
         self.stop_reason = None
         self.heartbeat_done.clear()
@@ -365,80 +411,114 @@ class Supervisor:
             target=self.heartbeat, args=(journal, directory), daemon=True
         )
         self.heartbeat_thread.start()
-        process = None
         try:
-            if recovery:
-                previous = journal.get("process")
-                if (
-                    previous
-                    and journal["claim"]["boot_id"] == self.boot
-                    and live_group(previous["pid"])
-                ):
-                    raise RuntimeError(
-                        "Previous training group is still alive; retaining its lease"
-                    )
-                if "outcome" not in journal:
-                    journal["outcome"] = "failed"
-                    journal["error"] = "执行器重启；已通过独占资源锁确认旧训练进程退出"
-            else:
-                config = assignment["config"]
-                atomic_json(directory / "config.json", config)
-                (directory / "train.log").write_text(
-                    "Controlled training preparation started.\n"
-                )
-                base = self.models / config["base_model"]["filename"]
-                if (
-                    not base.is_file()
-                    or digest_file(base) != config["base_model"]["sha256"]
-                ):
-                    raise ValueError("Controlled base weights are missing or changed")
-                self.download(
-                    assignment["dataset_url"],
-                    directory / "dataset.zip",
-                    config["dataset_sha256"],
-                    24 * 1024**3,
-                )
-                data_yaml = extract_dataset(
-                    directory / "dataset.zip", directory / "dataset"
-                )
-                resume_path = None
-                if assignment["resume"]:
-                    resume = assignment["resume"]
-                    resume_path = directory / "resume.pt"
-                    self.download(
-                        resume["url"],
-                        resume_path,
-                        resume["sha256"],
-                        2 * 1024**3,
-                        exact_size=resume["size_bytes"],
-                    )
-                    epoch = resume.get("epoch")
+            try:
+                try:
+                    if getattr(self, "retiring_observation", None) is None:
+                        observation = ObservationSession(self, journal, directory)
+                        observation.start()
+                except Exception:
+                    if observation:
+                        self.retire_observation(observation)
+                    observation = None
+                if recovery:
+                    previous = journal.get("process")
                     if (
-                        type(epoch) is not int
-                        or not 0 < epoch < config["parameters"]["epochs"]
+                        previous
+                        and journal["claim"]["boot_id"] == self.boot
+                        and live_group(previous["pid"])
                     ):
-                        raise ValueError(
-                            "Resume checkpoint has no valid completed epoch"
+                        raise RuntimeError(
+                            "Previous training group is still alive; retaining its lease"
                         )
-                    checkpoint = immutable_copy(
-                        resume_path, directory / f"checkpoint-{epoch:04d}.pt"
+                    if "outcome" not in journal:
+                        journal["outcome"] = "failed"
+                        journal["error"] = (
+                            "执行器重启；已通过独占资源锁确认旧训练进程退出"
+                        )
+                        journal["failure"] = failure_receipt(
+                            "execution_lost",
+                            "execution",
+                            config_digest,
+                            journal["error"],
+                        )
+                    if (
+                        "artifacts" not in journal
+                        and capture is None
+                        and (directory / ".log-head").exists()
+                    ):
+                        capture = LogCapture(
+                            directory,
+                            secrets=secrets,
+                            emit=observation.log if observation else None,
+                        )
+                else:
+                    capture = LogCapture(
+                        directory,
+                        secrets=secrets,
+                        emit=observation.log if observation else None,
                     )
-                    checkpoint.update(role="checkpoint", epoch=epoch)
-                    atomic_json(directory / "checkpoint.json", checkpoint)
-                spec = {
-                    "framework": config["framework"],
-                    "parameters": config["parameters"],
-                    "base_path": str(base),
-                    "resume_path": str(resume_path) if resume_path else None,
-                    "data_yaml": str(data_yaml),
-                    "frozen_config": config,
-                }
-                atomic_json(directory / "spec.json", spec)
-                journal["phase"] = "training"
-                self.save(journal)
-                if self.stop_training.is_set() or self.shutdown.is_set():
-                    raise StopTraining()
-                with (directory / "train.log").open("ab") as log:
+                    self.active_capture = capture
+                    capture.write(b"Controlled training preparation started.\n")
+                    config = assignment["config"]
+                    atomic_json(directory / "config.json", config)
+                    base = self.models / config["base_model"]["filename"]
+                    if (
+                        not base.is_file()
+                        or digest_file(base) != config["base_model"]["sha256"]
+                    ):
+                        raise InputMismatchError(
+                            "Controlled base weights are missing or changed"
+                        )
+                    self.download(
+                        assignment["dataset_url"],
+                        directory / "dataset.zip",
+                        config["dataset_sha256"],
+                        24 * 1024**3,
+                    )
+                    try:
+                        data_yaml = extract_dataset(
+                            directory / "dataset.zip", directory / "dataset"
+                        )
+                    except ValueError as exc:
+                        raise InputMismatchError(str(exc)) from exc
+                    resume_path = None
+                    if assignment["resume"]:
+                        resume = assignment["resume"]
+                        resume_path = directory / "resume.pt"
+                        self.download(
+                            resume["url"],
+                            resume_path,
+                            resume["sha256"],
+                            2 * 1024**3,
+                            exact_size=resume["size_bytes"],
+                        )
+                        epoch = resume.get("epoch")
+                        if (
+                            type(epoch) is not int
+                            or not 0 < epoch < config["parameters"]["epochs"]
+                        ):
+                            raise InputMismatchError(
+                                "Resume checkpoint has no valid completed epoch"
+                            )
+                        checkpoint = immutable_copy(
+                            resume_path, directory / f"checkpoint-{epoch:04d}.pt"
+                        )
+                        checkpoint.update(role="checkpoint", epoch=epoch)
+                        atomic_json(directory / "checkpoint.json", checkpoint)
+                    spec = {
+                        "framework": config["framework"],
+                        "parameters": config["parameters"],
+                        "base_path": str(base),
+                        "resume_path": str(resume_path) if resume_path else None,
+                        "data_yaml": str(data_yaml),
+                        "frozen_config": config,
+                    }
+                    atomic_json(directory / "spec.json", spec)
+                    journal["phase"] = "training"
+                    self.save(journal)
+                    if self.stop_training.is_set() or self.shutdown.is_set():
+                        raise StopTraining()
                     environment = {
                         key: value
                         for key, value in os.environ.items()
@@ -452,16 +532,22 @@ class Supervisor:
                             "--spec",
                             str(directory / "spec.json"),
                         ],
-                        stdout=log,
+                        stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         start_new_session=True,
                         pass_fds=(self.lock.fileno(),),
                         env=environment,
                     )
+                    self.active_process = process
+                    capture.start(process.stdout)
                     journal["process"] = {
                         "pid": process.pid,
                         "started_at": psutil.Process(process.pid).create_time(),
                     }
+                    if observation:
+                        observation.sampler.attach(
+                            process.pid, journal["process"]["started_at"]
+                        )
                     self.save(journal)
                     while process.poll() is None:
                         if self.stop_training.is_set() or self.shutdown.is_set():
@@ -470,51 +556,114 @@ class Supervisor:
                         time.sleep(0.2)
                     if live_group(process.pid):
                         stop_process(process)
-                interrupted = self.stop_reason in {
-                    "heartbeat_expired",
-                    "heartbeat_unavailable",
-                    "executor_authority_lost",
-                }
-                journal["outcome"] = (
-                    "failed"
-                    if interrupted
-                    else "cancelled"
-                    if self.stop_training.is_set()
-                    else "succeeded"
-                    if process.returncode == 0
-                    else "failed"
-                )
-                if journal["outcome"] == "failed":
-                    journal["error"] = (
-                        f"训练进程退出码 {process.returncode}；请下载日志查看原因"
+                    process.wait()
+                    self.active_process = None
+                    interrupted = self.stop_reason in {
+                        "heartbeat_expired",
+                        "heartbeat_unavailable",
+                        "executor_authority_lost",
+                    }
+                    journal["outcome"] = (
+                        "failed"
+                        if interrupted
+                        else "cancelled"
+                        if self.stop_training.is_set()
+                        else "succeeded"
+                        if process.returncode == 0
+                        else "failed"
                     )
-            if (
-                self.shutdown.is_set()
-                and journal.get("outcome") == "succeeded"
-                and not (directory / "result.json").exists()
-            ):
+                    if journal["outcome"] == "failed":
+                        journal["error"] = (
+                            f"训练进程退出码 {process.returncode}；请下载脱敏日志查看原因"
+                        )
+                        native_failure = directory / "failure.json"
+                        if (
+                            native_failure.is_file()
+                            and native_failure.stat().st_size <= 16 * 1024
+                        ):
+                            try:
+                                receipt = json.loads(native_failure.read_text())
+                                if (
+                                    receipt.get("config_digest") == config_digest
+                                    and receipt.get("code") in FAILURE_CODES
+                                    and receipt.get("stage") in PHASES
+                                    and receipt.get("source") == "native"
+                                ):
+                                    journal["failure"] = failure_receipt(
+                                        receipt["code"],
+                                        receipt["stage"],
+                                        config_digest,
+                                        receipt["diagnostic"],
+                                        exception_type=receipt.get("exception_type"),
+                                        secrets=secrets,
+                                        source="native",
+                                    )
+                            except (ValueError, TypeError, KeyError):
+                                pass
+                        if interrupted or "failure" not in journal:
+                            code = (
+                                "authority_lost"
+                                if self.stop_reason == "executor_authority_lost"
+                                else "execution_lost"
+                                if interrupted
+                                else "native_signal"
+                                if process.returncode < 0
+                                else "native_exception"
+                            )
+                            journal["failure"] = failure_receipt(
+                                code, "execution", config_digest, journal["error"]
+                            )
+                if (
+                    self.shutdown.is_set()
+                    and journal.get("outcome") == "succeeded"
+                    and not (directory / "result.json").exists()
+                ):
+                    journal["outcome"] = "failed"
+            except StopTraining:
+                journal["outcome"] = "cancelled"
+            except Exception as exc:
+                if process:
+                    stop_process(process)
+                if (
+                    recovery
+                    and journal.get("process")
+                    and journal["claim"]["boot_id"] == self.boot
+                    and live_group(journal["process"]["pid"])
+                ):
+                    raise
+                self.active_process = None
                 journal["outcome"] = "failed"
-        except StopTraining:
-            journal["outcome"] = "cancelled"
-        except Exception as exc:
-            if process and live_group(process.pid):
-                stop_process(process)
-            if (
-                recovery
-                and journal.get("process")
-                and journal["claim"]["boot_id"] == self.boot
-                and live_group(journal["process"]["pid"])
-            ):
-                raise
-            journal["outcome"] = "failed"
-            journal["error"] = f"训练准备失败：{type(exc).__name__}"
-        finally:
+                journal["error"] = f"训练准备失败：{type(exc).__name__}"
+                journal["failure"] = failure_receipt(
+                    "input_mismatch"
+                    if isinstance(exc, InputMismatchError)
+                    else "preparation_failed",
+                    "preparing",
+                    config_digest,
+                    str(exc),
+                    exception_type=type(exc).__name__,
+                    secrets=secrets,
+                )
             self.save(journal)
-        try:
+            if capture and "artifacts" not in journal:
+                # Logs are a required training artifact. Retry this packaging
+                # gate from durable segments without restarting native training.
+                redaction = capture.finish()
+                self.active_capture = None
+                if observation:
+                    try:
+                        observation.freeze(redaction)
+                    except Exception:
+                        pass
+            if observation:
+                observation.phase("uploading")
+            self.save(journal)
             published = self.upload_and_finish(journal, directory)
         finally:
             self.heartbeat_done.set()
             self.heartbeat_thread.join(timeout=20)
+            if observation:
+                self.retire_observation(observation)
         if published:
             # Only remove this attempt after the platform acknowledged durable
             # publication or fenced it out in favor of a later attempt.
@@ -555,6 +704,7 @@ class Supervisor:
         if self.shutdown.is_set():
             return
         while not self.shutdown.is_set():
+            self.reap_observation()
             if self.journal_path.exists():
                 journal = json.loads(self.journal_path.read_text())
                 try:

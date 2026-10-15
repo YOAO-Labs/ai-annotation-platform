@@ -95,6 +95,10 @@ from app.db.models.training_run import (
     TrainingEvent,
     TrainingResourceLease,
 )
+from app.db.models.training_observability import (
+    TrainingTelemetrySample,
+    TrainingLogChunk,
+)
 from app.db.models.storage_connection import (
     StorageConnection,
     StorageConnectionKind,
@@ -201,3 +205,5 @@ __all__ += ["LearningPolicy", "LearningTrigger"]
 
 __all__ += ["TrainingRecipe", "TrainingRecipeRevision"]
 __all__ += ["TrainingPreview", "TrainingPreviewResourceLease"]
+
+__all__ += ["TrainingTelemetrySample", "TrainingLogChunk"]

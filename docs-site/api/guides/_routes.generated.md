@@ -743,6 +743,14 @@
 | GET | `/projects` |
 | GET | `/runs` |
 
+## `training_observability.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{run_id}/attempts/{attempt_id}/telemetry` |
+| GET | `/{run_id}/attempts/{attempt_id}/logs` |
+| GET | `/{run_id}/recovery` |
+
 ## `training_previews.py`
 
 | Method | Path |
@@ -833,4 +841,4 @@
 
 ---
 
-_共 76 模块 / 476 路由_
+_共 77 模块 / 479 路由_

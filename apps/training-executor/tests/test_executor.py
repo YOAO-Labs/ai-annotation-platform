@@ -1,9 +1,11 @@
 import fcntl
+import copy
 import json
 import os
 import subprocess
 import sys
 import threading
+import uuid
 from types import SimpleNamespace
 from zipfile import ZipFile
 
@@ -241,3 +243,247 @@ def test_cancel_after_resume_download_preserves_input_before_child_starts(tmp_pa
 
     supervisor.upload_and_finish = publish
     supervisor.execute(journal)
+
+
+@pytest.fixture
+def controlled_child(tmp_path, monkeypatch):
+    """Real local child/process group, with no framework or network workload."""
+    from training_contract.catalog import digest
+
+    supervisor = object.__new__(Supervisor)
+    supervisor.state = tmp_path
+    supervisor.boot = str(uuid.uuid4())
+    supervisor.runtime = {"gpu_uuid": "GPU-owned"}
+    supervisor.models = tmp_path / "models"
+    supervisor.models.mkdir()
+    base = supervisor.models / "base.pt"
+    base.write_bytes(b"controlled base")
+    archive = tmp_path / "source.zip"
+    with ZipFile(archive, "w") as package:
+        package.writestr("data.yaml", "train: images/train")
+    config = {
+        "base_model": {"filename": "base.pt", "sha256": digest_file(base)},
+        "dataset_sha256": digest_file(archive),
+        "framework": "ultralytics",
+        "parameters": {"epochs": 10},
+    }
+    journal = {
+        "phase": "preparing",
+        "claim": {
+            "executor_id": "owned",
+            "boot_id": supervisor.boot,
+            "runtime": supervisor.runtime,
+        },
+        "assignment": {
+            "run_id": str(uuid.uuid4()),
+            "attempt_id": str(uuid.uuid4()),
+            "lease_token": "a" * 64,
+            "config_digest": digest(config),
+            "config": config,
+            "dataset_url": "dataset",
+            "resume": None,
+        },
+    }
+    supervisor.journal_path = tmp_path / "assignment.json"
+    supervisor.stop_training = threading.Event()
+    supervisor.shutdown = threading.Event()
+    supervisor.heartbeat_done = threading.Event()
+    supervisor.heartbeat = lambda *args: None
+    supervisor.download = lambda url, target, *args, **kwargs: target.write_bytes(
+        archive.read_bytes()
+    )
+    supervisor.lock = (tmp_path / "gpu.lock").open("a+")
+    fcntl.flock(supervisor.lock, fcntl.LOCK_EX)
+    supervisor.active_process = supervisor.active_capture = None
+    supervisor.test_script = (
+        "print('password=private https://store/secret /host/input')"
+    )
+    supervisor.upload_and_finish = lambda *args: False
+    monkeypatch.setattr(
+        "training_executor.observability.ObservationSession",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("Observation unavailable")),
+    )
+    original = subprocess.Popen
+    children = []
+
+    def spawn(args, **kwargs):
+        assert not any(key.startswith("TRAINING_") for key in kwargs["env"])
+        child = original([sys.executable, "-c", supervisor.test_script], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr("training_executor.worker.subprocess.Popen", spawn)
+    try:
+        yield supervisor, journal, children
+    finally:
+        for child in children:
+            if child.poll() is None:
+                os.killpg(child.pid, 9)
+            child.wait(timeout=10)
+        if supervisor.active_capture and supervisor.active_capture.thread:
+            supervisor.active_capture.thread.join(timeout=10)
+        supervisor.lock.close()
+
+
+def test_log_finalize_failure_retries_packaging_without_retraining(
+    controlled_child, monkeypatch
+):
+    from training_executor.log_capture import LogCapture
+
+    supervisor, journal, children = controlled_child
+    original = LogCapture.finish
+    calls = []
+
+    def finish(capture):
+        if not calls:
+            calls.append("failed")
+            raise OSError("Temporary log publication failure")
+        return original(capture)
+
+    monkeypatch.setattr(LogCapture, "finish", finish)
+    published = []
+    supervisor.upload_and_finish = lambda *args: published.append(True) or False
+    with pytest.raises(OSError):
+        supervisor.execute(journal)
+    assert journal["outcome"] == "succeeded" and "artifacts" not in journal
+    assert not published and supervisor.heartbeat_done.is_set()
+    supervisor.execute(journal, recovery=True)
+    assert len(children) == 1 and published == [True]
+    log = (
+        supervisor.state
+        / "attempts"
+        / journal["assignment"]["attempt_id"]
+        / "train.log"
+    )
+    assert "private" not in log.read_text() and "Controlled training" in log.read_text()
+
+
+def test_pid_persist_and_stop_failure_retains_popen_until_same_boot_exit_proof(
+    controlled_child, monkeypatch
+):
+    supervisor, journal, children = controlled_child
+    supervisor.test_script = "import time; print('started',flush=True); time.sleep(30)"
+    original_save = supervisor.save
+    original_stop = stop_process
+    failed = []
+    stopped = []
+
+    def save(body):
+        if body.get("process") and not failed:
+            failed.append(True)
+            raise OSError("PID journal write failed")
+        original_save(body)
+
+    def stop(child):
+        if not stopped:
+            stopped.append(True)
+            raise RuntimeError("Group exit not yet confirmed")
+        original_stop(child)
+
+    monkeypatch.setattr(supervisor, "save", save)
+    monkeypatch.setattr("training_executor.worker.stop_process", stop)
+    published = []
+    supervisor.upload_and_finish = lambda *args: published.append(True) or False
+    with pytest.raises(RuntimeError, match="not yet confirmed"):
+        supervisor.execute(journal)
+    assert supervisor.active_process is children[0] and not published
+    assert supervisor.heartbeat_done.is_set()
+    supervisor.execute(journal, recovery=True)
+    assert len(children) == 1 and supervisor.active_process is None
+    assert children[0].returncode is not None and not live_group(children[0].pid)
+    assert journal["failure"]["code"] == "execution_lost" and published == [True]
+
+
+def test_signal_exit_never_guesses_oom_and_observation_failure_does_not_cancel(
+    controlled_child,
+):
+    supervisor, journal, _ = controlled_child
+    supervisor.test_script = "import os,signal; os.kill(os.getpid(),signal.SIGKILL)"
+    supervisor.execute(journal)
+    assert (
+        journal["outcome"] == "failed" and journal["failure"]["code"] == "native_signal"
+    )
+    assert not supervisor.stop_training.is_set()
+
+
+def test_finish_lost_response_replays_persisted_complete_body(tmp_path, monkeypatch):
+    supervisor = object.__new__(Supervisor)
+    supervisor.shutdown = SimpleNamespace(
+        is_set=lambda: False, wait=lambda seconds: None
+    )
+    supervisor.runtime = {}
+    supervisor.journal_path = tmp_path / "assignment.json"
+    journal = {
+        "claim": {"executor_id": "owned", "boot_id": "boot", "runtime": {}},
+        "assignment": {
+            "attempt_id": "attempt",
+            "run_id": "run",
+            "lease_token": "a" * 64,
+            "config_digest": "b" * 64,
+            "config": {},
+        },
+        "outcome": "failed",
+    }
+    (tmp_path / "train.log").write_text("safe diagnostic\n")
+    finishes = []
+
+    def api(endpoint, body):
+        if endpoint.endswith("uploads"):
+            return {
+                item["name"]: {"url": "https://storage/" + item["name"], "headers": {}}
+                for item in body["artifacts"]
+            }
+        if endpoint.endswith("finish"):
+            assert (
+                json.loads(supervisor.journal_path.read_text())["finish_body"] == body
+            )
+            finishes.append(copy.deepcopy(body))
+            if len(finishes) == 1:
+                journal["error"] = "Later mutable diagnostic"
+                journal["failure"] = {"code": "changed"}
+                raise httpx.ReadTimeout("Completion accepted but reply lost")
+        return {}
+
+    supervisor.api = api
+    monkeypatch.setattr(
+        httpx,
+        "put",
+        lambda url, **kwargs: httpx.Response(200, request=httpx.Request("PUT", url)),
+    )
+    assert supervisor.upload_and_finish(journal, tmp_path)
+    assert finishes[0] == finishes[1] and "failure" not in finishes[0]
+    assert "error_message" in finishes[0] and finishes[0]["error_message"] is None
+
+
+def test_optional_observation_stop_failure_cannot_override_acknowledged_publication(
+    controlled_child, monkeypatch
+):
+    supervisor, journal, _ = controlled_child
+    done = threading.Event()
+    stopped = []
+
+    def stop():
+        stopped.append(True)
+        if len(stopped) == 1:
+            raise RuntimeError("Optional thread still retiring")
+
+    observation = SimpleNamespace(
+        done=done,
+        threads=[],
+        start=lambda: None,
+        stop=stop,
+        sampler=SimpleNamespace(attach=lambda *args: None),
+        freeze=lambda *args: None,
+        phase=lambda *args: None,
+        log=lambda *args: None,
+    )
+    monkeypatch.setattr(
+        "training_executor.observability.ObservationSession", lambda *args: observation
+    )
+    supervisor.upload_and_finish = lambda *args: True
+    supervisor.execute(journal)
+    assert journal["outcome"] == "succeeded" and done.is_set()
+    assert not supervisor.journal_path.exists()
+    assert supervisor.retiring_observation is observation
+    supervisor.reap_observation()
+    assert supervisor.retiring_observation is None and len(stopped) == 2

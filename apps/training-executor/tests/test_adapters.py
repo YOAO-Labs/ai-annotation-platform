@@ -370,7 +370,12 @@ def test_full_epoch_resume_retains_exact_historical_best_without_later_improveme
     best = (first / "framework/weights/best.pt").read_bytes()
     callback = CheckpointCallbacks(s, first)
     callback.on_train_start(
-        SimpleNamespace(save_dir=str(first / "framework"), start_epoch=1, task="detect")
+        SimpleNamespace(
+            save_dir=str(first / "framework"),
+            start_epoch=1,
+            task="detect",
+            config={"no_aug_epochs": 10},
+        )
     )
     callback.on_train_epoch_end(epoch_event(first, 1))
     committed = torch.load(first / callback.checkpoint["name"], weights_only=True)
@@ -391,7 +396,10 @@ def test_full_epoch_resume_retains_exact_historical_best_without_later_improveme
     )
     resumed.on_train_start(
         SimpleNamespace(
-            save_dir=str(second / "framework"), start_epoch=2, task="detect"
+            save_dir=str(second / "framework"),
+            start_epoch=2,
+            task="detect",
+            config={"no_aug_epochs": 10},
         )
     )
     torch.save(
@@ -530,7 +538,10 @@ def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weight
             torch.save(full, weights / "best.pt")
             kw["callbacks"].on_train_start(
                 SimpleNamespace(
-                    save_dir=str(tmp_path / "framework"), start_epoch=1, task="detect"
+                    save_dir=str(tmp_path / "framework"),
+                    start_epoch=1,
+                    task="detect",
+                    config={"no_aug_epochs": 10},
                 )
             )
             kw["callbacks"].on_train_epoch_end(epoch_event(tmp_path, 1))

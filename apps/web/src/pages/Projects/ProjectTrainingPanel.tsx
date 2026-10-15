@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
 import { useNavigate } from "react-router-dom";
 import { Plus, FlaskConical, GitCompareArrows } from "lucide-react";
 import { TrainingRunMonitor } from "../Training/TrainingRunMonitor";
 import { useTrainingEvents } from "../Training/useTrainingEvents";
+import { trainingObservabilityApi } from "@/api/trainingObservability";
+import { useTrainingViewOwner } from "../Training/trainingViewOwner";
 import {
   activeTrainingStates as active,
   trainingStatusLabels as labels,
@@ -21,14 +23,18 @@ export function ProjectTrainingPanel({
   initialRunId = "",
   visible = true,
   onRunSelect,
+  scope = "",
 }: {
   projectId: string;
   initialRunId?: string;
   visible?: boolean;
   onRunSelect?: (id: string) => void;
+  scope?: string;
 }) {
   const client = useQueryClient();
   const navigate = useNavigate();
+  const session = useTrainingViewOwner(projectId, scope);
+  const revision = useRef(0);
   const [attemptId, setAttemptId] = useState("");
   const [error, setError] = useState("");
   const [page, setPage] = useState(0);
@@ -36,28 +42,51 @@ export function ProjectTrainingPanel({
   useEffect(() => {
     setDetailId(initialRunId);
     setAttemptId("");
-  }, [initialRunId]);
+    setError("");
+    setPage(0);
+    revision.current++;
+  }, [initialRunId, projectId, scope]);
   const catalog = useQuery({
-    queryKey: ["training-catalog", projectId],
-    queryFn: () => trainingRunsApi.catalog(projectId),
+    queryKey: ["training-catalog", projectId, scope],
+    queryFn: async ({ signal }) => {
+      session.assert(signal);
+      const data = await trainingRunsApi.catalog(projectId, { signal });
+      session.assert(signal);
+      return data;
+    },
     enabled: visible,
     refetchInterval: visible ? 5000 : false,
   });
   const runs = useQuery({
-    queryKey: ["training-runs", projectId, page],
-    queryFn: () => trainingRunsApi.list(projectId, page * 20),
+    queryKey: ["training-runs", projectId, scope, page],
+    queryFn: async ({ signal }) => {
+      session.assert(signal);
+      const data = await trainingRunsApi.list(projectId, page * 20, { signal });
+      session.assert(signal);
+      return data;
+    },
     enabled: visible,
     refetchInterval: visible ? 3000 : false,
   });
   const detailId = selectedId || runs.data?.items[0]?.id || "";
   const selectRun = (id: string) => {
+    session.assert();
+    revision.current++;
     setDetailId(id);
     setAttemptId("");
+    setError("");
     onRunSelect?.(id);
   };
   const detail = useQuery({
-    queryKey: ["training-run", projectId, detailId],
-    queryFn: () => trainingRunsApi.get(projectId, detailId),
+    queryKey: ["training-run", projectId, scope, detailId],
+    queryFn: async ({ signal }) => {
+      session.assert(signal);
+      const data = await trainingRunsApi.get(projectId, detailId, { signal });
+      session.assert(signal);
+      if (data.run.id !== detailId || data.run.project_id !== projectId)
+        throw new Error("实验归属已变化，请重新选择");
+      return data;
+    },
     enabled: visible && !!detailId,
     refetchInterval: (query) =>
       visible && query.state.data?.run && active.has(query.state.data.run.status) ? 3000 : false,
@@ -71,11 +100,37 @@ export function ProjectTrainingPanel({
     !!detail.data?.run &&
       active.has(detail.data.run.status) &&
       selectedAttemptId === detail.data.run.current_attempt_id,
+    scope,
+    session.assert,
   );
+  const current = detail.data?.run;
+  const viewKey = `${scope}:${detailId}:${selectedAttemptId}:${current?.current_attempt_id ?? ""}`;
+  const currentView = useRef(viewKey);
+  if (currentView.current !== viewKey) {
+    currentView.current = viewKey;
+    revision.current++;
+  }
+  const recovery = useQuery({
+    queryKey: ["training-recovery", projectId, scope, detailId, current?.current_attempt_id],
+    queryFn: async ({ signal }) => {
+      session.assert(signal);
+      const result = await trainingObservabilityApi.recovery(projectId, detailId, { signal });
+      session.assert(signal);
+      return result;
+    },
+    enabled: visible && !!current && ["failed", "cancelled"].includes(current.status),
+    refetchInterval:
+      visible && !!current && ["failed", "cancelled"].includes(current.status) ? 5000 : false,
+    retry: false,
+  });
+  type View = { owner: typeof session.owner; revision: number };
+  const ownsView = (view?: View) =>
+    !!view && session.owns() && view.owner === session.owner && view.revision === revision.current;
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["training-runs", projectId] });
     void client.invalidateQueries({ queryKey: ["training-run", projectId] });
     void client.invalidateQueries({ queryKey: ["training-events", projectId] });
+    void client.invalidateQueries({ queryKey: ["training-recovery", projectId, scope] });
     void client.invalidateQueries({ queryKey: ["training-catalog", projectId] });
     void client.invalidateQueries({ queryKey: ["training-hub"] });
   };
@@ -85,22 +140,30 @@ export function ProjectTrainingPanel({
       run,
       attemptId,
       filename,
+      view,
     }: {
       kind: "cancel" | "resume" | "delete" | "download";
       run: TrainingRunOut;
       attemptId?: string;
       filename?: string;
+      view: View;
     }) => {
+      if (!ownsView(view)) return false;
       if (kind === "download" && attemptId && filename) {
         const result = await trainingRunsApi.download(projectId, run.id, attemptId, filename);
+        if (!ownsView(view)) return false;
         const link = document.createElement("a");
         link.href = result.url;
         link.download = filename;
         link.rel = "noopener";
         link.click();
+        return false;
       } else if (kind === "cancel") await trainingRunsApi.cancel(projectId, run.id);
-      else if (kind === "resume") await trainingRunsApi.resume(projectId, run.id);
-      else if (
+      else if (kind === "resume") {
+        if (!recovery.data?.eligible || recovery.data.attempt_id !== run.current_attempt_id)
+          return false;
+        await trainingRunsApi.resume(projectId, run.id);
+      } else if (
         kind === "delete" &&
         (await confirmDialog({
           title: `删除实验“${run.name}”`,
@@ -109,14 +172,25 @@ export function ProjectTrainingPanel({
           confirmLabel: "删除实验",
         }))
       ) {
+        if (!ownsView(view)) return false;
         await trainingRunsApi.remove(projectId, run.id);
-        if (detailId === run.id) setDetailId("");
+        if (!ownsView(view)) return false;
+        if (detailId === run.id) {
+          setDetailId("");
+          onRunSelect?.("");
+        }
+      } else {
+        return false;
       }
+      return true;
     },
-    onSuccess: refresh,
-    onError: (reason: Error) => setError(reason.message),
+    onSuccess: (changed, variables) => {
+      if (changed && ownsView(variables.view)) refresh();
+    },
+    onError: (reason: Error, variables) => {
+      if (ownsView(variables.view)) setError(reason.message);
+    },
   });
-  const current = detail.data?.run;
   return (
     <section aria-labelledby="training-title">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -243,11 +317,27 @@ export function ProjectTrainingPanel({
             attempts={detail.data?.attempts ?? []}
             events={events.data ?? []}
             selectedAttemptId={selectedAttemptId}
-            onAttemptChange={setAttemptId}
+            onAttemptChange={(id) => {
+              session.assert();
+              revision.current++;
+              setAttemptId(id);
+              setError("");
+            }}
             eventsPending={events.isLoading}
             eventsError={events.error?.message}
-            pending={action.isPending}
-            onAction={(value) => action.mutate(value)}
+            pending={action.isPending && ownsView(action.variables?.view)}
+            onAction={(value) => {
+              setError("");
+              action.mutate({
+                ...value,
+                view: { owner: session.owner, revision: revision.current },
+              });
+            }}
+            recovery={recovery.data}
+            recoveryError={recovery.error?.message}
+            scope={scope}
+            visible={visible}
+            assertOwner={session.assert}
           />
         ) : (
           <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center">

@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from training_contract import definition, resolve, schema_identity, verify_native
 from training_contract.validation import CANONICAL
+from training_contract.observability import failure_receipt, redact_text
 
 from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -274,6 +275,7 @@ async def new_attempt(db, run, *, resume_from=None):
     run.current_attempt_id = attempt.id
     run.async_job_id = job.id
     run.status = "queued"
+    run.metrics = {}
     run.error_message = None
     run.completed_at = None
     return attempt
@@ -295,6 +297,11 @@ async def lock_resource(db, identity=None):
 
 
 async def mark_terminal(db, run, attempt, status, error=None):
+    error = (
+        redact_text(error, (settings.training_executor_token,))[:1000]
+        if error
+        else error
+    )
     attempt.status = run.status = status
     attempt.completed_at = run.completed_at = now()
     attempt.error_message = run.error_message = error
@@ -339,6 +346,13 @@ async def observe_lost(db, lease):
         if run.current_attempt_id == attempt.id:
             attempt.status = run.status = "lost"
             run.error_message = "执行器心跳失联；GPU 租约保留，等待确认旧进程退出"
+            attempt.failure = failure_receipt(
+                "execution_lost",
+                "execution",
+                run.config_digest,
+                run.error_message,
+                source="platform",
+            )
             # Lost is not a terminal state: retain the lease and allow recovery.
             await jobs.update_progress(
                 db, run.async_job_id, 0, extra_payload={"execution_lost": True}
@@ -512,6 +526,13 @@ async def heartbeat(db, attempt_id, body):
             raise
         run.status = attempt.status = "cancelling"
         run.error_message = "训练权限已撤销，正在停止执行"
+        attempt.failure = failure_receipt(
+            "authority_lost",
+            "execution",
+            run.config_digest,
+            run.error_message,
+            source="platform",
+        )
     attempt.heartbeat_at = now()
     for event in body.events:
         existing = await db.get(TrainingEvent, (attempt.id, event.sequence))
@@ -653,13 +674,15 @@ def verify_native_artifact(run, attempt, artifacts):
 
 async def finish(db, attempt_id, body):
     lease, run, attempt = await fenced(db, attempt_id, body, allow_terminal=True)
-    request_digest = content_digest(body.model_dump(mode="json"))
+    request_digest = content_digest(body.request_payload())
     if attempt.status in TERMINAL:
         if attempt.finish_request_digest != request_digest:
             raise HTTPException(status_code=409, detail="已结束的执行不能改写终态")
         return attempt
     if lease.attempt_id != attempt.id:
         raise HTTPException(status_code=409, detail="GPU 租约已变化")
+    if body.failure and body.failure.config_digest != run.config_digest:
+        raise HTTPException(status_code=422, detail="故障诊断与冻结配置不符")
     status = "cancelled" if run.status == "cancelling" else body.status
     if status == "succeeded":
         await authority(db, run)
@@ -677,6 +700,17 @@ async def finish(db, attempt_id, body):
                 ) from exc
             continue
         artifacts[name] = {**spec, "key": key}
+        if spec["role"] == "telemetry":
+            from app.services.training_observability import verify_summary
+
+            try:
+                await asyncio.to_thread(verify_summary, run, attempt, artifacts[name])
+            except (ValueError, KeyError, TypeError) as exc:
+                if status == "succeeded":
+                    raise HTTPException(
+                        status_code=422, detail="观测摘要产物与执行尝试不符"
+                    ) from exc
+                artifacts.pop(name)
     if status == "succeeded" and not {
         "weights",
         "checkpoint",
@@ -694,6 +728,21 @@ async def finish(db, attempt_id, body):
             ) from exc
     attempt.artifacts = artifacts
     attempt.finish_request_digest = request_digest
-    await mark_terminal(db, run, attempt, status, body.error_message)
+    if body.failure:
+        attempt.failure = {
+            **body.failure.model_dump(mode="json"),
+            "diagnostic": redact_text(
+                body.failure.diagnostic,
+                (settings.training_executor_token, body.lease_token),
+            )[:1000],
+        }
+    error = (
+        redact_text(
+            body.error_message, (settings.training_executor_token, body.lease_token)
+        )
+        if body.error_message
+        else None
+    )
+    await mark_terminal(db, run, attempt, status, error)
     lease.attempt_id = None
     return attempt

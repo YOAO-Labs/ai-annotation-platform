@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingEpochEvent } from "@/api/trainingRuns";
+import type { AssertTrainingOwner } from "./trainingViewOwner";
 
 export function trainingEventsOptions(
   client: QueryClient,
@@ -9,6 +10,7 @@ export function trainingEventsOptions(
   enabled = true,
   poll = true,
   scope = "",
+  assertOwner?: AssertTrainingOwner,
 ) {
   const baseKey = ["training-events", projectId, runId, attemptId, ...(scope ? [scope] : [])];
   const key = [...baseKey, poll ? "live" : "final"];
@@ -24,8 +26,10 @@ export function trainingEventsOptions(
       let after = items[items.length - 1]?.sequence ?? 0;
       for (;;) {
         signal.throwIfAborted();
+        assertOwner?.(signal);
         const page = await trainingRunsApi.events(projectId, runId, attemptId, after, { signal });
         signal.throwIfAborted();
+        assertOwner?.(signal);
         if (page.attempt_id !== attemptId) throw new Error("训练执行已变化，请重新选择执行记录");
         let previous = after;
         for (const event of page.items) {
@@ -52,7 +56,10 @@ export function useTrainingEvents(
   enabled = true,
   poll = true,
   scope = "",
+  assertOwner?: AssertTrainingOwner,
 ) {
   const client = useQueryClient();
-  return useQuery(trainingEventsOptions(client, projectId, runId, attemptId, enabled, poll, scope));
+  return useQuery(
+    trainingEventsOptions(client, projectId, runId, attemptId, enabled, poll, scope, assertOwner),
+  );
 }

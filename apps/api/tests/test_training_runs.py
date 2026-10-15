@@ -365,7 +365,7 @@ async def test_project_busy_is_retryable_and_not_revocation(
 
 
 async def test_resume_requires_committed_checkpoint_and_fences_old_attempt(
-    db_session, super_admin, httpx_client, training_config
+    db_session, super_admin, httpx_client, training_config, monkeypatch
 ):
     owner, token = super_admin
     project, dataset = await ready_dataset(db_session, owner)
@@ -387,16 +387,27 @@ async def test_resume_requires_committed_checkpoint_and_fences_old_attempt(
         "checkpoint.pt": {
             "role": "checkpoint",
             "epoch": 1,
-            "key": "owned/checkpoint.pt",
+            "key": f"projects/{project.id}/runs/{run.id}/attempts/{attempt.id}/checkpoint.pt",
             "sha256": "1" * 64,
             "size_bytes": 10,
         }
     }
     await db_session.flush()
+    monkeypatch.setattr(
+        service.storage.client,
+        "head_object",
+        lambda **kwargs: {
+            "ContentLength": 10,
+            "Metadata": {"attempt-id": str(attempt.id), "sha256": "1" * 64},
+        },
+    )
+    run.metrics = {"epoch": 1}
+    await db_session.flush()
     response = await httpx_client.post(path, headers=headers)
     assert response.status_code == 202, response.text
     assert response.json()["config_digest"] == run.config_digest
     assert response.json()["current_attempt_id"] != str(old_id)
+    assert response.json()["metrics"] == {}
     with pytest.raises(HTTPException) as error:
         await service.heartbeat(
             db_session, old_id, ExecutorHeartbeat(**fence(claim, assignment))

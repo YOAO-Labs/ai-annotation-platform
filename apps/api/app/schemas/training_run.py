@@ -116,6 +116,28 @@ class TrainingRunOut(BaseModel):
     completed_at: datetime | None
 
 
+class TrainingFailure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: Literal[
+        "input_mismatch",
+        "config_mismatch",
+        "runtime_mismatch",
+        "cuda_oom",
+        "native_exception",
+        "native_signal",
+        "preparation_failed",
+        "upload_failed",
+        "execution_lost",
+        "authority_lost",
+        "unknown",
+    ]
+    stage: Literal["preparing", "training", "evaluating", "uploading", "execution"]
+    config_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    diagnostic: str = Field(max_length=1000)
+    exception_type: str | None = Field(default=None, max_length=120)
+    source: Literal["native", "supervisor", "platform"]
+
+
 class TrainingAttemptOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -130,6 +152,7 @@ class TrainingAttemptOut(BaseModel):
     heartbeat_at: datetime | None
     started_at: datetime | None
     completed_at: datetime | None
+    failure: TrainingFailure | None = None
 
 
 class EvaluationMetricSemantics(BaseModel):
@@ -232,10 +255,18 @@ class ExecutorHeartbeat(ExecutorFence):
 class TrainingArtifactSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}$")
-    role: Literal["weights", "checkpoint", "metrics", "config", "log", "manifest"]
+    role: Literal[
+        "weights", "checkpoint", "metrics", "config", "log", "manifest", "telemetry"
+    ]
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(gt=0, le=2 * 1024 * 1024 * 1024)
     epoch: int | None = Field(default=None, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def bounded_observation_artifact(self):
+        if self.role == "telemetry" and self.size_bytes > 256 * 1024:
+            raise ValueError("观测摘要产物超出上限")
+        return self
 
     @field_validator("name")
     @classmethod
@@ -253,6 +284,13 @@ class ExecutorFinish(ExecutorFence):
     status: Literal["succeeded", "failed", "cancelled"]
     process_exited: Literal[True]
     error_message: str | None = Field(default=None, max_length=1000)
+    failure: TrainingFailure | None = None
+
+    def request_payload(self):
+        payload = self.model_dump(mode="json")
+        if self.failure is None:
+            payload.pop("failure")
+        return payload
 
 
 class ExecutorRecovery(ExecutorFence):

@@ -100,7 +100,7 @@ last_reviewed: 2026-10-15
 
 状态包括 `queued`、`preparing`、`training`、`evaluating`、`uploading`，停止时为 `cancelling`，终态为 `succeeded`、`failed`、`cancelled`。`lost` 表示心跳超时但仍持有资源，不能当作已停止。事件带当前 `attempt_id` 和连续 `sequence`，重复序号必须具有相同内容。
 
-事件读取可指定 `attempt_id` 和 `after` 游标，每次最多 100 条，默认按序递增。客户端用最后一条 `sequence` 继续分页，并为各次执行分别维护曲线；`latest=true` 用于单独读取最近事件。`run.metrics` 可能保留前次执行的最新值；历史执行及刚续训的比较必须读取指定执行的事件。最终最佳权重评估保存在已校验的 `metrics` 产物中。
+事件读取可指定 `attempt_id` 和 `after` 游标，每次最多 100 条，默认按序递增。客户端用最后一条 `sequence` 继续分页，并为各次执行分别维护曲线；`latest=true` 用于单独读取最近事件。新执行清空 `run.metrics`，直到该执行再次上报；历史曲线与比较读取指定执行的事件。最终最佳权重评估保存在已校验的 `metrics` 产物中。
 
 `evaluation` 只读取指定实验、成功执行及其已发布的唯一指标和最佳权重清单。每次读取均核验不超过 8 MiB 的实际报告字节、大小、SHA-256 和执行元数据；纯解析结果按摘要及解析修订缓存，不缓存授权或上下文绑定。执行不存在或跨实验返回 `404`，尚未成功发布或缺少唯一产物返回 `409`，缺失、损坏或身份冲突返回 `422`。
 
@@ -130,6 +130,30 @@ last_reviewed: 2026-10-15
 冻结的 `configuration` 保存 `identity`、`user_values`、`effective_values`、`origins` 与 `inactive_fields`。它与请求的 wire 结构不同，不能直接作为新请求回传。原生配置观测和核验结果通过 `native-config.json` 归档；扩展实验缺少该证据或配置不符时不能确认成功。
 
 独立执行器使用 `/api/v1/internal/training`，通过 `X-Training-Executor-Token` 认证，调用 `claim` 以及 `attempts/{id}/heartbeat`、`uploads`、`finish`、`recover`。这些接口不使用用户 JWT。回报同时校验当前执行、执行器、启动标识和租约凭据。执行器收到短期对象 URL，没有数据库或存储管理凭据；claim 发送前持久化请求标识，丢失响应后恢复同一个分配。
+
+### 执行观测、日志与恢复
+
+以下读取沿用项目管理权限及 `annotations:read`、`datasets:read`，基路径仍为项目的 `training-runs`：
+
+| 方法 | 路径后缀                                    | 行为                                                            |
+| ---- | ------------------------------------------- | --------------------------------------------------------------- |
+| GET  | `/{run_id}/attempts/{attempt_id}/telemetry` | 近期资源与阶段采样；可指定 `after`，`limit` 1–120，默认 120     |
+| GET  | `/{run_id}/attempts/{attempt_id}/logs`      | 近期脱敏日志；`after` 与 `before` 互斥，`limit` 1–120，默认 120 |
+| GET  | `/{run_id}/recovery`                        | 当前执行续训资格、原因、检查点轮次与已知环境／在线状态          |
+
+两种观测分别返回 `attempt_id`、持久 `stream_id`、`earliest_cursor`、`latest_cursor`、`next_cursor`、`has_more`、`gaps`、`summary` 和按序 `items`。省略游标读取近期尾页；日志 `before` 读取更早内容。向前读取依据 `next_cursor`／`has_more`，不能用条数判断结束；明确缺口也能推进空页游标。更早日志则取最小条目序号作为下一 `before`，不能借用向前 `has_more`。缺口 `(after, through]` 标注 `retention` 或 `producer_retention`。序号高水位在清理后仍保留，生产 boot 改变不重置持久流。
+
+采样包含采集／接收时间、原生阶段、阶段耗时、回调年龄、固定来源／单位／归属定义和进度。数值 `0` 有效，`null` 需带不可用原因；不接受布尔、负值或非有限数。整卡 GPU 利用率与 MiB 来自指定 UUID 的设备查询；CPU 核数、RSS 来自已确认的训练进程组，分配器显存来自子进程 PyTorch。无法确认 PID 对应关系时不提供进程 GPU 利用率。LibreYOLO 回调未提供实际批次计数时，吞吐保持不可用。
+
+每次执行保留最多 720 条采样、512 个最多 2048 UTF-8 字节的日志块，7 天前的原始观测由后台每小时分批清理，摘要保留。ETA 至少使用 3 个同增强阶段的可比较完整周期，排除首个周期，返回范围与样本数；不包含评估／上传，不跨未观测增强阶段估算。终态、失联或过期采样不能表示仍有效的剩余时间。
+
+内部 `POST /api/v1/internal/training/attempts/{attempt_id}/observations` 使用原执行器 fence；`producer_boot_id` 单独表示实际生产者。请求含持久 `stream_id`、UUID `request_id`、独立有序 `telemetry`／`logs`、可选显式 `skipped` 和有界摘要；每批最多 12 条采样、32 块日志、128 KiB 编码 JSON。ACK 返回同流／同请求身份与两个已接受游标。已接收内容不可改写，退役游标与身份冲突返回具名 `409`；账户／项目锁忙属于可重试冲突。公开最新值与峰值由已接受采样派生。这个接口不更新状态、心跳、租约时间或资源所有权。
+
+执行尝试可携带 `failure`：明确的 `code`、`stage`、`source`、配置摘要、脱敏诊断与可选异常类型。原生 CUDA OOM 依据异常类型，信号终止不会被猜测为 OOM。`finish.failure` 可省略，旧请求仍保留原有空字段的幂等摘要；新执行器发送前持久化完整回执。产物可带可选 `telemetry` 角色，最多 256 KiB，身份绑定实验、执行与配置；缺少可选观测不阻止成功训练。
+
+下载 `role=log` 时核验原对象的大小、实际 SHA 和执行元数据，再在同一执行前缀生成内容寻址的脱敏副本。响应 `sha256`／`size_bytes` 表示副本，另返回 `source_sha256`／`redaction_revision`；原对象保持不变。原始日志超过 8 MiB 或校验失败时拒绝该有界下载。共享实验锁使脱敏读取／写入与删除串行。
+
+`recovery.eligible` 仅针对当前已停止的失败／取消执行，要求原租约已释放、检查点轮次为正且未完成总轮数、对象归属／元数据可用、冻结输入及已知环境兼容、当前权限有效。`executor_online=false` 可与合格资格同时存在，表示可排队等待。POST 续训再次核验，下载检查点时核验完整字节；更换数据或参数仍需新建实验。
 
 ## 原生增强预览 API
 

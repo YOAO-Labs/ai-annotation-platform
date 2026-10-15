@@ -7,6 +7,10 @@ from pathlib import Path, PurePosixPath
 import yaml
 from .files import digest_file
 from training_contract import ADAPTERS, verify_frozen
+from training_contract.observability import (
+    InputMismatchError,
+    NativeConfigurationMismatch,
+)
 
 
 def adapter_for(config):
@@ -95,14 +99,20 @@ def validate_dataset(spec):
         raise ValueError("Frozen training and validation partitions required")
 
 
-def train(spec, output):
-    adapter_for(spec["frozen_config"])
-    validate_dataset(spec)
+def train(spec, output, *, progress=None):
+    try:
+        adapter_for(spec["frozen_config"])
+    except ValueError as exc:
+        raise NativeConfigurationMismatch(str(exc)) from exc
+    try:
+        validate_dataset(spec)
+    except (ValueError, KeyError, OSError) as exc:
+        raise InputMismatchError(str(exc)) from exc
     if spec["framework"] == "ultralytics":
         from .train import ultralytics_train
 
-        ultralytics_train(spec, output)
+        ultralytics_train(spec, output, progress=progress)
     elif spec["framework"] == "libreyolo":
         from .libreyolo_adapter import libreyolo_train
 
-        libreyolo_train(spec, output)
+        libreyolo_train(spec, output, progress=progress)

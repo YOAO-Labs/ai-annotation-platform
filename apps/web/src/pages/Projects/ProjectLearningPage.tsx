@@ -697,6 +697,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
           ) : (
             <ProjectTrainingPanel
               projectId={projectId}
+              scope={scope}
               initialRunId={params.get("run") ?? ""}
               onRunSelect={(runId) =>
                 setParams((previous) => {

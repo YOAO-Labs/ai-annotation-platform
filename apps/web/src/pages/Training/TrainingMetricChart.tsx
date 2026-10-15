@@ -24,6 +24,9 @@ export function TrainingMetricChart({
   labels = {},
   domain,
   headingLevel = 4,
+  xDataKey = "epoch",
+  xLabel = "训练轮次",
+  pointUnit = "轮上报数据",
 }: {
   title: string;
   points: Record<string, number | null>[];
@@ -32,6 +35,9 @@ export function TrainingMetricChart({
   labels?: Record<string, string>;
   domain?: [number | string, number | string];
   headingLevel?: 2 | 4;
+  xDataKey?: string;
+  xLabel?: string;
+  pointUnit?: string;
 }) {
   const Heading = headingLevel === 2 ? "h2" : "h4";
   return (
@@ -56,7 +62,7 @@ export function TrainingMetricChart({
           <div
             className="mt-4 h-44 w-full min-w-0"
             role="img"
-            aria-label={`${title}，${points.length} 轮上报数据；详细数值见下方指标表`}
+            aria-label={`${title}，${points.length} ${pointUnit}`}
           >
             <ResponsiveContainer
               width="100%"
@@ -67,7 +73,7 @@ export function TrainingMetricChart({
               <LineChart data={points} margin={{ top: 5, right: 8, bottom: 0, left: -22 }}>
                 <CartesianGrid stroke="var(--sc-border)" strokeDasharray="3 3" vertical={false} />
                 <XAxis
-                  dataKey="epoch"
+                  dataKey={xDataKey}
                   type="number"
                   domain={["dataMin", "dataMax"]}
                   allowDecimals={false}
@@ -87,7 +93,9 @@ export function TrainingMetricChart({
                   content={({ active, payload, label }) =>
                     active && payload?.length ? (
                       <div className="rounded-md border border-border bg-popover p-3 text-xs text-popover-foreground shadow-md">
-                        <p className="mb-1 font-medium">第 {label} 轮</p>
+                        <p className="mb-1 font-medium">
+                          {xLabel} {label}
+                        </p>
                         {payload.map((item) => (
                           <p key={String(item.dataKey)}>
                             {labels[String(item.dataKey)] ?? metricLabel(String(item.dataKey))}：
@@ -114,7 +122,7 @@ export function TrainingMetricChart({
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="mt-1 text-center text-2xs text-muted-foreground">训练轮次</p>
+          <p className="mt-1 text-center text-2xs text-muted-foreground">{xLabel}</p>
         </>
       )}
     </section>

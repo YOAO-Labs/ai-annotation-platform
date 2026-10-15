@@ -28,7 +28,8 @@ export const artifactLabels: Record<string, string> = {
   checkpoint: "续训检查点",
   metrics: "评估指标",
   config: "训练配置",
-  log: "训练日志",
+  log: "脱敏训练日志",
+  telemetry: "资源与阶段观测摘要",
   manifest: "产物清单",
 };
 
@@ -90,11 +91,11 @@ export function epochPoints(
     }));
 }
 
-export function formatDuration(start?: string | null, end?: string | null) {
+export function formatDuration(start?: string | null, end?: string | null, now = Date.now()) {
   if (!start) return "尚未开始";
   const seconds = Math.max(
     0,
-    Math.floor(((end ? Date.parse(end) : Date.now()) - Date.parse(start)) / 1000),
+    Math.floor(((end ? Date.parse(end) : now) - Date.parse(start)) / 1000),
   );
   if (!Number.isFinite(seconds)) return "—";
   if (seconds < 60) return `${seconds} 秒`;

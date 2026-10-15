@@ -34,6 +34,7 @@ celery_app = Celery(
         "app.workers.export",
         "app.workers.training_dataset",
         "app.workers.training_preview_cleanup",
+        "app.workers.training_observability_cleanup",
         "app.workers.learning_policy",
         "app.workers.export_cleanup",
         # v0.11.15 · 外部连接器数据集导入
@@ -102,6 +103,9 @@ celery_app.conf.update(
         "app.workers.training_preview_cleanup.purge_expired_previews": {
             "queue": "cleanup"
         },
+        "app.workers.training_observability_cleanup.purge_observations": {
+            "queue": "cleanup"
+        },
         "app.workers.learning_policy.check_policies": {"queue": "default"},
         "app.workers.export_cleanup.purge_expired_export_artifacts": {
             "queue": "cleanup"
@@ -136,6 +140,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "purge-training-observations": {
+            "task": "app.workers.training_observability_cleanup.purge_observations",
+            "schedule": crontab(minute=0),
+        },
         "purge-expired-training-previews": {
             "task": "app.workers.training_preview_cleanup.purge_expired_previews",
             "schedule": crontab(minute="*"),

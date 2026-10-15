@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from .files import atomic_json, atomic_bytes, digest_file, immutable_copy
 from .train import emit, metrics_of, record_native_configuration
+from .observability import NativeProgress
+from training_contract.observability import InputMismatchError, NativeRuntimeMismatch
 
 VERSION = "1.6.0"
 
@@ -55,18 +57,23 @@ def ordered_names(blob):
 def validate_checkpoint(blob, spec, *, epoch=None, resume=False):
     from libreyolo.utils.serialization import validate_checkpoint_metadata
 
-    validate_checkpoint_metadata(blob, strict=True)
+    try:
+        validate_checkpoint_metadata(blob, strict=True)
+    except (TypeError, ValueError) as exc:
+        raise InputMismatchError(str(exc)) from exc
     if (
         blob["task"] != "detect"
         or blob["model_family"] != "yolo9"
         or blob["libreyolo_version"] != VERSION
         or ordered_names(blob) != spec["frozen_config"]["classes"]
     ):
-        raise ValueError("Native checkpoint task, version or class identity mismatch")
+        raise InputMismatchError(
+            "Native checkpoint task, version or class identity mismatch"
+        )
     if epoch is not None and (
         blob.get("epoch") != epoch - 1 or not blob.get("optimizer")
     ):
-        raise ValueError("Full native epoch and optimizer state required")
+        raise InputMismatchError("Full native epoch and optimizer state required")
     if resume:
         state = blob.get("aap_resume", {})
         completed = blob.get("epoch", -1) + 1
@@ -81,15 +88,16 @@ def validate_checkpoint(blob, spec, *, epoch=None, resume=False):
             or not blob.get("optimizer")
             or not blob.get("rng_state")
         ):
-            raise ValueError(
+            raise InputMismatchError(
                 "Only a complete, verified platform resume checkpoint is supported"
             )
     return blob
 
 
 class CheckpointCallbacks:
-    def __init__(self, spec, output, resume=None):
+    def __init__(self, spec, output, resume=None, progress=None):
         self.spec, self.output, self.resume = spec, output, resume
+        self.progress = progress or NativeProgress(spec, output)
         self.checkpoint = None
 
     def commit_resume(self, path):
@@ -131,6 +139,7 @@ class CheckpointCallbacks:
                 },
             )
         emit(self.output, "training")
+        self.progress.started(closing_epochs=dict(event.config).get("no_aug_epochs"))
 
     def on_train_epoch_end(self, event):
         import torch
@@ -176,6 +185,9 @@ class CheckpointCallbacks:
         }
         metrics["train/loss"] = float(event.train_loss)
         emit(self.output, "epoch", epoch=event.epoch, metrics=metrics)
+        self.progress.epoch(
+            event.epoch, raw_epoch_seconds=getattr(event, "epoch_seconds", None)
+        )
 
     def on_train_end(self, event):
         pass
@@ -255,7 +267,8 @@ class StrictResumeLogging(logging.Handler):
             raise RuntimeError("Native checkpoint state restoration failed: " + message)
 
 
-def libreyolo_train(spec, output):
+def libreyolo_train(spec, output, progress=None):
+    progress = progress or NativeProgress(spec, output)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     os.environ["LIBREYOLO_FASTER_COCO_EVAL"] = "0"
     import torch
@@ -264,7 +277,7 @@ def libreyolo_train(spec, output):
     from libreyolo import LibreYOLO
 
     if libreyolo.__version__ != VERSION:
-        raise RuntimeError("Unexpected LibreYOLO runtime")
+        raise NativeRuntimeMismatch("Unexpected LibreYOLO runtime")
     spec = native_dataset_yaml(spec, output)
     cv2.setNumThreads(1)
     torch.set_num_threads(4)
@@ -290,7 +303,7 @@ def libreyolo_train(spec, output):
             ),
             spec,
         )
-    callbacks = CheckpointCallbacks(spec, output, resume)
+    callbacks = CheckpointCallbacks(spec, output, resume, progress=progress)
     if resume:
         callbacks.commit_resume(spec["resume_path"])
     model = LibreYOLO(spec.get("resume_path") or spec["base_path"], device="cuda:0")
@@ -345,6 +358,7 @@ def libreyolo_train(spec, output):
     weights = immutable_copy(best, output / "best.pt")
     weights["role"] = "weights"
     emit(output, "evaluating")
+    progress.phase("evaluating")
     evaluated = LibreYOLO(str(output / "best.pt"), device="cuda:0")
     if ordered_names({"names": evaluated.names}) != spec["frozen_config"]["classes"]:
         raise ValueError("Trained native class order mismatch")

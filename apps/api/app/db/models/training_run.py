@@ -113,6 +113,8 @@ class TrainingAttempt(Base):
     runtime: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     upload_inventory: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     artifacts: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    observation_state: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    failure: Mapped[dict | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(String(1000))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

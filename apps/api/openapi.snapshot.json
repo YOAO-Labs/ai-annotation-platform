@@ -8931,6 +8931,61 @@
         "title": "CrossFrameJobListResponse",
         "type": "object"
       },
+      "CursorGap": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "After",
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "retention",
+              "producer_retention"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "through": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Through",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "after",
+          "through",
+          "reason"
+        ],
+        "title": "CursorGap",
+        "type": "object"
+      },
+      "CursorSkip": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "After",
+            "type": "integer"
+          },
+          "through": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Through",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "after",
+          "through"
+        ],
+        "title": "CursorSkip",
+        "type": "object"
+      },
       "DataManagerAiReviewSummary": {
         "properties": {
           "by_model_version": {
@@ -11932,6 +11987,38 @@
         "title": "DismissResponse",
         "type": "object"
       },
+      "EpochCycle": {
+        "additionalProperties": false,
+        "properties": {
+          "closing": {
+            "title": "Closing",
+            "type": "boolean"
+          },
+          "comparable": {
+            "title": "Comparable",
+            "type": "boolean"
+          },
+          "epoch": {
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "seconds": {
+            "exclusiveMinimum": 0.0,
+            "title": "Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "epoch",
+          "seconds",
+          "comparable",
+          "closing"
+        ],
+        "title": "EpochCycle",
+        "type": "object"
+      },
       "EvaluationBenchmark": {
         "additionalProperties": false,
         "properties": {
@@ -12239,6 +12326,16 @@
             "title": "Executor Id",
             "type": "string"
           },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lease_token": {
             "maxLength": 128,
             "minLength": 32,
@@ -12305,6 +12402,87 @@
           "lease_token"
         ],
         "title": "ExecutorHeartbeat",
+        "type": "object"
+      },
+      "ExecutorObservations": {
+        "additionalProperties": false,
+        "properties": {
+          "boot_id": {
+            "format": "uuid",
+            "title": "Boot Id",
+            "type": "string"
+          },
+          "executor_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Executor Id",
+            "type": "string"
+          },
+          "lease_token": {
+            "maxLength": 128,
+            "minLength": 32,
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "$ref": "#/components/schemas/LogItem"
+            },
+            "maxItems": 32,
+            "title": "Logs",
+            "type": "array"
+          },
+          "producer_boot_id": {
+            "format": "uuid",
+            "title": "Producer Boot Id",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "skipped": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CursorSkip"
+            },
+            "maxProperties": 2,
+            "propertyNames": {
+              "enum": [
+                "telemetry",
+                "logs"
+              ]
+            },
+            "title": "Skipped",
+            "type": "object"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "title": "Stream Id",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ObservationSummary"
+          },
+          "telemetry": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryItem"
+            },
+            "maxItems": 12,
+            "title": "Telemetry",
+            "type": "array"
+          }
+        },
+        "required": [
+          "executor_id",
+          "boot_id",
+          "lease_token",
+          "stream_id",
+          "request_id",
+          "producer_boot_id",
+          "summary"
+        ],
+        "title": "ExecutorObservations",
         "type": "object"
       },
       "ExecutorRecovery": {
@@ -17005,6 +17183,160 @@
         "title": "LidarExportPreflightResponse",
         "type": "object"
       },
+      "LogItem": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "producer_boot_id": {
+            "format": "uuid",
+            "title": "Producer Boot Id",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "producer_boot_id",
+          "captured_at",
+          "text"
+        ],
+        "title": "LogItem",
+        "type": "object"
+      },
+      "LogOut": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "producer_boot_id": {
+            "format": "uuid",
+            "title": "Producer Boot Id",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "producer_boot_id",
+          "captured_at",
+          "text",
+          "received_at"
+        ],
+        "title": "LogOut",
+        "type": "object"
+      },
+      "LogPage": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "earliest_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Cursor"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/CursorGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LogOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "latest_cursor": {
+            "title": "Latest Cursor",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "title": "Next Cursor",
+            "type": "integer"
+          },
+          "stream_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Id"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservationSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "attempt_id",
+          "stream_id",
+          "earliest_cursor",
+          "latest_cursor",
+          "next_cursor",
+          "has_more",
+          "gaps",
+          "summary",
+          "items"
+        ],
+        "title": "LogPage",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "captcha_token": {
@@ -20631,6 +20963,55 @@
         "title": "MaskUpdateMutation",
         "type": "object"
       },
+      "Measurement": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "baseline_pending",
+                  "process_unavailable",
+                  "permission_denied",
+                  "pid_reused",
+                  "device_unavailable",
+                  "invalid_value",
+                  "pid_namespace_unresolved",
+                  "cuda_uninitialized",
+                  "callback_unavailable",
+                  "callback_stale",
+                  "recovery_no_process"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "reason"
+        ],
+        "title": "Measurement",
+        "type": "object"
+      },
       "Mention": {
         "properties": {
           "displayName": {
@@ -21616,6 +21997,21 @@
         "title": "NativeMaskCandidateValue",
         "type": "object"
       },
+      "NativeRaw": {
+        "additionalProperties": false,
+        "properties": {
+          "epoch_seconds": {
+            "minimum": 0.0,
+            "title": "Epoch Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "epoch_seconds"
+        ],
+        "title": "NativeRaw",
+        "type": "object"
+      },
       "NeighborAnnotationsResponse": {
         "description": "v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。\n\n替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」:\n- track_id 给定 → 服务端只回该跨帧链(scope=selected,payload 最小);\n- track_id 省略 → 回区间全部框(scope=all)。\n几何坐标不变(各帧 ego 系 PSR),ego 对齐仍由前端 egoAlign 做。\n非 scene / 历史未 backfill 的 task → frames=[](不报错)。",
         "properties": {
@@ -21954,6 +22350,77 @@
           "items"
         ],
         "title": "NotificationPreferencesOut",
+        "type": "object"
+      },
+      "ObservationAck": {
+        "additionalProperties": false,
+        "properties": {
+          "logs_cursor": {
+            "title": "Logs Cursor",
+            "type": "integer"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "title": "Stream Id",
+            "type": "string"
+          },
+          "telemetry_cursor": {
+            "title": "Telemetry Cursor",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stream_id",
+          "request_id",
+          "telemetry_cursor",
+          "logs_cursor"
+        ],
+        "title": "ObservationAck",
+        "type": "object"
+      },
+      "ObservationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TelemetryItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "peaks": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "maxProperties": 9,
+            "title": "Peaks",
+            "type": "object"
+          },
+          "protocol": {
+            "const": 1,
+            "title": "Protocol",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol"
+        ],
+        "title": "ObservationSummary",
         "type": "object"
       },
       "ObserveResponse": {
@@ -35547,6 +36014,243 @@
         "title": "TaskVideoManifestResponse",
         "type": "object"
       },
+      "TelemetryItem": {
+        "additionalProperties": false,
+        "properties": {
+          "callback_age_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Age Seconds"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Measurement"
+            },
+            "maxProperties": 9,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "phase": {
+            "enum": [
+              "preparing",
+              "training",
+              "evaluating",
+              "uploading"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "phase_elapsed_seconds": {
+            "minimum": 0.0,
+            "title": "Phase Elapsed Seconds",
+            "type": "number"
+          },
+          "producer_boot_id": {
+            "format": "uuid",
+            "title": "Producer Boot Id",
+            "type": "string"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/TrainingProgress"
+          },
+          "sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "producer_boot_id",
+          "captured_at",
+          "phase",
+          "phase_elapsed_seconds",
+          "metrics"
+        ],
+        "title": "TelemetryItem",
+        "type": "object"
+      },
+      "TelemetryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "callback_age_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Age Seconds"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Measurement"
+            },
+            "maxProperties": 9,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "phase": {
+            "enum": [
+              "preparing",
+              "training",
+              "evaluating",
+              "uploading"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "phase_elapsed_seconds": {
+            "minimum": 0.0,
+            "title": "Phase Elapsed Seconds",
+            "type": "number"
+          },
+          "producer_boot_id": {
+            "format": "uuid",
+            "title": "Producer Boot Id",
+            "type": "string"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/TrainingProgress"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "producer_boot_id",
+          "captured_at",
+          "phase",
+          "phase_elapsed_seconds",
+          "metrics",
+          "received_at"
+        ],
+        "title": "TelemetryOut",
+        "type": "object"
+      },
+      "TelemetryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "earliest_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Cursor"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/CursorGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "latest_cursor": {
+            "title": "Latest Cursor",
+            "type": "integer"
+          },
+          "metric_definitions": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Metric Definitions",
+            "type": "object"
+          },
+          "next_cursor": {
+            "title": "Next Cursor",
+            "type": "integer"
+          },
+          "stream_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Id"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservationSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "attempt_id",
+          "stream_id",
+          "earliest_cursor",
+          "latest_cursor",
+          "next_cursor",
+          "has_more",
+          "gaps",
+          "summary",
+          "items",
+          "metric_definitions"
+        ],
+        "title": "TelemetryPage",
+        "type": "object"
+      },
       "Token": {
         "properties": {
           "access_token": {
@@ -36395,7 +37099,8 @@
               "metrics",
               "config",
               "log",
-              "manifest"
+              "manifest",
+              "telemetry"
             ],
             "title": "Role",
             "type": "string"
@@ -36461,6 +37166,16 @@
               }
             ],
             "title": "Executor Id"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "heartbeat_at": {
             "anyOf": [
@@ -37960,6 +38675,103 @@
         "title": "TrainingDatasetValidationIdentity",
         "type": "object"
       },
+      "TrainingEstimate": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "closing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closing"
+          },
+          "maximum_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum Seconds"
+          },
+          "minimum_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum Seconds"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "insufficient_comparable_cycles",
+                  "training_complete",
+                  "unobserved_augmentation_regime"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "remaining_epochs": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Epochs"
+          },
+          "sample_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "const": "training_only",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "available",
+          "sample_count"
+        ],
+        "title": "TrainingEstimate",
+        "type": "object"
+      },
       "TrainingEvaluationDescriptor": {
         "additionalProperties": false,
         "properties": {
@@ -38090,6 +38902,79 @@
           "provenance"
         ],
         "title": "TrainingEvaluationOut",
+        "type": "object"
+      },
+      "TrainingFailure": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "input_mismatch",
+              "config_mismatch",
+              "runtime_mismatch",
+              "cuda_oom",
+              "native_exception",
+              "native_signal",
+              "preparation_failed",
+              "upload_failed",
+              "execution_lost",
+              "authority_lost",
+              "unknown"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "config_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Config Digest",
+            "type": "string"
+          },
+          "diagnostic": {
+            "maxLength": 1000,
+            "title": "Diagnostic",
+            "type": "string"
+          },
+          "exception_type": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Type"
+          },
+          "source": {
+            "enum": [
+              "native",
+              "supervisor",
+              "platform"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "preparing",
+              "training",
+              "evaluating",
+              "uploading",
+              "execution"
+            ],
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "stage",
+          "config_digest",
+          "diagnostic",
+          "source"
+        ],
+        "title": "TrainingFailure",
         "type": "object"
       },
       "TrainingHubCatalog": {
@@ -38731,6 +39616,77 @@
         "title": "TrainingPreviewReport",
         "type": "object"
       },
+      "TrainingProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_epoch": {
+            "default": 0,
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Completed Epoch",
+            "type": "integer"
+          },
+          "cycles": {
+            "items": {
+              "$ref": "#/components/schemas/EpochCycle"
+            },
+            "maxItems": 20,
+            "title": "Cycles",
+            "type": "array"
+          },
+          "eta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "native_raw": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NativeRaw"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phase_durations": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "maxProperties": 4,
+            "propertyNames": {
+              "enum": [
+                "preparing",
+                "training",
+                "evaluating",
+                "uploading"
+              ]
+            },
+            "title": "Phase Durations",
+            "type": "object"
+          },
+          "total_epochs": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Epochs"
+          }
+        },
+        "title": "TrainingProgress",
+        "type": "object"
+      },
       "TrainingProjectPage": {
         "properties": {
           "items": {
@@ -39149,6 +40105,63 @@
           "name"
         ],
         "title": "TrainingRecipeWrite",
+        "type": "object"
+      },
+      "TrainingRecovery": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "checkpoint_epoch": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Epoch"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "executor_online": {
+            "title": "Executor Online",
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "runtime_compatible": {
+            "title": "Runtime Compatible",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "eligible",
+          "reasons",
+          "executor_online",
+          "runtime_compatible",
+          "checkpoint_epoch"
+        ],
+        "title": "TrainingRecovery",
         "type": "object"
       },
       "TrainingReuseCandidate": {
@@ -53472,6 +54485,69 @@
           }
         },
         "summary": "Heartbeat",
+        "tags": [
+          "training-executor"
+        ]
+      }
+    },
+    "/api/v1/internal/training/attempts/{attempt_id}/observations": {
+      "post": {
+        "operationId": "observations_api_v1_internal_training_attempts__attempt_id__observations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-training-executor-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Training-Executor-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutorObservations"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Observations",
         "tags": [
           "training-executor"
         ]
@@ -67903,6 +68979,220 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/logs": {
+      "get": {
+        "operationId": "logs_api_v1_projects__project_id__training_runs__run_id__attempts__attempt_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 120,
+              "maximum": 120,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Logs",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/telemetry": {
+      "get": {
+        "operationId": "telemetry_api_v1_projects__project_id__training_runs__run_id__attempts__attempt_id__telemetry_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 120,
+              "maximum": 120,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Telemetry",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/training-runs/{run_id}/cancel": {
       "post": {
         "operationId": "cancel_run_api_v1_projects__project_id__training_runs__run_id__cancel_post",
@@ -68054,6 +69344,64 @@
           }
         ],
         "summary": "Get Events",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-runs/{run_id}/recovery": {
+      "get": {
+        "operationId": "recovery_api_v1_projects__project_id__training_runs__run_id__recovery_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRecovery"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Recovery",
         "tags": [
           "training-runs"
         ]

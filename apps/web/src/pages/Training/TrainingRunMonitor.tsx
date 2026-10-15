@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Activity, Check, Circle, Clock3, Download, FileText, Layers } from "lucide-react";
 
@@ -9,6 +9,12 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { TrainingMetricChart } from "./TrainingMetricChart";
 import { TrainingRecipeSave } from "./TrainingRecipeLibrary";
+import type { TrainingRecovery } from "@/api/trainingObservability";
+import { useTrainingObservability } from "./useTrainingObservability";
+import { TrainingResourcePanel } from "./TrainingResourcePanel";
+import { TrainingLogViewer } from "./TrainingLogViewer";
+import { failureGuidance, recoveryReasons } from "./trainingObservability";
+import type { AssertTrainingOwner } from "./trainingViewOwner";
 import {
   activeTrainingStates,
   artifactLabels,
@@ -36,6 +42,11 @@ export function TrainingRunMonitor({
   eventsError,
   pending,
   onAction,
+  recovery,
+  recoveryError,
+  scope,
+  visible,
+  assertOwner,
 }: {
   run: TrainingRunOut;
   attempts: TrainingAttemptOut[];
@@ -46,8 +57,14 @@ export function TrainingRunMonitor({
   eventsError?: string;
   pending: boolean;
   onAction: (action: Action) => void;
+  recovery?: TrainingRecovery;
+  recoveryError?: string;
+  scope: string;
+  visible: boolean;
+  assertOwner: AssertTrainingOwner;
 }) {
   const [tab, setTab] = useState("metrics");
+  const [now, setNow] = useState(Date.now);
   const progress = trainingProgress(run);
   const framework = String(run.config.framework ?? "");
   const points = epochPoints(events, framework);
@@ -64,11 +81,24 @@ export function TrainingRunMonitor({
   const currentAttempt = attempts.find((item) => item.id === run.current_attempt_id);
   const canResume =
     ["failed", "cancelled"].includes(run.status) &&
-    currentAttempt &&
-    Object.values(currentAttempt.artifacts).some((value) => {
-      const artifact = value as { role?: string; epoch?: number };
-      return artifact.role === "checkpoint" && Number(artifact.epoch) < progress.total;
-    });
+    recovery?.eligible &&
+    recovery.attempt_id === run.current_attempt_id;
+  const live = !!attempt && activeTrainingStates.has(attempt.status);
+  const observations = useTrainingObservability(
+    run.project_id,
+    run.id,
+    selectedAttemptId,
+    scope,
+    visible,
+    live,
+    tab === "logs",
+    assertOwner,
+  );
+  useEffect(() => {
+    if (!visible || !live) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [visible, live]);
   const stages = ["queued", "preparing", "training", "evaluating", "uploading", "succeeded"];
   const stage = stages.indexOf(run.status);
   return (
@@ -85,6 +115,7 @@ export function TrainingRunMonitor({
             <p className="mt-2 text-xs text-muted-foreground">
               {framework} · {run.auto_trigger_id ? "自动训练" : "手动实验"} ·{" "}
               {new Date(run.created_at).toLocaleString("zh-CN")}
+              {currentAttempt && ` · 当前第 ${currentAttempt.ordinal} 次执行`}
             </p>
           </div>
           {activeTrainingStates.has(run.status) && run.status !== "cancelling" && (
@@ -152,6 +183,33 @@ export function TrainingRunMonitor({
             已发出停止请求，等待执行器确认退出并保存可用产物。
           </p>
         )}
+        {run.status === "lost" && (
+          <p className="mt-3 text-xs text-status-caution">
+            等待执行器核对旧进程退出；资源仍保留，遥测中断不会释放 GPU。
+          </p>
+        )}
+        {run.status === "uploading" && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            正在按已冻结的产物清单保存；连接中断后执行器会继续重试，无需重新训练。
+          </p>
+        )}
+        {canResume && !recovery.executor_online && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            兼容执行器当前离线；续训请求会排队等待上线。
+          </p>
+        )}
+        {["failed", "cancelled"].includes(run.status) && !canResume && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            续训资格：
+            {recoveryError
+              ? `暂无法核对（${recoveryError}）`
+              : recovery?.attempt_id === run.current_attempt_id
+                ? recovery.reasons
+                    .map((reason) => recoveryReasons[reason] ?? "资格尚未确认")
+                    .join("；")
+                : "正在核对当前执行的检查点与环境"}
+          </p>
+        )}
         {run.error_message && (
           <p
             role="alert"
@@ -181,9 +239,56 @@ export function TrainingRunMonitor({
           </label>
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock3 className="size-3.5" />
-            执行耗时 {formatDuration(attempt?.started_at, attempt?.completed_at)}
+            执行耗时 {formatDuration(attempt?.started_at, attempt?.completed_at, now)}
           </span>
         </div>
+        {attempt && ["failed", "cancelled", "lost"].includes(attempt.status) && (
+          <section
+            aria-label="所选执行失败与恢复说明"
+            className="mb-4 rounded-lg bg-status-caution-soft p-3 text-xs"
+          >
+            <p className="font-medium">
+              第 {attempt.ordinal} 次执行 ·{" "}
+              {attempt.status === "cancelled" && !attempt.failure
+                ? "执行器已确认停止"
+                : failureGuidance(attempt.failure)}
+            </p>
+            {attempt.failure?.diagnostic && (
+              <p className="mt-2 break-words text-muted-foreground">
+                脱敏诊断：{attempt.failure.diagnostic}
+              </p>
+            )}
+            {attempt.failure?.code === "cuda_oom" && !!run.config.configuration && (
+              <Link
+                className="mt-3 inline-flex rounded-md border border-border bg-background px-3 py-2 font-medium hover:bg-muted"
+                to={`/projects/${run.project_id}/learning/new?clone_run=${run.id}&clone_attempt=${attempt.id}&return_run=${run.id}`}
+              >
+                用原始基础权重新建草稿，检查 batch / imgsz
+              </Link>
+            )}
+            {attempt.failure?.code === "cuda_oom" && !run.config.configuration && (
+              <Link
+                className="mt-3 inline-flex rounded-md border border-border bg-background px-3 py-2 font-medium hover:bg-muted"
+                to={`/projects/${run.project_id}/learning/new?return_run=${run.id}`}
+              >
+                在配置工作区明确迁移，检查 batch / imgsz
+              </Link>
+            )}
+            {attempt.status === "cancelled" && !attempt.failure && (
+              <p className="mt-2 text-muted-foreground">
+                执行器已确认停止，已提交的检查点仍按当前执行资格核对。
+              </p>
+            )}
+          </section>
+        )}
+        <TrainingResourcePanel
+          data={observations.telemetry.data}
+          error={observations.telemetry.error?.message}
+          pending={observations.telemetry.isLoading}
+          live={live}
+          now={now}
+          status={attempt?.status ?? run.status}
+        />
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList aria-label="实验详情视图" className="mb-3 max-w-full overflow-x-auto">
             <TabsTrigger value="metrics">
@@ -197,6 +302,10 @@ export function TrainingRunMonitor({
             <TabsTrigger value="config">
               <FileText className="size-3.5" />
               训练配置
+            </TabsTrigger>
+            <TabsTrigger value="logs">
+              <FileText className="size-3.5" />
+              实时日志
             </TabsTrigger>
           </TabsList>
           <TabsContent value="metrics">
@@ -282,6 +391,18 @@ export function TrainingRunMonitor({
               </details>
             )}
           </TabsContent>
+          <TabsContent value="logs">
+            <TrainingLogViewer
+              key={`${scope}:${selectedAttemptId}`}
+              projectId={run.project_id}
+              runId={run.id}
+              attemptId={selectedAttemptId}
+              data={observations.logs.data}
+              pending={observations.logs.isLoading}
+              error={observations.logs.error?.message}
+              assertOwner={assertOwner}
+            />
+          </TabsContent>
           <TabsContent value="artifacts" className="space-y-4">
             <p className="text-xs text-muted-foreground">
               每次执行独立保存日志与产物。续训沿用原实验的数据、验证集和参数。
@@ -326,7 +447,11 @@ export function TrainingRunMonitor({
                           onAction({ kind: "download", run, attemptId: item.id, filename })
                         }
                         className="flex min-w-0 items-center gap-3 rounded-md border border-border p-3 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                        title={artifact.sha256 ? `SHA-256: ${artifact.sha256}` : filename}
+                        title={
+                          artifact.sha256
+                            ? `${artifact.role === "log" ? "原始产物 " : ""}SHA-256: ${artifact.sha256}`
+                            : filename
+                        }
                       >
                         <Download className="size-4 shrink-0 text-muted-foreground" />
                         <span className="min-w-0">

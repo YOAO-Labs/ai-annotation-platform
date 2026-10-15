@@ -80,13 +80,27 @@ export const trainingRunsApi = {
     ),
   create: (projectId: string, body: TrainingRunCreate) =>
     apiClient.post<TrainingRunOut>(base(projectId), body),
-  cancel: (projectId: string, id: string) =>
-    apiClient.post<TrainingRunOut>(`${base(projectId)}/${id}/cancel`),
-  resume: (projectId: string, id: string) =>
-    apiClient.post<TrainingRunOut>(`${base(projectId)}/${id}/resume`),
-  remove: (projectId: string, id: string) => apiClient.delete<void>(`${base(projectId)}/${id}`),
-  download: (projectId: string, id: string, attemptId: string, name: string) =>
-    apiClient.get<{ url: string; sha256: string; size_bytes: number }>(
+  cancel: (projectId: string, id: string, options?: RequestInit) =>
+    apiClient.post<TrainingRunOut>(`${base(projectId)}/${id}/cancel`, undefined, options),
+  resume: (projectId: string, id: string, options?: RequestInit) =>
+    apiClient.post<TrainingRunOut>(`${base(projectId)}/${id}/resume`, undefined, options),
+  remove: (projectId: string, id: string, options?: RequestInit) =>
+    apiClient.delete<void>(`${base(projectId)}/${id}`, options),
+  download: (
+    projectId: string,
+    id: string,
+    attemptId: string,
+    name: string,
+    options?: RequestInit,
+  ) =>
+    apiClient.get<{
+      url: string;
+      sha256: string;
+      size_bytes: number;
+      source_sha256?: string;
+      redaction_revision?: number;
+    }>(
       `${base(projectId)}/${id}/attempts/${attemptId}/artifacts/${encodeURIComponent(name)}/download`,
+      options,
     ),
 };

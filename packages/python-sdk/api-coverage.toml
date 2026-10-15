@@ -244,6 +244,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 
 "POST /api/v1/internal/training/attempts/{attempt_id}/finish" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/internal/training/attempts/{attempt_id}/heartbeat" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/attempts/{attempt_id}/observations" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/internal/training/attempts/{attempt_id}/recover" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/internal/training/attempts/{attempt_id}/uploads" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/internal/training/claim" = { status = "excluded", reason = "web-only" }
@@ -267,6 +268,9 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/evaluation" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-runs/{run_id}/cancel" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/events" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/telemetry" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/logs" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/recovery" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-runs/{run_id}/resume" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-runs:preflight" = { status = "excluded", reason = "web-only" }
 

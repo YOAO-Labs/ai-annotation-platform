@@ -36,6 +36,7 @@ from training_contract import definition
 from app.api.v1.training_datasets import lock_owner
 from app.services import training_runs as service
 from app.services import training_recipes as recipes
+from app.services import training_observability as observations
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 
@@ -326,6 +327,16 @@ async def resume_run(
     db: AsyncSession = Depends(get_db),
 ):
     preliminary = await load_run(db, project.id, run_id)
+    eligibility = await observations.recovery(db, preliminary)
+    if not eligibility["eligible"]:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "resume_unavailable",
+                "reasons": eligibility["reasons"],
+                "message": "当前执行尝试未满足恢复条件，请检查已停止状态、checkpoint 与运行环境",
+            },
+        )
     if preliminary.auto_trigger_id:
         from app.services import learning_policies
 
@@ -355,6 +366,16 @@ async def resume_run(
     ):
         raise HTTPException(status_code=409, detail="旧训练必须确认停止后才可恢复")
     await service.authority(db, run)
+    eligibility = await observations.recovery(db, run, check_storage=False, lease=lease)
+    if not eligibility["eligible"]:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "resume_unavailable",
+                "reasons": eligibility["reasons"],
+                "message": "恢复条件已变化，请刷新后重试",
+            },
+        )
     parent = await db.get(TrainingAttempt, run.current_attempt_id)
     checkpoint = next(
         (item for item in parent.artifacts.values() if item["role"] == "checkpoint"),
@@ -387,7 +408,13 @@ async def download_artifact(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     await lock_owner(db, user, project)
-    run = await load_run(db, project.id, run_id)
+    run = await db.scalar(
+        select(TrainingRun)
+        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
+        .with_for_update(read=True)
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="训练实验不存在")
     attempt = await db.get(TrainingAttempt, attempt_id)
     artifact = (
         (attempt.artifacts or {}).get(name)
@@ -396,6 +423,20 @@ async def download_artifact(
     )
     if not artifact or attempt.status not in service.TERMINAL:
         raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
+    if artifact["role"] == "log":
+        derived = await asyncio.to_thread(
+            observations.redacted_log, run, attempt, name, artifact
+        )
+        return {
+            **{key: value for key, value in derived.items() if key != "key"},
+            "url": storage.generate_download_url(
+                derived["key"],
+                expires_in=600,
+                bucket=storage.training_bucket,
+                download_name=name,
+                align=False,
+            ),
+        }
     if not await asyncio.to_thread(
         storage.verify_upload, artifact["key"], bucket=storage.training_bucket
     ):
@@ -515,6 +556,15 @@ async def recover(
             attempt,
             "cancelled" if run.status == "cancelling" else "failed",
             "执行器重启，已通过独占资源锁确认旧进程退出",
+        )
+        from training_contract.observability import failure_receipt
+
+        attempt.failure = failure_receipt(
+            "execution_lost",
+            "execution",
+            run.config_digest,
+            "执行器重启，已通过独占资源锁确认旧进程退出",
+            source="platform",
         )
         attempt.runtime = {**attempt.runtime, "recovery_boot_id": str(body.new_boot_id)}
         lease.attempt_id = None
