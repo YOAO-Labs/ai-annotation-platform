@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-14T18:42:49.542Z",
+  "updated_at": "2026-10-15T12:04:33.791Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -137,8 +137,8 @@
     "docs-site/public/home/ai-assisted-annotation-poster.webp": {
       "asset_id": "ai-assisted-annotation",
       "role": "home-poster",
-      "generated_at": "2026-09-07T14:51:42.120Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T11:41:29.389Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -158,8 +158,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "5636092f1cccf6feab0d0f368dae6ba2bd13f2fcd5a7e8eefa72e3188e3242ca",
-      "bytes": 51148,
+      "sha256": "48f060e41736a60e43ed0a3187a6800a06a2afcd2d4017bc03ce3982ec22ab1f",
+      "bytes": 59746,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -173,21 +173,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "ai-assisted-annotation",
-        "sha256": "22bb3e7d173612474b5c83c5a825adb3516c3a2f098b8726d2fd2ec4c806bfe7",
+        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
         "quality": "standard",
         "clip": {
-          "start": 70.3,
-          "duration": 8.5
+          "start": 131,
+          "duration": 10.4
         }
       }
     },
     "docs-site/public/home/ai-assisted-annotation.mp4": {
       "asset_id": "ai-assisted-annotation",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:51:41.992Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T11:41:29.360Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -207,36 +207,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "88ebadf16d5cdbf0bfceec991b2ffdfdc5d2ea0c79f090b570bd84332a53cb9d",
-      "bytes": 219138,
+      "sha256": "745471afbdff8fcfc15bac5a9c983fccc0d87a872656f9a0e17e0dc62835085a",
+      "bytes": 528391,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8.56
+        "duration_seconds": 10.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "ai-assisted-annotation",
-        "sha256": "22bb3e7d173612474b5c83c5a825adb3516c3a2f098b8726d2fd2ec4c806bfe7",
+        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
         "quality": "standard",
         "clip": {
-          "start": 70.3,
-          "duration": 8.5
+          "start": 131,
+          "duration": 10.4
         }
       }
     },
     "docs-site/public/home/ai-assisted-annotation.webm": {
       "asset_id": "ai-assisted-annotation",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:51:42.054Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T11:41:29.376Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -256,28 +256,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "8c211e2a810932f7dd4e86523884b17fdd03491257edb6bc4cd8f78af596df1a",
-      "bytes": 228266,
+      "sha256": "d0d7330a48a4d4ac0f9057f5ca223859f8c261900efbca34dc5ca4da258032fd",
+      "bytes": 440900,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8.56
+        "duration_seconds": 10.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "ai-assisted-annotation",
-        "sha256": "22bb3e7d173612474b5c83c5a825adb3516c3a2f098b8726d2fd2ec4c806bfe7",
+        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
         "quality": "standard",
         "clip": {
-          "start": 70.3,
-          "duration": 8.5
+          "start": 131,
+          "duration": 10.4
         }
       }
     },
@@ -401,8 +401,8 @@
     "docs-site/public/home/sam-tools/exemplar-poster.webp": {
       "asset_id": "sam-tools/exemplar",
       "role": "home-poster",
-      "generated_at": "2026-09-07T14:51:14.817Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T12:00:24.358Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -422,8 +422,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "cfb72872f1fd2240dd79d6765947e506215bb2922917a79c3b6c8b569952cebc",
-      "bytes": 49982,
+      "sha256": "2e5285536b925b2180f8f3e27ec8e5856f80904805a36816a1a9959592394088",
+      "bytes": 57828,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -437,21 +437,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/exemplar",
-        "sha256": "20dd7ede74cee1dda0b5275b21af6aea38743108c0d603970fa2e572154d69d5",
+        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
         "quality": "standard",
         "clip": {
-          "start": 4.3,
-          "duration": 9.4
+          "start": 2.8,
+          "duration": 12.2
         }
       }
     },
     "docs-site/public/home/sam-tools/exemplar.mp4": {
       "asset_id": "sam-tools/exemplar",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:51:14.692Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T12:00:24.310Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -471,36 +471,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "d2052cf57fd40cea63a34d714f0f94ad98ee81b54d3e89e49fc82ca431b8195c",
-      "bytes": 629690,
+      "sha256": "6a264e3ce6dfdde23525f2b4f427bb9b2a863f9776cc2c9ede2f076339a48cb1",
+      "bytes": 1019226,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 9.44
+        "duration_seconds": 12.2
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/exemplar",
-        "sha256": "20dd7ede74cee1dda0b5275b21af6aea38743108c0d603970fa2e572154d69d5",
+        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
         "quality": "standard",
         "clip": {
-          "start": 4.3,
-          "duration": 9.4
+          "start": 2.8,
+          "duration": 12.2
         }
       }
     },
     "docs-site/public/home/sam-tools/exemplar.webm": {
       "asset_id": "sam-tools/exemplar",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:51:14.754Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T12:00:24.331Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -520,36 +520,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "d54ad1b245369779620a3cb87d0059406098fb341bcb5b4506ccf63e94ba70d3",
-      "bytes": 613137,
+      "sha256": "450ef0793a2bae1350111e6f4b818d24efabd1e8c8b8af645a1edef6cb199757",
+      "bytes": 858878,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 9.44
+        "duration_seconds": 12.2
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/exemplar",
-        "sha256": "20dd7ede74cee1dda0b5275b21af6aea38743108c0d603970fa2e572154d69d5",
+        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
         "quality": "standard",
         "clip": {
-          "start": 4.3,
-          "duration": 9.4
+          "start": 2.8,
+          "duration": 12.2
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-box-poster.webp": {
       "asset_id": "sam-tools/smart-box",
       "role": "home-poster",
-      "generated_at": "2026-09-07T14:50:59.822Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T11:20:47.511Z",
+      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -569,8 +569,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "46aa7a1833644381c8be7cf24e24718efa0b1de588e5ada6a5ebbb229889b84a",
-      "bytes": 50390,
+      "sha256": "63dbfdbcfefe512f98f7081a2f2a35ceca86fdbb674f26c93fc8406124b643f9",
+      "bytes": 57164,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -584,21 +584,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "sam-tools/smart-box",
-        "sha256": "aed80859b507a6f9f854deb5b7a061f23d084dc3878d0138c331a2a0c9121687",
+        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
         "quality": "standard",
         "clip": {
-          "start": 66.4,
-          "duration": 8.4
+          "start": 81,
+          "duration": 8.7
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-box.mp4": {
       "asset_id": "sam-tools/smart-box",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:50:59.698Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T11:20:47.466Z",
+      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -618,36 +618,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "43551898792832b5a93a695159a6651f39eb24509fde435464557a1d6fc81184",
-      "bytes": 237818,
+      "sha256": "b42bfd7a956c6ee190ba790b641a8c7c7af9316be32060c04ec08911a3c89c0c",
+      "bytes": 315463,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8.4
+        "duration_seconds": 8.72
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "sam-tools/smart-box",
-        "sha256": "aed80859b507a6f9f854deb5b7a061f23d084dc3878d0138c331a2a0c9121687",
+        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
         "quality": "standard",
         "clip": {
-          "start": 66.4,
-          "duration": 8.4
+          "start": 81,
+          "duration": 8.7
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-box.webm": {
       "asset_id": "sam-tools/smart-box",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:50:59.760Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T11:20:47.488Z",
+      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -667,36 +667,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "73b11502168d955def463208331d5517117d29b873ad82758710d6da17737839",
-      "bytes": 235374,
+      "sha256": "713f2c50a16f811fa930041af4cd3c919418e1076d05a4d9b5efac5bbbe7b090",
+      "bytes": 279392,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8.4
+        "duration_seconds": 8.72
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "sam-tools/smart-box",
-        "sha256": "aed80859b507a6f9f854deb5b7a061f23d084dc3878d0138c331a2a0c9121687",
+        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
         "quality": "standard",
         "clip": {
-          "start": 66.4,
-          "duration": 8.4
+          "start": 81,
+          "duration": 8.7
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-point-poster.webp": {
       "asset_id": "sam-tools/smart-point",
       "role": "home-poster",
-      "generated_at": "2026-09-07T14:51:28.909Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T12:00:38.607Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -717,8 +717,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "4b1e7edd563230d2d6df39edde1468b419d01e146fc04292150324a98b3dbbe5",
-      "bytes": 49436,
+      "sha256": "939d7ecff526c58197e81304e9617d01de6a6d9067ac7ced36de922622785ba4",
+      "bytes": 56156,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -732,21 +732,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/smart-point",
-        "sha256": "21abdba8d96a88bd1b2eafbef02663d66fc669f4360058f425d46682f307d2d9",
+        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
         "quality": "standard",
         "clip": {
-          "start": 69.8,
-          "duration": 9.6
+          "start": 177.5,
+          "duration": 11.8
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-point.mp4": {
       "asset_id": "sam-tools/smart-point",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:51:28.767Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T12:00:38.554Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -767,36 +767,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "7417f6469336610a13f7cf61edd9500a5834c0769b1a653a938d2763813e8cd3",
-      "bytes": 257766,
+      "sha256": "8cff70b3d7c496915208fdd27f64483ee9f3642b7f379776cb221c1b4c27c2ad",
+      "bytes": 449105,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 9.6
+        "duration_seconds": 11.8
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/smart-point",
-        "sha256": "21abdba8d96a88bd1b2eafbef02663d66fc669f4360058f425d46682f307d2d9",
+        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
         "quality": "standard",
         "clip": {
-          "start": 69.8,
-          "duration": 9.6
+          "start": 177.5,
+          "duration": 11.8
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-point.webm": {
       "asset_id": "sam-tools/smart-point",
       "role": "home-video",
-      "generated_at": "2026-09-07T14:51:28.838Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T12:00:38.583Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -817,36 +817,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "7bd290383cb073654a0dac50e259e2818e1e90a094cb3be9bdf3963bb87d5b55",
-      "bytes": 273148,
+      "sha256": "b7e0309ce78e98970dd8c6e9ef930faf4d8999284759f74357795c3fc9b1c7f7",
+      "bytes": 380742,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 9.6
+        "duration_seconds": 11.84
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/smart-point",
-        "sha256": "21abdba8d96a88bd1b2eafbef02663d66fc669f4360058f425d46682f307d2d9",
+        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
         "quality": "standard",
         "clip": {
-          "start": 69.8,
-          "duration": 9.6
+          "start": 177.5,
+          "duration": 11.8
         }
       }
     },
     "docs-site/public/media/ai/assisted-annotation-poster.webp": {
       "asset_id": "ai-assisted-annotation",
       "role": "poster",
-      "generated_at": "2026-09-07T14:51:41.934Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T11:41:29.340Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -866,8 +866,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "5636092f1cccf6feab0d0f368dae6ba2bd13f2fcd5a7e8eefa72e3188e3242ca",
-      "bytes": 51148,
+      "sha256": "48f060e41736a60e43ed0a3187a6800a06a2afcd2d4017bc03ce3982ec22ab1f",
+      "bytes": 59746,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -881,21 +881,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "ai-assisted-annotation",
-        "sha256": "22bb3e7d173612474b5c83c5a825adb3516c3a2f098b8726d2fd2ec4c806bfe7",
+        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
         "quality": "standard",
         "clip": {
-          "start": 70.3,
-          "duration": 8.5
+          "start": 131,
+          "duration": 10.4
         }
       }
     },
     "docs-site/public/media/ai/assisted-annotation.mp4": {
       "asset_id": "ai-assisted-annotation",
       "role": "docs-video",
-      "generated_at": "2026-09-07T14:51:41.847Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T11:41:29.311Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -915,28 +915,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "88ebadf16d5cdbf0bfceec991b2ffdfdc5d2ea0c79f090b570bd84332a53cb9d",
-      "bytes": 219138,
+      "sha256": "745471afbdff8fcfc15bac5a9c983fccc0d87a872656f9a0e17e0dc62835085a",
+      "bytes": 528391,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8.56
+        "duration_seconds": 10.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "ai-assisted-annotation",
-        "sha256": "22bb3e7d173612474b5c83c5a825adb3516c3a2f098b8726d2fd2ec4c806bfe7",
+        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
         "quality": "standard",
         "clip": {
-          "start": 70.3,
-          "duration": 8.5
+          "start": 131,
+          "duration": 10.4
         }
       }
     },
@@ -4804,8 +4804,8 @@
     "docs-site/public/media/sam/exemplar-poster.webp": {
       "asset_id": "sam-tools/exemplar",
       "role": "poster",
-      "generated_at": "2026-09-07T14:51:14.624Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T12:00:24.289Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -4825,8 +4825,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "cfb72872f1fd2240dd79d6765947e506215bb2922917a79c3b6c8b569952cebc",
-      "bytes": 49982,
+      "sha256": "2e5285536b925b2180f8f3e27ec8e5856f80904805a36816a1a9959592394088",
+      "bytes": 57828,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -4840,21 +4840,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/exemplar",
-        "sha256": "20dd7ede74cee1dda0b5275b21af6aea38743108c0d603970fa2e572154d69d5",
+        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
         "quality": "standard",
         "clip": {
-          "start": 4.3,
-          "duration": 9.4
+          "start": 2.8,
+          "duration": 12.2
         }
       }
     },
     "docs-site/public/media/sam/exemplar.mp4": {
       "asset_id": "sam-tools/exemplar",
       "role": "docs-video",
-      "generated_at": "2026-09-07T14:51:14.545Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T12:00:24.254Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -4874,36 +4874,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "d2052cf57fd40cea63a34d714f0f94ad98ee81b54d3e89e49fc82ca431b8195c",
-      "bytes": 629690,
+      "sha256": "6a264e3ce6dfdde23525f2b4f427bb9b2a863f9776cc2c9ede2f076339a48cb1",
+      "bytes": 1019226,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 9.44
+        "duration_seconds": 12.2
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/exemplar",
-        "sha256": "20dd7ede74cee1dda0b5275b21af6aea38743108c0d603970fa2e572154d69d5",
+        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
         "quality": "standard",
         "clip": {
-          "start": 4.3,
-          "duration": 9.4
+          "start": 2.8,
+          "duration": 12.2
         }
       }
     },
     "docs-site/public/media/sam/smart-box-poster.webp": {
       "asset_id": "sam-tools/smart-box",
       "role": "poster",
-      "generated_at": "2026-09-07T14:50:59.641Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T11:20:47.446Z",
+      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -4923,8 +4923,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "46aa7a1833644381c8be7cf24e24718efa0b1de588e5ada6a5ebbb229889b84a",
-      "bytes": 50390,
+      "sha256": "63dbfdbcfefe512f98f7081a2f2a35ceca86fdbb674f26c93fc8406124b643f9",
+      "bytes": 57164,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -4938,21 +4938,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "sam-tools/smart-box",
-        "sha256": "aed80859b507a6f9f854deb5b7a061f23d084dc3878d0138c331a2a0c9121687",
+        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
         "quality": "standard",
         "clip": {
-          "start": 66.4,
-          "duration": 8.4
+          "start": 81,
+          "duration": 8.7
         }
       }
     },
     "docs-site/public/media/sam/smart-box.mp4": {
       "asset_id": "sam-tools/smart-box",
       "role": "docs-video",
-      "generated_at": "2026-09-07T14:50:59.569Z",
-      "captured_commit": "df17a22f86d7dcc8834e994a29953954a81cb823",
+      "generated_at": "2026-10-15T11:20:47.403Z",
+      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -4972,36 +4972,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "43551898792832b5a93a695159a6651f39eb24509fde435464557a1d6fc81184",
-      "bytes": 237818,
+      "sha256": "b42bfd7a956c6ee190ba790b641a8c7c7af9316be32060c04ec08911a3c89c0c",
+      "bytes": 315463,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 8.4
+        "duration_seconds": 8.72
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T13-50-37-363Z-2703051",
+        "runId": "2026-10-15T11-14-56-515Z-1246313",
         "assetId": "sam-tools/smart-box",
-        "sha256": "aed80859b507a6f9f854deb5b7a061f23d084dc3878d0138c331a2a0c9121687",
+        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
         "quality": "standard",
         "clip": {
-          "start": 66.4,
-          "duration": 8.4
+          "start": 81,
+          "duration": 8.7
         }
       }
     },
     "docs-site/public/media/sam/smart-point-poster.webp": {
       "asset_id": "sam-tools/smart-point",
       "role": "poster",
-      "generated_at": "2026-09-07T14:51:28.707Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T12:00:38.531Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -5022,8 +5022,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "4b1e7edd563230d2d6df39edde1468b419d01e146fc04292150324a98b3dbbe5",
-      "bytes": 49436,
+      "sha256": "939d7ecff526c58197e81304e9617d01de6a6d9067ac7ced36de922622785ba4",
+      "bytes": 56156,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -5037,21 +5037,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/smart-point",
-        "sha256": "21abdba8d96a88bd1b2eafbef02663d66fc669f4360058f425d46682f307d2d9",
+        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
         "quality": "standard",
         "clip": {
-          "start": 69.8,
-          "duration": 9.6
+          "start": 177.5,
+          "duration": 11.8
         }
       }
     },
     "docs-site/public/media/sam/smart-point.mp4": {
       "asset_id": "sam-tools/smart-point",
       "role": "docs-video",
-      "generated_at": "2026-09-07T14:51:28.632Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T12:00:38.493Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -5072,36 +5072,36 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "7417f6469336610a13f7cf61edd9500a5834c0769b1a653a938d2763813e8cd3",
-      "bytes": 257766,
+      "sha256": "8cff70b3d7c496915208fdd27f64483ee9f3642b7f379776cb221c1b4c27c2ad",
+      "bytes": 449105,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 9.6
+        "duration_seconds": 11.8
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-08-23-014Z-2749963",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "sam-tools/smart-point",
-        "sha256": "21abdba8d96a88bd1b2eafbef02663d66fc669f4360058f425d46682f307d2d9",
+        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
         "quality": "standard",
         "clip": {
-          "start": 69.8,
-          "duration": 9.6
+          "start": 177.5,
+          "duration": 11.8
         }
       }
     },
     "docs-site/public/media/sam/smart-scribble-poster.webp": {
       "asset_id": "smart-scribble",
       "role": "poster",
-      "generated_at": "2026-09-07T14:51:57.394Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T12:04:33.791Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -5122,8 +5122,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "c289aacfa8df18bf229769a1185d999b3941cac0a6a9d98ab675998bdcda125d",
-      "bytes": 47158,
+      "sha256": "d895af8477ce564ce5f186810bbb6832f6eb774c28f78ee64b5c3fcbae08a725",
+      "bytes": 57730,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -5137,21 +5137,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-42-20-019Z-2832894",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "smart-scribble",
-        "sha256": "238e23fafa7bd39d304a1e800e16e31c41b7b2a2cd7a460b571010ea58bceafb",
+        "sha256": "f9a4febf639053da586a2b37ec4c8c76dc602c3fd7729a7f93e99b188c114ffd",
         "quality": "standard",
         "clip": {
-          "start": 73,
-          "duration": 16
+          "start": 219,
+          "duration": 16.4
         }
       }
     },
     "docs-site/public/media/sam/smart-scribble.mp4": {
       "asset_id": "smart-scribble",
       "role": "docs-video",
-      "generated_at": "2026-09-07T14:51:57.316Z",
-      "captured_commit": "7dacd426a9d8b29978b7edb7c79a7539c30f7b1e",
+      "generated_at": "2026-10-15T12:04:33.755Z",
+      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
       "source_worktree_dirty": true,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -5172,28 +5172,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "3f73b2e7afd55e4a0a023637603a6b73af7b1bf4457ca1a0c3c64e8f58305426",
-      "bytes": 504835,
+      "sha256": "40f2b69103edd9bca9a32f331d4b7e2c33dc38cabc31b7f3cccc520f37fbf126",
+      "bytes": 818166,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 16
+        "duration_seconds": 16.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T14-42-20-019Z-2832894",
+        "runId": "2026-10-15T11-44-46-767Z-1352209",
         "assetId": "smart-scribble",
-        "sha256": "238e23fafa7bd39d304a1e800e16e31c41b7b2a2cd7a460b571010ea58bceafb",
+        "sha256": "f9a4febf639053da586a2b37ec4c8c76dc602c3fd7729a7f93e99b188c114ffd",
         "quality": "standard",
         "clip": {
-          "start": 73,
-          "duration": 16
+          "start": 219,
+          "duration": 16.4
         }
       }
     },

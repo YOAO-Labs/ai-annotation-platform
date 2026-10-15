@@ -87,9 +87,7 @@ export async function runSamToolRecording(
   await tool.click();
   await openContextToolbar(page, "interactive");
   if (toolId === "exemplar") {
-    // SAM3 exemplar 当前返回框候选；显式让请求几何与 Exemplar 形态都选择框，
-    // 避免默认原生 Mask 合同把合法 rectangle candidate 当成无效 Mask。
-    await page.getByTestId("single-frame-output-geometry-select").selectOption("polygon");
+    // Exemplar owns its recall shape; box mode sets the request geometry itself.
     await page.getByTestId("exemplar-output-mode-select").selectOption("box");
   }
   // Magic Box's palette is a read-only legend until its post-draw picker opens.
@@ -209,6 +207,10 @@ export async function runSamToolRecording(
     if ((created.geometry as { type?: string })?.type === "raster_mask") {
       await expect(savedRow).toContainText(/\d+ px · \d+ 组件/);
     }
+    await expect(stage).toHaveAttribute(
+      "data-sam-candidate-count",
+      String(toolId === "exemplar" ? result.result.length - 1 : 0),
+    );
     await page.waitForTimeout(toolId === "magic-box" ? 3_200 : 2_000);
   } else {
     // 文档工具示例停在真实候选态，不落标注；page 关闭后候选自然消失。

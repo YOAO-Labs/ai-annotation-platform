@@ -45,10 +45,9 @@ export async function runCurrentTaskImageInference(
 
   const panel = page.getByTestId("ai-prediction-popover");
   await panel.waitFor({ state: "visible", timeout: 5_000 });
-  const pipelineButton = panel.getByRole("button", {
-    name: "运行当前题（按项目编排 · 1 阶段）",
-    exact: true,
-  });
+  await panel.getByTestId("ai-prediction-advanced-toggle").click();
+  const pipelineButton = panel.getByTestId("ai-prediction-run-pipeline");
+  await expect(pipelineButton).toHaveText("运行当前题（项目编排 · 1 阶段）");
   await pipelineButton.waitFor({ state: "visible", timeout: 10_000 });
   await expect(pipelineButton).toBeEnabled();
   await page.waitForTimeout(2_300);
@@ -83,10 +82,18 @@ export async function runCurrentTaskImageInference(
   await page.waitForFunction(
     () => {
       const popover = document.querySelector('[data-testid="ai-prediction-popover"]');
-      if (!popover || !/[1-9]\d*\s*待审/.test(popover.textContent ?? "")) return false;
-      return Array.from(popover.querySelectorAll("button")).some(
-        (button) => button.textContent?.includes("运行当前题") && !button.disabled,
+      const stage = document.querySelector('[data-testid="workbench-stage"]');
+      if (
+        popover
+          ?.querySelector('[data-testid="ai-prediction-phase"]')
+          ?.getAttribute("data-phase") !== "review" ||
+        Number(stage?.getAttribute("data-ai-box-count") ?? "0") < 1
+      )
+        return false;
+      const run = popover.querySelector<HTMLButtonElement>(
+        '[data-testid="ai-prediction-run-pipeline"]',
       );
+      return Boolean(run && !run.disabled);
     },
     undefined,
     { timeout: 120_000 },
