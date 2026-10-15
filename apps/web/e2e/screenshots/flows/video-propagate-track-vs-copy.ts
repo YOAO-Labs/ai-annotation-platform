@@ -119,6 +119,9 @@ export async function runVideoPropagateTrackVsCopy(
     );
   }
   await rows.first().click();
+  await page.getByTestId("video-tool-btn-select").click();
+  const selectionCapsule = page.getByLabel("展开选中信息卡(可拖动)", { exact: true });
+  if (await selectionCapsule.isVisible()) await selectionCapsule.click();
   const copyButton = page.getByRole("button", { name: "复制后续", exact: true });
   const aiButton = page.getByRole("button", { name: "延展此轨迹", exact: true });
   await copyButton.waitFor({ state: "visible", timeout: 5_000 });
