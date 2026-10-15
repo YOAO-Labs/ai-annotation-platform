@@ -1883,7 +1883,7 @@ test.describe("flow recordings", () => {
 
   test("video-propagate-track-vs-copy — 几何复制与 AI 延展对比", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 真实 30 帧 SAM3 追踪 + 候选审阅 + 4K H.264 归档
+    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 真实 30 帧 SAM2 追踪 + 候选审阅 + 4K H.264 归档
     const project = cached.projects.video_demo;
     const task = project.tasks.tracking;
     const userEmail = cached.users.project_admin.email;
@@ -1897,7 +1897,7 @@ test.describe("flow recordings", () => {
     const t0 = Date.now();
 
     try {
-      await seed.enableMLBackendByName(project.id, userEmail, "sam3-backend");
+      await seed.enableMLBackendByName(project.id, userEmail, "grounded-sam2");
       const [x1, y1, x2, y2] = anchor.bbox;
       const source = await seed.createTaskAnnotation(task.id, userEmail, {
         annotation_type: "video_track_bbox",

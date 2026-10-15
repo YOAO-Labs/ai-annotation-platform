@@ -1,6 +1,11 @@
 import { expect, type Page } from "@playwright/test";
 
-const labels = { interactive: "AI", secondary: "二次推理", "tracker-review": "追踪审阅" } as const;
+const labels = {
+  interactive: "AI",
+  secondary: "二次推理",
+  "tracker-review": "追踪审阅",
+  mask: "Mask",
+} as const;
 type ToolbarId = keyof typeof labels;
 
 export async function openContextToolbar(page: Page, id: ToolbarId) {
@@ -32,7 +37,13 @@ export async function closeContextToolbar(page: Page, id: ToolbarId) {
       .getByTestId(`${id}-toolbar`)
       .getByRole("button", {
         name:
-          id === "interactive" ? "收起 AI 设置" : id === "secondary" ? "收起二次推理设置" : "收起",
+          id === "interactive"
+            ? "收起 AI 设置"
+            : id === "secondary"
+              ? "收起二次推理设置"
+              : id === "mask"
+                ? "收起 Mask 设置"
+                : "收起",
         exact: true,
       })
       .click();
