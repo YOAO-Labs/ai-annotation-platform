@@ -41,11 +41,11 @@ export async function runJobsRetryRecovery(
 
   await moveTo(page, failedRow);
   await failedRow.click();
-  const dialog = page.getByRole("dialog", { name: "Job 详情" });
+  const dialog = page.getByRole("dialog", { name: "后台任务详情" });
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await expect(dialog.getByText("失败", { exact: true }).first()).toBeVisible();
   await expect(dialog).toContainText("RapidOCR 推理节点连接超时");
-  await expect(dialog).toContainText("1 条失败项可通过失败预测重试链路重新排队");
+  await expect(dialog).toContainText("仅重新排队已记录的失败预测，已成功项保留。");
   await page.waitForTimeout(2_500);
 
   const retryButton = dialog.getByRole("button", { name: "重试失败项" });

@@ -295,10 +295,10 @@
 - [~] ~~`images/sam/smart-point-interaction.gif`~~ — **已由** `public/media/sam/smart-point.mp4` **替代**：智能点真实推理完整流已迁移到 DocsVideo
 - [~] ~~`images/sam/smart-box-interaction.gif`~~ — **已由** `public/media/sam/smart-box.mp4` **替代**：智能框真实推理完整流已迁移到 DocsVideo
 - [~] ~~`images/sam/smart-scribble-interaction.gif`~~ — **已由** `public/media/sam/smart-scribble.mp4` **替代**：正负笔迹精修完整流已迁移到 DocsVideo
-- [x] `public/media/ai/assisted-annotation.mp4` — 无侧边栏的真实 SAM3 Magic Box 粗框、候选收紧与类别确认 `[derived-mp4]`（P-COCO8）
+- [x] `public/media/ai/assisted-annotation.mp4` — 真实 SAM3 Magic Box 粗框、候选收紧、类别确认与保存后的车辆框 `[derived-mp4]`（P-COCO8）
 - [~] ~~`images/sam/exemplar-interaction.gif`~~ — **已由** `public/media/sam/exemplar.mp4` **替代**：Exemplar 示例推理完整流已迁移到 DocsVideo
 - [ ] `images/sam/exemplar-yoloe-toolbar.png` — YOLOE exemplar 交互工具栏能力裁剪态；红框：仅正样例、无负框/叠加文本、输出形态 [manual]
-- [ ] `images/workbench/current-task-project-pipeline.png` — 工作台「当前题 AI」面板按项目编排运行入口；红框：运行当前题（按项目编排 · N 阶段）按钮、项目编排来源提示 [manual]
+- [ ] `images/workbench/current-task-project-pipeline.png` — 工作台「当前题 AI」高级配置中的项目编排运行入口；红框：运行当前题（项目编排 · N 阶段）按钮、项目编排来源提示 [manual]
 - [ ] `images/video-playback/sampling-config.png` — 项目设置帧采样配置区（mode/target_fps/frame_step） [manual]
 - [ ] `images/video-playback/chapter-sidebar.png` — 章节侧栏含彩色色带 + 章节列表 [manual]
 - [x] `public/media/video/ai-tracker-panel.mp4` — 自由布局中的浮动、停靠、隐藏恢复与 AI 标签合并，已接入工作台布局指南 `[derived-mp4]`

@@ -279,8 +279,8 @@ export async function runSmartScribble(
     const tool = page.getByTestId("tool-btn-smart-scribble");
     await expect(tool).toBeEnabled({ timeout: 20_000 });
     await tool.click();
-    await expect(page.getByTestId("mask-prompt-source")).toBeVisible();
     await openContextToolbar(page, "interactive");
+    await expect(page.getByTestId("mask-prompt-source")).toBeVisible();
     await page.getByTestId("interactive-toolbar-advanced-toggle").click();
     const modelSelect = page.getByTestId("ai-tool-model-select");
     if (await modelSelect.isVisible()) await modelSelect.selectOption(SMART_SCRIBBLE_MODEL);

@@ -1277,7 +1277,7 @@ test.describe("flow recordings", () => {
 
   test("ocr-inference — 真实 RapidOCR 当前题推理", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(180_000);
+    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
     const t0 = Date.now();
     // 保留推理中 badge / loader 的自然动效，不安装静态 PNG 专用的禁动环境。
     await seed.injectToken(page, cached.users.project_admin.email);
@@ -1295,7 +1295,7 @@ test.describe("flow recordings", () => {
 
   test("current-task-image-inference — 项目编排推理到人工采纳", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(180_000);
+    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
     const t0 = Date.now();
     await seed.injectToken(page, cached.users.project_admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1585,7 +1585,7 @@ test.describe("flow recordings", () => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     const project = cached.projects.image_demo;
     const task = project.tasks.annotating;
-    test.setTimeout(300_000);
+    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 300_000);
     const cleanup: CandidateReviewCleanupRecord = {
       projectId: project.id,
       taskId: task.id,
@@ -1620,7 +1620,7 @@ test.describe("flow recordings", () => {
 
   test("candidate-review-lifecycle — 跳过、采纳、驳回与最终计数", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(300_000);
+    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 300_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.annotating;
     const cleanupRecord: CandidateReviewCleanupRecord = {
