@@ -61,6 +61,35 @@ last_reviewed: 2026-10-16
 
 列表不返回完整素材清单。可用 `status=ready` 等状态筛选，过滤先于 `limit`／`offset` 分页执行。详情的 `manifest` 在就绪后包含 `summary`、`samples`、累计 `split_history`、`content_digest` 和 `validation_digest`，不会暴露存储凭据或源文件签名 URL。构建和发布时重新校验创建者与原 API Key 的当前权限。
 
+## 人工主动选样 API
+
+基路径 `/api/v1/projects/{project_id}/active-learning-rounds`。所有读取要求当前项目管理权限及 `annotations:read`、`datasets:read`；预览、创建、取消、恢复、决策与反馈另需 `datasets:write`。执行中重新核对创建者与原 API Key 权限。
+
+| 方法      | 路径后缀                                   | 行为                                                                 |
+| --------- | ------------------------------------------ | -------------------------------------------------------------------- |
+| GET       | `/pool`                                    | 当前合格图片元数据；`limit` 2–32、默认 32，`offset` 分页             |
+| POST      | `:preview`                                 | 完整媒体、历史排除和模型资格检查，返回 `preview_digest` 与独立候选   |
+| POST      | 空                                         | 相同选择加 `request_id`、`name`、`preview_digest`；返回 `202` 和轮次 |
+| GET       | 空                                         | `limit` 1–100、默认 20，`offset` 分页，返回 `items`、`total`         |
+| GET       | `/{round_id}`                              | 固定规格摘要、预算计数、当前尝试和最近 20 次尝试                     |
+| POST      | `/{round_id}/cancel`                       | 保存取消意图，等待每个已保存请求的停止确认                           |
+| POST      | `/{round_id}/retry`                        | 原窗口内恢复失联或尚未推理的失败，返回 `202`；原请求不变             |
+| GET       | `/{round_id}/attempts/{attempt_id}/report` | 重新核验完整证据及固定排序报告                                       |
+| GET       | `/{round_id}/candidates`                   | 最多 32 个候选的当前状态、决策和已验证成功证据                       |
+| GET       | `/{round_id}/candidates/{ordinal}/image`   | 认证读取轮次保留 PNG；零起始 ordinal，未就绪或不完整时拒绝           |
+| GET／POST | `/{round_id}/decisions`                    | 读取保留决策／明确接纳或拒绝候选                                     |
+| GET／POST | `/{round_id}/feedback`                     | 读取保留反馈／追加当前实际人工作业快照                               |
+
+预览选择体包含 UUID `model_version_id`、`deployment_id`、2–32 个不重复 `sample_task_ids`、整数 `seed`（0–2147483647）、`batch_size`（1–16）、`max_inference_dispatches`（1–96）与 `max_review_tasks`（2–32）。`confidence` 默认 0.1、`nms_iou` 默认 0.7，均大于零且不超过一。审核预算至少 `2 * batch_size`；推理预算至少覆盖去重／排除后的所有候选，独立候选至少 `2 * batch_size`。来源单图 16 MiB／1600 万像素，总原图 128 MiB；保留历史最多 256 项和 16 MiB JSON，超限明确拒绝，不静默省略。
+
+创建、决策与反馈均使用 UUID `request_id` 加完整请求摘要幂等：同一内容返回原结果，改变内容返回 `409`。创建重复请求先读取既有轮次，无需重新访问已变化的候选。预览与创建变化返回 `preview_changed`；接纳前整个组变化或新增历史成员返回 `pool_stale`／`source_stale`。轮次状态为 `queued`、`running`、`cancelling`、`lost`、`succeeded`、`failed`、`cancelled`。仅完整成功报告允许决策；取消、封存与到期不得重建旧请求。
+
+决策体为 `request_id`、`action=accept|reject`、1–32 个不重复 `ordinals` 和可选 `batch_name`。接纳仅允许两组计划内候选，创建普通草稿批次并返回固定 `snapshot`、`snapshot_digest` 与可空 `accepted_batch_id`。批次删除不删除决策快照。读取决策或反馈的 `limit` 1–100、默认 20，`offset` 默认 0，返回 `items`。
+
+反馈体为 `request_id` 和可选最多四个 `{evaluation_id, attempt_id}`。结果区分实际审核／标注事实、保留的驳回事件、部分已记录会话和未知纠正次数；`efficiency_claim=false`。会话按人和作业类型对合格区间取并集；完整工时不由这些记录推断。恰好两个完整同口径评估才能生成后续指标差值，部分报告返回不可比较原因。快照不会随后续任务编辑而重算。
+
+长期来源引用在删除对象和子记录前检查，返回 `active_learning_reference`；当前没有轮次删除 API。排名证据不写入 Annotation／Prediction，也不触发模型发布。
+
 ## 逐样本评估 API
 
 基路径 `/api/v1/projects/{project_id}/sample-evaluations`。读取要求当前项目管理权限和 `annotations:read`、`datasets:read`；创建、停止、恢复和删除另需 `datasets:write`。后台执行同时复核创建者及原 API Key 的当前权限。

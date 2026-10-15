@@ -3107,6 +3107,18 @@ async def cleanup_orphan_tasks(
     if not rows:
         return {"deleted_tasks": 0, "deleted_annotations": 0}
     orphan_count = len(rows)
+    from sqlalchemy import select as source_select
+    from app.db.models.task import Task as SourceTask
+    from app.services.active_learning_pool import guard_source
+
+    orphan_ids = [row[0] for row in rows]
+    await db.execute(
+        source_select(SourceTask.id)
+        .where(SourceTask.id.in_(orphan_ids))
+        .order_by(SourceTask.id)
+        .with_for_update()
+    )
+    await guard_source(db, task_ids=orphan_ids)
 
     # v0.7.0：把 ANY(:ids) 序列化数组改为子查询联查，避免 10 万级孤儿场景下的 array overflow。
     # 所有 DELETE / UPDATE 共用同一 orphan-id 子查询。

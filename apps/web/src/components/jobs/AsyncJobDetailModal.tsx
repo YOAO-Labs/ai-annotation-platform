@@ -6,6 +6,7 @@ import { asyncJobsApi } from "@/api/asyncJobs";
 import { datasetsApi } from "@/api/datasets";
 import { projectsApi } from "@/api/projects";
 import { sampleEvaluationsApi } from "@/api/sampleEvaluations";
+import { activeLearningApi } from "@/api/activeLearning";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
 import { Modal } from "@/components/ui/Modal";
@@ -122,6 +123,9 @@ export function AsyncJobDetailModal({
     job?.kind === "sample_evaluation" ? jobString(job.payload, "evaluation_id") : null;
   const evaluationAttemptId =
     job?.kind === "sample_evaluation" ? jobString(job.payload, "attempt_id") : null;
+  const roundId = job?.kind === "active_learning_round" ? jobString(job.payload, "round_id") : null;
+  const roundAttemptId =
+    job?.kind === "active_learning_round" ? jobString(job.payload, "attempt_id") : null;
   const summary = job ? jobResultSummary(job) : null;
   const fileErrors = Array.isArray(job?.result.errors)
     ? job.result.errors.filter(
@@ -131,7 +135,9 @@ export function AsyncJobDetailModal({
   const download =
     job?.kind === "export" && job.status === "completed" ? exportDownloadState(job.result) : null;
 
-  const openTarget = async (kind: "dataset" | "project" | "dashboard" | "evaluation") => {
+  const openTarget = async (
+    kind: "dataset" | "project" | "dashboard" | "evaluation" | "active-learning",
+  ) => {
     if (!job) return;
     const request = ++navigationRequest.current;
     const owner = captureAuthOwner();
@@ -140,7 +146,17 @@ export function AsyncJobDetailModal({
     setTargetError(null);
     try {
       let url: string;
-      if (kind === "evaluation" && evaluationId && evaluationAttemptId && job.project_id) {
+      if (kind === "active-learning" && roundId && roundAttemptId && job.project_id) {
+        const round = await activeLearningApi.get(job.project_id, roundId);
+        if (!current()) return;
+        if (
+          round.id !== roundId ||
+          round.project_id !== job.project_id ||
+          !round.attempts.some((attempt) => attempt.id === roundAttemptId)
+        )
+          throw new Error("选样执行已不可用");
+        url = `/projects/${job.project_id}/learning/active-learning/${roundId}?attempt=${roundAttemptId}`;
+      } else if (kind === "evaluation" && evaluationId && evaluationAttemptId && job.project_id) {
         const evaluation = await sampleEvaluationsApi.get(job.project_id, evaluationId);
         if (!current()) return;
         if (
@@ -310,6 +326,15 @@ export function AsyncJobDetailModal({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
+            {roundId && roundAttemptId && job.project_id && (
+              <Button
+                size="sm"
+                disabled={openingTarget}
+                onClick={() => void openTarget("active-learning")}
+              >
+                查看选样尝试
+              </Button>
+            )}
             {evaluationId && evaluationAttemptId && job.project_id && (
               <Button
                 size="sm"

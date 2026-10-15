@@ -94,7 +94,7 @@ async def current_snapshot(db, project_id, task_id):
     }
 
 
-def read_current_media(snapshot):
+def read_current_media(snapshot, *, include_raw=False):
     if snapshot["file_type"] != "image":
         raise ValueError("Current task is no longer an image")
     client = service.storage.client
@@ -136,7 +136,12 @@ def read_current_media(snapshot):
         or after.get("VersionId") != head.get("VersionId")
     ):
         raise ValueError("Current source changed during verification")
-    return {"sha256": hashlib.sha256(raw).hexdigest(), "width": width, "height": height}
+    return {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "width": width,
+        "height": height,
+        **({"raw": raw, "size_bytes": size} if include_raw else {}),
+    }
 
 
 def classify_labels(snapshot, classes):

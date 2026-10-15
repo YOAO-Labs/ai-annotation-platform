@@ -285,6 +285,9 @@ async def delete_version(
     except TrainingDatasetError as exc:
         fail(exc)
     version = await load_version(db, project, version_id, lock=True)
+    from app.services.active_learning_pool import guard_source
+
+    await guard_source(db, version_id=version.id)
     from app.db.models.learning_policy import LearningPolicy, LearningTrigger
     from app.db.models.sample_evaluation import SampleEvaluationRun
     from app.db.models.training_study import TrainingStudy

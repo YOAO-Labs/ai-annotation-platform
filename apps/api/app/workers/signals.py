@@ -63,6 +63,12 @@ async def _apply_terminal(
                 await signal_interrupted(db, aj, cancelled=cancelled)
                 await db.commit()
                 return
+            if aj.kind == "active_learning_round":
+                from app.services.active_learning import signal_interrupted
+
+                await signal_interrupted(db, aj, cancelled=cancelled)
+                await db.commit()
+                return
             if cancelled:
                 await async_job_svc.mark_cancelled(db, aj.id)
             else:

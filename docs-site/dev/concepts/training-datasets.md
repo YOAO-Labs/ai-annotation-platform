@@ -52,6 +52,20 @@ last_reviewed: 2026-10-16
 
 前端按会话单调代次、草稿修订、来源／URL 意图和随机查询作用域拒绝迟到及 ABA 结果。仅明确的未固定选择可补齐服务端摘要，自动刷新不改写既有 pin 或未确认请求。配方与策略复用保留完整来源，YAML 格式 2 携带模型 ID／来源摘要；旧格式只替换参数。增强预览仍只负责数据变换。取舍见 [受控项目权重初始化](../adr/archive/0081-controlled-training-initialization)。
 
+## 人工主动选样
+
+`ActiveLearningRound` 固定明确候选窗口、完整历史排除身份、模型／部署／profile、检测策略及推理与审核预算；独立 Attempt 用 generation、claim、heartbeat 围栏所有写入。完整来源窗口由 PoolMember 保留，推理代表由 Candidate 保留，Decision 和 Feedback 只追加。结果 JSON、特征、原生请求与报告均重新核验摘要，不借用 mutable Prediction。
+
+候选必须是未分派、无人工编辑或处理历史的待标图片。条件读取原图并计算 SHA256，重验前后 Task／Item／Batch 快照；MD5 内容列不是 SHA 证据。全部保留训练清单的完整 split_history 与 held-out 评估规格用于内容／任务／场景排除；缺清单、摘要不符或超过历史资源上限均拒绝。相同内容和场景先形成连通组，排除传播到整组，再选稳定代表。
+
+代表在看分数之前确定性随机分成主动与控制池。主动组用 `max(1-score)` 和不同类别的最大 IoU 作为有名称的检测启发式，并保留向上取整的四分之一随机探索；空检测无确定性分数。控制组只在其独立池内随机取同量成员。没有类别概率向量，不实现 entropy，不跨模型比较，也不声称因果质量收益。
+
+共享 `managed_inference` 仅抽取既有受控推理资格、绑定、固定路由和收据协议，保留逐样本评估的原生哈希合同。Round 在每次 POST 前独立提交预算预扣；重算或超时不能退款，GET／seal 不收费。该额度是派发上限，不能解释为原生时间。恢复保持同一候选请求 UUID、绑定、模型根和原 24 小时窗口。停止对所有持久请求封口，包括尚未执行的 tombstone；失联与 busy 不证明退出。Celery failure／revoke、维护任务与 API 都交给域状态机，旧 job 不影响新尝试。
+
+接纳在媒体 IO 后重新锁定授权、Round、来源批次和整个候选组；任务编辑 advisory 使用 try lock，Item SHARE 使用 NOWAIT，避免和已有编辑／删除的反序等待。最终重验资格、编辑锁和当前全部不可变历史成员，随后复用普通 BatchService 只移动代表任务。所有选样不写标注真值、不改变发布。来源 FK 与存储操作前 guard 保护项目、完整窗口与历史排除记录；新批次 FK 用 SET NULL，名称及身份仍在决策快照。
+
+反馈按当前实际任务／保留标注和审计驳回事件记录，合格会话按人和作业类型去除重叠，并标明部分覆盖。纠正次数与完整工时保持未知；可选后续评估通过既有报告 reader 校验，完整同口径才计算变化，不能归因于选样。迁移后刷新当前 API、worker 和 beat；本次 API 辅助抽取不改变原生协议，无需重建未变化的推理镜像。回退停止新建与派发、确认封存并保留全部历史，不能对有保留来源的数据库降级。取舍见 [人工主动选样](../adr/archive/0083-human-reviewed-active-learning)。
+
 ## 冻结逐样本评估
 
 `SampleEvaluationRun` 固定候选／部署、数据与类绑定、成员多重集、用途、阈值、评估器、预处理及实际推理 profile。`SampleEvaluationAttempt` 用 generation、claim 和心跳维护执行所有权；成员 checkpoint 使用稳定 request UUID 保存已验证证据。项目、数据版本、模型和部署引用使用 RESTRICT，源 Task 刻意不设实时外键，AsyncJob 仅作可空的展示引用。

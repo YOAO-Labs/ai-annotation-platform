@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning"]
 
 [operations]
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
@@ -320,3 +320,18 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/projects/{project_id}/training-studies" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-studies/{study_id}" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-studies/{study_id}/cancel" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/active-learning-rounds" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/pool" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/attempts/{attempt_id}/report" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/cancel" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/candidates" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/candidates/{ordinal}/image" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/decisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/decisions" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/feedback" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/feedback" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/retry" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds:preview" = { status = "excluded", reason = "web-only" }

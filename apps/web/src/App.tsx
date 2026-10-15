@@ -72,6 +72,19 @@ const SampleEvaluationCreatePage = lazy(() =>
 const TrainingPage = lazy(() =>
   import("@/pages/Training/TrainingPage").then((m) => ({ default: m.TrainingPage })),
 );
+const ActiveLearningPage = lazy(() =>
+  import("@/pages/Training/ActiveLearningPage").then((m) => ({ default: m.ActiveLearningPage })),
+);
+const ActiveLearningCreatePage = lazy(() =>
+  import("@/pages/Training/ActiveLearningCreate").then((m) => ({
+    default: m.ActiveLearningCreatePage,
+  })),
+);
+const ActiveLearningRoundPage = lazy(() =>
+  import("@/pages/Training/ActiveLearningRound").then((m) => ({
+    default: m.ActiveLearningRoundPage,
+  })),
+);
 const ProjectDataManagerPage = lazy(() =>
   import("@/pages/Projects/ProjectDataManagerPage").then((m) => ({
     default: m.ProjectDataManagerPage,
@@ -518,6 +531,30 @@ export function App() {
             element={
               <RequireProjectAccess capability="project.manage">
                 <ModelLineagePage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/active-learning/new"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ActiveLearningCreatePage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/active-learning/:roundId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ActiveLearningRoundPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/active-learning"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ActiveLearningPage />
               </RequireProjectAccess>
             }
           />

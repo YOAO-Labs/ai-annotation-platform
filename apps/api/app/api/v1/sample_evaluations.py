@@ -485,6 +485,9 @@ async def delete(
 ):
     await lock_owner(db, user, project)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
+    from app.services.active_learning_pool import guard_source
+
+    await guard_source(db, evaluation_id=run.id)
     if run.status not in service.TERMINAL:
         raise service.reject("evaluation_active", "评估尚未确认结束，不能删除")
     run.deletion_requested_at = run.deletion_requested_at or service.now()

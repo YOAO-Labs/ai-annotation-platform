@@ -34,6 +34,7 @@ celery_app = Celery(
         "app.workers.export",
         "app.workers.training_dataset",
         "app.workers.sample_evaluations",
+        "app.workers.active_learning",
         "app.workers.training_preview_cleanup",
         "app.workers.training_observability_cleanup",
         "app.workers.learning_policy",
@@ -104,6 +105,8 @@ celery_app.conf.update(
         "app.workers.training_dataset.run_training_dataset": {"queue": "export"},
         "app.workers.sample_evaluations.run_sample_evaluation": {"queue": "ml.cpu"},
         "app.workers.sample_evaluations.maintain_evaluations": {"queue": "default"},
+        "app.workers.active_learning.run_round": {"queue": "ml.cpu"},
+        "app.workers.active_learning.maintain_rounds": {"queue": "default"},
         "app.workers.training_preview_cleanup.purge_expired_previews": {
             "queue": "cleanup"
         },
@@ -145,6 +148,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "maintain-active-learning-rounds": {
+            "task": "app.workers.active_learning.maintain_rounds",
+            "schedule": crontab(minute="*"),
+        },
         "maintain-sample-evaluations": {
             "task": "app.workers.sample_evaluations.maintain_evaluations",
             "schedule": crontab(minute="*"),

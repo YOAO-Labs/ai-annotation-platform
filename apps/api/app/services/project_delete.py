@@ -16,6 +16,9 @@ async def delete_project_records(db: AsyncSession, project: Project) -> None:
     await db.execute(
         select(Project.id).where(Project.id == project.id).with_for_update()
     )
+    from app.services.active_learning_pool import guard_source
+
+    await guard_source(db, project_id=project.id)
     from app.db.models.trained_model import TrainedModelVersion
     from app.db.models.model_decision import ModelDecision
     from app.db.models.training_study import TrainingStudy

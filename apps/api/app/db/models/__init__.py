@@ -91,6 +91,15 @@ from app.db.models.training_dataset_analysis import (
 )
 from app.db.models.model_decision import ModelDecision
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
+from app.db.models.active_learning import (
+    ActiveLearningRound as ActiveLearningRound,
+    ActiveLearningAttempt as ActiveLearningAttempt,
+    ActiveLearningCandidate as ActiveLearningCandidate,
+    ActiveLearningPoolMember as ActiveLearningPoolMember,
+    ActiveLearningDecision as ActiveLearningDecision,
+    ActiveLearningReference as ActiveLearningReference,
+    ActiveLearningFeedback as ActiveLearningFeedback,
+)
 from app.db.models.sample_evaluation import (
     SampleEvaluationRun,
     SampleEvaluationAttempt,

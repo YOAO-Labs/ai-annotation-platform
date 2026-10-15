@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import uuid
 from datetime import timedelta
@@ -15,7 +14,6 @@ from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.sample_evaluation import (
     SampleEvaluationAttempt as Attempt,
     SampleEvaluationRun as Run,
@@ -25,12 +23,9 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import (
     async_job as jobs,
     sample_evaluations as service,
-    trained_models,
+    managed_inference as managed,
 )
-from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
-from app.services.ml_client import MLBackendClient, PredictionResult
-from app.services.ml_routing.client import RoutedMLBackendClient
-from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_dataset_bridge import TrainingDatasetError
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -40,8 +35,7 @@ class FencedOut(Exception):
     pass
 
 
-class RemoteUncertain(Exception):
-    pass
+RemoteUncertain = managed.RemoteUncertain
 
 
 async def fenced(db, attempt_id, claim_id, *, check_authority=False):
@@ -117,60 +111,15 @@ async def heartbeat(factory, attempt_id, claim_id, stop):
 
 
 async def private_client(db, run):
-    registry_id = uuid.UUID(run.spec["model_ref"]["registry_id"])
-    # Disabling inference must not disable proof-of-stop reads for old requests.
-    backend = await db.get(MLBackendRegistry, registry_id)
-    if backend is None:
-        raise RemoteUncertain
-    return MLBackendClient(backend)
+    return await managed.private_client(db, run.spec["model_ref"])
 
 
 def recovered_result(receipt, run):
-    response = receipt.get("response")
-    if (
-        receipt.get("response_digest") != content_digest(response)
-        or not isinstance(response, dict)
-        or not isinstance(response.get("results"), list)
-        or len(response["results"]) != 1
-    ):
-        raise ValueError("Completed request receipt has invalid evidence")
-    item = response["results"][0]
-    if not isinstance(item, dict):
-        raise ValueError("Completed request evidence is invalid")
-    result = PredictionResult(
-        task_id=item.get("task"),
-        result=item.get("result"),
-        score=item.get("score"),
-        model_version=item.get("model_version"),
-        inference_time_ms=item.get("inference_time_ms"),
-        meta=item.get("meta"),
-    )
-    trained_models.validate_and_map_results([result], run.spec["model_ref"])
-    return result
+    return managed.recovered_result(receipt, run.spec["model_ref"])
 
 
 async def remote_receipt(client, row, *, seal=False):
-    request = row.request["evaluation"]
-    path = f"requests/{row.request_id}"
-    if seal:
-        payload = {
-            key: request[key]
-            for key in (
-                "binding_digest",
-                "profile_digest",
-                "storage_identity",
-                "issued_at",
-                "expires_at",
-            )
-        }
-        return await client.managed_evaluation_request(path + "/seal", payload=payload)
-    return await client.managed_evaluation_request(
-        path,
-        params={
-            "binding_digest": request["binding_digest"],
-            "storage_identity": request["storage_identity"],
-        },
-    )
+    return await managed.remote_receipt(client, row, seal=seal)
 
 
 async def obtain_result(factory, run, row, png, attempt_id, claim_id):
@@ -205,39 +154,17 @@ async def obtain_result(factory, run, row, png, attempt_id, claim_id):
         if current.status != "running":
             raise FencedOut
         await db.commit()
-        routed = RoutedMLBackendClient(
-            db,
-            requested_registry=uuid.UUID(run.spec["model_ref"]["registry_id"]),
-            project_id=run.project_id,
-            owner=f"sample-evaluation:{attempt_id}",
-            operation="sample_evaluation",
-            shadow_session_factory=factory,
-            dispatch_context_factory=build_gpu_dispatch_context_factory(factory),
-        )
-        spec = run.spec
-        context = {
-            "model_id": f"trained:{run.model_version_id}",
-            "frozen_model_ref": spec["model_ref"],
-            "params": {
-                "conf": spec["confidence"],
-                "iou": spec["nms_iou"],
-                "max_det": service.engine.MAX_PREDICTIONS,
-            },
-            "sample_evaluation": row.request["evaluation"],
-        }
         try:
-            results = await routed.predict(
-                [
-                    {
-                        "id": spec["samples"][row.ordinal]["task_id"],
-                        "file_path": "data:image/png;base64,"
-                        + base64.b64encode(png).decode(),
-                    }
-                ],
-                context=context,
-                max_response_bytes=service.engine.MAX_RESPONSE_BYTES,
+            return await managed.predict(
+                db,
+                factory,
+                project_id=run.project_id,
+                spec=run.spec,
+                row=row,
+                png=png,
+                owner=f"sample-evaluation:{attempt_id}",
+                operation="sample_evaluation",
             )
-            return results[0]
         except (TrainingDatasetError, FencedOut):
             raise
         except Exception as exc:

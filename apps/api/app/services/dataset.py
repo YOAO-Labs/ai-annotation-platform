@@ -357,6 +357,9 @@ class DatasetService:
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return None
+        from app.services.active_learning_pool import guard_source
+
+        await guard_source(self.db, dataset_id=dataset_id)
         from app.db.models.image_pyramid import ImagePyramidAsset
 
         asset_ids = list(
@@ -484,9 +487,14 @@ class DatasetService:
     async def delete_item(
         self, item_id: uuid.UUID, *, dataset_id: uuid.UUID | None = None
     ) -> bool:
-        item = await self.db.get(DatasetItem, item_id)
+        item = await self.db.scalar(
+            select(DatasetItem).where(DatasetItem.id == item_id).with_for_update()
+        )
         if not item or (dataset_id is not None and item.dataset_id != dataset_id):
             return False
+        from app.services.active_learning_pool import guard_source
+
+        await guard_source(self.db, item_ids=[item_id])
         ds = await self.db.get(Dataset, item.dataset_id)
         if ds:
             ds.file_count = max((ds.file_count or 0) - 1, 0)
@@ -1006,9 +1014,14 @@ class DatasetService:
                     Task.project_id == project_id,
                     DatasetItem.dataset_id == dataset_id,
                 )
+                .order_by(Task.id)
+                .with_for_update(of=Task)
             )
         ).all()
         target_task_ids: list[uuid.UUID] = [r[0] for r in target_rows]
+        from app.services.active_learning_pool import guard_source
+
+        await guard_source(self.db, task_ids=target_task_ids)
         affected_batch_ids: set[uuid.UUID] = {
             r[1] for r in target_rows if r[1] is not None
         }

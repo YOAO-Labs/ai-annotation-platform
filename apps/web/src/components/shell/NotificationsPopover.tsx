@@ -96,6 +96,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 const JOB_KIND_LABEL: Record<string, string> = {
   sample_evaluation: "逐样本评估",
+  active_learning_round: "主动学习选样",
   batch_predict: "批量预标",
   video_tracker: "视频追踪",
   video_correction: "视频 Mask 纠错",

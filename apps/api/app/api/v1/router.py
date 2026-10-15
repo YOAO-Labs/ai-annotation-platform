@@ -49,6 +49,7 @@ from app.api.v1 import (
     training_runs,
     training_studies,
     sample_evaluations,
+    active_learning,
     training_previews,
     training_observability,
     training_hub,
@@ -94,6 +95,7 @@ api_router.include_router(training_dataset_analysis.router, tags=["training-data
 api_router.include_router(training_runs.router, tags=["training-runs"])
 api_router.include_router(training_studies.router, tags=["training-studies"])
 api_router.include_router(sample_evaluations.router, tags=["sample-evaluations"])
+api_router.include_router(active_learning.router, tags=["active-learning"])
 api_router.include_router(training_hub.router, tags=["training-hub"])
 api_router.include_router(training_runs.executor_router, tags=["training-executor"])
 api_router.include_router(training_previews.router, tags=["training-previews"])

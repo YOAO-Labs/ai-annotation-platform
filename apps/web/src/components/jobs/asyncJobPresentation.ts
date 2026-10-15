@@ -13,6 +13,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   training_dataset: "训练数据构建",
   training_run: "模型训练",
   sample_evaluation: "逐样本评估",
+  active_learning_round: "主动学习选样",
   training_preview: "原生增强预览",
   mask_qc: "Mask 质检",
   mask_repair: "Mask 批量修复",

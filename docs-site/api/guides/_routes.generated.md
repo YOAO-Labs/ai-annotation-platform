@@ -5,6 +5,23 @@
 
 按模块分组列出 `apps/api/app/api/v1/` 下所有 `@router.*` 装饰的路由。
 
+## `active_learning.py`
+
+| Method | Path |
+|---|---|
+| GET | `/pool` |
+| POST | `:preview` |
+| GET | `/{round_id}` |
+| POST | `/{round_id}/cancel` |
+| POST | `/{round_id}/retry` |
+| GET | `/{round_id}/attempts/{attempt_id}/report` |
+| GET | `/{round_id}/candidates` |
+| GET | `/{round_id}/candidates/{ordinal}/image` |
+| GET | `/{round_id}/decisions` |
+| POST | `/{round_id}/decisions` |
+| GET | `/{round_id}/feedback` |
+| POST | `/{round_id}/feedback` |
+
 ## `admin_alias_freq.py`
 
 | Method | Path |
@@ -873,4 +890,4 @@
 
 ---
 
-_共 80 模块 / 496 路由_
+_共 81 模块 / 508 路由_

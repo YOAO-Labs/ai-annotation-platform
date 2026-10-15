@@ -496,12 +496,20 @@ function ModelsContent({
         <h2 id="models-title" className="text-sm font-semibold">
           模型版本与回流
         </h2>
-        <Link
-          to={`/projects/${projectId}/learning/evaluations`}
-          className="rounded-md border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-muted"
-        >
-          逐样本评估与误差复查
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to={`/projects/${projectId}/learning/active-learning`}
+            className="rounded-md border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-muted"
+          >
+            主动学习人工选样
+          </Link>
+          <Link
+            to={`/projects/${projectId}/learning/evaluations`}
+            className="rounded-md border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-muted"
+          >
+            逐样本评估与误差复查
+          </Link>
+        </div>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
         注册成功训练的权重，确认类别绑定，再加载试用与人工发布。

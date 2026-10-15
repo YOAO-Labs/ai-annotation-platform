@@ -206,7 +206,7 @@ async def test_completed_receipt_is_recovered_without_routed_inference_or_new_gr
     )
     monkeypatch.setattr(worker, "private_client", AsyncMock(return_value=private))
     new_grant = Mock(side_effect=AssertionError("Receipt must not ask for a new grant"))
-    monkeypatch.setattr(worker, "build_gpu_dispatch_context_factory", new_grant)
+    monkeypatch.setattr(worker.managed, "build_gpu_dispatch_context_factory", new_grant)
     recovered = await worker.obtain_result(
         world.factory, run, row, png, world.attempt.id, uuid.uuid4()
     )

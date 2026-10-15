@@ -19,10 +19,8 @@ from app.db.models.sample_evaluation import (
     SampleEvaluationRun as Run,
     SampleEvaluationSample as Sample,
 )
-from app.db.models.trained_model import ModelDeployment
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.sample_evaluation import (
-    EvaluationProfile,
     EvaluationReport,
     EvaluationSampleResult,
     EvaluationSpec,
@@ -30,10 +28,13 @@ from app.schemas.sample_evaluation import (
 from app.services import (
     async_job as jobs,
     sample_evaluation_engine as engine,
-    trained_models,
 )
 from app.services.async_job_notify import notify_job_terminal
-from app.services.ml_client import MLBackendClient
+from app.services.managed_inference import (
+    qualification as qualification,
+    request_identity as request_identity,
+    verify_inference as verify_inference,
+)
 from app.services.storage import storage_service as storage
 from app.services.training_artifacts import (
     MAX_REPORT_BYTES,
@@ -75,31 +76,6 @@ async def load_run(db, project_id, run_id, *, lock=False):
     if run is None:
         raise reject("evaluation_missing", "样本评估不存在", 404)
     return run
-
-
-async def qualification(db, project, model_id, deployment_id):
-    deployment = await db.get(ModelDeployment, deployment_id)
-    if not deployment or deployment.model_version_id != model_id:
-        raise reject("deployment_unavailable", "受控部署不存在", 404)
-    ref = await trained_models.resolve_reference(
-        db, project, f"trained:{model_id}", deployment.registry_id
-    )
-    if ref["deployment_id"] != str(deployment_id):
-        raise reject("deployment_changed", "受控部署身份已变化")
-    backend = await trained_models.enabled_backend(
-        db, project.id, deployment.registry_id
-    )
-    profile = await MLBackendClient(backend).managed_evaluation_request("profile")
-    checked = EvaluationProfile.model_validate(profile).model_dump(
-        mode="json", by_alias=True
-    )
-    if (
-        checked["profile_digest"]
-        != content_digest({k: v for k, v in checked.items() if k != "profile_digest"})
-        or checked["ultralytics_version"] != "8.4.177"
-    ):
-        raise reject("runtime_unqualified", "推理环境尚未通过逐样本评估资格检查")
-    return ref, checked
 
 
 def checked_dataset(version):
@@ -316,55 +292,6 @@ def prepare_input(run, version, frozen):
     if preprocessing["raw_sha256"] != frozen["sha256"]:
         raise ValueError("Frozen input digest differs")
     return png, preprocessing
-
-
-def request_identity(spec, row, preprocessing):
-    request = {
-        "request_id": str(row.request_id),
-        "profile_digest": spec["profile_digest"],
-        "storage_identity": spec["profile"]["storage_identity"],
-        "input_sha256": preprocessing["derived_sha256"],
-        "issued_at": spec["issued_at"],
-        "expires_at": spec["expires_at"],
-    }
-    wire_ref = {
-        k: spec["model_ref"][k]
-        for k in ("model_version_id", "sha256", "classes_digest")
-    }
-    request["binding_digest"] = content_digest(
-        {
-            "task_id": str(spec["samples"][row.ordinal]["task_id"]),
-            "model_ref": wire_ref,
-            "params": {
-                "conf": spec["confidence"],
-                "iou": spec["nms_iou"],
-                "max_det": engine.MAX_PREDICTIONS,
-            },
-            "evaluation": request,
-        }
-    )
-    return {"evaluation": request, "preprocessing": preprocessing}
-
-
-def verify_inference(spec, row, inference):
-    request = row.request["evaluation"]
-    frozen = spec["samples"][row.ordinal]
-    expected = {
-        **request,
-        "width": frozen["width"],
-        "height": frozen["height"],
-        "effective_device": spec["profile"]["effective_device"],
-        "options": spec["profile"]["options"],
-        "conf": spec["confidence"],
-        "nms_iou": spec["nms_iou"],
-    }
-    if (
-        not isinstance(inference, dict)
-        or set(inference) != {*expected, "end2end"}
-        or any(inference.get(k) != v for k, v in expected.items())
-        or type(inference.get("end2end")) is not bool
-    ):
-        raise ValueError("Inference execution identity differs from the frozen request")
 
 
 def successful_evidence(run, attempt, row, result):
@@ -736,6 +663,9 @@ async def purge_requested(db, run_id):
     run = await db.get(Run, run_id)
     if not run or not run.deletion_requested_at or run.status not in TERMINAL:
         return False
+    from app.services.active_learning_pool import guard_source
+
+    await guard_source(db, evaluation_id=run.id)
     prefix = report_prefix(run)
     await db.commit()
     await asyncio.to_thread(
