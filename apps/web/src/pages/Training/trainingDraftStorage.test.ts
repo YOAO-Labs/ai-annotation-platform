@@ -90,3 +90,46 @@ it("does not clear another tab's newer or different draft", () => {
   removeMatchingTrainingDraft(newer);
   expect(readTrainingDraft(owner).draft).toBeNull();
 });
+
+it("restores exact source identity and pending origin, rejects mismatched or executable metadata", () => {
+  const draft = pendingDraft();
+  const reference = {
+    kind: "recipe" as const,
+    recipe_id: crypto.randomUUID(),
+    revision_id: crypto.randomUUID(),
+    digest: "d".repeat(64),
+  };
+  const source = {
+    reference,
+    label: "已固定配方",
+    baseSha256: "e".repeat(64),
+    baseFilename: "yolo11n.pt",
+    imageDigest: `sha256:${"f".repeat(64)}`,
+    frameworkVersion: "8.4.177",
+    userValues: { lr0: 1e-6 },
+    schemaId: draft.schemaId,
+    schemaDigest: draft.schemaDigest,
+  };
+  const next = {
+    ...draft,
+    source,
+    pending: { body: { ...draft.pending.body, origin: reference } },
+  };
+  expect(saveTrainingDraft(next)).toBeNull();
+  expect(readTrainingDraft(owner).draft).toEqual(next);
+  const key = trainingDraftKey(owner);
+  for (const changed of [
+    { ...next, source: { ...source, script: "execute" } },
+    { ...next, source: { ...source, baseSha256: "other" } },
+    {
+      ...next,
+      pending: {
+        body: { ...next.pending.body, origin: { ...reference, revision_id: crypto.randomUUID() } },
+      },
+    },
+    { ...next, source: { ...source, reference: { ...reference, run_id: crypto.randomUUID() } } },
+  ]) {
+    localStorage.setItem(key, JSON.stringify(changed));
+    expect(readTrainingDraft(owner).draft).toBeNull();
+  }
+});

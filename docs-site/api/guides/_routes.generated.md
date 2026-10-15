@@ -733,6 +733,17 @@
 | GET | `/projects` |
 | GET | `/runs` |
 
+## `training_recipes.py`
+
+| Method | Path |
+|---|---|
+| POST | `:resolve` |
+| POST | `/{recipe_id}/revisions` |
+| GET | `/{recipe_id}` |
+| GET | `/{recipe_id}/revisions` |
+| POST | `/{recipe_id}/archive` |
+| GET | `/clone/{run_id}` |
+
 ## `training_runs.py`
 
 | Method | Path |
@@ -801,4 +812,4 @@
 
 ---
 
-_共 73 模块 / 459 路由_
+_共 74 模块 / 465 路由_

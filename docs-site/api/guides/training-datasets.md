@@ -105,6 +105,31 @@ last_reviewed: 2026-10-15
 
 独立执行器使用 `/api/v1/internal/training`，通过 `X-Training-Executor-Token` 认证，调用 `claim` 以及 `attempts/{id}/heartbeat`、`uploads`、`finish`、`recover`。这些接口不使用用户 JWT。回报同时校验当前执行、执行器、启动标识和租约凭据。执行器收到短期对象 URL，没有数据库或存储管理凭据；claim 发送前持久化请求标识，丢失响应后恢复同一个分配。
 
+## 项目训练配方与克隆
+
+基路径 `/api/v1/projects/{project_id}/training-recipes`。所有操作要求当前项目负责人或超级管理员及 `annotations:read`、`datasets:read`；写入和纯配置解析另需 `datasets:write`。
+
+| 方法 | 路径后缀                                        | 行为                                                                   |
+| ---- | ----------------------------------------------- | ---------------------------------------------------------------------- |
+| GET  | 空                                              | `limit`、`offset` 分页，默认排除归档，`include_archived=true` 包含归档 |
+| POST | 空                                              | 创建配方及首个不可变修订，返回 `201`                                   |
+| GET  | `/{recipe_id}?revision_id=UUID`                 | 读取具体修订，省略修订时读取当前 head                                  |
+| GET  | `/{recipe_id}/revisions`                        | 分页修订历史                                                           |
+| POST | `/{recipe_id}/revisions`                        | 带 `expected_head_revision` 创建新修订                                 |
+| POST | `/{recipe_id}/archive?expected_head_revision=N` | 归档配方，保留历史与现有引用                                           |
+| POST | `:resolve`                                      | 不选择数据，解析当前完整配置，用于生效值差异预览                       |
+| GET  | `/clone/{run_id}?attempt_id=UUID`               | 返回克隆候选，校验实验与尝试属于当前项目                               |
+
+创建与修订请求包含 UUID `request_id`、`name`、可选 `description`，以及唯一来源：`configuration` 或 `source_run_id`。完整配置来源的结构为 `{framework, base_model, configuration: {schema_id, schema_digest, values}}`；实验来源可带 `source_attempt_id`，只允许已验证成功且具有完整配置的实验。修订保存完整解析结果、原始基础权重 ID/SHA/文件名、镜像与定义身份。响应的 `compatible`、`incompatibility` 和 `source_available` 分别说明当前是否可直接采用、具体不兼容原因及原实验是否还存在。来源实验删除不会删除保存的配置。
+
+新配方的预期 head 为零；新修订必须匹配当前 head，冲突返回 `409`。同一请求及内容重试返回原修订，来源后来删除或归档也不破坏已接受请求的回放。归档禁止新的采用与修订，既有实验、策略和历史快照继续保留。定义、默认值、镜像或原始基础权重不匹配时，直接采用返回 `409`，不会静默解释旧值。
+
+克隆候选包含受控配置快照、摘要与 `origin`，不复制数据选择、请求 ID、自动触发、检查点、运行状态、租约或下载 URL。新草稿仍需明确选择数据并预检。旧六参数实验缺少完整默认值，克隆与直接另存返回明确的迁移说明。
+
+训练预检与创建可带 `origin`：配方为 `{kind: "recipe", recipe_id, revision_id, digest}`，克隆为 `{kind: "clone", run_id, attempt_id?, digest}`；必须同时提交完整 `configuration`。`digest` 分别绑定修订快照摘要或来源实验配置摘要。服务端校验原始基础权重及定义，允许手动实验修改参数并记录 `modified`。来源独立保存在实验 `origin`，不加入执行配置或改变旧配置摘要；已创建请求的幂等回放优先于来源重新校验。
+
+自动策略也可带具体配方 `origin`，但提交的完整配置必须与该修订一致。策略固定展开配置与来源，新 head 不会自动更新策略。保存时仅保留同一已采用修订可绕过归档的新采用限制；其他修订必须显式采用。已有完整配置策略不能省略 `configuration` 后静默降为六参数配置。
+
 ## 模型注册、部署与发布
 
 基路径 `/api/v1/projects/{project_id}`。这些接口要求项目负责人或超级管理员及 `annotations:read`、`datasets:read`；变更另需 `datasets:write`。

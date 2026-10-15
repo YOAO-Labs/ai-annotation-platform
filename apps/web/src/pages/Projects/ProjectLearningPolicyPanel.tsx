@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   learningPoliciesApi,
@@ -10,6 +10,18 @@ import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { confirmDialog } from "@/components/ui/decisionDialog";
+import { useAuthStore } from "@/stores/authStore";
+import {
+  recipeCandidate,
+  trainingRecipesApi,
+  type ReusableSnapshot,
+  type TrainingReuseCandidate,
+} from "@/api/trainingRecipes";
+import {
+  TrainingRecipeLibrary,
+  TrainingRecipeStatus,
+} from "@/pages/Training/TrainingRecipeLibrary";
+import { TrainingReuseDialog } from "@/pages/Training/TrainingReuseDialog";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring";
@@ -38,6 +50,9 @@ type Form = {
   interval: string;
   cooldown: string;
   parameters: Record<string, string>;
+  originalParameters?: Record<string, string>;
+  configuration?: LearningPolicySave["configuration"];
+  origin?: LearningPolicySave["origin"];
 };
 const empty: Form = {
   enabled: false,
@@ -60,6 +75,8 @@ function initial(policy: LearningPolicyOut | null): Form {
     check_interval_minutes: number;
     cooldown_minutes: number;
     parameters: Record<string, number>;
+    configuration?: ReusableSnapshot["configuration"];
+    origin?: LearningPolicySave["origin"];
   };
   return {
     enabled: policy.enabled,
@@ -71,10 +88,42 @@ function initial(policy: LearningPolicyOut | null): Form {
     interval: String(c.check_interval_minutes),
     cooldown: String(c.cooldown_minutes),
     parameters: Object.fromEntries(Object.entries(c.parameters).map(([k, v]) => [k, String(v)])),
+    originalParameters: Object.fromEntries(
+      Object.entries(c.parameters).map(([k, v]) => [k, String(v)]),
+    ),
+    ...(c.configuration
+      ? {
+          configuration: {
+            schema_id: c.configuration.identity.schema_id,
+            schema_digest: c.configuration.identity.schema_digest,
+            values: c.configuration.user_values,
+          },
+        }
+      : {}),
+    ...(c.origin
+      ? {
+          origin: {
+            kind: "recipe" as const,
+            recipe_id: c.origin.recipe_id,
+            revision_id: c.origin.revision_id,
+            digest: c.origin.digest,
+          },
+        }
+      : {}),
   };
 }
 
 export function ProjectLearningPolicyPanel({ projectId }: { projectId: string }) {
+  const userId = useAuthStore((state) => state.user?.id ?? "");
+  const token = useAuthStore((state) => state.token ?? "");
+  const owner = useMemo(
+    () => ({ projectId, userId, sessionToken: token, key: crypto.randomUUID() }),
+    [projectId, userId, token],
+  );
+  return <ProjectLearningPolicyContent key={owner.key} projectId={projectId} />;
+}
+
+function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const policy = useQuery({
     queryKey: ["learning-policy", projectId],
@@ -100,6 +149,16 @@ export function ProjectLearningPolicyPanel({ projectId }: { projectId: string })
   const [draft, setDraft] = useState<Form>(empty);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
+  const [reuseBusy, setReuseBusy] = useState(false);
+  const reuseLock = useRef(false);
+  const [preview, setPreview] = useState<{
+    candidate: TrainingReuseCandidate;
+    before: ReusableSnapshot | null;
+    draft: Form;
+    revision: number;
+  } | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const refresh = () => {
     for (const key of [
       "learning-policy",
@@ -113,17 +172,40 @@ export function ProjectLearningPolicyPanel({ projectId }: { projectId: string })
     mutationFn: async (kind: "save" | "disable" | "check" | "remove") => {
       setError("");
       if (kind === "save") {
-        const template = catalog.data?.items.find((t) => t.framework === draft.framework);
+        for (const value of [draft.threshold, draft.interval, draft.cooldown])
+          if (!value.trim() || !Number.isFinite(Number(value)))
+            throw new Error("门槛、检查间隔和冷却时间必须为明确的有限数值");
+        const numeric = Object.fromEntries(
+          Object.entries(draft.parameters).map(([key, value]) => {
+            if (!value.trim() || !Number.isFinite(Number(value)))
+              throw new Error(`${key} 必须为明确的有限数值`);
+            return [key, Number(value)];
+          }),
+        );
+        const configuration = draft.configuration
+          ? {
+              ...draft.configuration,
+              values: {
+                ...draft.configuration.values,
+                ...Object.fromEntries(
+                  Object.entries(numeric).filter(
+                    ([key]) => draft.parameters[key] !== draft.originalParameters?.[key],
+                  ),
+                ),
+              },
+            }
+          : null;
         const body: LearningPolicySave = {
           expected_revision: revision,
           enabled: draft.enabled,
           parent_id: draft.parent,
           batch_id: draft.batch,
           framework: draft.framework,
-          base_model: draft.base || template?.base_models[0]?.id || "",
-          parameters: Object.fromEntries(
-            Object.entries(draft.parameters).map(([k, v]) => [k, Number(v)]),
-          ) as LearningPolicySave["parameters"],
+          base_model: draft.base,
+          ...(configuration
+            ? { configuration }
+            : { parameters: numeric as LearningPolicySave["parameters"] }),
+          ...(draft.origin ? { origin: draft.origin } : {}),
           min_changed_samples: Number(draft.threshold),
           check_interval_minutes: Number(draft.interval),
           cooldown_minutes: Number(draft.cooldown),
@@ -157,14 +239,123 @@ export function ProjectLearningPolicyPanel({ projectId }: { projectId: string })
     setEditing(true);
     setError("");
   };
-  const change = (key: keyof Omit<Form, "parameters">, value: string | boolean) =>
-    setDraft((d) => ({ ...d, [key]: value }));
+  const change = (
+    key:
+      | "enabled"
+      | "parent"
+      | "batch"
+      | "framework"
+      | "base"
+      | "threshold"
+      | "interval"
+      | "cooldown",
+    value: string | boolean,
+  ) => setDraft((d) => ({ ...d, [key]: value }));
   const template = catalog.data?.items.find((t) => t.framework === draft.framework);
   const selectedParent = datasets.data?.items.find((d) => d.id === draft.parent);
   const currentConfig = policy.data?.config as
     | { min_changed_samples?: number; check_interval_minutes?: number; cooldown_minutes?: number }
     | undefined;
-  const busy = action.isPending;
+  const busy = action.isPending || reuseBusy || !!preview;
+  const previewRecipe = async (candidate: TrainingReuseCandidate) => {
+    if (!editing || busy || reuseLock.current) return;
+    const captured = draftRef.current;
+    const capturedRevision = revision;
+    reuseLock.current = true;
+    setReuseBusy(true);
+    setError("");
+    try {
+      const latest = recipeCandidate(
+        await trainingRecipesApi.get(
+          projectId,
+          candidate.origin.recipe_id!,
+          candidate.origin.revision_id!,
+        ),
+      );
+      if (!latest.compatible) throw new Error(latest.incompatibility ?? "配方不兼容");
+      let before: ReusableSnapshot | null = null;
+      if (captured.configuration)
+        before = await trainingRecipesApi.resolve(projectId, {
+          framework: captured.framework,
+          base_model: captured.base,
+          configuration: {
+            ...captured.configuration,
+            values: {
+              ...captured.configuration.values,
+              ...Object.fromEntries(
+                Object.entries(captured.parameters)
+                  .filter(([key, value]) => value !== captured.originalParameters?.[key])
+                  .map(([key, value]) => {
+                    if (!value.trim() || !Number.isFinite(Number(value)))
+                      throw new Error("请先修正当前参数");
+                    return [key, Number(value)];
+                  }),
+              ),
+            },
+          },
+        });
+      if (draftRef.current === captured)
+        setPreview({ candidate: latest, before, draft: captured, revision: capturedRevision });
+    } catch (reason) {
+      if (draftRef.current === captured)
+        setError(reason instanceof Error ? reason.message : "核对失败");
+    } finally {
+      reuseLock.current = false;
+      setReuseBusy(false);
+    }
+  };
+  const acceptRecipe = async () => {
+    if (
+      !preview ||
+      reuseLock.current ||
+      draftRef.current !== preview.draft ||
+      revision !== preview.revision
+    )
+      return;
+    reuseLock.current = true;
+    setReuseBusy(true);
+    setError("");
+    try {
+      const latest = recipeCandidate(
+        await trainingRecipesApi.get(
+          projectId,
+          preview.candidate.origin.recipe_id!,
+          preview.candidate.origin.revision_id!,
+        ),
+      );
+      if (!latest.compatible || latest.snapshot_digest !== preview.candidate.snapshot_digest)
+        throw new Error(latest.incompatibility ?? "配方已变化");
+      const current = await learningPoliciesApi.get(projectId);
+      if ((current?.revision ?? 0) !== preview.revision)
+        throw new Error("策略已变化，保留编辑内容；请刷新后再采纳");
+      if (draftRef.current !== preview.draft) return;
+      const snapshot = latest.snapshot as ReusableSnapshot;
+      const parameters = Object.fromEntries(
+        Object.entries(snapshot.configuration.effective_values)
+          .filter(([key]) => ["epochs", "batch", "imgsz", "lr0", "seed", "patience"].includes(key))
+          .map(([key, value]) => [key, String(value)]),
+      );
+      setDraft({
+        ...preview.draft,
+        framework: snapshot.framework,
+        base: snapshot.base_model.id,
+        parameters,
+        originalParameters: parameters,
+        configuration: {
+          schema_id: snapshot.configuration.identity.schema_id,
+          schema_digest: snapshot.configuration.identity.schema_digest,
+          values: snapshot.configuration.user_values,
+        },
+        origin: latest.origin,
+      });
+      setPreview(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "采纳失败");
+    } finally {
+      reuseLock.current = false;
+      setReuseBusy(false);
+    }
+  };
   return (
     <section
       aria-label="自动训练策略"
@@ -192,6 +383,9 @@ export function ProjectLearningPolicyPanel({ projectId }: { projectId: string })
             {currentConfig?.cooldown_minutes} 分钟
           </p>
           <p className="text-muted-foreground">{policy.data.message}</p>
+          {initial(policy.data).origin && (
+            <TrainingRecipeStatus projectId={projectId} origin={initial(policy.data).origin!} />
+          )}
           <p className="text-muted-foreground">
             成功基线：
             {policy.data.baseline_dataset_id
@@ -248,155 +442,207 @@ export function ProjectLearningPolicyPanel({ projectId }: { projectId: string })
         </p>
       )}
       {editing && (
-        <fieldset disabled={busy} className="space-y-4 rounded-md border border-border p-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="space-y-1 text-sm">
-              初始划分数据
-              <select
-                aria-label="初始划分数据"
-                className={inputClass}
-                value={draft.parent}
-                onChange={(e) => change("parent", e.target.value)}
+        <div className="space-y-4">
+          <TrainingRecipeLibrary
+            projectId={projectId}
+            disabled={busy}
+            onChoose={(candidate) => void previewRecipe(candidate)}
+          />
+          {draft.origin && (
+            <div className="rounded-md border border-border p-3 text-xs">
+              <p>已固定具体配方修订。参数保持只读；另存新修订后可明确采纳。</p>
+              <TrainingRecipeStatus projectId={projectId} origin={draft.origin} />
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => setDraft((d) => ({ ...d, origin: undefined }))}
               >
-                <option value="">选择已就绪版本</option>
-                {draft.parent && !selectedParent && (
-                  <option value={draft.parent}>当前策略的初始数据</option>
-                )}
-                {datasets.data?.items
-                  .filter((d) => d.status === "ready")
-                  .map((d) => (
-                    <option value={d.id} key={d.id}>
-                      {d.name}
+                解除策略配方
+              </Button>
+            </div>
+          )}
+          {draft.configuration && (
+            <p className="text-xs text-muted-foreground">
+              保留完整高级配置。更换训练器、基础权重或高级参数，请在配置工作区保存配方后在此核对采纳。
+            </p>
+          )}
+          <fieldset disabled={busy} className="space-y-4 rounded-md border border-border p-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="space-y-1 text-sm">
+                初始划分数据
+                <select
+                  aria-label="初始划分数据"
+                  className={inputClass}
+                  value={draft.parent}
+                  onChange={(e) => change("parent", e.target.value)}
+                >
+                  <option value="">选择已就绪版本</option>
+                  {draft.parent && !selectedParent && (
+                    <option value={draft.parent}>当前策略的初始数据</option>
+                  )}
+                  {datasets.data?.items
+                    .filter((d) => d.status === "ready")
+                    .map((d) => (
+                      <option value={d.id} key={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                自动训练器
+                <select
+                  aria-label="自动训练器"
+                  className={inputClass}
+                  value={draft.framework}
+                  disabled={!!draft.configuration}
+                  onChange={(e) => {
+                    change("framework", e.target.value);
+                    change("base", "");
+                  }}
+                >
+                  {catalog.data?.items.map((t) => (
+                    <option key={t.framework} value={t.framework}>
+                      {t.framework} {t.version}
                     </option>
                   ))}
-              </select>
-            </label>
-            <label className="space-y-1 text-sm">
-              自动训练器
-              <select
-                aria-label="自动训练器"
-                className={inputClass}
-                value={draft.framework}
-                onChange={(e) => {
-                  change("framework", e.target.value);
-                  change("base", "");
-                }}
-              >
-                {catalog.data?.items.map((t) => (
-                  <option key={t.framework} value={t.framework}>
-                    {t.framework} {t.version}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1 text-sm">
-              自动基础权重
-              <select
-                aria-label="自动基础权重"
-                className={inputClass}
-                value={draft.base || template?.base_models[0]?.id || ""}
-                onChange={(e) => change("base", e.target.value)}
-              >
-                {template?.base_models.map((m) => (
-                  <option value={m.id} key={m.id}>
-                    {m.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {[
-              ["threshold", "变化样本门槛", 1, 20000],
-              ["interval", "检查间隔（分钟）", 1, 1440],
-              ["cooldown", "冷却时间（分钟）", 0, 10080],
-            ].map(([key, label, min, max]) => (
-              <label className="space-y-1 text-sm" key={key}>
-                {label}
-                <input
-                  aria-label={String(label)}
-                  className={inputClass}
-                  type="number"
-                  min={min}
-                  max={max}
-                  value={draft[key as "threshold" | "interval" | "cooldown"]}
-                  onChange={(e) =>
-                    change(key as "threshold" | "interval" | "cooldown", e.target.value)
-                  }
-                />
+                </select>
               </label>
-            ))}
-            {(
-              [
-                ["epochs", "自动训练轮数"],
-                ["batch", "自动批大小"],
-                ["imgsz", "自动图片尺寸"],
-                ["lr0", "自动初始学习率"],
-                ["seed", "自动训练种子"],
-                ["patience", "自动早停耐心轮数"],
-              ] as const
-            ).map(([key, label]) => (
-              <label className="space-y-1 text-sm" key={key}>
-                {label}
-                <input
-                  aria-label={label}
+              <label className="space-y-1 text-sm">
+                自动基础权重
+                <select
+                  aria-label="自动基础权重"
                   className={inputClass}
-                  type="number"
-                  step={key === "lr0" ? "0.001" : "1"}
-                  value={draft.parameters[key]}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      parameters: { ...d.parameters, [key]: e.target.value },
-                    }))
-                  }
-                />
+                  value={draft.base}
+                  disabled={!!draft.configuration}
+                  onChange={(e) => change("base", e.target.value)}
+                >
+                  <option value="">明确选择基础权重</option>
+                  {draft.base &&
+                    !template?.base_models.some((model) => model.id === draft.base) && (
+                      <option value={draft.base}>{draft.base}（当前不可用）</option>
+                    )}
+                  {template?.base_models.map((m) => (
+                    <option value={m.id} key={m.id}>
+                      {m.id}
+                    </option>
+                  ))}
+                </select>
               </label>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={datasetPage === 0}
-              onClick={() => setDatasetPage((p) => p - 1)}
-            >
-              上一页初始数据
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={(datasetPage + 1) * 20 >= (datasets.data?.total ?? 0)}
-              onClick={() => setDatasetPage((p) => p + 1)}
-            >
-              下一页初始数据
-            </Button>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            范围：{draft.batch ? "保留当前策略的指定批次" : "整个项目"}
-            。继承初始划分，之后继承最近成功基线；验证集变化不会增加训练样本计数。保存策略会固定当前训练器版本，失败后修改并保存可明确重试。
-          </p>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.enabled}
-              onChange={(e) => change("enabled", e.target.checked)}
-            />
-            启用自动训练
-          </label>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              disabled={
-                !draft.parent || !draft.threshold || Number(draft.threshold) < 1 || !template
-              }
-              onClick={() => action.mutate("save")}
-            >
-              保存自动策略
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-              取消编辑
-            </Button>
-          </div>
-        </fieldset>
+              {[
+                ["threshold", "变化样本门槛", 1, 20000],
+                ["interval", "检查间隔（分钟）", 1, 1440],
+                ["cooldown", "冷却时间（分钟）", 0, 10080],
+              ].map(([key, label, min, max]) => (
+                <label className="space-y-1 text-sm" key={key}>
+                  {label}
+                  <input
+                    aria-label={String(label)}
+                    className={inputClass}
+                    type="number"
+                    min={min}
+                    max={max}
+                    value={draft[key as "threshold" | "interval" | "cooldown"]}
+                    onChange={(e) =>
+                      change(key as "threshold" | "interval" | "cooldown", e.target.value)
+                    }
+                  />
+                </label>
+              ))}
+              {(
+                [
+                  ["epochs", "自动训练轮数"],
+                  ["batch", "自动批大小"],
+                  ["imgsz", "自动图片尺寸"],
+                  ["lr0", "自动初始学习率"],
+                  ["seed", "自动训练种子"],
+                  ["patience", "自动早停耐心轮数"],
+                ] as const
+              ).map(([key, label]) => (
+                <label className="space-y-1 text-sm" key={key}>
+                  {label}
+                  <input
+                    aria-label={label}
+                    className={inputClass}
+                    type="number"
+                    step={key === "lr0" ? "0.001" : "1"}
+                    value={draft.parameters[key]}
+                    disabled={!!draft.origin}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        parameters: { ...d.parameters, [key]: e.target.value },
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={datasetPage === 0}
+                onClick={() => setDatasetPage((p) => p - 1)}
+              >
+                上一页初始数据
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={(datasetPage + 1) * 20 >= (datasets.data?.total ?? 0)}
+                onClick={() => setDatasetPage((p) => p + 1)}
+              >
+                下一页初始数据
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              范围：{draft.batch ? "保留当前策略的指定批次" : "整个项目"}
+              。继承初始划分，之后继承最近成功基线；验证集变化不会增加训练样本计数。保存会产生新的策略修订，并取消旧修订尚未开始的候选和排队实验，已经开始的实验继续。
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.enabled}
+                onChange={(e) => change("enabled", e.target.checked)}
+              />
+              启用自动训练
+            </label>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                disabled={
+                  !draft.parent ||
+                  !draft.base ||
+                  !draft.threshold ||
+                  Number(draft.threshold) < 1 ||
+                  !template
+                }
+                onClick={() => action.mutate("save")}
+              >
+                保存自动策略
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                取消编辑
+              </Button>
+            </div>
+          </fieldset>
+        </div>
+      )}
+      {preview && (
+        <TrainingReuseDialog
+          purpose="policy"
+          candidate={preview.candidate}
+          before={preview.before}
+          busy={reuseBusy}
+          error={error}
+          onCancel={() => {
+            setPreview(null);
+            setError("");
+          }}
+          onAccept={() => void acceptRecipe()}
+        />
       )}
       <details>
         <summary className="cursor-pointer text-sm">

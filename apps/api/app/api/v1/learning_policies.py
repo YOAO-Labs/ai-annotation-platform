@@ -17,6 +17,7 @@ from app.schemas.learning_policy import (
 )
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import learning_policies as service, training_runs as runs
+from app.services import training_recipes as recipes
 
 router = APIRouter(
     prefix="/projects/{project_id}/learning-policy",
@@ -55,6 +56,11 @@ async def save_policy(
     )
     if (policy.revision if policy else 0) != body.expected_revision:
         raise HTTPException(status_code=409, detail="策略已被其他操作修改，请刷新")
+    if policy and policy.config.get("configuration") and body.configuration is None:
+        raise HTTPException(
+            status_code=409,
+            detail="当前策略使用完整训练配置，请保留 configuration，不能静默降为六参数配置",
+        )
     template = service.fixed_template(body.framework, body.base_model)
     configuration = (
         runs.resolve_configuration(
@@ -62,6 +68,14 @@ async def save_policy(
         )
         if body.configuration is not None
         else None
+    )
+    origin = await recipes.origin_snapshot(
+        db,
+        project.id,
+        body.origin,
+        {**template, "configuration": configuration},
+        retain=policy.config.get("origin") if policy else None,
+        strict=True,
     )
     parent = await db.get(TrainingDatasetVersion, body.parent_id)
     if not parent or parent.project_id != project.id or parent.status != "ready":
@@ -106,6 +120,8 @@ async def save_policy(
                 key: configuration["effective_values"][key] for key in CANONICAL
             },
         }
+    if origin is not None:
+        policy.config = {**policy.config, "origin": origin}
     policy.blocked_train_digest = policy.last_snapshot_digest = None
     policy.next_check_at = runs.now()
     policy.state, policy.message = (

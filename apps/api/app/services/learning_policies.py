@@ -306,6 +306,7 @@ async def reconcile(db, policy, trigger):
         name=body.name,
         config=config,
         config_digest=content_digest(config),
+        origin=policy.config.get("origin"),
         authorization=policy.authorization,
     )
     db.add(run)

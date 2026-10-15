@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Activity, Check, Circle, Clock3, Download, FileText, Layers } from "lucide-react";
 import {
   CartesianGrid,
@@ -14,6 +15,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
+import { TrainingRecipeSave } from "./TrainingRecipeLibrary";
 import {
   activeTrainingStates,
   artifactLabels,
@@ -467,6 +469,39 @@ export function TrainingRunMonitor({
             )}
           </TabsContent>
           <TabsContent value="config">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              {run.config.configuration ? (
+                <>
+                  <Link
+                    className="inline-flex rounded-md border border-border px-3 py-2 text-xs hover:bg-muted"
+                    to={`/projects/${run.project_id}/learning/new?clone_run=${run.id}${selectedAttemptId ? `&clone_attempt=${selectedAttemptId}` : ""}&return_run=${run.id}`}
+                  >
+                    使用原始基础权重新建草稿
+                  </Link>
+                  {run.status === "succeeded" && (
+                    <TrainingRecipeSave
+                      projectId={run.project_id}
+                      source={{
+                        source_run_id: run.id,
+                        ...(selectedAttemptId ? { source_attempt_id: selectedAttemptId } : {}),
+                      }}
+                      disabled={pending}
+                    />
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  旧实验只记录六项参数与固定优化器。请在配置工作区明确迁移后另存配方。
+                </p>
+              )}
+            </div>
+            {run.origin && (
+              <p className="mb-4 break-all text-xs text-muted-foreground">
+                来源：{String(run.origin.label ?? "已固定配置")}
+                {run.origin.modified ? " · 已修改参数" : ""} · 摘要{" "}
+                {String(run.origin.digest ?? "")}
+              </p>
+            )}
             <dl className="grid gap-4 rounded-lg border border-border p-4 text-xs sm:grid-cols-2">
               <div>
                 <dt className="text-muted-foreground">训练器</dt>

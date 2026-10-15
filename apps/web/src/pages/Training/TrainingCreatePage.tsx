@@ -5,6 +5,12 @@ import { ArrowLeft, Check, Download, FileUp, FlaskConical } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRunsApi, type TrainingRunCreate } from "@/api/trainingRuns";
+import {
+  recipeCandidate,
+  trainingRecipesApi,
+  type ReusableSnapshot,
+  type TrainingReuseCandidate,
+} from "@/api/trainingRecipes";
 import type { TrainingParameterSchema } from "@/api/generated/types.gen";
 import { useProject } from "@/hooks/useProjects";
 import { useAuthStore } from "@/stores/authStore";
@@ -17,6 +23,12 @@ import { TrainingConfigurationEditor } from "./TrainingConfigurationEditor";
 import { TrainingParameterInventory } from "./TrainingParameterInventory";
 import { trainingInputClass, trainingValueLabel } from "./TrainingParameterField";
 import { TrainingRunReview } from "./TrainingRunReview";
+import {
+  TrainingRecipeLibrary,
+  TrainingRecipeSave,
+  TrainingRecipeStatus,
+} from "./TrainingRecipeLibrary";
+import { TrainingReuseDialog } from "./TrainingReuseDialog";
 import { useTrainingDraft } from "./useTrainingDraft";
 import type { TrainingDraft } from "./trainingDraftStorage";
 import {
@@ -45,9 +57,28 @@ type SwitchPreview = {
   runtime: string;
 };
 type ImportPreview = ReturnType<typeof importConfiguration> & { snapshot: TrainingDraft };
+type ReusePreview = {
+  snapshot: TrainingDraft;
+  candidate: TrainingReuseCandidate;
+  before: ReusableSnapshot | null;
+  schema: TrainingParameterSchema;
+  runtime: string;
+  intent?: string;
+};
 const steps = ["数据与模型", "配置参数", "核对并开始"];
 const reasonMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : "操作失败，请重试";
+const sameValues = (first: Record<string, unknown>, second: Record<string, unknown>) =>
+  JSON.stringify(
+    Object.keys(first)
+      .sort()
+      .map((key) => [key, first[key]]),
+  ) ===
+  JSON.stringify(
+    Object.keys(second)
+      .sort()
+      .map((key) => [key, second[key]]),
+  );
 
 export function TrainingCreatePage() {
   const { id = "" } = useParams();
@@ -76,7 +107,7 @@ function TrainingCreateContent({
   userId: string;
   sessionToken: string;
 }) {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const hint = params.get("framework");
   const state = useTrainingDraft(
     userId,
@@ -98,6 +129,14 @@ function TrainingCreateContent({
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [switchPreview, setSwitchPreview] = useState<SwitchPreview | null>(null);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [reusePreview, setReusePreview] = useState<ReusePreview | null>(null);
+  const [reuseBusy, setReuseBusy] = useState(false);
+  const [cloneRetry, setCloneRetry] = useState(0);
+  const reuseLock = useRef(false);
+  const cloneIntent = useRef("");
+  const cloneSequence = useRef(0);
+  const cloneUrl = useRef("");
+  cloneUrl.current = `${params.get("clone_run") ?? ""}:${params.get("clone_attempt") ?? ""}`;
   const preflightRequest = useRef<AbortController | null>(null);
   const createLock = useRef(false);
   const switchLock = useRef(false);
@@ -216,7 +255,16 @@ function TrainingCreateContent({
     report && schemaMatches && state.matches(report.snapshot) && report.runtime === runtime
       ? report
       : null;
-  const locked = !!draft.pending || creating || switching;
+  const locked = !!draft.pending || creating || switching || reuseBusy || !!reusePreview;
+  const sourceCurrent =
+    !draft.source ||
+    (!!selectedBase &&
+      selectedBase.sha256 === draft.source.baseSha256 &&
+      selectedBase.filename === draft.source.baseFilename &&
+      template?.image_digest === draft.source.imageDigest &&
+      template?.version === draft.source.frameworkVersion &&
+      draft.schemaId === draft.source.schemaId &&
+      draft.schemaDigest === draft.source.schemaDigest);
   const contextValid =
     !!draft.name.trim() &&
     !!validDataset &&
@@ -224,7 +272,8 @@ function TrainingCreateContent({
     schemaMatches &&
     !schemaQuery.isError &&
     !!catalog.data?.enabled &&
-    !catalog.isError;
+    !catalog.isError &&
+    sourceCurrent;
   const valid = contextValid && !Object.keys(collected.errors).length;
   const schemaStillMatches = (snapshot: TrainingDraft) =>
     currentSchema.current?.schema_id === snapshot.schemaId &&
@@ -263,6 +312,8 @@ function TrainingCreateContent({
     if (
       createLock.current ||
       switchLock.current ||
+      reuseLock.current ||
+      reusePreview ||
       state.current.current.pending ||
       !state.ownsSession()
     )
@@ -281,6 +332,225 @@ function TrainingCreateContent({
       throw new Error("当前账号已失去此项目的管理权限");
     return true;
   };
+
+  const reloadCandidate = async (candidate: TrainingReuseCandidate) => {
+    const origin = candidate.origin;
+    return origin.kind === "recipe"
+      ? recipeCandidate(
+          await trainingRecipesApi.get(projectId, origin.recipe_id!, origin.revision_id!),
+        )
+      : trainingRecipesApi.clone(projectId, origin.run_id!, origin.attempt_id ?? undefined);
+  };
+  const clearCloneIntent = () => {
+    const next = new URLSearchParams(params);
+    next.delete("clone_run");
+    next.delete("clone_attempt");
+    setParams(next, { replace: true });
+  };
+  const previewReuse = async (
+    candidate: TrainingReuseCandidate,
+    captured = state.current.current,
+    intent?: string,
+  ) => {
+    if (
+      reuseLock.current ||
+      createLock.current ||
+      switchLock.current ||
+      captured.pending ||
+      preflightRequest.current ||
+      readingFile ||
+      importPreview ||
+      switchPreview ||
+      !state.matches(captured) ||
+      (intent && cloneUrl.current !== intent)
+    )
+      return;
+    reuseLock.current = true;
+    setReuseBusy(true);
+    setError("");
+    try {
+      if (!(await freshAuthority(captured))) return;
+      const latest = await reloadCandidate(candidate);
+      if (!state.matches(captured) || (intent && cloneUrl.current !== intent)) return;
+      if (!latest.compatible) throw new Error(latest.incompatibility ?? "来源不兼容");
+      const value = latest.snapshot as ReusableSnapshot;
+      const targetRuntime = modelRuntime(value.framework, value.base_model.id);
+      if (!targetRuntime) throw new Error("来源基础权重不在当前目录中");
+      const target = await client.fetchQuery({
+        queryKey: [
+          "training-parameter-schema",
+          projectId,
+          userId,
+          value.framework,
+          value.base_model.id,
+        ],
+        queryFn: ({ signal }) =>
+          trainingRunsApi.parameterSchema(projectId, value.framework, value.base_model.id, {
+            signal,
+          }),
+        staleTime: 0,
+      });
+      let before: ReusableSnapshot | null = null;
+      if (captured.baseModel && schemaStillMatches(captured)) {
+        const values = collectOverrides(currentSchema.current!, captured.fields);
+        if (Object.keys(values.errors).length) throw new Error("请先修正当前参数，再核对完整差异");
+        before = await trainingRecipesApi.resolve(projectId, {
+          framework: captured.framework as ReusableSnapshot["framework"],
+          base_model: captured.baseModel,
+          configuration: {
+            schema_id: captured.schemaId,
+            schema_digest: captured.schemaDigest,
+            values: values.values,
+          },
+        });
+      } else if (captured.baseModel) throw new Error("请先核对并迁移当前草稿，再采用配方");
+      if (
+        !state.matches(captured) ||
+        (intent && cloneUrl.current !== intent) ||
+        modelRuntime(value.framework, value.base_model.id) !== targetRuntime
+      )
+        return;
+      if (
+        target.schema_id !== value.configuration.identity.schema_id ||
+        target.schema_digest !== value.configuration.identity.schema_digest ||
+        !catalogSchemaMatches(target)
+      )
+        throw new Error("来源参数定义与当前目录不一致");
+      setReusePreview({
+        snapshot: captured,
+        candidate: latest,
+        before,
+        schema: target,
+        runtime: targetRuntime,
+        intent,
+      });
+    } catch (reason) {
+      if (state.matches(captured) && (!intent || cloneUrl.current === intent))
+        setError(reasonMessage(reason));
+    } finally {
+      reuseLock.current = false;
+      if (state.ownsSession()) setReuseBusy(false);
+    }
+  };
+  const acceptReuse = async () => {
+    const preview = reusePreview;
+    if (
+      !preview ||
+      reuseLock.current ||
+      createLock.current ||
+      state.current.current.pending ||
+      !state.matches(preview.snapshot) ||
+      (preview.intent && cloneUrl.current !== preview.intent)
+    )
+      return;
+    reuseLock.current = true;
+    setReuseBusy(true);
+    setError("");
+    try {
+      if (!(await freshAuthority(preview.snapshot))) return;
+      const latest = await reloadCandidate(preview.candidate);
+      const value = latest.snapshot as ReusableSnapshot;
+      if (!latest.compatible || latest.snapshot_digest !== preview.candidate.snapshot_digest)
+        throw new Error(latest.incompatibility ?? "来源已变化，请重新核对");
+      const definition = await trainingRunsApi.parameterSchema(
+        projectId,
+        value.framework,
+        value.base_model.id,
+      );
+      if (
+        !state.matches(preview.snapshot) ||
+        (preview.intent && cloneUrl.current !== preview.intent) ||
+        modelRuntime(value.framework, value.base_model.id) !== preview.runtime
+      )
+        throw new Error("草稿或目录已变化，请重新核对");
+      if (
+        !catalogSchemaMatches(definition) ||
+        definition.schema_digest !== preview.schema.schema_digest
+      )
+        throw new Error("参数定义已变化，请重新核对");
+      clearReview();
+      state.update({
+        framework: value.framework,
+        baseModel: value.base_model.id,
+        schemaId: definition.schema_id,
+        schemaDigest: definition.schema_digest,
+        fields: Object.fromEntries(
+          Object.entries(value.configuration.user_values).map(([key, item]) => [
+            key,
+            valueToDraft(item),
+          ]),
+        ),
+        source: {
+          reference: latest.origin,
+          label: latest.label,
+          baseSha256: value.base_model.sha256,
+          baseFilename: value.base_model.filename,
+          imageDigest: value.image_digest,
+          frameworkVersion: value.framework_version,
+          userValues: value.configuration.user_values,
+          schemaId: value.configuration.identity.schema_id,
+          schemaDigest: value.configuration.identity.schema_digest,
+        },
+      });
+      setReusePreview(null);
+      clearCloneIntent();
+    } catch (reason) {
+      if (state.matches(preview.snapshot)) setError(reasonMessage(reason));
+    } finally {
+      reuseLock.current = false;
+      if (state.ownsSession()) setReuseBusy(false);
+    }
+  };
+  const cloneRun = params.get("clone_run") ?? "";
+  const cloneAttempt = params.get("clone_attempt") ?? "";
+  useEffect(() => {
+    if (
+      reusePreview?.intent &&
+      reusePreview.intent !== `${cloneRun}:${cloneAttempt}` &&
+      !reuseLock.current
+    )
+      setReusePreview(null);
+  }, [cloneRun, cloneAttempt, reusePreview, reuseBusy]);
+  useEffect(() => {
+    const intent = `${cloneRun}:${cloneAttempt}`;
+    if (!cloneRun) {
+      cloneIntent.current = "";
+      return;
+    }
+    if (
+      !cloneRun ||
+      !catalog.data ||
+      cloneIntent.current === intent ||
+      draft.pending ||
+      reuseLock.current ||
+      reusePreview
+    )
+      return;
+    cloneIntent.current = intent;
+    const sequence = ++cloneSequence.current;
+    const captured = state.current.current;
+    setError("");
+    void trainingRecipesApi
+      .clone(projectId, cloneRun, cloneAttempt || undefined)
+      .then((candidate) => {
+        if (
+          cloneSequence.current === sequence &&
+          state.matches(captured) &&
+          cloneUrl.current === intent
+        )
+          void previewReuse(candidate, captured, intent);
+      })
+      .catch((reason) => {
+        if (
+          cloneSequence.current === sequence &&
+          state.matches(captured) &&
+          cloneUrl.current === intent
+        )
+          setError(reasonMessage(reason));
+      });
+    // The intent is captured once; accepting or cancelling removes it from the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloneRun, cloneAttempt, catalog.data, draft.pending, reusePreview, reuseBusy, cloneRetry]);
 
   const chooseModel = async (baseModel: string) => {
     if (!baseModel || locked || switchLock.current || createLock.current) return;
@@ -332,7 +602,13 @@ function TrainingCreateContent({
   };
 
   const preflight = async () => {
-    if (!valid || preflightRequest.current || createLock.current || state.current.current.pending)
+    if (
+      !valid ||
+      locked ||
+      preflightRequest.current ||
+      createLock.current ||
+      state.current.current.pending
+    )
       return;
     const snapshot = state.current.current;
     if (!schema || !state.matches(snapshot)) return;
@@ -347,6 +623,7 @@ function TrainingCreateContent({
         schema_digest: snapshot.schemaDigest,
         values: collectOverrides(schema, snapshot.fields).values,
       },
+      ...(snapshot.source ? { origin: snapshot.source.reference } : {}),
     };
     const capturedRuntime = runtime;
     const controller = new AbortController();
@@ -387,7 +664,7 @@ function TrainingCreateContent({
   };
 
   const create = async () => {
-    if (createLock.current || preflightRequest.current) return;
+    if (createLock.current || preflightRequest.current || reuseLock.current || reusePreview) return;
     const snapshot = state.current.current;
     if (!state.matches(snapshot)) return;
     const body =
@@ -611,6 +888,63 @@ function TrainingCreateContent({
           </Button>
         </section>
       )}
+      {draft.source && (
+        <section
+          className="mb-4 rounded-lg border border-border bg-card p-4 text-xs"
+          aria-label="配置来源"
+        >
+          <p className="break-words font-medium">
+            基于 {draft.source.label}
+            {!sameValues(collected.values, draft.source.userValues) ? " · 已修改参数" : ""}
+          </p>
+          <TrainingRecipeStatus projectId={projectId} origin={draft.source.reference} />
+          <p className="mt-2 break-all text-muted-foreground">
+            原始基础权重 SHA256：{draft.source.baseSha256}
+          </p>
+          {!sourceCurrent && (
+            <p role="alert" className="mt-2 text-status-danger">
+              基础权重或训练器身份已变化。请明确解除来源并核对新配置，或等待原始受控资源恢复。
+            </p>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mt-2"
+            disabled={locked}
+            onClick={() => update({ source: undefined })}
+          >
+            解除配置来源
+          </Button>
+        </section>
+      )}
+      {cloneRun && !reusePreview && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="default"
+            disabled={locked || checking || readingFile || !!importPreview || !!switchPreview}
+            onClick={() => {
+              cloneIntent.current = "";
+              setCloneRetry((value) => value + 1);
+            }}
+          >
+            重新核对克隆来源
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={reuseBusy || !!draft.pending}
+            onClick={clearCloneIntent}
+          >
+            取消克隆意图
+          </Button>
+        </div>
+      )}
+      <TrainingRecipeLibrary
+        projectId={projectId}
+        disabled={locked || checking || readingFile || !!importPreview || !!switchPreview}
+        onChoose={(candidate) => void previewReuse(candidate)}
+      />
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="min-w-0">
           {step === 0 && (
@@ -723,7 +1057,28 @@ function TrainingCreateContent({
             <section aria-label="配置参数">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold">训练参数</h2>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <TrainingRecipeSave
+                    projectId={projectId}
+                    disabled={
+                      locked ||
+                      !schemaMatches ||
+                      !sourceCurrent ||
+                      !!Object.keys(collected.errors).length
+                    }
+                    source={{
+                      configuration: {
+                        framework: draft.framework as ReusableSnapshot["framework"],
+                        base_model: draft.baseModel,
+                        configuration: {
+                          schema_id: draft.schemaId,
+                          schema_digest: draft.schemaDigest,
+                          values: collected.values,
+                        },
+                      },
+                      ...(draft.source ? { origin: draft.source.reference } : {}),
+                    }}
+                  />
                   <input
                     ref={fileInput}
                     aria-label="导入 YAML 文件"
@@ -997,6 +1352,20 @@ function TrainingCreateContent({
           </>
         )}
       </Modal>
+      {reusePreview && (
+        <TrainingReuseDialog
+          candidate={reusePreview.candidate}
+          before={reusePreview.before}
+          busy={reuseBusy}
+          error={error}
+          onCancel={() => {
+            setReusePreview(null);
+            setError("");
+            clearCloneIntent();
+          }}
+          onAccept={() => void acceptReuse()}
+        />
+      )}
     </PageContainer>
   );
 }

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { learningPoliciesApi } from "@/api/learningPolicies";
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
+import { trainingRecipesApi } from "@/api/trainingRecipes";
 import { ProjectLearningPolicyPanel } from "./ProjectLearningPolicyPanel";
 vi.mock("@/api/learningPolicies", () => ({
   learningPoliciesApi: {
@@ -18,6 +19,10 @@ vi.mock("@/api/learningPolicies", () => ({
 }));
 vi.mock("@/api/trainingRuns", () => ({ trainingRunsApi: { catalog: vi.fn() } }));
 vi.mock("@/api/trainingDatasets", () => ({ trainingDatasetsApi: { list: vi.fn() } }));
+vi.mock("@/api/trainingRecipes", async (original) => ({
+  ...(await original<typeof import("@/api/trainingRecipes")>()),
+  trainingRecipesApi: { list: vi.fn(), get: vi.fn(), revisions: vi.fn(), resolve: vi.fn() },
+}));
 vi.mock("@/components/ui/decisionDialog", () => ({
   confirmDialog: vi.fn().mockResolvedValue(true),
 }));
@@ -64,6 +69,7 @@ beforeEach(() => {
   } as never);
   vi.mocked(learningPoliciesApi.save).mockResolvedValue(policy as never);
   vi.mocked(learningPoliciesApi.disable).mockResolvedValue({ ...policy, enabled: false } as never);
+  vi.mocked(trainingRecipesApi.list).mockResolvedValue({ total: 0, items: [] });
 });
 afterEach(() => {
   cleanup();
@@ -78,6 +84,7 @@ describe("ProjectLearningPolicyPanel", () => {
     expect(save).toBeDisabled();
     expect(screen.getByLabelText("启用自动训练")).not.toBeChecked();
     await u.selectOptions(screen.getByLabelText("初始划分数据"), "data");
+    await u.selectOptions(screen.getByLabelText("自动基础权重"), "yolo11n");
     expect(save).toBeDisabled();
     await u.type(screen.getByLabelText("变化样本门槛"), "10");
     await u.click(save);
@@ -111,6 +118,87 @@ describe("ProjectLearningPolicyPanel", () => {
     mount();
     await u.click(await screen.findByRole("button", { name: "关闭自动训练" }));
     await waitFor(() => expect(learningPoliciesApi.disable).toHaveBeenCalledWith("project", 3));
+    expect(learningPoliciesApi.save).not.toHaveBeenCalled();
+  });
+  it("preserves the full v2 configuration and pinned recipe when editing only thresholds", async () => {
+    const configuration = {
+      identity: { schema_id: "schema", schema_digest: "a".repeat(64) },
+      user_values: { optimizer: "AdamW", mosaic: 0.25 },
+      effective_values: { ...policy.config.parameters, optimizer: "AdamW", mosaic: 0.25 },
+    };
+    const origin = {
+      kind: "recipe",
+      recipe_id: "recipe",
+      revision_id: "revision",
+      digest: "b".repeat(64),
+      label: "固定配方",
+      ordinal: 1,
+    };
+    vi.mocked(learningPoliciesApi.get).mockResolvedValue({
+      ...policy,
+      config: { ...policy.config, configuration, origin },
+    } as never);
+    vi.mocked(trainingRecipesApi.get).mockResolvedValue({
+      ...origin,
+      head_revision: 2,
+      archived: false,
+      source_available: true,
+      revision: { ordinal: 1, name: "固定配方" },
+    } as never);
+    const u = userEvent.setup();
+    mount();
+    await u.click(await screen.findByRole("button", { name: "编辑自动策略" }));
+    expect(screen.getByLabelText("自动训练轮数")).toBeDisabled();
+    await u.clear(screen.getByLabelText("变化样本门槛"));
+    await u.type(screen.getByLabelText("变化样本门槛"), "25");
+    await u.click(screen.getByRole("button", { name: "保存自动策略" }));
+    await waitFor(() => expect(learningPoliciesApi.save).toHaveBeenCalled());
+    const body = vi.mocked(learningPoliciesApi.save).mock.calls[0][1];
+    expect(body.parameters).toBeUndefined();
+    expect(body.configuration).toEqual({
+      schema_id: "schema",
+      schema_digest: "a".repeat(64),
+      values: configuration.user_values,
+    });
+    expect(body.origin).toEqual({
+      kind: "recipe",
+      recipe_id: "recipe",
+      revision_id: "revision",
+      digest: "b".repeat(64),
+    });
+    expect(body.min_changed_samples).toBe(25);
+  });
+  it("changes one canonical field without resetting advanced values or creating other overrides", async () => {
+    const configuration = {
+      identity: { schema_id: "schema", schema_digest: "a".repeat(64) },
+      user_values: { optimizer: "AdamW", mosaic: 0.25 },
+      effective_values: { ...policy.config.parameters, optimizer: "AdamW", mosaic: 0.25 },
+    };
+    vi.mocked(learningPoliciesApi.get).mockResolvedValue({
+      ...policy,
+      config: { ...policy.config, configuration },
+    } as never);
+    const u = userEvent.setup();
+    mount();
+    await u.click(await screen.findByRole("button", { name: "编辑自动策略" }));
+    await u.clear(screen.getByLabelText("自动训练轮数"));
+    await u.type(screen.getByLabelText("自动训练轮数"), "4");
+    await u.click(screen.getByRole("button", { name: "保存自动策略" }));
+    await waitFor(() => expect(learningPoliciesApi.save).toHaveBeenCalled());
+    expect(vi.mocked(learningPoliciesApi.save).mock.calls[0][1].configuration?.values).toEqual({
+      optimizer: "AdamW",
+      mosaic: 0.25,
+      epochs: 4,
+    });
+  });
+  it("does not reinterpret a blank numeric parameter as zero", async () => {
+    vi.mocked(learningPoliciesApi.get).mockResolvedValue(policy as never);
+    const u = userEvent.setup();
+    mount();
+    await u.click(await screen.findByRole("button", { name: "编辑自动策略" }));
+    await u.clear(screen.getByLabelText("自动初始学习率"));
+    await u.click(screen.getByRole("button", { name: "保存自动策略" }));
+    await screen.findByText("lr0 必须为明确的有限数值");
     expect(learningPoliciesApi.save).not.toHaveBeenCalled();
   });
 });

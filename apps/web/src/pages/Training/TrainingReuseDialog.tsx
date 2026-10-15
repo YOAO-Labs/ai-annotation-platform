@@ -1,0 +1,104 @@
+import type { ReusableSnapshot, TrainingReuseCandidate } from "@/api/trainingRecipes";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { trainingValueLabel } from "./TrainingParameterField";
+
+export function effectiveChanges(before: ReusableSnapshot | null, after: ReusableSnapshot) {
+  const old = before?.configuration.effective_values ?? {};
+  const next = after.configuration.effective_values;
+  return [...new Set([...Object.keys(old), ...Object.keys(next)])]
+    .sort()
+    .filter((key) => JSON.stringify(old[key]) !== JSON.stringify(next[key]))
+    .map((key) => ({ key, old: old[key], next: next[key] }));
+}
+
+export function TrainingReuseDialog({
+  candidate,
+  before,
+  busy,
+  error,
+  onCancel,
+  onAccept,
+  purpose = "experiment",
+}: {
+  candidate: TrainingReuseCandidate;
+  before: ReusableSnapshot | null;
+  busy: boolean;
+  error: string;
+  onCancel: () => void;
+  onAccept: () => void;
+  purpose?: "experiment" | "policy";
+}) {
+  const after = candidate.snapshot as ReusableSnapshot;
+  const changes = effectiveChanges(before, after);
+  return (
+    <Modal open onClose={() => !busy && onCancel()} title="核对复用配置" width={760}>
+      <div className="space-y-4 text-xs">
+        <p className="break-words font-medium">{candidate.label}</p>
+        <p className="break-all text-muted-foreground">
+          {after.framework} {after.framework_version} · 原始基础权重 {after.base_model.id}
+          <br />
+          SHA256：{after.base_model.sha256}
+        </p>
+        <p className="text-muted-foreground">
+          {purpose === "policy"
+            ? "采用后固定这一修订的完整配置与原始基础权重。保留当前数据范围；最后保存自动策略才生效。"
+            : "使用原始基础权重新建实验。保留当前实验名称与已明确选择的数据；来源数据不会自动选中。仍需重新预检。"}
+        </p>
+        {candidate.source_dataset_id && (
+          <p className="break-all text-muted-foreground">
+            来源数据版本：{candidate.source_dataset_id}
+          </p>
+        )}
+        {(!candidate.compatible || error) && (
+          <p role="alert" className="text-status-danger">
+            {error || candidate.incompatibility}
+          </p>
+        )}
+        <p>
+          {before
+            ? `完整生效参数差异：${changes.length} 项`
+            : "当前尚无完整配置；以下为来源的全部生效参数。"}
+        </p>
+        <div className="max-h-72 overflow-auto rounded-md border border-border">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-border">
+                <th scope="col" className="p-2">
+                  参数
+                </th>
+                <th scope="col" className="p-2">
+                  当前
+                </th>
+                <th scope="col" className="p-2">
+                  采用后
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {changes.map((change) => (
+                <tr key={change.key} className="border-b border-border last:border-0">
+                  <th scope="row" className="break-all p-2 font-normal">
+                    {change.key}
+                  </th>
+                  <td className="break-all p-2 text-muted-foreground">
+                    {change.old === undefined ? "未配置" : trainingValueLabel(change.old)}
+                  </td>
+                  <td className="break-all p-2">{trainingValueLabel(change.next)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
+            取消复用
+          </Button>
+          <Button size="sm" disabled={busy || !candidate.compatible} onClick={onAccept}>
+            {busy ? "核验来源…" : "确认采用配置"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

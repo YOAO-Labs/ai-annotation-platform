@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes"]
 
 [operations]
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
@@ -267,3 +267,12 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/projects/{project_id}/learning-policy/check" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/learning-policy/disable" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/learning-policy/triggers" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/training-recipes" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes:resolve" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-recipes/{recipe_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-recipes/{recipe_id}/revisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes/{recipe_id}/revisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes/{recipe_id}/archive" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-recipes/clone/{run_id}" = { status = "excluded", reason = "web-only" }

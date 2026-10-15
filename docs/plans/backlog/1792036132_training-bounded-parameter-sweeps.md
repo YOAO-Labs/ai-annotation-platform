@@ -2,7 +2,7 @@
 
 > Status: trigger-gated research-draft
 > Priority: after reliable comparison, recipes, and telemetry
-> Depends on: [T01](../1792035920_training-parameter-catalog.md), [T03](1792035920_training-recipes-and-cloning.md), [T05](1792036036_training-experiment-comparison.md), [T07](1792036036_training-observability-and-recovery.md)
+> Depends on: [T01](../1792035920_training-parameter-catalog.md), [T03](../1792035920_training-recipes-and-cloning.md), [T05](1792036036_training-experiment-comparison.md), [T07](1792036036_training-observability-and-recovery.md)
 > Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and promotion trigger

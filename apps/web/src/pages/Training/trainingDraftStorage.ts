@@ -1,4 +1,5 @@
 import type { TrainingRunCreate } from "@/api/trainingRuns";
+import type { TrainingOrigin } from "@/api/trainingRecipes";
 import type { ParameterDraft, ParameterDrafts, ParameterValue } from "./trainingConfiguration";
 
 export type TrainingDraft = {
@@ -14,7 +15,20 @@ export type TrainingDraft = {
   schemaId: string;
   schemaDigest: string;
   fields: ParameterDrafts;
+  source?: TrainingDraftSource;
   pending?: { body: TrainingRunCreate };
+};
+
+export type TrainingDraftSource = {
+  reference: TrainingOrigin;
+  label: string;
+  baseSha256: string;
+  baseFilename: string;
+  imageDigest: string;
+  frameworkVersion: string;
+  userValues: Record<string, ParameterValue>;
+  schemaId: string;
+  schemaDigest: string;
 };
 
 const prefix = "aap-training-draft:1";
@@ -77,6 +91,52 @@ function parameterValue(value: unknown, depth = 0): value is ParameterValue {
   );
 }
 
+function validOrigin(value: unknown): value is TrainingOrigin {
+  if (
+    !object(value) ||
+    Object.keys(value).some(
+      (key) =>
+        !["kind", "recipe_id", "revision_id", "run_id", "attempt_id", "digest"].includes(key),
+    ) ||
+    typeof value.digest !== "string" ||
+    !sha.test(value.digest)
+  )
+    return false;
+  for (const key of ["recipe_id", "revision_id", "run_id", "attempt_id"])
+    if (value[key] != null && (typeof value[key] !== "string" || !uuid.test(value[key])))
+      return false;
+  return value.kind === "recipe"
+    ? !!value.recipe_id && !!value.revision_id && !value.run_id && !value.attempt_id
+    : value.kind === "clone" && !!value.run_id && !value.recipe_id && !value.revision_id;
+}
+
+function validSource(value: unknown): value is TrainingDraftSource {
+  if (!object(value) || Object.keys(value).length !== 9 || !validOrigin(value.reference))
+    return false;
+  if (
+    ![
+      "label",
+      "baseSha256",
+      "baseFilename",
+      "imageDigest",
+      "frameworkVersion",
+      "schemaId",
+      "schemaDigest",
+    ].every((key) => typeof value[key] === "string" && value[key].length <= 150)
+  )
+    return false;
+  return (
+    sha.test(String(value.baseSha256)) &&
+    sha.test(String(value.schemaDigest)) &&
+    /^sha256:[0-9a-f]{64}$/.test(String(value.imageDigest)) &&
+    object(value.userValues) &&
+    Object.keys(value.userValues).length <= 150 &&
+    Object.entries(value.userValues).every(
+      ([key, item]) => !unsafeKeys.has(key) && parameterValue(item),
+    )
+  );
+}
+
 function pendingBody(value: unknown): value is TrainingRunCreate {
   if (!object(value) || !object(value.configuration)) return false;
   if (
@@ -90,6 +150,7 @@ function pendingBody(value: unknown): value is TrainingRunCreate {
           "request_id",
           "configuration",
           "preflight_digest",
+          "origin",
         ].includes(key),
     )
   )
@@ -104,6 +165,7 @@ function pendingBody(value: unknown): value is TrainingRunCreate {
     ["ultralytics", "libreyolo"].includes(String(value.framework)) &&
     typeof value.base_model === "string" &&
     value.base_model.length <= 64 &&
+    (value.origin === undefined || validOrigin(value.origin)) &&
     typeof value.request_id === "string" &&
     uuid.test(value.request_id) &&
     typeof value.preflight_digest === "string" &&
@@ -139,6 +201,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
           "schemaDigest",
           "fields",
           "pending",
+          "source",
         ].includes(key),
     )
   )
@@ -155,6 +218,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
     if (typeof value[key] !== "string" || value[key].length > 150) return false;
   }
   if (value.schemaDigest && !sha.test(String(value.schemaDigest))) return false;
+  if (value.source !== undefined && !validSource(value.source)) return false;
   if (
     !object(value.fields) ||
     Object.keys(value.fields).length > 150 ||
@@ -179,6 +243,11 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
       body.name !== String(value.name).trim() ||
       body.configuration?.schema_id !== value.schemaId ||
       body.configuration?.schema_digest !== value.schemaDigest
+    )
+      return false;
+    if (
+      JSON.stringify(body.origin) !==
+      JSON.stringify((value.source as TrainingDraftSource | undefined)?.reference)
     )
       return false;
   }

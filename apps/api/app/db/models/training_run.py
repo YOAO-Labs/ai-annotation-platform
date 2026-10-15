@@ -69,6 +69,7 @@ class TrainingRun(Base):
     status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     config_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin: Mapped[dict | None] = mapped_column(JSONB)
     authorization: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     current_attempt_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     metrics: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)

@@ -34,6 +34,7 @@ from app.schemas.training_hub import TrainingParameterSchema
 from training_contract import definition
 from app.api.v1.training_datasets import lock_owner
 from app.services import training_runs as service
+from app.services import training_recipes as recipes
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 
@@ -95,7 +96,8 @@ async def preflight(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     config = await service.frozen_config(db, project.id, body)
-    return {"config": config, "config_digest": content_digest(config)}
+    origin = await recipes.origin_snapshot(db, project.id, body.origin, config)
+    return {"config": config, "config_digest": content_digest(config), "origin": origin}
 
 
 @router.get("/parameter-schema", response_model=TrainingParameterSchema)
@@ -147,6 +149,7 @@ async def create_run(
             raise HTTPException(status_code=409, detail="同一请求标识不能用于不同实验")
         return existing
     config = await service.frozen_config(db, project.id, body)
+    origin = await recipes.origin_snapshot(db, project.id, body.origin, config)
     if body.preflight_digest != content_digest(config):
         raise HTTPException(
             status_code=409, detail="训练配置已变化或尚未检查，请重新预检"
@@ -160,6 +163,7 @@ async def create_run(
         name=body.name,
         config=config,
         config_digest=content_digest(config),
+        origin=origin,
         authorization={"api_key_id": getattr(request.state, "api_key_id", None)},
     )
     db.add(run)

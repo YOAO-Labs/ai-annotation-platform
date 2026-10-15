@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-rou
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRunsApi } from "@/api/trainingRuns";
+import { trainingRecipesApi, type TrainingRecipeOut } from "@/api/trainingRecipes";
 import type { TrainingParameterField, TrainingParameterSchema } from "@/api/generated/types.gen";
 import { useAuthStore } from "@/stores/authStore";
 import { TrainingCreatePage } from "./TrainingCreatePage";
@@ -28,6 +29,18 @@ vi.mock("@/api/trainingRuns", () => ({
   },
 }));
 vi.mock("./TrainingParameterInventory", () => ({ TrainingParameterInventory: () => null }));
+vi.mock("@/api/trainingRecipes", async (original) => ({
+  ...(await original<typeof import("@/api/trainingRecipes")>()),
+  trainingRecipesApi: {
+    list: vi.fn(),
+    get: vi.fn(),
+    clone: vi.fn(),
+    resolve: vi.fn(),
+    revisions: vi.fn(),
+    save: vi.fn(),
+    archive: vi.fn(),
+  },
+}));
 
 const field = (
   key: string,
@@ -124,17 +137,20 @@ function Context() {
         {location.search}
       </p>
       <button onClick={() => navigate("/projects/project-2/learning/new")}>切换项目</button>
+      <button onClick={() => navigate("/projects/project-1/learning/new?clone_run=second")}>
+        切换克隆来源
+      </button>
     </>
   );
 }
-function mount() {
+function mount(entry = "/projects/project-1/learning/new") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   clients.push(client);
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/projects/project-1/learning/new"]}>
+      <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route path="/projects/:id/learning/new" element={<TrainingCreatePage />} />
           <Route path="/projects/:id/learning" element={<p>实验列表</p>} />
@@ -158,6 +174,188 @@ beforeEach(() => {
   vi.mocked(trainingRunsApi.parameterSchema).mockResolvedValue(schema);
   vi.mocked(trainingRunsApi.preflight).mockResolvedValue(report);
   vi.mocked(trainingRunsApi.create).mockResolvedValue({ id: "run-1" } as never);
+  vi.mocked(trainingRecipesApi.list).mockResolvedValue({ total: 0, items: [] });
+  vi.mocked(trainingRecipesApi.resolve).mockImplementation(
+    async (_id, body) =>
+      ({
+        ...reuseSnapshot,
+        configuration: {
+          ...reuseSnapshot.configuration,
+          user_values: body.configuration.values,
+          effective_values: { epochs: 50, batch: 8, lr0: 0.01, ...body.configuration.values },
+        },
+      }) as never,
+  );
+});
+
+const recipeId = "11111111-1111-4111-8111-111111111111";
+const revisionId = "22222222-2222-4222-8222-222222222222";
+const reuseSnapshot = {
+  framework: "ultralytics" as const,
+  framework_version: "8.4.177",
+  image_digest: catalog.items[0].image_digest,
+  base_model: catalog.items[0].base_models[0],
+  configuration: {
+    identity: { schema_id: schema.schema_id, schema_digest: schema.schema_digest },
+    user_values: { batch: 4, lr0: 0.000001 },
+    effective_values: { epochs: 50, batch: 4, lr0: 0.000001 },
+  },
+};
+const recipe = {
+  id: recipeId,
+  project_id: "project-1",
+  head_revision: 1,
+  archived: false,
+  compatible: true,
+  incompatibility: null,
+  source_available: true,
+  revision: {
+    id: revisionId,
+    recipe_id: recipeId,
+    project_id: "project-1",
+    ordinal: 1,
+    name: "轻量配方",
+    description: "复用测试",
+    snapshot: reuseSnapshot,
+    snapshot_digest: "1".repeat(64),
+    origin: null,
+    creator_id: null,
+    created_at: "2026-10-15T00:00:00Z",
+  },
+} satisfies TrainingRecipeOut;
+
+describe("immutable recipe and clone reuse", () => {
+  const key = trainingDraftKey(trainingDraftOwner("user-1", "project-1"));
+  async function preview() {
+    vi.mocked(trainingRecipesApi.list).mockResolvedValue({ total: 1, items: [recipe] });
+    vi.mocked(trainingRecipesApi.get).mockResolvedValue(recipe);
+    const result = await prepare(false);
+    await result.user.click(screen.getByText(/项目训练配方/));
+    await result.user.click(await screen.findByRole("button", { name: "核对修订 1" }));
+    await screen.findByRole("dialog", { name: "核对复用配置" });
+    return result;
+  }
+  it("cancels without changing the draft and applies all settings with a new request only after confirmation", async () => {
+    const { user, view } = await preview();
+    const before = localStorage.getItem(key)!;
+    expect(screen.getByText("完整生效参数差异：2 项")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "取消复用" }));
+    expect(localStorage.getItem(key)).toBe(before);
+    await user.click(screen.getByRole("button", { name: "核对修订 1" }));
+    await user.click(await screen.findByRole("button", { name: "确认采用配置" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const after = JSON.parse(localStorage.getItem(key)!);
+    expect(after.name).toBe("车辆实验");
+    expect(after.datasetId).toBe("dataset-1");
+    expect(after.requestId).not.toBe(JSON.parse(before).requestId);
+    expect(after.source.reference.revision_id).toBe(revisionId);
+    expect(after.fields.lr0.text).toBe("0.000001");
+    view.unmount();
+    mount();
+    await user.click(await screen.findByRole("button", { name: /核对并开始/ }));
+    await check();
+    expect(vi.mocked(trainingRunsApi.preflight).mock.calls[0][1]).toMatchObject({
+      origin: { kind: "recipe", recipe_id: recipeId, revision_id: revisionId },
+      configuration: { values: reuseSnapshot.configuration.user_values },
+    });
+  });
+  it("keeps the existing draft when the source is archived between preview and acceptance", async () => {
+    const { user } = await preview();
+    const before = localStorage.getItem(key);
+    vi.mocked(trainingRecipesApi.get).mockResolvedValue({ ...recipe, archived: true });
+    await user.click(screen.getByRole("button", { name: "确认采用配置" }));
+    await waitFor(() =>
+      expect(screen.getAllByText("配方已归档，不能新采用").length).toBeGreaterThan(0),
+    );
+    expect(localStorage.getItem(key)).toBe(before);
+  });
+  it("ignores a late source response after a project or session change", async () => {
+    const { user } = await preview();
+    const late = deferred<TrainingRecipeOut>();
+    vi.mocked(trainingRecipesApi.get).mockReturnValue(late.promise);
+    await user.click(screen.getByRole("button", { name: "确认采用配置" }));
+    act(() => useAuthStore.getState().setAuth("session-2", { id: "user-1" } as never));
+    const before = localStorage.getItem(key);
+    await act(async () => late.resolve(recipe));
+    expect(localStorage.getItem(key)).toBe(before);
+    expect(screen.queryByText(/基于 轻量配方/)).not.toBeInTheDocument();
+  });
+  it("rejects an old URL clone response after the source changes on the same route", async () => {
+    const late = deferred<Awaited<ReturnType<typeof trainingRecipesApi.clone>>>();
+    vi.mocked(trainingRecipesApi.clone).mockImplementation((_project, run) =>
+      run === "first" ? late.promise : Promise.reject(new Error("第二来源不存在")),
+    );
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning/new?clone_run=first");
+    await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "切换克隆来源" }));
+    await screen.findByText("第二来源不存在");
+    await act(async () =>
+      late.resolve({
+        snapshot: reuseSnapshot,
+        snapshot_digest: "2".repeat(64),
+        label: "旧来源",
+        origin: { kind: "clone", run_id: recipeId, digest: "3".repeat(64) },
+        compatible: true,
+        incompatibility: null,
+      }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+  });
+  it("loads the current URL clone after an obsolete in-flight preview releases its lock", async () => {
+    const candidate = {
+      snapshot: reuseSnapshot,
+      snapshot_digest: "2".repeat(64),
+      label: "旧来源",
+      origin: { kind: "clone" as const, run_id: recipeId, digest: "3".repeat(64) },
+      compatible: true,
+      incompatibility: null,
+    };
+    const late = deferred<typeof candidate>();
+    vi.mocked(trainingRecipesApi.clone).mockImplementation((_project, run) => {
+      if (run === "first") return Promise.resolve(candidate);
+      if (run === recipeId) return late.promise;
+      return Promise.reject(new Error("第二来源不存在"));
+    });
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning/new?clone_run=first");
+    await waitFor(() =>
+      expect(trainingRecipesApi.clone).toHaveBeenCalledWith("project-1", recipeId, undefined),
+    );
+    await user.click(screen.getByRole("button", { name: "切换克隆来源" }));
+    expect(trainingRecipesApi.clone).not.toHaveBeenCalledWith("project-1", "second", undefined);
+    await act(async () => late.resolve(candidate));
+    await screen.findByText("第二来源不存在");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+  });
+  it("allows explicit clone retry after editing invalidates a pending source response", async () => {
+    const candidate = {
+      snapshot: reuseSnapshot,
+      snapshot_digest: "2".repeat(64),
+      label: "克隆来源",
+      origin: { kind: "clone" as const, run_id: recipeId, digest: "3".repeat(64) },
+      compatible: true,
+      incompatibility: null,
+    };
+    const late = deferred<typeof candidate>();
+    vi.mocked(trainingRecipesApi.clone)
+      .mockResolvedValue(candidate)
+      .mockReturnValueOnce(late.promise);
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning/new?clone_run=first");
+    await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalledTimes(1));
+    await user.type(screen.getByLabelText("实验名称"), "保留我的名称");
+    await act(async () => late.resolve(candidate));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重新核对克隆来源" }));
+    await screen.findByRole("dialog", { name: "核对复用配置" });
+    await user.click(screen.getByRole("button", { name: "确认采用配置" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("实验名称")).toHaveValue("保留我的名称");
+    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+  });
 });
 afterEach(() => {
   cleanup();

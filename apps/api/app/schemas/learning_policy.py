@@ -4,7 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from app.schemas.training_run import TrainingParameters, TrainingConfiguration
+from app.schemas.training_run import (
+    TrainingParameters,
+    TrainingConfiguration,
+    TrainingOrigin,
+)
 
 
 class LearningPolicySave(BaseModel):
@@ -17,6 +21,7 @@ class LearningPolicySave(BaseModel):
     base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
+    origin: TrainingOrigin | None = None
     min_changed_samples: int = Field(ge=1, le=20000)
     check_interval_minutes: int = Field(ge=1, le=1440)
     cooldown_minutes: int = Field(ge=0, le=10080)
@@ -25,6 +30,10 @@ class LearningPolicySave(BaseModel):
     def one_parameter_source(self):
         if self.configuration is not None and "parameters" in self.model_fields_set:
             raise ValueError("configuration 与旧 parameters 不能同时提交")
+        if self.origin is not None and (
+            self.origin.kind != "recipe" or self.configuration is None
+        ):
+            raise ValueError("策略配方必须携带完整配置及具体修订")
         return self
 
 

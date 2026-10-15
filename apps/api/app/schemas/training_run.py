@@ -33,6 +33,30 @@ class TrainingParameters(BaseModel):
     patience: int = Field(default=50, ge=0, le=1000)
 
 
+class TrainingOrigin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["recipe", "clone"]
+    recipe_id: uuid.UUID | None = None
+    revision_id: uuid.UUID | None = None
+    run_id: uuid.UUID | None = None
+    attempt_id: uuid.UUID | None = None
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def exact_source(self):
+        if self.kind == "recipe":
+            if (
+                not self.recipe_id
+                or not self.revision_id
+                or self.run_id
+                or self.attempt_id
+            ):
+                raise ValueError("配方来源需要配方与修订标识")
+        elif not self.run_id or self.recipe_id or self.revision_id:
+            raise ValueError("克隆来源需要实验标识")
+        return self
+
+
 class TrainingRunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
@@ -41,6 +65,7 @@ class TrainingRunCreate(BaseModel):
     base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
+    origin: TrainingOrigin | None = None
     request_id: uuid.UUID
     preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
@@ -55,6 +80,8 @@ class TrainingRunCreate(BaseModel):
     def one_parameter_source(self):
         if self.configuration is not None and "parameters" in self.model_fields_set:
             raise ValueError("configuration 与旧 parameters 不能同时提交")
+        if self.origin is not None and self.configuration is None:
+            raise ValueError("复用来源必须携带完整配置")
         return self
 
     def request_payload(self):
@@ -64,6 +91,8 @@ class TrainingRunCreate(BaseModel):
             payload.pop("configuration")
         else:
             payload.pop("parameters")
+        if self.origin is None:
+            payload.pop("origin")
         return payload
 
 
@@ -79,6 +108,7 @@ class TrainingRunOut(BaseModel):
     status: str
     config: dict
     config_digest: str
+    origin: dict | None = None
     current_attempt_id: uuid.UUID | None
     metrics: dict
     error_message: str | None
