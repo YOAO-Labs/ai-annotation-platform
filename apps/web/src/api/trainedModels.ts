@@ -16,13 +16,15 @@ export type {
 };
 const base = (projectId: string) => `/projects/${projectId}`;
 export const trainedModelsApi = {
-  list: (projectId: string, offset = 0) =>
+  list: (projectId: string, offset = 0, options?: RequestInit) =>
     apiClient.get<{ items: TrainedModelOut[]; total: number }>(
       `${base(projectId)}/trained-models?limit=20&offset=${offset}`,
+      options,
     ),
-  get: (projectId: string, versionId: string) =>
+  get: (projectId: string, versionId: string, options?: RequestInit) =>
     apiClient.get<{ model: TrainedModelOut; deployments: ModelDeploymentOut[] }>(
       `${base(projectId)}/trained-models/${versionId}`,
+      options,
     ),
   register: (projectId: string, body: TrainedModelCreate) =>
     apiClient.post<TrainedModelOut>(`${base(projectId)}/trained-models`, body),

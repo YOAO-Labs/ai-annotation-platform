@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 
 # v0.10.51 · batch_predict 支持协作取消；其它长任务保持软取消。
 CANCELLABLE_KINDS = {
+    "sample_evaluation",
     "training_dataset",
     "batch_predict",
     "predictions_import",
@@ -286,6 +287,26 @@ async def cancel_async_job(
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if job.kind == "sample_evaluation":
+        from app.api.v1.training_datasets import lock_owner
+        from app.db.models.sample_evaluation import SampleEvaluationRun
+        from app.services.sample_evaluations import request_cancel
+
+        project = await db.get(Project, job.project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        await lock_owner(db, current_user, project)
+        run = await db.scalar(
+            select(SampleEvaluationRun)
+            .where(SampleEvaluationRun.async_job_id == job.id)
+            .with_for_update()
+        )
+        if run is None:
+            raise HTTPException(status_code=409, detail="该任务已被新的评估尝试替代")
+        await request_cancel(db, run)
+        await db.commit()
+        return {"status": "cancel_requested", "id": str(job_id)}
 
     if job.kind == "training_dataset":
         from app.db.models.training_dataset import TrainingDatasetVersion

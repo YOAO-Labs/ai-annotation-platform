@@ -286,6 +286,16 @@ async def delete_version(
         fail(exc)
     version = await load_version(db, project, version_id, lock=True)
     from app.db.models.learning_policy import LearningPolicy, LearningTrigger
+    from app.db.models.sample_evaluation import SampleEvaluationRun
+
+    if await db.scalar(
+        select(SampleEvaluationRun.id)
+        .where(SampleEvaluationRun.dataset_id == version.id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=409, detail="数据版本被冻结样本评估引用，请先删除已结束的评估"
+        )
 
     if await db.scalar(
         select(LearningTrigger.id)

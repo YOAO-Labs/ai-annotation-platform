@@ -484,6 +484,21 @@
 | POST | `/{project_id}/orphan-tasks/cleanup` |
 | GET | `/{project_id}/datasets` |
 
+## `sample_evaluations.py`
+
+| Method | Path |
+|---|---|
+| GET | `/qualification` |
+| GET | `/compare` |
+| GET | `/{evaluation_id}` |
+| POST | `/{evaluation_id}/cancel` |
+| POST | `/{evaluation_id}/retry` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/report` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/samples` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/image` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/source` |
+| DELETE | `/{evaluation_id}` |
+
 ## `scenes.py`
 
 | Method | Path |
@@ -841,4 +856,4 @@
 
 ---
 
-_共 77 模块 / 479 路由_
+_共 78 模块 / 489 路由_

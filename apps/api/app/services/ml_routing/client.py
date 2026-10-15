@@ -186,7 +186,11 @@ class RoutedMLBackendClient:
                 await ledger.aclose()
 
     async def predict(
-        self, tasks: list[dict], context: dict | None = None
+        self,
+        tasks: list[dict],
+        context: dict | None = None,
+        *,
+        max_response_bytes: int | None = None,
     ) -> list[Any]:
         from app.services import trained_models
 
@@ -214,13 +218,20 @@ class RoutedMLBackendClient:
             wire = trained_models.wire_context(ref, (context or {}).get("params"))
             if (context or {}).get("classes"):
                 wire["classes"] = context["classes"]
+            if (context or {}).get("sample_evaluation") is not None:
+                wire["sample_evaluation"] = context["sample_evaluation"]
         route_args = (
             {"required_instance_id": required_instance_id} if controlled else {}
         )
         async with self._routed_transport(**route_args) as client:
+            response_limit = (
+                {"max_response_bytes": max_response_bytes}
+                if max_response_bytes is not None
+                else {}
+            )
             if context is None:
-                return await client.predict(tasks)
-            results = await client.predict(tasks, context=wire)
+                return await client.predict(tasks, **response_limit)
+            results = await client.predict(tasks, context=wire, **response_limit)
             if controlled:
                 expected_tasks = {str(task["id"]) for task in tasks}
                 if (

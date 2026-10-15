@@ -1,17 +1,24 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision, subscribeAuthSession } from "@/stores/authSession";
 
 export type AssertTrainingOwner = (signal?: AbortSignal) => void;
 
+export function useTrainingSessionRevision() {
+  return useSyncExternalStore(subscribeAuthSession, getAuthSessionRevision, getAuthSessionRevision);
+}
+
 export function useTrainingViewOwner(projectId: string, scope: string) {
+  const revision = useTrainingSessionRevision();
   const owner = useMemo(
     () => ({
       projectId,
       scope,
       userId: useAuthStore.getState().user?.id,
       token: useAuthStore.getState().token,
+      revision,
     }),
-    [projectId, scope],
+    [projectId, scope, revision],
   );
   const current = useRef(owner);
   const alive = useRef(true);
@@ -26,6 +33,7 @@ export function useTrainingViewOwner(projectId: string, scope: string) {
     const owns = () =>
       alive.current &&
       current.current === owner &&
+      getAuthSessionRevision() === owner.revision &&
       !!owner.userId &&
       isCurrentAuthOwner(owner.userId) &&
       useAuthStore.getState().token === owner.token;

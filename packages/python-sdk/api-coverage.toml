@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations"]
 
 [operations]
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
@@ -297,3 +297,15 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/projects/{project_id}/training-recipes/{recipe_id}/revisions" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-recipes/{recipe_id}/archive" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-recipes/clone/{run_id}" = { status = "excluded", reason = "web-only" }
+"DELETE /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/compare" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/qualification" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/report" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/samples" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/image" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/source" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/sample-evaluations" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/cancel" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/retry" = { status = "excluded", reason = "web-only" }

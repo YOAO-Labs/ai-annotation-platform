@@ -56,6 +56,16 @@ const TrainingComparisonPage = lazy(() =>
     default: m.TrainingComparisonPage,
   })),
 );
+const SampleEvaluationPage = lazy(() =>
+  import("@/pages/Training/SampleEvaluationPage").then((m) => ({
+    default: m.SampleEvaluationPage,
+  })),
+);
+const SampleEvaluationCreatePage = lazy(() =>
+  import("@/pages/Training/SampleEvaluationCreate").then((m) => ({
+    default: m.SampleEvaluationCreatePage,
+  })),
+);
 const TrainingPage = lazy(() =>
   import("@/pages/Training/TrainingPage").then((m) => ({ default: m.TrainingPage })),
 );
@@ -497,6 +507,30 @@ export function App() {
             element={
               <RequireProjectAccess capability="project.manage">
                 <ProjectSettingsPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/evaluations/new"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <SampleEvaluationCreatePage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/evaluations/:evaluationId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <SampleEvaluationPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/evaluations"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <SampleEvaluationPage />
               </RequireProjectAccess>
             }
           />

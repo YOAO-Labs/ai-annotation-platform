@@ -25,6 +25,8 @@ interface ModalProps {
   containerRef?: RefObject<HTMLElement | null>;
   /** Keep Escape scoped to this modal when it is nested in another dialog. */
   stopEscapePropagation?: boolean;
+  /** Restore focus for controlled dialogs whose trigger lives outside the Root. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
@@ -37,6 +39,7 @@ export function Modal({
   container,
   containerRef,
   stopEscapePropagation = false,
+  returnFocusRef,
   children,
 }: ModalProps) {
   const contentRef = useElementStyle<HTMLDivElement>({ width });
@@ -62,6 +65,13 @@ export function Modal({
           data-modal=""
           ref={contentRef}
           aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            const target = returnFocusRef?.current;
+            if (target?.isConnected) {
+              event.preventDefault();
+              target.focus();
+            }
+          }}
           onEscapeKeyDown={(event) => {
             if (stopEscapePropagation) event.stopPropagation();
           }}

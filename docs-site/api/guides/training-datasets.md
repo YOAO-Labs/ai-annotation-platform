@@ -61,6 +61,37 @@ last_reviewed: 2026-10-15
 
 列表不返回完整素材清单。可用 `status=ready` 等状态筛选，过滤先于 `limit`／`offset` 分页执行。详情的 `manifest` 在就绪后包含 `summary`、`samples`、累计 `split_history`、`content_digest` 和 `validation_digest`，不会暴露存储凭据或源文件签名 URL。构建和发布时重新校验创建者与原 API Key 的当前权限。
 
+## 逐样本评估 API
+
+基路径 `/api/v1/projects/{project_id}/sample-evaluations`。读取要求当前项目管理权限和 `annotations:read`、`datasets:read`；创建、停止、恢复和删除另需 `datasets:write`。后台执行同时复核创建者及原 API Key 的当前权限。
+
+| 方法   | 路径后缀                                                          | 行为                                                                             |
+| ------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| GET    | `/qualification`                                                  | 明确指定 `model_version_id`、`deployment_id`，验证固定部署并读取实际推理 profile |
+| POST   | 空                                                                | 冻结明确成员与设置，返回 `202`、评估及当前尝试                                   |
+| GET    | 空                                                                | `limit` 1–100、默认 20，`offset` 分页，返回 `items`、`total`                     |
+| GET    | `/{evaluation_id}`                                                | 固定设置、当前进度与全部执行尝试                                                 |
+| POST   | `/{evaluation_id}/cancel`                                         | 持久化停止意图，等待后端收据或封存确认                                           |
+| POST   | `/{evaluation_id}/retry`                                          | 未过期的 `lost`／`failed` 创建新尝试，复用已验证成员                             |
+| GET    | `/{evaluation_id}/attempts/{attempt_id}/report`                   | 重新验证存储与完整证据，返回固定尝试的报告                                       |
+| GET    | `/{evaluation_id}/attempts/{attempt_id}/samples`                  | 先筛选后分页的误差成员                                                           |
+| GET    | `/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/image`  | 认证读取同一冻结预处理的 PNG；零起始 ordinal                                     |
+| GET    | `/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/source` | 当前源任务及图片、标签变化，独立于历史报告                                       |
+| GET    | `/compare`                                                        | `left_id`、`right_id` 明确指定两个不同评估，比较各自当前尝试                     |
+| DELETE | `/{evaluation_id}`                                                | 已确认结束的终态才可删除，返回 `204`；清理失败保留删除意图                       |
+
+创建体包含 UUID `request_id`、`name`、`model_version_id`、`deployment_id`、`dataset_id` 及 1–32 个不重复的 `sample_task_ids`，成员必须来自就绪版本实际包内的 `val` 分区。默认 `role=validation_selection`；`held_out_test` 另须 `held_out_confirmed=true`，并拒绝与候选训练／验证 SHA 重叠的成员。`confidence` 默认 0.25、`matching_iou` 默认 0.5、`nms_iou` 默认 0.7，均为 0–1。相同 request ID 与相同内容重提返回原评估，换内容返回 `409`。
+
+评估固定完整规格与 `spec_digest`、`benchmark_digest`、`comparison_digest`，使用 `aap-detection-greedy` 修订 1 的包含等号、稳定置信度排序和同类一对一匹配；报告固定阈值 TP/FP/FN、精确率／召回率／F1，不声称 AP/mAP。单图最多 200 个真值及 100 个预测，总真值最多 2,000，原图最多 16 MiB／1,600 万像素；标签必须可规范化且类别绑定双射。归一化输入完整验证 SHA、EXIF 方向和逻辑尺寸，记录原图与派生 PNG 摘要。推理响应上限 256 KiB，报告上限 8 MiB 与 500,000 个 JSON 节点。
+
+状态为 `queued`、`running`、`cancelling`、`lost`、`succeeded`、`failed`、`cancelled`。停止、失联与资源退出不等价。稳定成员请求 ID 绑定模型、输入、参数、profile 与固定 24 小时窗口；恢复先读取缓存收据，后端锁和封存记录阻止原请求重叠及迟到 POST。完成报告长期保留，失败／取消报告明确标记未完成成员且 `aggregate=null`。
+
+样本筛选支持零起始 `class_index`、`error=false_positive|false_negative|confusion|localization|failed`、可选 `confidence_min`／`confidence_max`，默认 `limit=12`、最多 32，`offset` 默认 0。置信度只筛选预测证据，不重新计算匹配；FN 筛选忽略置信度范围。返回固定尝试、报告与设置摘要及过滤后 `total`。
+
+比较仅在双方报告完整且冻结基准多重集、类别、用途、评估器、预处理、推理语义与阈值兼容时提供 `delta_right_minus_left` 和按冻结内容、标签、尺寸及重复次数对齐的 `sample_pairs`。候选权重和来源不参与兼容键。不兼容时返回明确 `reasons`，不补零或排名。
+
+源解析返回 `source=found|deleted|unavailable`，图片和标签分别标记相同、变化或不可用，另含当前复核／负样本状态。当前标签可能标记 `unsupported`；不将无法读取解释为相同。任务硬删除后历史报告仍可读。原数据版本、模型部署及项目受保留引用保护，删除入口在存储破坏前拒绝；删除评估的存储失败返回 `503 cleanup_pending` 并由维护任务继续清理。上述接口尚未列为 Python SDK 已覆盖能力。
+
 ## 训练总览 API
 
 基路径 `/api/v1/training`。只允许活跃的项目管理员与超级管理员，API Key 需要 `annotations:read`、`datasets:read`。项目列表、实验列表及计数仅包含当前可管理项目；项目成员身份或历史任务创建者身份不扩大管理范围。

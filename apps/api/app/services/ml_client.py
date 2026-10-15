@@ -135,6 +135,7 @@ async def _bounded_stream_response(
     response: httpx.Response,
     *,
     max_bytes: int,
+    reason: str = "mask_response_too_large",
 ) -> httpx.Response:
     declared = response.headers.get("content-length")
     if declared:
@@ -146,20 +147,20 @@ async def _bounded_stream_response(
             raise HTTPException(
                 status_code=413,
                 detail={
-                    "reason": "mask_response_too_large",
+                    "reason": reason,
                     "message": "ML backend response exceeds the byte budget",
                     "max_bytes": max_bytes,
                     "declared_bytes": declared_bytes,
                 },
             )
     body = bytearray()
-    async for chunk in response.aiter_bytes():
+    async for chunk in response.aiter_bytes(chunk_size=min(max_bytes + 1, 64 * 1024)):
         body.extend(chunk)
         if len(body) > max_bytes:
             raise HTTPException(
                 status_code=413,
                 detail={
-                    "reason": "mask_response_too_large",
+                    "reason": reason,
                     "message": "ML backend response exceeds the byte budget",
                     "max_bytes": max_bytes,
                     "received_bytes": len(body),
@@ -521,8 +522,35 @@ class MLBackendClient:
             _raise_for_backend_status(response)
             return response.json()
 
+    async def managed_evaluation_request(
+        self, path: str, *, payload: dict | None = None, params: dict | None = None
+    ) -> dict:
+        """Read/seal a request without starting native work or GPU admission."""
+        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            async with client.stream(
+                "POST" if payload is not None else "GET",
+                f"{self.base_url}/managed-evaluation/{path}",
+                json=payload,
+                params=params,
+                headers=self._headers(),
+            ) as streamed:
+                response = await _bounded_stream_response(
+                    streamed,
+                    max_bytes=256 * 1024,
+                    reason="evaluation_response_too_large",
+                )
+            _raise_for_backend_status(response)
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("Evaluation backend response must be an object")
+            return data
+
     async def predict(
-        self, tasks: list[dict], context: dict | None = None
+        self,
+        tasks: list[dict],
+        context: dict | None = None,
+        *,
+        max_response_bytes: int | None = None,
     ) -> list[PredictionResult]:
         start = time.monotonic()
         outcome = "success"
@@ -538,15 +566,41 @@ class MLBackendClient:
                     async with httpx.AsyncClient(
                         timeout=settings.ml_predict_timeout
                     ) as client:
-                        resp = await client.post(
-                            f"{self.base_url}/predict",
-                            json=payload,
-                            headers=self._headers(grant),
-                        )
+                        if max_response_bytes is None:
+                            resp = await client.post(
+                                f"{self.base_url}/predict",
+                                json=payload,
+                                headers=self._headers(grant),
+                            )
+                        else:
+                            async with client.stream(
+                                "POST",
+                                f"{self.base_url}/predict",
+                                json=payload,
+                                headers=self._headers(grant),
+                            ) as streamed:
+                                if grant is not None:
+                                    grant.report_response(streamed.status_code)
+                                resp = await _bounded_stream_response(
+                                    streamed,
+                                    max_bytes=max_response_bytes,
+                                    reason="evaluation_response_too_large",
+                                )
                         if grant is not None:
                             grant.report_response(resp.status_code)
-                        resp.raise_for_status()
+                        if max_response_bytes is None:
+                            resp.raise_for_status()
+                        else:
+                            _raise_for_backend_status(resp)
                         data = resp.json()
+                        if max_response_bytes is not None and (
+                            not isinstance(data, dict)
+                            or not isinstance(data.get("results"), list)
+                            or any(
+                                not isinstance(item, dict) for item in data["results"]
+                            )
+                        ):
+                            raise ValueError("Invalid batch prediction response")
         except Exception:
             outcome = "error"
             observe_ml_backend(self.backend_id, outcome, time.monotonic() - start)

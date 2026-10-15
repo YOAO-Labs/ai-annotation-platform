@@ -121,3 +121,4 @@
 - [0076](archive/0076-controlled-trained-model-identity.md) — 受控模型、部署与发布分离，预测冻结权重及类别来源
 - [0077](archive/0077-native-augmentation-preview-cpu-ownership.md) — 原生增强预览采用独立且有界的 CPU 所有权，确认退出后发布并保留过期清理墓碑
 - [0078](archive/0078-attempt-observability-and-redacted-logs.md) — 执行观测独立于训练所有权，日志保存前脱敏并通过不可变历史副本下载
+- [0079](archive/0079-frozen-sample-evaluation.md) — 冻结逐样本证据、后端请求锁／收据与当前源核对

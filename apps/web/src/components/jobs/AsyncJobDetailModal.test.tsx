@@ -21,10 +21,12 @@ const mocks = vi.hoisted(() => ({
   retry: vi.fn(),
   dataset: vi.fn(),
   project: vi.fn(),
+  evaluation: vi.fn(),
 }));
 vi.mock("@/api/asyncJobs", () => ({ asyncJobsApi: { get: mocks.get, retryFailed: mocks.retry } }));
 vi.mock("@/api/datasets", () => ({ datasetsApi: { get: mocks.dataset } }));
 vi.mock("@/api/projects", () => ({ projectsApi: { get: mocks.project } }));
+vi.mock("@/api/sampleEvaluations", () => ({ sampleEvaluationsApi: { get: mocks.evaluation } }));
 import { AsyncJobDetailModal } from "./AsyncJobDetailModal";
 
 const job: AsyncJob = {
@@ -141,6 +143,52 @@ describe("共享后台任务详情", () => {
       expect(screen.getByTestId("location")).toHaveTextContent("/datasets?dataset=d1"),
     );
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("opens the recorded evaluation attempt rather than silently replacing it with the current one", async () => {
+    mocks.get.mockResolvedValue({
+      ...job,
+      kind: "sample_evaluation",
+      payload: { evaluation_id: "e1", attempt_id: "old" },
+    });
+    mocks.evaluation.mockResolvedValue({
+      id: "e1",
+      project_id: "p1",
+      current_attempt_id: "new",
+      attempts: [{ id: "old" }, { id: "new" }],
+    });
+    renderModal();
+    fireEvent.click(await screen.findByRole("button", { name: "查看评估尝试" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/projects/p1/learning/evaluations/e1?attempt=old",
+      ),
+    );
+  });
+
+  it("does not navigate from a delayed evaluation lookup through a batched account ABA", async () => {
+    mocks.get.mockResolvedValue({
+      ...job,
+      kind: "sample_evaluation",
+      payload: { evaluation_id: "e1", attempt_id: "old" },
+    });
+    let resolve!: (value: unknown) => void;
+    mocks.evaluation.mockImplementation(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+    const { onClose } = renderModal();
+    fireEvent.click(await screen.findByRole("button", { name: "查看评估尝试" }));
+    await waitFor(() => expect(mocks.evaluation).toHaveBeenCalledOnce());
+    act(() => {
+      useAuthStore.getState().setAuth("other-token", { id: "other" } as MeResponse);
+      useAuthStore.getState().setAuth("detail-u1-token", { id: "u1" } as MeResponse);
+    });
+    await act(async () => resolve({ id: "e1", project_id: "p1", attempts: [{ id: "old" }] }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("keeps the detail mounted when a sibling leave dialog is cancelled by pointer", async () => {

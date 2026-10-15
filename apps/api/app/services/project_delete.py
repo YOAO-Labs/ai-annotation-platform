@@ -17,6 +17,16 @@ async def delete_project_records(db: AsyncSession, project: Project) -> None:
         select(Project.id).where(Project.id == project.id).with_for_update()
     )
     from app.db.models.learning_policy import LearningPolicy
+    from app.db.models.sample_evaluation import SampleEvaluationRun
+
+    if await db.scalar(
+        select(SampleEvaluationRun.id)
+        .where(SampleEvaluationRun.project_id == project.id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=409, detail="项目包含冻结样本评估，请先结束并删除评估"
+        )
 
     if await db.scalar(
         select(LearningPolicy.id)

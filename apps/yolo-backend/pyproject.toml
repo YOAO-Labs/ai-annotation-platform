@@ -40,7 +40,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle", "managed_models"]
+py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle", "managed_models", "sample_evaluations"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu132" }

@@ -33,6 +33,7 @@ celery_app = Celery(
         # v0.10.27 · 导出异步化 + 过期产物清理
         "app.workers.export",
         "app.workers.training_dataset",
+        "app.workers.sample_evaluations",
         "app.workers.training_preview_cleanup",
         "app.workers.training_observability_cleanup",
         "app.workers.learning_policy",
@@ -100,6 +101,8 @@ celery_app.conf.update(
         # v0.10.27 · 导出 worker 独立 export 队列；过期产物清理走 cleanup
         "app.workers.export.run_export": {"queue": "export"},
         "app.workers.training_dataset.run_training_dataset": {"queue": "export"},
+        "app.workers.sample_evaluations.run_sample_evaluation": {"queue": "ml.cpu"},
+        "app.workers.sample_evaluations.maintain_evaluations": {"queue": "default"},
         "app.workers.training_preview_cleanup.purge_expired_previews": {
             "queue": "cleanup"
         },
@@ -140,6 +143,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "maintain-sample-evaluations": {
+            "task": "app.workers.sample_evaluations.maintain_evaluations",
+            "schedule": crontab(minute="*"),
+        },
         "purge-training-observations": {
             "task": "app.workers.training_observability_cleanup.purge_observations",
             "schedule": crontab(minute=0),

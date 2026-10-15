@@ -19,8 +19,9 @@ from aap_protocol_v2 import (
     log_deprecated_model_variant_fields,
     normalize_context_model_variants,
 )
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from managed_models import ManagedModelRef
+from sample_evaluations import EvaluationRequest
 
 __all__ = [
     "BatchPredictRequest",
@@ -115,6 +116,9 @@ class Context(BaseModel):
     model_variants: dict[str, str] | None = None
     variants: Variants | None = None
     frozen_model_ref: ManagedModelRef | None = None
+    sample_evaluation: EvaluationRequest | None = None
+    _evaluation_profile: dict | None = PrivateAttr(default=None)
+    _evaluation_meta: dict | None = PrivateAttr(default=None)
     params: PredictParams = Field(default_factory=PredictParams)
     # 类别白名单 (模型原生类别 index 子集). 非空时只检出这些类; 空/缺=全部类别.
     # 平台不做类→项目标签映射 (NG6), 仅在推理层用 ultralytics model.predict(classes=) 过滤.
@@ -163,6 +167,15 @@ class Context(BaseModel):
 
     @model_validator(mode="after")
     def _validate_combination(self) -> "Context":
+        if self.sample_evaluation and (
+            not self.frozen_model_ref
+            or self.type != "detection"
+            or self.classes is not None
+            or self.params.max_det != 100
+        ):
+            raise ValueError(
+                "Sample evaluation requires controlled full-class detection with max_det=100"
+            )
         # 真实组合是否在 MODEL_MATRIX 内, 留到 main /predict 处理;
         # schema 层只防住 enum 之外的 series/size 字符串拼写错误.
         if self.frozen_model_ref:
@@ -212,6 +225,12 @@ class InteractiveRequest(BaseModel):
 class BatchPredictRequest(BaseModel):
     tasks: list[TaskItem]
     context: Context
+
+    @model_validator(mode="after")
+    def _evaluation_has_one_sample(self):
+        if self.context.sample_evaluation and len(self.tasks) != 1:
+            raise ValueError("Sample evaluation requires exactly one task per request")
+        return self
 
     @model_validator(mode="before")
     @classmethod

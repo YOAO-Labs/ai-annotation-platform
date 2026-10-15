@@ -36,6 +36,7 @@ from model_registry import (
 )
 from observability import record_inference
 from schemas import Context, model_key_for_context
+from sample_evaluations import FIXED_OPTIONS, observed_inference
 
 logger = logging.getLogger("yolo-backend.predictor")
 
@@ -282,6 +283,15 @@ class YoloPredictor:
         img = fetch_image(file_path)
         img_w, img_h = img.size
         started = time.monotonic()
+        options = (
+            {
+                key: value
+                for key, value in FIXED_OPTIONS.items()
+                if key not in {"max_det", "classes", "verbose"}
+            }
+            if ctx.sample_evaluation
+            else {}
+        )
         results = model.predict(
             img,
             conf=params.conf,
@@ -290,15 +300,22 @@ class YoloPredictor:
             classes=getattr(ctx, "classes", None) or None,
             device=str(model.device),
             verbose=False,
+            **options,
         )
         elapsed = time.monotonic() - started
         _, series, size = model_key_for_context(ctx)
         record_inference(task, series, size, elapsed)
         inference_ms = int(elapsed * 1000)
+        if ctx.sample_evaluation:
+            ctx._evaluation_meta = observed_inference(model, ctx, img_w, img_h)
         if not results:
             return [], inference_ms
 
         result = results[0]
+        if ctx.sample_evaluation and tuple(result.orig_shape) != (img_h, img_w):
+            raise ValueError(
+                "Evaluation result logical dimensions differ from normalized input"
+            )
         names: dict[int, str] = getattr(result, "names", {}) or getattr(
             model, "names", {}
         )

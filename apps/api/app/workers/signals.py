@@ -57,6 +57,12 @@ async def _apply_terminal(
             aj = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if aj is None:
                 return
+            if aj.kind == "sample_evaluation":
+                from app.services.sample_evaluations import signal_interrupted
+
+                await signal_interrupted(db, aj, cancelled=cancelled)
+                await db.commit()
+                return
             if cancelled:
                 await async_job_svc.mark_cancelled(db, aj.id)
             else:

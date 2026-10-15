@@ -19,6 +19,7 @@ import copy
 import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,7 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_admission_header_values,
     parse_gpu_control_token_header_values,
 )
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import ValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -100,6 +101,14 @@ from observability import (
     update_pool_size,
 )
 from predictor import YoloPredictor
+from sample_evaluations import (
+    EvaluationRequestStore,
+    EvaluationSeal,
+    error as evaluation_error,
+    qualification_profile,
+    request_binding,
+    verify_input,
+)
 from schemas import (
     BatchPredictRequest,
     Context,
@@ -131,6 +140,7 @@ STRICT_OFFLINE = os.environ.get("YOLO_STRICT_OFFLINE", "0") not in (
 )
 CHECKPOINTS_DIR = Path(os.environ.get("YOLO_CHECKPOINTS_DIR", "/app/checkpoints"))
 _managed_models = ManagedModelStore(CHECKPOINTS_DIR / "managed")
+_evaluation_requests = EvaluationRequestStore(CHECKPOINTS_DIR / "managed-evaluations")
 # Code support and deployment verification are separate. The backend does not
 # advertise or enter enforce mode until real-card load/unload evidence exists.
 MANAGED_LIFECYCLE_VERIFIED = deployment_verified_flag("YOLO_MANAGED_LIFECYCLE_VERIFIED")
@@ -923,6 +933,37 @@ async def managed_model_receipt(version_id: str, request: Request):
         raise HTTPException(status_code=422, detail="Invalid model version") from exc
 
 
+@app.get("/managed-evaluation/profile")
+async def evaluation_profile(request: Request):
+    authenticate_managed(request)
+    return await asyncio.to_thread(
+        qualification_profile,
+        effective_device(DEVICE),
+        _evaluation_requests.storage_identity,
+    )
+
+
+@app.get("/managed-evaluation/requests/{request_id}")
+async def evaluation_receipt(
+    request_id: uuid.UUID,
+    request: Request,
+    binding_digest: str = Query(pattern=r"^[a-f0-9]{64}$"),
+    storage_identity: uuid.UUID = Query(),
+):
+    authenticate_managed(request)
+    return _evaluation_requests.receipt(
+        request_id, binding_digest=binding_digest, storage_identity=storage_identity
+    )
+
+
+@app.post("/managed-evaluation/requests/{request_id}/seal")
+async def seal_evaluation_request(
+    request_id: uuid.UUID, body: EvaluationSeal, request: Request
+):
+    authenticate_managed(request)
+    return _evaluation_requests.seal(request_id, body)
+
+
 async def _run_predict(
     req: BatchPredictRequest,
     *,
@@ -953,6 +994,10 @@ async def _run_predict(
             result_items, cache_hit, load_ms, infer_ms = await _predictor.predict_one(
                 t.file_path, ctx
             )
+            if ctx.sample_evaluation and ctx._evaluation_meta is None:
+                raise ValueError(
+                    "Evaluation inference did not observe its effective settings"
+                )
             score = max((r.get("score", 0.0) for r in result_items), default=0.0)
             results.append(
                 PredictionResult(
@@ -962,7 +1007,14 @@ async def _run_predict(
                     model_version=ctx.model_id
                     if controlled_identity
                     else f"{ctx.variants.series}{ctx.variants.size}",
-                    meta={"trained_model": controlled_identity}
+                    meta={
+                        "trained_model": controlled_identity,
+                        **(
+                            {"sample_evaluation": ctx._evaluation_meta}
+                            if ctx.sample_evaluation
+                            else {}
+                        ),
+                    }
                     if controlled_identity
                     else None,
                     inference_time_ms=infer_ms,
@@ -1001,6 +1053,65 @@ async def _run_predict(
     return results
 
 
+async def _run_sample_evaluation(req, *, operation):
+    ctx = req.context
+    request = ctx.sample_evaluation
+    profile = await asyncio.to_thread(
+        qualification_profile,
+        effective_device(DEVICE),
+        _evaluation_requests.storage_identity,
+    )
+    if profile["profile_digest"] != request.profile_digest:
+        raise evaluation_error(
+            409,
+            "evaluation_profile_changed",
+            "Frozen inference runtime profile is unavailable",
+        )
+    expected = request_binding(
+        req.tasks[0].id,
+        ctx.frozen_model_ref.model_dump(mode="json"),
+        {"conf": ctx.params.conf, "iou": ctx.params.iou, "max_det": ctx.params.max_det},
+        request,
+    )
+    if expected != request.binding_digest:
+        raise evaluation_error(
+            409,
+            "evaluation_request_identity_conflict",
+            "Evaluation request binding differs from its input",
+        )
+    dimensions = await asyncio.to_thread(verify_input, req.tasks[0].file_path, request)
+    ctx._evaluation_profile = profile
+    with _evaluation_requests.execution(request) as receipt:
+        if receipt["state"] == "completed":
+            return copy.deepcopy(receipt["response"])
+        try:
+            results = await _run_predict(req, operation=operation)
+        finally:
+            # A timed-out/cancelled borrower can leave its native loader running.
+            # Keep the request lock until that owner actually exits, including
+            # repeated transport cancellation while waiting for it.
+            builder = _model_pool.builder_for_now(*model_key_for_context(ctx))
+            cancelled = False
+            while builder is not None and not builder.done():
+                try:
+                    await asyncio.shield(builder)
+                except asyncio.CancelledError:
+                    cancelled = True
+                except BaseException:
+                    break
+            if cancelled:
+                raise asyncio.CancelledError
+        if any(ctx._evaluation_meta[key] != value for key, value in dimensions.items()):
+            raise evaluation_error(
+                409,
+                "evaluation_input_changed",
+                "Observed inference dimensions differ from verified input",
+            )
+        response = BatchPredictResponse(results=results).model_dump(exclude_none=True)
+        _evaluation_requests.publish(request, receipt, response)
+        return response
+
+
 @app.post("/predict")
 async def predict(request: Request) -> dict[str, Any]:
     """批量 (复数 tasks[]) 与交互 (单数 task) 共用端点, 按 wire 形态回不同响应:
@@ -1023,6 +1134,8 @@ async def predict(request: Request) -> dict[str, Any]:
                     status_code=422,
                     detail="Controlled models support batch image detection only",
                 )
+        if req.context.sample_evaluation:
+            return await _run_sample_evaluation(req, operation=operation)
         results = await _run_predict(req, operation=operation)
         if is_single:
             return results[0].model_dump(exclude_none=True)
