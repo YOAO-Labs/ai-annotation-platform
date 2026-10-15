@@ -38,6 +38,17 @@ def atomic_json(path: Path, value: dict) -> None:
     sync_directory(path.parent)
 
 
+def atomic_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    with temporary.open("wb") as target:
+        target.write(data)
+        target.flush()
+        os.fsync(target.fileno())
+    os.replace(temporary, path)
+    sync_directory(path.parent)
+
+
 def extract_dataset(archive: Path, destination: Path) -> Path:
     destination.mkdir(parents=True, exist_ok=False)
     total = 0

@@ -49,16 +49,42 @@ async def catalog(db: AsyncSession = Depends(get_db)):
         and lease.last_seen_at > service.now() - timedelta(seconds=30)
     )
     for item in result["items"]:
+        legacy = {
+            "framework": item["framework"],
+            "framework_version": item["version"],
+            "image_digest": item["image_digest"],
+            "base_model": item["base_models"][0],
+            "adapter_revision": 1,
+        }
         item["compatible"] = (
             bool(
                 lease.runtime.get("gpu_uuid") == settings.training_gpu_uuid
-                and lease.runtime.get("image_digest") == item["image_digest"]
-                and lease.runtime.get("frameworks", {}).get(item["framework"])
-                == item["version"]
+                and service.runtime_compatible(legacy, lease.runtime)
             )
             if online
             else None
         )
+        for schema in item["parameter_schemas"]:
+            identity = {
+                key: value
+                for key, value in schema.items()
+                if key not in {"field_count", "editable_count"}
+            }
+            schema["compatible"] = (
+                bool(
+                    lease.runtime.get("gpu_uuid") == settings.training_gpu_uuid
+                    and service.runtime_compatible(
+                        {
+                            **legacy,
+                            "adapter_revision": 2,
+                            "configuration": {"identity": identity},
+                        },
+                        lease.runtime,
+                    )
+                )
+                if online
+                else None
+            )
     return {
         **result,
         "online": online,

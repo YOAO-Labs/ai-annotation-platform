@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
+from training_contract import definition, resolve, schema_identity, verify_native
+from training_contract.validation import CANONICAL
 
 from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -90,6 +93,7 @@ def catalog():
                     "image_digest": image,
                     "base_models": valid_models,
                     "capabilities": capabilities(framework),
+                    "parameter_schemas": parameter_summaries(framework, valid_models),
                 }
             )
     return {
@@ -97,6 +101,71 @@ def catalog():
         "resource_id": resource_id() if enabled else None,
         "items": items,
     }
+
+
+def parameter_summaries(framework, models):
+    schemas = {}
+    for base in models:
+        try:
+            schema = definition(framework, base["id"])
+        except ValueError:
+            continue
+        identity = schema_identity(schema)
+        identity["field_count"] = len(schema["fields"])
+        identity["editable_count"] = sum(
+            field["status"] == "editable" for field in schema["fields"]
+        )
+        schemas[schema["schema_id"]] = identity
+    return list(schemas.values())
+
+
+def resolve_configuration(framework, base_model, configuration):
+    try:
+        return resolve(framework, base_model, configuration)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def runtime_compatible(config, runtime):
+    framework = config["framework"]
+    if config["framework_version"] != runtime.get("frameworks", {}).get(framework):
+        return False
+    revision = config.get("adapter_revision", 1)
+    protocol = runtime.get("executor_protocol")
+    if protocol is None:
+        supported = revision == 1 and "configuration" not in config
+    elif protocol == 2:
+        try:
+            family = definition(framework, config["base_model"]["id"])["model_family"]
+        except (KeyError, ValueError):
+            return False
+        identity = {
+            "framework": framework,
+            "framework_version": config["framework_version"],
+            "adapter_revision": revision,
+            "task": "image-detection",
+            "model_family": family,
+        }
+        if revision == 2:
+            identity = config.get("configuration", {}).get("identity")
+            if not identity:
+                return False
+        supported = identity in runtime.get("supported_configs", [])
+    else:
+        return False
+    if not supported:
+        return False
+    if config["image_digest"] == runtime.get("image_digest"):
+        return True
+    entry = settings.training_catalog_json.get(framework, {})
+    return bool(
+        revision == 1
+        and "configuration" not in config
+        and protocol == 2
+        and entry.get("version") == config["framework_version"]
+        and entry.get("image_digest") == runtime.get("image_digest")
+        and config["image_digest"] in entry.get("legacy_images", [])
+    )
 
 
 async def authority(db, run):
@@ -158,6 +227,22 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         "resource_id": resource_id(),
         "fixed_options": fixed_options(body.framework),
     }
+    if body.configuration is not None:
+        configuration = resolve_configuration(
+            body.framework, body.base_model, body.configuration.model_dump()
+        )
+        config.update(
+            adapter_revision=2,
+            configuration=configuration,
+            parameters={
+                key: configuration["effective_values"][key] for key in CANONICAL
+            },
+            fixed_options={
+                key: value
+                for key, value in configuration["effective_values"].items()
+                if configuration["origins"][key] == "platform"
+            },
+        )
     return config
 
 
@@ -381,11 +466,8 @@ async def claim(db, body):
     ).all()
     for run in candidates:
         config = run.config
-        if (
-            config["resource_id"] != body.resource_id
-            or config["image_digest"] != body.runtime.get("image_digest")
-            or config["framework_version"]
-            != body.runtime.get("frameworks", {}).get(config["framework"])
+        if config["resource_id"] != body.resource_id or not runtime_compatible(
+            config, body.runtime
         ):
             continue
         attempt = await db.get(TrainingAttempt, run.current_attempt_id)
@@ -541,6 +623,34 @@ def verify_artifact(key, spec, attempt_id):
         response["Body"].close()
 
 
+def verify_native_artifact(run, attempt, artifacts):
+    receipt = artifacts.get("native-config.json")
+    if (
+        not receipt
+        or receipt["role"] != "config"
+        or receipt["size_bytes"] > 1024 * 1024
+    ):
+        raise ValueError(
+            "v2 success requires a bounded native configuration observation"
+        )
+    response = storage.client.get_object(
+        Bucket=storage.training_bucket, Key=receipt["key"]
+    )
+    try:
+        blob = json.loads(response["Body"].read(1024 * 1024 + 1))
+    finally:
+        response["Body"].close()
+    if blob["config_digest"] != run.config_digest or bool(
+        blob["runtime_options"]["resume"]
+    ) != bool(attempt.resume_from_id):
+        raise ValueError(
+            "Native observation is not bound to this frozen configuration/attempt"
+        )
+    expected = verify_native(run.config, blob["observed"], blob["runtime_options"])
+    if blob["verification"] != expected:
+        raise ValueError("Native configuration verification receipt mismatch")
+
+
 async def finish(db, attempt_id, body):
     lease, run, attempt = await fenced(db, attempt_id, body, allow_terminal=True)
     request_digest = content_digest(body.model_dump(mode="json"))
@@ -575,6 +685,13 @@ async def finish(db, attempt_id, body):
         "log",
     } <= {item["role"] for item in artifacts.values()}:
         raise HTTPException(status_code=422, detail="成功训练缺少必要产物")
+    if status == "succeeded" and run.config.get("adapter_revision") == 2:
+        try:
+            await asyncio.to_thread(verify_native_artifact, run, attempt, artifacts)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(
+                status_code=422, detail="原生参数观测缺失或与冻结配置不符"
+            ) from exc
     attempt.artifacts = artifacts
     attempt.finish_request_digest = request_digest
     await mark_terminal(db, run, attempt, status, body.error_message)

@@ -244,6 +244,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/projects/{project_id}/training-runs" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-runs" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/catalog" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/parameter-schema" = { status = "excluded", reason = "web-only" }
 "DELETE /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/artifacts/{name}/download" = { status = "excluded", reason = "web-only" }

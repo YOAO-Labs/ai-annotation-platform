@@ -739,6 +739,7 @@
 |---|---|
 | GET | `/catalog` |
 | POST | `:preflight` |
+| GET | `/parameter-schema` |
 | GET | `/{run_id}` |
 | GET | `/{run_id}/events` |
 | POST | `/{run_id}/cancel` |
@@ -800,4 +801,4 @@
 
 ---
 
-_共 73 模块 / 458 路由_
+_共 73 模块 / 459 路由_

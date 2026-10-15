@@ -6,7 +6,21 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
+
+
+class TrainingConfiguration(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    schema_id: str = Field(min_length=1, max_length=150)
+    schema_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    values: dict[str, JsonValue] = Field(default_factory=dict, max_length=150)
 
 
 class TrainingParameters(BaseModel):
@@ -26,6 +40,7 @@ class TrainingRunCreate(BaseModel):
     framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
     base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
+    configuration: TrainingConfiguration | None = None
     request_id: uuid.UUID
     preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
@@ -35,6 +50,21 @@ class TrainingRunCreate(BaseModel):
         if not value.strip():
             raise ValueError("实验名称不能为空")
         return value.strip()
+
+    @model_validator(mode="after")
+    def one_parameter_source(self):
+        if self.configuration is not None and "parameters" in self.model_fields_set:
+            raise ValueError("configuration 与旧 parameters 不能同时提交")
+        return self
+
+    def request_payload(self):
+        payload = self.model_dump(mode="json")
+        if self.configuration is None:
+            # Preserve v1 digests exactly, including preflight_digest=None.
+            payload.pop("configuration")
+        else:
+            payload.pop("parameters")
+        return payload
 
 
 class TrainingRunOut(BaseModel):

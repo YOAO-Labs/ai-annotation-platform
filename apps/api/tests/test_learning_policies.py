@@ -13,7 +13,49 @@ from app.services import learning_policies as service, training_runs as runs
 from app.services.training_dataset_bridge import semantic_partitions
 from tests.test_training_runs import ready_dataset, executor_claim
 
-pytest_plugins = ["tests.test_training_runs"]
+from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("training_config_fixture")
+
+
+async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effective_values(
+    db_session, super_admin, httpx_client, frozen_source
+):
+    from training_contract import definition
+
+    owner, token = super_admin
+    project, parent, policy, path, body = await setup_policy(
+        db_session, httpx_client, owner, token
+    )
+    legacy = copy.deepcopy(policy.config)
+    assert "configuration" not in legacy
+    assert service.template_current(policy)
+    schema = definition("ultralytics")
+    update = {key: value for key, value in body.items() if key != "parameters"}
+    update.update(
+        expected_revision=1,
+        configuration={
+            "schema_id": schema["schema_id"],
+            "schema_digest": schema["schema_digest"],
+            "values": {
+                "epochs": 4,
+                "optimizer": "AdamW",
+                "close_mosaic": 0,
+                "mosaic": 0.5,
+            },
+        },
+    )
+    response = await httpx_client.put(
+        path, json=update, headers={"Authorization": "Bearer " + token}
+    )
+    assert response.status_code == 200, response.text
+    await db_session.refresh(policy)
+    assert policy.revision == 2 and policy.config["parameters"]["epochs"] == 4
+    pinned = copy.deepcopy(policy.config["configuration"])
+    _, _, run = await build_candidate(db_session, policy)
+    assert run.config["configuration"] == pinned
+    assert run.config["adapter_revision"] == 2
+    assert run.config["parameters"] == policy.config["parameters"]
 
 
 def manifest(train=None, val="v1", classes=None):
@@ -148,7 +190,7 @@ def test_semantic_identity_ignores_ids_paths_duplicates_and_validation_only_grow
 
 
 async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
-    db_session, super_admin, httpx_client, training_config, frozen_source, monkeypatch
+    db_session, super_admin, httpx_client, frozen_source, monkeypatch
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -181,7 +223,7 @@ async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
 
 
 async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is_skipped(
-    db_session, test_engine, super_admin, httpx_client, training_config, frozen_source
+    db_session, test_engine, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -240,7 +282,7 @@ async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is
 
 
 async def test_failure_retains_baseline_and_val_only_change_cannot_retry_gpu(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -275,7 +317,7 @@ async def test_failure_retains_baseline_and_val_only_change_cannot_retry_gpu(
 
 
 async def test_success_alone_advances_baseline_and_edits_during_training_survive(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -305,7 +347,7 @@ async def test_success_alone_advances_baseline_and_edits_during_training_survive
 
 
 async def test_validation_only_candidate_does_not_trigger_training(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -320,7 +362,7 @@ async def test_validation_only_candidate_does_not_trigger_training(
 
 @pytest.mark.parametrize("started", [False, True])
 async def test_disable_cancels_only_unclaimed_training(
-    db_session, super_admin, httpx_client, training_config, frozen_source, started
+    db_session, super_admin, httpx_client, frozen_source, started
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -340,7 +382,7 @@ async def test_disable_cancels_only_unclaimed_training(
 
 
 async def test_claim_rechecks_policy_revision_even_when_tick_has_not_cancelled(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -358,7 +400,6 @@ async def test_current_authority_status_and_fixed_catalog_stop_future_runs(
     db_session,
     super_admin,
     httpx_client,
-    training_config,
     frozen_source,
     monkeypatch,
     reason,
@@ -393,7 +434,7 @@ async def test_current_authority_status_and_fixed_catalog_stop_future_runs(
 
 
 async def test_identical_snapshot_is_not_packaged_again_and_policy_delete_keeps_run_audit(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -426,7 +467,7 @@ async def test_identical_snapshot_is_not_packaged_again_and_policy_delete_keeps_
 
 
 async def test_revoked_policy_still_reconciles_started_terminal_run(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -449,7 +490,7 @@ async def test_revoked_policy_still_reconciles_started_terminal_run(
 
 
 async def test_api_key_revocation_and_nonmanager_access_are_enforced(
-    db_session, super_admin, annotator, httpx_client, training_config, frozen_source
+    db_session, super_admin, annotator, httpx_client, frozen_source
 ):
     from app.db.models.api_key import ApiKey
 
@@ -478,7 +519,7 @@ async def test_api_key_revocation_and_nonmanager_access_are_enforced(
 
 
 async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue_disabled_policy(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     from app.db.models.training_run import TrainingAttempt
 
@@ -521,7 +562,7 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
 
 
 async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
-    db_session, super_admin, training_config, monkeypatch
+    db_session, super_admin, monkeypatch
 ):
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from tests.factory import create_project
@@ -556,7 +597,7 @@ async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
 
 
 async def test_success_parent_advance_without_source_change_does_not_repackage(
-    db_session, super_admin, httpx_client, training_config, frozen_source
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(

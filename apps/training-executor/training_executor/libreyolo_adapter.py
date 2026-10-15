@@ -6,8 +6,8 @@ import json
 import logging
 import os
 from pathlib import Path
-from .files import atomic_json, digest_file, immutable_copy, sync_directory
-from .train import emit, metrics_of
+from .files import atomic_json, atomic_bytes, digest_file, immutable_copy
+from .train import emit, metrics_of, record_native_configuration
 
 VERSION = "1.6.0"
 
@@ -87,17 +87,6 @@ def validate_checkpoint(blob, spec, *, epoch=None, resume=False):
     return blob
 
 
-def atomic_bytes(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    with temporary.open("wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(temporary, path)
-    sync_directory(path.parent)
-
-
 class CheckpointCallbacks:
     def __init__(self, spec, output, resume=None):
         self.spec, self.output, self.resume = spec, output, resume
@@ -124,6 +113,22 @@ class CheckpointCallbacks:
             atomic_bytes(
                 Path(event.save_dir) / "weights/best.pt",
                 self.resume["aap_resume"]["best_weights"],
+            )
+        if self.spec["frozen_config"]["adapter_revision"] == 2:
+            record_native_configuration(
+                self.spec,
+                self.output,
+                dict(event.config),
+                {
+                    "data": self.spec["data_yaml"],
+                    "project": str(self.output),
+                    "name": "framework",
+                    "exist_ok": False,
+                    "resume": bool(self.resume),
+                    "num_classes": len(self.spec["frozen_config"]["classes"]),
+                    "size": self.spec["frozen_config"]["base_model"]["id"][-1].lower(),
+                    "data_dir": None,
+                },
             )
         emit(self.output, "training")
 
@@ -295,7 +300,7 @@ def libreyolo_train(spec, output):
     handler = StrictResumeLogging()
     logger.addHandler(handler)
     try:
-        model.train(
+        arguments = dict(
             **spec["parameters"],
             data=spec["data_yaml"],
             device="cuda:0",
@@ -316,6 +321,20 @@ def libreyolo_train(spec, output):
             callbacks=callbacks,
             loggers=[],
         )
+        if spec["frozen_config"]["adapter_revision"] == 2:
+            arguments = {
+                **spec["frozen_config"]["configuration"]["effective_values"],
+                "data": spec["data_yaml"],
+                "project": str(output),
+                "name": "framework",
+                "exist_ok": False,
+                "resume": spec.get("resume_path") or False,
+                "callbacks": callbacks,
+                "loggers": [],
+                "cuda_graph": False,
+                "compile": False,
+            }
+        model.train(**arguments)
     finally:
         logger.removeHandler(handler)
     best = output / "framework/weights/best.pt"

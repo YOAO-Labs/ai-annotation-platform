@@ -2,7 +2,7 @@
 
 > Status: trigger-gated research-draft
 > Priority: independent capability expansion after the parameter contract
-> Depends on: [T01](1792035920_training-parameter-catalog.md); task-specific input/evaluator/checkpoint/inference qualification
+> Depends on: [T01](../1792035920_training-parameter-catalog.md); task-specific input/evaluator/checkpoint/inference qualification
 > Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and promotion trigger

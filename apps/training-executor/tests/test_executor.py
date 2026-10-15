@@ -10,7 +10,7 @@ from zipfile import ZipFile
 import httpx
 import pytest
 
-from training_executor.files import extract_dataset, immutable_copy
+from training_executor.files import digest_file, extract_dataset, immutable_copy
 from training_executor.worker import Supervisor, live_group, stop_process
 from training_executor.train import ultralytics_report
 
@@ -183,3 +183,61 @@ def test_claim_request_is_replayable_after_lost_http_response(tmp_path):
         json.loads(supervisor.journal_path.read_text())["assignment"]["attempt_id"]
         == "same-attempt"
     )
+
+
+def test_cancel_after_resume_download_preserves_input_before_child_starts(tmp_path):
+    supervisor = object.__new__(Supervisor)
+    supervisor.state = tmp_path
+    supervisor.models = tmp_path / "models"
+    supervisor.models.mkdir()
+    base = supervisor.models / "base.pt"
+    base.write_bytes(b"controlled base")
+    supervisor.journal_path = tmp_path / "journal.json"
+    supervisor.stop_training = threading.Event()
+    supervisor.shutdown = threading.Event()
+    supervisor.heartbeat_done = threading.Event()
+    supervisor.heartbeat = lambda *args: None
+    archive = tmp_path / "source.zip"
+    with ZipFile(archive, "w") as package:
+        package.writestr("data.yaml", "train: images/train")
+    full_checkpoint = b"previously verified complete native checkpoint"
+    config = {
+        "base_model": {"filename": "base.pt", "sha256": digest_file(base)},
+        "dataset_sha256": digest_file(archive),
+        "framework": "ultralytics",
+        "parameters": {"epochs": 10},
+    }
+    journal = {
+        "phase": "preparing",
+        "assignment": {
+            "attempt_id": "attempt",
+            "config": config,
+            "dataset_url": "dataset",
+            "resume": {
+                "url": "resume",
+                "epoch": 2,
+                "sha256": "verified-by-download",
+                "size_bytes": len(full_checkpoint),
+            },
+        },
+    }
+
+    def download(url, target, *args, **kwargs):
+        target.write_bytes(
+            archive.read_bytes() if url == "dataset" else full_checkpoint
+        )
+        if url == "resume":
+            supervisor.stop_training.set()
+
+    supervisor.download = download
+
+    def publish(current, directory):
+        assert current["outcome"] == "cancelled"
+        pointer = json.loads((directory / "checkpoint.json").read_text())
+        assert pointer["epoch"] == 2
+        assert (directory / pointer["name"]).read_bytes() == full_checkpoint
+        assert "process" not in current
+        return False
+
+    supervisor.upload_and_finish = publish
+    supervisor.execute(journal)

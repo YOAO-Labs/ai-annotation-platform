@@ -5,6 +5,7 @@ import type { TrainingDatasetSummary } from "@/api/trainingDatasets";
 import { Plus, FlaskConical } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { TrainingRunMonitor } from "../Training/TrainingRunMonitor";
+import { TrainingParameterInventory } from "../Training/TrainingParameterInventory";
 import { useTrainingEvents } from "../Training/useTrainingEvents";
 import {
   activeTrainingStates as active,
@@ -51,6 +52,7 @@ export function ProjectTrainingPanel({
   const [datasetId, setDatasetId] = useState("");
   const [chosenFramework, setFramework] = useState(initialFramework);
   const [createOpen, setCreateOpen] = useState(initialCreate);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
   const [attemptId, setAttemptId] = useState("");
   const [baseModel, setBaseModel] = useState("");
   const [parameters, setParameters] = useState({
@@ -531,6 +533,21 @@ export function ProjectTrainingPanel({
                 </label>
               ))}
             </fieldset>
+          </details>
+          <details
+            className="rounded-lg border border-border p-3 text-xs"
+            onToggle={(event) => setInventoryOpen(event.currentTarget.open)}
+          >
+            <summary className="cursor-pointer font-medium">完整参数目录 · 分组与支持边界</summary>
+            {inventoryOpen && (
+              <div className="mt-3">
+                <TrainingParameterInventory
+                  projectId={projectId}
+                  framework={framework}
+                  baseModel={modelId}
+                />
+              </div>
+            )}
           </details>
           <p className="mt-3 text-xs text-muted-foreground">
             使用固定数据与验证集。显存不足时会报告失败；取消后可从已保存的完整轮次续训。

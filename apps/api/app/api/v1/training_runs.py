@@ -4,6 +4,7 @@ import asyncio
 import secrets
 import uuid
 from datetime import timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
@@ -29,6 +30,8 @@ from app.schemas.training_run import (
     TrainingRunCreate,
     TrainingRunOut,
 )
+from app.schemas.training_hub import TrainingParameterSchema
+from training_contract import definition
 from app.api.v1.training_datasets import lock_owner
 from app.services import training_runs as service
 from app.services.storage import storage_service as storage
@@ -95,6 +98,26 @@ async def preflight(
     return {"config": config, "config_digest": content_digest(config)}
 
 
+@router.get("/parameter-schema", response_model=TrainingParameterSchema)
+async def parameter_schema(
+    framework: Literal["ultralytics", "libreyolo"],
+    base_model: str = Query(min_length=1, max_length=64),
+    project: Project = Depends(require_project_owner),
+):
+    template = next(
+        (item for item in service.catalog()["items"] if item["framework"] == framework),
+        None,
+    )
+    if not template or not any(
+        base["id"] == base_model for base in template["base_models"]
+    ):
+        raise HTTPException(status_code=422, detail="基础权重不在当前受控目录中")
+    try:
+        return definition(framework, base_model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post(
     "",
     response_model=TrainingRunOut,
@@ -112,7 +135,7 @@ async def create_run(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
     await lock_owner(db, user, project)
-    request_digest = content_digest(body.model_dump(mode="json"))
+    request_digest = content_digest(body.request_payload())
     existing = await db.scalar(
         select(TrainingRun).where(
             TrainingRun.project_id == project.id,

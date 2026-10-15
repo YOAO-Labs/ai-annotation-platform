@@ -90,6 +90,22 @@ function WarehouseCards({
           </div>
           {!compact && (
             <dl className="mt-4 space-y-3 border-t border-border pt-4 text-xs">
+              {(item.parameter_schemas ?? []).map((schema) => (
+                <div key={schema.schema_id}>
+                  <dt className="text-muted-foreground">{schema.model_family} 检测参数目录</dt>
+                  <dd className="mt-1">
+                    {schema.field_count} 个原生字段 · {schema.editable_count} 个支持编辑
+                  </dd>
+                  <dd className="mt-1 text-muted-foreground">
+                    {schema.compatible === true
+                      ? "执行器支持此参数契约"
+                      : schema.compatible === false
+                        ? "执行器需更新后才能使用扩展参数"
+                        : "等待执行器上线确认"}{" "}
+                    · 在项目内查看完整目录
+                  </dd>
+                </div>
+              ))}
               <div>
                 <dt className="text-muted-foreground">容器镜像摘要</dt>
                 <dd className="mt-1 break-all font-mono">{item.image_digest}</dd>

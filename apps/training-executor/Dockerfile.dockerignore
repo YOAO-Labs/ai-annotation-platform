@@ -1,0 +1,12 @@
+**
+!apps/
+!apps/_shared/
+!apps/_shared/training_contract/
+!apps/_shared/training_contract/**
+!apps/training-executor/
+!apps/training-executor/requirements.lock
+!apps/training-executor/training_executor/
+!apps/training-executor/training_executor/**
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/

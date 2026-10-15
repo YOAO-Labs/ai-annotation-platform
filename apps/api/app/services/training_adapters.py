@@ -1,9 +1,6 @@
 """Capabilities and fixed options of the qualified training adapters."""
 
-ADAPTERS = {
-    "ultralytics": {"version": "8.4.177", "revision": 1, "model_registration": True},
-    "libreyolo": {"version": "1.6.0", "revision": 1, "model_registration": False},
-}
+from training_contract import ADAPTERS  # re-export the shared legacy identity
 
 
 def capabilities(framework):

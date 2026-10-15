@@ -60,26 +60,48 @@ last_reviewed: 2026-10-15
 
 基路径 `/api/v1/projects/{project_id}/training-runs`，读取要求项目负责人或超级管理员及 `annotations:read`、`datasets:read`；创建、停止、续训和删除另需 `datasets:write`。
 
-| 方法   | 路径后缀                                                    | 行为                                                   |
-| ------ | ----------------------------------------------------------- | ------------------------------------------------------ |
-| GET    | `/catalog`                                                  | 受控框架、基础权重、执行器在线与忙闲状态               |
-| POST   | `:preflight`                                                | 检查就绪数据和有界参数，返回固定配置及 `config_digest` |
-| POST   | 空                                                          | 使用相同请求及 `preflight_digest` 创建实验，返回 `202` |
-| GET    | 空                                                          | 分页实验列表                                           |
-| GET    | `/{run_id}`                                                 | 实验及全部执行记录                                     |
-| GET    | `/{run_id}/events`                                          | 当前执行事件；`latest=true` 返回最近 100 条，按序排列  |
-| POST   | `/{run_id}/cancel`                                          | 请求停止；排队实验立即取消，运行实验等待退出确认       |
-| POST   | `/{run_id}/resume`                                          | 使用当前执行的已发布完整检查点创建下一次执行           |
-| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download` | 返回 10 分钟下载 URL、SHA-256 和大小                   |
-| DELETE | `/{run_id}`                                                 | 删除终态实验及全部产物                                 |
+| 方法   | 路径后缀                                                     | 行为                                                   |
+| ------ | ------------------------------------------------------------ | ------------------------------------------------------ |
+| GET    | `/catalog`                                                   | 受控框架、基础权重、执行器在线与忙闲状态               |
+| GET    | `/parameter-schema?framework=ultralytics&base_model=yolo11n` | 当前项目受控模型的完整参数元数据与定义身份             |
+| POST   | `:preflight`                                                 | 检查就绪数据和有界参数，返回固定配置及 `config_digest` |
+| POST   | 空                                                           | 使用相同请求及 `preflight_digest` 创建实验，返回 `202` |
+| GET    | 空                                                           | 分页实验列表                                           |
+| GET    | `/{run_id}`                                                  | 实验及全部执行记录                                     |
+| GET    | `/{run_id}/events`                                           | 当前执行事件；`latest=true` 返回最近 100 条，按序排列  |
+| POST   | `/{run_id}/cancel`                                           | 请求停止；排队实验立即取消，运行实验等待退出确认       |
+| POST   | `/{run_id}/resume`                                           | 使用当前执行的已发布完整检查点创建下一次执行           |
+| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download`  | 返回 10 分钟下载 URL、SHA-256 和大小                   |
+| DELETE | `/{run_id}`                                                  | 删除终态实验及全部产物                                 |
 
-创建请求包含 `name`、`dataset_id`、`framework`、受控 `base_model`、UUID `request_id` 和 `parameters`。参数范围：`epochs` 1–1000、`batch` 1–64、`imgsz` 128–1280 且为 32 的倍数、`lr0` 大于 0 且不超过 0.1、`seed` 0–2147483647、`patience` 0–1000。不接受任意框架参数。相同请求标识与内容重试返回原实验，防止网络中断后重复启动。
+创建请求包含 `name`、`dataset_id`、`framework`、受控 `base_model`、UUID `request_id` 和 `parameters`。参数范围：`epochs` 1–1000、`batch` 1–64、`imgsz` 128–1280 且为 32 的倍数、`lr0` 大于 0 且不超过 0.1、`seed` 0–2147483647、`patience` 0–1000。原六参数请求继续使用原适配器及精确幂等序列化，不接受任意框架参数。相同请求标识与内容重试返回原实验，防止网络中断后重复启动。
 
 `framework` 支持目录中已验证的 `ultralytics` 和 `libreyolo`。目录的 `capabilities` 返回 `task_types`、`resume`、`artifact_download` 与 `model_registration`；LibreYOLO 的模型注册能力为 false。配置固定适配器修订和框架原生选项。LibreYOLO 指标文件包含真实 `summary`、`native_raw`、`native_alias_semantics`、`per_class_available=false` 和最终评估权重 SHA-256，不将其别名解释为常规精确率／召回率。
 
 状态包括 `queued`、`preparing`、`training`、`evaluating`、`uploading`，停止时为 `cancelling`，终态为 `succeeded`、`failed`、`cancelled`。`lost` 表示心跳超时但仍持有资源，不能当作已停止。事件带当前 `attempt_id` 和连续 `sequence`，重复序号必须具有相同内容。
 
 事件读取可指定 `attempt_id` 和 `after` 游标，每次最多 100 条，默认按序递增。客户端用最后一条 `sequence` 继续分页，并为各次执行分别维护曲线；`latest=true` 用于单独读取最近事件。`run.metrics` 与轮次事件代表最近一轮的指标，最终最佳权重评估保存在已校验的 `metrics` 产物中。
+
+扩展请求先读取项目授权的 `parameter-schema`，然后在同一预检、创建接口提交 `configuration`，不能同时提交 `parameters`：
+
+```json
+{
+  "name": "增强与优化器对照",
+  "dataset_id": "<当前项目的就绪数据 UUID>",
+  "framework": "ultralytics",
+  "base_model": "yolo11n",
+  "request_id": "<新的 UUID>",
+  "configuration": {
+    "schema_id": "<目录返回的 schema_id>",
+    "schema_digest": "<目录返回的 schema_digest>",
+    "values": { "epochs": 20, "optimizer": "AdamW", "mosaic": 0.5 }
+  }
+}
+```
+
+创建时仍须带预检返回的 `preflight_digest`。服务端拒绝未知、保留、不适用或尚未验证的键，拒绝隐式类型转换、非有限数、别名冲突和无效依赖。列表保持顺序与精度；目前输入尺寸只开放方形整数，冻结层选择器仍需额外资格验证。`mixup` 在 LibreYOLO 请求中是 `mixup_prob` 的别名，不能同时提交。
+
+冻结的 `configuration` 保存 `identity`、`user_values`、`effective_values`、`origins` 与 `inactive_fields`。它与请求的 wire 结构不同，不能直接作为新请求回传。原生配置观测和核验结果通过 `native-config.json` 归档；扩展实验缺少该证据或配置不符时不能确认成功。
 
 独立执行器使用 `/api/v1/internal/training`，通过 `X-Training-Executor-Token` 认证，调用 `claim` 以及 `attempts/{id}/heartbeat`、`uploads`、`finish`、`recover`。这些接口不使用用户 JWT。回报同时校验当前执行、执行器、启动标识和租约凭据。执行器收到短期对象 URL，没有数据库或存储管理凭据；claim 发送前持久化请求标识，丢失响应后恢复同一个分配。
 
@@ -119,3 +141,7 @@ YOLO 的 `POST /managed-models` 和 `GET /managed-models/{version_id}` 使用 `B
 | `DELETE`                            | 仅移除已关闭且没有活跃触发或实验引用的策略与审计记录            |
 
 保存请求明确提供父数据版本、训练器、基础模型、训练参数、变化门槛、检查间隔和冷却时间；可指定当前项目批次。平台固定实际目录的版本、镜像、基础摘要和物理资源，客户端不能提交执行脚本或产物地址。只纳入已审核数据；首次没有成功基线时统计全部合格训练内容。关闭、撤权和目录变化阻止后续新实验；成功不会自动注册或发布模型。
+
+扩展执行器在 runtime 中声明 `executor_protocol: 2` 和精确的 `supported_configs` 身份列表。缺少握手的旧执行器只能领取原六参数实验；定义摘要或适配器修订不匹配不能领取扩展实验。全局目录的 `parameter_schemas[].compatible` 使用相同能力判定，离线为 `null`。旧租约的心跳、结束和恢复不依赖当前创建目录。
+
+自动策略可显式保存 `configuration`，固定同一参数定义与有效值，后续子实验按该快照解析。旧策略不自动采用扩展默认值。镜像、基础权重或参数定义发生变化时仍暂停策略，要求负责人检查并重新保存。

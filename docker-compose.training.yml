@@ -3,7 +3,8 @@ services:
     profiles: [training]
     image: ${TRAINING_IMAGE:?Set an immutable training image reference}
     build:
-      context: ./apps/training-executor
+      context: .
+      dockerfile: apps/training-executor/Dockerfile
     environment:
       TRAINING_API_URL: ${TRAINING_API_URL:-http://host.docker.internal:8000/api/v1/internal/training}
       TRAINING_EXECUTOR_TOKEN_FILE: /run/secrets/training_executor_token

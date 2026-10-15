@@ -704,3 +704,9 @@ backend `/health` 返回新增 `gpu_info` / `cache` 子对象，便于运维一�
 - 真正的 K8s helm chart / terraform module — 暂未维护，进 P3
 
 如团队需要，请先开 issue 讨论需求边界。
+
+### 训练参数契约与镜像升级
+
+训练镜像使用仓库根目录构建上下文：`docker build -f apps/training-executor/Dockerfile .`。专用 `Dockerfile.dockerignore` 仅包含执行器及共享参数包，避免将工作树运行数据或凭据发送到构建上下文。API 镜像也安装同一 `aap-training-contract` 包；更改定义后需要重建执行器、刷新对应 API/worker，并检查 runtime 的精确 `supported_configs` 与目录状态。
+
+保留历史冻结配置和旧镜像。仅在完成原生及恢复资格后，可为当前受控框架目录增加 `legacy_images: ["sha256:旧镜像身份"]`；它只允许新镜像执行已冻结的修订 1 实验，不能扩展参数或跨版本、跨资源领取。未配置时仍要求精确镜像。镜像目录改变后自动策略暂停，负责人重新保存后才采用新环境；不要改写历史配置摘要或强行释放 GPU 租约。

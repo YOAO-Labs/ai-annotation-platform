@@ -4,6 +4,7 @@ import type {
   TrainingParameters,
   TrainingRunCreate,
   TrainingRunOut,
+  TrainingParameterSchema,
 } from "./generated/types.gen";
 
 export type { TrainingAttemptOut, TrainingParameters, TrainingRunCreate, TrainingRunOut };
@@ -36,6 +37,10 @@ export interface TrainingEpochEvent {
 
 const base = (projectId: string) => `/projects/${projectId}/training-runs`;
 export const trainingRunsApi = {
+  parameterSchema: (projectId: string, framework: string, baseModel: string) =>
+    apiClient.get<TrainingParameterSchema>(
+      `${base(projectId)}/parameter-schema?framework=${encodeURIComponent(framework)}&base_model=${encodeURIComponent(baseModel)}`,
+    ),
   catalog: (projectId: string) => apiClient.get<TrainingCatalog>(`${base(projectId)}/catalog`),
   list: (projectId: string, offset = 0) =>
     apiClient.get<{ total: number; items: TrainingRunOut[] }>(

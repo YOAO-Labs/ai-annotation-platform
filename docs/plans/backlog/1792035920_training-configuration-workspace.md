@@ -2,7 +2,7 @@
 
 > Status: research-draft
 > Priority: first
-> Depends on: [T01 parameter catalog](1792035920_training-parameter-catalog.md)
+> Depends on: [T01 parameter catalog](../1792035920_training-parameter-catalog.md)
 > Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and existing owners

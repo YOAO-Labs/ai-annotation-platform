@@ -16102,6 +16102,7 @@
         "title": "InvitationStats",
         "type": "object"
       },
+      "JsonValue": {},
       "Keypoint": {
         "additionalProperties": false,
         "description": "单个关键点。v 为 COCO 可见性：0 未标注 / 1 遮挡 / 2 可见。",
@@ -16442,6 +16443,16 @@
             "title": "Check Interval Minutes",
             "type": "integer"
           },
+          "configuration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingConfiguration"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cooldown_minutes": {
             "maximum": 10080.0,
             "minimum": 0.0,
@@ -16486,7 +16497,6 @@
           "expected_revision",
           "parent_id",
           "base_model",
-          "parameters",
           "min_changed_samples",
           "check_interval_minutes",
           "cooldown_minutes"
@@ -35934,6 +35944,36 @@
         "title": "TrainingCapabilities",
         "type": "object"
       },
+      "TrainingConfiguration": {
+        "additionalProperties": false,
+        "properties": {
+          "schema_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Schema Digest",
+            "type": "string"
+          },
+          "schema_id": {
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "maxProperties": 150,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema_id",
+          "schema_digest"
+        ],
+        "title": "TrainingConfiguration",
+        "type": "object"
+      },
       "TrainingDatasetCreate": {
         "additionalProperties": false,
         "properties": {
@@ -36539,6 +36579,148 @@
         "title": "TrainingHubCatalog",
         "type": "object"
       },
+      "TrainingParameterField": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "default": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "defined_in": {
+            "title": "Defined In",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "native_default": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "native_type": {
+            "title": "Native Type",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rules": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Rules",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "editable",
+              "platform-managed",
+              "inapplicable",
+              "unqualified"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "group",
+          "status",
+          "native_type",
+          "default",
+          "native_default",
+          "defined_in",
+          "reason",
+          "rules",
+          "aliases"
+        ],
+        "title": "TrainingParameterField",
+        "type": "object"
+      },
+      "TrainingParameterSchema": {
+        "properties": {
+          "adapter_revision": {
+            "title": "Adapter Revision",
+            "type": "integer"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingParameterField"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "framework": {
+            "title": "Framework",
+            "type": "string"
+          },
+          "framework_version": {
+            "title": "Framework Version",
+            "type": "string"
+          },
+          "groups": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "object"
+          },
+          "model_family": {
+            "title": "Model Family",
+            "type": "string"
+          },
+          "schema_digest": {
+            "title": "Schema Digest",
+            "type": "string"
+          },
+          "schema_id": {
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_sha256": {
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "task": {
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_id",
+          "schema_digest",
+          "framework",
+          "framework_version",
+          "adapter_revision",
+          "task",
+          "model_family",
+          "source",
+          "source_sha256",
+          "groups",
+          "fields"
+        ],
+        "title": "TrainingParameterSchema",
+        "type": "object"
+      },
       "TrainingParameters": {
         "additionalProperties": false,
         "properties": {
@@ -36779,6 +36961,16 @@
             "title": "Base Model",
             "type": "string"
           },
+          "configuration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingConfiguration"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "dataset_id": {
             "format": "uuid",
             "title": "Dataset Id",
@@ -36963,6 +37155,70 @@
         "title": "TrainingRunOut",
         "type": "object"
       },
+      "TrainingSchemaSummary": {
+        "properties": {
+          "adapter_revision": {
+            "title": "Adapter Revision",
+            "type": "integer"
+          },
+          "compatible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compatible"
+          },
+          "editable_count": {
+            "title": "Editable Count",
+            "type": "integer"
+          },
+          "field_count": {
+            "title": "Field Count",
+            "type": "integer"
+          },
+          "framework": {
+            "title": "Framework",
+            "type": "string"
+          },
+          "framework_version": {
+            "title": "Framework Version",
+            "type": "string"
+          },
+          "model_family": {
+            "title": "Model Family",
+            "type": "string"
+          },
+          "schema_digest": {
+            "title": "Schema Digest",
+            "type": "string"
+          },
+          "schema_id": {
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "task": {
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_id",
+          "schema_digest",
+          "framework",
+          "framework_version",
+          "adapter_revision",
+          "task",
+          "model_family",
+          "field_count",
+          "editable_count"
+        ],
+        "title": "TrainingSchemaSummary",
+        "type": "object"
+      },
       "TrainingTemplate": {
         "properties": {
           "base_models": {
@@ -36997,6 +37253,13 @@
           "image_digest": {
             "title": "Image Digest",
             "type": "string"
+          },
+          "parameter_schemas": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingSchemaSummary"
+            },
+            "title": "Parameter Schemas",
+            "type": "array"
           },
           "version": {
             "title": "Version",
@@ -63298,6 +63561,78 @@
           }
         ],
         "summary": "Catalog",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-runs/parameter-schema": {
+      "get": {
+        "operationId": "parameter_schema_api_v1_projects__project_id__training_runs_parameter_schema_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "framework",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ultralytics",
+                "libreyolo"
+              ],
+              "title": "Framework",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "base_model",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Base Model",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingParameterSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Parameter Schema",
         "tags": [
           "training-runs"
         ]

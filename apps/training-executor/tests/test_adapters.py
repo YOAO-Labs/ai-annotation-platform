@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from training_executor.adapters import adapter_for, validate_dataset
 from training_executor.files import digest_file
+from training_executor.train import UltralyticsCheckpoints
 from training_executor.libreyolo_adapter import (
     CheckpointCallbacks,
     StrictResumeLogging,
@@ -42,6 +43,251 @@ def spec(tmp_path):
         "base_path": "/models/LibreYOLO9t.pt",
         "resume_path": None,
     }
+
+
+def test_v2_native_callback_verifies_resolved_config_and_writes_durable_receipt(
+    tmp_path,
+):
+    from training_contract import definition, resolve
+    from training_contract.validation import CANONICAL
+
+    s = spec(tmp_path)
+    schema = definition("libreyolo")
+    configuration = resolve(
+        "libreyolo",
+        "LibreYOLO9t",
+        {
+            "schema_id": schema["schema_id"],
+            "schema_digest": schema["schema_digest"],
+            "values": {
+                "epochs": 3,
+                "batch": 1,
+                "imgsz": 128,
+                "optimizer": "adamw",
+                "no_aug_epochs": 0,
+            },
+        },
+    )
+    s["frozen_config"].update(
+        adapter_revision=2,
+        configuration=configuration,
+        base_model={"id": "LibreYOLO9t"},
+    )
+    s["parameters"] = s["frozen_config"]["parameters"] = {
+        key: configuration["effective_values"][key] for key in CANONICAL
+    }
+    event = SimpleNamespace(
+        save_dir=str(tmp_path / "framework"),
+        start_epoch=1,
+        task="detect",
+        config={
+            **configuration["effective_values"],
+            "data": s["data_yaml"],
+            "project": str(tmp_path),
+            "name": "framework",
+            "exist_ok": False,
+            "resume": False,
+            "num_classes": 2,
+            "size": "t",
+            "data_dir": None,
+        },
+    )
+    callbacks = CheckpointCallbacks(s, tmp_path)
+    callbacks.on_train_start(event)
+    receipt = json.loads((tmp_path / "native-config.json").read_text())
+    assert receipt["verification"]["verified"]
+    assert receipt["verification"]["schema_digest"] == schema["schema_digest"]
+    assert receipt["observed"]["optimizer"] == "adamw"
+    event.config["optimizer"] = "sgd"
+    with pytest.raises(ValueError, match="optimizer"):
+        callbacks.on_train_start(event)
+
+
+def test_v2_frozen_adapter_rejects_tampered_identity_before_native_import(tmp_path):
+    s = spec(tmp_path)
+    s["frozen_config"].update(
+        adapter_revision=2, configuration={"identity": {}, "user_values": {}}
+    )
+    with pytest.raises((KeyError, ValueError)):
+        adapter_for(s["frozen_config"])
+
+
+def test_ultralytics_resume_preserves_best_even_without_new_improvement_and_recancellation(
+    tmp_path,
+):
+    import torch
+
+    s = spec(tmp_path)
+    s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    native = {
+        "version": "8.4.177",
+        "train_args": {"task": "detect"},
+        "ema": SimpleNamespace(names={0: "car", 1: "person"}),
+        "train_metrics": {"fitness": 0.9},
+    }
+    last, best = first / "last.pt", first / "best.pt"
+    torch.save(
+        {
+            **native,
+            "epoch": 0,
+            "optimizer": {"state": {}, "param_groups": [{}]},
+            "best_fitness": 0.9,
+        },
+        last,
+    )
+    torch.save(
+        {
+            **native,
+            "epoch": 0,
+            "model": {"weight": torch.tensor([1.25])},
+            "best_fitness": 0.9,
+        },
+        best,
+    )
+    historical = best.read_bytes()
+    callbacks = UltralyticsCheckpoints(s, first)
+    callbacks.saved(SimpleNamespace(epoch=0, last=last, best=best))
+    resumed_spec = {**s, "resume_path": str(first / callbacks.checkpoint["name"])}
+    resumed = UltralyticsCheckpoints(resumed_spec, second)
+    committed = json.loads((second / "checkpoint.json").read_text())
+    assert committed["epoch"] == 1
+    assert (second / committed["name"]).read_bytes() == Path(
+        resumed_spec["resume_path"]
+    ).read_bytes()
+    new_best = second / "framework/weights/best.pt"
+    resumed.started(SimpleNamespace(best=new_best))
+    assert new_best.read_bytes() == historical
+    new_last = second / "last.pt"
+    torch.save(
+        {
+            **native,
+            "epoch": 1,
+            "optimizer": {"state": {}, "param_groups": [{}]},
+            "best_fitness": 0.9,
+        },
+        new_last,
+    )
+    resumed.saved(SimpleNamespace(epoch=1, last=new_last, best=new_best))
+    full = torch.load(second / resumed.checkpoint["name"], weights_only=False)
+    assert full["aap_resume"]["best_weights"] == historical
+    assert full["aap_resume"]["best_sha256"] == hashlib.sha256(historical).hexdigest()
+
+
+def test_ultralytics_resume_rejects_corrupt_best_bytes_and_config_identity(tmp_path):
+    import io
+    import torch
+    from training_contract.catalog import digest
+
+    s = spec(tmp_path)
+    s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    resume = tmp_path / "resume.pt"
+    blob = {
+        "version": "8.4.177",
+        "train_args": {"task": "detect"},
+        "ema": SimpleNamespace(names={0: "car", 1: "person"}),
+        "best_fitness": 0.9,
+        "epoch": 0,
+        "optimizer": {"state": {}, "param_groups": [{}]},
+        "aap_resume": {
+            "schema": 1,
+            "config_digest": digest(s["frozen_config"]),
+            "best_weights": b"original",
+            "best_sha256": hashlib.sha256(b"original").hexdigest(),
+        },
+    }
+    for field, value in [("best_weights", b"changed"), ("config_digest", "0" * 64)]:
+        changed = {**blob, "aap_resume": {**blob["aap_resume"], field: value}}
+        torch.save(changed, resume)
+        with pytest.raises(ValueError, match="Historical best"):
+            UltralyticsCheckpoints({**s, "resume_path": str(resume)}, tmp_path)
+
+    selected = {
+        **blob,
+        "aap_resume": None,
+        "train_metrics": {"fitness": 0.9},
+    }
+    for field, value in [
+        ("version", "unexpected"),
+        ("ema", SimpleNamespace(names={0: "different", 1: "person"})),
+        ("epoch", 1),
+        ("train_metrics", {"fitness": 0.8}),
+    ]:
+        stream = io.BytesIO()
+        torch.save({**selected, field: value}, stream)
+        raw = stream.getvalue()
+        changed = {
+            **blob,
+            "aap_resume": {
+                **blob["aap_resume"],
+                "best_weights": raw,
+                "best_sha256": hashlib.sha256(raw).hexdigest(),
+            },
+        }
+        torch.save(changed, resume)
+        with pytest.raises(ValueError):
+            UltralyticsCheckpoints({**s, "resume_path": str(resume)}, tmp_path)
+
+
+def test_ultralytics_new_or_tied_best_updates_receipt_without_mutating_native_files(
+    tmp_path,
+):
+    import torch
+
+    s = spec(tmp_path)
+    s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    callbacks = UltralyticsCheckpoints(s, tmp_path)
+    last, best = tmp_path / "last.pt", tmp_path / "best.pt"
+    for epoch, fitness in enumerate([0.0, 0.9, 0.9]):
+        native = {
+            "version": "8.4.177",
+            "train_args": {"task": "detect"},
+            "ema": SimpleNamespace(names={0: "car", 1: "person"}),
+            "epoch": epoch,
+            "optimizer": {"state": {}, "param_groups": [{}]},
+            "best_fitness": fitness,
+            "train_metrics": {"fitness": fitness},
+        }
+        torch.save(native, last)
+        torch.save(native, best)
+        original_last, original_best = last.read_bytes(), best.read_bytes()
+        callbacks.saved(SimpleNamespace(epoch=epoch, last=last, best=best))
+        committed = tmp_path / callbacks.checkpoint["name"]
+        full = torch.load(committed, weights_only=False)
+        assert full["aap_resume"]["best_weights"] == original_best
+        assert last.read_bytes() == original_last
+        assert best.read_bytes() == original_best
+        before_strip = committed.read_bytes()
+        torch.save({**native, "epoch": -1, "optimizer": None}, best)
+        assert committed.read_bytes() == before_strip
+
+
+def test_ultralytics_legacy_checkpoint_without_receipt_is_not_reinterpreted_as_v2(
+    tmp_path,
+):
+    import torch
+
+    s = spec(tmp_path)
+    s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    resume = tmp_path / "legacy.pt"
+    torch.save(
+        {
+            "version": "8.4.177",
+            "train_args": {"task": "detect"},
+            "ema": SimpleNamespace(names={0: "car", 1: "person"}),
+            "epoch": 0,
+            "optimizer": {"state": {}, "param_groups": [{}]},
+            "best_fitness": 0.0,
+        },
+        resume,
+    )
+    callbacks = UltralyticsCheckpoints({**s, "resume_path": str(resume)}, tmp_path)
+    assert callbacks.best_bytes is None
+    s["frozen_config"]["adapter_revision"] = 2
+    with pytest.raises(ValueError, match="lacks verified historical best"):
+        UltralyticsCheckpoints({**s, "resume_path": str(resume)}, tmp_path)
 
 
 def native_checkpoint(spec, epoch=0, best_epoch=1):

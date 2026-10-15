@@ -6,11 +6,7 @@ import math
 from pathlib import Path, PurePosixPath
 import yaml
 from .files import digest_file
-
-ADAPTERS = {
-    "ultralytics": {"version": "8.4.177", "revision": 1, "model_registration": True},
-    "libreyolo": {"version": "1.6.0", "revision": 1, "model_registration": False},
-}
+from training_contract import ADAPTERS, verify_frozen
 
 
 def adapter_for(config):
@@ -18,9 +14,13 @@ def adapter_for(config):
     if (
         not adapter
         or config["framework_version"] != adapter["version"]
-        or config["adapter_revision"] != adapter["revision"]
+        or config["adapter_revision"] not in {1, 2}
     ):
         raise ValueError("Unsupported frozen training adapter identity")
+    if config["adapter_revision"] == 2:
+        verify_frozen(config)
+    elif "configuration" in config:
+        raise ValueError("Legacy adapter cannot interpret v2 parameters")
     return adapter
 
 

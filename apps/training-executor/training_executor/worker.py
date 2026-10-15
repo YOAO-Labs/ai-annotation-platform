@@ -18,7 +18,7 @@ from pathlib import Path
 import httpx
 import psutil
 
-from .files import atomic_json, digest_file, extract_dataset
+from .files import atomic_json, digest_file, extract_dataset, immutable_copy
 
 
 class RetiredAttempt(Exception):
@@ -31,6 +31,7 @@ class StopTraining(Exception):
 
 def runtime_identity():
     import torch
+    from training_contract.catalog import supported_identities
 
     gpu = os.environ["TRAINING_GPU_UUID"]
     devices = (
@@ -55,6 +56,8 @@ def runtime_identity():
     except importlib.metadata.PackageNotFoundError:
         pass
     return {
+        "executor_protocol": 2,
+        "supported_configs": supported_identities(),
         "image_digest": image,
         "gpu_uuid": gpu,
         "frameworks": frameworks,
@@ -256,6 +259,7 @@ class Supervisor:
             ("best.pt", "weights"),
             ("metrics.json", "metrics"),
             ("config.json", "config"),
+            ("native-config.json", "config"),
             ("train.log", "log"),
         ):
             path = directory / name
@@ -405,6 +409,19 @@ class Supervisor:
                         2 * 1024**3,
                         exact_size=resume["size_bytes"],
                     )
+                    epoch = resume.get("epoch")
+                    if (
+                        type(epoch) is not int
+                        or not 0 < epoch < config["parameters"]["epochs"]
+                    ):
+                        raise ValueError(
+                            "Resume checkpoint has no valid completed epoch"
+                        )
+                    checkpoint = immutable_copy(
+                        resume_path, directory / f"checkpoint-{epoch:04d}.pt"
+                    )
+                    checkpoint.update(role="checkpoint", epoch=epoch)
+                    atomic_json(directory / "checkpoint.json", checkpoint)
                 spec = {
                     "framework": config["framework"],
                     "parameters": config["parameters"],

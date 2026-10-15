@@ -53,11 +53,18 @@ def fixed_template(framework, base_model):
 def template_current(policy):
     try:
         expected = policy.config["template"]
+        if policy.config.get("configuration"):
+            from training_contract import definition, schema_identity
+
+            if policy.config["configuration"]["identity"] != schema_identity(
+                definition(expected["framework"], expected["base_model"]["id"])
+            ):
+                return False
         return (
             fixed_template(expected["framework"], expected["base_model"]["id"])
             == expected
         )
-    except HTTPException:
+    except (HTTPException, KeyError, ValueError):
         return False
 
 
@@ -266,15 +273,27 @@ async def reconcile(db, policy, trigger):
         policy.state, policy.message = "suspended", trigger.message
         return
     template = policy.config["template"]
+    parameters = {"parameters": policy.config["parameters"]}
+    if policy.config.get("configuration"):
+        pinned = policy.config["configuration"]
+        parameters = {
+            "configuration": {
+                "schema_id": pinned["identity"]["schema_id"],
+                "schema_digest": pinned["identity"]["schema_digest"],
+                "values": pinned["user_values"],
+            }
+        }
     body = TrainingRunCreate(
         name=f"自动训练 · 策略 {policy.revision}",
         dataset_id=dataset.id,
         framework=template["framework"],
         base_model=template["base_model"]["id"],
-        parameters=policy.config["parameters"],
+        **parameters,
         request_id=trigger.id,
     )
     config = await runs.frozen_config(db, policy.project_id, body)
+    if config.get("configuration") != policy.config.get("configuration"):
+        raise HTTPException(status_code=409, detail="自动训练参数定义已变化")
     if any(config[key] != template[key] for key in template):
         raise HTTPException(status_code=409, detail="自动训练模板已变化")
     run = TrainingRun(
@@ -283,7 +302,7 @@ async def reconcile(db, policy, trigger):
         dataset_id=dataset.id,
         auto_trigger_id=trigger.id,
         request_id=trigger.id,
-        request_digest=content_digest(body.model_dump(mode="json")),
+        request_digest=content_digest(body.request_payload()),
         name=body.name,
         config=config,
         config_digest=content_digest(config),

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, JsonValue
 
 from app.schemas.training_run import TrainingRunOut
 
@@ -22,6 +22,43 @@ class TrainingBaseModel(BaseModel):
     filename: str
 
 
+class TrainingSchemaIdentity(BaseModel):
+    schema_id: str
+    schema_digest: str
+    framework: str
+    framework_version: str
+    adapter_revision: int
+    task: str
+    model_family: str
+
+
+class TrainingSchemaSummary(TrainingSchemaIdentity):
+    field_count: int
+    editable_count: int
+    compatible: bool | None = None
+
+
+class TrainingParameterField(BaseModel):
+    key: str
+    label: str
+    group: str
+    status: Literal["editable", "platform-managed", "inapplicable", "unqualified"]
+    native_type: str
+    default: JsonValue
+    native_default: JsonValue
+    defined_in: str
+    reason: str
+    rules: dict[str, JsonValue]
+    aliases: list[str]
+
+
+class TrainingParameterSchema(TrainingSchemaIdentity):
+    source: str
+    source_sha256: str
+    groups: dict[str, str]
+    fields: list[TrainingParameterField]
+
+
 class TrainingTemplate(BaseModel):
     framework: Literal["ultralytics", "libreyolo"]
     version: str
@@ -29,6 +66,7 @@ class TrainingTemplate(BaseModel):
     base_models: list[TrainingBaseModel]
     capabilities: TrainingCapabilities
     compatible: bool | None = None
+    parameter_schemas: list[TrainingSchemaSummary] = Field(default_factory=list)
 
 
 class TrainingHubCatalog(BaseModel):

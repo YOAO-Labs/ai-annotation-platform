@@ -3,8 +3,8 @@
 import uuid
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
-from app.schemas.training_run import TrainingParameters
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.schemas.training_run import TrainingParameters, TrainingConfiguration
 
 
 class LearningPolicySave(BaseModel):
@@ -15,10 +15,17 @@ class LearningPolicySave(BaseModel):
     batch_id: uuid.UUID | None = None
     framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
     base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
-    parameters: TrainingParameters
+    parameters: TrainingParameters = Field(default_factory=TrainingParameters)
+    configuration: TrainingConfiguration | None = None
     min_changed_samples: int = Field(ge=1, le=20000)
     check_interval_minutes: int = Field(ge=1, le=1440)
     cooldown_minutes: int = Field(ge=0, le=10080)
+
+    @model_validator(mode="after")
+    def one_parameter_source(self):
+        if self.configuration is not None and "parameters" in self.model_fields_set:
+            raise ValueError("configuration 与旧 parameters 不能同时提交")
+        return self
 
 
 class LearningPolicyOut(BaseModel):

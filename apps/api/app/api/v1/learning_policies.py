@@ -56,6 +56,13 @@ async def save_policy(
     if (policy.revision if policy else 0) != body.expected_revision:
         raise HTTPException(status_code=409, detail="策略已被其他操作修改，请刷新")
     template = service.fixed_template(body.framework, body.base_model)
+    configuration = (
+        runs.resolve_configuration(
+            body.framework, body.base_model, body.configuration.model_dump()
+        )
+        if body.configuration is not None
+        else None
+    )
     parent = await db.get(TrainingDatasetVersion, body.parent_id)
     if not parent or parent.project_id != project.id or parent.status != "ready":
         raise HTTPException(
@@ -89,6 +96,16 @@ async def save_policy(
         "check_interval_minutes": body.check_interval_minutes,
         "cooldown_minutes": body.cooldown_minutes,
     }
+    if configuration is not None:
+        from training_contract.validation import CANONICAL
+
+        policy.config = {
+            **policy.config,
+            "configuration": configuration,
+            "parameters": {
+                key: configuration["effective_values"][key] for key in CANONICAL
+            },
+        }
     policy.blocked_train_digest = policy.last_snapshot_digest = None
     policy.next_check_at = runs.now()
     policy.state, policy.message = (

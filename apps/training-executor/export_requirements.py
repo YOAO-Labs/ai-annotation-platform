@@ -10,13 +10,14 @@ for package in lock["package"]:
     name = package["name"]
     if name in {
         "aap-training-executor",
+        "aap-training-contract",
         "torch",
         "torchvision",
         "triton",
         "cuda-toolkit",
         "cuda-bindings",
         "cuda-pathfinder",
-    } or name.startswith("nvidia-"):
+    } or (name.startswith("nvidia-") and name != "nvidia-ml-py"):
         continue
     hashes = sorted(
         {

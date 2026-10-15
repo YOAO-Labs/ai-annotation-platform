@@ -1,0 +1,15 @@
+[project]
+name = "aap-training-contract"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+training_contract = ["native_inventory.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
