@@ -2281,7 +2281,7 @@ test.describe("flow recordings", () => {
 
   test("project-ml-routing — 批量主后端与交互能力自动分流", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 120_000);
+    test.setTimeout(SELECTED_CAPTURE ? 900_000 : 120_000);
     const t0 = Date.now();
     try {
       await installScreenshotEnvironment(page);
