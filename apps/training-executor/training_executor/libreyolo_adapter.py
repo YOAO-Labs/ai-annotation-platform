@@ -349,11 +349,25 @@ def libreyolo_train(spec, output):
     if ordered_names({"names": evaluated.names}) != spec["frozen_config"]["classes"]:
         raise ValueError("Trained native class order mismatch")
     raw = evaluated.val(**evaluation_options(spec, output))
+    from .evaluation import libreyolo_descriptor
+
+    report = libreyolo_report(
+        raw, spec, weights, getattr(evaluated, "last_eval_backend", None)
+    )
+    comparison = libreyolo_descriptor(
+        spec,
+        weights,
+        getattr(evaluated, "last_eval_backend", None),
+        evaluation_options(spec, output),
+        report["summary"],
+    )
+    if comparison is not None:
+        report["comparison"] = comparison
+    else:
+        report["comparison_unavailable_reason"] = "evaluator_not_recorded"
     atomic_json(
         output / "metrics.json",
-        libreyolo_report(
-            raw, spec, weights, getattr(evaluated, "last_eval_backend", None)
-        ),
+        report,
     )
     atomic_json(
         output / "result.json", {"weights": weights, "checkpoint": callbacks.checkpoint}

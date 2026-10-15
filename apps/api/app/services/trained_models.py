@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import math
 import uuid
 from datetime import datetime, timezone
@@ -26,6 +24,7 @@ from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_runs import internal_download, verify_artifact
+from app.services.training_artifacts import read_json_artifact
 
 
 def project_classes(project):
@@ -44,28 +43,6 @@ def validate_bindings(project, classes, bindings):
         raise HTTPException(
             status_code=422, detail="须为每个原生类别绑定当前项目的矩形框类别"
         )
-
-
-def read_json_artifact(spec, attempt_id):
-    if not spec or spec["size_bytes"] > 8 * 1024 * 1024:
-        raise ValueError("Evaluation artifact is missing or too large")
-    response = storage.client.get_object(
-        Bucket=storage.training_bucket, Key=spec["key"]
-    )
-    try:
-        raw = response["Body"].read(spec["size_bytes"] + 1)
-        if (
-            len(raw) != spec["size_bytes"]
-            or hashlib.sha256(raw).hexdigest() != spec["sha256"]
-            or response.get("Metadata", {}).get("attempt-id") != str(attempt_id)
-        ):
-            raise ValueError("Evaluation artifact identity mismatch")
-        result = json.loads(raw)
-        if not isinstance(result, dict):
-            raise ValueError("Evaluation must be an object")
-        return result
-    finally:
-        response["Body"].close()
 
 
 async def register(db, project, user, body):

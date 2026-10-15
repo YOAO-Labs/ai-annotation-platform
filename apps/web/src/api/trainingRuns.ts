@@ -6,9 +6,16 @@ import type {
   TrainingRunOut,
   TrainingParameterSchema,
   TrainingTemplate,
+  TrainingEvaluationOut,
 } from "./generated/types.gen";
 
-export type { TrainingAttemptOut, TrainingParameters, TrainingRunCreate, TrainingRunOut };
+export type {
+  TrainingAttemptOut,
+  TrainingParameters,
+  TrainingRunCreate,
+  TrainingRunOut,
+  TrainingEvaluationOut,
+};
 
 export interface TrainingCatalog {
   enabled: boolean;
@@ -39,17 +46,31 @@ export const trainingRunsApi = {
     ),
   catalog: (projectId: string, options?: RequestInit) =>
     apiClient.get<TrainingCatalog>(`${base(projectId)}/catalog`, options),
-  list: (projectId: string, offset = 0) =>
+  list: (projectId: string, offset = 0, options?: RequestInit) =>
     apiClient.get<{ total: number; items: TrainingRunOut[] }>(
       `${base(projectId)}?limit=20&offset=${offset}`,
+      options,
     ),
-  get: (projectId: string, id: string) =>
+  get: (projectId: string, id: string, options?: RequestInit) =>
     apiClient.get<{ run: TrainingRunOut; attempts: TrainingAttemptOut[] }>(
       `${base(projectId)}/${id}`,
+      options,
     ),
-  events: (projectId: string, id: string, attemptId?: string, after = 0) =>
+  events: (projectId: string, id: string, attemptId?: string, after = 0, options?: RequestInit) =>
     apiClient.get<{ attempt_id: string; items: TrainingEpochEvent[] }>(
       `${base(projectId)}/${id}/events?after=${after}${attemptId ? `&attempt_id=${encodeURIComponent(attemptId)}` : ""}`,
+      options,
+    ),
+  evaluation: (
+    projectId: string,
+    id: string,
+    attemptId: string,
+    offset = 0,
+    options?: RequestInit,
+  ) =>
+    apiClient.get<TrainingEvaluationOut>(
+      `${base(projectId)}/${id}/attempts/${attemptId}/evaluation?limit=50&offset=${offset}`,
+      options,
     ),
   preflight: (projectId: string, body: TrainingRunCreate, options?: RequestInit) =>
     apiClient.post<{ config: Record<string, unknown>; config_digest: string }>(

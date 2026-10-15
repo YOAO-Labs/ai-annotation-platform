@@ -132,6 +132,67 @@ class TrainingAttemptOut(BaseModel):
     completed_at: datetime | None
 
 
+class EvaluationMetricSemantics(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    unit: Literal["fraction"]
+    direction: Literal["higher"]
+    minimum: Literal[0]
+    maximum: Literal[1]
+    unavailable_below: Literal[0]
+
+
+class EvaluationCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    weights_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selection: Literal["native_best"]
+    best_epoch: int | None = Field(default=None, ge=1, le=1000)
+
+
+class EvaluationBenchmark(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    validation_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    classes: list[str] = Field(min_length=1, max_length=10000)
+    class_space: Literal["frozen_native"]
+
+
+class EvaluationEvaluator(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    framework: Literal["ultralytics", "libreyolo"]
+    version: str = Field(min_length=1, max_length=100)
+    task: Literal["detection"]
+    implementation: str = Field(min_length=1, max_length=200)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    options: dict[str, JsonValue] = Field(min_length=1, max_length=100)
+
+
+class TrainingEvaluationDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: Literal[1]
+    config_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    candidate: EvaluationCandidate
+    benchmark: EvaluationBenchmark
+    evaluator: EvaluationEvaluator
+    semantics: dict[str, EvaluationMetricSemantics] = Field(min_length=1, max_length=20)
+
+
+class TrainingClassEvaluation(BaseModel):
+    index: int
+    name: str
+    metrics: dict[str, float | None]
+
+
+class TrainingEvaluationOut(BaseModel):
+    identity_status: Literal["verified", "unknown"]
+    reasons: list[str]
+    descriptor: TrainingEvaluationDescriptor | None
+    compatibility_digest: str | None
+    summary: dict[str, float | None]
+    per_class_available: bool
+    per_class_total: int
+    per_class: list[TrainingClassEvaluation]
+    provenance: dict[str, JsonValue]
+
+
 class ExecutorClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
     executor_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,100}$")

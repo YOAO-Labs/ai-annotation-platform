@@ -501,19 +501,21 @@ def test_native_yaml_normalizes_class_keys_without_changing_frozen_dataset(tmp_p
     assert native["frozen_config"] == s["frozen_config"]
 
 
+@pytest.mark.parametrize("backend", ["pycocotools", None])
 def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weights(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, backend
 ):
     import torch
     import libreyolo
 
     s = spec(tmp_path)
     calls = []
+    monkeypatch.setattr(torch, "set_num_interop_threads", lambda _: None)
 
     class Model:
         task = "detect"
         names = {0: "car", 1: "person"}
-        last_eval_backend = "pycocotools"
+        last_eval_backend = backend
 
         def __init__(self, path, device):
             self.path = path
@@ -536,10 +538,10 @@ def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weight
         def val(self, **kw):
             calls.append(("val", kw))
             return {
-                "metrics/mAP50-95": 0.2,
-                "metrics/mAP50": 0.3,
-                "metrics/mAP75": 0.1,
-                "metrics/AR100": 0.4,
+                "metrics/mAP50-95": 0.2 if backend else 0.0,
+                "metrics/mAP50": 0.3 if backend else 0.0,
+                "metrics/mAP75": 0.1 if backend else 0.0,
+                "metrics/AR100": 0.4 if backend else 0.0,
             }
 
     monkeypatch.setattr(libreyolo, "LibreYOLO", Model)
@@ -553,3 +555,18 @@ def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weight
     assert evaluation["split"] == "val" and evaluation["faster_coco_eval"] is False
     report = json.loads((tmp_path / "metrics.json").read_text())
     assert report["evaluation"]["weights_sha256"] == digest_file(tmp_path / "best.pt")
+
+    if backend is None:
+        assert "comparison" not in report
+        assert report["comparison_unavailable_reason"] == "evaluator_not_recorded"
+        assert report["summary"]["metrics/mAP50-95"] == 0.0
+        return
+    comparison = report["comparison"]
+    assert comparison["candidate"]["weights_sha256"] == digest_file(
+        tmp_path / "best.pt"
+    )
+    assert comparison["benchmark"]["classes"] == ["car", "person"]
+    assert comparison["evaluator"]["options"]["conf"] == 0.001
+    assert comparison["evaluator"]["options"]["pycocotools_version"]
+    assert comparison["semantics"]["metrics/AR100"]["unit"] == "fraction"
+    assert "candidate" not in report["evaluation"]

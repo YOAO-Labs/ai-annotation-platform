@@ -172,7 +172,7 @@ class UltralyticsCheckpoints:
             (self.output / previous["name"]).unlink(missing_ok=True)
 
 
-def ultralytics_report(result, spec):
+def ultralytics_report(result, spec, comparison=None):
     classes = spec["frozen_config"]["classes"]
     per_class = []
     for position, class_index in enumerate(result.box.ap_class_index):
@@ -195,7 +195,7 @@ def ultralytics_report(result, spec):
                 ),
             }
         )
-    return {
+    report = {
         "summary": metrics_of(result.results_dict),
         "per_class": per_class,
         "validation_digest": spec["frozen_config"]["validation_digest"],
@@ -208,6 +208,9 @@ def ultralytics_report(result, spec):
             "independent_test_set": False,
         },
     }
+    if comparison is not None:
+        report["comparison"] = comparison
+    return report
 
 
 def ultralytics_train(spec: dict, output: Path):
@@ -347,7 +350,13 @@ def ultralytics_train(spec: dict, output: Path):
         )
     weights = immutable_copy(best, output / "best.pt")
     weights["role"] = "weights"
-    atomic_json(output / "metrics.json", ultralytics_report(result, spec))
+    from .evaluation import ultralytics_descriptor
+
+    report = ultralytics_report(result, spec)
+    report["comparison"] = ultralytics_descriptor(
+        spec, weights, model.trainer.validator, report["summary"]
+    )
+    atomic_json(output / "metrics.json", report)
     atomic_json(
         output / "result.json",
         {"weights": weights, "checkpoint": checkpoints.checkpoint},

@@ -763,6 +763,7 @@
 | GET | `/parameter-schema` |
 | GET | `/{run_id}` |
 | GET | `/{run_id}/events` |
+| GET | `/{run_id}/attempts/{attempt_id}/evaluation` |
 | POST | `/{run_id}/cancel` |
 | POST | `/{run_id}/resume` |
 | GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download` |
@@ -822,4 +823,4 @@
 
 ---
 
-_共 75 模块 / 470 路由_
+_共 75 模块 / 471 路由_

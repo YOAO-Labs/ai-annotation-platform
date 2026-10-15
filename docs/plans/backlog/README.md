@@ -40,7 +40,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [T02 训练配置工作区](../1792035920_training-configuration-workspace.md)     | 分组、搜索、默认值来源、草稿恢复和 YAML 导入导出             | T01；建议优先                          |
 | [T03 模板与实验克隆](../1792035920_training-recipes-and-cloning.md)         | 项目模板修订、配置差异及自动策略显式采用                     | T01、T02                               |
 | [T04 数据版本洞察](../1792035920_training-data-insights.md)                 | 冻结数据差异、类别分布、质量解释与样本查看                   | 现有数据版本，可独立推进               |
-| [T05 跨实验比较](1792036036_training-experiment-comparison.md)              | 参数差异、曲线及具有明确评估身份的最终报告                   | 现有实验与已校验产物，可独立推进       |
+| [T05 跨实验比较](../1792036036_training-experiment-comparison.md)           | 参数差异、曲线及具有明确评估身份的最终报告                   | 现有实验与已校验产物，可独立推进       |
 | [T06 原生增强预览](1792036036_training-augmentation-preview.md)             | 展示真实原生增强后的图片、框及变换信息                       | T01、T02、T04；受限 CPU 原生执行验证   |
 | [T07 训练遥测与故障指导](1792036036_training-observability-and-recovery.md) | 实际资源数据、有界日志、错误解释和恢复操作                   | 现有执行器与尝试隔离，可独立推进       |
 | [T08 样本评估与错误分析](1792036036_training-sample-evaluation.md)          | 固定样本误检漏检分析、候选对照及工作台回链                   | T04、T05；已验证的评估与推理合同       |

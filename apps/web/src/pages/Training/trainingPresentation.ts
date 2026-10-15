@@ -84,7 +84,7 @@ export function epochPoints(
             Number.isFinite(value) &&
             !(framework === "libreyolo" && /precision|recall/i.test(key)) &&
             !(key.endsWith("(B)") && event.metrics[key.slice(0, -3)] != null) &&
-            !(/^metrics\/(mAP|AR)/.test(key) && value < 0),
+            !(/^metrics\/(mAP|AR|precision|recall)/.test(key) && value < 0),
         ),
       ),
     }));

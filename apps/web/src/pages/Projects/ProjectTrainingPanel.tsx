@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
 import { useNavigate } from "react-router-dom";
-import { Plus, FlaskConical } from "lucide-react";
+import { Plus, FlaskConical, GitCompareArrows } from "lucide-react";
 import { TrainingRunMonitor } from "../Training/TrainingRunMonitor";
 import { useTrainingEvents } from "../Training/useTrainingEvents";
 import {
@@ -128,19 +128,32 @@ export function ProjectTrainingPanel({
             选择实验查看实时进度、指标曲线与产物。每次执行和续训独立记录。
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="primary"
-          disabled={!catalog.data?.enabled}
-          onClick={() =>
-            navigate(
-              `/projects/${projectId}/learning/new${detailId ? `?return_run=${encodeURIComponent(detailId)}` : ""}`,
-            )
-          }
-        >
-          <Plus className="size-3.5" />
-          新建实验
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            onClick={() =>
+              navigate(
+                `/projects/${projectId}/learning/compare${current && selectedAttemptId ? `?runs=${current.id}:${selectedAttemptId}` : ""}`,
+              )
+            }
+          >
+            <GitCompareArrows className="size-3.5" />
+            比较实验
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={!catalog.data?.enabled}
+            onClick={() =>
+              navigate(
+                `/projects/${projectId}/learning/new${detailId ? `?return_run=${encodeURIComponent(detailId)}` : ""}`,
+              )
+            }
+          >
+            <Plus className="size-3.5" />
+            新建实验
+          </Button>
+        </div>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Badge

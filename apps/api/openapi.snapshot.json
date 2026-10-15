@@ -11932,6 +11932,164 @@
         "title": "DismissResponse",
         "type": "object"
       },
+      "EvaluationBenchmark": {
+        "additionalProperties": false,
+        "properties": {
+          "class_space": {
+            "const": "frozen_native",
+            "title": "Class Space",
+            "type": "string"
+          },
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Classes",
+            "type": "array"
+          },
+          "validation_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Validation Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "validation_digest",
+          "classes",
+          "class_space"
+        ],
+        "title": "EvaluationBenchmark",
+        "type": "object"
+      },
+      "EvaluationCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "best_epoch": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Epoch"
+          },
+          "selection": {
+            "const": "native_best",
+            "title": "Selection",
+            "type": "string"
+          },
+          "weights_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Weights Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "weights_sha256",
+          "selection"
+        ],
+        "title": "EvaluationCandidate",
+        "type": "object"
+      },
+      "EvaluationEvaluator": {
+        "additionalProperties": false,
+        "properties": {
+          "framework": {
+            "enum": [
+              "ultralytics",
+              "libreyolo"
+            ],
+            "title": "Framework",
+            "type": "string"
+          },
+          "implementation": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Implementation",
+            "type": "string"
+          },
+          "options": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "maxProperties": 100,
+            "minProperties": 1,
+            "title": "Options",
+            "type": "object"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "task": {
+            "const": "detection",
+            "title": "Task",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "framework",
+          "version",
+          "task",
+          "implementation",
+          "source_sha256",
+          "options"
+        ],
+        "title": "EvaluationEvaluator",
+        "type": "object"
+      },
+      "EvaluationMetricSemantics": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "const": "higher",
+            "title": "Direction",
+            "type": "string"
+          },
+          "maximum": {
+            "const": 1,
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "const": 0,
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "unavailable_below": {
+            "const": 0,
+            "title": "Unavailable Below",
+            "type": "integer"
+          },
+          "unit": {
+            "const": "fraction",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "direction",
+          "minimum",
+          "maximum",
+          "unavailable_below"
+        ],
+        "title": "EvaluationMetricSemantics",
+        "type": "object"
+      },
       "ExecutorClaim": {
         "additionalProperties": false,
         "properties": {
@@ -35954,6 +36112,39 @@
         "title": "TrainingCapabilities",
         "type": "object"
       },
+      "TrainingClassEvaluation": {
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Metrics",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "name",
+          "metrics"
+        ],
+        "title": "TrainingClassEvaluation",
+        "type": "object"
+      },
       "TrainingConfiguration": {
         "additionalProperties": false,
         "properties": {
@@ -37280,6 +37471,138 @@
           "ordered_classes_digest"
         ],
         "title": "TrainingDatasetValidationIdentity",
+        "type": "object"
+      },
+      "TrainingEvaluationDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "benchmark": {
+            "$ref": "#/components/schemas/EvaluationBenchmark"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/EvaluationCandidate"
+          },
+          "config_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Config Digest",
+            "type": "string"
+          },
+          "evaluator": {
+            "$ref": "#/components/schemas/EvaluationEvaluator"
+          },
+          "revision": {
+            "const": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "semantics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EvaluationMetricSemantics"
+            },
+            "maxProperties": 20,
+            "minProperties": 1,
+            "title": "Semantics",
+            "type": "object"
+          }
+        },
+        "required": [
+          "revision",
+          "config_digest",
+          "candidate",
+          "benchmark",
+          "evaluator",
+          "semantics"
+        ],
+        "title": "TrainingEvaluationDescriptor",
+        "type": "object"
+      },
+      "TrainingEvaluationOut": {
+        "properties": {
+          "compatibility_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compatibility Digest"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingEvaluationDescriptor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "identity_status": {
+            "enum": [
+              "verified",
+              "unknown"
+            ],
+            "title": "Identity Status",
+            "type": "string"
+          },
+          "per_class": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingClassEvaluation"
+            },
+            "title": "Per Class",
+            "type": "array"
+          },
+          "per_class_available": {
+            "title": "Per Class Available",
+            "type": "boolean"
+          },
+          "per_class_total": {
+            "title": "Per Class Total",
+            "type": "integer"
+          },
+          "provenance": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Provenance",
+            "type": "object"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "identity_status",
+          "reasons",
+          "descriptor",
+          "compatibility_digest",
+          "summary",
+          "per_class_available",
+          "per_class_total",
+          "per_class",
+          "provenance"
+        ],
+        "title": "TrainingEvaluationOut",
         "type": "object"
       },
       "TrainingHubCatalog": {
@@ -66125,6 +66448,97 @@
           }
         ],
         "summary": "Download Artifact",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/evaluation": {
+      "get": {
+        "operationId": "get_evaluation_api_v1_projects__project_id__training_runs__run_id__attempts__attempt_id__evaluation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingEvaluationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Evaluation",
         "tags": [
           "training-runs"
         ]

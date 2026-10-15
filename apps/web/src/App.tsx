@@ -51,6 +51,11 @@ const ProjectLearningPage = lazy(() =>
 const TrainingCreatePage = lazy(() =>
   import("@/pages/Training/TrainingCreatePage").then((m) => ({ default: m.TrainingCreatePage })),
 );
+const TrainingComparisonPage = lazy(() =>
+  import("@/pages/Training/TrainingComparisonPage").then((m) => ({
+    default: m.TrainingComparisonPage,
+  })),
+);
 const TrainingPage = lazy(() =>
   import("@/pages/Training/TrainingPage").then((m) => ({ default: m.TrainingPage })),
 );
@@ -492,6 +497,14 @@ export function App() {
             element={
               <RequireProjectAccess capability="project.manage">
                 <ProjectSettingsPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/compare"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <TrainingComparisonPage />
               </RequireProjectAccess>
             }
           />

@@ -29,6 +29,7 @@ from app.schemas.training_run import (
     TrainingAttemptOut,
     TrainingRunCreate,
     TrainingRunOut,
+    TrainingEvaluationOut,
 )
 from app.schemas.training_hub import TrainingParameterSchema
 from training_contract import definition
@@ -257,6 +258,35 @@ async def get_events(
             {"sequence": e.sequence, "kind": e.kind, **e.payload} for e in events
         ],
     }
+
+
+@router.get(
+    "/{run_id}/attempts/{attempt_id}/evaluation", response_model=TrainingEvaluationOut
+)
+async def get_evaluation(
+    run_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_evaluations import read_evaluation
+
+    await lock_owner(db, user, project)
+    run = await db.scalar(
+        select(TrainingRun)
+        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    attempt = await db.get(TrainingAttempt, attempt_id)
+    if run is None or attempt is None or attempt.run_id != run.id:
+        raise HTTPException(status_code=404, detail="实验或执行尝试不存在")
+    result = await read_evaluation(run, attempt, offset, limit)
+    await db.commit()
+    return result
 
 
 @router.post(
