@@ -145,13 +145,14 @@ export async function runVideoTrackBatchPropagate(
   await secondRow.getAttribute("aria-selected").then((value) => {
     if (value !== "true") throw new Error("[video-track-batch-propagate] 第二条轨迹未进入多选");
   });
+  await page.getByTestId("video-tool-btn-select").click();
+  const selectionCapsule = page.getByLabel("展开选中信息卡(可拖动)", { exact: true });
+  if (await selectionCapsule.isVisible()) await selectionCapsule.click();
   const batchToolbar = page.getByTestId("video-track-batch-toolbar");
   await batchToolbar.waitFor({ state: "visible", timeout: 5_000 });
   const selectionSummaries = page.getByText("已选 2 条轨迹", { exact: true });
   await selectionSummaries.first().waitFor({ state: "visible", timeout: 5_000 });
-  if ((await selectionSummaries.count()) < 2) {
-    throw new Error("[video-track-batch-propagate] 没有同时显示画布浮卡和右栏批量工具条");
-  }
+  await expect(selectionSummaries).toHaveCount(2);
   const batchCard = page.locator("[data-floating-panel]").filter({ hasText: "已选 2 条轨迹" });
   await batchCard.waitFor({ state: "visible", timeout: 5_000 });
   const [batchCardBox, batchToolbarBox] = await Promise.all([
@@ -209,7 +210,7 @@ export async function runVideoTrackBatchPropagate(
     if (!createdPayload.id) throw new Error("[video-track-batch-propagate] 追踪作业未返回 ID");
     onJobCreated(createdPayload.id);
 
-    await page.getByTestId("tool-btn-select").click();
+    await page.getByTestId("video-tool-btn-select").click();
     await page
       .getByTestId("tracker-review-tool-capsule")
       .waitFor({ state: "visible", timeout: 120_000 });

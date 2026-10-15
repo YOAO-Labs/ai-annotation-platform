@@ -19,9 +19,12 @@ async function seekFrame(page: Page, frameIndex: number): Promise<void> {
 }
 
 async function selectVehicleModel(panel: Locator, configureClasses: boolean): Promise<string> {
+  const advanced = panel.getByTestId("ai-prediction-advanced-toggle");
+  if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
+  await expect(advanced).toHaveAttribute("aria-expanded", "true");
   const backendSelect = panel
     .locator("label")
-    .filter({ hasText: "本次 backend" })
+    .filter({ hasText: /(?:本次|下一轮)后端/ })
     .locator("select");
   await backendSelect.waitFor({ state: "visible", timeout: 10_000 });
   const yolo = backendSelect.locator("option").filter({ hasText: "yolo-backend" });
@@ -61,7 +64,11 @@ async function runFramePrediction(
     },
     { timeout: 120_000 },
   );
-  const run = panel.getByRole("button", { name: "运行当前题", exact: true });
+  const phase = await panel.getByTestId("ai-prediction-phase").getAttribute("data-phase");
+  const run =
+    phase === "idle"
+      ? panel.getByTestId("ai-prediction-primary-action")
+      : panel.getByTestId("ai-prediction-run-next");
   await expect(run).toBeEnabled({ timeout: 15_000 });
   await run.click();
   const response = await responsePromise;
@@ -85,7 +92,9 @@ async function runFramePrediction(
       `[video-prediction-navigation] F${frameIndex} 未产生至少两个对齐车辆候选: ${JSON.stringify(body)}`,
     );
   }
-  await expect(panel).toContainText(/\d+\s*待审/, { timeout: 15_000 });
+  await expect(panel.getByTestId("ai-prediction-phase")).toHaveAttribute("data-phase", "review", {
+    timeout: 15_000,
+  });
   return { predictionId: body.prediction_id, candidateCount: body.candidate_count };
 }
 

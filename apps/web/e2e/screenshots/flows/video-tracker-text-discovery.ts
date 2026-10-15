@@ -181,7 +181,7 @@ export async function runVideoTrackerTextDiscovery(
   );
   const selectedIds = match.items.map((result) => result.instance_id ?? "1");
   expect(new Set(selectedIds).size).toBe(2);
-  await page.getByTestId("tool-btn-select").click();
+  await page.getByTestId("video-tool-btn-select").click();
   await page
     .getByTestId("tracker-review-tool-capsule")
     .waitFor({ state: "visible", timeout: 120_000 });

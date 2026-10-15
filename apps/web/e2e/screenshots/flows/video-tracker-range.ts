@@ -156,7 +156,7 @@ export async function runVideoTrackerRange(
   expect(
     preview.results.every((result) => result.frame_index >= 0 && result.frame_index <= endFrame),
   ).toBe(true);
-  await page.getByTestId("tool-btn-select").click();
+  await page.getByTestId("video-tool-btn-select").click();
   await page
     .getByTestId("tracker-review-tool-capsule")
     .waitFor({ state: "visible", timeout: 120_000 });

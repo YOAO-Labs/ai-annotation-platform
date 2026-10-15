@@ -386,7 +386,7 @@ export async function runVideoMultiSeedTracking(
         }
       }
     }
-    await page.getByTestId("tool-btn-select").click();
+    await page.getByTestId("video-tool-btn-select").click();
     await page
       .getByTestId("tracker-review-tool-capsule")
       .waitFor({ state: "visible", timeout: 120_000 });
