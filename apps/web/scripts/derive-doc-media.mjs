@@ -21,7 +21,7 @@ const POSTER_AT_SECONDS = new Map([
   ["video-tracker-cross-frame-points", 26],
   ["video-tracker-positive-negative", 27],
   ["video-tracker-box-seed", 20.6],
-  ["video-tracker-text-discovery", 14.2],
+  ["video-tracker-text-discovery", 30],
   ["video-mask-track-edit", 17],
   ["video-track-carryover", 9.2],
   ["video-draw", 8],
