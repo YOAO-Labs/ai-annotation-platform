@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, FlaskConical, GitBranch, Layers } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { batchesApi } from "@/api/batches";
 import { asyncJobsApi } from "@/api/asyncJobs";
 import { tasksApi } from "@/api/tasks";
@@ -40,6 +40,14 @@ const exclusionReasons: Record<string, string> = {
 
 export function ProjectLearningPage() {
   const { id = "" } = useParams();
+  const [params] = useSearchParams();
+  if (params.get("new") === "1") {
+    const next = new URLSearchParams();
+    const framework = params.get("framework");
+    if (framework === "ultralytics" || framework === "libreyolo") next.set("framework", framework);
+    if (params.get("run")) next.set("return_run", params.get("run")!);
+    return <Navigate replace to={`/projects/${id}/learning/new${next.size ? `?${next}` : ""}`} />;
+  }
   return <ProjectLearningContent key={id} projectId={id} />;
 }
 
@@ -93,14 +101,6 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
       query.state.data?.items.some((item) => ["pending", "running"].includes(item.status))
         ? 2000
         : false,
-  });
-  const readyVersions = useInfiniteQuery({
-    queryKey: ["training-datasets", projectId, "ready-pages"],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) => trainingDatasetsApi.list(projectId, pageParam, "ready"),
-    getNextPageParam: (lastPage, _pages, offset) =>
-      offset + 20 < lastPage.total ? offset + 20 : undefined,
-    enabled: tab === "training",
   });
   const batches = useQuery({
     queryKey: ["batches", projectId],
@@ -650,11 +650,6 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
           )}
         </TabsContent>
         <TabsContent value="training">
-          {readyVersions.error && (
-            <p role="alert" className="mb-4 text-sm text-status-danger">
-              {readyVersions.error.message}
-            </p>
-          )}
           {unsupported ? (
             <p className="rounded-lg bg-muted p-5 text-sm text-muted-foreground">
               当前支持图片矩形框检测训练，请切换到图片项目。
@@ -662,14 +657,7 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
           ) : (
             <ProjectTrainingPanel
               projectId={projectId}
-              datasets={readyVersions.data?.pages.flatMap((result) => result.items) ?? []}
-              datasetTotal={readyVersions.data?.pages[0]?.total}
-              hasMoreDatasets={readyVersions.hasNextPage}
-              loadingMoreDatasets={readyVersions.isFetchingNextPage}
-              onLoadMoreDatasets={() => void readyVersions.fetchNextPage()}
               initialRunId={params.get("run") ?? ""}
-              initialFramework={params.get("framework") ?? ""}
-              initialCreate={params.get("new") === "1"}
               onRunSelect={(runId) =>
                 setParams((previous) => {
                   const next = new URLSearchParams(previous);
@@ -678,16 +666,6 @@ function ProjectLearningContent({ projectId }: { projectId: string }) {
                   next.delete("new");
                   return next;
                 })
-              }
-              onCreateClose={() =>
-                setParams(
-                  (previous) => {
-                    const next = new URLSearchParams(previous);
-                    next.delete("new");
-                    return next;
-                  },
-                  { replace: true },
-                )
               }
             />
           )}

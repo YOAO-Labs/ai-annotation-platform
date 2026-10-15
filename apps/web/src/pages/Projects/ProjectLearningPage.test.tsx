@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { batchesApi } from "@/api/batches";
 import { tasksApi } from "@/api/tasks";
@@ -54,16 +54,26 @@ const report = {
 };
 const clients: QueryClient[] = [];
 
-function mount() {
+function Location() {
+  const location = useLocation();
+  return (
+    <p>
+      {location.pathname}
+      {location.search}
+    </p>
+  );
+}
+function mount(path = "/projects/project-1/learning?tab=data") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   clients.push(client);
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/projects/project-1/learning?tab=data"]}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/projects/:id/learning" element={<ProjectLearningPage />} />
+          <Route path="/projects/:id/learning/new" element={<Location />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -87,6 +97,15 @@ afterEach(() => {
 });
 
 describe("project learning data versions", () => {
+  it("redirects legacy creation links with controlled framework and return experiment context", async () => {
+    mount("/projects/project-1/learning?tab=training&new=1&framework=libreyolo&run=run-1");
+    expect(
+      await screen.findByText(
+        "/projects/project-1/learning/new?framework=libreyolo&return_run=run-1",
+      ),
+    ).toBeVisible();
+    expect(trainingDatasetsApi.list).not.toHaveBeenCalled();
+  });
   it("reuses the creation request after a lost response and identical recheck", async () => {
     vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(new Error("连接中断"));
     const user = userEvent.setup();

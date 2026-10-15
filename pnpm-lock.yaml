@@ -136,6 +136,9 @@ importers:
       use-image:
         specifier: ^1.1.4
         version: 1.1.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      yaml:
+        specifier: 2.8.4
+        version: 2.8.4
       zustand:
         specifier: ^5.0.0
         version: 5.0.12(@types/react@18.3.28)(immer@11.1.8)(react@18.3.1)(use-sync-external-store@1.6.0(react@18.3.1))

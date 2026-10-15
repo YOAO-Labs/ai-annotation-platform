@@ -5,6 +5,7 @@ import type {
   TrainingRunCreate,
   TrainingRunOut,
   TrainingParameterSchema,
+  TrainingTemplate,
 } from "./generated/types.gen";
 
 export type { TrainingAttemptOut, TrainingParameters, TrainingRunCreate, TrainingRunOut };
@@ -14,18 +15,7 @@ export interface TrainingCatalog {
   online: boolean;
   busy: boolean;
   resource_id: string | null;
-  items: {
-    framework: "ultralytics" | "libreyolo";
-    version: string;
-    image_digest: string;
-    base_models: { id: string; sha256: string; filename: string }[];
-    capabilities: {
-      task_types: string[];
-      resume: boolean;
-      artifact_download: boolean;
-      model_registration: boolean;
-    };
-  }[];
+  items: TrainingTemplate[];
 }
 
 export interface TrainingEpochEvent {
@@ -37,11 +27,18 @@ export interface TrainingEpochEvent {
 
 const base = (projectId: string) => `/projects/${projectId}/training-runs`;
 export const trainingRunsApi = {
-  parameterSchema: (projectId: string, framework: string, baseModel: string) =>
+  parameterSchema: (
+    projectId: string,
+    framework: string,
+    baseModel: string,
+    options?: RequestInit,
+  ) =>
     apiClient.get<TrainingParameterSchema>(
       `${base(projectId)}/parameter-schema?framework=${encodeURIComponent(framework)}&base_model=${encodeURIComponent(baseModel)}`,
+      options,
     ),
-  catalog: (projectId: string) => apiClient.get<TrainingCatalog>(`${base(projectId)}/catalog`),
+  catalog: (projectId: string, options?: RequestInit) =>
+    apiClient.get<TrainingCatalog>(`${base(projectId)}/catalog`, options),
   list: (projectId: string, offset = 0) =>
     apiClient.get<{ total: number; items: TrainingRunOut[] }>(
       `${base(projectId)}?limit=20&offset=${offset}`,
@@ -54,10 +51,11 @@ export const trainingRunsApi = {
     apiClient.get<{ attempt_id: string; items: TrainingEpochEvent[] }>(
       `${base(projectId)}/${id}/events?after=${after}${attemptId ? `&attempt_id=${encodeURIComponent(attemptId)}` : ""}`,
     ),
-  preflight: (projectId: string, body: TrainingRunCreate) =>
+  preflight: (projectId: string, body: TrainingRunCreate, options?: RequestInit) =>
     apiClient.post<{ config: Record<string, unknown>; config_digest: string }>(
       `${base(projectId)}:preflight`,
       body,
+      options,
     ),
   create: (projectId: string, body: TrainingRunCreate) =>
     apiClient.post<TrainingRunOut>(base(projectId), body),
