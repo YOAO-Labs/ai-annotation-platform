@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T13:09:23.670Z",
+  "updated_at": "2026-10-15T13:33:38.365Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -970,9 +970,9 @@
     "docs-site/public/media/ai/candidate-keyboard-review-poster.webp": {
       "asset_id": "candidate-keyboard-review",
       "role": "poster",
-      "generated_at": "2026-09-07T08:39:22.349Z",
-      "captured_commit": "da0ac3dee9e4eefa649bc76a9686637438b98b82",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T13:33:38.365Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › candidate-keyboard-review",
@@ -981,6 +981,7 @@
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
         "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/candidate-keyboard-review.ts",
@@ -989,8 +990,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "bf47e3ebb185bca202e71330d5e44078a11e69b69ca3a04a902cf435bceb4170",
-      "bytes": 61152,
+      "sha256": "67bdbc7cbd3e032b211bf0cf8d5258813a3bba60e585c292340898fbf51b35f6",
+      "bytes": 68988,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1004,22 +1005,22 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T08-35-53-056Z-1841951",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "candidate-keyboard-review",
-        "sha256": "108a84b4f5e143a9ab0401ce78d641d7e947f39b4632c7a469c1950dafbc058c",
+        "sha256": "53d0c61dc4805e8599d5e40abe0d3119b575c46dd9ae7ac5d36b18a95cdb7813",
         "quality": "standard",
         "clip": {
-          "start": 69,
-          "duration": 10.7
+          "start": 148,
+          "duration": 9.4
         }
       }
     },
     "docs-site/public/media/ai/candidate-keyboard-review.mp4": {
       "asset_id": "candidate-keyboard-review",
       "role": "docs-video",
-      "generated_at": "2026-09-07T08:39:22.267Z",
-      "captured_commit": "da0ac3dee9e4eefa649bc76a9686637438b98b82",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-15T13:33:38.326Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › candidate-keyboard-review",
@@ -1028,6 +1029,7 @@
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
         "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/candidate-keyboard-review.ts",
@@ -1036,28 +1038,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "ca83b8dc61528a5060fe8420ecf0ea02fda096f807a9178a0c2cd17f9475ab6f",
-      "bytes": 489513,
+      "sha256": "a11e75c61402adcd65f7d51ee2dc3fa6c92eaa03e8f9a4a9e29edfad5c955735",
+      "bytes": 299796,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 10.72
+        "duration_seconds": 9.4
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-07T08-35-53-056Z-1841951",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "candidate-keyboard-review",
-        "sha256": "108a84b4f5e143a9ab0401ce78d641d7e947f39b4632c7a469c1950dafbc058c",
+        "sha256": "53d0c61dc4805e8599d5e40abe0d3119b575c46dd9ae7ac5d36b18a95cdb7813",
         "quality": "standard",
         "clip": {
-          "start": 69,
-          "duration": 10.7
+          "start": 148,
+          "duration": 9.4
         }
       }
     },
