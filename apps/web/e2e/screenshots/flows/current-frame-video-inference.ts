@@ -181,7 +181,7 @@ export async function runCurrentFrameVideoInference(
   await inspectorList.evaluate((element) => element.scrollTo({ top: 0, behavior: "smooth" }));
   await page.waitForTimeout(2_500);
 
-  await page.keyboard.press("ArrowRight");
+  await seekFrameWithTimeline(page, sourceFrame + 1);
   await expect(stage).toHaveAttribute("data-video-frame-index", String(sourceFrame + 1), {
     timeout: 10_000,
   });
@@ -189,7 +189,7 @@ export async function runCurrentFrameVideoInference(
   await expect(manualSection).toContainText("0", { timeout: 10_000 });
   await page.waitForTimeout(2_300);
 
-  await page.keyboard.press("ArrowLeft");
+  await seekFrameWithTimeline(page, sourceFrame);
   await expect(stage).toHaveAttribute("data-video-frame-index", String(sourceFrame), {
     timeout: 10_000,
   });
