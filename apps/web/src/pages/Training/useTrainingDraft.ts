@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
 import {
   emptyTrainingDraft,
   readTrainingDraft,
@@ -17,6 +18,7 @@ export function useTrainingDraft(
 ) {
   const ownerKey = trainingDraftOwner(userId, projectId);
   const [initial] = useState(() => readTrainingDraft(ownerKey));
+  const [sessionRevision] = useState(getAuthSessionRevision);
   const [draft, setDraft] = useState(
     () => initial.draft ?? emptyTrainingDraft(ownerKey, frameworkHint || "ultralytics"),
   );
@@ -30,7 +32,10 @@ export function useTrainingDraft(
     };
   }, []);
   const ownsSession = () =>
-    alive.current && isCurrentAuthOwner(userId) && useAuthStore.getState().token === sessionToken;
+    alive.current &&
+    getAuthSessionRevision() === sessionRevision &&
+    isCurrentAuthOwner(userId) &&
+    useAuthStore.getState().token === sessionToken;
   const matches = (snapshot: TrainingDraft) =>
     ownsSession() &&
     snapshot.ownerKey === ownerKey &&

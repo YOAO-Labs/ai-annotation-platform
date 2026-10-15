@@ -263,7 +263,7 @@ export function TrainingRunMonitor({
                 className="mt-3 inline-flex rounded-md border border-border bg-background px-3 py-2 font-medium hover:bg-muted"
                 to={`/projects/${run.project_id}/learning/new?clone_run=${run.id}&clone_attempt=${attempt.id}&return_run=${run.id}`}
               >
-                用原始基础权重新建草稿，检查 batch / imgsz
+                用原配置初始化权重新建草稿，检查 batch / imgsz
               </Link>
             )}
             {attempt.failure?.code === "cuda_oom" && !run.config.configuration && (
@@ -490,7 +490,7 @@ export function TrainingRunMonitor({
                     className="inline-flex rounded-md border border-border px-3 py-2 text-xs hover:bg-muted"
                     to={`/projects/${run.project_id}/learning/new?clone_run=${run.id}${selectedAttemptId ? `&clone_attempt=${selectedAttemptId}` : ""}&return_run=${run.id}`}
                   >
-                    使用原始基础权重新建草稿
+                    使用原配置初始化权重新建草稿
                   </Link>
                   {run.status === "succeeded" && (
                     <TrainingRecipeSave

@@ -294,7 +294,18 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
             )
             progress.epoch(trainer.epoch + 1)
 
-    model = YOLO(spec.get("resume_path") or spec["base_path"], task="detect")
+    from .initialization import (
+        validate_input as validate_initialization_input,
+        prepare as prepare_initialization,
+        observation as initialization_observation,
+    )
+
+    model_path = (
+        spec.get("resume_path") or spec.get("initialization_path") or spec["base_path"]
+    )
+    validate_initialization_input(spec)
+    model = YOLO(model_path, task="detect")
+    initialization_baseline = prepare_initialization(spec, model)
 
     def started(trainer):
         checkpoints.started(trainer)
@@ -304,13 +315,22 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
             vars(trainer.args),
             {
                 "data": spec["data_yaml"],
-                "model": spec.get("resume_path") or spec["base_path"],
+                "model": model_path,
                 "project": str(output),
                 "name": "framework",
                 "exist_ok": False,
                 "resume": spec.get("resume_path") or False,
             },
             {
+                **(
+                    {
+                        "initialization": initialization_observation(
+                            spec, initialization_baseline, trainer
+                        )
+                    }
+                    if initialization_baseline
+                    else {}
+                ),
                 "optimizer": type(trainer.optimizer).__name__,
                 "optimizer_groups": [
                     {

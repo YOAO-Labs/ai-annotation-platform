@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.schemas.training_run import TrainingConfiguration, TrainingOrigin
+from app.schemas.training_initialization import TrainingInitialization
 
 
 class TrainingConfigurationResolve(BaseModel):
@@ -12,6 +13,7 @@ class TrainingConfigurationResolve(BaseModel):
     framework: Literal["ultralytics", "libreyolo"]
     base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     configuration: TrainingConfiguration
+    initialization: TrainingInitialization | None = None
 
 
 class TrainingRecipeWrite(BaseModel):
@@ -24,6 +26,19 @@ class TrainingRecipeWrite(BaseModel):
     source_run_id: uuid.UUID | None = None
     source_attempt_id: uuid.UUID | None = None
     origin: TrainingOrigin | None = None
+
+    def request_payload(self):
+        payload = self.model_dump(mode="json")
+        configuration = payload.get("configuration")
+        if configuration is not None:
+            source = self.configuration.initialization
+            if source is None or source.kind == "catalog":
+                configuration.pop("initialization")
+            else:
+                configuration["initialization"] = source.model_dump(
+                    mode="json", exclude_none=True
+                )
+        return payload
 
     @field_validator("name")
     @classmethod
@@ -55,6 +70,7 @@ class TrainingRecipeRevisionOut(BaseModel):
     snapshot: dict
     snapshot_digest: str
     origin: dict | None
+    initialization_model_id: uuid.UUID | None = None
     created_at: datetime
 
 

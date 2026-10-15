@@ -3,7 +3,7 @@ title: 训练数据版本 API
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-16
 ---
 
 # 训练数据版本 API
@@ -231,6 +231,24 @@ last_reviewed: 2026-10-15
 训练预检与创建可带 `origin`：配方为 `{kind: "recipe", recipe_id, revision_id, digest}`，克隆为 `{kind: "clone", run_id, attempt_id?, digest}`；必须同时提交完整 `configuration`。`digest` 分别绑定修订快照摘要或来源实验配置摘要。服务端校验原始基础权重及定义，允许手动实验修改参数并记录 `modified`。来源独立保存在实验 `origin`，不加入执行配置或改变旧配置摘要；已创建请求的幂等回放优先于来源重新校验。
 
 自动策略也可带具体配方 `origin`，但提交的完整配置必须与该修订一致。策略固定展开配置与来源，新 head 不会自动更新策略。保存时仅保留同一已采用修订可绕过归档的新采用限制；其他修订必须显式采用。已有完整配置策略不能省略 `configuration` 后静默降为六参数配置。
+
+## 项目模型权重初始化
+
+`GET /projects/{project_id}/training-runs/initialization-sources/{model_id}` 使用当前项目管理权限与读取 scopes，接受 `framework`、`base_model` 和可选 `dataset_id`。不存在或跨项目的模型返回 `404`；当前不可用的同项目来源返回 `eligible=false`、有界 `reasons`。`pin` 保存服务端解析的固定身份，`storage_verified=false` 明确表示这里只做对象元信息检查。
+
+训练预检／创建、配置解析和策略保存可带 `initialization`：
+
+```json
+{ "kind": "trained_model", "model_version_id": "<UUID>", "source_digest": "<SHA256>" }
+```
+
+省略或 `{kind: "catalog"}` 沿用目录权重，保持旧请求与配置摘要形状。项目模型初始化要求完整 `configuration`，只支持已保留的同项目成功 Ultralytics YOLO11 检测产物、相同规格与完全一致的原生类别顺序。当前资格限定锁定的 Ultralytics、Torch、TorchVision、Python 与 CUDA 组合；归档和部署／发布状态不决定训练资格。接口不接受 URL、路径、任意检查点或类别重映射。
+
+`config.initialization` 固定项目／模型／实验／尝试／数据身份，权重 key、SHA、大小，类别与绑定摘要，来源配置／数据／验证摘要，运行时与评估证据，以及资格策略摘要。权重不得超过 2 GiB。预检、创建和首次领取分别完整核验权重及评估对象；来源丢失或摘要变化明确失败，不回退目录权重。旧执行器未声明匹配初始化能力时不能领取。
+
+配方修订与自动策略保存完整 pin；克隆保留原初始化来源，不自动使用被克隆实验的产物。`origin` 仍单独记录配置来源；解除它不清除初始化。已接受 UUID 的幂等回放先于来源重新校验。三个接受记录的 `initialization_model_id` 与 pin 一致并保留模型引用。
+
+初次执行下载独立权重文件，从第 0 轮和新训练状态开始。`native-config.json` 的 `evidence.initialization` 记录来源 SHA／摘要、所有状态张量指纹与数量，以及优化器、调度器、scaler、EMA 和最佳成绩重置证据；服务端成功提交再次验证。后续恢复优先使用本实验 checkpoint，回执为 `checkpoint_resume` 并保留原 pin。模型谱系的 `weights_initialization`、`initialized_runs`、`initialization_recipes` 分别表达直接来源及反向记录，读取不访问权重。
 
 ## 模型注册、部署与发布
 

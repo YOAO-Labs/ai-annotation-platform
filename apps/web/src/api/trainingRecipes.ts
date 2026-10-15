@@ -8,8 +8,10 @@ import type {
   TrainingReuseCandidate,
 } from "./generated/types.gen";
 import type { ParameterValue } from "@/pages/Training/trainingConfiguration";
+import type { FrozenTrainingInitialization, TrainingInitialization } from "./trainingRuns";
 export type { TrainingOrigin, TrainingRecipeOut, TrainingRecipeWrite, TrainingReuseCandidate };
 export type ReusableSnapshot = {
+  initialization?: FrozenTrainingInitialization;
   framework: "ultralytics" | "libreyolo";
   framework_version: string;
   image_digest: string;
@@ -20,6 +22,17 @@ export type ReusableSnapshot = {
     effective_values: Record<string, ParameterValue>;
   };
 };
+export function initializationReference(
+  pin?: FrozenTrainingInitialization | null,
+): TrainingInitialization | undefined {
+  return pin
+    ? {
+        kind: "trained_model",
+        model_version_id: pin.model_version_id,
+        source_digest: pin.source_digest,
+      }
+    : undefined;
+}
 const base = (id: string) => `/projects/${id}/training-recipes`;
 export const trainingRecipesApi = {
   list: (id: string, offset = 0, archived = false) =>

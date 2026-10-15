@@ -12,9 +12,12 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { trainingInputClass } from "./TrainingParameterField";
+import { getAuthSessionRevision } from "@/stores/authSession";
 import { useAuthStore } from "@/stores/authStore";
+import { useTrainingViewOwner } from "./trainingViewOwner";
 
 function useRequestOwner(projectId: string) {
+  const session = useTrainingViewOwner(projectId, "recipes");
   const alive = useRef(true);
   const scope = useRef(projectId);
   scope.current = projectId;
@@ -28,11 +31,15 @@ function useRequestOwner(projectId: string) {
     projectId: scope.current,
     userId: useAuthStore.getState().user?.id,
     token: useAuthStore.getState().token,
+    revision: getAuthSessionRevision(),
   });
   return {
+    scope: [session.owner.userId, session.owner.revision],
     capture,
     matches: (owner: ReturnType<typeof capture>) =>
       alive.current &&
+      session.owns() &&
+      getAuthSessionRevision() === owner.revision &&
       scope.current === owner.projectId &&
       useAuthStore.getState().user?.id === owner.userId &&
       useAuthStore.getState().token === owner.token,
@@ -51,14 +58,22 @@ export function TrainingRecipeStatus({
   projectId: string;
   origin: TrainingOrigin;
 }) {
+  const owner = useRequestOwner(projectId);
   const pinned = useQuery({
-    queryKey: ["training-recipe-pin", projectId, origin.recipe_id, origin.revision_id],
+    queryKey: ["training-recipe-pin", projectId, origin.recipe_id, origin.revision_id, owner.scope],
     queryFn: () => trainingRecipesApi.get(projectId, origin.recipe_id!, origin.revision_id!),
     enabled: origin.kind === "recipe",
     refetchInterval: 5000,
   });
   const clone = useQuery({
-    queryKey: ["training-clone-source", projectId, origin.run_id, origin.attempt_id, origin.digest],
+    queryKey: [
+      "training-clone-source",
+      projectId,
+      origin.run_id,
+      origin.attempt_id,
+      origin.digest,
+      owner.scope,
+    ],
     queryFn: () =>
       trainingRecipesApi.clone(projectId, origin.run_id!, origin.attempt_id ?? undefined),
     enabled: origin.kind === "clone",
@@ -128,7 +143,7 @@ export function TrainingRecipeSave({
   const [error, setError] = useState("");
   const request = useRef<{ body: TrainingRecipeWrite; recipe?: string } | null>(null);
   const recipes = useQuery({
-    queryKey: ["training-recipes", projectId, page, false],
+    queryKey: ["training-recipes", projectId, page, false, owner.scope],
     queryFn: () => trainingRecipesApi.list(projectId, page * 20),
     enabled: !!capture,
   });
@@ -206,7 +221,7 @@ export function TrainingRecipeSave({
         <Modal open onClose={() => !busy && setCapture(null)} title="保存训练配方">
           <div className="space-y-4 text-xs">
             <p className="text-muted-foreground">
-              保存完整参数、原始基础权重和来源。不会创建实验或更新自动策略。
+              保存完整参数、初始化权重和来源。不会创建实验或更新自动策略。
             </p>
             {error && (
               <p role="alert" className="text-status-danger">
@@ -345,12 +360,12 @@ export function TrainingRecipeLibrary({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const recipes = useQuery({
-    queryKey: ["training-recipes", projectId, page, archived],
+    queryKey: ["training-recipes", projectId, page, archived, owner.scope],
     queryFn: () => trainingRecipesApi.list(projectId, page * 20, archived),
     refetchInterval: 5000,
   });
   const history = useQuery({
-    queryKey: ["training-recipe-history", projectId, selected, historyPage],
+    queryKey: ["training-recipe-history", projectId, selected, historyPage, owner.scope],
     queryFn: () => trainingRecipesApi.revisions(projectId, selected, historyPage * 20),
     enabled: !!selected,
     refetchInterval: 5000,
@@ -424,6 +439,12 @@ export function TrainingRecipeLibrary({
             <p className="break-words text-muted-foreground">
               {item.revision.description || "暂无说明"}
             </p>
+            {"initialization" in item.revision.snapshot &&
+              item.revision.snapshot.initialization != null && (
+                <p className="text-muted-foreground">
+                  包含固定的项目模型初始化权重；采用前将核对完整来源。
+                </p>
+              )}
             {!item.source_available && (
               <p className="text-muted-foreground">原实验已删除；保存的完整配置仍保留。</p>
             )}

@@ -1,5 +1,7 @@
 import { isAlias, isMap, isNode, isScalar, parseAllDocuments, stringify, visit } from "yaml";
 import type { TrainingParameterField, TrainingParameterSchema } from "@/api/generated/types.gen";
+import type { TrainingInitialization } from "@/api/trainingRuns";
+import { validInitialization } from "./trainingDraftStorage";
 
 export type ParameterValue = null | boolean | number | string | ParameterValue[];
 export type ParameterDraft =
@@ -168,11 +170,12 @@ export function portableConfiguration(
   baseModel: string,
   imageDigest: string,
   values: Record<string, ParameterValue>,
+  initialization?: TrainingInitialization,
 ): string {
   return stringify(
     {
       format: "aap-training-configuration",
-      version: 1,
+      version: initialization?.kind === "trained_model" ? 2 : 1,
       framework: schema.framework,
       framework_version: schema.framework_version,
       base_model: baseModel,
@@ -180,6 +183,7 @@ export function portableConfiguration(
       schema_digest: schema.schema_digest,
       image_digest: imageDigest,
       values,
+      ...(initialization?.kind === "trained_model" ? { initialization } : {}),
     },
     { aliasDuplicateObjects: false, lineWidth: 0 },
   );
@@ -217,11 +221,17 @@ export function importConfiguration(
   schema: TrainingParameterSchema,
   baseModel: string,
   imageDigest: string,
-): { values: Record<string, ParameterValue>; errors: string[]; warnings: string[] } {
+): {
+  values: Record<string, ParameterValue>;
+  errors: string[];
+  warnings: string[];
+  initialization?: TrainingInitialization;
+} {
   const result = {
     values: {} as Record<string, ParameterValue>,
     errors: [] as string[],
     warnings: [] as string[],
+    initialization: undefined as TrainingInitialization | undefined,
   };
   try {
     if (!source.trim() || new TextEncoder().encode(source).length > CONFIGURATION_FILE_LIMIT)
@@ -265,11 +275,24 @@ export function importConfiguration(
         "schema_digest",
         "image_digest",
         "values",
+        ...(data.version === 2 ? ["initialization"] : []),
       ]);
       if (Object.keys(data).some((key) => !allowed.has(key)))
         throw new Error("可移植配置包含未支持的顶层字段");
-      if (data.format !== "aap-training-configuration" || data.version !== 1)
+      if (
+        data.format !== "aap-training-configuration" ||
+        (data.version !== 1 && data.version !== 2)
+      )
         throw new Error("配置文件格式或格式版本不支持");
+      if (data.version === 2) {
+        if (
+          !validInitialization(data.initialization) ||
+          data.initialization.kind !== "trained_model" ||
+          !data.initialization.source_digest
+        )
+          throw new Error("配置文件缺少完整的项目模型初始化身份");
+        result.initialization = data.initialization;
+      }
       if (data.framework !== schema.framework || data.base_model !== baseModel)
         throw new Error("请先切换到文件指定的训练器与基础权重，再导入");
       if (

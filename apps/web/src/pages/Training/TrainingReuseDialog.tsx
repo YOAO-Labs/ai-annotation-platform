@@ -42,9 +42,28 @@ export function TrainingReuseDialog({
         </p>
         <p className="text-muted-foreground">
           {purpose === "policy"
-            ? "采用后固定这一修订的完整配置与原始基础权重。保留当前数据范围；最后保存自动策略才生效。"
-            : "使用原始基础权重新建实验。保留当前实验名称与已明确选择的数据；来源数据不会自动选中。仍需重新预检。"}
+            ? "采用后固定这一修订的完整配置与初始化权重。保留当前数据范围；最后保存自动策略才生效。"
+            : "使用保存的初始化权重新建实验，从第 0 轮开始。保留当前实验名称与已明确选择的数据；来源数据不会自动选中。仍需重新预检。"}
         </p>
+        <div className="space-y-1 break-all rounded-md bg-muted p-3">
+          <p>
+            当前初始化：
+            {before?.initialization
+              ? `${before.initialization.model_name} · ${before.initialization.artifact.sha256}`
+              : "受控目录基础权重"}
+          </p>
+          <p>
+            采用后初始化：
+            {after.initialization
+              ? `${after.initialization.model_name} · ${after.initialization.artifact.sha256}`
+              : "受控目录基础权重"}
+          </p>
+          {after.initialization && (
+            <p className="text-muted-foreground">
+              固定来源 {after.initialization.model_version_id}；不会自动使用被克隆实验的新产物。
+            </p>
+          )}
+        </div>
         {candidate.source_dataset_id && (
           <p className="break-all text-muted-foreground">
             来源数据版本：{candidate.source_dataset_id}

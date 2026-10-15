@@ -39,6 +39,9 @@ def runtime_identity():
     import torch
     from training_contract.catalog import supported_identities
     from training_contract.preview import POLICY_DIGEST
+    from training_contract.initialization import (
+        POLICY_DIGEST as INITIALIZATION_POLICY_DIGEST,
+    )
 
     gpu = os.environ["TRAINING_GPU_UUID"]
     devices = (
@@ -66,6 +69,7 @@ def runtime_identity():
         "executor_protocol": 2,
         "preview_protocol": 1,
         "observability_protocol": 1,
+        "initialization_policy_digest": INITIALIZATION_POLICY_DIGEST,
         "preview_policy_digest": POLICY_DIGEST,
         "supported_configs": supported_identities(),
         "image_digest": image,
@@ -483,6 +487,7 @@ class Supervisor:
                     except ValueError as exc:
                         raise InputMismatchError(str(exc)) from exc
                     resume_path = None
+                    initialization_path = None
                     if assignment["resume"]:
                         resume = assignment["resume"]
                         resume_path = directory / "resume.pt"
@@ -506,11 +511,41 @@ class Supervisor:
                         )
                         checkpoint.update(role="checkpoint", epoch=epoch)
                         atomic_json(directory / "checkpoint.json", checkpoint)
+                    elif config.get("initialization"):
+                        from training_contract.initialization import (
+                            validate_pin,
+                            MAX_WEIGHTS_BYTES,
+                        )
+
+                        pin = validate_pin(config["initialization"])
+                        source = assignment.get("initialization")
+                        if (
+                            not source
+                            or any(
+                                source.get(key) != value
+                                for key, value in pin["artifact"].items()
+                            )
+                            or source.get("source_digest") != pin["source_digest"]
+                        ):
+                            raise InputMismatchError(
+                                "Initialization assignment differs from its frozen source"
+                            )
+                        initialization_path = directory / "initialization.pt"
+                        self.download(
+                            source["url"],
+                            initialization_path,
+                            pin["artifact"]["sha256"],
+                            MAX_WEIGHTS_BYTES,
+                            exact_size=pin["artifact"]["size_bytes"],
+                        )
                     spec = {
                         "framework": config["framework"],
                         "parameters": config["parameters"],
                         "base_path": str(base),
                         "resume_path": str(resume_path) if resume_path else None,
+                        "initialization_path": str(initialization_path)
+                        if initialization_path
+                        else None,
                         "data_yaml": str(data_yaml),
                         "frozen_config": config,
                     }

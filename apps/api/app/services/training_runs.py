@@ -31,6 +31,7 @@ from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.training_datasets import assert_training_authority
 from app.services.training_adapters import ADAPTERS, capabilities, fixed_options
+from app.services import training_initialization as initialization
 
 ACTIVE = {
     "queued",
@@ -131,6 +132,14 @@ def runtime_compatible(config, runtime):
     framework = config["framework"]
     if config["framework_version"] != runtime.get("frameworks", {}).get(framework):
         return False
+    if "initialization" in config:
+        from training_contract.initialization import compatible_runtime
+
+        try:
+            if not compatible_runtime(config, runtime):
+                return False
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return False
     revision = config.get("adapter_revision", 1)
     protocol = runtime.get("executor_protocol")
     if protocol is None:
@@ -244,6 +253,16 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
                 if configuration["origins"][key] == "platform"
             },
         )
+    pin = await initialization.resolve(
+        db,
+        project_id,
+        body.initialization,
+        body.framework,
+        body.base_model,
+        config["classes"],
+    )
+    if pin is not None:
+        config["initialization"] = pin
     return config
 
 
@@ -434,6 +453,13 @@ async def assignment(db, run, attempt, token):
             item for item in parent.artifacts.values() if item["role"] == "checkpoint"
         )
         result["resume"] = {**checkpoint, "url": internal_download(checkpoint["key"])}
+    elif run.config.get("initialization"):
+        pin = run.config["initialization"]
+        result["initialization"] = {
+            **pin["artifact"],
+            "source_digest": pin["source_digest"],
+            "url": internal_download(pin["artifact"]["key"]),
+        }
     return result
 
 
@@ -499,6 +525,37 @@ async def claim(db, body):
                 db, run, attempt, "cancelled", "自动策略已关闭、变化或项目已停用"
             )
             continue
+        if config.get("initialization"):
+            try:
+                from training_contract.initialization import validate_pin
+
+                pin = validate_pin(config["initialization"])
+                if run.initialization_model_id != initialization.model_id(pin) or pin[
+                    "project_id"
+                ] != str(run.project_id):
+                    raise ValueError("初始化来源引用与冻结配置不符")
+                if not attempt.resume_from_id:
+                    await initialization.validate_accepted(
+                        db,
+                        run.project_id,
+                        pin,
+                        config["framework"],
+                        config["base_model"]["id"],
+                        config["classes"],
+                    )
+            except (HTTPException, ValueError, KeyError, TypeError) as exc:
+                reason = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+                await mark_terminal(
+                    db, run, attempt, "failed", "初始化来源校验失败：" + reason[:400]
+                )
+                attempt.failure = failure_receipt(
+                    "input_mismatch",
+                    "preparing",
+                    run.config_digest,
+                    run.error_message,
+                    source="platform",
+                )
+                continue
         attempt.claim_id = body.claim_id
         token = claim_token(attempt, body.claim_id)
         attempt.executor_id = body.executor_id
@@ -670,6 +727,18 @@ def verify_native_artifact(run, attempt, artifacts):
     expected = verify_native(run.config, blob["observed"], blob["runtime_options"])
     if blob["verification"] != expected:
         raise ValueError("Native configuration verification receipt mismatch")
+    if run.config.get("initialization"):
+        from training_contract.initialization import verify_evidence
+
+        if run.initialization_model_id != initialization.model_id(
+            run.config["initialization"]
+        ):
+            raise ValueError("Native initialization model reference mismatch")
+        verify_evidence(
+            run.config,
+            blob.get("evidence", {}).get("initialization"),
+            resumed=bool(attempt.resume_from_id),
+        )
 
 
 async def finish(db, attempt_id, body):

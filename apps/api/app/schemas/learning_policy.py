@@ -9,6 +9,7 @@ from app.schemas.training_run import (
     TrainingConfiguration,
     TrainingOrigin,
 )
+from app.schemas.training_initialization import TrainingInitialization
 
 
 class LearningPolicySave(BaseModel):
@@ -21,6 +22,7 @@ class LearningPolicySave(BaseModel):
     base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
+    initialization: TrainingInitialization | None = None
     origin: TrainingOrigin | None = None
     min_changed_samples: int = Field(ge=1, le=20000)
     check_interval_minutes: int = Field(ge=1, le=1440)
@@ -34,6 +36,12 @@ class LearningPolicySave(BaseModel):
             self.origin.kind != "recipe" or self.configuration is None
         ):
             raise ValueError("策略配方必须携带完整配置及具体修订")
+        if (
+            self.initialization
+            and self.initialization.kind == "trained_model"
+            and self.configuration is None
+        ):
+            raise ValueError("项目权重初始化必须携带完整配置")
         return self
 
 
@@ -45,6 +53,7 @@ class LearningPolicyOut(BaseModel):
     revision: int
     enabled: bool
     config: dict
+    initialization_model_id: uuid.UUID | None = None
     baseline_dataset_id: uuid.UUID | None
     blocked_train_digest: str | None
     last_checked_at: datetime | None

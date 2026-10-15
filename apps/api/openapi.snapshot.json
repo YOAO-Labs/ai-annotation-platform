@@ -14670,6 +14670,153 @@
         "title": "FrozenEvaluationSample",
         "type": "object"
       },
+      "FrozenTrainingInitialization": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/InitializationArtifact"
+          },
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "base_model": {
+            "title": "Base Model",
+            "type": "string"
+          },
+          "binding_digest": {
+            "title": "Binding Digest",
+            "type": "string"
+          },
+          "bindings": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Bindings",
+            "type": "array"
+          },
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Classes",
+            "type": "array"
+          },
+          "classes_digest": {
+            "title": "Classes Digest",
+            "type": "string"
+          },
+          "config_digest": {
+            "title": "Config Digest",
+            "type": "string"
+          },
+          "dataset_digest": {
+            "title": "Dataset Digest",
+            "type": "string"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/InitializationEvaluation"
+          },
+          "framework": {
+            "const": "ultralytics",
+            "title": "Framework",
+            "type": "string"
+          },
+          "framework_version": {
+            "title": "Framework Version",
+            "type": "string"
+          },
+          "kind": {
+            "const": "trained_model",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_family": {
+            "const": "yolo11",
+            "title": "Model Family",
+            "type": "string"
+          },
+          "model_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model Name",
+            "type": "string"
+          },
+          "model_version_id": {
+            "format": "uuid",
+            "title": "Model Version Id",
+            "type": "string"
+          },
+          "policy_digest": {
+            "title": "Policy Digest",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/InitializationRuntime"
+          },
+          "source_digest": {
+            "title": "Source Digest",
+            "type": "string"
+          },
+          "task": {
+            "const": "image-detection",
+            "title": "Task",
+            "type": "string"
+          },
+          "validation_digest": {
+            "title": "Validation Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "policy_digest",
+          "project_id",
+          "model_version_id",
+          "model_name",
+          "run_id",
+          "attempt_id",
+          "dataset_id",
+          "framework",
+          "framework_version",
+          "task",
+          "model_family",
+          "base_model",
+          "artifact",
+          "classes",
+          "classes_digest",
+          "bindings",
+          "binding_digest",
+          "config_digest",
+          "dataset_digest",
+          "validation_digest",
+          "runtime",
+          "evaluation",
+          "source_digest"
+        ],
+        "title": "FrozenTrainingInitialization",
+        "type": "object"
+      },
       "GPUArbiterResourceItem": {
         "properties": {
           "allocatable_mb": {
@@ -16742,6 +16889,99 @@
         "title": "ImagePyramidTileAssetRequest",
         "type": "object"
       },
+      "InitializationArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "role": {
+            "const": "weights",
+            "title": "Role",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 2147483648.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "role",
+          "sha256",
+          "size_bytes"
+        ],
+        "title": "InitializationArtifact",
+        "type": "object"
+      },
+      "InitializationEvaluation": {
+        "additionalProperties": false,
+        "properties": {
+          "report_digest": {
+            "title": "Report Digest",
+            "type": "string"
+          },
+          "report_sha256": {
+            "title": "Report Sha256",
+            "type": "string"
+          },
+          "validation_digest": {
+            "title": "Validation Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_sha256",
+          "report_digest",
+          "validation_digest"
+        ],
+        "title": "InitializationEvaluation",
+        "type": "object"
+      },
+      "InitializationRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "cuda": {
+            "title": "Cuda",
+            "type": "string"
+          },
+          "image_digest": {
+            "title": "Image Digest",
+            "type": "string"
+          },
+          "python": {
+            "title": "Python",
+            "type": "string"
+          },
+          "torch": {
+            "title": "Torch",
+            "type": "string"
+          },
+          "torchvision": {
+            "title": "Torchvision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "python",
+          "torch",
+          "torchvision",
+          "cuda",
+          "image_digest"
+        ],
+        "title": "InitializationRuntime",
+        "type": "object"
+      },
       "InstanceModelItem": {
         "description": "实例级 model 视图 (字段裁剪自协议 v2 ModelCapability, 不暴露 url / params 等运维\n信息; v0.14.12 起补 supported_variants + variant_combinations 让前端能按主轴展开\n「具体模型」行; v0.19.2 WS0 起补 supported_inputs + resource_profile, 与项目级\n/capabilities 对齐, 供全局编排选择器消费投递契约/批量画像).",
         "properties": {
@@ -18101,6 +18341,18 @@
             "title": "Id",
             "type": "string"
           },
+          "initialization_model_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initialization Model Id"
+          },
           "last_checked_at": {
             "anyOf": [
               {
@@ -18240,6 +18492,16 @@
             ],
             "title": "Framework",
             "type": "string"
+          },
+          "initialization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingInitialization"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "min_changed_samples": {
             "maximum": 20000.0,
@@ -39507,6 +39769,16 @@
             ],
             "title": "Framework",
             "type": "string"
+          },
+          "initialization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingInitialization"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -41157,6 +41429,91 @@
         "title": "TrainingHubCatalog",
         "type": "object"
       },
+      "TrainingInitialization": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "catalog",
+              "trained_model"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version Id"
+          },
+          "source_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Digest"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "TrainingInitialization",
+        "type": "object"
+      },
+      "TrainingInitializationEligibility": {
+        "properties": {
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "model_version_id": {
+            "format": "uuid",
+            "title": "Model Version Id",
+            "type": "string"
+          },
+          "pin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrozenTrainingInitialization"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Reasons",
+            "type": "array"
+          },
+          "storage_verified": {
+            "default": false,
+            "title": "Storage Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "model_version_id",
+          "eligible",
+          "reasons"
+        ],
+        "title": "TrainingInitializationEligibility",
+        "type": "object"
+      },
       "TrainingOrigin": {
         "additionalProperties": false,
         "properties": {
@@ -42085,6 +42442,18 @@
             "title": "Id",
             "type": "string"
           },
+          "initialization_model_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initialization Model Id"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -42366,6 +42735,16 @@
             "title": "Framework",
             "type": "string"
           },
+          "initialization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingInitialization"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "maxLength": 120,
             "minLength": 1,
@@ -42507,6 +42886,18 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "initialization_model_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initialization Model Id"
           },
           "metrics": {
             "additionalProperties": true,
@@ -71901,6 +72292,105 @@
           }
         ],
         "summary": "Catalog",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-runs/initialization-sources/{model_id}": {
+      "get": {
+        "operationId": "initialization_source_api_v1_projects__project_id__training_runs_initialization_sources__model_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Model Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "framework",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ultralytics",
+                "libreyolo"
+              ],
+              "title": "Framework",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "base_model",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Base Model",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dataset_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingInitializationEligibility"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Initialization Source",
         "tags": [
           "training-runs"
         ]

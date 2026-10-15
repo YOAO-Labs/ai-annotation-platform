@@ -10,6 +10,41 @@ import {
 
 beforeEach(() => localStorage.clear());
 const owner = trainingDraftOwner("user-1", "project-1");
+
+it("preserves a pinned initialization in exact pending bodies and rejects hidden or mismatched sources", () => {
+  const old = pendingDraft();
+  const initialization = {
+    kind: "trained_model" as const,
+    model_version_id: crypto.randomUUID(),
+    source_digest: "c".repeat(64),
+  };
+  const draft = {
+    ...old,
+    initialization,
+    pending: { body: { ...old.pending.body, initialization } },
+  };
+  expect(saveTrainingDraft(draft)).toBeNull();
+  expect(readTrainingDraft(owner).draft).toEqual(draft);
+  for (const changed of [
+    { ...draft, initialization: undefined },
+    { ...draft, initialization: { ...initialization, source_digest: "d".repeat(64) } },
+    { ...draft, initialization: { ...initialization, url: "https://arbitrary.invalid" } },
+    {
+      ...draft,
+      initialization: { kind: "catalog", model_version_id: initialization.model_version_id },
+    },
+  ]) {
+    localStorage.setItem(trainingDraftKey(owner), JSON.stringify(changed));
+    expect(readTrainingDraft(owner).draft).toBeNull();
+  }
+  expect(
+    saveTrainingDraft({
+      ...old,
+      pending: undefined,
+      initialization: { kind: "trained_model", model_version_id: initialization.model_version_id },
+    }),
+  ).toBeNull();
+});
 function pendingDraft() {
   const draft = {
     ...emptyTrainingDraft(owner),

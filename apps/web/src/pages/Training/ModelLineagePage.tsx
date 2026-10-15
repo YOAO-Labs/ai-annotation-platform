@@ -61,6 +61,9 @@ const relationNames: Record<string, string> = {
   frozen_release: "冻结发布身份",
   frozen_evaluation: "冻结评估身份",
   configuration_origin: "配置来源",
+  weights_initialization: "初始化权重来源",
+  initialized_runs: "由此权重初始化的实验",
+  initialization_recipes: "固定此权重的配方修订",
 };
 const dispositions = {
   active: "恢复默认显示",
@@ -94,6 +97,14 @@ const factNames: Record<string, string> = {
   frozen_sha256: "冻结权重 SHA-256",
   frozen_reference_digest: "冻结引用摘要",
   frozen_project_id: "冻结项目 ID",
+  initialization_model_id: "初始化模型引用",
+  initialization_kind: "初始化方式",
+  initialization_project_id: "初始化来源项目",
+  initialization_model_version_id: "初始化来源模型",
+  initialization_run_id: "初始化来源实验",
+  initialization_attempt_id: "初始化来源执行尝试",
+  initialization_source_digest: "初始化来源摘要",
+  initialization_policy_digest: "初始化资格摘要",
 };
 
 function existingDetail(projectId: string, node: LineageNode) {

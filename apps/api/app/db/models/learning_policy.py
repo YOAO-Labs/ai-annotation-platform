@@ -33,6 +33,15 @@ class LearningPolicy(Base):
     creator_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
+    initialization_model_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "trained_model_versions.id",
+            name="fk_learning_policy_initialization_model",
+            ondelete="RESTRICT",
+        ),
+        index=True,
+    )
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)

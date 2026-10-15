@@ -13,6 +13,7 @@ import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useAuthStore } from "@/stores/authStore";
 import {
   recipeCandidate,
+  initializationReference,
   trainingRecipesApi,
   type ReusableSnapshot,
   type TrainingReuseCandidate,
@@ -22,6 +23,10 @@ import {
   TrainingRecipeStatus,
 } from "@/pages/Training/TrainingRecipeLibrary";
 import { TrainingReuseDialog } from "@/pages/Training/TrainingReuseDialog";
+import {
+  useTrainingSessionRevision,
+  useTrainingViewOwner,
+} from "@/pages/Training/trainingViewOwner";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring";
@@ -53,6 +58,7 @@ type Form = {
   originalParameters?: Record<string, string>;
   configuration?: LearningPolicySave["configuration"];
   origin?: LearningPolicySave["origin"];
+  initialization?: LearningPolicySave["initialization"];
 };
 const empty: Form = {
   enabled: false,
@@ -77,6 +83,7 @@ function initial(policy: LearningPolicyOut | null): Form {
     parameters: Record<string, number>;
     configuration?: ReusableSnapshot["configuration"];
     origin?: LearningPolicySave["origin"];
+    initialization?: ReusableSnapshot["initialization"];
   };
   return {
     enabled: policy.enabled,
@@ -87,6 +94,7 @@ function initial(policy: LearningPolicyOut | null): Form {
     threshold: String(c.min_changed_samples),
     interval: String(c.check_interval_minutes),
     cooldown: String(c.cooldown_minutes),
+    initialization: initializationReference(c.initialization),
     parameters: Object.fromEntries(Object.entries(c.parameters).map(([k, v]) => [k, String(v)])),
     originalParameters: Object.fromEntries(
       Object.entries(c.parameters).map(([k, v]) => [k, String(v)]),
@@ -116,33 +124,36 @@ function initial(policy: LearningPolicyOut | null): Form {
 export function ProjectLearningPolicyPanel({ projectId }: { projectId: string }) {
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const token = useAuthStore((state) => state.token ?? "");
+  const sessionRevision = useTrainingSessionRevision();
   const owner = useMemo(
-    () => ({ projectId, userId, sessionToken: token, key: crypto.randomUUID() }),
-    [projectId, userId, token],
+    () => ({ projectId, userId, sessionToken: token, sessionRevision, key: crypto.randomUUID() }),
+    [projectId, userId, token, sessionRevision],
   );
   return <ProjectLearningPolicyContent key={owner.key} projectId={projectId} />;
 }
 
 function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
+  const view = useTrainingViewOwner(projectId, "policy");
+  const [scope] = useState(() => crypto.randomUUID());
   const queryClient = useQueryClient();
   const policy = useQuery({
-    queryKey: ["learning-policy", projectId],
+    queryKey: ["learning-policy", projectId, scope],
     queryFn: () => learningPoliciesApi.get(projectId),
     refetchInterval: 3000,
   });
   const [page, setPage] = useState(0);
   const history = useQuery({
-    queryKey: ["learning-triggers", projectId, page],
+    queryKey: ["learning-triggers", projectId, page, scope],
     queryFn: () => learningPoliciesApi.triggers(projectId, page * 20),
     refetchInterval: 3000,
   });
   const catalog = useQuery({
-    queryKey: ["training-catalog", projectId],
+    queryKey: ["training-catalog", projectId, scope],
     queryFn: () => trainingRunsApi.catalog(projectId),
   });
   const [datasetPage, setDatasetPage] = useState(0);
   const datasets = useQuery({
-    queryKey: ["policy-datasets", projectId, datasetPage],
+    queryKey: ["policy-datasets", projectId, datasetPage, scope],
     queryFn: () => trainingDatasetsApi.list(projectId, datasetPage * 20),
   });
   const [editing, setEditing] = useState(false);
@@ -170,6 +181,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
   };
   const action = useMutation({
     mutationFn: async (kind: "save" | "disable" | "check" | "remove") => {
+      view.assert();
       setError("");
       if (kind === "save") {
         for (const value of [draft.threshold, draft.interval, draft.cooldown])
@@ -206,6 +218,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
             ? { configuration }
             : { parameters: numeric as LearningPolicySave["parameters"] }),
           ...(draft.origin ? { origin: draft.origin } : {}),
+          ...(draft.initialization ? { initialization: draft.initialization } : {}),
           min_changed_samples: Number(draft.threshold),
           check_interval_minutes: Number(draft.interval),
           cooldown_minutes: Number(draft.cooldown),
@@ -221,14 +234,18 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           confirmLabel: "删除策略",
           tone: "danger",
         })
-      )
+      ) {
+        view.assert();
         await learningPoliciesApi.remove(projectId);
+      }
     },
     onSuccess: () => {
+      if (!view.owns()) return;
       setEditing(false);
       refresh();
     },
     onError: (e: Error) => {
+      if (!view.owns()) return;
       setError(e.message);
       refresh();
     },
@@ -278,6 +295,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
         before = await trainingRecipesApi.resolve(projectId, {
           framework: captured.framework,
           base_model: captured.base,
+          ...(captured.initialization ? { initialization: captured.initialization } : {}),
           configuration: {
             ...captured.configuration,
             values: {
@@ -294,14 +312,14 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
             },
           },
         });
-      if (draftRef.current === captured)
+      if (view.owns() && draftRef.current === captured)
         setPreview({ candidate: latest, before, draft: captured, revision: capturedRevision });
     } catch (reason) {
-      if (draftRef.current === captured)
+      if (view.owns() && draftRef.current === captured)
         setError(reason instanceof Error ? reason.message : "核对失败");
     } finally {
       reuseLock.current = false;
-      setReuseBusy(false);
+      if (view.owns()) setReuseBusy(false);
     }
   };
   const acceptRecipe = async () => {
@@ -328,7 +346,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
       const current = await learningPoliciesApi.get(projectId);
       if ((current?.revision ?? 0) !== preview.revision)
         throw new Error("策略已变化，保留编辑内容；请刷新后再采纳");
-      if (draftRef.current !== preview.draft) return;
+      if (!view.owns() || draftRef.current !== preview.draft) return;
       const snapshot = latest.snapshot as ReusableSnapshot;
       const parameters = Object.fromEntries(
         Object.entries(snapshot.configuration.effective_values)
@@ -347,13 +365,14 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           values: snapshot.configuration.user_values,
         },
         origin: latest.origin,
+        initialization: initializationReference(snapshot.initialization),
       });
       setPreview(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "采纳失败");
+      if (view.owns()) setError(reason instanceof Error ? reason.message : "采纳失败");
     } finally {
       reuseLock.current = false;
-      setReuseBusy(false);
+      if (view.owns()) setReuseBusy(false);
     }
   };
   return (
@@ -385,6 +404,13 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           <p className="text-muted-foreground">{policy.data.message}</p>
           {initial(policy.data).origin && (
             <TrainingRecipeStatus projectId={projectId} origin={initial(policy.data).origin!} />
+          )}
+          {initial(policy.data).initialization?.kind === "trained_model" && (
+            <p className="break-all text-xs text-muted-foreground">
+              初始化候选：{initial(policy.data).initialization?.model_version_id} · 来源摘要{" "}
+              {initial(policy.data).initialization?.source_digest}
+              。每轮创建全新实验，来源不会跟随发布变化。
+            </p>
           )}
           <p className="text-muted-foreground">
             成功基线：
@@ -465,6 +491,13 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           {draft.configuration && (
             <p className="text-xs text-muted-foreground">
               保留完整高级配置。更换训练器、基础权重或高级参数，请在配置工作区保存配方后在此核对采纳。
+            </p>
+          )}
+          {draft.initialization?.kind === "trained_model" && (
+            <p className="break-all text-xs text-muted-foreground">
+              已固定初始化模型 {draft.initialization.model_version_id}，摘要{" "}
+              {draft.initialization.source_digest}
+              。解除配方来源会保留权重选择；更换权重请在配置工作区另存配方后采用。
             </p>
           )}
           <fieldset disabled={busy} className="space-y-4 rounded-md border border-border p-4">

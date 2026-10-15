@@ -14,6 +14,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from app.schemas.training_initialization import TrainingInitialization
 
 
 class TrainingConfiguration(BaseModel):
@@ -65,6 +66,7 @@ class TrainingRunCreate(BaseModel):
     base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
+    initialization: TrainingInitialization | None = None
     origin: TrainingOrigin | None = None
     request_id: uuid.UUID
     preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -82,6 +84,12 @@ class TrainingRunCreate(BaseModel):
             raise ValueError("configuration 与旧 parameters 不能同时提交")
         if self.origin is not None and self.configuration is None:
             raise ValueError("复用来源必须携带完整配置")
+        if (
+            self.initialization
+            and self.initialization.kind == "trained_model"
+            and self.configuration is None
+        ):
+            raise ValueError("项目权重初始化必须携带完整配置")
         return self
 
     def request_payload(self):
@@ -93,6 +101,12 @@ class TrainingRunCreate(BaseModel):
             payload.pop("parameters")
         if self.origin is None:
             payload.pop("origin")
+        if self.initialization is None or self.initialization.kind == "catalog":
+            payload.pop("initialization")
+        else:
+            payload["initialization"] = self.initialization.model_dump(
+                mode="json", exclude_none=True
+            )
         return payload
 
 
@@ -102,6 +116,7 @@ class TrainingRunOut(BaseModel):
     project_id: uuid.UUID
     creator_id: uuid.UUID | None
     dataset_id: uuid.UUID
+    initialization_model_id: uuid.UUID | None = None
     async_job_id: uuid.UUID | None
     auto_trigger_id: uuid.UUID | None = None
     name: str

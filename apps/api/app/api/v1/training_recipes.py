@@ -18,6 +18,7 @@ from app.schemas.training_recipe import (
 from app.services import training_recipes as service
 from app.services.learning_policies import project_lock
 from app.services.training_dataset_bridge import content_digest
+from app.services import training_initialization as initialization
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-recipes",
@@ -29,10 +30,9 @@ router = APIRouter(
 async def resolve_configuration(
     body: TrainingConfigurationResolve,
     project: Project = Depends(require_project_owner),
+    db=Depends(get_db),
 ) -> dict:
-    return service.snapshot(
-        body.framework, body.base_model, body.configuration.model_dump()
-    )
+    return await service.resolve_snapshot(db, project.id, body)
 
 
 @router.get("", response_model=TrainingRecipePage)
@@ -65,7 +65,7 @@ async def write_revision(body, project, user, db, recipe_id=None):
     digest = content_digest(
         {
             "recipe_id": str(recipe_id) if recipe_id else None,
-            "body": body.model_dump(mode="json"),
+            "body": body.request_payload(),
         }
     )
     previous = await db.scalar(
@@ -106,6 +106,14 @@ async def write_revision(body, project, user, db, recipe_id=None):
         compatible, reason = service.compatibility(value)
         if not compatible:
             raise HTTPException(status_code=409, detail=reason)
+        if value.get("initialization"):
+            await initialization.validate_accepted(
+                db,
+                project.id,
+                value["initialization"],
+                value["framework"],
+                value["base_model"]["id"],
+            )
         origin = {
             "kind": "clone",
             "run_id": str(run.id),
@@ -117,9 +125,7 @@ async def write_revision(body, project, user, db, recipe_id=None):
         }
     else:
         source = body.configuration
-        value = service.snapshot(
-            source.framework, source.base_model, source.configuration.model_dump()
-        )
+        value = await service.resolve_snapshot(db, project.id, source)
         origin = await service.origin_snapshot(db, project.id, body.origin, value)
     recipe.head_revision += 1
     revision = TrainingRecipeRevision(
@@ -132,6 +138,7 @@ async def write_revision(body, project, user, db, recipe_id=None):
         snapshot=value,
         snapshot_digest=content_digest(value),
         origin=origin,
+        initialization_model_id=initialization.model_id(value.get("initialization")),
         request_id=body.request_id,
         request_digest=digest,
     )

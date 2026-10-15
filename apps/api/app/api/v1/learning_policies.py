@@ -18,6 +18,7 @@ from app.schemas.learning_policy import (
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import learning_policies as service, training_runs as runs
 from app.services import training_recipes as recipes
+from app.services import training_initialization as initialization
 
 router = APIRouter(
     prefix="/projects/{project_id}/learning-policy",
@@ -61,6 +62,24 @@ async def save_policy(
             status_code=409,
             detail="当前策略使用完整训练配置，请保留 configuration，不能静默降为六参数配置",
         )
+    if policy and policy.config.get("initialization") and body.initialization is None:
+        raise HTTPException(
+            status_code=409,
+            detail="当前策略固定了项目初始化权重；请保留来源或明确选择目录初始化",
+        )
+    parent = await db.get(TrainingDatasetVersion, body.parent_id)
+    if not parent or parent.project_id != project.id or parent.status != "ready":
+        raise HTTPException(
+            status_code=422, detail="请选择当前项目已就绪的数据作为初始划分"
+        )
+    pin = await initialization.resolve(
+        db,
+        project.id,
+        body.initialization,
+        body.framework,
+        body.base_model,
+        parent.manifest.get("classes"),
+    )
     template = service.fixed_template(body.framework, body.base_model)
     configuration = (
         runs.resolve_configuration(
@@ -73,15 +92,14 @@ async def save_policy(
         db,
         project.id,
         body.origin,
-        {**template, "configuration": configuration},
+        {
+            **template,
+            "configuration": configuration,
+            **({"initialization": pin} if pin else {}),
+        },
         retain=policy.config.get("origin") if policy else None,
         strict=True,
     )
-    parent = await db.get(TrainingDatasetVersion, body.parent_id)
-    if not parent or parent.project_id != project.id or parent.status != "ready":
-        raise HTTPException(
-            status_code=422, detail="请选择当前项目已就绪的数据作为初始划分"
-        )
     if body.enabled and project.status != "in_progress":
         raise HTTPException(status_code=409, detail="仅进行中的项目可启用自动训练")
     selection = TrainingDatasetSelection(
@@ -101,6 +119,7 @@ async def save_policy(
     policy.revision += 1
     policy.enabled, policy.creator_id = body.enabled, user.id
     policy.authorization = {"api_key_id": getattr(request.state, "api_key_id", None)}
+    policy.initialization_model_id = initialization.model_id(pin)
     policy.config = {
         "parent_id": str(selection.parent_id),
         "batch_id": str(selection.batch_id) if selection.batch_id else None,
@@ -122,6 +141,8 @@ async def save_policy(
         }
     if origin is not None:
         policy.config = {**policy.config, "origin": origin}
+    if pin is not None:
+        policy.config = {**policy.config, "initialization": pin}
     policy.blocked_train_digest = policy.last_snapshot_digest = None
     policy.next_check_at = runs.now()
     policy.state, policy.message = (

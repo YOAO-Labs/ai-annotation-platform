@@ -32,11 +32,13 @@ from app.schemas.training_run import (
     TrainingEvaluationOut,
 )
 from app.schemas.training_hub import TrainingParameterSchema
+from app.schemas.training_initialization import TrainingInitializationEligibility
 from training_contract import definition
 from app.api.v1.training_datasets import lock_owner
 from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
+from app.services import training_initialization as initialization
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 
@@ -88,7 +90,27 @@ async def catalog(
         and lease.last_seen_at > service.now() - timedelta(seconds=30)
     )
     result["busy"] = bool(lease and lease.attempt_id)
+    result["initialization_policy_digest"] = (
+        lease.runtime.get("initialization_policy_digest") if lease else None
+    )
     return result
+
+
+@router.get(
+    "/initialization-sources/{model_id}",
+    response_model=TrainingInitializationEligibility,
+)
+async def initialization_source(
+    model_id: uuid.UUID,
+    framework: Literal["ultralytics", "libreyolo"],
+    base_model: str = Query(min_length=1, max_length=64),
+    dataset_id: uuid.UUID | None = None,
+    project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    return await initialization.eligibility(
+        db, project.id, model_id, framework, base_model, dataset_id
+    )
 
 
 @router.post(":preflight", dependencies=[Depends(require_scopes("datasets:write"))])
@@ -160,6 +182,7 @@ async def create_run(
         project_id=project.id,
         creator_id=user.id,
         dataset_id=body.dataset_id,
+        initialization_model_id=initialization.model_id(config.get("initialization")),
         request_id=body.request_id,
         request_digest=request_digest,
         name=body.name,

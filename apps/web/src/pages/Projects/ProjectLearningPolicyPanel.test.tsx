@@ -7,6 +7,7 @@ import { trainingRunsApi } from "@/api/trainingRuns";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRecipesApi } from "@/api/trainingRecipes";
 import { ProjectLearningPolicyPanel } from "./ProjectLearningPolicyPanel";
+import { useAuthStore } from "@/stores/authStore";
 vi.mock("@/api/learningPolicies", () => ({
   learningPoliciesApi: {
     get: vi.fn(),
@@ -56,6 +57,7 @@ const policy = {
   },
 };
 beforeEach(() => {
+  useAuthStore.getState().setAuth("policy-test", { id: "policy-owner" } as never);
   vi.clearAllMocks();
   vi.mocked(learningPoliciesApi.get).mockResolvedValue(null);
   vi.mocked(learningPoliciesApi.triggers).mockResolvedValue({ total: 0, items: [] });
@@ -200,5 +202,46 @@ describe("ProjectLearningPolicyPanel", () => {
     await u.click(screen.getByRole("button", { name: "保存自动策略" }));
     await screen.findByText("lr0 必须为明确的有限数值");
     expect(learningPoliciesApi.save).not.toHaveBeenCalled();
+  });
+  it("keeps project weights when thresholds change or recipe origin is explicitly unlinked", async () => {
+    const initialization = {
+      kind: "trained_model",
+      model_version_id: "11111111-1111-4111-8111-111111111111",
+      source_digest: "c".repeat(64),
+    };
+    vi.mocked(learningPoliciesApi.get).mockResolvedValue({
+      ...policy,
+      config: {
+        ...policy.config,
+        configuration: {
+          identity: { schema_id: "schema", schema_digest: "a".repeat(64) },
+          user_values: {},
+          effective_values: policy.config.parameters,
+        },
+        initialization,
+        origin: {
+          kind: "recipe",
+          recipe_id: "recipe",
+          revision_id: "revision",
+          digest: "b".repeat(64),
+        },
+      },
+    } as never);
+    vi.mocked(trainingRecipesApi.get).mockResolvedValue({
+      revision: { name: "旧配方", ordinal: 1 },
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "编辑自动策略" }));
+    await user.click(screen.getByRole("button", { name: "解除策略配方" }));
+    await user.clear(screen.getByLabelText("变化样本门槛"));
+    await user.type(screen.getByLabelText("变化样本门槛"), "26");
+    await user.click(screen.getByRole("button", { name: "保存自动策略" }));
+    await waitFor(() => expect(learningPoliciesApi.save).toHaveBeenCalled());
+    expect(vi.mocked(learningPoliciesApi.save).mock.calls[0][1]).toMatchObject({
+      initialization,
+      min_changed_samples: 26,
+    });
+    expect(vi.mocked(learningPoliciesApi.save).mock.calls[0][1].origin).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import type { TrainingRunCreate } from "@/api/trainingRuns";
+import type { TrainingRunCreate, TrainingInitialization } from "@/api/trainingRuns";
 import type { TrainingOrigin } from "@/api/trainingRecipes";
 import type { ParameterDraft, ParameterDrafts, ParameterValue } from "./trainingConfiguration";
 
@@ -16,6 +16,7 @@ export type TrainingDraft = {
   schemaDigest: string;
   fields: ParameterDrafts;
   source?: TrainingDraftSource;
+  initialization?: TrainingInitialization;
   pending?: { body: TrainingRunCreate };
 };
 
@@ -110,6 +111,22 @@ function validOrigin(value: unknown): value is TrainingOrigin {
     : value.kind === "clone" && !!value.run_id && !value.recipe_id && !value.revision_id;
 }
 
+export function validInitialization(value: unknown): value is TrainingInitialization {
+  if (
+    !object(value) ||
+    Object.keys(value).some((key) => !["kind", "model_version_id", "source_digest"].includes(key))
+  )
+    return false;
+  if (value.kind === "catalog") return Object.keys(value).length === 1;
+  return (
+    value.kind === "trained_model" &&
+    typeof value.model_version_id === "string" &&
+    uuid.test(value.model_version_id) &&
+    (value.source_digest === undefined ||
+      (typeof value.source_digest === "string" && sha.test(value.source_digest)))
+  );
+}
+
 function validSource(value: unknown): value is TrainingDraftSource {
   if (!object(value) || Object.keys(value).length !== 9 || !validOrigin(value.reference))
     return false;
@@ -151,6 +168,7 @@ function pendingBody(value: unknown): value is TrainingRunCreate {
           "configuration",
           "preflight_digest",
           "origin",
+          "initialization",
         ].includes(key),
     )
   )
@@ -166,6 +184,9 @@ function pendingBody(value: unknown): value is TrainingRunCreate {
     typeof value.base_model === "string" &&
     value.base_model.length <= 64 &&
     (value.origin === undefined || validOrigin(value.origin)) &&
+    (value.initialization === undefined ||
+      (validInitialization(value.initialization) &&
+        (value.initialization.kind === "catalog" || !!value.initialization.source_digest))) &&
     typeof value.request_id === "string" &&
     uuid.test(value.request_id) &&
     typeof value.preflight_digest === "string" &&
@@ -202,6 +223,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
           "fields",
           "pending",
           "source",
+          "initialization",
         ].includes(key),
     )
   )
@@ -219,6 +241,8 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
   }
   if (value.schemaDigest && !sha.test(String(value.schemaDigest))) return false;
   if (value.source !== undefined && !validSource(value.source)) return false;
+  if (value.initialization !== undefined && !validInitialization(value.initialization))
+    return false;
   if (
     !object(value.fields) ||
     Object.keys(value.fields).length > 150 ||
@@ -250,6 +274,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
       JSON.stringify((value.source as TrainingDraftSource | undefined)?.reference)
     )
       return false;
+    if (JSON.stringify(body.initialization) !== JSON.stringify(value.initialization)) return false;
   }
   return true;
 }

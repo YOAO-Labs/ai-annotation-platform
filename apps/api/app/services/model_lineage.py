@@ -78,6 +78,7 @@ def projection(kind):
         "config_digest",
         "spec_digest",
         "archived",
+        "initialization_model_id",
     ):
         if hasattr(m, key):
             fields.append(getattr(m, key))
@@ -97,6 +98,20 @@ def projection(kind):
         fields += [
             scalar_json(m.config, key).label(key)
             for key in ("framework", "dataset_digest", "validation_digest")
+        ]
+    if kind in {"run", "recipe_revision"}:
+        snapshot = m.config if kind == "run" else m.snapshot
+        fields += [
+            scalar_json(snapshot, "initialization", key).label(f"initialization_{key}")
+            for key in (
+                "kind",
+                "project_id",
+                "model_version_id",
+                "run_id",
+                "attempt_id",
+                "source_digest",
+                "policy_digest",
+            )
         ]
     if kind == "model":
         fields += [
@@ -189,11 +204,14 @@ def render(kind, row):
         "validation_digest",
         "checked_at",
         "archived",
+        "initialization_model_id",
     ):
         if row.get(key) is not None:
             facts[key] = str(row[key])[:256]
     for key, value in row.items():
-        if key.startswith("frozen_") and value is not None:
+        if (
+            key.startswith("frozen_") or key.startswith("initialization_")
+        ) and value is not None:
             facts[key] = str(value)[:256]
     name = row.get("name") or {
         "attempt": f"执行尝试 {row.get('ordinal', '')}",
@@ -241,6 +259,11 @@ def relations(kind, row):
             "deployments": ("deployment", Deployment.model_version_id == node_id),
             "releases": ("release", Release.model_version_id == node_id),
             "evaluations": ("evaluation", Evaluation.model_version_id == node_id),
+            "initialized_runs": ("run", Run.initialization_model_id == node_id),
+            "initialization_recipes": (
+                "recipe_revision",
+                Revision.initialization_model_id == node_id,
+            ),
         },
         "deployment": {
             "releases": (
@@ -412,6 +435,20 @@ async def input_links(db, project_id, kind, row):
                 }
             )
     if kind in {"run", "recipe_revision"}:
+        if row.get("initialization_model_id") or row.get("initialization_kind"):
+            await edge(
+                "weights_initialization",
+                "model",
+                row.get("initialization_model_id"),
+                valid=row.get("initialization_kind") == "trained_model",
+                predicate=lambda target: (
+                    str(target["id"]) == row.get("initialization_model_version_id")
+                    and str(project_id) == row.get("initialization_project_id")
+                    and str(target["run_id"]) == row.get("initialization_run_id")
+                    and str(target["attempt_id"])
+                    == row.get("initialization_attempt_id")
+                ),
+            )
         if row.get("origin_kind") == "clone":
             await edge(
                 "configuration_clone",

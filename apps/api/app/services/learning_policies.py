@@ -20,6 +20,7 @@ from app.services.training_dataset_bridge import (
     content_digest,
     semantic_partitions,
 )
+from app.services import training_initialization as initialization
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
 CHECK_BATCH_SIZE = 100
@@ -53,6 +54,16 @@ def fixed_template(framework, base_model):
 def template_current(policy):
     try:
         expected = policy.config["template"]
+        pin = policy.config.get("initialization")
+        if pin:
+            if initialization.compatible_pin(
+                pin, expected["framework"], expected["base_model"]["id"]
+            ) or getattr(
+                policy, "initialization_model_id", None
+            ) != initialization.model_id(pin):
+                return False
+        elif getattr(policy, "initialization_model_id", None) is not None:
+            return False
         if policy.config.get("configuration"):
             from training_contract import definition, schema_identity
 
@@ -64,7 +75,7 @@ def template_current(policy):
             fixed_template(expected["framework"], expected["base_model"]["id"])
             == expected
         )
-    except (HTTPException, KeyError, ValueError):
+    except (HTTPException, KeyError, ValueError, TypeError):
         return False
 
 
@@ -108,6 +119,7 @@ async def claim_allowed(db, run):
         and policy.revision == trigger.policy_revision
         and project.status == "in_progress"
         and template_current(policy)
+        and run.config.get("initialization") == policy.config.get("initialization")
     )
 
 
@@ -289,17 +301,34 @@ async def reconcile(db, policy, trigger):
         framework=template["framework"],
         base_model=template["base_model"]["id"],
         **parameters,
+        initialization=initialization.reference(policy.config.get("initialization")),
         request_id=trigger.id,
     )
-    config = await runs.frozen_config(db, policy.project_id, body)
+    try:
+        config = await runs.frozen_config(db, policy.project_id, body)
+    except HTTPException as exc:
+        if not policy.config.get("initialization"):
+            raise
+        terminal_trigger(
+            trigger, "failed", "初始化来源校验失败：" + str(exc.detail)[:400]
+        )
+        policy.enabled, policy.state, policy.message = (
+            False,
+            "suspended",
+            trigger.message,
+        )
+        return
     if config.get("configuration") != policy.config.get("configuration"):
         raise HTTPException(status_code=409, detail="自动训练参数定义已变化")
+    if config.get("initialization") != policy.config.get("initialization"):
+        raise HTTPException(status_code=409, detail="自动训练初始化来源已变化")
     if any(config[key] != template[key] for key in template):
         raise HTTPException(status_code=409, detail="自动训练模板已变化")
     run = TrainingRun(
         project_id=policy.project_id,
         creator_id=policy.creator_id,
         dataset_id=dataset.id,
+        initialization_model_id=initialization.model_id(config.get("initialization")),
         auto_trigger_id=trigger.id,
         request_id=trigger.id,
         request_digest=content_digest(body.request_payload()),

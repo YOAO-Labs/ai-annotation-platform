@@ -6,6 +6,7 @@ import { ApiError } from "@/api/client";
 import { trainingRecipesApi, type TrainingRecipeOut } from "@/api/trainingRecipes";
 import { TrainingRecipeSave } from "./TrainingRecipeLibrary";
 import { effectiveChanges } from "./TrainingReuseDialog";
+import { useAuthStore } from "@/stores/authStore";
 
 vi.mock("@/api/trainingRecipes", async (original) => ({
   ...(await original<typeof import("@/api/trainingRecipes")>()),
@@ -37,6 +38,7 @@ function mount() {
   );
 }
 beforeEach(() => {
+  useAuthStore.getState().setAuth("recipe-test", { id: "recipe-owner" } as never);
   vi.clearAllMocks();
   vi.mocked(trainingRecipesApi.list).mockResolvedValue({ total: 1, items: [recipe] });
   vi.mocked(trainingRecipesApi.save).mockResolvedValue(recipe);

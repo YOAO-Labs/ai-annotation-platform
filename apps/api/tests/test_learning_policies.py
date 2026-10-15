@@ -533,7 +533,7 @@ async def test_api_key_revocation_and_nonmanager_access_are_enforced(
 
 
 async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue_disabled_policy(
-    db_session, super_admin, httpx_client, frozen_source
+    db_session, super_admin, httpx_client, frozen_source, monkeypatch
 ):
     from app.db.models.training_run import TrainingAttempt
 
@@ -549,11 +549,21 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
         "last.pt": {
             "role": "checkpoint",
             "epoch": 1,
-            "key": "owned/last.pt",
+            "key": f"projects/{p.id}/runs/{run.id}/attempts/{attempt.id}/last.pt",
             "sha256": "f" * 64,
             "size_bytes": 1,
         }
     }
+    lease = await runs.lock_resource(db_session, run.config["resource_id"])
+    lease.runtime = executor_claim().runtime
+    monkeypatch.setattr(
+        runs.storage.client,
+        "head_object",
+        lambda **kwargs: {
+            "ContentLength": 1,
+            "Metadata": {"attempt-id": str(attempt.id), "sha256": "f" * 64},
+        },
+    )
     await db_session.flush()
     await service.check_policy(db_session, policy.id, force=True)
     await db_session.flush()

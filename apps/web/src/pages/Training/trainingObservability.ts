@@ -58,7 +58,7 @@ export function estimateLabel(
 export function failureGuidance(failure?: TrainingFailure | null) {
   const labels: Record<string, string> = {
     cuda_oom:
-      "训练进程报告显存不足。可用原始基础权重新建草稿，检查批大小（batch）与图片尺寸（imgsz）；参数不会自动修改。",
+      "训练进程报告显存不足。可用原配置初始化权重新建草稿，检查批大小（batch）与图片尺寸（imgsz）；参数不会自动修改。",
     input_mismatch: "冻结输入校验失败。检查数据包或检查点是否完整；更换数据需要新建实验。",
     config_mismatch: "实际训练配置与冻结配置不一致，请核对配置后新建实验。",
     runtime_mismatch: "执行环境与冻结训练器不兼容，请核对执行器环境。",

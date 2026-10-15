@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-rou
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRunsApi } from "@/api/trainingRuns";
+import { trainedModelsApi } from "@/api/trainedModels";
 import { trainingPreviewsApi } from "@/api/trainingPreviews";
 import { trainingRecipesApi, type TrainingRecipeOut } from "@/api/trainingRecipes";
 import type { TrainingParameterField, TrainingParameterSchema } from "@/api/generated/types.gen";
@@ -27,8 +28,10 @@ vi.mock("@/api/trainingRuns", () => ({
     parameterSchema: vi.fn(),
     preflight: vi.fn(),
     create: vi.fn(),
+    initializationSource: vi.fn(),
   },
 }));
+vi.mock("@/api/trainedModels", () => ({ trainedModelsApi: { list: vi.fn() } }));
 vi.mock("./TrainingParameterInventory", () => ({ TrainingParameterInventory: () => null }));
 vi.mock("@/api/trainingPreviews", () => ({
   trainingPreviewsApi: {
@@ -150,6 +153,9 @@ function Context() {
       <button onClick={() => navigate("/projects/project-1/learning/new?clone_run=second")}>
         切换克隆来源
       </button>
+      <button onClick={() => navigate("/projects/project-1/learning/new?clone_run=first")}>
+        返回原克隆来源
+      </button>
     </>
   );
 }
@@ -194,6 +200,7 @@ beforeEach(() => {
     reason: null,
   });
   vi.mocked(trainingRecipesApi.list).mockResolvedValue({ total: 0, items: [] });
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 0, items: [] });
   vi.mocked(trainingRecipesApi.resolve).mockImplementation(
     async (_id, body) =>
       ({
@@ -375,6 +382,31 @@ describe("immutable recipe and clone reuse", () => {
     expect(screen.getByLabelText("实验名称")).toHaveValue("保留我的名称");
     expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
   });
+  it("rejects the first A response after URL intent changes A to B to A", async () => {
+    const late = deferred<Awaited<ReturnType<typeof trainingRecipesApi.clone>>>();
+    vi.mocked(trainingRecipesApi.clone)
+      .mockRejectedValue(new Error("当前来源不可用"))
+      .mockReturnValueOnce(late.promise);
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning/new?clone_run=first");
+    await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "切换克隆来源" }));
+    await screen.findByText("当前来源不可用");
+    await user.click(screen.getByRole("button", { name: "返回原克隆来源" }));
+    await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalledTimes(3));
+    await act(async () =>
+      late.resolve({
+        snapshot: reuseSnapshot,
+        snapshot_digest: "2".repeat(64),
+        origin: { kind: "clone", run_id: recipeId, digest: "3".repeat(64) },
+        label: "过期的第一次 A",
+        compatible: true,
+        incompatibility: null,
+      }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+  });
 });
 afterEach(() => {
   cleanup();
@@ -397,6 +429,90 @@ async function check() {
   await userEvent.click(screen.getByRole("button", { name: "检查训练配置" }));
   await screen.findByText("训练检查通过 · 请核对最终配置");
 }
+
+const initializationId = "99999999-9999-4999-8999-999999999999";
+const initializationPin = {
+  kind: "trained_model",
+  model_version_id: initializationId,
+  model_name: "项目初始模型",
+  source_digest: "9".repeat(64),
+  base_model: "yolo11n",
+  classes: ["car"],
+  dataset_id: "source-data",
+  validation_digest: "7".repeat(64),
+  run_id: "source-run",
+  attempt_id: "source-attempt",
+  artifact: { sha256: "8".repeat(64), size_bytes: 1234 },
+};
+
+it("pins an explicitly selected candidate, invalidates review and retries its exact source after refresh", async () => {
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({
+    total: 1,
+    items: [{ id: initializationId, name: "项目初始模型", framework: "ultralytics" }],
+  } as never);
+  vi.mocked(trainingRunsApi.initializationSource).mockResolvedValue({
+    model_version_id: initializationId,
+    eligible: true,
+    reasons: [],
+    pin: initializationPin,
+  } as never);
+  const { user, view } = await prepare();
+  await check();
+  const old = vi.mocked(trainingRunsApi.preflight).mock.calls[0][1];
+  await user.click(screen.getByRole("button", { name: /数据与模型/ }));
+  await user.selectOptions(screen.getByLabelText("初始化权重"), initializationId);
+  const key = trainingDraftKey(trainingDraftOwner("user-1", "project-1"));
+  await waitFor(() =>
+    expect(JSON.parse(localStorage.getItem(key)!).initialization?.source_digest).toBe(
+      initializationPin.source_digest,
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: /核对并开始/ }));
+  expect(screen.getByRole("button", { name: "开始训练" })).toBeDisabled();
+  vi.mocked(trainingRunsApi.preflight).mockResolvedValue({
+    ...report,
+    config: { ...report.config, initialization: initializationPin },
+  });
+  await check();
+  const next = vi.mocked(trainingRunsApi.preflight).mock.calls[1][1];
+  expect(next.request_id).not.toBe(old.request_id);
+  expect(next.initialization).toEqual({
+    kind: "trained_model",
+    model_version_id: initializationId,
+    source_digest: initializationPin.source_digest,
+  });
+  expect(screen.getByRole("region", { name: "冻结的初始化权重" })).toHaveTextContent(
+    initializationPin.artifact.sha256,
+  );
+  vi.mocked(trainingRunsApi.create).mockRejectedValueOnce(new Error("初始化创建响应丢失"));
+  await user.click(screen.getByRole("button", { name: "开始训练" }));
+  await screen.findByText("初始化创建响应丢失");
+  const accepted = vi.mocked(trainingRunsApi.create).mock.calls[0][1];
+  view.unmount();
+  vi.mocked(trainingRunsApi.initializationSource).mockRejectedValue(new Error("原来源已离线"));
+  mount();
+  await user.click(await screen.findByRole("button", { name: "重试并确认创建" }));
+  await screen.findByText("实验列表");
+  expect(vi.mocked(trainingRunsApi.create).mock.calls[1][1]).toEqual(accepted);
+});
+
+it("discards an old preflight after authentication changes A to B to A in one render batch", async () => {
+  const result = deferred<typeof report>();
+  vi.mocked(trainingRunsApi.preflight).mockReturnValue(result.promise);
+  const { user } = await prepare();
+  await user.click(screen.getByRole("button", { name: "检查训练配置" }));
+  await waitFor(() => expect(trainingRunsApi.preflight).toHaveBeenCalled());
+  act(() => {
+    useAuthStore.getState().setAuth("session-other", { id: "user-other" } as never);
+    useAuthStore.getState().setAuth("session-1", { id: "user-1" } as never);
+  });
+  await act(async () => result.resolve(report));
+  expect(screen.queryByText("训练检查通过 · 请核对最终配置")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /数据与模型/ })).toHaveAttribute(
+    "aria-current",
+    "step",
+  );
+});
 
 describe("training creation ownership", () => {
   it("keeps preview controls and failures out of the persisted draft and training requests", async () => {
@@ -535,8 +651,8 @@ describe("training creation ownership", () => {
               ],
             };
       act(() =>
-        clients[clients.length - 1].setQueryData(
-          ["training-catalog", "project-1", "user-1"],
+        clients[clients.length - 1].setQueriesData(
+          { queryKey: ["training-catalog", "project-1", "user-1"] },
           updated,
         ),
       );
@@ -645,8 +761,8 @@ describe("configuration import and recovery", () => {
     const key = trainingDraftKey(trainingDraftOwner("user-1", "project-1"));
     const original = localStorage.getItem(key);
     act(() =>
-      clients[clients.length - 1].setQueryData(
-        ["training-parameter-schema", "project-1", "user-1", "ultralytics", "yolo11n"],
+      clients[clients.length - 1].setQueriesData(
+        { queryKey: ["training-parameter-schema", "project-1", "user-1"] },
         { ...schema, schema_digest: "8".repeat(64) },
       ),
     );

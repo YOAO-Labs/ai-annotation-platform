@@ -24,6 +24,8 @@ export function TrainingRunReview({
   const origins = record(resolved.origins);
   const inactive = record(resolved.inactive_fields);
   const base = record(config?.base_model);
+  const initialization = record(config?.initialization);
+  const weights = record(initialization.artifact);
   return (
     <div className="min-w-0 space-y-5">
       <div
@@ -59,6 +61,35 @@ export function TrainingRunReview({
             ))}
           </dl>
         </details>
+      )}
+      {initialization.kind === "trained_model" && (
+        <section
+          aria-label="冻结的初始化权重"
+          className="space-y-3 rounded-lg border border-border p-4 text-xs"
+        >
+          <h3 className="font-medium">项目模型权重初始化 · 全新实验</h3>
+          <p className="leading-relaxed text-muted-foreground">
+            仅转移权重；从第 0 轮开始，新建优化器、调度器、缩放器、EMA
+            和最佳成绩。本实验的断点续训使用自己的检查点。
+          </p>
+          <dl className="grid gap-2 break-all">
+            {[
+              ["候选模型", initialization.model_name],
+              ["模型版本", initialization.model_version_id],
+              ["来源实验", initialization.run_id],
+              ["来源执行尝试", initialization.attempt_id],
+              ["来源摘要", initialization.source_digest],
+              ["初始化权重 SHA256", weights.sha256],
+              ["权重字节数", weights.size_bytes],
+              ["来源验证集摘要", initialization.validation_digest],
+            ].map(([label, value]) => (
+              <div key={String(label)}>
+                <dt className="text-muted-foreground">{String(label)}</dt>
+                <dd className="mt-1 font-mono">{String(value ?? "—")}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       )}
       {Object.entries(schema.groups).map(([group, label]) => {
         const fields = schema.fields.filter(

@@ -3,7 +3,7 @@ title: 在线学习数据版本
 audience: [developer, ops]
 type: explanation
 status: stable
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-16
 ---
 
 # 在线学习数据版本
@@ -27,6 +27,18 @@ last_reviewed: 2026-10-15
 轮次事件先落盘，再幂等上报；完成前同步补齐最后事件。完整检查点在框架剥离优化器前复制成不可变文件。产物清单固定后使用短期上传 URL，平台流式验证大小与 SHA-256 后发布。上传失败保留本地结果，只重试上传。续训固定原配置、验证集和运行环境，并使用新的输出目录。
 
 `TrainingDatasetVersion` 是项目内持久领域记录，保存冻结快照、父版本、请求幂等身份、执行尝试、清单及训练包校验值。`AsyncJob` 承接进度和通知，清理任务历史不会删除数据版本。
+
+## 受控项目权重初始化
+
+`training_initialization` 解析同项目保留候选的权威 run、成功 attempt、冻结数据、唯一权重与注册 provenance，生成完整 pin 和规范化来源摘要。资格策略由 API 与执行器共享，固定原生框架／Torch／TorchVision／Python／CUDA、同 YOLO11 规格、类别原生顺序和全部状态张量转移边界。来源名、SHA、大小、配置／数据／验证摘要、绑定、运行时及评估证据均成为不可变训练输入。
+
+`base_model` 继续负责受控结构与参数定义；`origin` 负责配置复用；`initialization` 只负责新实验的权重；`resume_from_id` 负责本实验恢复。省略和目录初始化不改变旧 JSON 摘要。实验、配方修订和策略以 nullable RESTRICT FK 保留初始化模型，旧行不回填、不重算摘要。
+
+预检、入队和首次 claim 独立校验完整对象。来源模型 KEY SHARE 锁保护接受窗口，claim 不反向取得项目 advisory、策略或配方独占锁。新能力摘要阻止旧执行器忽略初始化字段。worker 先验证受控结构，再下载独立且有界的项目权重，原生反序列化前重新核对 SHA 和长度。
+
+原生 YOLO 以明确的 weights-only 路径创建新 trainer，在首批次之前核对实际 DetectionModel、规格和类别，并比较来源与载入模型的全部 state tensors。独立证据证明 epoch、优化器、scheduler、scaler、EMA 与最佳成绩均为新状态。成功提交同时校验冻结参数回执与初始化回执。恢复读取本实验检查点，跳过父候选重新下载，保留 pin 和 checkpoint-resume 证据。
+
+前端按会话单调代次、草稿修订、来源／URL 意图和随机查询作用域拒绝迟到及 ABA 结果。仅明确的未固定选择可补齐服务端摘要，自动刷新不改写既有 pin 或未确认请求。配方与策略复用保留完整来源，YAML 格式 2 携带模型 ID／来源摘要；旧格式只替换参数。增强预览仍只负责数据变换。取舍见 [受控项目权重初始化](../adr/archive/0081-controlled-training-initialization)。
 
 ## 冻结逐样本评估
 

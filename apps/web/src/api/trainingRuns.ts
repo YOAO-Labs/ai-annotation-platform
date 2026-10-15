@@ -7,6 +7,9 @@ import type {
   TrainingParameterSchema,
   TrainingTemplate,
   TrainingEvaluationOut,
+  TrainingInitialization,
+  TrainingInitializationEligibility,
+  FrozenTrainingInitialization,
 } from "./generated/types.gen";
 
 export type {
@@ -15,6 +18,9 @@ export type {
   TrainingRunCreate,
   TrainingRunOut,
   TrainingEvaluationOut,
+  TrainingInitialization,
+  TrainingInitializationEligibility,
+  FrozenTrainingInitialization,
 };
 
 export interface TrainingCatalog {
@@ -22,6 +28,7 @@ export interface TrainingCatalog {
   online: boolean;
   busy: boolean;
   resource_id: string | null;
+  initialization_policy_digest?: string | null;
   items: TrainingTemplate[];
 }
 
@@ -34,6 +41,21 @@ export interface TrainingEpochEvent {
 
 const base = (projectId: string) => `/projects/${projectId}/training-runs`;
 export const trainingRunsApi = {
+  initializationSource: (
+    projectId: string,
+    modelId: string,
+    framework: string,
+    baseModel: string,
+    datasetId?: string,
+    options?: RequestInit,
+  ) => {
+    const params = new URLSearchParams({ framework, base_model: baseModel });
+    if (datasetId) params.set("dataset_id", datasetId);
+    return apiClient.get<TrainingInitializationEligibility>(
+      `${base(projectId)}/initialization-sources/${encodeURIComponent(modelId)}?${params}`,
+      options,
+    );
+  },
   parameterSchema: (
     projectId: string,
     framework: string,

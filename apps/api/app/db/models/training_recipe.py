@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -34,6 +35,12 @@ class TrainingRecipe(Base):
 class TrainingRecipeRevision(Base):
     __tablename__ = "training_recipe_revisions"
     __table_args__ = (
+        Index(
+            "ix_lineage_training_recipe_revisions_initialization_model_id",
+            "initialization_model_id",
+            "created_at",
+            "id",
+        ),
         UniqueConstraint("recipe_id", "ordinal", name="uq_training_recipe_ordinal"),
         UniqueConstraint("project_id", "request_id", name="uq_training_recipe_request"),
     )
@@ -48,6 +55,14 @@ class TrainingRecipeRevision(Base):
     )
     creator_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    initialization_model_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "trained_model_versions.id",
+            name="fk_training_recipe_initialization_model",
+            ondelete="RESTRICT",
+        ),
     )
     ordinal: Mapped[int] = mapped_column(Integer)
     name: Mapped[str] = mapped_column(String(120))

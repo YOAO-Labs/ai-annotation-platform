@@ -71,6 +71,33 @@ const parse = (key: string, value: unknown) =>
   parseParameterDraft(schema.fields.find((item) => item.key === key)!, valueToDraft(value));
 const read = (source: string) => importConfiguration(source, schema, "yolo11n", image);
 
+it("roundtrips a v2 source pin without URLs while legacy files only replace parameters", () => {
+  const initialization = {
+    kind: "trained_model" as const,
+    model_version_id: crypto.randomUUID(),
+    source_digest: "d".repeat(64),
+  };
+  const exported = portableConfiguration(schema, "yolo11n", image, { epochs: 3 }, initialization);
+  expect(exported).toContain("version: 2");
+  expect(exported).not.toContain("http");
+  expect(read(exported)).toMatchObject({ values: { epochs: 3 }, initialization, errors: [] });
+  expect(
+    read(portableConfiguration(schema, "yolo11n", image, { epochs: 2 })).initialization,
+  ).toBeUndefined();
+  expect(read("epochs: 2").initialization).toBeUndefined();
+  for (const invalid of [
+    exported.replace(/source_digest: .*/, "source_digest: wrong"),
+    exported + "  url: https://external.invalid\n",
+    exported.replace("version: 2", "version: 1"),
+  ])
+    expect(read(invalid).errors.length).toBeGreaterThan(0);
+  const legacy = portableConfiguration(schema, "yolo11n", image, { epochs: 2 });
+  for (const version of ["1", "2"])
+    expect(
+      read(legacy.replace("version: 1", `version: "${version}"`)).errors.length,
+    ).toBeGreaterThan(0);
+});
+
 describe("strict training values", () => {
   it("preserves scientific notation while rejecting empty, hexadecimal and nonfinite input", () => {
     expect(parse("lr0", "1e-6")).toEqual({ ok: true, value: 0.000001 });

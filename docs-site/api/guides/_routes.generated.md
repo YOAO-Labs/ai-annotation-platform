@@ -800,6 +800,7 @@
 | Method | Path |
 |---|---|
 | GET | `/catalog` |
+| GET | `/initialization-sources/{model_id}` |
 | POST | `:preflight` |
 | GET | `/parameter-schema` |
 | GET | `/{run_id}` |
@@ -864,4 +865,4 @@
 
 ---
 
-_共 79 模块 / 492 路由_
+_共 79 模块 / 493 路由_

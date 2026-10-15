@@ -26,6 +26,12 @@ class TrainingRun(Base):
         UniqueConstraint("project_id", "request_id", name="uq_training_run_request"),
         Index("ix_training_run_project_created", "project_id", "created_at"),
         Index(
+            "ix_lineage_training_runs_initialization_model_id",
+            "initialization_model_id",
+            "created_at",
+            "id",
+        ),
+        Index(
             "uq_training_auto_active_project",
             "project_id",
             unique=True,
@@ -54,6 +60,15 @@ class TrainingRun(Base):
         UUID(as_uuid=True),
         ForeignKey("training_dataset_versions.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    initialization_model_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "trained_model_versions.id",
+            name="fk_training_run_initialization_model",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
     )
     auto_trigger_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

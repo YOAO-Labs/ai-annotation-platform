@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, Download, FileUp, FlaskConical } from "lucide-react";
 import { projectsApi } from "@/api/projects";
@@ -7,6 +7,7 @@ import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRunsApi, type TrainingRunCreate } from "@/api/trainingRuns";
 import {
   recipeCandidate,
+  initializationReference,
   trainingRecipesApi,
   type ReusableSnapshot,
   type TrainingReuseCandidate,
@@ -31,6 +32,11 @@ import {
 } from "./TrainingRecipeLibrary";
 import { TrainingReuseDialog } from "./TrainingReuseDialog";
 import { useTrainingDraft } from "./useTrainingDraft";
+import { useTrainingSessionRevision } from "./trainingViewOwner";
+import {
+  TrainingInitializationSource,
+  useTrainingInitializationSource,
+} from "./TrainingInitializationSource";
 import type { TrainingDraft } from "./trainingDraftStorage";
 import {
   collectOverrides,
@@ -65,6 +71,7 @@ type ReusePreview = {
   schema: TrainingParameterSchema;
   runtime: string;
   intent?: string;
+  intentOwner?: { intent: string; key: string };
 };
 const steps = ["数据与模型", "配置参数", "核对并开始"];
 const reasonMessage = (reason: unknown) =>
@@ -85,9 +92,16 @@ export function TrainingCreatePage() {
   const { id = "" } = useParams();
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const token = useAuthStore((state) => state.token ?? "");
+  const sessionRevision = useTrainingSessionRevision();
   const ownerMount = useMemo(
-    () => ({ projectId: id, userId, sessionToken: token, key: crypto.randomUUID() }),
-    [id, userId, token],
+    () => ({
+      projectId: id,
+      userId,
+      sessionToken: token,
+      sessionRevision,
+      key: crypto.randomUUID(),
+    }),
+    [id, userId, token, sessionRevision],
   );
   return (
     <TrainingCreateContent
@@ -109,6 +123,15 @@ function TrainingCreateContent({
   sessionToken: string;
 }) {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const cloneRun = params.get("clone_run") ?? "";
+  const cloneAttempt = params.get("clone_attempt") ?? "";
+  const intentOwner = useMemo(
+    () => ({ intent: `${cloneRun}:${cloneAttempt}`, key: location.key }),
+    [cloneRun, cloneAttempt, location.key],
+  );
+  const intentOwnerRef = useRef(intentOwner);
+  intentOwnerRef.current = intentOwner;
   const hint = params.get("framework");
   const state = useTrainingDraft(
     userId,
@@ -119,6 +142,7 @@ function TrainingCreateContent({
   const { draft } = state;
   const navigate = useNavigate();
   const client = useQueryClient();
+  const [queryScope] = useState(() => crypto.randomUUID());
   const project = useProject(projectId);
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
@@ -148,7 +172,7 @@ function TrainingCreateContent({
   const back = `/projects/${projectId}/learning?${backParams}`;
 
   const catalog = useQuery({
-    queryKey: ["training-catalog", projectId, userId],
+    queryKey: ["training-catalog", projectId, userId, queryScope],
     queryFn: ({ signal }) => trainingRunsApi.catalog(projectId, { signal }),
     refetchInterval: 5000,
   });
@@ -188,7 +212,14 @@ function TrainingCreateContent({
   };
   const selectedBase = template?.base_models.find((item) => item.id === draft.baseModel);
   const schemaQuery = useQuery({
-    queryKey: ["training-parameter-schema", projectId, userId, draft.framework, draft.baseModel],
+    queryKey: [
+      "training-parameter-schema",
+      projectId,
+      userId,
+      queryScope,
+      draft.framework,
+      draft.baseModel,
+    ],
     queryFn: ({ signal }) =>
       trainingRunsApi.parameterSchema(projectId, draft.framework, draft.baseModel, { signal }),
     enabled: !!draft.baseModel,
@@ -213,6 +244,7 @@ function TrainingCreateContent({
           "training-parameter-schema",
           projectId,
           userId,
+          queryScope,
           draft.framework,
           draft.baseModel,
         ],
@@ -226,16 +258,17 @@ function TrainingCreateContent({
     draft.framework,
     projectId,
     userId,
+    queryScope,
   ]);
   const datasets = useInfiniteQuery({
-    queryKey: ["training-datasets", projectId, "ready-pages", userId],
+    queryKey: ["training-datasets", projectId, "ready-pages", userId, queryScope],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => trainingDatasetsApi.list(projectId, pageParam, "ready"),
     getNextPageParam: (last, _pages, offset) =>
       offset + 20 < last.total ? offset + 20 : undefined,
   });
   const selectedDataset = useQuery({
-    queryKey: ["training-dataset", projectId, draft.datasetId, userId],
+    queryKey: ["training-dataset", projectId, draft.datasetId, userId, queryScope],
     queryFn: () => trainingDatasetsApi.get(projectId, draft.datasetId),
     enabled: !!draft.datasetId,
   });
@@ -257,6 +290,32 @@ function TrainingCreateContent({
       ? report
       : null;
   const locked = !!draft.pending || creating || switching || reuseBusy || !!reusePreview;
+  const initialization = useTrainingInitializationSource(
+    projectId,
+    draft.framework,
+    draft.baseModel,
+    draft.datasetId,
+    draft.initialization,
+  );
+  useEffect(() => {
+    const captured = state.current.current;
+    const pin = initialization.source.data?.pin;
+    if (
+      !locked &&
+      !checking &&
+      captured.initialization?.kind === "trained_model" &&
+      !captured.initialization.source_digest &&
+      !initialization.source.isFetching &&
+      initialization.source.data?.eligible &&
+      pin &&
+      pin.model_version_id === captured.initialization.model_version_id &&
+      state.matches(captured)
+    ) {
+      state.update({ initialization: initializationReference(pin) });
+    }
+    // Only complete an explicit unpinned selection. Refetches never rewrite a pin or pending body.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialization.source.data, initialization.source.isFetching, locked, checking]);
   const sourceCurrent =
     !draft.source ||
     (!!selectedBase &&
@@ -274,7 +333,8 @@ function TrainingCreateContent({
     !schemaQuery.isError &&
     !!catalog.data?.enabled &&
     !catalog.isError &&
-    sourceCurrent;
+    sourceCurrent &&
+    initialization.valid;
   const valid = contextValid && !Object.keys(collected.errors).length;
   const schemaStillMatches = (snapshot: TrainingDraft) =>
     currentSchema.current?.schema_id === snapshot.schemaId &&
@@ -285,6 +345,7 @@ function TrainingCreateContent({
       "training-parameter-schema",
       projectId,
       userId,
+      queryScope,
       preview.snapshot.framework,
       preview.baseModel,
     ]);
@@ -352,6 +413,7 @@ function TrainingCreateContent({
     candidate: TrainingReuseCandidate,
     captured = state.current.current,
     intent?: string,
+    capturedIntentOwner = intentOwnerRef.current,
   ) => {
     if (
       reuseLock.current ||
@@ -363,7 +425,7 @@ function TrainingCreateContent({
       importPreview ||
       switchPreview ||
       !state.matches(captured) ||
-      (intent && cloneUrl.current !== intent)
+      (intent && (cloneUrl.current !== intent || intentOwnerRef.current !== capturedIntentOwner))
     )
       return;
     reuseLock.current = true;
@@ -372,7 +434,11 @@ function TrainingCreateContent({
     try {
       if (!(await freshAuthority(captured))) return;
       const latest = await reloadCandidate(candidate);
-      if (!state.matches(captured) || (intent && cloneUrl.current !== intent)) return;
+      if (
+        !state.matches(captured) ||
+        (intent && (cloneUrl.current !== intent || intentOwnerRef.current !== capturedIntentOwner))
+      )
+        return;
       if (!latest.compatible) throw new Error(latest.incompatibility ?? "来源不兼容");
       const value = latest.snapshot as ReusableSnapshot;
       const targetRuntime = modelRuntime(value.framework, value.base_model.id);
@@ -382,6 +448,7 @@ function TrainingCreateContent({
           "training-parameter-schema",
           projectId,
           userId,
+          queryScope,
           value.framework,
           value.base_model.id,
         ],
@@ -398,6 +465,7 @@ function TrainingCreateContent({
         before = await trainingRecipesApi.resolve(projectId, {
           framework: captured.framework as ReusableSnapshot["framework"],
           base_model: captured.baseModel,
+          ...(captured.initialization ? { initialization: captured.initialization } : {}),
           configuration: {
             schema_id: captured.schemaId,
             schema_digest: captured.schemaDigest,
@@ -407,7 +475,8 @@ function TrainingCreateContent({
       } else if (captured.baseModel) throw new Error("请先核对并迁移当前草稿，再采用配方");
       if (
         !state.matches(captured) ||
-        (intent && cloneUrl.current !== intent) ||
+        (intent &&
+          (cloneUrl.current !== intent || intentOwnerRef.current !== capturedIntentOwner)) ||
         modelRuntime(value.framework, value.base_model.id) !== targetRuntime
       )
         return;
@@ -424,9 +493,13 @@ function TrainingCreateContent({
         schema: target,
         runtime: targetRuntime,
         intent,
+        intentOwner: intent ? capturedIntentOwner : undefined,
       });
     } catch (reason) {
-      if (state.matches(captured) && (!intent || cloneUrl.current === intent))
+      if (
+        state.matches(captured) &&
+        (!intent || (cloneUrl.current === intent && intentOwnerRef.current === capturedIntentOwner))
+      )
         setError(reasonMessage(reason));
     } finally {
       reuseLock.current = false;
@@ -441,7 +514,8 @@ function TrainingCreateContent({
       createLock.current ||
       state.current.current.pending ||
       !state.matches(preview.snapshot) ||
-      (preview.intent && cloneUrl.current !== preview.intent)
+      (preview.intent &&
+        (cloneUrl.current !== preview.intent || intentOwnerRef.current !== preview.intentOwner))
     )
       return;
     reuseLock.current = true;
@@ -460,7 +534,9 @@ function TrainingCreateContent({
       );
       if (
         !state.matches(preview.snapshot) ||
-        (preview.intent && cloneUrl.current !== preview.intent) ||
+        (preview.intent &&
+          (cloneUrl.current !== preview.intent ||
+            intentOwnerRef.current !== preview.intentOwner)) ||
         modelRuntime(value.framework, value.base_model.id) !== preview.runtime
       )
         throw new Error("草稿或目录已变化，请重新核对");
@@ -492,6 +568,7 @@ function TrainingCreateContent({
           schemaId: value.configuration.identity.schema_id,
           schemaDigest: value.configuration.identity.schema_digest,
         },
+        initialization: initializationReference(value.initialization),
       });
       setReusePreview(null);
       clearCloneIntent();
@@ -502,16 +579,15 @@ function TrainingCreateContent({
       if (state.ownsSession()) setReuseBusy(false);
     }
   };
-  const cloneRun = params.get("clone_run") ?? "";
-  const cloneAttempt = params.get("clone_attempt") ?? "";
   useEffect(() => {
     if (
       reusePreview?.intent &&
-      reusePreview.intent !== `${cloneRun}:${cloneAttempt}` &&
+      (reusePreview.intent !== `${cloneRun}:${cloneAttempt}` ||
+        reusePreview.intentOwner !== intentOwner) &&
       !reuseLock.current
     )
       setReusePreview(null);
-  }, [cloneRun, cloneAttempt, reusePreview, reuseBusy]);
+  }, [cloneRun, cloneAttempt, reusePreview, reuseBusy, intentOwner]);
   useEffect(() => {
     const intent = `${cloneRun}:${cloneAttempt}`;
     if (!cloneRun) {
@@ -521,13 +597,13 @@ function TrainingCreateContent({
     if (
       !cloneRun ||
       !catalog.data ||
-      cloneIntent.current === intent ||
+      cloneIntent.current === intentOwner.key ||
       draft.pending ||
       reuseLock.current ||
       reusePreview
     )
       return;
-    cloneIntent.current = intent;
+    cloneIntent.current = intentOwner.key;
     const sequence = ++cloneSequence.current;
     const captured = state.current.current;
     setError("");
@@ -536,14 +612,16 @@ function TrainingCreateContent({
       .then((candidate) => {
         if (
           cloneSequence.current === sequence &&
+          intentOwnerRef.current === intentOwner &&
           state.matches(captured) &&
           cloneUrl.current === intent
         )
-          void previewReuse(candidate, captured, intent);
+          void previewReuse(candidate, captured, intent, intentOwner);
       })
       .catch((reason) => {
         if (
           cloneSequence.current === sequence &&
+          intentOwnerRef.current === intentOwner &&
           state.matches(captured) &&
           cloneUrl.current === intent
         )
@@ -551,7 +629,16 @@ function TrainingCreateContent({
       });
     // The intent is captured once; accepting or cancelling removes it from the URL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloneRun, cloneAttempt, catalog.data, draft.pending, reusePreview, reuseBusy, cloneRetry]);
+  }, [
+    cloneRun,
+    cloneAttempt,
+    intentOwner,
+    catalog.data,
+    draft.pending,
+    reusePreview,
+    reuseBusy,
+    cloneRetry,
+  ]);
 
   const chooseModel = async (baseModel: string) => {
     if (!baseModel || locked || switchLock.current || createLock.current) return;
@@ -564,7 +651,14 @@ function TrainingCreateContent({
     setError("");
     try {
       const target = await client.fetchQuery({
-        queryKey: ["training-parameter-schema", projectId, userId, snapshot.framework, baseModel],
+        queryKey: [
+          "training-parameter-schema",
+          projectId,
+          userId,
+          queryScope,
+          snapshot.framework,
+          baseModel,
+        ],
         queryFn: ({ signal }) =>
           trainingRunsApi.parameterSchema(projectId, snapshot.framework, baseModel, { signal }),
         staleTime: 0,
@@ -625,6 +719,7 @@ function TrainingCreateContent({
         values: collectOverrides(schema, snapshot.fields).values,
       },
       ...(snapshot.source ? { origin: snapshot.source.reference } : {}),
+      ...(snapshot.initialization ? { initialization: snapshot.initialization } : {}),
     };
     const capturedRuntime = runtime;
     const controller = new AbortController();
@@ -755,6 +850,7 @@ function TrainingCreateContent({
       draft.baseModel,
       template?.image_digest ?? "",
       collected.values,
+      draft.initialization,
     );
     const url = URL.createObjectURL(new Blob([source], { type: "application/yaml;charset=utf-8" }));
     try {
@@ -1023,6 +1119,13 @@ function TrainingCreateContent({
                   </select>
                 </label>
               </fieldset>
+              <TrainingInitializationSource
+                projectId={projectId}
+                value={draft.initialization}
+                disabled={locked || checking}
+                qualification={initialization}
+                onChange={(value) => update({ initialization: value })}
+              />
               {datasets.hasNextPage && (
                 <Button
                   className="mt-4"
@@ -1065,12 +1168,14 @@ function TrainingCreateContent({
                       locked ||
                       !schemaMatches ||
                       !sourceCurrent ||
+                      !initialization.valid ||
                       !!Object.keys(collected.errors).length
                     }
                     source={{
                       configuration: {
                         framework: draft.framework as ReusableSnapshot["framework"],
                         base_model: draft.baseModel,
+                        ...(draft.initialization ? { initialization: draft.initialization } : {}),
                         configuration: {
                           schema_id: draft.schemaId,
                           schema_digest: draft.schemaDigest,
@@ -1146,6 +1251,11 @@ function TrainingCreateContent({
                 }
                 disabled={locked || !valid}
               />
+              {draft.initialization?.kind === "trained_model" && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  增强预览仅验证数据变换，使用受控基础模型结构；项目权重的完整校验将在训练预检与执行时进行。
+                </p>
+              )}
               <details
                 className="mt-5 rounded-lg border border-border p-4 text-xs"
                 onToggle={(event) => setInventoryOpen(event.currentTarget.open)}
@@ -1194,6 +1304,14 @@ function TrainingCreateContent({
               ["训练数据", selectedDataset.data?.name ?? "尚未选择"],
               ["训练器", draft.framework],
               ["基础权重", draft.baseModel || "尚未选择"],
+              [
+                "初始化",
+                draft.initialization?.kind === "trained_model"
+                  ? (initialization.source.data?.pin?.model_name ??
+                    draft.initialization.model_version_id ??
+                    "来源待核验")
+                  : "受控目录基础权重",
+              ],
               ["参数覆盖", `${Object.keys(draft.fields).length} 项`],
               ["检查状态", reviewed ? "已通过" : "尚未检查"],
             ].map(([label, value]) => (
@@ -1333,6 +1451,12 @@ function TrainingCreateContent({
                 {message}
               </p>
             ))}
+            {importPreview.initialization && (
+              <p className="mt-3 break-all text-xs text-status-caution">
+                文件将初始化来源改为项目候选 {importPreview.initialization.model_version_id}，摘要{" "}
+                {importPreview.initialization.source_digest}。应用后须重新核验当前项目的来源资格。
+              </p>
+            )}
             <div className="mt-4 divide-y divide-border">
               {importChanges.map((change) => (
                 <div key={change.key} className="py-3 text-xs">
@@ -1375,6 +1499,7 @@ function TrainingCreateContent({
                           valueToDraft(value),
                         ]),
                       ),
+                      ...(preview.initialization ? { initialization: preview.initialization } : {}),
                     });
                 }}
               >

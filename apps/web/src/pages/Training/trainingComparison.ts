@@ -85,6 +85,8 @@ export function frozenInputs(experiment: ComparisonExperiment) {
     ? record(configuration.effective_values)
     : { ...record(config.fixed_options), ...record(config.parameters) };
   const base = record(config.base_model);
+  const initialization = record(config.initialization);
+  const initializationArtifact = record(initialization.artifact);
   const parent = attempts.find((a) => a.id === attempt.resume_from_id);
   const checkpoint = Object.values(parent?.artifacts ?? {})
     .map(record)
@@ -99,7 +101,14 @@ export function frozenInputs(experiment: ComparisonExperiment) {
     适配器修订: config.adapter_revision,
     基础权重: base.id,
     "基础权重 SHA": base.sha256,
-    本次初始化: attempt.resume_from_id ? "完整检查点续训" : "原始基础权重",
+    本次初始化: attempt.resume_from_id
+      ? "完整检查点续训"
+      : initialization.kind === "trained_model"
+        ? "项目模型权重 · 全新训练"
+        : "受控目录基础权重",
+    原始初始化模型: initialization.model_version_id ?? "目录权重",
+    原始初始化来源摘要: initialization.source_digest ?? "目录权重",
+    "原始初始化权重 SHA": initializationArtifact.sha256 ?? base.sha256,
     续训来源执行: attempt.resume_from_id ?? "无",
     "续训检查点 SHA": attempt.resume_from_id ? checkpoint?.sha256 : "无",
     续训检查点轮次: attempt.resume_from_id ? checkpoint?.epoch : "无",
