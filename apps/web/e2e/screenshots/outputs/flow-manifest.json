@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T13:40:56.394Z",
+  "updated_at": "2026-10-15T13:43:43.353Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -8065,8 +8065,8 @@
     "docs-site/public/media/workflows/jobs-retry-recovery-poster.webp": {
       "asset_id": "jobs-retry-recovery",
       "role": "poster",
-      "generated_at": "2026-09-08T06:01:29.208Z",
-      "captured_commit": "4b648ef86076ec48efbc6141ead0fc1365aded62",
+      "generated_at": "2026-10-15T13:43:43.353Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -8086,8 +8086,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "80a5373d3c7a914c37bc3eafd21100e96cb01c76001f38df5481a8b768114c4d",
-      "bytes": 76440,
+      "sha256": "fe98f4d79b3e05ccecc430440efeafc128cec796f3ce0d49d67a12049bf1d43b",
+      "bytes": 81810,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -8101,21 +8101,21 @@
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-57-41-296Z-414962",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "jobs-retry-recovery",
-        "sha256": "acfa29dcb5a2683a65c209a018414a274ae0dbed0216fcc56af7d946f7e5ac75",
+        "sha256": "3b2457aec358b73be1a58f3b3ade9f21b3f75ce06f213db24f86d0121d8fe499",
         "quality": "standard",
         "clip": {
-          "start": 175,
-          "duration": 19.56
+          "start": 166,
+          "duration": 18.7
         }
       }
     },
     "docs-site/public/media/workflows/jobs-retry-recovery.mp4": {
       "asset_id": "jobs-retry-recovery",
       "role": "docs-video",
-      "generated_at": "2026-09-08T06:01:29.133Z",
-      "captured_commit": "4b648ef86076ec48efbc6141ead0fc1365aded62",
+      "generated_at": "2026-10-15T13:43:43.324Z",
+      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -8135,28 +8135,28 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "14be15f0f305f6d27085d296ec455f85a55ff1a3333078947973d478cbc4bf43",
-      "bytes": 461716,
+      "sha256": "64f00e327818b2ee2517d8f50c386e2179b507d45c58ef3c26ad22e6ebf20a39",
+      "bytes": 394164,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
         "fps": "25/1",
-        "duration_seconds": 19.56
+        "duration_seconds": 18.72
       },
       "capture": {
         "source_quality": "standard",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-09-08T04-57-41-296Z-414962",
+        "runId": "2026-10-15T13-25-21-741Z-1740919",
         "assetId": "jobs-retry-recovery",
-        "sha256": "acfa29dcb5a2683a65c209a018414a274ae0dbed0216fcc56af7d946f7e5ac75",
+        "sha256": "3b2457aec358b73be1a58f3b3ade9f21b3f75ce06f213db24f86d0121d8fe499",
         "quality": "standard",
         "clip": {
-          "start": 175,
-          "duration": 19.56
+          "start": 166,
+          "duration": 18.7
         }
       }
     },
