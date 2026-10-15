@@ -376,6 +376,14 @@ async def recovery(db, run, *, check_storage=True, lease=None):
         reasons.append("runtime_unknown")
     elif not compatible:
         reasons.append("runtime_incompatible")
+    if run.study_id:
+        from app.services import training_studies
+
+        study = await training_studies.load(db, run.project_id, run.study_id)
+        try:
+            await training_studies.admit_resume(db, study, run)
+        except HTTPException:
+            reasons.append("study_budget_unavailable")
     try:
         await training.authority(db, run)
     except HTTPException:

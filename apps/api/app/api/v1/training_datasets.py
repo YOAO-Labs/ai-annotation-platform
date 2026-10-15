@@ -287,6 +287,14 @@ async def delete_version(
     version = await load_version(db, project, version_id, lock=True)
     from app.db.models.learning_policy import LearningPolicy, LearningTrigger
     from app.db.models.sample_evaluation import SampleEvaluationRun
+    from app.db.models.training_study import TrainingStudy
+
+    if await db.scalar(
+        select(TrainingStudy.id).where(TrainingStudy.dataset_id == version.id).limit(1)
+    ):
+        raise HTTPException(
+            status_code=409, detail="数据版本被参数搜索的冻结计划引用，不能删除"
+        )
 
     if await db.scalar(
         select(SampleEvaluationRun.id)

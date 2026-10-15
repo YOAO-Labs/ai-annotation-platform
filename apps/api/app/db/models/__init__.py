@@ -1,5 +1,6 @@
 from app.db.models.user import User
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
+from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.db.models.group import Group
 from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
@@ -218,3 +219,5 @@ __all__ += ["TrainingPreview", "TrainingPreviewResourceLease"]
 __all__ += ["TrainingTelemetrySample", "TrainingLogChunk"]
 
 __all__ += ["ModelDecision"]
+
+__all__ += ["TrainingStudy", "TrainingTrial"]

@@ -186,6 +186,28 @@ last_reviewed: 2026-10-16
 
 `recovery.eligible` 仅针对当前已停止的失败／取消执行，要求原租约已释放、检查点轮次为正且未完成总轮数、对象归属／元数据可用、冻结输入及已知环境兼容、当前权限有效。`executor_online=false` 可与合格资格同时存在，表示可排队等待。POST 续训再次核验，下载检查点时核验完整字节；更换数据或参数仍需新建实验。
 
+## 参数搜索 API
+
+基路径 `/api/v1/projects/{project_id}/training-studies`，要求项目管理权限及 `annotations:read`、`datasets:read`；预览、创建和停止另需 `datasets:write`。
+
+| 方法 | 路径后缀             | 行为                                            |
+| ---- | -------------------- | ----------------------------------------------- |
+| POST | `:preview`           | 返回完整 `plan` 与 `preview_digest`，不创建记录 |
+| POST | 空                   | 核对预览摘要，创建搜索和全部试验，返回 202      |
+| GET  | 空                   | `limit=20`、`offset=0` 分页，最多 100 项        |
+| GET  | `/{study_id}`        | 冻结计划、当前账本、各试验及兼容结果分组        |
+| POST | `/{study_id}/cancel` | 停止后续准入并按普通取消协议停止活动子实验      |
+
+请求包含 `base`（完整 `TrainingRunCreate`，必须使用 `configuration`）、`grid`、`objective`、`direction="maximize"`、`budgets`，创建另带预览返回的 `preview_digest`。`grid` 最多 10 个可编辑原生键，每键 1–20 个不重复的显式值；全部笛卡尔组合逐项校验，不接受别名或条件不生效字段。`budgets.max_trials` 为 1–20，`max_planned_epochs` 为 1–20,000，`max_native_seconds` 为大于零且不超过 604,800 的有限秒数。超过任何计划上限返回 422，摘要变化返回 409。
+
+目标为 `metrics/mAP50-95`、`metrics/mAP50`，Ultralytics 另支持 `metrics/precision`、`metrics/recall`，LibreYOLO 另支持 `metrics/mAP75`、`metrics/AR100`。所有目标均最大化最终验证报告中的分数。选择过程使用冻结验证集，不使用测试集。相同项目／`base.request_id` 及内容重试返回原搜索，复用标识修改内容返回 409。
+
+`accounting` 分别返回 `consumed_seconds`、`reserved_seconds`、`remaining_seconds`、`overrun_seconds` 和 `unknown_attempt_ids`。活动子实验先预留当前余额，只有带有效所有权凭据的终态计时回执才释放未用部分；未知时间阻止新试验与续训。`trials.actual_epochs` 是当前尝试的最新完成绝对轮次，可空，不能当作跨续训累计工作量。`queue_seconds` 与 `lease_seconds` 累计各次尝试的排队、领取至终态结算时间。`rankings` 只含最终报告校验通过、指标有限且可用的组内试验 ID 顺序；报告不可用原因保留在试验项中。
+
+内部 attempt assignment 增加可选 `native_budget`，绑定策略摘要、reservation、attempt、配置摘要及额度；此类 finish 必须携带对应 `native_accounting`。回执区分 `exact`、`not_started`、`unknown`，成功必须精确，重试沿用同一冻结 finish body。实际进程组时间和停止超额完整计入，旧执行器缺少预算能力时不能领取。普通实验省略新增字段时保留旧协议摘要。
+
+当前无搜索删除 API。搜索、子实验与冻结输入长期保留；删除受引用项目、数据或子实验返回 409，且不会先删除对象存储。
+
 ## 原生增强预览 API
 
 基路径 `/api/v1/projects/{project_id}/training-previews`。读取要求当前项目负责人或超级管理员及 `datasets:read`、`annotations:read`；创建、取消和删除另需 `datasets:write`。

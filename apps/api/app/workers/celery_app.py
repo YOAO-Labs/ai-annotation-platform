@@ -37,6 +37,7 @@ celery_app = Celery(
         "app.workers.training_preview_cleanup",
         "app.workers.training_observability_cleanup",
         "app.workers.learning_policy",
+        "app.workers.training_study",
         "app.workers.export_cleanup",
         # v0.11.15 · 外部连接器数据集导入
         "app.workers.dataset_import",
@@ -110,6 +111,7 @@ celery_app.conf.update(
             "queue": "cleanup"
         },
         "app.workers.learning_policy.check_policies": {"queue": "default"},
+        "app.workers.training_study.check_studies": {"queue": "default"},
         "app.workers.export_cleanup.purge_expired_export_artifacts": {
             "queue": "cleanup"
         },
@@ -158,6 +160,10 @@ celery_app.conf.update(
         "check-learning-policies": {
             "task": "app.workers.learning_policy.check_policies",
             "schedule": crontab(minute="*"),
+        },
+        "check-training-studies": {
+            "task": "app.workers.training_study.check_studies",
+            "schedule": timedelta(seconds=10),
         },
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",

@@ -124,3 +124,4 @@
 - [0079](archive/0079-frozen-sample-evaluation.md) — 冻结逐样本证据、后端请求锁／收据与当前源核对
 - [0080](0080-model-lineage-and-decisions.md) — 模型谱系按需读取，候选决策独立追加并保留当前发布
 - [0081](archive/0081-controlled-training-initialization.md) — 项目权重初始化保留固定来源并创建全新训练状态
+- [0082](archive/0082-budgeted-training-studies.md) — 参数搜索复用普通训练并以进程回执结算预算

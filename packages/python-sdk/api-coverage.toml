@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies"]
 
 [operations]
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
@@ -314,3 +314,9 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/projects/{project_id}/model-lineage/{kind}/{node_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/trained-models/{version_id}/decisions" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/trained-models/{version_id}/decisions" = { status = "excluded", reason = "web-only" }
+
+"POST /api/v1/projects/{project_id}/training-studies:preview" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-studies" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-studies" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-studies/{study_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-studies/{study_id}/cancel" = { status = "excluded", reason = "web-only" }

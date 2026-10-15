@@ -1,5 +1,6 @@
 import type { TrainingRunCreate, TrainingInitialization } from "@/api/trainingRuns";
 import type { TrainingOrigin } from "@/api/trainingRecipes";
+import type { TrainingStudyCreate } from "@/api/trainingStudies";
 import type { ParameterDraft, ParameterDrafts, ParameterValue } from "./trainingConfiguration";
 
 export type TrainingDraft = {
@@ -18,6 +19,7 @@ export type TrainingDraft = {
   source?: TrainingDraftSource;
   initialization?: TrainingInitialization;
   pending?: { body: TrainingRunCreate };
+  pendingStudy?: TrainingStudyCreate;
 };
 
 export type TrainingDraftSource = {
@@ -222,6 +224,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
           "schemaDigest",
           "fields",
           "pending",
+          "pendingStudy",
           "source",
           "initialization",
         ].includes(key),
@@ -251,14 +254,20 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
     )
   )
     return false;
-  if (value.pending !== undefined) {
+  if (value.pending !== undefined || value.pendingStudy !== undefined) {
+    if (value.pending !== undefined && value.pendingStudy !== undefined) return false;
+    if (value.pendingStudy !== undefined && !pendingStudy(value.pendingStudy)) return false;
     if (
-      !object(value.pending) ||
-      Object.keys(value.pending).length !== 1 ||
-      !pendingBody(value.pending.body)
+      value.pending !== undefined &&
+      (!object(value.pending) ||
+        Object.keys(value.pending).length !== 1 ||
+        !pendingBody(value.pending.body))
     )
       return false;
-    const body = value.pending.body;
+    const body =
+      value.pendingStudy !== undefined
+        ? (value.pendingStudy as TrainingStudyCreate).base
+        : (value.pending as { body: TrainingRunCreate }).body;
     if (
       body.request_id !== value.requestId ||
       body.framework !== value.framework ||
@@ -277,6 +286,59 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
     if (JSON.stringify(body.initialization) !== JSON.stringify(value.initialization)) return false;
   }
   return true;
+}
+
+function pendingStudy(value: unknown): value is TrainingStudyCreate {
+  if (
+    !object(value) ||
+    Object.keys(value).some(
+      (key) =>
+        !["base", "grid", "objective", "direction", "budgets", "preview_digest"].includes(key),
+    ) ||
+    !pendingBody(value.base) ||
+    !object(value.grid) ||
+    !object(value.budgets)
+  )
+    return false;
+  const count = Object.keys(value.grid).length;
+  if (
+    count < 1 ||
+    count > 10 ||
+    Object.entries(value.grid).some(
+      ([key, values]) =>
+        unsafeKeys.has(key) ||
+        !Array.isArray(values) ||
+        values.length < 1 ||
+        values.length > 20 ||
+        !values.every((item) => parameterValue(item)),
+    )
+  )
+    return false;
+  const budgets = value.budgets;
+  return (
+    Object.keys(budgets).length === 3 &&
+    Number.isInteger(budgets.max_trials) &&
+    Number(budgets.max_trials) >= 1 &&
+    Number(budgets.max_trials) <= 20 &&
+    Number.isInteger(budgets.max_planned_epochs) &&
+    Number(budgets.max_planned_epochs) >= 1 &&
+    Number(budgets.max_planned_epochs) <= 20000 &&
+    typeof budgets.max_native_seconds === "number" &&
+    Number.isFinite(budgets.max_native_seconds) &&
+    budgets.max_native_seconds > 0 &&
+    budgets.max_native_seconds <= 604800 &&
+    [
+      "metrics/mAP50-95",
+      "metrics/mAP50",
+      "metrics/mAP75",
+      "metrics/precision",
+      "metrics/recall",
+      "metrics/AR100",
+    ].includes(String(value.objective)) &&
+    value.direction === "maximize" &&
+    typeof value.preview_digest === "string" &&
+    sha.test(value.preview_digest)
+  );
 }
 
 export function readTrainingDraft(

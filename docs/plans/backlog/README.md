@@ -32,7 +32,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 
 ### 训练体验与后续能力草案集
 
-[总览与依赖图](1792035920_online-learning-experience-roadmap.md) 将已交付能力作为基础，保留项目内新建实验入口，按独立结果组织以下节点。用户已授权逐步审核并实施，每个节点独立提交；尚未审核的节点继续保留技术启动条件，不分配发布版本。T01–T10 已完成并记录验收证据，其余节点在开始前通过本页的 promotion gate。
+[总览与依赖图](1792035920_online-learning-experience-roadmap.md) 将已交付能力作为基础，保留项目内新建实验入口，按独立结果组织以下节点。用户已授权逐步审核并实施，每个节点独立提交；尚未审核的节点继续保留技术启动条件，不分配发布版本。T01–T11 已完成并记录验收证据，其余节点在开始前通过本页的 promotion gate。
 
 | 草案                                                                           | 独立结果                                                     | 依赖或启动条件                         |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------ | -------------------------------------- |
@@ -46,7 +46,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [T08 样本评估与错误分析](../1792036036_training-sample-evaluation.md)          | 固定样本误检漏检分析、候选对照及工作台回链                   | 已完成；固定阈值、原生推理与回链已验收 |
 | [T09 模型血缘与候选决策](../1792036036_training-model-lineage.md)              | 查询来源链、发布历史及候选决策记录                           | 已完成；有界来源导航与追加决策已验收   |
 | [T10 自训练模型初始化](../1792036132_training-controlled-warm-start.md)        | 从兼容项目模型开始新实验，与断点续训区分                     | 已完成；原生初始化与自身续训已验收     |
-| [T11 有预算的参数搜索](1792036132_training-bounded-parameter-sweeps.md)        | 有界网格实验、预算执行与兼容结果排名                         | T01、T03、T05、T07；显式预算与可靠取消 |
+| [T11 有预算的参数搜索](../1792036132_training-bounded-parameter-sweeps.md)     | 有界网格实验、预算执行与兼容结果排名                         | 已完成；原生截止、串行结算与取消已验收 |
 | [T12 主动学习选样](1792036132_training-active-learning.md)                     | 可解释的下一批人工标注建议及选样审计                         | T04、T08；候选池、可信推理及对照试点   |
 | [T13 LibreYOLO 模型回流](1792036132_training-libreyolo-model-return.md)        | 原生模型注册、推理、人工发布与回退                           | 原生加载、输出、依赖及路由资格验证     |
 | [T14 其他任务类型资格验证](1792036132_training-task-qualification.md)          | 首个独立候选为图片实例分割，后续任务各自验证                 | T01；数据、训练、评估和推理分别验收    |

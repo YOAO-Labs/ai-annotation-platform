@@ -18,6 +18,14 @@ async def delete_project_records(db: AsyncSession, project: Project) -> None:
     )
     from app.db.models.trained_model import TrainedModelVersion
     from app.db.models.model_decision import ModelDecision
+    from app.db.models.training_study import TrainingStudy
+
+    if await db.scalar(
+        select(TrainingStudy.id).where(TrainingStudy.project_id == project.id).limit(1)
+    ):
+        raise HTTPException(
+            status_code=409, detail="项目包含保留的参数搜索计划与预算证据，不能删除"
+        )
 
     for model in (TrainedModelVersion, ModelDecision):
         if await db.scalar(

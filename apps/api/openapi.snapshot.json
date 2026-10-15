@@ -13661,6 +13661,18 @@
             "title": "Lease Token",
             "type": "string"
           },
+          "native_accounting": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Accounting"
+          },
           "process_exited": {
             "const": true,
             "title": "Process Exited",
@@ -36833,6 +36845,36 @@
         "title": "StorageOverview",
         "type": "object"
       },
+      "StudyBudgets": {
+        "additionalProperties": false,
+        "properties": {
+          "max_native_seconds": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 604800.0,
+            "title": "Max Native Seconds",
+            "type": "number"
+          },
+          "max_planned_epochs": {
+            "maximum": 20000.0,
+            "minimum": 1.0,
+            "title": "Max Planned Epochs",
+            "type": "integer"
+          },
+          "max_trials": {
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Max Trials",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_trials",
+          "max_planned_epochs",
+          "max_native_seconds"
+        ],
+        "title": "StudyBudgets",
+        "type": "object"
+      },
       "SuggestedBackendItem": {
         "properties": {
           "builtin": {
@@ -39568,6 +39610,30 @@
             "title": "Id",
             "type": "string"
           },
+          "native_accounting": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Accounting"
+          },
+          "native_budget": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Budget"
+          },
           "ordinal": {
             "title": "Ordinal",
             "type": "integer"
@@ -41303,7 +41369,8 @@
               "upload_failed",
               "execution_lost",
               "authority_lost",
-              "unknown"
+              "unknown",
+              "budget_exhausted"
             ],
             "title": "Code",
             "type": "string"
@@ -42928,6 +42995,18 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "study_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Study Id"
           }
         },
         "required": [
@@ -43011,6 +43090,67 @@
           "editable_count"
         ],
         "title": "TrainingSchemaSummary",
+        "type": "object"
+      },
+      "TrainingStudyCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/TrainingRunCreate"
+          },
+          "budgets": {
+            "$ref": "#/components/schemas/StudyBudgets"
+          },
+          "direction": {
+            "const": "maximize",
+            "title": "Direction",
+            "type": "string"
+          },
+          "grid": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "array"
+            },
+            "maxProperties": 10,
+            "minProperties": 1,
+            "title": "Grid",
+            "type": "object"
+          },
+          "objective": {
+            "enum": [
+              "metrics/mAP50-95",
+              "metrics/mAP50",
+              "metrics/mAP75",
+              "metrics/precision",
+              "metrics/recall",
+              "metrics/AR100"
+            ],
+            "title": "Objective",
+            "type": "string"
+          },
+          "preview_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Digest"
+          }
+        },
+        "required": [
+          "base",
+          "grid",
+          "objective",
+          "direction",
+          "budgets"
+        ],
+        "title": "TrainingStudyCreate",
         "type": "object"
       },
       "TrainingTemplate": {
@@ -73290,6 +73430,317 @@
         "summary": "Preflight",
         "tags": [
           "training-runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-studies": {
+      "get": {
+        "operationId": "list_studies_api_v1_projects__project_id__training_studies_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Studies Api V1 Projects  Project Id  Training Studies Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Studies",
+        "tags": [
+          "training-studies"
+        ]
+      },
+      "post": {
+        "operationId": "create_api_v1_projects__project_id__training_studies_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingStudyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Api V1 Projects  Project Id  Training Studies Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create",
+        "tags": [
+          "training-studies"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-studies/{study_id}": {
+      "get": {
+        "operationId": "get_study_api_v1_projects__project_id__training_studies__study_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "study_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Study Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Study Api V1 Projects  Project Id  Training Studies  Study Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Study",
+        "tags": [
+          "training-studies"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-studies/{study_id}/cancel": {
+      "post": {
+        "operationId": "cancel_api_v1_projects__project_id__training_studies__study_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "study_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Study Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Api V1 Projects  Project Id  Training Studies  Study Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel",
+        "tags": [
+          "training-studies"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-studies:preview": {
+      "post": {
+        "operationId": "preview_api_v1_projects__project_id__training_studies_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingStudyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Api V1 Projects  Project Id  Training Studies Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview",
+        "tags": [
+          "training-studies"
         ]
       }
     },

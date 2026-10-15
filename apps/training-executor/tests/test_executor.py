@@ -406,7 +406,75 @@ def test_signal_exit_never_guesses_oom_and_observation_failure_does_not_cancel(
     assert not supervisor.stop_training.is_set()
 
 
-def test_finish_lost_response_replays_persisted_complete_body(tmp_path, monkeypatch):
+def budget_assignment(journal, allowance=0.1):
+    from training_contract.budget import POLICY_DIGEST
+
+    assignment = journal["assignment"]
+    assignment["native_budget"] = {
+        "policy_digest": POLICY_DIGEST,
+        "reservation_id": str(uuid.uuid4()),
+        "attempt_id": assignment["attempt_id"],
+        "config_digest": assignment["config_digest"],
+        "allowance_seconds": allowance,
+    }
+
+
+def test_budget_deadline_survives_blocked_pid_journal_and_preserves_exact_exit(
+    controlled_child, monkeypatch
+):
+    supervisor, journal, children = controlled_child
+    budget_assignment(journal)
+    supervisor.test_script = "import time; time.sleep(30)"
+    original = supervisor.save
+    blocked = []
+
+    def save(body):
+        if body.get("process") and not blocked:
+            blocked.append(True)
+            assert supervisor.active_budget.done.wait(3), (
+                "Deadline must stop independently of PID fsync"
+            )
+            raise OSError("PID fsync failed after deadline")
+        original(body)
+
+    monkeypatch.setattr(supervisor, "save", save)
+    supervisor.execute(journal)
+    assert len(children) == 1 and not live_group(children[0].pid)
+    assert journal["native_accounting"]["state"] == "exact"
+    assert journal["native_accounting"]["deadline_triggered"]
+    assert journal["native_accounting"]["native_seconds"] >= 0.1
+
+
+def test_spawn_intent_save_failure_never_starts_native_and_new_boot_intent_is_unknown(
+    controlled_child, monkeypatch
+):
+    supervisor, journal, children = controlled_child
+    budget_assignment(journal)
+    original = supervisor.save
+    failures = []
+
+    def save(body):
+        if body.get("spawn_intent") and not failures:
+            failures.append(True)
+            raise OSError("intent fsync failed")
+        original(body)
+
+    monkeypatch.setattr(supervisor, "save", save)
+    supervisor.execute(journal)
+    assert children == [] and journal["native_accounting"]["state"] == "not_started"
+    journal.pop("native_accounting")
+    journal.pop("outcome")
+    journal["claim"]["boot_id"] = str(uuid.uuid4())
+    supervisor.active_budget = None
+    supervisor.execute(journal, recovery=True)
+    assert children == [] and journal["native_accounting"]["state"] == "unknown"
+    assert journal["native_accounting"]["native_seconds"] is None
+
+
+@pytest.mark.parametrize("fail_save", [False, True])
+def test_finish_lost_response_replays_persisted_complete_body(
+    tmp_path, monkeypatch, fail_save
+):
     supervisor = object.__new__(Supervisor)
     supervisor.shutdown = SimpleNamespace(
         is_set=lambda: False, wait=lambda seconds: None
@@ -423,9 +491,20 @@ def test_finish_lost_response_replays_persisted_complete_body(tmp_path, monkeypa
             "config": {},
         },
         "outcome": "failed",
+        "native_accounting": {"state": "unknown", "native_seconds": None},
     }
     (tmp_path / "train.log").write_text("safe diagnostic\n")
     finishes = []
+    failed_saves = []
+    original_save = supervisor.save
+
+    def save(body):
+        if fail_save and body.get("finish_body") and not failed_saves:
+            failed_saves.append(True)
+            raise OSError("finish fsync failed")
+        original_save(body)
+
+    supervisor.save = save
 
     def api(endpoint, body):
         if endpoint.endswith("uploads"):
@@ -441,6 +520,7 @@ def test_finish_lost_response_replays_persisted_complete_body(tmp_path, monkeypa
             if len(finishes) == 1:
                 journal["error"] = "Later mutable diagnostic"
                 journal["failure"] = {"code": "changed"}
+                journal["native_accounting"] = {"state": "exact", "native_seconds": 99}
                 raise httpx.ReadTimeout("Completion accepted but reply lost")
         return {}
 
@@ -453,6 +533,11 @@ def test_finish_lost_response_replays_persisted_complete_body(tmp_path, monkeypa
     assert supervisor.upload_and_finish(journal, tmp_path)
     assert finishes[0] == finishes[1] and "failure" not in finishes[0]
     assert "error_message" in finishes[0] and finishes[0]["error_message"] is None
+    assert finishes[0]["native_accounting"] == {
+        "state": "unknown",
+        "native_seconds": None,
+    }
+    assert bool(failed_saves) is fail_save
 
 
 def test_optional_observation_stop_failure_cannot_override_acknowledged_publication(

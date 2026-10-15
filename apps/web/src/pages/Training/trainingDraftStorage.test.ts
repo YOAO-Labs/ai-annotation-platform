@@ -11,6 +11,41 @@ import {
 beforeEach(() => localStorage.clear());
 const owner = trainingDraftOwner("user-1", "project-1");
 
+it("restores an exact pending study and rejects two pending actions or another request owner", () => {
+  const ordinary = pendingDraft();
+  const pendingStudy = {
+    base: ordinary.pending.body,
+    grid: { lr0: [0.01, 0.02] },
+    objective: "metrics/mAP50-95" as const,
+    direction: "maximize" as const,
+    budgets: { max_trials: 2, max_planned_epochs: 100, max_native_seconds: 20 },
+    preview_digest: "b".repeat(64),
+  };
+  const draft = { ...ordinary, pending: undefined, pendingStudy };
+  expect(saveTrainingDraft(draft)).toBeNull();
+  expect(readTrainingDraft(owner).draft).toEqual(draft);
+  for (const changed of [
+    { ...draft, pending: ordinary.pending },
+    {
+      ...draft,
+      pendingStudy: {
+        ...pendingStudy,
+        base: { ...pendingStudy.base, request_id: crypto.randomUUID() },
+      },
+    },
+    {
+      ...draft,
+      pendingStudy: {
+        ...pendingStudy,
+        budgets: { ...pendingStudy.budgets, max_native_seconds: -1 },
+      },
+    },
+  ]) {
+    localStorage.setItem(trainingDraftKey(owner), JSON.stringify(changed));
+    expect(readTrainingDraft(owner).draft).toBeNull();
+  }
+});
+
 it("preserves a pinned initialization in exact pending bodies and rejects hidden or mismatched sources", () => {
   const old = pendingDraft();
   const initialization = {

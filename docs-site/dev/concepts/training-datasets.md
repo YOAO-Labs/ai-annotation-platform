@@ -28,6 +28,18 @@ last_reviewed: 2026-10-16
 
 `TrainingDatasetVersion` 是项目内持久领域记录，保存冻结快照、父版本、请求幂等身份、执行尝试、清单及训练包校验值。`AsyncJob` 承接进度和通知，清理任务历史不会删除数据版本。
 
+## 有预算的串行搜索
+
+`TrainingStudy` 固定完整有限网格、目标、预算、授权与请求身份；`TrainingTrial` 固定序号、配置及普通子实验引用。ID 从项目／请求和试验序号确定性派生。全部组合经共享参数定义解析，预览与创建对同一计划摘要比较，最大 20 项；不会截断。子实验保留独立 `origin` 和初始化 pin，继续使用既有 GPU 租约及 lost／upload 恢复。
+
+协调按项目 advisory、授权、Study `FOR NO KEY UPDATE`、Run 的顺序执行。较弱的 Study 非键写锁允许子外键的 KEY SHARE 检查，不会让带所有权凭据的 Run 完成事务反向等待协调器。claim／finish 不获取 Study 锁；Run 的部分唯一索引覆盖全部活动状态，数据库阻止同一搜索重叠。每十秒的 `app.workers.training_study.check_studies` 恢复后续准入，终态关闭 scheduling；停止后的手动续训不重新打开它。
+
+每次 attempt 在入队前固定 `native_budget` 预留。计时账本从所有已围栏提交的 `native_accounting` 派生，不维护容易漂移的消费计数器。所有失败、续训、停止宽限和超额时间计入；未知记录保留并阻止准入与续训。恢复重新在 Study 当前余额及子实验剩余额度内预留，不能重复花费先前释放的额度。排队与 claim 至终态提交占用分别计算。
+
+执行器在 spawn 前持久化意图，Popen 后立即启动独立单调计时 watchdog，早于日志读取和 PID journal 保存；停止调用共用锁并在失败后重试，直到确认整个进程组退出。退出回执先固定保存，再随不可变 finish body 重试提交。当前进程内保留 timer 可恢复精确时间；重启后只有 spawn 意图而无回执时只能报告未知。Supervisor 自身被终止会丢失 watchdog，继承的 GPU flock 仍保护资源，不能把进程不在或墙钟时间当作精确退出证据。
+
+结果每次重新读取、校验最终报告产物，只在 T05 完整兼容身份内排名；最近轮次指标不参与目标排名。长期 RESTRICT 引用保护子实验、数据、初始化模型及项目；当前无 Study 删除 API。部署需应用迁移、更新预算能力的实际执行器镜像并刷新 API、两类 worker 及 beat。设计取舍见 [有预算的串行搜索](../adr/archive/0082-budgeted-training-studies)。
+
 ## 受控项目权重初始化
 
 `training_initialization` 解析同项目保留候选的权威 run、成功 attempt、冻结数据、唯一权重与注册 provenance，生成完整 pin 和规范化来源摘要。资格策略由 API 与执行器共享，固定原生框架／Torch／TorchVision／Python／CUDA、同 YOLO11 规格、类别原生顺序和全部状态张量转移边界。来源名、SHA、大小、配置／数据／验证摘要、绑定、运行时及评估证据均成为不可变训练输入。

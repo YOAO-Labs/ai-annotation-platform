@@ -79,6 +79,7 @@ FAILURE_CODES = {
     "execution_lost",
     "authority_lost",
     "unknown",
+    "budget_exhausted",
 }
 
 

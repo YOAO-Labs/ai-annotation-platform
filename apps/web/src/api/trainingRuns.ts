@@ -29,6 +29,7 @@ export interface TrainingCatalog {
   busy: boolean;
   resource_id: string | null;
   initialization_policy_digest?: string | null;
+  native_budget_policy_digest?: string | null;
   items: TrainingTemplate[];
 }
 

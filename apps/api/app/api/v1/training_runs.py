@@ -93,6 +93,9 @@ async def catalog(
     result["initialization_policy_digest"] = (
         lease.runtime.get("initialization_policy_digest") if lease else None
     )
+    result["native_budget_policy_digest"] = (
+        lease.runtime.get("native_budget_policy_digest") if lease else None
+    )
     return result
 
 
@@ -380,6 +383,15 @@ async def resume_run(
             raise HTTPException(
                 status_code=409, detail="项目已有其他自动候选或实验，请先结束它"
             )
+    study = None
+    if preliminary.study_id:
+        from app.services import training_studies
+        from app.services.learning_policies import project_lock
+
+        await project_lock(db, project.id)
+        study = await training_studies.load(
+            db, project.id, preliminary.study_id, lock=True
+        )
     lease = await service.lock_resource(db, preliminary.config["resource_id"])
     await lock_owner(db, user, project)
     run = await load_run(db, project.id, run_id, lock=True)
@@ -412,7 +424,14 @@ async def resume_run(
         raise HTTPException(
             status_code=409, detail="没有可恢复的未完成 checkpoint，请创建新实验"
         )
-    await service.new_attempt(db, run, resume_from=parent.id)
+    allowance = await training_studies.admit_resume(db, study, run) if study else None
+    attempt = await service.new_attempt(db, run, resume_from=parent.id)
+    if study:
+        training_studies.reserve(attempt, run, allowance)
+        run.authorization = {**run.authorization, "study_manual_resume": True}
+        if study.status == "completed":
+            study.scheduling = True
+        study.status, study.completed_at = "active", None
     if run.auto_trigger_id:
         run.authorization = {**run.authorization, "manual_resume": True}
         trigger = await db.get(LearningTrigger, run.auto_trigger_id)
@@ -498,6 +517,11 @@ async def delete_run(
     run = await load_run(db, project.id, run_id, lock=True)
     if run.status not in service.TERMINAL:
         raise HTTPException(status_code=409, detail="训练尚未结束，不能删除")
+    if run.study_id:
+        raise HTTPException(
+            status_code=409,
+            detail="实验属于保留的参数搜索，不能单独删除其计划与预算证据",
+        )
     if run.auto_trigger_id:
         from app.db.models.learning_policy import LearningTrigger
 

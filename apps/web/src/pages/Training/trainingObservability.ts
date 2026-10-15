@@ -68,12 +68,15 @@ export function failureGuidance(failure?: TrainingFailure | null) {
     native_exception: "原生训练器报告异常，请查看诊断与脱敏日志。",
     preparation_failed: "训练准备失败，请检查诊断与冻结输入。",
     upload_failed: "产物尚未完成保存。执行器会按原回执重试上传，无需重新训练。",
+    budget_exhausted:
+      "本次试验的原生计算额度已用尽，执行器已请求停止。停止宽限按实际时间计入；只有搜索仍有余额时才能从已提交检查点续训。",
   };
   return failure
     ? (labels[failure.code] ?? "失败原因尚未确认，请查看脱敏诊断。")
     : "此历史执行未记录结构化失败原因，请查看脱敏日志。";
 }
 export const recoveryReasons: Record<string, string> = {
+  study_budget_unavailable: "参数搜索预算不足、计时未知，或另一个试验仍在执行",
   attempt_not_stopped: "当前执行尚未确认停止",
   lease_not_released: "当前执行仍占用资源",
   unfinished_checkpoint_missing: "没有可继续训练的已提交检查点",

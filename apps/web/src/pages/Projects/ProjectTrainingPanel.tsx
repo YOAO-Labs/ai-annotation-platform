@@ -4,6 +4,7 @@ import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
 import { useNavigate } from "react-router-dom";
 import { Plus, FlaskConical, GitCompareArrows } from "lucide-react";
 import { TrainingRunMonitor } from "../Training/TrainingRunMonitor";
+import { TrainingStudyPanel } from "../Training/TrainingStudyPanel";
 import { useTrainingEvents } from "../Training/useTrainingEvents";
 import { trainingObservabilityApi } from "@/api/trainingObservability";
 import { useTrainingViewOwner } from "../Training/trainingViewOwner";
@@ -248,6 +249,12 @@ export function ProjectTrainingPanel({
         </Badge>
         <span>共 {runs.data?.total ?? 0} 个实验</span>
       </div>
+      <TrainingStudyPanel
+        key={`${projectId}:${scope}:${session.owner.revision}`}
+        projectId={projectId}
+        scope={scope}
+        visible={visible}
+      />
       {(error || catalog.error || runs.error || detail.error) && (
         <p
           role="alert"

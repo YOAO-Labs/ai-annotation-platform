@@ -811,6 +811,14 @@
 | GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download` |
 | DELETE | `/{run_id}` |
 
+## `training_studies.py`
+
+| Method | Path |
+|---|---|
+| POST | `:preview` |
+| GET | `/{study_id}` |
+| POST | `/{study_id}/cancel` |
+
 ## `users.py`
 
 | Method | Path |
@@ -865,4 +873,4 @@
 
 ---
 
-_共 79 模块 / 493 路由_
+_共 80 模块 / 496 路由_

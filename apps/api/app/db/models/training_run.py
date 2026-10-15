@@ -24,6 +24,15 @@ class TrainingRun(Base):
     __tablename__ = "training_runs"
     __table_args__ = (
         UniqueConstraint("project_id", "request_id", name="uq_training_run_request"),
+        UniqueConstraint("id", "study_id", name="uq_training_run_study_identity"),
+        Index(
+            "uq_training_study_active_run",
+            "study_id",
+            unique=True,
+            postgresql_where=text(
+                "study_id IS NOT NULL AND status IN ('queued','preparing','training','evaluating','uploading','cancelling','lost')"
+            ),
+        ),
         Index("ix_training_run_project_created", "project_id", "created_at"),
         Index(
             "ix_lineage_training_runs_initialization_model_id",
@@ -55,6 +64,9 @@ class TrainingRun(Base):
     )
     creator_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    study_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("training_studies.id", ondelete="RESTRICT")
     )
     dataset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -130,6 +142,8 @@ class TrainingAttempt(Base):
     artifacts: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     observation_state: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     failure: Mapped[dict | None] = mapped_column(JSONB)
+    native_budget: Mapped[dict | None] = mapped_column(JSONB)
+    native_accounting: Mapped[dict | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(String(1000))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

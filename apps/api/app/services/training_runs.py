@@ -130,6 +130,14 @@ def resolve_configuration(framework, base_model, configuration):
 
 def runtime_compatible(config, runtime):
     framework = config["framework"]
+    if config.get("study_budget"):
+        from training_contract.budget import POLICY_DIGEST
+
+        if (
+            config["study_budget"].get("policy_digest") != POLICY_DIGEST
+            or runtime.get("native_budget_policy_digest") != POLICY_DIGEST
+        ):
+            return False
     if config["framework_version"] != runtime.get("frameworks", {}).get(framework):
         return False
     if "initialization" in config:
@@ -316,6 +324,16 @@ async def lock_resource(db, identity=None):
 
 
 async def mark_terminal(db, run, attempt, status, error=None):
+    if (
+        attempt.native_budget
+        and attempt.resource_id is None
+        and attempt.native_accounting is None
+    ):
+        from training_contract.budget import receipt
+
+        attempt.native_accounting = receipt(
+            attempt.native_budget, "not_started", seconds=0.0
+        )
     error = (
         redact_text(error, (settings.training_executor_token,))[:1000]
         if error
@@ -447,6 +465,8 @@ async def assignment(db, run, attempt, token):
         "dataset_url": internal_download(dataset.package_key),
         "resume": None,
     }
+    if attempt.native_budget:
+        result["native_budget"] = attempt.native_budget
     if attempt.resume_from_id:
         parent = await db.get(TrainingAttempt, attempt.resume_from_id)
         checkpoint = next(
@@ -525,6 +545,53 @@ async def claim(db, body):
                 db, run, attempt, "cancelled", "自动策略已关闭、变化或项目已停用"
             )
             continue
+        if run.study_id:
+            from app.services import training_studies
+            from training_contract.budget import validate_budget
+
+            if not await training_studies.claim_allowed(db, run):
+                await mark_terminal(
+                    db, run, attempt, "cancelled", "参数搜索已停止或项目已停用"
+                )
+                continue
+            try:
+                validate_budget(attempt.native_budget, attempt.id, run.config_digest)
+                previous = list(
+                    await db.scalars(
+                        select(TrainingAttempt).where(
+                            TrainingAttempt.run_id == run.id,
+                            TrainingAttempt.id != attempt.id,
+                        )
+                    )
+                )
+                from training_contract.budget import validate_receipt
+
+                consumed = 0.0
+                for prior in previous:
+                    if (
+                        prior.native_accounting is None
+                        and prior.resource_id is None
+                        and prior.status in TERMINAL
+                    ):
+                        continue
+                    validate_receipt(prior.native_accounting, prior.native_budget)
+                    if prior.native_accounting["state"] == "unknown":
+                        raise ValueError("Previous native time is unknown")
+                    consumed += prior.native_accounting["native_seconds"]
+                if (
+                    consumed + attempt.native_budget["allowance_seconds"]
+                    > config["study_budget"]["max_native_seconds"] + 1e-6
+                ):
+                    raise ValueError("Attempt allowance exceeds cumulative child limit")
+            except (ValueError, KeyError, TypeError, AttributeError):
+                await mark_terminal(
+                    db,
+                    run,
+                    attempt,
+                    "failed",
+                    "试验预算或先前执行计时无法核实，拒绝启动",
+                )
+                continue
         if config.get("initialization"):
             try:
                 from training_contract.initialization import validate_pin
@@ -752,6 +819,22 @@ async def finish(db, attempt_id, body):
         raise HTTPException(status_code=409, detail="GPU 租约已变化")
     if body.failure and body.failure.config_digest != run.config_digest:
         raise HTTPException(status_code=422, detail="故障诊断与冻结配置不符")
+    if attempt.native_budget:
+        from training_contract.budget import validate_receipt
+
+        try:
+            validate_receipt(body.native_accounting, attempt.native_budget)
+            if (
+                body.status == "succeeded"
+                and body.native_accounting["state"] != "exact"
+            ):
+                raise ValueError("Successful native execution needs exact accounting")
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise HTTPException(
+                status_code=422, detail="原生计算时间回执缺失或与冻结预算不符"
+            ) from exc
+    elif body.native_accounting is not None:
+        raise HTTPException(status_code=422, detail="未预留预算的执行不能提交计时账本")
     status = "cancelled" if run.status == "cancelling" else body.status
     if status == "succeeded":
         await authority(db, run)
@@ -796,6 +879,7 @@ async def finish(db, attempt_id, body):
                 status_code=422, detail="原生参数观测缺失或与冻结配置不符"
             ) from exc
     attempt.artifacts = artifacts
+    attempt.native_accounting = body.native_accounting
     attempt.finish_request_digest = request_digest
     if body.failure:
         attempt.failure = {

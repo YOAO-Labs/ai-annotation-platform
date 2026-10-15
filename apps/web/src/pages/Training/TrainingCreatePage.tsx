@@ -24,6 +24,7 @@ import { TrainingConfigurationEditor } from "./TrainingConfigurationEditor";
 import { TrainingParameterInventory } from "./TrainingParameterInventory";
 import { trainingInputClass, trainingValueLabel } from "./TrainingParameterField";
 import { TrainingRunReview } from "./TrainingRunReview";
+import { TrainingStudyCreate } from "./TrainingStudyCreate";
 import { TrainingAugmentationPreview } from "./TrainingAugmentationPreview";
 import {
   TrainingRecipeLibrary,
@@ -144,7 +145,12 @@ function TrainingCreateContent({
   const client = useQueryClient();
   const [queryScope] = useState(() => crypto.randomUUID());
   const project = useProject(projectId);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => (draft.pendingStudy ? 2 : 0));
+  const [studyMode, setStudyMode] = useState(
+    () => !!draft.pendingStudy || params.get("mode") === "study",
+  );
+  const [studyBusy, setStudyBusy] = useState(false);
+  const studyLock = useRef(false);
   const [error, setError] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [checking, setChecking] = useState(false);
@@ -289,7 +295,14 @@ function TrainingCreateContent({
     report && schemaMatches && state.matches(report.snapshot) && report.runtime === runtime
       ? report
       : null;
-  const locked = !!draft.pending || creating || switching || reuseBusy || !!reusePreview;
+  const locked =
+    !!draft.pending ||
+    !!draft.pendingStudy ||
+    studyBusy ||
+    creating ||
+    switching ||
+    reuseBusy ||
+    !!reusePreview;
   const initialization = useTrainingInitializationSource(
     projectId,
     draft.framework,
@@ -373,10 +386,12 @@ function TrainingCreateContent({
   const update = (patch: Partial<TrainingDraft>) => {
     if (
       createLock.current ||
+      studyLock.current ||
       switchLock.current ||
       reuseLock.current ||
       reusePreview ||
       state.current.current.pending ||
+      state.current.current.pendingStudy ||
       !state.ownsSession()
     )
       return;
@@ -420,6 +435,7 @@ function TrainingCreateContent({
       createLock.current ||
       switchLock.current ||
       captured.pending ||
+      captured.pendingStudy ||
       preflightRequest.current ||
       readingFile ||
       importPreview ||
@@ -599,6 +615,7 @@ function TrainingCreateContent({
       !catalog.data ||
       cloneIntent.current === intentOwner.key ||
       draft.pending ||
+      draft.pendingStudy ||
       reuseLock.current ||
       reusePreview
     )
@@ -760,7 +777,15 @@ function TrainingCreateContent({
   };
 
   const create = async () => {
-    if (createLock.current || preflightRequest.current || reuseLock.current || reusePreview) return;
+    if (
+      createLock.current ||
+      studyLock.current ||
+      state.current.current.pendingStudy ||
+      preflightRequest.current ||
+      reuseLock.current ||
+      reusePreview
+    )
+      return;
     const snapshot = state.current.current;
     if (!state.matches(snapshot)) return;
     const body =
@@ -796,7 +821,7 @@ function TrainingCreateContent({
 
   const discardPending = async () => {
     const snapshot = state.current.current;
-    if (creating || !snapshot.pending) return;
+    if (creating || studyBusy || (!snapshot.pending && !snapshot.pendingStudy)) return;
     const accepted = await confirmDialog({
       title: "放弃尚未确认的创建请求",
       description:
@@ -828,6 +853,7 @@ function TrainingCreateContent({
         sequence !== fileSequence.current ||
         !state.matches(snapshot) ||
         state.current.current.pending ||
+        state.current.current.pendingStudy ||
         currentSchema.current?.schema_digest !== schema.schema_digest
       )
         return;
@@ -912,7 +938,7 @@ function TrainingCreateContent({
             type="button"
             key={label}
             aria-current={step === index ? "step" : undefined}
-            disabled={index > 0 && !contextValid}
+            disabled={(index > 0 && !contextValid) || studyBusy}
             onClick={() => setStep(index)}
             className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2.5 text-xs focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${step === index ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted"}`}
           >
@@ -1273,7 +1299,7 @@ function TrainingCreateContent({
               </details>
             </section>
           )}
-          {step === 2 && schema && (
+          {step === 2 && (schema || draft.pendingStudy) && (
             <section aria-label="核对并开始">
               <h2 className="mb-4 text-sm font-semibold">核对训练配置</h2>
               {Object.keys(collected.errors).length > 0 && (
@@ -1281,12 +1307,91 @@ function TrainingCreateContent({
                   有 {Object.keys(collected.errors).length} 项参数需要修正，请返回配置参数查看。
                 </p>
               )}
-              <TrainingRunReview
-                schema={schema}
-                values={collected.values}
-                config={reviewed?.config}
-                digest={reviewed?.config_digest}
-              />
+              {schema && (
+                <TrainingRunReview
+                  schema={schema}
+                  values={collected.values}
+                  config={reviewed?.config}
+                  digest={reviewed?.config_digest}
+                />
+              )}
+              <fieldset
+                disabled={locked || checking}
+                className="mt-4 flex flex-wrap gap-4 text-xs"
+                aria-label="开始方式"
+              >
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="training-start-mode"
+                    checked={!studyMode}
+                    onChange={() => setStudyMode(false)}
+                  />
+                  单个训练实验
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="training-start-mode"
+                    checked={studyMode}
+                    onChange={() => setStudyMode(true)}
+                  />
+                  有预算的参数搜索
+                </label>
+              </fieldset>
+              {studyMode && (
+                <TrainingStudyCreate
+                  key={draft.requestId}
+                  projectId={projectId}
+                  schema={schema}
+                  base={
+                    reviewed && valid
+                      ? { ...reviewed.body, preflight_digest: reviewed.config_digest }
+                      : undefined
+                  }
+                  pending={draft.pendingStudy}
+                  onBusy={(value) => {
+                    studyLock.current = value;
+                    setStudyBusy(value);
+                  }}
+                  beforeStart={async () => {
+                    if (
+                      createLock.current ||
+                      preflightRequest.current ||
+                      reuseLock.current ||
+                      reusePreview ||
+                      switchLock.current ||
+                      readingFile ||
+                      switchPreview ||
+                      importPreview
+                    )
+                      return false;
+                    const snapshot = state.current.current;
+                    if (
+                      !snapshot.pendingStudy &&
+                      (!reviewed ||
+                        !valid ||
+                        reviewed.runtime !== runtimeRef.current ||
+                        !schemaStillMatches(snapshot))
+                    )
+                      return false;
+                    return freshAuthority(snapshot);
+                  }}
+                  persist={(body) => state.commit({ ...state.current.current, pendingStudy: body })}
+                  onCreated={(studyId) => {
+                    const snapshot = state.current.current;
+                    if (!state.matches(snapshot)) return;
+                    state.remove(snapshot);
+                    void client.invalidateQueries({ queryKey: ["training-studies", projectId] });
+                    void client.invalidateQueries({ queryKey: ["training-runs", projectId] });
+                    navigate(
+                      `/projects/${projectId}/learning?tab=training&study=${encodeURIComponent(studyId)}`,
+                      { replace: true },
+                    );
+                  }}
+                  onDiscard={() => void discardPending()}
+                />
+              )}
             </section>
           )}
         </div>
@@ -1337,7 +1442,7 @@ function TrainingCreateContent({
         </span>
         <div className="flex flex-wrap gap-2">
           {step > 0 && (
-            <Button size="sm" onClick={() => setStep(step - 1)}>
+            <Button size="sm" disabled={studyBusy} onClick={() => setStep(step - 1)}>
               上一步
             </Button>
           )}
@@ -1359,14 +1464,16 @@ function TrainingCreateContent({
               >
                 {checking ? "检查中…" : "检查训练配置"}
               </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={!valid || !reviewed || locked || checking}
-                onClick={() => void create()}
-              >
-                {creating ? "提交中…" : "开始训练"}
-              </Button>
+              {!studyMode && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={!valid || !reviewed || locked || checking}
+                  onClick={() => void create()}
+                >
+                  {creating ? "提交中…" : "开始训练"}
+                </Button>
+              )}
             </>
           )}
         </div>

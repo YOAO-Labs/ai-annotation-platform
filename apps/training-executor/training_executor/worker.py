@@ -42,6 +42,7 @@ def runtime_identity():
     from training_contract.initialization import (
         POLICY_DIGEST as INITIALIZATION_POLICY_DIGEST,
     )
+    from training_contract.budget import POLICY_DIGEST as BUDGET_POLICY_DIGEST
 
     gpu = os.environ["TRAINING_GPU_UUID"]
     devices = (
@@ -70,6 +71,7 @@ def runtime_identity():
         "preview_protocol": 1,
         "observability_protocol": 1,
         "initialization_policy_digest": INITIALIZATION_POLICY_DIGEST,
+        "native_budget_policy_digest": BUDGET_POLICY_DIGEST,
         "preview_policy_digest": POLICY_DIGEST,
         "supported_configs": supported_identities(),
         "image_digest": image,
@@ -154,6 +156,7 @@ class Supervisor:
         self.stop_reason = None
         self.lock = None
         self.active_process = None
+        self.active_budget = None
         self.active_capture = None
         self.retiring_observation = None
 
@@ -359,7 +362,13 @@ class Supervisor:
                     }
                     if journal.get("failure") is not None:
                         journal["finish_body"]["failure"] = journal["failure"]
-                    self.save(journal)
+                    if journal.get("native_accounting") is not None:
+                        journal["finish_body"]["native_accounting"] = journal[
+                            "native_accounting"
+                        ]
+                # Persist on every retry: a previous save may have failed after
+                # finish_body was assigned in memory but before atomic durability.
+                self.save(journal)
                 self.api(self.endpoint(journal, "finish"), journal["finish_body"])
                 return True
             except RetiredAttempt:
@@ -389,6 +398,35 @@ class Supervisor:
         if observation and not any(thread.is_alive() for thread in observation.threads):
             self.retire_observation(observation)
 
+    def terminate_process(self, process, reason="failure"):
+        budget = getattr(self, "active_budget", None)
+        if budget is not None and budget.process is process:
+            budget.stop(reason)
+        else:
+            stop_process(process)
+
+    def budget_deadline(self):
+        self.stop_reason = "native_budget_exhausted"
+        self.stop_training.set()
+
+    def freeze_accounting(self, journal):
+        assignment = journal["assignment"]
+        if not assignment.get("native_budget") or "native_accounting" in journal:
+            return
+        from training_contract.budget import receipt
+
+        owner = getattr(self, "active_budget", None)
+        if owner is not None:
+            journal["native_accounting"] = owner.accounting()
+        elif journal.get("spawn_intent"):
+            journal["native_accounting"] = receipt(
+                assignment["native_budget"], "unknown", reason="recovery"
+            )
+        else:
+            journal["native_accounting"] = receipt(
+                assignment["native_budget"], "not_started", seconds=0.0
+            )
+
     def execute(self, journal, *, recovery=False):
         from .log_capture import LogCapture
         from .observability import ObservationSession
@@ -403,10 +441,14 @@ class Supervisor:
         capture = getattr(self, "active_capture", None)
         published = False
         process = getattr(self, "active_process", None)
+        budget_owner = getattr(self, "active_budget", None)
+        if budget_owner is not None and budget_owner.process is not None:
+            process = budget_owner.process
         if process is not None:
             # Retain the actual Popen across a failed stop/journal write, reap it,
             # and prove every inherited-lock holder exited before publication.
-            stop_process(process)
+            self.terminate_process(process, "recovery")
+            self.freeze_accounting(journal)
             self.active_process = None
         self.stop_training.clear()
         self.stop_reason = None
@@ -559,20 +601,38 @@ class Supervisor:
                         for key, value in os.environ.items()
                         if not key.startswith("TRAINING_")
                     }
-                    process = subprocess.Popen(
-                        [
-                            sys.executable,
-                            "-m",
-                            "training_executor.train",
-                            "--spec",
-                            str(directory / "spec.json"),
-                        ],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        start_new_session=True,
-                        pass_fds=(self.lock.fileno(),),
-                        env=environment,
-                    )
+                    budget = assignment.get("native_budget")
+                    if budget:
+                        from training_contract.budget import validate_budget
+                        from .process_budget import ProcessBudget
+
+                        validate_budget(budget, assignment["attempt_id"], config_digest)
+                        self.active_budget = ProcessBudget(
+                            budget,
+                            stop=stop_process,
+                            live=live_group,
+                            on_deadline=self.budget_deadline,
+                        )
+                        journal["spawn_intent"] = True
+                        self.save(journal)
+
+                    def spawn():
+                        return subprocess.Popen(
+                            [
+                                sys.executable,
+                                "-m",
+                                "training_executor.train",
+                                "--spec",
+                                str(directory / "spec.json"),
+                            ],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            start_new_session=True,
+                            pass_fds=(self.lock.fileno(),),
+                            env=environment,
+                        )
+
+                    process = self.active_budget.launch(spawn) if budget else spawn()
                     self.active_process = process
                     capture.start(process.stdout)
                     journal["process"] = {
@@ -586,12 +646,16 @@ class Supervisor:
                     self.save(journal)
                     while process.poll() is None:
                         if self.stop_training.is_set() or self.shutdown.is_set():
-                            stop_process(process)
+                            self.terminate_process(
+                                process,
+                                "shutdown" if self.shutdown.is_set() else "cancel",
+                            )
                             break
                         time.sleep(0.2)
                     if live_group(process.pid):
-                        stop_process(process)
+                        self.terminate_process(process)
                     process.wait()
+                    self.freeze_accounting(journal)
                     self.active_process = None
                     interrupted = self.stop_reason in {
                         "heartbeat_expired",
@@ -600,7 +664,7 @@ class Supervisor:
                     }
                     journal["outcome"] = (
                         "failed"
-                        if interrupted
+                        if interrupted or self.stop_reason == "native_budget_exhausted"
                         else "cancelled"
                         if self.stop_training.is_set()
                         else "succeeded"
@@ -635,9 +699,15 @@ class Supervisor:
                                     )
                             except (ValueError, TypeError, KeyError):
                                 pass
-                        if interrupted or "failure" not in journal:
+                        if (
+                            interrupted
+                            or self.stop_reason == "native_budget_exhausted"
+                            or "failure" not in journal
+                        ):
                             code = (
-                                "authority_lost"
+                                "budget_exhausted"
+                                if self.stop_reason == "native_budget_exhausted"
+                                else "authority_lost"
                                 if self.stop_reason == "executor_authority_lost"
                                 else "execution_lost"
                                 if interrupted
@@ -657,8 +727,11 @@ class Supervisor:
             except StopTraining:
                 journal["outcome"] = "cancelled"
             except Exception as exc:
+                owner = getattr(self, "active_budget", None)
+                if owner is not None and owner.process is not None:
+                    process = owner.process
                 if process:
-                    stop_process(process)
+                    self.terminate_process(process)
                 if (
                     recovery
                     and journal.get("process")
@@ -679,6 +752,7 @@ class Supervisor:
                     exception_type=type(exc).__name__,
                     secrets=secrets,
                 )
+            self.freeze_accounting(journal)
             self.save(journal)
             if capture and "artifacts" not in journal:
                 # Logs are a required training artifact. Retry this packaging
@@ -706,6 +780,7 @@ class Supervisor:
 
             shutil.rmtree(directory)
             self.journal_path.unlink(missing_ok=True)
+            self.active_budget = None
 
     def run(self):
         for sig in (signal.SIGTERM, signal.SIGINT):

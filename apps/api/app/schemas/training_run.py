@@ -119,6 +119,7 @@ class TrainingRunOut(BaseModel):
     initialization_model_id: uuid.UUID | None = None
     async_job_id: uuid.UUID | None
     auto_trigger_id: uuid.UUID | None = None
+    study_id: uuid.UUID | None = None
     name: str
     status: str
     config: dict
@@ -145,6 +146,7 @@ class TrainingFailure(BaseModel):
         "execution_lost",
         "authority_lost",
         "unknown",
+        "budget_exhausted",
     ]
     stage: Literal["preparing", "training", "evaluating", "uploading", "execution"]
     config_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -168,6 +170,8 @@ class TrainingAttemptOut(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     failure: TrainingFailure | None = None
+    native_budget: dict | None = None
+    native_accounting: dict | None = None
 
 
 class EvaluationMetricSemantics(BaseModel):
@@ -300,11 +304,14 @@ class ExecutorFinish(ExecutorFence):
     process_exited: Literal[True]
     error_message: str | None = Field(default=None, max_length=1000)
     failure: TrainingFailure | None = None
+    native_accounting: dict | None = None
 
     def request_payload(self):
         payload = self.model_dump(mode="json")
         if self.failure is None:
             payload.pop("failure")
+        if self.native_accounting is None:
+            payload.pop("native_accounting")
         return payload
 
 

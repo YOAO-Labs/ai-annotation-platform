@@ -66,6 +66,7 @@ export function useTrainingDraft(
         revision: current.current.revision + 1,
         requestId: crypto.randomUUID(),
         pending: undefined,
+        pendingStudy: undefined,
       }),
     remove: (snapshot: TrainingDraft) => {
       if (matches(snapshot)) {
