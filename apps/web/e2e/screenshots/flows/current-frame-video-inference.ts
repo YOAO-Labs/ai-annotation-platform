@@ -56,10 +56,13 @@ export async function runCurrentFrameVideoInference(
   await panel.waitFor({ state: "visible", timeout: 5_000 });
   await dockAiPanelAtViewportRight(page, panel);
 
-  const backendSelect = panel
-    .locator("label")
-    .filter({ hasText: "本次 backend" })
-    .locator("select");
+  await panel.getByTestId("ai-prediction-advanced-toggle").click();
+  await expect(panel.getByTestId("ai-prediction-advanced-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+
+  const backendSelect = panel.locator("label").filter({ hasText: "本次后端" }).locator("select");
   await backendSelect.waitFor({ state: "visible", timeout: 10_000 });
   const vehicleBackend = backendSelect.locator("option").filter({ hasText: "yolo-backend" });
   if ((await vehicleBackend.count()) !== 1) {
@@ -122,15 +125,12 @@ export async function runCurrentFrameVideoInference(
   };
   onDispatched?.(cleanupRecord);
 
-  await page.waitForFunction(
-    () => {
-      const popover = document.querySelector('[data-testid="ai-prediction-popover"]');
-      return /[1-9]\d*\s*待审/.test(popover?.textContent ?? "");
-    },
-    undefined,
-    { timeout: 15_000 },
+  await expect(panel.getByTestId("ai-prediction-phase")).toHaveAttribute("data-phase", "review", {
+    timeout: 15_000,
+  });
+  const visibleCandidateCount = Number(
+    (await panel.textContent())?.match(/(\d+)\s*个候选待审阅/)?.[1],
   );
-  const visibleCandidateCount = Number((await panel.textContent())?.match(/(\d+)\s*待审/)?.[1]);
   if (!Number.isInteger(visibleCandidateCount) || visibleCandidateCount < 1) {
     throw new Error("[current-frame-video-inference] 无法读取当前帧可见候选数");
   }
