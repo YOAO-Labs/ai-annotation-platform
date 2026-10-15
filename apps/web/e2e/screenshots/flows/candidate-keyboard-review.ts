@@ -42,6 +42,7 @@ export async function prepareLiveCandidateReview(
   const request = {
     ml_backend_id: backend.id,
     task_ids: [cleanup.taskId],
+    execution_scope: "workbench" as const,
     model_id: "sam3-segmentation",
     prompt: "car",
     output_mode: "mask",
