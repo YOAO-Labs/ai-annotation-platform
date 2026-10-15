@@ -28,6 +28,10 @@ import { confirmDialog } from "@/components/ui/decisionDialog";
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 const metricNames: Record<string, string> = {
+  "metrics/mAP50-95": "mAP50-95",
+  "metrics/mAP50": "mAP50",
+  "metrics/mAP75": "mAP75",
+  "metrics/AR100": "AR100",
   "metrics/mAP50-95(B)": "mAP50-95",
   "metrics/mAP50(B)": "mAP50",
   "metrics/precision(B)": "Precision",
@@ -63,6 +67,11 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
           </div>
         ))}
       </dl>
+      {model.evaluation.per_class_available === false && (
+        <p className="text-muted-foreground">
+          原生报告未提供分类别指标；缺失项保持不可用，不作零值展示。
+        </p>
+      )}
       {perClass.length > 0 && (
         <details>
           <summary className="cursor-pointer">分类别结果（仅列出验证集中出现的类别）</summary>
@@ -474,7 +483,7 @@ function ModelsContent({
     },
   });
   const validRegistration =
-    source.data?.run.config.framework === "ultralytics" &&
+    source.data?.registration_eligibility?.qualified === true &&
     !!name.trim() &&
     !!runId &&
     !!selectedAttempt &&
@@ -624,12 +633,13 @@ function ModelsContent({
             {source.error.message}
           </p>
         )}
-        {source.data && source.data.run.config.framework !== "ultralytics" && (
+        {source.data && !source.data.registration_eligibility?.qualified && (
           <p className="text-sm text-muted-foreground md:col-span-2">
-            该训练器当前提供训练和产物下载，尚未开放模型回流注册。请在训练实验中下载原生权重。
+            {source.data.registration_eligibility?.reason ??
+              "尚未取得模型回流资格，请重新加载；仍可在训练实验中下载原生权重。"}
           </p>
         )}
-        {source.data?.run.config.framework === "ultralytics" &&
+        {source.data?.registration_eligibility?.qualified === true &&
           nativeClasses.map((native, index) => (
             <label key={index} className="space-y-1 text-xs">
               原生类别 {index} · {native}

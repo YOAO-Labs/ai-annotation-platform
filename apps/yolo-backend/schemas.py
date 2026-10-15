@@ -119,6 +119,7 @@ class Context(BaseModel):
     sample_evaluation: EvaluationRequest | None = None
     _evaluation_profile: dict | None = PrivateAttr(default=None)
     _evaluation_meta: dict | None = PrivateAttr(default=None)
+    _managed_receipt_digest: str | None = PrivateAttr(default=None)
     params: PredictParams = Field(default_factory=PredictParams)
     # 类别白名单 (模型原生类别 index 子集). 非空时只检出这些类; 空/缺=全部类别.
     # 平台不做类→项目标签映射 (NG6), 仅在推理层用 ultralytics model.predict(classes=) 过滤.
@@ -203,7 +204,10 @@ def model_key_for_context(ctx: Context) -> tuple[str, str, str]:
         return (
             "detection",
             f"trained:{ctx.frozen_model_ref.model_version_id}",
-            ctx.frozen_model_ref.sha256,
+            ctx.frozen_model_ref.sha256
+            + (
+                f":{ctx._managed_receipt_digest}" if ctx._managed_receipt_digest else ""
+            ),
         )
     from model_registry import POOL_TASK_OPENVOCAB, POOL_TASK_OPENVOCAB_VP
 

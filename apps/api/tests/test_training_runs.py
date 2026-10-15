@@ -492,7 +492,7 @@ def test_real_artifact_stream_digest_and_partial_delete_errors(monkeypatch):
         storage.delete_prefix("owned")
 
 
-async def test_libreyolo_catalog_freezes_native_options_and_download_only_capability(
+async def test_libreyolo_catalog_freezes_native_options_and_return_capability(
     db_session, super_admin, httpx_client, training_config, monkeypatch
 ):
     owner, token = super_admin
@@ -509,7 +509,7 @@ async def test_libreyolo_catalog_freezes_native_options_and_download_only_capabi
     options = service.catalog()["items"]
     libre = next(x for x in options if x["framework"] == "libreyolo")
     assert (
-        libre["capabilities"]["model_registration"] is False
+        libre["capabilities"]["model_registration"] is True
         and libre["capabilities"]["resume"] is True
     )
     run, _ = await create_run(
@@ -535,4 +535,9 @@ async def test_libreyolo_catalog_freezes_native_options_and_download_only_capabi
     assert (
         retained.status_code == 200
         and retained.json()["run"]["config"] == run["config"]
+    )
+    assert retained.json()["registration_eligibility"]["qualified"] is True
+    assert (
+        retained.json()["registration_eligibility"]["qualification"]["model_size"]
+        == "t"
     )

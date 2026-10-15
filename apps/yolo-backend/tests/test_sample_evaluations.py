@@ -71,6 +71,35 @@ def png(*, mode="RGB", exif=None):
     return raw, "data:image/png;base64," + base64.b64encode(raw).decode()
 
 
+async def test_libre_is_rejected_before_shared_profile_or_receipt_admission(
+    tmp_path, monkeypatch
+):
+    import main
+
+    store = EvaluationRequestStore(tmp_path)
+    req, body, _profile = qualified_batch(store)
+    monkeypatch.setattr(
+        main._managed_models, "receipt", lambda _: {"framework": "libreyolo"}
+    )
+    monkeypatch.setattr(
+        main,
+        "qualification_profile",
+        lambda *_: pytest.fail("Must reject before profile"),
+    )
+    with pytest.raises(HTTPException) as error:
+        await main._run_sample_evaluation(req, operation=None)
+    assert error.value.status_code == 422
+    assert error.value.detail["reason"] == "evaluation_framework_unqualified"
+    assert (
+        store.receipt(
+            body.request_id,
+            binding_digest=body.binding_digest,
+            storage_identity=body.storage_identity,
+        )["state"]
+        == "missing"
+    )
+
+
 def test_completed_request_survives_restart_and_never_reexecutes_or_changes_response(
     tmp_path,
 ):
@@ -460,6 +489,9 @@ async def test_lost_response_is_recovered_from_receipt_without_another_native_ca
             )
         ]
 
+    monkeypatch.setattr(
+        main._managed_models, "receipt", lambda _: {"framework": "ultralytics"}
+    )
     monkeypatch.setattr(main, "_run_predict", native)
     original = await main._run_sample_evaluation(req, operation=None)
     recovered = await main._run_sample_evaluation(req, operation=None)
@@ -511,7 +543,10 @@ async def test_transport_cancellation_keeps_native_lock_until_exit_then_seal_blo
     monkeypatch.setattr(
         main._managed_models,
         "receipt",
-        lambda _: req.context.frozen_model_ref.model_dump(mode="json"),
+        lambda _: {
+            **req.context.frozen_model_ref.model_dump(mode="json"),
+            "framework": "ultralytics",
+        },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))
     assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=3)
@@ -561,7 +596,10 @@ async def test_cold_native_loader_keeps_request_lock_after_borrower_leaves(
     monkeypatch.setattr(
         main._managed_models,
         "receipt",
-        lambda _: req.context.frozen_model_ref.model_dump(mode="json"),
+        lambda _: {
+            **req.context.frozen_model_ref.model_dump(mode="json"),
+            "framework": "ultralytics",
+        },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))
     assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=3)

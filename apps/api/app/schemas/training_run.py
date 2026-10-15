@@ -207,6 +207,18 @@ class EvaluationEvaluator(BaseModel):
     options: dict[str, JsonValue] = Field(min_length=1, max_length=100)
 
 
+class ModelReturnEligibility(BaseModel):
+    qualified: bool
+    reason: str | None
+    qualification: dict[str, JsonValue] | None
+
+
+class TrainingRunDetail(BaseModel):
+    run: TrainingRunOut
+    attempts: list[TrainingAttemptOut]
+    registration_eligibility: ModelReturnEligibility | None = None
+
+
 class TrainingEvaluationDescriptor(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: Literal[1]

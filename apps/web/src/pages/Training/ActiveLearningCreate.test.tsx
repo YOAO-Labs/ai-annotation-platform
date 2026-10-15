@@ -59,7 +59,7 @@ beforeEach(() => {
       }) as never,
   );
   vi.mocked(trainedModelsApi.get).mockResolvedValue({
-    model: { id: model, project_id: project },
+    model: { id: model, project_id: project, framework: "ultralytics" },
     deployments: [{ id: deployment, status: "ready" }],
   } as never);
   vi.mocked(activeLearningApi.pool).mockResolvedValue({
@@ -145,4 +145,27 @@ describe("explicit active learning creation", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: "轮次名称" })).toHaveValue(""));
     expect(screen.queryByText("已创建选样轮次")).not.toBeInTheDocument();
   });
+});
+
+it("blocks LibreYOLO ranking until shared evaluator qualification", async () => {
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({
+    total: 1,
+    items: [{ id: model, name: "原生候选", framework: "libreyolo", project_id: project }],
+  } as never);
+  vi.mocked(trainedModelsApi.get).mockResolvedValue({
+    model: { id: model, project_id: project, framework: "libreyolo" },
+    deployments: [{ id: deployment, status: "ready" }],
+  } as never);
+  mount();
+  expect(
+    await screen.findByRole("option", { name: /原生候选.*尚未通过共享评估资格/ }),
+  ).toBeDisabled();
+  fireEvent.change(screen.getByRole("combobox", { name: /已注册模型/ }), {
+    target: { value: model },
+  });
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "就绪部署" })).toBeDisabled());
+  expect(screen.getByText(/LibreYOLO 可在模型面板试用/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "核验并预览" })).toBeDisabled();
+  expect(activeLearningApi.preview).not.toHaveBeenCalled();
+  expect(activeLearningApi.create).not.toHaveBeenCalled();
 });

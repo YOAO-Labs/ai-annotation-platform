@@ -29,11 +29,13 @@ from app.schemas.training_run import (
     TrainingAttemptOut,
     TrainingRunCreate,
     TrainingRunOut,
+    TrainingRunDetail,
     TrainingEvaluationOut,
 )
 from app.schemas.training_hub import TrainingParameterSchema
 from app.schemas.training_initialization import TrainingInitializationEligibility
 from training_contract import definition
+from training_contract.model_return import registration_eligibility
 from app.api.v1.training_datasets import lock_owner
 from app.services import training_runs as service
 from app.services import training_recipes as recipes
@@ -235,7 +237,7 @@ async def list_runs(
     }
 
 
-@router.get("/{run_id}")
+@router.get("/{run_id}", response_model=TrainingRunDetail)
 async def get_run(
     run_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
@@ -251,6 +253,7 @@ async def get_run(
     ).all()
     return {
         "run": TrainingRunOut.model_validate(run).model_dump(mode="json"),
+        "registration_eligibility": registration_eligibility(run.config),
         "attempts": [
             TrainingAttemptOut.model_validate(attempt).model_dump(mode="json")
             for attempt in attempts

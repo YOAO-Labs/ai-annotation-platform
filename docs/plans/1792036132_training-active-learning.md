@@ -3,7 +3,7 @@
 > Status: completed
 > Fresh audit: 2026-10-16, local HEAD `e4948a6a4`
 > Authorization: sequential review and implementation of the roadmap, one commit per node; no push or release requested
-> Dependencies: [T04](1792035920_training-data-insights.md), [T08](1792036036_training-sample-evaluation.md); [T13](backlog/1792036132_training-libreyolo-model-return.md) only for a LibreYOLO ranking source
+> Dependencies: [T04](1792035920_training-data-insights.md), [T08](1792036036_training-sample-evaluation.md); [T13](1792036132_training-libreyolo-model-return.md) only for a LibreYOLO ranking source
 > Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
 > Release milestone: not determined
 

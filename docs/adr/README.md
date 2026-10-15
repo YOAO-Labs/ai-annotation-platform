@@ -126,3 +126,4 @@
 - [0081](archive/0081-controlled-training-initialization.md) — 项目权重初始化保留固定来源并创建全新训练状态
 - [0082](archive/0082-budgeted-training-studies.md) — 参数搜索复用普通训练并以进程回执结算预算
 - [0083](archive/0083-human-reviewed-active-learning.md) — 人工主动选样保留独立对照、显式预算与不可变决策
+- [0084](archive/0084-qualified-libreyolo-model-return.md) — LibreYOLO 回流复用受控模型并独立核验原生推理

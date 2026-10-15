@@ -7,7 +7,7 @@ from importlib.resources import files
 
 ADAPTERS = {
     "ultralytics": {"version": "8.4.177", "revision": 1, "model_registration": True},
-    "libreyolo": {"version": "1.6.0", "revision": 1, "model_registration": False},
+    "libreyolo": {"version": "1.6.0", "revision": 1, "model_registration": True},
 }
 
 GROUPS = {

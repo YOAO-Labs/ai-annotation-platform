@@ -14,6 +14,7 @@ from starlette.requests import Request
 
 from managed_models import InstallRequest, ManagedModelStore, authenticate, digest
 from schemas import Context, model_key_for_context
+from training_contract.model_return import libre_identity
 
 
 def installation(raw=b"controlled checkpoint"):
@@ -27,6 +28,61 @@ def installation(raw=b"controlled checkpoint"):
         task="detection",
         size_bytes=len(raw),
         download_url="http://owned-storage.test/weights",
+    )
+
+
+async def test_libre_receipt_carries_native_qualification_and_rejects_stale_proof(
+    tmp_path, monkeypatch
+):
+    body = installation()
+    values = {
+        **body.model_dump(),
+        "framework": "libreyolo",
+        "framework_version": "1.6.0",
+        "artifact_size_bytes": body.size_bytes,
+        **libre_identity("LibreYOLO9t"),
+    }
+    body = InstallRequest.model_validate(values)
+    download(monkeypatch, b"controlled checkpoint")
+    monkeypatch.setattr(ManagedModelStore, "inspect", staticmethod(lambda *_: None))
+    store = ManagedModelStore(tmp_path)
+    receipt = await store.install(body)
+    assert receipt["framework"] == "libreyolo" and receipt["model_size"] == "t"
+    assert receipt["runtime_qualification"]["device"] == "cpu"
+    assert await store.install(body) == receipt
+    import json
+
+    receipt["runtime_qualification"]["revision"] = 99
+    (tmp_path / str(body.model_version_id) / "receipt.json").write_text(
+        json.dumps(receipt)
+    )
+    with pytest.raises(HTTPException):
+        store.receipt(str(body.model_version_id))
+    assert not list(tmp_path.glob(".install-*"))
+
+
+def test_verified_receipt_framework_and_class_identity_are_in_the_pool_key():
+    body = installation()
+    context = Context(
+        type="detection",
+        model_id=f"trained:{body.model_version_id}",
+        frozen_model_ref=body.model_dump(
+            mode="json", include={"model_version_id", "sha256", "classes_digest"}
+        ),
+    )
+    ultra = {"framework": "ultralytics", "classes": body.classes}
+    libre = {**ultra, "framework": "libreyolo", **libre_identity("LibreYOLO9t")}
+    context._managed_receipt_digest = digest(ultra)
+    first = model_key_for_context(context)
+    context._managed_receipt_digest = digest(libre)
+    second = model_key_for_context(context)
+    context._managed_receipt_digest = digest(
+        {**libre, "classes": list(reversed(body.classes))}
+    )
+    third = model_key_for_context(context)
+    assert len({first, second, third}) == 3
+    assert all(
+        key[1] == f"trained:{body.model_version_id}" for key in (first, second, third)
     )
 
 

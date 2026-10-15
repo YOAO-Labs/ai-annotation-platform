@@ -105,6 +105,7 @@ beforeEach(() => {
     items: [{ id: "run-1", name: "成功训练", status: "succeeded" }],
   } as never);
   vi.mocked(trainingRunsApi.get).mockResolvedValue({
+    registration_eligibility: { qualified: true, reason: null },
     run: { id: "run-1", config: { framework: "ultralytics", classes: ["car", "person"] } },
     attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
   } as never);
@@ -137,28 +138,36 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
-  it("requires explicit complete class binding and preserves registration identity after a lost response", async () => {
-    const user = userEvent.setup();
-    vi.mocked(trainedModelsApi.register)
-      .mockRejectedValueOnce(new Error("响应中断"))
-      .mockResolvedValue(model);
-    mount();
-    await user.type(screen.getByLabelText("模型名称"), "回流候选");
-    await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
-    await screen.findByLabelText(/原生类别 0/);
-    const button = screen.getByRole("button", { name: "注册候选模型" });
-    expect(button).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText(/原生类别 0/), "车辆");
-    expect(button).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText(/原生类别 1/), "行人");
-    await user.click(button);
-    await screen.findByText("响应中断");
-    const first = vi.mocked(trainedModelsApi.register).mock.calls[0][1];
-    expect(first.bindings).toEqual(["车辆", "行人"]);
-    await user.click(button);
-    await waitFor(() => expect(trainedModelsApi.register).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(trainedModelsApi.register).mock.calls[1][1]).toEqual(first);
-  });
+  it.each(["ultralytics", "libreyolo"])(
+    "registers qualified %s with explicit complete class binding and preserves identity after a lost response",
+    async (framework) => {
+      const user = userEvent.setup();
+      vi.mocked(trainingRunsApi.get).mockResolvedValue({
+        registration_eligibility: { qualified: true, reason: null },
+        run: { id: "run-1", config: { framework, classes: ["car", "person"] } },
+        attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
+      } as never);
+      vi.mocked(trainedModelsApi.register)
+        .mockRejectedValueOnce(new Error("响应中断"))
+        .mockResolvedValue(model);
+      mount();
+      await user.type(screen.getByLabelText("模型名称"), "回流候选");
+      await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
+      await screen.findByLabelText(/原生类别 0/);
+      const button = screen.getByRole("button", { name: "注册候选模型" });
+      expect(button).toBeDisabled();
+      await user.selectOptions(screen.getByLabelText(/原生类别 0/), "车辆");
+      expect(button).toBeDisabled();
+      await user.selectOptions(screen.getByLabelText(/原生类别 1/), "行人");
+      await user.click(button);
+      await screen.findByText("响应中断");
+      const first = vi.mocked(trainedModelsApi.register).mock.calls[0][1];
+      expect(first.bindings).toEqual(["车辆", "行人"]);
+      await user.click(button);
+      await waitFor(() => expect(trainedModelsApi.register).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(trainedModelsApi.register).mock.calls[1][1]).toEqual(first);
+    },
+  );
 
   it("requires sample confirmation and publishes against the current generation", async () => {
     const user = userEvent.setup();
@@ -248,16 +257,17 @@ describe("ProjectModelsPanel", () => {
   });
 });
 
-it("explains and disables registration for native LibreYOLO artifacts", async () => {
+it("explains and disables registration when native return is unqualified", async () => {
   const user = userEvent.setup();
   vi.mocked(trainingRunsApi.get).mockResolvedValue({
+    registration_eligibility: { qualified: false, reason: "该原生模型家族尚未通过资格检查" },
     run: { id: "run-1", config: { framework: "libreyolo", classes: ["car", "person"] } },
     attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
   } as never);
   mount();
   await user.type(screen.getByLabelText("模型名称"), "Libre候选");
   await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
-  await screen.findByText(/该训练器当前提供训练和产物下载/);
+  await screen.findByText(/该原生模型家族尚未通过资格检查/);
   expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
   expect(screen.queryByLabelText(/原生类别 0/)).not.toBeInTheDocument();
   expect(trainedModelsApi.register).not.toHaveBeenCalled();
@@ -305,4 +315,46 @@ it("loads the current release name when its candidate is outside the displayed p
   });
   mount("/projects/project-1/learning?tab=models&model_page=2");
   expect(await screen.findByText("第一候选 · 发布代次 7")).toBeInTheDocument();
+});
+
+it("keeps registration disabled when the server has not supplied eligibility", async () => {
+  const user = userEvent.setup();
+  vi.mocked(trainingRunsApi.get).mockResolvedValue({
+    run: { id: "run-1", config: { framework: "ultralytics", classes: ["car", "person"] } },
+    attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
+  } as never);
+  mount();
+  await user.type(screen.getByLabelText("模型名称"), "待核验候选");
+  await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
+  await screen.findByText(/尚未取得模型回流资格/);
+  expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
+  expect(trainedModelsApi.register).not.toHaveBeenCalled();
+});
+
+it("keeps native metric gaps visible and declines comparisons without evaluator identity", async () => {
+  const user = userEvent.setup();
+  const native = {
+    ...model,
+    framework: "libreyolo",
+    framework_version: "1.6.0",
+    evaluation: {
+      summary: { "metrics/mAP50-95": 0, "metrics/AR100": 0.4 },
+      per_class: [],
+      per_class_available: false,
+      comparison_identity_status: "unknown",
+      comparison_compatibility_digest: null,
+    },
+  };
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({
+    total: 2,
+    items: [native, { ...native, id: "model-2", name: "原生对照" }],
+  });
+  vi.mocked(trainedModelsApi.get).mockResolvedValue({ model: native, deployments: [deployment] });
+  mount();
+  await user.click((await screen.findAllByRole("button", { name: "评估与部署" }))[0]);
+  expect(await screen.findByText(/原生报告未提供分类别指标/)).toBeInTheDocument();
+  expect(screen.getByText("AR100")).toBeInTheDocument();
+  await user.selectOptions(await screen.findByLabelText("对比另一候选"), "model-2");
+  expect(await screen.findByText(/不计算新旧提升/)).toBeInTheDocument();
+  expect(screen.queryByText("同一验证范围")).not.toBeInTheDocument();
 });

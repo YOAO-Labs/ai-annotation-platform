@@ -34,6 +34,12 @@ async def qualification(db, project, model_id, deployment_id):
     )
     if ref["deployment_id"] != str(deployment_id):
         raise reject("deployment_changed", "受控部署身份已变化")
+    if ref["framework"] != "ultralytics":
+        raise reject(
+            "framework_unqualified",
+            "该框架尚未通过共享样本评估资格检查；模型试用与人工发布仍可使用",
+            422,
+        )
     backend = await trained_models.enabled_backend(
         db, project.id, deployment.registry_id
     )

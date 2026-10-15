@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from training_contract.model_return import registration_eligibility
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.trained_model import (
@@ -25,6 +26,7 @@ from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_runs import internal_download, verify_artifact
 from app.services.training_artifacts import read_json_artifact
+from app.services.training_evaluations import parse_evaluation
 
 
 def project_classes(project):
@@ -70,18 +72,37 @@ async def register(db, project, user, body):
         raise HTTPException(status_code=404, detail="来源训练实验或执行尝试不存在")
     if attempt.status != "succeeded":
         raise HTTPException(status_code=409, detail="只能注册成功训练的权重")
-    if run.config["framework"] != "ultralytics":
-        raise HTTPException(status_code=422, detail="该训练器尚未通过回流兼容检查")
+    eligibility = registration_eligibility(run.config)
+    if not eligibility["qualified"]:
+        raise HTTPException(status_code=422, detail=eligibility["reason"])
     artifacts = list(attempt.artifacts.values())
-    weights = next((a for a in artifacts if a["role"] == "weights"), None)
-    metrics = next((a for a in artifacts if a["role"] == "metrics"), None)
-    if not weights:
-        raise HTTPException(status_code=409, detail="来源执行缺少已验证权重")
+    weight_artifacts = [a for a in artifacts if a.get("role") == "weights"]
+    metric_artifacts = [a for a in artifacts if a.get("role") == "metrics"]
+    if len(weight_artifacts) != 1 or len(metric_artifacts) != 1:
+        raise HTTPException(
+            status_code=409, detail="来源执行缺少唯一的已验证权重与最终评估"
+        )
+    weights, metrics = weight_artifacts[0], metric_artifacts[0]
     classes = run.config["classes"]
     validate_bindings(project, classes, body.bindings)
     try:
         await asyncio.to_thread(verify_artifact, weights["key"], weights, attempt.id)
         evaluation = await asyncio.to_thread(read_json_artifact, metrics, attempt.id)
+        if run.config["framework"] == "libreyolo":
+            checked = parse_evaluation(
+                evaluation, run, attempt, metrics, weights, 0, len(classes)
+            )
+            evaluation = {
+                **evaluation,
+                "summary": checked["summary"],
+                "per_class_available": checked["per_class_available"],
+                "comparison_identity_status": checked["identity_status"],
+                "comparison_compatibility_digest": checked["compatibility_digest"],
+                "per_class": [
+                    {"index": row["index"], "name": row["name"], **row["metrics"]}
+                    for row in checked["per_class"]
+                ],
+            }
     except Exception as exc:
         raise HTTPException(
             status_code=422, detail="来源产物校验失败，不能注册"
@@ -109,6 +130,11 @@ async def register(db, project, user, body):
             "config_digest": run.config_digest,
             "runtime": attempt.runtime,
             "base_model": run.config["base_model"],
+            **(
+                {"model_return": eligibility["qualification"]}
+                if eligibility["qualification"]
+                else {}
+            ),
         },
         evaluation=evaluation,
     )
@@ -130,7 +156,7 @@ async def load_version(db, project_id, version_id):
 
 
 def expected_receipt(version):
-    return {
+    receipt = {
         "model_version_id": str(version.id),
         "sha256": version.artifact["sha256"],
         "classes_digest": content_digest(version.classes),
@@ -139,6 +165,24 @@ def expected_receipt(version):
         "framework_version": version.framework_version,
         "task": "detection",
     }
+    if version.framework == "libreyolo":
+        qualification = registration_eligibility(
+            {
+                "framework": version.framework,
+                "framework_version": version.framework_version,
+                "base_model": version.provenance.get("base_model"),
+            }
+        )
+        if (
+            not qualification["qualified"]
+            or version.provenance.get("model_return") != qualification["qualification"]
+        ):
+            raise HTTPException(status_code=409, detail="模型回流资格身份缺失或已变化")
+        receipt.update(
+            **qualification["qualification"],
+            artifact_size_bytes=version.artifact["size_bytes"],
+        )
+    return receipt
 
 
 def check_receipt(version, receipt):

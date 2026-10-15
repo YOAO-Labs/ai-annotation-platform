@@ -156,7 +156,7 @@ last_reviewed: 2026-10-16
 
 创建请求包含 `name`、`dataset_id`、`framework`、受控 `base_model`、UUID `request_id` 和 `parameters`。参数范围：`epochs` 1–1000、`batch` 1–64、`imgsz` 128–1280 且为 32 的倍数、`lr0` 大于 0 且不超过 0.1、`seed` 0–2147483647、`patience` 0–1000。原六参数请求继续使用原适配器及精确幂等序列化，不接受任意框架参数。相同请求标识与内容重试返回原实验，防止网络中断后重复启动。
 
-`framework` 支持目录中已验证的 `ultralytics` 和 `libreyolo`。目录的 `capabilities` 返回 `task_types`、`resume`、`artifact_download` 与 `model_registration`；LibreYOLO 的模型注册能力为 false。配置固定适配器修订和框架原生选项。LibreYOLO 指标文件包含真实 `summary`、`native_raw`、`native_alias_semantics`、`per_class_available=false` 和最终评估权重 SHA-256，不将其别名解释为常规精确率／召回率。
+`framework` 支持目录中已验证的 `ultralytics` 和 `libreyolo`。目录的 `capabilities` 返回 `task_types`、`resume`、`artifact_download` 与 `model_registration`；LibreYOLO 的模型注册能力已开放到独立通过原生 CPU 资格检查的 YOLO9 t/s/m/c 检测格式。目录能力表示存在受支持路径，具体冻结实验仍须读取详情顶层 `registration_eligibility` 的 `qualified`、`reason` 和 `qualification`，注册接口会重新计算资格；下载能力不依赖回流资格。配置固定适配器修订和框架原生选项。LibreYOLO 指标文件包含真实 `summary`、`native_raw`、`native_alias_semantics`、`per_class_available=false` 和最终评估权重 SHA-256，不将其别名解释为常规精确率／召回率。
 
 状态包括 `queued`、`preparing`、`training`、`evaluating`、`uploading`，停止时为 `cancelling`，终态为 `succeeded`、`failed`、`cancelled`。`lost` 表示心跳超时但仍持有资源，不能当作已停止。事件带当前 `attempt_id` 和连续 `sequence`，重复序号必须具有相同内容。
 
@@ -315,13 +315,15 @@ last_reviewed: 2026-10-16
 | GET  | `/model-releases`                       | 当前选择、generation 及分页历史                                 |
 | POST | `/model-releases`                       | 按预期 generation 发布、回退或清除选择，返回 `201`              |
 
-注册包含 UUID `request_id`、`name`、`run_id`、`attempt_id` 和与原生类别顺序一致的完整 `bindings`。相同标识和请求返回原模型，内容冲突返回 `409`。只支持本平台已验证的 Ultralytics 图片检测产物。
+注册包含 UUID `request_id`、`name`、`run_id`、`attempt_id` 和与原生类别顺序一致的完整 `bindings`。相同标识和请求返回原模型，内容冲突返回 `409`。支持本平台已验证的 Ultralytics 图片检测产物及独立通过原生 CPU 资格检查的 LibreYOLO YOLO9 检测产物。
 
 发布包含 UUID `request_id`、`expected_generation`、`model_version_id`、`deployment_id` 和 `sample_confirmed=true`。回退增加 `rollback_from_id`，且模型与部署必须匹配该历史记录。清除时模型和部署均为 null。并发选择变动返回 `409`，应刷新；丢失响应后的原请求重试返回同一发布。发布不会自动发生。
 
 既有 `/preannotate` 接受 `model_id="trained:<uuid>"` 或 `"project-release"`。服务端解析并冻结权重、类别绑定、部署与发布来源，客户不能提供冻结引用或权重 URL。`Idempotency-Key` 重放沿用原任务冻结身份。受控模型只接受单阶段整图图片检测，使用现有任务作用域和写入检查；不支持的范围在入队前拒绝，worker 再次校验。结果校验实际模型身份、任务身份及原生类别索引，来源保存在 Prediction 元数据中，失败重试继续使用原身份。
 
 YOLO 的 `POST /managed-models` 和 `GET /managed-models/{version_id}` 使用 `Bearer` 凭据，仅供平台部署。平台自行生成短期内部对象 URL；后端以大小、SHA-256、原生类别及框架版本校验后原子保存。有效版本不能被其他身份覆盖，损坏副本可按固定摘要重建；缺少版本直接失败，不降级到内置模型。
+
+LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，版本与 CPU 运行时资格独立固定。来源执行必须成功，且 `weights`、`metrics` 各有唯一已验证产物。安装收据追加 `model_family`、`model_size`、`artifact_format`、`artifact_size_bytes` 与 `runtime_qualification`；试用、发布和预测继续绑定确切实例。旧 Ultralytics 收据与 `frozen_model_ref` 的三字段 wire 不变。原生报告中的 precision／recall 别名不作为常规指标保存；负哨兵为 null，逐类别缺口保留。逐样本评估与主动学习创建仍拒绝 LibreYOLO，共享 evaluator 需要独立资格。
 
 ## 自动训练策略
 

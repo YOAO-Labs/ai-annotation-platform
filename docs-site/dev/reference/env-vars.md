@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-14
+last_reviewed: 2026-10-16
 ---
 
 # 环境变量参考
@@ -71,7 +71,7 @@ last_reviewed: 2026-10-14
 | `TRAINING_EXECUTOR_TOKEN` | `—` | — |
 | `TRAINING_NODE_ID` | `local` | — |
 | `TRAINING_GPU_UUID` | `—` | — |
-| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Qualified adapters: ultralytics 8.4.177 / libreyolo 1.6.0; entries share the same shape. LibreYOLO uses LibreYOLO9t.pt and currently supports training/download only. |
+| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Qualified adapters: ultralytics 8.4.177 / libreyolo 1.6.0; entries share the same shape. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
 | `TRAINING_HEARTBEAT_TIMEOUT_SECONDS` | `60` | — |
 | `TRAINING_IMAGE` | `—` | 仅供 docker-compose.training.yml：镜像必须按 digest 固定，凭据文件不进入镜像。 |
 | `TRAINING_IMAGE_DIGEST` | `—` | — |

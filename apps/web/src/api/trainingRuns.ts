@@ -10,6 +10,7 @@ import type {
   TrainingInitialization,
   TrainingInitializationEligibility,
   FrozenTrainingInitialization,
+  TrainingRunDetail,
 } from "./generated/types.gen";
 
 export type {
@@ -75,10 +76,7 @@ export const trainingRunsApi = {
       options,
     ),
   get: (projectId: string, id: string, options?: RequestInit) =>
-    apiClient.get<{ run: TrainingRunOut; attempts: TrainingAttemptOut[] }>(
-      `${base(projectId)}/${id}`,
-      options,
-    ),
+    apiClient.get<TrainingRunDetail>(`${base(projectId)}/${id}`, options),
   events: (projectId: string, id: string, attemptId?: string, after = 0, options?: RequestInit) =>
     apiClient.get<{ attempt_id: string; items: TrainingEpochEvent[] }>(
       `${base(projectId)}/${id}/events?after=${after}${attemptId ? `&attempt_id=${encodeURIComponent(attemptId)}` : ""}`,

@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME, libre_identity
 
 
 def digest(value):
@@ -36,11 +37,16 @@ class ManagedModelRef(BaseModel):
 
 class InstallRequest(ManagedModelRef):
     classes: list[str] = Field(min_length=1, max_length=1000)
-    framework: Literal["ultralytics"]
+    framework: Literal["ultralytics", "libreyolo"]
     framework_version: str = Field(min_length=1, max_length=50)
     task: Literal["detection"]
     size_bytes: int = Field(gt=0, le=2 * 1024**3)
     download_url: str = Field(max_length=10000)
+    model_family: str | None = None
+    model_size: str | None = None
+    artifact_format: str | None = None
+    artifact_size_bytes: int | None = None
+    runtime_qualification: dict | None = None
 
     @model_validator(mode="after")
     def validate_identity(self):
@@ -57,6 +63,23 @@ class InstallRequest(ManagedModelRef):
             not name or len(name) > 120 for name in self.classes
         ):
             raise ValueError("Class identity mismatch")
+        extra = (
+            self.model_family,
+            self.model_size,
+            self.artifact_format,
+            self.artifact_size_bytes,
+            self.runtime_qualification,
+        )
+        if self.framework == "libreyolo":
+            identity = libre_identity(f"LibreYOLO9{self.model_size}")
+            if (
+                self.framework_version != "1.6.0"
+                or any(getattr(self, key) != value for key, value in identity.items())
+                or self.artifact_size_bytes != self.size_bytes
+            ):
+                raise ValueError("Unqualified native managed identity")
+        elif any(value is not None for value in extra):
+            raise ValueError("Unexpected qualification fields for legacy install")
         return self
 
 
@@ -92,6 +115,16 @@ class ManagedModelStore:
                 raise ValueError("Installed identity mismatch")
             if verify and file_digest(path) != receipt["sha256"]:
                 raise ValueError("Installed artifact digest mismatch")
+            if receipt.get("framework") == "libreyolo" and (
+                receipt.get("framework_version") != "1.6.0"
+                or receipt.get("model_family") != "yolo9"
+                or receipt.get("model_size") not in {"t", "s", "m", "c"}
+                or receipt.get("artifact_format") != LIBRE_FORMAT
+                or receipt.get("artifact_size_bytes") != path.stat().st_size
+                or receipt.get("runtime_qualification") != LIBRE_RUNTIME
+                or digest(receipt["classes"]) != receipt["classes_digest"]
+            ):
+                raise ValueError("Installed native qualification differs")
             return receipt
         except (OSError, ValueError, KeyError) as exc:
             raise HTTPException(
@@ -106,6 +139,10 @@ class ManagedModelStore:
 
     @staticmethod
     def inspect(path, expected):
+        if expected["framework"] == "libreyolo":
+            from libreyolo_adapter import LibreDetectionModel
+
+            return LibreDetectionModel(path, expected)
         import ultralytics
         from ultralytics import YOLO
 
@@ -125,7 +162,9 @@ class ManagedModelStore:
     async def install(self, body: InstallRequest):
         version_id = str(body.model_version_id)
         self.root.mkdir(parents=True, exist_ok=True)
-        expected = body.model_dump(mode="json", exclude={"download_url", "size_bytes"})
+        expected = body.model_dump(
+            mode="json", exclude={"download_url", "size_bytes"}, exclude_none=True
+        )
         lock = self._locks.setdefault(version_id, asyncio.Lock())
         async with lock:
             directory = self.root / version_id

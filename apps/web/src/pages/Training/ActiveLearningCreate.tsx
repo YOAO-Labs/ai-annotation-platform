@@ -155,6 +155,7 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
     },
   });
   const valid =
+    model.data?.model.framework === "ultralytics" &&
     !!modelId &&
     !!deploymentId &&
     selected.length >= 2 &&
@@ -274,17 +275,27 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
                 <option value="">选择模型</option>
                 {!models.error &&
                   models.data?.items.map((item) => (
-                    <option key={item.id} value={item.id}>
+                    <option
+                      key={item.id}
+                      value={item.id}
+                      disabled={item.framework !== "ultralytics"}
+                    >
                       {item.name} · {item.framework}
+                      {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
                     </option>
                   ))}
               </select>
             </label>
+            <p className="text-xs text-muted-foreground">
+              主动选样当前仅支持已通过共享评估资格的 Ultralytics。LibreYOLO
+              可在模型面板试用、人工发布与回滚。
+            </p>
             <label className="text-xs">
               就绪部署
               <select
                 className={`${trainingInputClass} mt-2 w-full`}
                 value={deploymentId}
+                disabled={model.data?.model.framework !== "ultralytics"}
                 onChange={(event) => setDeploymentId(event.target.value)}
               >
                 <option value="">选择部署</option>

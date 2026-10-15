@@ -51,7 +51,7 @@ beforeEach(() => {
     items: [{ id: model, name: "候选", framework: "ultralytics", project_id: project }],
   } as never);
   vi.mocked(trainedModelsApi.get).mockResolvedValue({
-    model: { id: model, name: "候选", project_id: project },
+    model: { id: model, name: "候选", project_id: project, framework: "ultralytics" },
     deployments: [{ id: deployment, registry_id: id(5), model_version_id: model, status: "ready" }],
   } as never);
   vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
@@ -170,4 +170,27 @@ describe("explicit frozen evaluation creation", () => {
     expect(screen.getByRole("button", { name: "开始逐样本评估" })).toBeDisabled();
     expect(sampleEvaluationsApi.create).not.toHaveBeenCalled();
   });
+});
+
+it("explains native model support and blocks LibreYOLO shared evaluation", async () => {
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({
+    total: 1,
+    items: [{ id: model, name: "原生候选", framework: "libreyolo", project_id: project }],
+  } as never);
+  vi.mocked(trainedModelsApi.get).mockResolvedValue({
+    model: { id: model, project_id: project, framework: "libreyolo" },
+    deployments: [{ id: deployment, status: "ready" }],
+  } as never);
+  mount();
+  expect(
+    await screen.findByRole("option", { name: /原生候选.*尚未通过共享评估资格/ }),
+  ).toBeDisabled();
+  fireEvent.change(screen.getByRole("combobox", { name: /已注册模型/ }), {
+    target: { value: model },
+  });
+  await waitFor(() => expect(screen.getByRole("combobox", { name: /已安装部署/ })).toBeDisabled());
+  expect(screen.getByText(/LibreYOLO 可在模型面板试用/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "开始逐样本评估" })).toBeDisabled();
+  expect(sampleEvaluationsApi.qualify).not.toHaveBeenCalled();
+  expect(sampleEvaluationsApi.create).not.toHaveBeenCalled();
 });

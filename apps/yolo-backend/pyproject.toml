@@ -19,6 +19,8 @@ dependencies = [
     "cryptography>=43.0.0",
     "PyJWT>=2.10,<3",
     "ultralytics==8.4.177",
+    "libreyolo==1.6.0",
+    "aap-training-contract",
     "clip",
     "setuptools>=68",
     "wheel",
@@ -40,9 +42,10 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle", "managed_models", "sample_evaluations"]
+py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle", "managed_models", "libreyolo_adapter", "sample_evaluations"]
 
 [tool.uv.sources]
+aap-training-contract = { path = "../_shared/training_contract", editable = true }
 torch = { index = "pytorch-cu132" }
 torchvision = { index = "pytorch-cu132" }
 clip = { git = "https://github.com/ultralytics/CLIP.git", rev = "7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40" }
@@ -56,5 +59,5 @@ explicit = true
 testpaths = ["tests"]
 # 共享包从 apps/_shared/* 注入: Docker 容器内由 `pip install -e /app/protocol_v2` 提供;
 # 本地 pytest 通过 pythonpath 直接定位 src/.
-pythonpath = [".", "../_shared/protocol_v2/src", "../_shared/mask_utils/src", "../_shared/backend_runtime/src"]
+pythonpath = [".", "../_shared/protocol_v2/src", "../_shared/mask_utils/src", "../_shared/backend_runtime/src", "../_shared/training_contract"]
 asyncio_mode = "auto"

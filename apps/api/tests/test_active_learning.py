@@ -24,6 +24,34 @@ from app.services import (
 from tests.active_learning_fixtures import complete, create, seed
 
 
+async def test_preview_rejects_libre_through_real_shared_qualification(
+    db_session, super_admin, httpx_client, monkeypatch
+):
+    from app.services import active_learning_pool, managed_inference, trained_models
+    from app.services.ml_client import MLBackendClient
+
+    owner, token = super_admin
+    world = await seed(db_session, owner, monkeypatch)
+    monkeypatch.setattr(
+        active_learning_pool, "qualification", managed_inference.qualification
+    )
+    monkeypatch.setattr(
+        trained_models,
+        "resolve_reference",
+        AsyncMock(return_value={**world.ref, "framework": "libreyolo"}),
+    )
+    profile = AsyncMock()
+    monkeypatch.setattr(MLBackendClient, "managed_evaluation_request", profile)
+    response = await httpx_client.post(
+        f"/api/v1/projects/{world.project.id}/active-learning-rounds:preview",
+        json=world.selection.model_dump(mode="json"),
+        headers={"Authorization": "Bearer " + token},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "framework_unqualified"
+    profile.assert_not_awaited()
+
+
 async def test_preview_creation_replay_and_budget_change_require_repreview(
     db_session, super_admin, httpx_client, monkeypatch
 ):

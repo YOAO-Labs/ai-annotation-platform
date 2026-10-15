@@ -126,6 +126,109 @@ async def register(client, token, project, run, attempt, **extra):
     return response.json(), body
 
 
+async def test_libre_registration_retains_native_gaps_and_immutable_runtime_qualification(
+    db_session, super_admin, httpx_client, controlled_artifacts, monkeypatch
+):
+    owner, token = super_admin
+    project, run, attempt = await seed_source(db_session, owner)
+    run.config = {
+        **run.config,
+        "framework": "libreyolo",
+        "framework_version": "1.6.0",
+        "base_model": {"id": "LibreYOLO9t"},
+    }
+    monkeypatch.setattr(
+        service,
+        "read_json_artifact",
+        lambda *_: {
+            "validation_digest": run.config["validation_digest"],
+            "evaluation": {
+                "framework": "libreyolo",
+                "version": "1.6.0",
+                "task": "detection",
+            },
+            "summary": {
+                "mAP50-95": 0.0,
+                "AR100": 0.4,
+                "precision": 0.99,
+                "recall": 0.98,
+                "mAP75": -1.0,
+            },
+            "per_class": [],
+            "per_class_available": False,
+        },
+    )
+    await db_session.flush()
+    data, _ = await register(httpx_client, token, project, run, attempt)
+    assert data["evaluation"]["summary"] == {
+        "metrics/mAP50-95": 0.0,
+        "metrics/AR100": 0.4,
+        "metrics/mAP75": None,
+    }
+    assert data["evaluation"]["per_class"] == []
+    assert data["evaluation"]["per_class_available"] is False
+    assert data["evaluation"]["comparison_identity_status"] == "unknown"
+    assert data["evaluation"]["comparison_compatibility_digest"] is None
+    version = await db_session.get(TrainedModelVersion, uuid.UUID(data["id"]))
+    receipt = service.expected_receipt(version)
+    assert receipt["model_family"] == "yolo9" and receipt["model_size"] == "t"
+    assert receipt["artifact_size_bytes"] == 100
+    assert receipt["runtime_qualification"]["device"] == "cpu"
+    service.check_receipt(version, receipt)
+    for key, replacement in (
+        ("framework", "ultralytics"),
+        ("model_family", "yolo26"),
+        ("artifact_format", "foreign"),
+        ("artifact_size_bytes", 101),
+        ("runtime_qualification", {"revision": 99}),
+    ):
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException):
+            service.check_receipt(version, {**receipt, key: replacement})
+
+
+@pytest.mark.parametrize(
+    "fault", ["version", "family", "duplicate_weights", "duplicate_metrics"]
+)
+async def test_libre_registration_rejects_foreign_identity_and_nonunique_artifacts(
+    db_session, super_admin, httpx_client, controlled_artifacts, fault
+):
+    owner, token = super_admin
+    project, run, attempt = await seed_source(db_session, owner)
+    run.config = {
+        **run.config,
+        "framework": "libreyolo",
+        "framework_version": "1.5.0" if fault == "version" else "1.6.0",
+        "base_model": {"id": "LibreYOLO9e" if fault == "family" else "LibreYOLO9t"},
+    }
+    if fault.startswith("duplicate"):
+        role = "weights" if fault == "duplicate_weights" else "metrics"
+        artifact = next(a for a in attempt.artifacts.values() if a["role"] == role)
+        attempt.artifacts = {**attempt.artifacts, "foreign": artifact}
+    await db_session.flush()
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/trained-models",
+        headers=headers(token),
+        json={
+            "request_id": str(uuid.uuid4()),
+            "name": "Rejected",
+            "run_id": str(run.id),
+            "attempt_id": str(attempt.id),
+            "bindings": ["car", "person"],
+        },
+    )
+    assert response.status_code == (422 if fault in {"version", "family"} else 409)
+    assert (
+        await db_session.scalar(
+            select(TrainedModelVersion).where(
+                TrainedModelVersion.project_id == project.id
+            )
+        )
+        is None
+    )
+
+
 async def ready_deployment(db, project, version):
     backend, pool = await create_registry_with_pool(
         db,

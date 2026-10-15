@@ -18,6 +18,29 @@ from tests.factory import create_membership
 from tests.sample_evaluation_fixtures import Objects, complete_rows, evaluation, seed
 
 
+async def test_shared_qualification_rejects_libre_before_any_profile_request(
+    db_session, super_admin, objects, monkeypatch
+):
+    from app.services import managed_inference, trained_models
+    from app.services.ml_client import MLBackendClient
+
+    owner, _token = super_admin
+    world = await seed(db_session, owner, objects)
+    ref = {**world.ref, "framework": "libreyolo"}
+    monkeypatch.setattr(
+        trained_models, "resolve_reference", AsyncMock(return_value=ref)
+    )
+    profile = AsyncMock()
+    monkeypatch.setattr(MLBackendClient, "managed_evaluation_request", profile)
+    with pytest.raises(HTTPException) as error:
+        await managed_inference.qualification(
+            db_session, world.project, world.model.id, world.deployment.id
+        )
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "framework_unqualified"
+    profile.assert_not_awaited()
+
+
 @pytest.fixture
 def objects(monkeypatch):
     store = Objects()

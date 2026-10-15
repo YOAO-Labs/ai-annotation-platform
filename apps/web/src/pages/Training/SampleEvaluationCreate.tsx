@@ -117,7 +117,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
         throw new Error("推理资格返回的模型身份不符");
       return data;
     },
-    enabled: !!modelId && !!deploymentId,
+    enabled: !!modelId && !!deploymentId && model.data?.model.framework === "ultralytics",
     retry: false,
   });
   const body = {
@@ -159,6 +159,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
       value.trim() && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1,
   );
   const canCreate =
+    model.data?.model.framework === "ultralytics" &&
     !!name.trim() &&
     !!qualification.data &&
     !qualification.error &&
@@ -213,12 +214,20 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                     <option value={modelId}>{model.data?.model.name ?? modelId}</option>
                   )}
                   {models.data?.items.map((item) => (
-                    <option key={item.id} value={item.id}>
+                    <option
+                      key={item.id}
+                      value={item.id}
+                      disabled={item.framework !== "ultralytics"}
+                    >
                       {item.name} · {item.framework}
+                      {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
                     </option>
                   ))}
                 </select>
               </label>
+              <p className="mt-2 text-xs text-muted-foreground">
+                共享样本评估当前仅支持 Ultralytics。LibreYOLO 可在模型面板试用、人工发布与回滚。
+              </p>
               <PickerPage
                 page={modelPage}
                 total={models.data?.total ?? 0}
@@ -231,7 +240,12 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                   className={trainingInputClass}
                   value={deploymentId}
                   onChange={(e) => setDeploymentId(e.target.value)}
-                  disabled={!model.data || !!model.error || create.isPending}
+                  disabled={
+                    !model.data ||
+                    model.data.model.framework !== "ultralytics" ||
+                    !!model.error ||
+                    create.isPending
+                  }
                 >
                   <option value="">选择就绪部署</option>
                   {model.data?.deployments

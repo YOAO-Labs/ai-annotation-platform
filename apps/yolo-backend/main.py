@@ -71,6 +71,7 @@ from managed_models import (
     InstallRequest,
     ManagedModelStore,
     authenticate as authenticate_managed,
+    digest,
 )
 from gpu_lifecycle import WorkloadOperation, YoloGpuLifecycle
 from model_pool import ModelBuildTimeout, ModelPool, PoolBusyError
@@ -168,13 +169,19 @@ def _build_model(task: str, series: str, size: str):
 
     开集 series (world/yoloe) 用 YOLOWorld/YOLOE 类加载; 闭集用 YOLO. 文件名按各自规则解析.
     """
-    from ultralytics import YOLO  # noqa: PLC0415, 延迟到首次 build 避免 import 阻塞启动
-
     if series.startswith("trained:"):
         if task != "detection":
             raise ValueError("Controlled models support detection only")
-        path, receipt = _managed_models.resolve(series.removeprefix("trained:"), size)
-        return _move_model_to_effective_device(_managed_models.inspect(path, receipt))
+        sha, separator, receipt_digest = size.partition(":")
+        path, receipt = _managed_models.resolve(series.removeprefix("trained:"), sha)
+        if not separator or digest(receipt) != receipt_digest:
+            raise ValueError("Controlled model pool qualification differs")
+        model = _managed_models.inspect(path, receipt)
+        if receipt["framework"] == "libreyolo":
+            return model.to("cpu")
+        return _move_model_to_effective_device(model)
+
+    from ultralytics import YOLO  # noqa: PLC0415
 
     if is_openvocab_series(series):
         filename = resolve_openvocab_weight_filename(series, size)
@@ -973,7 +980,6 @@ async def _run_predict(
     if _predictor is None or _model_pool is None:
         raise HTTPException(status_code=503, detail="backend not ready")
     ctx: Context = req.context
-    key = model_key_for_context(ctx)
     controlled_identity = None
     if ctx.frozen_model_ref:
         receipt = await asyncio.to_thread(
@@ -986,6 +992,8 @@ async def _run_predict(
             raise HTTPException(
                 status_code=409, detail="Controlled model identity differs"
             )
+        ctx._managed_receipt_digest = digest(receipt)
+    key = model_key_for_context(ctx)
     if not _is_supported_combo(ctx):
         raise _unsupported_combo_error(ctx.type, ctx.variants.series, ctx.variants.size)
     results: list[PredictionResult] = []
@@ -1056,6 +1064,15 @@ async def _run_predict(
 async def _run_sample_evaluation(req, *, operation):
     ctx = req.context
     request = ctx.sample_evaluation
+    receipt = await asyncio.to_thread(
+        _managed_models.receipt, str(ctx.frozen_model_ref.model_version_id)
+    )
+    if receipt.get("framework") != "ultralytics":
+        raise evaluation_error(
+            422,
+            "evaluation_framework_unqualified",
+            "This framework has not qualified for the shared sample evaluator",
+        )
     profile = await asyncio.to_thread(
         qualification_profile,
         effective_device(DEVICE),

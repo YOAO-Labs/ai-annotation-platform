@@ -10,6 +10,7 @@ lines = [
 ]
 excluded = {
     "yolo-backend",
+    "aap-training-contract",
     "clip",
     "torch",
     "torchvision",
@@ -31,8 +32,10 @@ for package in lock["package"]:
     )
     if not hashes:
         raise ValueError(f"No immutable distributions for {name}")
+    markers = package.get("resolution-markers", [])
+    marker = " ; " + " or ".join(f"({value})" for value in markers) if markers else ""
     lines.append(
-        f"{name}=={package['version']} "
+        f"{name}=={package['version']}{marker} "
         + " ".join(f"--hash={value}" for value in hashes)
     )
 (root / "requirements.lock").write_text("\n".join(lines) + "\n")

@@ -70,6 +70,14 @@ export function modelMetrics(model: TrainedModelOut): Record<string, number> {
 }
 
 export function comparisonIdentity(model: TrainedModelOut): string | null {
+  if (model.framework === "libreyolo") {
+    const digest = model.evaluation.comparison_compatibility_digest;
+    return model.evaluation.comparison_identity_status === "verified" &&
+      typeof digest === "string" &&
+      digest.length === 64
+      ? JSON.stringify([digest, model.framework, model.framework_version, model.binding_digest])
+      : null;
+  }
   const config = record(model.evaluation.evaluation);
   const validation = model.provenance.validation_digest;
   if (
