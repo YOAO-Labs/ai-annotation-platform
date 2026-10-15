@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T12:38:49.029Z",
+  "updated_at": "2026-10-15T12:57:48.792Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -284,19 +284,28 @@
     "docs-site/public/home/ocr-real-scene-poster.webp": {
       "asset_id": "ocr-real-scene",
       "role": "home-poster",
-      "generated_at": "2026-09-08T07:12:25.277Z",
-      "captured_commit": "04f1bf52fadf806966bed877c58a3501c277898b",
+      "generated_at": "2026-10-15T12:57:48.792Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › ocr-real-scene",
       "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/ocr-inference.ts",
+        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "a11a5072d62e93a940ad51e634d81e0a5060dd93962348208fcd6223d5983a1f",
-      "bytes": 80444,
+      "sha256": "87fe526e3f9aa94cc91805fc15492ddf013f2da59468d1854359affaf666aa2b",
+      "bytes": 88838,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -306,95 +315,113 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "marketing",
-        "source_inference": "unverified"
+        "source_quality": "standard",
+        "source_inference": "live"
       },
       "source_asset": {
-        "runId": "20260908T071007Z-04f1bf52fadf",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "ocr-real-scene",
-        "sha256": "1659de6cb2e87044aea123623cabad5aeba52343c9b176af40f55ba8df847d81",
-        "quality": "marketing",
+        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
+        "quality": "standard",
         "clip": {
-          "start": 0,
-          "duration": 11.517
+          "start": 208.6,
+          "duration": 13
         }
       }
     },
     "docs-site/public/home/ocr-real-scene.mp4": {
       "asset_id": "ocr-real-scene",
       "role": "home-video",
-      "generated_at": "2026-09-08T07:12:25.145Z",
-      "captured_commit": "04f1bf52fadf806966bed877c58a3501c277898b",
+      "generated_at": "2026-10-15T12:57:48.744Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › ocr-real-scene",
       "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/ocr-inference.ts",
+        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "129e5103f8090e80835422be205a35bea212285cb326e2c757c11e0c0d033095",
-      "bytes": 455782,
+      "sha256": "ed57a131c9ba327b17c8270bb7807339ea61de04276dd72c8d3ca30d4c624a1f",
+      "bytes": 588519,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "30/1",
-        "duration_seconds": 11.534
+        "fps": "25/1",
+        "duration_seconds": 13
       },
       "capture": {
-        "source_quality": "marketing",
-        "source_inference": "unverified"
+        "source_quality": "standard",
+        "source_inference": "live"
       },
       "source_asset": {
-        "runId": "20260908T071007Z-04f1bf52fadf",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "ocr-real-scene",
-        "sha256": "1659de6cb2e87044aea123623cabad5aeba52343c9b176af40f55ba8df847d81",
-        "quality": "marketing",
+        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
+        "quality": "standard",
         "clip": {
-          "start": 0,
-          "duration": 11.517
+          "start": 208.6,
+          "duration": 13
         }
       }
     },
     "docs-site/public/home/ocr-real-scene.webm": {
       "asset_id": "ocr-real-scene",
       "role": "home-video",
-      "generated_at": "2026-09-08T07:12:25.209Z",
-      "captured_commit": "04f1bf52fadf806966bed877c58a3501c277898b",
+      "generated_at": "2026-10-15T12:57:48.768Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webm › ocr-real-scene",
       "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/ocr-inference.ts",
+        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "703495a557a305be36c6516703a965280c6dfbd4b37794bfc53651500f54018a",
-      "bytes": 505636,
+      "sha256": "e4240381eaa99e1a127dee5e2d5c625d49619cdb861a19f470bc6d0bf7e21f24",
+      "bytes": 498115,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
-        "fps": "30/1",
-        "duration_seconds": 11.533
+        "fps": "25/1",
+        "duration_seconds": 13
       },
       "capture": {
-        "source_quality": "marketing",
-        "source_inference": "unverified"
+        "source_quality": "standard",
+        "source_inference": "live"
       },
       "source_asset": {
-        "runId": "20260908T071007Z-04f1bf52fadf",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "ocr-real-scene",
-        "sha256": "1659de6cb2e87044aea123623cabad5aeba52343c9b176af40f55ba8df847d81",
-        "quality": "marketing",
+        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
+        "quality": "standard",
         "clip": {
-          "start": 0,
-          "duration": 11.517
+          "start": 208.6,
+          "duration": 13
         }
       }
     },
@@ -1325,19 +1352,28 @@
     "docs-site/public/media/ai/ocr-current-task-poster.webp": {
       "asset_id": "ocr-real-scene",
       "role": "poster",
-      "generated_at": "2026-09-08T07:12:25.085Z",
-      "captured_commit": "04f1bf52fadf806966bed877c58a3501c277898b",
+      "generated_at": "2026-10-15T12:57:48.726Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › ocr-real-scene",
       "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/ocr-inference.ts",
+        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "a11a5072d62e93a940ad51e634d81e0a5060dd93962348208fcd6223d5983a1f",
-      "bytes": 80444,
+      "sha256": "87fe526e3f9aa94cc91805fc15492ddf013f2da59468d1854359affaf666aa2b",
+      "bytes": 88838,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1347,56 +1383,65 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "marketing",
-        "source_inference": "unverified"
+        "source_quality": "standard",
+        "source_inference": "live"
       },
       "source_asset": {
-        "runId": "20260908T071007Z-04f1bf52fadf",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "ocr-real-scene",
-        "sha256": "1659de6cb2e87044aea123623cabad5aeba52343c9b176af40f55ba8df847d81",
-        "quality": "marketing",
+        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
+        "quality": "standard",
         "clip": {
-          "start": 0,
-          "duration": 11.517
+          "start": 208.6,
+          "duration": 13
         }
       }
     },
     "docs-site/public/media/ai/ocr-current-task.mp4": {
       "asset_id": "ocr-real-scene",
       "role": "docs-video",
-      "generated_at": "2026-09-08T07:12:25.000Z",
-      "captured_commit": "04f1bf52fadf806966bed877c58a3501c277898b",
+      "generated_at": "2026-10-15T12:57:48.685Z",
+      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › ocr-real-scene",
       "watch_paths": [
+        "apps/api/app/services/screenshot_seed_backends.py",
+        "apps/api/app/services/screenshot_seed_spec.py",
+        "apps/web/e2e/fixtures/seed.ts",
+        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
+        "apps/web/e2e/screenshots/environment.ts",
+        "apps/web/e2e/screenshots/flows/_canvas.ts",
+        "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
+        "apps/web/e2e/screenshots/flows/ocr-inference.ts",
+        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "129e5103f8090e80835422be205a35bea212285cb326e2c757c11e0c0d033095",
-      "bytes": 455782,
+      "sha256": "ed57a131c9ba327b17c8270bb7807339ea61de04276dd72c8d3ca30d4c624a1f",
+      "bytes": 588519,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "30/1",
-        "duration_seconds": 11.534
+        "fps": "25/1",
+        "duration_seconds": 13
       },
       "capture": {
-        "source_quality": "marketing",
-        "source_inference": "unverified"
+        "source_quality": "standard",
+        "source_inference": "live"
       },
       "source_asset": {
-        "runId": "20260908T071007Z-04f1bf52fadf",
+        "runId": "2026-10-15T12-48-18-947Z-1619367",
         "assetId": "ocr-real-scene",
-        "sha256": "1659de6cb2e87044aea123623cabad5aeba52343c9b176af40f55ba8df847d81",
-        "quality": "marketing",
+        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
+        "quality": "standard",
         "clip": {
-          "start": 0,
-          "duration": 11.517
+          "start": 208.6,
+          "duration": 13
         }
       }
     },
