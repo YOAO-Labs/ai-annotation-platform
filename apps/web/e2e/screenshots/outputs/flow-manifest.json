@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15T13:51:19.285Z",
+  "updated_at": "2026-10-15T13:54:46.127Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -4539,7 +4539,7 @@
     "docs-site/public/media/projects/ml-routing-poster.webp": {
       "asset_id": "project-ml-routing",
       "role": "poster",
-      "generated_at": "2026-10-15T13:51:19.285Z",
+      "generated_at": "2026-10-15T13:54:46.127Z",
       "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
@@ -4559,8 +4559,8 @@
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "360c955e45aee6345159b81016e811d978c93dfb79ecdbb1cbb52cf80262a390",
-      "bytes": 44386,
+      "sha256": "557b0ff5ad8b7d1c086e234ec9b43cdb55fc7d4c6d4ba1bc999d3bf1e100a4dd",
+      "bytes": 45572,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -4587,7 +4587,7 @@
     "docs-site/public/media/projects/ml-routing.mp4": {
       "asset_id": "project-ml-routing",
       "role": "docs-video",
-      "generated_at": "2026-10-15T13:51:19.248Z",
+      "generated_at": "2026-10-15T13:54:46.092Z",
       "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
