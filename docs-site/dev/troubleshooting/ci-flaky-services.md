@@ -29,11 +29,17 @@ GitHub Actions 的 `services:` 块**不接受 image 的 args**（没法给 MinIO
 ```yaml
 - name: Start MinIO
   run: |
+    minio_image=icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    for attempt in 1 2 3; do
+      docker pull "$minio_image" && break
+      if [ "$attempt" -eq 3 ]; then exit 1; fi
+      sleep 5
+    done
     docker run -d --name minio \
       -p 9000:9000 \
       -e MINIO_ROOT_USER=minioadmin \
       -e MINIO_ROOT_PASSWORD=minioadmin \
-      icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+      "$minio_image" server /data
 
     # 轮询 health 端点直到就绪
     for i in $(seq 1 30); do
@@ -43,6 +49,8 @@ GitHub Actions 的 `services:` 块**不接受 image 的 args**（没法给 MinIO
     docker logs minio
     exit 1
 ```
+
+镜像仓库连接偶尔会在读取响应头时超时。CI 在启动容器前最多拉取三次，两次尝试间等待 5 秒；三次失败即终止该 job，保留 Docker 的原始错误。容器启动和健康检查仍各执行一次。
 
 桶 `annotations` 由 FastAPI lifespan `ensure_bucket` 第一次 HeadBucket 失败时自建，无需预建。
 
