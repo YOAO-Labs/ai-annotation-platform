@@ -46,7 +46,7 @@ build_tasks_for_link 本身幂等。
   1. 脚本 stdout 报告:每个 scene 的 frames 数 = nbr_samples,total_items 合理。
   2. 浏览器打开任一 scene 第 1 帧 BEV:默认 --frame ego 时车头朝上
      (点已变换到 ego/ISO 系,axis_convention=iso_8855)。
-  3. 6 路相机投影:点云投到各 CAM 图像上大致对齐(用第 1 帧标定,首帧最准)。
+  3. Verify camera projection at every frame using its exposure-specific calibration.
   4. curl /scenes?dataset_id=<id> 返回 N 个 scene(= 传入的 scene 数)。
   5. curl /tasks/<某 scene 末帧 task>/neighbors:next 为空,不串到下一个 scene 首帧。
   6. curl -X POST /datasets/<id>/sniff-axis-convention 命中 iso_8855。
@@ -825,15 +825,18 @@ async def import_nuscenes(
                         backfilled_camera_dimensions += 1
                     item.metadata_ = {
                         **(item.metadata_ or {}),
-                        "nuscenes_export": _source_context(
-                            sample=sample,
-                            sample_data=sd,
-                            calibrated_sensor=cs,
-                            sensor=sensor,
-                            ego_pose=ego_by_token[sd["ego_pose_token"]],
-                            storage_key=item.file_path,
-                            source_bytes=source_camera_bytes,
-                        ),
+                        "nuscenes_export": {
+                            **((item.metadata_ or {}).get("nuscenes_export") or {}),
+                            **_source_context(
+                                sample=sample,
+                                sample_data=sd,
+                                calibrated_sensor=cs,
+                                sensor=sensor,
+                                ego_pose=ego_by_token[sd["ego_pose_token"]],
+                                storage_key=item.file_path,
+                                source_bytes=source_camera_bytes,
+                            ),
+                        },
                     }
 
             await scene_pose_svc.upsert_frame_poses(
@@ -1065,6 +1068,35 @@ async def import_nuscenes(
                         )
                     },
                 )
+                from app.schemas._jsonb_types import SensorCalibration
+                from app.services.sensor_calibration import calibration_digest
+
+                # Exposure timestamps differ between LiDAR and each camera.
+                # Materialize the exact per-frame transform before the generic
+                # scene-level calibration initializer runs.
+                ego_cam = ego_by_token[sd["ego_pose_token"]]
+                extrinsic = (
+                    _compute_ego_to_cam_extrinsic(
+                        ego_lidar=ego_lidar, cs_cam=cs, ego_cam=ego_cam
+                    )
+                    if frame == "ego"
+                    else _compute_lidar_to_cam_extrinsic(
+                        cs_lidar=cs_lidar,
+                        ego_lidar=ego_lidar,
+                        cs_cam=cs,
+                        ego_cam=ego_cam,
+                    )
+                )
+                calibration = SensorCalibration(
+                    extrinsic=extrinsic,
+                    intrinsic=[
+                        float(value) for row in cs["camera_intrinsic"] for value in row
+                    ],
+                )
+                cam_item.metadata_["calibration"] = calibration.model_dump(mode="json")
+                cam_item.metadata_["nuscenes_export"]["platform_calibration_digest"] = (
+                    calibration_digest(calibration)
+                )
                 db.add(cam_item)
                 await db.flush()  # 拿 id 以填 shared_frame_items
                 cam_frame_index[cam_item.id] = frame_idx
@@ -1128,7 +1160,7 @@ async def import_nuscenes(
                 "duration_s": (last_ts - first_ts) / 1e6,
                 "nuscenes_version": version,
                 "frame": frame,
-                # 标定用首帧近似;末帧与首帧的时间差,备查(前端不消费)。
+                "camera_calibration_policy": "per-exposure-primary-frame-v1",
                 "timestamp_delta_us": last_ts - first_ts,
                 "nuscenes_export": {
                     "version": version,

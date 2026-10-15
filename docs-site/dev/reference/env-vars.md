@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-09-15
+last_reviewed: 2026-10-14
 ---
 
 # 环境变量参考
@@ -92,6 +92,23 @@ last_reviewed: 2026-09-15
 |---|---|---|
 | `MINIO_DATA_DIR` | `/mnt/fast-disk/ai-annotation-platform/minio` | 留空时继续使用 Docker 托管的 miniodata 命名卷。 |
 | `ML_BACKEND_STORAGE_HOST` | `172.17.0.1:9000` | ML backend 在 docker compose 网内、平台 api 在 host 进程时, SAM 容器无法 hit host 的 localhost:9000; 设为 docker bridge 网关地址即可。 Linux: 172.17.0.1:9000; macOS/Win Docker Desktop: host.docker.internal:9000; 生产 (api/sam/minio 同 K8s 网) 留空。 |
+
+## 实验性 AI 当前帧点云补强。部署开关与项目开关同时启用才可生成/读取。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `POINT_CLOUD_AI_ENHANCEMENT_ENABLED` | `false` | — |
+| `VGGT_OMEGA_GPU_DEVICE_ID` | `none` | opt-in compose profile: gpu-vggt-omega。明确指定一张物理 GPU 与已授权的只读权重目录。 |
+| `VGGT_OMEGA_CHECKPOINTS_DIR` | `./apps/vggt-omega-backend/checkpoints` | — |
+| `VGGT_OMEGA_AUTH_TOKEN` | `—` | — |
+| `VGGT_OMEGA_BUILD_TIMEOUT` | `240` | — |
+| `VGGT_OMEGA_TRANSFER_TIMEOUT` | `60` | — |
+| `VGGT_OMEGA_IDLE_UNLOAD_SECONDS` | `600` | — |
+| `VGGT_OMEGA_IDLE_CHECK_INTERVAL` | `60` | — |
+| `VGGT_OMEGA_CACHE_ENTRIES` | `2` | — |
+| `VGGT_OMEGA_CACHE_BYTES` | `33554432` | — |
+| `VGGT_OMEGA_CACHE_TTL` | `300` | — |
+| `VGGT_OMEGA_MANAGED_LIFECYCLE_VERIFIED` | `0` | 仅在当前部署通过实际 GPU 生命周期验收后设为 1。 |
 
 ## ML Backend 注册表单 URL 默认值预填 hint (avoid 手敲).
 

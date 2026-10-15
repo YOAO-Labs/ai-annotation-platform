@@ -13,6 +13,12 @@ import {
 } from "../stage/videoReferencePredict";
 import type { LockableField, WorkbenchConfigPatch } from "./useWorkbenchConfig";
 import {
+  buildPointCloudAugmentationPatch,
+  isPointCloudAugmentationSource,
+  POINT_CLOUD_AUGMENTATION_OPTIONS,
+  resolvePointCloudAugmentation,
+} from "./pointCloudAugmentation";
+import {
   POINT_CLOUD_WEBGPU_STORAGE_KEY,
   readPointCloudWebGpuExperiment,
   writePointCloudWebGpuExperiment,
@@ -117,7 +123,7 @@ export const WORKBENCH_SETTING_SECTIONS = {
   points: { label: "点云显示", group: "canvas" },
   color: { label: "点云相机与上色", group: "canvas" },
   camera: { label: "点云视角与选择", group: "canvas" },
-  neighbors: { label: "邻帧点云", group: "canvas" },
+  neighbors: { label: "点云补强", group: "canvas" },
   playback: { label: "视频播放", group: "playback" },
   tracking: { label: "轨迹操作", group: "playback" },
   performance: { label: "资源与性能", group: "advanced" },
@@ -519,6 +525,21 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     control: { type: "toggle", onText: "已开启", offText: "已关闭" },
   },
   {
+    key: "pointcloud.displayStyle",
+    section: "points",
+    category: "pointcloud",
+    label: "点云显示样式",
+    description:
+      "只调整点的外观，不改变拾取与标注数据。补充几何由「点云补强」单独选择；旧设置的隐式邻帧会保留，直到首次选择补强来源",
+    control: {
+      type: "select",
+      options: [
+        { value: "points", label: "原始点" },
+        { value: "surface", label: "表面增强（纯视觉）" },
+      ],
+    },
+  },
+  {
     key: "pointcloud.pointSize",
     section: "points",
     category: "pointcloud",
@@ -617,6 +638,15 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     control: { type: "slider", min: 0.05, max: 0.3, step: 0.05, format: (v) => v.toFixed(2) },
   },
   {
+    key: "pointcloud.augmentationSource",
+    section: "neighbors",
+    category: "pointcloud",
+    label: "点云补强",
+    description:
+      "始终保留当前真实 LiDAR；每次只显示一种辅助来源。AI 使用已准备的 VGGT-Ω 当前帧结果，需要项目开启实验，不会在查看时启动推理",
+    control: { type: "select", options: POINT_CLOUD_AUGMENTATION_OPTIONS },
+  },
+  {
     key: "pointcloud.neighborPointOverlay",
     section: "neighbors",
     category: "pointcloud",
@@ -624,11 +654,12 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     description:
       "把前后帧点云按车体位姿对齐叠到当前帧:静止背景加密、动态目标留拖影。需 scene 有 ego 轨迹",
     control: { type: "toggle" },
+    hidden: true,
   },
   {
     key: "pointcloud.neighborPointOverlayK",
     section: "neighbors",
-    parentKey: "pointcloud.neighborPointOverlay",
+    parentKey: "pointcloud.augmentationSource",
     category: "pointcloud",
     label: "邻帧点云帧数",
     description: "前后各叠几帧点云;点云较重,最多 3 帧",
@@ -644,11 +675,11 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
   {
     key: "pointcloud.neighborPointCull",
     section: "neighbors",
-    parentKey: "pointcloud.neighborPointOverlay",
+    parentKey: "pointcloud.augmentationSource",
     category: "pointcloud",
     label: "邻帧动态点",
     description:
-      "对落在已标注框内的邻帧点:保留=留拖影 / 剔除=只叠静止背景 / 逐目标对齐=把点搬到当前帧位置一起加密(无拖影)。仅对已标注目标有效",
+      "剔除使用当前已标注框；逐目标对齐使用两帧已标注框和匹配轨迹。未标注目标或缺少匹配时仍可能拖影，不是自动运动分割",
     control: {
       type: "select",
       options: [
@@ -717,6 +748,9 @@ export function getFieldValue(
   field: WorkbenchSettingField,
 ): WorkbenchSettingValue {
   if (isLocalSettingField(field)) return field.read();
+  if (field.key === "pointcloud.augmentationSource") {
+    return resolvePointCloudAugmentation(config.pointcloud).source;
+  }
   const name = field.key.slice(field.category.length + 1);
   return (config[field.category] as unknown as Record<string, WorkbenchSettingValue>)[name];
 }
@@ -729,8 +763,36 @@ export function buildFieldPatch(
   if (isLocalSettingField(field)) {
     throw new Error("Local workbench setting fields do not build preference patches");
   }
+  if (field.key === "pointcloud.augmentationSource") {
+    if (!isPointCloudAugmentationSource(value))
+      throw new Error("Unknown point-cloud augmentation source");
+    return buildPointCloudAugmentationPatch(value);
+  }
+  if (
+    field.key === "pointcloud.neighborPointOverlayK" ||
+    field.key === "pointcloud.neighborPointCull"
+  ) {
+    // Editing a visible neighbor detail is explicit intent, including legacy surface assistance.
+    return {
+      pointcloud: {
+        ...buildPointCloudAugmentationPatch("neighbors").pointcloud,
+        [field.key.slice("pointcloud.".length)]: value,
+      },
+    } as WorkbenchConfigPatch;
+  }
   const name = field.key.slice(field.category.length + 1);
   return { [field.category]: { [name]: value } } as WorkbenchConfigPatch;
+}
+
+export function isWorkbenchSettingDisabled(
+  config: WorkbenchPreferences,
+  field: WorkbenchSettingField,
+): boolean {
+  if (field.parentKey === "pointcloud.augmentationSource") {
+    return resolvePointCloudAugmentation(config.pointcloud).source !== "neighbors";
+  }
+  const parent = WORKBENCH_SETTING_FIELDS.find((candidate) => candidate.key === field.parentKey);
+  return parent ? !getFieldValue(config, parent) : false;
 }
 
 /** lockable 字段对应的 LockableField 名(平铺命名,与 lockedFields 比对);非 lockable 返回 null。 */

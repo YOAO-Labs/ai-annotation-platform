@@ -2,6 +2,34 @@
 
 Dev / ops 用一次性 / 周期性脚本,各自带 `--help`。
 
+## VGGT-Ω 平台链路与试验归档
+
+当前维护独立模型容器 `apps/vggt-omega-backend/`、平台服务
+`app/services/point_cloud_densification/` 和 `app/services/point_cloud_auxiliary/`。
+管理员在项目设置中后台生成，标注员在工作台选择辅助层；部署步骤见
+[运维说明](../../../docs-site/ops/vggt-omega.md)。
+
+离线试验的预测、构建、审计脚本及四组预览已退役，专用预览服务已停止。
+清理前的源码与测试快照保存在本地
+`.artifacts/model-review/vggt-omega-lidar-densification/retired-runtime-source/`；
+原有阶段快照、协议、指标、失败记录和代表性浏览器证据也保留。
+当前帧 bundle 仅保留离线导入所需的单图预测、逐相机点云及绑定记录，
+旧清单是清理前的历史记录，不能据此声称完整试验产物仍在。
+
+归档范围见[研究索引](../../../docs/research/README.md#试验归档与清理)，
+后续验收集中在[统一计划](../../../docs/plans/1791963159_pointcloud-densification-route.md)。
+
+## 平台点云辅助资产
+
+| 入口                                 | 用途                                                       |
+| ------------------------------------ | ---------------------------------------------------------- |
+| `publish_point_cloud_auxiliary.py`   | 检查并导入已验证的当前帧离线 bundle，绑定真实源文件与标定  |
+| `repair_nuscenes_calibration.py`     | 生成旧 nuScenes 逐曝光标定修复清单，并按原值校验后显式应用 |
+| `reconcile_point_cloud_auxiliary.py` | 对账中断生成、失效状态和遗留对象                           |
+
+后台模型生成通过项目设置创建 AsyncJob，使用独立 VGGT-Ω 容器；标注员打开工作台只读取
+已发布的辅助点，不启动推理。完整命令与权限见[运维说明](../../../docs-site/ops/vggt-omega.md)。
+
 ## validate_gpu_arbitration
 
 跨 Backend GPU 显存仲裁的非生产验收器。`preflight` 只读采集 PostgreSQL、Redis、backend

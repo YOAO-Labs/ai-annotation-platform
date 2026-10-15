@@ -89,11 +89,17 @@ jobs:
       # https://www.ibm.com/support/pages/node/7289585
       - name: Start MinIO
         run: |
+          minio_image=icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          for attempt in 1 2 3; do
+            docker pull "$minio_image" && break
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 5
+          done
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+            "$minio_image" server /data
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:9000/minio/health/live; then
               exit 0
@@ -111,7 +117,7 @@ jobs:
       - name: alembic upgrade head
         working-directory: apps/api
         run: uv run alembic upgrade head
-      - name: Migration validation (fresh / reversible / forward / restore)
+      - name: Migration validation (fresh / reversible / suffix / forward / restore)
         working-directory: apps/api
         env:
           AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
@@ -256,7 +262,7 @@ jobs:
           node --test scripts/audit-e2e-requirements.test.mjs
           scripts/check-workflow-names.test.mjs scripts/dev-worktree.test.mjs
           scripts/image-reference-utils.test.mjs scripts/plan-e2e-suites.test.mjs
-          scripts/summarize-e2e-results.test.mjs
+          scripts/summarize-e2e-results.test.mjs scripts/select-e2e-report-artifacts.test.mjs
       - name: Workflow naming
         run: node scripts/check-workflow-names.mjs --strict
 
@@ -370,17 +376,28 @@ jobs:
   e2e:
     name: Frontend E2E
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     needs: [e2e-plan, e2e-suites]
     if: always()
     steps:
       - uses: actions/checkout@v4
-      - name: Collect per-suite status artifacts
+      - name: Collect latest per-suite status artifacts
         if: always()
-        uses: actions/download-artifact@v4
-        with:
-          pattern: playwright-report-*
-          path: suite-status-raw
-          merge-multiple: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ids=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" | jq -r -f scripts/select-e2e-report-artifacts.jq)
+          IFS=',' read -r -a artifact_ids <<< "$ids"
+          archive=$(mktemp)
+          trap 'rm -f "$archive"' EXIT
+          mkdir -p suite-status-raw/suite-status
+          for artifact_id in "${artifact_ids[@]}"; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
+            unzip -joq "$archive" 'suite-status/*.json' -d suite-status-raw/suite-status
+          done
       - name: Audit planned suites against actual results
         if: needs.e2e-plan.outputs.required != ''
         env:

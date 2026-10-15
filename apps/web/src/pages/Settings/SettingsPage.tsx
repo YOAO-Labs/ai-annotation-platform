@@ -35,6 +35,7 @@ import {
   groupWorkbenchSettings,
   buildFieldPatch,
   getFieldValue,
+  isWorkbenchSettingDisabled,
   isLocalSettingField,
   type WorkbenchSettingField,
   type WorkbenchSettingValue,
@@ -516,7 +517,7 @@ function WorkbenchPreferencesSection() {
                               field={child}
                               value={getFieldValue(config, child)}
                               nested
-                              disabled={saving || !fieldValue}
+                              disabled={saving || isWorkbenchSettingDisabled(config, child)}
                               onCommit={(value) => commit(child, value)}
                             />
                           ))}

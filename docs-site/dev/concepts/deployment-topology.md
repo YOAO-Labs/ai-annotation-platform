@@ -10,6 +10,12 @@ last_reviewed: 2026-07-29
 
 平台的核心应用边界由 web、API、按队列隔离的 Celery worker / beat、PostgreSQL、Redis 和对象存储组成。ML Backend 是通过 HTTP 协议注册的独立计算服务，可以与核心应用同机，也可以运行在独立 GPU 主机或集群中。
 
+实验性 VGGT-Ω 是可选的独立 ML 容器。项目管理员提交当前帧补强任务后，
+普通 Celery worker 通过现有服务池及 GPU admission 请求深度与置信度，
+在 CPU 侧用真实 LiDAR 校准并发布不可变资产；工作台直接从对象存储加载结果。
+平台 API 和普通 worker 不加载模型，也不持有下载模型的 Hugging Face 凭据。
+部署开关默认关闭，配置与验收见 [VGGT-Ω 运维](../../ops/vggt-omega)。
+
 ## 部署形态与演进
 
 <ExcalidrawDiagram

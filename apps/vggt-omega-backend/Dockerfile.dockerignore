@@ -1,0 +1,17 @@
+# This image only needs its producer and the two shared Python packages.
+*
+!vggt-omega-backend/
+!vggt-omega-backend/**
+!_shared/
+!_shared/protocol_v2/
+!_shared/protocol_v2/**
+!_shared/backend_runtime/
+!_shared/backend_runtime/**
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/*.egg-info/
+**/.env*
+**/checkpoints/

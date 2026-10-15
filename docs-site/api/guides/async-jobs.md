@@ -17,16 +17,17 @@ last_reviewed: 2026-09-10
 
 ## kind 取值
 
-| kind                 | 触发位                                                                                   | 是否支持 cancel API                 |
-| -------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- |
-| `batch_predict`      | 项目 / 批次预标按钮（AIPreAnnotate 或 ProjectDetailPanel）                               | ✅（协作取消）                      |
-| `prediction_retry`   | 失败预测列表的重试按钮                                                                   | ❌                                  |
-| `video_tracker`      | 视频工作台 tracker 触发                                                                  | ❌（走 video tracker 自身取消接口） |
-| `audit_archive`      | Celery beat 每月 2 日 03:00 UTC                                                          | ✅                                  |
-| `predictions_import` | 外部 prediction 上传（[Import guide](./import)）                                         | ✅                                  |
-| `dataset_import`     | 数据集连接器导入文件                                                                     | ✅                                  |
-| `create_tasks`       | 数据集关联项目且 item 数 > `TASK_CREATE_SYNC_THRESHOLD`（默认 2000）时，建 task 转入后台 | ❌                                  |
-| `export`             | 项目 / 批次导出                                                                          | ❌                                  |
+| kind                        | 触发位                                                                                   | 是否支持 cancel API                             |
+| --------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `batch_predict`             | 项目 / 批次预标按钮（AIPreAnnotate 或 ProjectDetailPanel）                               | ✅（协作取消）                                  |
+| `prediction_retry`          | 失败预测列表的重试按钮                                                                   | ❌                                              |
+| `video_tracker`             | 视频工作台 tracker 触发                                                                  | ❌（走 video tracker 自身取消接口）             |
+| `audit_archive`             | Celery beat 每月 2 日 03:00 UTC                                                          | ✅                                              |
+| `predictions_import`        | 外部 prediction 上传（[Import guide](./import)）                                         | ✅                                              |
+| `dataset_import`            | 数据集连接器导入文件                                                                     | ✅                                              |
+| `create_tasks`              | 数据集关联项目且 item 数 > `TASK_CREATE_SYNC_THRESHOLD`（默认 2000）时，建 task 转入后台 | ❌                                              |
+| `export`                    | 项目 / 批次导出                                                                          | ❌                                              |
+| `point_cloud_densification` | 项目设置中的 AI 当前帧补强生成                                                           | ✅（在当前推理结束后协作取消，不强杀 GPU 调用） |
 
 ## 端点
 

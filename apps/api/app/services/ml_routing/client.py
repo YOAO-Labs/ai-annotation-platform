@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -180,6 +180,11 @@ class RoutedMLBackendClient:
             if context is None:
                 return await client.predict(tasks)
             return await client.predict(tasks, context=context)
+
+    async def reconstruct(self, payload: dict | Callable[[], Awaitable[dict]]):
+        """Route artifact generation without converting it to annotation predictions."""
+        async with self._routed_transport() as client:
+            return await client.reconstruct(payload)
 
     async def predict_interactive(
         self,

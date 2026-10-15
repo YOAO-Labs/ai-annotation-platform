@@ -38,6 +38,7 @@ const mockState = vi.hoisted(() => {
     setViewChangeHandler = vi.fn((handler: ((view: PointCloudViewState) => void) | null) => {
       this.viewChangeHandler = handler;
     });
+    setDisplayStyle = vi.fn();
     setPointSize = vi.fn();
     setGridVisible = vi.fn();
     setAxisGizmoVisible = vi.fn();
@@ -105,6 +106,48 @@ describe("usePointCloudScene camera continuity", () => {
       unobserve() {}
       disconnect() {}
     } as unknown as typeof ResizeObserver;
+  });
+
+  it("updates the display style in place without recreating or reloading the renderer", async () => {
+    const sceneRef = { current: null };
+    let displayStyle: "points" | "surface" = "points";
+    const view = renderHook(() =>
+      usePointCloudScene({
+        viewportRef: { current: document.createElement("div") },
+        sceneRef: sceneRef as never,
+        pcdDecimate: 100,
+        displayStyle,
+        pointSize: 0.06,
+        showGrid: true,
+        showAxisGizmo: true,
+        cameraDamping: 0.1,
+        persistCameraView: false,
+        pointCloudUrl: "style.pcd",
+        continuityKey: "style-scene",
+        axisConvention: "iso_8855",
+        boxes: [],
+        selectedId: null,
+        selectedPsrEditable: false,
+        pointcloudCamera: null,
+        onWorkbenchLayoutChange: vi.fn(),
+        onViewModeChange: vi.fn(),
+        onTransformPreview: vi.fn(),
+        onTransformCommit: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(view.result.current.loadedPointCloudUrl).toBe("style.pcd"));
+    const scene = mockState.instances[0];
+    expect(scene.setDisplayStyle).toHaveBeenCalledWith("points");
+    const loadCount = scene.loadPcd.mock.calls.length;
+
+    displayStyle = "surface";
+    view.rerender();
+
+    await waitFor(() => expect(scene.setDisplayStyle).toHaveBeenLastCalledWith("surface"));
+    expect(mockState.instances).toHaveLength(1);
+    expect(scene.loadPcd).toHaveBeenCalledTimes(loadCount);
+    expect(scene.dispose).not.toHaveBeenCalled();
+    view.unmount();
   });
 
   it("retries a failed point cloud without recreating its renderer", async () => {

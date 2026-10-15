@@ -376,6 +376,8 @@ def extract_capabilities(setup: dict | None) -> dict | None:
     raw_models = setup.get("models")
     if isinstance(raw_models, list) and raw_models:
         models = [_normalize_model(m, infra) for m in raw_models if isinstance(m, dict)]
+    elif raw_models == [] and "point_cloud_densification" in setup:
+        models = []
     else:
         models = [_synthesize_single_model(setup, infra)]
 
@@ -401,6 +403,29 @@ def extract_capabilities(setup: dict | None) -> dict | None:
     if managed_lifecycle_warning is not None:
         warnings.append(managed_lifecycle_warning)
 
+    densification = None
+    if setup.get("point_cloud_densification") is not None:
+        from pydantic import ValidationError
+
+        from app.schemas.point_cloud_densification import (
+            PointCloudDensificationCapability,
+        )
+
+        try:
+            densification = PointCloudDensificationCapability.model_validate(
+                setup["point_cloud_densification"]
+            ).model_dump(mode="json", exclude_unset=True)
+        except (TypeError, ValidationError):
+            warnings.append(
+                {
+                    "level": "warning",
+                    "model_id": None,
+                    "field": "point_cloud_densification",
+                    "value": "invalid",
+                    "message": "点云增密能力必须提供完整的协议、输入和输出限制。",
+                }
+            )
+
     caps: dict = {
         # Stable compatibility/model identity fields participate in service-pool
         # interchangeability checks.  Runtime and display metadata remain excluded.
@@ -419,6 +444,7 @@ def extract_capabilities(setup: dict | None) -> dict | None:
         # ADR-0049 · 远端声明必须显式携带全部冻结字段；平台不能用 Pydantic
         # 默认值把 partial/legacy backend 静默升级成受管 backend。
         "managed_lifecycle": managed_lifecycle,
+        "point_cloud_densification": densification,
         "models": models,
         "is_interactive": any(m["is_interactive"] for m in models),
         "supported_prompts": _union(models, "supported_prompts"),
@@ -449,6 +475,8 @@ def derive_modalities(caps: dict | None) -> list[str]:
         mods.append("image")
     if caps.get("supported_trackers"):
         mods.append("video")
+    if caps.get("point_cloud_densification"):
+        mods.append("lidar")
     for m in caps.get("models") or []:
         mod = _model_modality(m)
         if mod not in mods:

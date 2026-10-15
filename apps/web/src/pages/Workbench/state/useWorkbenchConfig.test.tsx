@@ -106,6 +106,44 @@ describe("useWorkbenchConfig · v0.10.10 项目级覆盖", () => {
     vi.useRealTimers();
   });
 
+  it("hydrates legacy surface intent without writes and atomically saves a source selection", async () => {
+    mockGetPreferences.mockResolvedValue({
+      workbench: {
+        pointcloud: {
+          displayStyle: "surface",
+          neighborPointOverlay: false,
+          neighborPointOverlayK: 3,
+        },
+      },
+    });
+    mockUpdatePreferences.mockImplementation(async (payload) => payload);
+    const { result } = renderHook(() => useWorkbenchConfig(), { wrapper });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.config.pointcloud.augmentationSource).toBeNull();
+    expect(mockUpdatePreferences).not.toHaveBeenCalled();
+    vi.useFakeTimers();
+    act(() =>
+      result.current.setFields({
+        pointcloud: { augmentationSource: "vggt_omega", neighborPointOverlay: false },
+      }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+      workbench: expect.objectContaining({
+        pointcloud: expect.objectContaining({
+          augmentationSource: "vggt_omega",
+          neighborPointOverlay: false,
+          neighborPointOverlayK: 3,
+          displayStyle: "surface",
+        }),
+      }),
+    });
+    act(() => result.current.setFields({ pointcloud: { neighborPointOverlay: true } }));
+    expect(result.current.config.pointcloud.augmentationSource).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    vi.useRealTimers();
+  });
+
   it("项目级 rendering_config(平铺)覆盖用户级 image.* 子树；lockedFields 列出被覆盖字段", async () => {
     mockGetPreferences.mockResolvedValue({
       workbench: { image: { smoothImage: true, controlPointsSize: 10 } },

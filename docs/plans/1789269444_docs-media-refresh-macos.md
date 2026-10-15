@@ -2,7 +2,7 @@
 
 > Status: static matrix and all Mac-recordable workflow recordings executed and approved (sixteen of seventeen flows); S3 pointcloud canary and the Linux/GPU batch remain. See `## Outcome` and `## Remaining work` at the end of this file.
 > Maintainer decisions (2026-09-13): refresh the existing library only; re-record only what this Apple Silicon Mac can record; agent-delegated visual review is authorized and must be recorded honestly.
-> The twelve proposed marketing masters remain in [new capability marketing masters](1789230200_new-capability-marketing-masters.md) and are not enrolled here.
+> The twelve proposed marketing masters remain in [new capability marketing masters](backlog/1789230200_new-capability-marketing-masters.md) and are not enrolled here.
 
 ## 1. Audit-gate baseline
 

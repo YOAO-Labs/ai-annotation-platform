@@ -33,6 +33,15 @@ import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { useFrameNeighbors } from "@/hooks/useFrameNeighbors";
 import { useNeighborAnnotations } from "@/hooks/useNeighborAnnotations";
 import { useNeighborPointClouds } from "@/hooks/useNeighborPointClouds";
+import {
+  buildPointCloudAugmentationPatch,
+  resolvePointCloudAugmentation,
+} from "../../state/pointCloudAugmentation";
+import { PointCloudAugmentationControls } from "./PointCloudAugmentationControls";
+import {
+  defaultAugmentationCameraRole,
+  usePointCloudAugmentation,
+} from "./usePointCloudAugmentation";
 import { useSceneTrajectory } from "@/hooks/useSceneTrajectory";
 import { alignPsrToFrame, frameRelMatrix } from "./geometry/egoAlign";
 import { cullPointsInBoxes } from "./geometry/cullDynamicPoints";
@@ -169,7 +178,7 @@ const SELECT_CTL =
 const FIT_GROUP =
   "grid grid-cols-2 items-center gap-1.5 py-1.5 border-y border-border [&_button]:w-full [&_button]:px-1.5 [&_button]:py-1 [&_button]:text-xs";
 const STATUS_BAR =
-  "absolute bottom-3 left-3.5 flex flex-wrap gap-2 max-w-[min(420px,calc(100%-28px))] px-2.5 py-1 rounded-sm bg-card border border-border text-xs text-muted-foreground";
+  "absolute bottom-14 left-3.5 flex flex-wrap gap-2 max-w-[min(420px,calc(100%-28px))] px-2.5 py-1 rounded-sm bg-card border border-border text-xs text-muted-foreground";
 const MEASUREMENT_PANEL =
   "absolute top-3 right-3 z-local-4 flex w-[288px] max-h-[calc(100%-72px)] flex-col gap-2 overflow-auto rounded-md border border-border bg-card p-2.5 text-xs text-foreground shadow-sm";
 const MEASUREMENT_ROW =
@@ -426,6 +435,7 @@ export function ThreeDWorkbench({
     [box3dDefaultSize],
   );
   const [triFloatBounds, setTriFloatBounds] = useState<FloatingPanelBounds | null>(null);
+  const displayStyle = workbenchPointcloud.displayStyle === "surface" ? "surface" : "points";
   const pointSize = workbenchPointcloud.pointSize;
   const colorizeOn = workbenchPointcloud.colorizeWithCamera;
   const colorAdjust: ColorAdjust = useMemo(
@@ -452,14 +462,9 @@ export function ThreeDWorkbench({
   const overlayK = overlayEnabled ? overlayFrameK : 0;
   // v0.15.17 · 邻帧框叠加范围:selected=仅选中对象 group(现状);all=不选对象也叠全部邻帧框。
   const overlayScope = workbenchCommon.crossFrameOverlayScope === "all" ? "all" : "selected";
-  // v0.15.19 · 邻帧点云叠加开关 + 独立帧数(点云比框重,前后各 ≤3 帧)。
-  const pointOverlayOn = workbenchPointcloud.neighborPointOverlay;
-  const pointOverlayFrameK =
-    workbenchPointcloud.neighborPointOverlayK === 2 ||
-    workbenchPointcloud.neighborPointOverlayK === 3
-      ? workbenchPointcloud.neighborPointOverlayK
-      : 1;
-  const pointOverlayK = pointOverlayOn ? pointOverlayFrameK : 0;
+  const augmentationPlan = resolvePointCloudAugmentation(workbenchPointcloud);
+  const neighborPointPlan = augmentationPlan.neighborPlan;
+  const neighborPointK = neighborPointPlan.frameCount;
   // v0.15.22 · §C.8-B / v0.15.23 · §C.8-A 邻帧点云动态点处理:
   // cull=剔除落在当前帧 box 内的邻帧点;align=逐目标把邻帧点搬到当前帧位置(无拖影)。
   const neighborPointCull: "keep" | "cull" | "align" =
@@ -470,6 +475,15 @@ export function ThreeDWorkbench({
         : "keep";
   const [neighborCulledCount, setNeighborCulledCount] = useState(0);
   const [neighborMovedCount, setNeighborMovedCount] = useState(0);
+  const [neighborVisibleCount, setNeighborVisibleCount] = useState(0);
+  const [comparisonContext, setComparisonContext] = useState<string | null>(null);
+  const augmentationContext = JSON.stringify([userId, taskId]);
+  const measuredComparison = comparisonContext === augmentationContext;
+  const [augmentationSourceColor, setAugmentationSourceColor] = useState(false);
+  useLayoutEffect(() => {
+    setComparisonContext(null);
+    setAugmentationSourceColor(false);
+  }, [userId, taskId]);
   const [pointCloudViewMode, setPointCloudViewMode] = useState<"orbit" | "bev">("orbit");
   const [colorizing, setColorizing] = useState(false);
   const [, setCameraTextureResources] = useState<CameraTextureResources | null>(null);
@@ -977,6 +991,7 @@ export function ThreeDWorkbench({
     sceneRef,
     pcdDecimate: performanceConfig.pcdDecimate,
     rendererMode,
+    displayStyle,
     pointSize,
     showGrid: workbenchPointcloud.showGrid,
     showAxisGizmo: workbenchPointcloud.showAxisGizmo,
@@ -2030,6 +2045,55 @@ export function ThreeDWorkbench({
         : c,
     );
   }, [manifest?.cameras, axisConvention]);
+  const cameraSelectionContext = JSON.stringify([userId, displayManifest?.scene_id ?? taskId]);
+  const [augmentationCameraSelection, setAugmentationCameraSelection] = useState<{
+    context: string;
+    role: string;
+  } | null>(null);
+  useEffect(() => {
+    setAugmentationCameraSelection(null);
+  }, [userId]);
+  useEffect(() => {
+    const role = defaultAugmentationCameraRole(cameras);
+    if (role)
+      setAugmentationCameraSelection((previous) =>
+        previous?.context === cameraSelectionContext
+          ? previous
+          : { context: cameraSelectionContext, role },
+      );
+  }, [cameraSelectionContext, cameras]);
+  const augmentationCameraRole =
+    augmentationCameraSelection?.context === cameraSelectionContext
+      ? augmentationCameraSelection.role
+      : defaultAugmentationCameraRole(cameras);
+  const augmentation = usePointCloudAugmentation({
+    taskId,
+    enabled: augmentationPlan.source === "vggt_omega" && workbenchConfigLoaded,
+    measuredReady:
+      manifest?.task_id === taskId &&
+      !!stats &&
+      !pointCloudLoading &&
+      loadedPointCloudUrl === manifest?.point_cloud_url,
+    cameraRole: augmentationCameraRole,
+    convention: axisConvention,
+    targetCount: Math.max(1, Math.min(80_000, Math.floor(performanceConfig.pcdDecimate / 8))),
+  });
+  useLayoutEffect(() => {
+    const scene = sceneRef.current;
+    scene?.setAugmentationPoints(
+      measuredComparison ? null : augmentation.frame,
+      augmentationSourceColor,
+    );
+    return () => scene?.setAugmentationPoints(null);
+  }, [
+    taskId,
+    userId,
+    augmentation.frame,
+    augmentation.identityKey,
+    augmentationSourceColor,
+    measuredComparison,
+    rendererStatus,
+  ]);
   // v0.13.7 · 相机按物理朝向分组(悬浮环绕):每个 anchor 一个定位容器,同朝向沿边堆叠。
   const cameraGroups = useMemo(() => {
     const groups = new Map<Anchor, typeof cameras>();
@@ -2398,10 +2462,9 @@ export function ThreeDWorkbench({
     return s;
   }, [selectedIds, selectedTrackId, annotations]);
 
-  // v0.15.18 · 框叠加(overlayK)或点云叠加(pointOverlayK)任一开启都要邻帧 + 轨迹;
-  // 取两者最大帧数拉取,各自再按需切片(框用 overlayK,点云用 pointOverlayK),互不放大。
-  const neighborsActive = overlayK > 0 || pointOverlayK > 0;
-  const neighborsFetchK = Math.max(1, overlayK, pointOverlayK);
+  // 框叠加、显式点云叠加或 surface 辅助任一开启都需要邻帧 + 轨迹；各自仍按需切片。
+  const neighborsActive = overlayK > 0 || neighborPointK > 0;
+  const neighborsFetchK = Math.max(1, overlayK, neighborPointK);
   const { data: neighborsData } = useFrameNeighbors(
     neighborsActive ? taskId : null,
     neighborsFetchK,
@@ -2497,21 +2560,21 @@ export function ThreeDWorkbench({
   }, [referenceBoxes]);
 
   // v0.15.18 · 邻帧点云叠加。需 scene + ego 轨迹(无轨迹直接叠会乱,故 gate on poseByFrame)。
-  const pointOverlayActive = pointOverlayK > 0 && !!neighborsData?.scene_id && !!poseByFrame;
+  const neighborPointsActive = neighborPointK > 0 && !!neighborsData?.scene_id && !!poseByFrame;
   const pointNeighbors = useMemo(() => {
-    if (!pointOverlayActive || !neighborsData) return [];
+    if (!neighborPointsActive || !neighborsData) return [];
     return [
-      ...(neighborsData.prev ?? []).slice(0, pointOverlayK),
-      ...(neighborsData.next ?? []).slice(0, pointOverlayK),
+      ...(neighborsData.prev ?? []).slice(0, neighborPointK),
+      ...(neighborsData.next ?? []).slice(0, neighborPointK),
     ].map((n) => ({ taskId: n.task_id, frameIndex: n.frame_index }));
-  }, [pointOverlayActive, neighborsData, pointOverlayK]);
+  }, [neighborPointsActive, neighborsData, neighborPointK]);
   // v0.15.23 · §C.8-A align 模式:把落在邻帧 box 内的点按目标位姿搬到当前帧位置(逐目标
   // 补偿,真·消除拖影)。需邻帧「全部」框(按 track_id 与当前帧框配对),独立于框叠加
   // (overlayK)且 scope 恒为 all;仅 align 时拉取,避免无谓请求。
-  const alignActive = pointOverlayActive && neighborPointCull === "align";
+  const alignActive = neighborPointsActive && neighborPointCull === "align";
   const { byTask: alignAnnsByTask } = useNeighborAnnotations(
     alignActive ? taskId : null,
-    pointOverlayK,
+    neighborPointK,
     null,
     alignActive,
   );
@@ -2566,20 +2629,21 @@ export function ThreeDWorkbench({
   }, [alignActive, alignAnnsByTask]);
   // 邻帧点云下采样目标:当前帧抽稀阈值的 1/8,上限 8 万(邻帧仅作参考,远低于当前帧)。
   const neighborPointTarget = Math.min(80_000, Math.round(performanceConfig.pcdDecimate / 8));
-  const { items: neighborPcds } = useNeighborPointClouds(
+  const { items: neighborPcds, isLoading: neighborPointsLoading } = useNeighborPointClouds(
     pointNeighbors,
     axisConvention,
     neighborPointTarget,
-    pointOverlayActive,
+    neighborPointsActive && !measuredComparison,
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     const curFrame = neighborsData?.frame_index ?? null;
-    if (!pointOverlayActive || !poseByFrame || curFrame == null) {
+    if (!neighborPointsActive || measuredComparison || !poseByFrame || curFrame == null) {
       scene.setNeighborPoints([]);
       setNeighborCulledCount(0);
       setNeighborMovedCount(0);
+      setNeighborVisibleCount(0);
       return;
     }
     const toPose = poseByFrame.get(curFrame);
@@ -2588,6 +2652,7 @@ export function ThreeDWorkbench({
       matrix: NonNullable<ReturnType<typeof frameRelMatrix>>;
       dir: "past" | "future";
       distance: number;
+      displayMode: "surface" | "diagnostic";
     };
     // v0.15.22 · cull:把对齐到当前帧后落在 tracked box 内的邻帧点剔除,只叠静止背景。
     // v0.15.23 · align:落在邻帧 box 内的点按目标位姿搬到当前帧位置(逐目标补偿,无拖影);
@@ -2623,14 +2688,16 @@ export function ThreeDWorkbench({
           matrix: renderMatrix,
           dir: pcd.frameIndex >= curFrame ? "future" : "past",
           distance: Math.abs(pcd.frameIndex - curFrame),
+          displayMode: neighborPointPlan.displayMode,
         };
       })
       .filter((f): f is NeighborFrame => f != null);
     scene.setNeighborPoints(frames);
+    setNeighborVisibleCount(frames.reduce((count, frame) => count + frame.positions.length / 3, 0));
     setNeighborCulledCount(cullOn ? culledTotal : 0);
     setNeighborMovedCount(alignOn ? movedTotal : 0);
   }, [
-    pointOverlayActive,
+    neighborPointsActive,
     neighborPcds,
     poseByFrame,
     neighborsData,
@@ -2638,6 +2705,8 @@ export function ThreeDWorkbench({
     boxes,
     currentBoxesByTrack,
     neighborBoxesByTask,
+    neighborPointPlan.displayMode,
+    measuredComparison,
   ]);
 
   // v0.13.4 · 选中框被哪些相机看到(可见角点数 > 0),按可见角点数降序;首个 = 最正对。
@@ -2938,6 +3007,30 @@ export function ThreeDWorkbench({
 
         {/* 控件浮条 */}
         <div ref={controlsRef} className={CONTROLS}>
+          <PointCloudAugmentationControls
+            source={augmentationPlan.source}
+            displayStyle={displayStyle}
+            loaded={workbenchConfigLoaded}
+            compare={measuredComparison}
+            sourceColor={augmentationSourceColor}
+            cameras={cameras}
+            cameraRole={augmentationCameraRole}
+            legacySurface={augmentationPlan.legacySurface}
+            onSourceChange={(source) => {
+              setComparisonContext(null);
+              onWorkbenchConfigChange(buildPointCloudAugmentationPatch(source));
+            }}
+            onStyleChange={(style) =>
+              onWorkbenchConfigChange({ pointcloud: { displayStyle: style } })
+            }
+            onCompareChange={(compare) =>
+              setComparisonContext(compare ? augmentationContext : null)
+            }
+            onSourceColorChange={setAugmentationSourceColor}
+            onCameraChange={(role) =>
+              setAugmentationCameraSelection({ context: cameraSelectionContext, role })
+            }
+          />
           <div className={CONTROL_BAR}>
             <Button
               type="button"
@@ -3067,11 +3160,40 @@ export function ThreeDWorkbench({
           </Badge>
           {stats && (
             <span data-testid="pointcloud-stats">
-              {stats.renderedPoints.toLocaleString()} 点
+              当前实测 {stats.renderedPoints.toLocaleString()} 点
               {stats.decimated && `(已抽稀自 ${stats.totalPoints.toLocaleString()})`}
             </span>
           )}
           {boxes.length > 0 && <span>· {boxes.length} 框</span>}
+          <span data-testid="pointcloud-augmentation-status" data-source={augmentationPlan.source}>
+            {measuredComparison
+              ? "实测对照 · 辅助点已隐藏"
+              : augmentationPlan.source === "none"
+                ? "仅当前实测"
+                : augmentationPlan.source === "neighbors"
+                  ? !neighborPointsActive
+                    ? "邻帧补强不可用：缺少场景位姿"
+                    : neighborPointsLoading
+                      ? "加载邻帧实测…"
+                      : `邻帧实测 +${neighborVisibleCount.toLocaleString()} 点 · 已加载 ${neighborPcds.length}/${pointNeighbors.length} 邻帧`
+                  : `${augmentation.message} · ${augmentation.camera?.name || augmentationCameraRole || "无相机"} · AI +${(augmentation.frame?.renderedPoints ?? 0).toLocaleString()} 点`}
+          </span>
+          {augmentationPlan.source === "vggt_omega" &&
+            !augmentation.loading &&
+            !augmentation.frame && (
+              <Button type="button" size="xs" variant="ghost" onClick={augmentation.retry}>
+                刷新 AI 状态
+              </Button>
+            )}
+          {augmentationPlan.source === "neighbors" &&
+            neighborPointCull !== "keep" &&
+            (neighborPointCull === "cull"
+              ? boxes.length === 0
+              : currentBoxesByTrack.size === 0) && (
+              <span>
+                缺少可用标注{neighborPointCull === "align" ? "或匹配轨迹" : "框"}，运动处理未应用
+              </span>
+            )}
           {neighborCulledCount > 0 && (
             <span>· 邻帧剔除 {neighborCulledCount.toLocaleString()} 动态点</span>
           )}

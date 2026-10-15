@@ -2,7 +2,7 @@
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-14
 ---
 
 # 独立工作树开发环境
@@ -148,6 +148,19 @@ pnpm dev:worktree -- destroy --mode e2e --confirm '<id>:e2e'
 启动前会检查重复 revision、多 head、缺失祖先及数据库未知 revision。数据库版本不在当前代码中时，恢复对应迁移代码，或在确认可丢弃后重建独立环境；不要手工修改共享 `alembic_version`。
 
 `--skip-migrations` 只在数据库已经处于当前 checkout 的 head 时生效，不能绕过不认识的 revision。独立开发库不会自动解决 PR 合并后的迁移冲突；主分支仍应保持唯一 head，并对最终合并状态验证空库和已有数据升级路径。
+
+### 迁移验证
+
+在已初始化并核对归属的 `test` 环境执行：
+
+```bash
+pnpm dev:worktree -- doctor --mode test
+pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python ../../scripts/validate_migrations.py --json'
+```
+
+验证器分别创建带归属标记的一次性数据库，检查空库升级、不可逆迁移之前的真实回滚、历史数据前向转换及备份恢复。不可逆迁移之后存在可逆后缀时，还会执行 `head → 不可逆版本 → head`，核对实际回滚步数、版本边界和历史数据保留。不可逆迁移自身的回滚另行验证必须拒绝执行。
+
+每个临时数据库和备份都在结束时清理，包括失败路径；输出中的 `cleanup_errors` 和 `leftover_owned_databases` 应为空。原 `test` 数据库保留。多 head、合并修订、孤立分支、缺失祖先、环及多个不可逆迁移仍会阻止验证；该验证器不会通过 stamp 跳过这些检查。
 
 ## 验证启动器本身
 

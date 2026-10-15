@@ -8,6 +8,10 @@ from app.db.models.project_template import ProjectTemplate
 from app.db.models.project_task_view import ProjectTaskView
 from app.db.models.task import Task
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
+from app.db.models.point_cloud_auxiliary import (
+    PointCloudAuxiliaryAsset,
+    PointCloudAuxiliaryGeneration,
+)
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock, AnnotationDraft
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -83,6 +87,8 @@ from app.db.models.storage_connection import (
 )
 
 __all__ = [
+    "PointCloudAuxiliaryAsset",
+    "PointCloudAuxiliaryGeneration",
     "User",
     "Group",
     "Organization",

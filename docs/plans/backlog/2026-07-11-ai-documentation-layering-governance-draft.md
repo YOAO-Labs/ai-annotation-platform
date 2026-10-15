@@ -1,6 +1,6 @@
 # Plan Draft · AI 能力深化后的文档分层与治理
 
-> Status: draft · 2026-07-11
+> Status: research-draft; initial documentation layering is implemented. Remaining governance decisions are unscheduled and require the backlog promotion gate.
 
 ## 背景
 

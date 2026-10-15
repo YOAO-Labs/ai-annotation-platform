@@ -396,6 +396,13 @@
 | GET | `/notification-preferences` |
 | PUT | `/notification-preferences` |
 
+## `point_cloud_densification.py`
+
+| Method | Path |
+|---|---|
+| GET | `/projects/{project_id}/point-cloud/augmentation/preparation` |
+| POST | `/projects/{project_id}/point-cloud/augmentation/jobs` |
+
 ## `point_cloud_quality.py`
 
 | Method | Path |
@@ -626,6 +633,13 @@
 | GET | `/{task_id}/point-cloud/cameras/{camera_role}/calibration` |
 | PATCH | `/{task_id}/point-cloud/cameras/{camera_role}/calibration` |
 
+## `tasks/point_cloud_auxiliary.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{task_id}/point-cloud/augmentation` |
+| POST | `/{task_id}/point-cloud/augmentation/assets` |
+
 ## `tasks/predictions.py`
 
 | Method | Path |
@@ -749,4 +763,4 @@
 
 ---
 
-_共 68 模块 / 432 路由_
+_共 70 模块 / 436 路由_

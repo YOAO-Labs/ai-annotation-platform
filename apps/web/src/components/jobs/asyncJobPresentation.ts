@@ -16,6 +16,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   mask_format_import: "Mask 格式导入",
   point_cloud_cross_frame: "3D 跨帧传播",
   point_cloud_quality: "点云质量检查",
+  point_cloud_densification: "AI 当前帧点云补强",
 };
 
 export const JOB_STATUS_LABEL: Record<AsyncJobStatus, string> = {

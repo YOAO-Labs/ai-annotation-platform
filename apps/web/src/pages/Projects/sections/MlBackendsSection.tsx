@@ -219,6 +219,10 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
     })),
   });
   const capById = new Map(enabledBackends.map((b, i) => [b.id, capabilities[i]]));
+  const predictionBackends = enabledBackends.filter((b) => {
+    const cap = capById.get(b.id)?.data;
+    return !(cap?.point_cloud_densification && !cap.models?.length);
+  });
 
   const onHealth = (b: MLBackendResponse) => {
     health.mutate(b.id, {
@@ -279,12 +283,13 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
               disabled={!canManage || updateProject.isPending}
               onChange={(e) => {
                 const id = e.target.value || null;
+                if (id && !predictionBackends.some((b) => b.id === id)) return;
                 commitBackend(id, enabledBackends.find((b) => b.id === id)?.name);
               }}
               className={cn(CONTROL_CLASS, "cursor-pointer")}
             >
               <option value="">未设项目主后端（项目按肉眼标注运行，AI 待接入）</option>
-              {enabledBackends.map((b) => (
+              {predictionBackends.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
                   {b.state === "connected" ? " · 在线" : ` · ${b.state}`}
@@ -395,6 +400,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                   const b = item.backend;
                   const capQ = capById.get(b.id);
                   const cap = capQ?.data as MLBackendCapability | undefined;
+                  const producerOnly = !!cap?.point_cloud_densification && !cap.models?.length;
                   return (
                     <tr key={b.id}>
                       <td className={TABLE_CELL}>
@@ -413,10 +419,15 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                       </td>
                       <td className={cn(TABLE_CELL, "whitespace-nowrap")}>
                         <Badge variant={b.is_interactive ? "ai" : "outline"}>
-                          {b.is_interactive ? "交互式" : "批量"}
+                          {producerOnly ? "点云补强" : b.is_interactive ? "交互式" : "批量"}
                         </Badge>
                       </td>
                       <td className={TABLE_CELL}>
+                        {producerOnly && (
+                          <span className="text-xs text-muted-foreground">
+                            当前帧点云补强 · 在工作台规范准备
+                          </span>
+                        )}
                         {capQ?.isLoading && (
                           <span className="text-xs text-muted-foreground">…</span>
                         )}
@@ -445,7 +456,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                       </td>
                       <td className={TABLE_CELL}>
                         <div className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                          {project.ml_backend_id !== b.id && (
+                          {!producerOnly && project.ml_backend_id !== b.id && (
                             <Button
                               size="xs"
                               variant="ai"

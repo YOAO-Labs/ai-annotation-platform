@@ -15,6 +15,52 @@ export interface DecodedPointCloudFrame {
   groundZ: number;
 }
 
+export interface DecodedAuxiliaryPointCloudFrame {
+  positions: Float32Array;
+  colors: Float32Array;
+  totalPoints: number;
+  renderedPoints: number;
+}
+
+/** RGB auxiliary geometry is decoded separately; primary height colors remain authoritative. */
+export function decodeAuxiliaryPointCloudFrame(
+  buffer: ArrayBuffer,
+  convention: LidarAxisConvention,
+  targetCount: number,
+): DecodedAuxiliaryPointCloudFrame {
+  if (!Number.isInteger(targetCount) || targetCount < 1 || targetCount > 80_000) {
+    throw new Error("辅助点云显示预算无效");
+  }
+  const loaded = new PCDLoader().parse(buffer);
+  const geometry = loaded.geometry;
+  try {
+    const source = geometry.getAttribute("position");
+    const rgb = geometry.getAttribute("color");
+    if (!source || !rgb || source.count !== rgb.count) throw new Error("辅助点云缺少 RGB");
+    const count = Math.min(targetCount, source.count);
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const index = Math.floor((i * source.count) / count);
+      const values = [source.getX(index), source.getY(index), source.getZ(index)];
+      const color = [rgb.getX(index), rgb.getY(index), rgb.getZ(index)];
+      if (
+        !values.every(Number.isFinite) ||
+        !color.every((v) => Number.isFinite(v) && v >= 0 && v <= 1)
+      ) {
+        throw new Error("辅助点云包含无效坐标或颜色");
+      }
+      positions.set(values, i * 3);
+      colors.set(color, i * 3);
+    }
+    applyConventionToPositions(positions, convention);
+    return { positions, colors, totalPoints: source.count, renderedPoints: count };
+  } finally {
+    geometry.dispose();
+    (loaded.material as THREE.Material).dispose();
+  }
+}
+
 function createHeightColors(positions: Float32Array): Float32Array {
   const count = positions.length / 3;
   let zMin = Infinity;

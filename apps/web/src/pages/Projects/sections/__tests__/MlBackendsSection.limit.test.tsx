@@ -91,6 +91,24 @@ beforeEach(() => {
 });
 
 describe("MlBackendsSection 启用清单", () => {
+  it("点云资产生成服务保留启用入口，不作为预标注主后端", async () => {
+    mockUseAvailable.mockReturnValue({
+      data: { items: [item(true)] },
+      isLoading: false,
+      isError: false,
+    });
+    mockSetup.mockResolvedValue({
+      name: "omega",
+      supported_prompts: [],
+      models: [],
+      point_cloud_densification: { protocol_version: "1", endpoint: "/reconstruct", profiles: [] },
+    });
+    renderSection({ id: "p1", ml_backend_id: null });
+    await screen.findByText("当前帧点云补强 · 在工作台规范准备");
+    expect(screen.queryByRole("option", { name: /grounded-sam2/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "设为主后端" })).toBeNull();
+    expect(screen.getByTestId("ml-backend-quota").textContent).toContain("已启用 1 / 1");
+  });
   it("已启用角标 = 启用数 / 全局总数", () => {
     mockUseAvailable.mockReturnValue({
       data: { items: [item(true)] },

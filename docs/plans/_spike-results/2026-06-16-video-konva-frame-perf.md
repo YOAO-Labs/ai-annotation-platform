@@ -2,7 +2,7 @@
 
 > ✅ **数据已采集(2026-06-16,Chromium / localhost dev server)。** 结论:**A1(帧合成进
 > Konva)+ 分层 成立** —— 单帧 Konva 合成成本全程亚毫秒(4K@60 + 20 框 p95 ≤ 0.4ms),
-> 比 8ms 闸门快约 20–40×。详见 §3 矩阵表与 §5 结论;已回填 [ADR-0041](../../adr/0041-video-canvas-unify-to-konva.md) 决策 A。
+> 比 8ms 闸门快约 20–40×。详见 §3 矩阵表与 §5 结论;已回填 [ADR-0041](../../adr/archive/0041-video-canvas-unify-to-konva.md) 决策 A。
 >
 > 关联计划:
 > - `docs/plans/archive/2026-06-16-v0.16.0-konva-test-harness-and-stage-primitives.md` §3.2
@@ -190,7 +190,7 @@
 - **测量教训**:必须用同步 `layer.draw()` 度量单帧成本;`batchDraw()` 合批异步,同步
   计时测不到真实开销(见 §2.3)。此修正已落进 spike 组件。
 
-已回填 [ADR-0041](../../adr/0041-video-canvas-unify-to-konva.md) 决策 A(Status → Accepted: A1)。
+已回填 [ADR-0041](../../adr/archive/0041-video-canvas-unify-to-konva.md) 决策 A(Status → Accepted: A1)。
 
 ## 6. 采集环境
 

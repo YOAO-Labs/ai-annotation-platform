@@ -95,6 +95,9 @@ class Project(Base):
     point_cloud_quality_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
+    point_cloud_enhancement_config: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}", default=dict
+    )
     # v0.10.10 · I17.3 · 项目级渲染配置覆盖；空 dict = 全部沿用用户级 preferences
     rendering_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict

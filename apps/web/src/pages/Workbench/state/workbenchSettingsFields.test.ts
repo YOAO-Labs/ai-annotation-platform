@@ -12,6 +12,7 @@ import {
   buildFieldPatch,
   getFieldValue,
   lockableFieldName,
+  isWorkbenchSettingDisabled,
 } from "./workbenchSettingsFields";
 
 describe("workbenchSettingsFields 注册表", () => {
@@ -46,7 +47,7 @@ describe("workbenchSettingsFields 注册表", () => {
   });
 
   it("注册表默认值与现状一致", () => {
-    expect(WORKBENCH_SETTING_FIELDS).toHaveLength(49);
+    expect(WORKBENCH_SETTING_FIELDS).toHaveLength(51);
     const byKey = Object.fromEntries(
       WORKBENCH_SETTING_FIELDS.map((f) => [f.key, getFieldValue(DEFAULT_WORKBENCH_PREFERENCES, f)]),
     );
@@ -83,6 +84,8 @@ describe("workbenchSettingsFields 注册表", () => {
       "video.largeFrameStep": 10,
       "video.autoFitOnResize": true,
       "video.trackContinueAutoAdvance": false,
+      "pointcloud.displayStyle": "points",
+      "pointcloud.augmentationSource": "none",
       "pointcloud.pointSize": 0.06,
       "pointcloud.persistCameraView": false,
       "pointcloud.colorizeWithCamera": false,
@@ -119,6 +122,37 @@ describe("workbenchSettingsFields 注册表", () => {
     expect(() => buildFieldPatch(field, true)).toThrow(/Local workbench setting/);
   });
 
+  it("source settings use the viewport compound writer and enable only neighbor details", () => {
+    const source = WORKBENCH_SETTING_FIELDS.find(
+      (field) => field.key === "pointcloud.augmentationSource",
+    )!;
+    const radius = WORKBENCH_SETTING_FIELDS.find(
+      (field) => field.key === "pointcloud.neighborPointOverlayK",
+    )!;
+    expect(buildFieldPatch(source, "vggt_omega")).toEqual({
+      pointcloud: { augmentationSource: "vggt_omega", neighborPointOverlay: false },
+    });
+    expect(
+      getVisibleWorkbenchSettingFields().some(
+        (field) => field.key === "pointcloud.neighborPointOverlay",
+      ),
+    ).toBe(false);
+    expect(isWorkbenchSettingDisabled(DEFAULT_WORKBENCH_PREFERENCES, radius)).toBe(true);
+    const legacySurface = {
+      ...DEFAULT_WORKBENCH_PREFERENCES,
+      pointcloud: { ...DEFAULT_WORKBENCH_PREFERENCES.pointcloud, displayStyle: "surface" as const },
+    };
+    expect(getFieldValue(legacySurface, source)).toBe("neighbors");
+    expect(isWorkbenchSettingDisabled(legacySurface, radius)).toBe(false);
+    expect(buildFieldPatch(radius, 3)).toEqual({
+      pointcloud: {
+        augmentationSource: "neighbors",
+        neighborPointOverlay: true,
+        neighborPointOverlayK: 3,
+      },
+    });
+  });
+
   it("lockableFieldName:image 4 个可锁字段映射平铺名,其余 null", () => {
     const names = WORKBENCH_SETTING_FIELDS.map((f) => lockableFieldName(f));
     expect(names.filter(Boolean).sort()).toEqual([
@@ -144,7 +178,7 @@ describe("settings presentation", () => {
   });
   it("all settings share the field-backed purpose groups without missing or duplicating fields", () => {
     const fields = getVisibleWorkbenchSettingFields();
-    expect(fields).toHaveLength(48);
+    expect(fields).toHaveLength(49);
     expect(fields.some((field) => field.hidden)).toBe(false);
     const groups = groupWorkbenchSettings(fields);
     // notifications 分组由共享通知偏好面板渲染，不承载偏好字段
@@ -155,7 +189,7 @@ describe("settings presentation", () => {
       group.sections.flatMap((section) => section.fields.map((field) => field.key)),
     );
     expect(groupedKeys.sort()).toEqual(fields.map((field) => field.key).sort());
-    expect(new Set(groupedKeys).size).toBe(48);
+    expect(new Set(groupedKeys).size).toBe(49);
     const canvas = groups.find((group) => group.key === "canvas")!;
     expect(
       new Set(canvas.sections.flatMap((section) => section.fields.map((field) => field.category))),

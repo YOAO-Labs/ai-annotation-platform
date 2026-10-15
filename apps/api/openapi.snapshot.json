@@ -4702,6 +4702,16 @@
             ],
             "title": "Name"
           },
+          "point_cloud_densification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PointCloudDensificationCapability"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "protocol_version": {
             "default": "1",
             "title": "Protocol Version",
@@ -22634,6 +22644,270 @@
         "title": "PlatformRole",
         "type": "string"
       },
+      "PointCloudAugmentationResponse": {
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
+          "axis_convention": {
+            "anyOf": [
+              {
+                "enum": [
+                  "iso_8855",
+                  "ros_rep103",
+                  "kitti_camera",
+                  "opencv_camera",
+                  "apollo",
+                  "y_forward",
+                  "sustechpoints_demo",
+                  "raw"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis Convention"
+          },
+          "cameras": {
+            "items": {
+              "$ref": "#/components/schemas/PointCloudAuxiliaryCamera"
+            },
+            "title": "Cameras",
+            "type": "array"
+          },
+          "coordinate_frame": {
+            "const": "primary_pointcloud",
+            "default": "primary_pointcloud",
+            "title": "Coordinate Frame",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "input_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Digest"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "enum": [
+                  "omega-current-mono-512",
+                  "omega-current-mono-512-full-lidar"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "disabled",
+              "not_available",
+              "missing",
+              "building",
+              "ready",
+              "failed",
+              "stale"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "enabled",
+          "status"
+        ],
+        "title": "PointCloudAugmentationResponse",
+        "type": "object"
+      },
+      "PointCloudAuxiliaryAssetRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "camera_role": {
+            "maxLength": 50,
+            "pattern": "^camera_[A-Za-z0-9_-]+$",
+            "title": "Camera Role",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "asset_id",
+          "generation",
+          "camera_role"
+        ],
+        "title": "PointCloudAuxiliaryAssetRequest",
+        "type": "object"
+      },
+      "PointCloudAuxiliaryAssetResponse": {
+        "properties": {
+          "axis_convention": {
+            "anyOf": [
+              {
+                "enum": [
+                  "iso_8855",
+                  "ros_rep103",
+                  "kitti_camera",
+                  "opencv_camera",
+                  "apollo",
+                  "y_forward",
+                  "sustechpoints_demo",
+                  "raw"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis Convention"
+          },
+          "camera_role": {
+            "title": "Camera Role",
+            "type": "string"
+          },
+          "coordinate_frame": {
+            "const": "primary_pointcloud",
+            "default": "primary_pointcloud",
+            "title": "Coordinate Frame",
+            "type": "string"
+          },
+          "expires_in": {
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "format": {
+            "const": "pcd",
+            "default": "pcd",
+            "title": "Format",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "point_count": {
+            "title": "Point Count",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_in",
+          "point_count",
+          "sha256",
+          "generation",
+          "camera_role"
+        ],
+        "title": "PointCloudAuxiliaryAssetResponse",
+        "type": "object"
+      },
+      "PointCloudAuxiliaryCamera": {
+        "properties": {
+          "byte_size": {
+            "minimum": 0.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "point_count": {
+            "minimum": 0.0,
+            "title": "Point Count",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "name",
+          "point_count",
+          "byte_size",
+          "sha256"
+        ],
+        "title": "PointCloudAuxiliaryCamera",
+        "type": "object"
+      },
       "PointCloudCameraOut": {
         "properties": {
           "calibration": {
@@ -22715,6 +22989,216 @@
           "image_url"
         ],
         "title": "PointCloudCameraOut",
+        "type": "object"
+      },
+      "PointCloudDensificationCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "const": "/reconstruct",
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ProducerProfile"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Profiles",
+            "type": "array"
+          },
+          "protocol_version": {
+            "const": "1",
+            "title": "Protocol Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "endpoint",
+          "profiles"
+        ],
+        "title": "PointCloudDensificationCapability",
+        "type": "object"
+      },
+      "PointCloudDensificationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "retry_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Job Id"
+          },
+          "scene_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Id"
+          },
+          "scope": {
+            "enum": [
+              "task_ids",
+              "scene_id"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Task Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "PointCloudDensificationRequest",
+        "type": "object"
+      },
+      "PointCloudEnhancementConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "ml_backend_pool_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Backend Pool Id"
+          },
+          "profile": {
+            "default": "omega-current-mono-512",
+            "enum": [
+              "omega-current-mono-512",
+              "omega-current-mono-512-full-lidar"
+            ],
+            "title": "Profile",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "PointCloudEnhancementConfig",
+        "type": "object"
+      },
+      "PointCloudPreparationOptions": {
+        "properties": {
+          "deployment_enabled": {
+            "title": "Deployment Enabled",
+            "type": "boolean"
+          },
+          "producers": {
+            "items": {
+              "$ref": "#/components/schemas/PointCloudProducerOption"
+            },
+            "title": "Producers",
+            "type": "array"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/PointCloudSceneOption"
+            },
+            "title": "Scenes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deployment_enabled",
+          "producers",
+          "scenes"
+        ],
+        "title": "PointCloudPreparationOptions",
+        "type": "object"
+      },
+      "PointCloudPreparationResponse": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "reused": {
+            "default": false,
+            "title": "Reused",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_tasks": {
+            "title": "Total Tasks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "total_tasks"
+        ],
+        "title": "PointCloudPreparationResponse",
+        "type": "object"
+      },
+      "PointCloudProducerOption": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "profile"
+        ],
+        "title": "PointCloudProducerOption",
         "type": "object"
       },
       "PointCloudQualityConfig": {
@@ -23934,6 +24418,25 @@
         "title": "PointCloudQualityThresholdOverride",
         "type": "object"
       },
+      "PointCloudSceneOption": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "PointCloudSceneOption",
+        "type": "object"
+      },
       "PointMaskGeometry": {
         "additionalProperties": false,
         "description": "v0.13.0 · 3D 点云语义/实例分割掩码。point_indices 为指向点云的整数索引列表。",
@@ -25142,6 +25645,65 @@
         "title": "ProbeResponse",
         "type": "object"
       },
+      "ProducerProfile": {
+        "additionalProperties": true,
+        "properties": {
+          "camera_count": {
+            "const": 6,
+            "title": "Camera Count",
+            "type": "integer"
+          },
+          "execution_shape": {
+            "const": "B6S1",
+            "title": "Execution Shape",
+            "type": "string"
+          },
+          "id": {
+            "const": "omega-current-mono-512",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 4096.0,
+            "title": "Max Height",
+            "type": "integer"
+          },
+          "max_width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 4096.0,
+            "title": "Max Width",
+            "type": "integer"
+          },
+          "outputs": {
+            "items": {
+              "enum": [
+                "depth",
+                "confidence"
+              ],
+              "type": "string"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
+          "request_timeout_seconds": {
+            "default": 1800,
+            "exclusiveMinimum": 0.0,
+            "title": "Request Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "camera_count",
+          "execution_shape",
+          "max_width",
+          "max_height",
+          "outputs"
+        ],
+        "title": "ProducerProfile",
+        "type": "object"
+      },
       "ProfileUpdate": {
         "properties": {
           "name": {
@@ -25435,6 +25997,9 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "point_cloud_enhancement_config": {
+            "$ref": "#/components/schemas/PointCloudEnhancementConfig"
           },
           "raster_mask_native_editing_enabled": {
             "default": true,
@@ -26248,6 +26813,9 @@
               }
             ],
             "title": "Owner Name"
+          },
+          "point_cloud_enhancement_config": {
+            "$ref": "#/components/schemas/PointCloudEnhancementConfig"
           },
           "point_cloud_quality_config": {
             "$ref": "#/components/schemas/PointCloudQualityConfig"
@@ -28231,6 +28799,16 @@
               }
             ],
             "title": "Name"
+          },
+          "point_cloud_enhancement_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PointCloudEnhancementConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "point_cloud_quality_config": {
             "anyOf": [
@@ -40038,6 +40616,22 @@
         "additionalProperties": false,
         "description": "v0.15.3 · 点云模态偏好。v0.15.6 填充渲染 / 导航字段（默认值 = 拆分前现状值）。",
         "properties": {
+          "augmentationSource": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "neighbors",
+                  "vggt_omega"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Augmentationsource"
+          },
           "cameraDamping": {
             "default": 0.1,
             "maximum": 0.3,
@@ -40070,6 +40664,15 @@
             "default": false,
             "title": "Colorizewithcamera",
             "type": "boolean"
+          },
+          "displayStyle": {
+            "default": "points",
+            "enum": [
+              "points",
+              "surface"
+            ],
+            "title": "Displaystyle",
+            "type": "string"
           },
           "neighborPointCull": {
             "default": "keep",
@@ -58464,6 +59067,112 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/point-cloud/augmentation/jobs": {
+      "post": {
+        "operationId": "prepare_scene_api_v1_projects__project_id__point_cloud_augmentation_jobs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PointCloudDensificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PointCloudPreparationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prepare Scene",
+        "tags": [
+          "point-cloud-densification"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/point-cloud/augmentation/preparation": {
+      "get": {
+        "operationId": "preparation_options_api_v1_projects__project_id__point_cloud_augmentation_preparation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PointCloudPreparationOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preparation Options",
+        "tags": [
+          "point-cloud-densification"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/preannotate": {
       "post": {
         "operationId": "trigger_preannotation_api_v1_projects__project_id__preannotate_post",
@@ -62804,6 +63513,112 @@
           }
         ],
         "summary": "Get Task Neighbors",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{task_id}/point-cloud/augmentation": {
+      "get": {
+        "operationId": "get_point_cloud_augmentation_api_v1_tasks__task_id__point_cloud_augmentation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PointCloudAugmentationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Point Cloud Augmentation",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{task_id}/point-cloud/augmentation/assets": {
+      "post": {
+        "operationId": "create_point_cloud_augmentation_asset_url_api_v1_tasks__task_id__point_cloud_augmentation_assets_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PointCloudAuxiliaryAssetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PointCloudAuxiliaryAssetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Point Cloud Augmentation Asset Url",
         "tags": [
           "tasks"
         ]

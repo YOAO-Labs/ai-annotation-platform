@@ -2,13 +2,20 @@ import type { SensorCalibration } from "@/types";
 
 import { colorizePoints, type CameraSample } from "./colorize";
 import { buildDepthRaster, buildGpuDepthRaster } from "./depthmap";
-import { decodePointCloudFrame } from "./pointcloudFrame";
+import { decodePointCloudFrame, decodeAuxiliaryPointCloudFrame } from "./pointcloudFrame";
 import type { LidarAxisConvention } from "./axisConvention";
 
 type PointcloudWorkerRequest =
   | {
       reqId: number;
       kind: "decode_pcd";
+      buffer: ArrayBuffer;
+      convention: LidarAxisConvention;
+      decimateThreshold: number;
+    }
+  | {
+      reqId: number;
+      kind: "decode_auxiliary_pcd";
       buffer: ArrayBuffer;
       convention: LidarAxisConvention;
       decimateThreshold: number;
@@ -37,6 +44,18 @@ const ctx = self as unknown as WorkerScope;
 ctx.onmessage = (event: MessageEvent<PointcloudWorkerRequest>) => {
   const message = event.data;
   try {
+    if (message.kind === "decode_auxiliary_pcd") {
+      const frame = decodeAuxiliaryPointCloudFrame(
+        message.buffer,
+        message.convention,
+        message.decimateThreshold,
+      );
+      ctx.postMessage({ reqId: message.reqId, ok: true, kind: message.kind, frame }, [
+        frame.positions.buffer,
+        frame.colors.buffer,
+      ]);
+      return;
+    }
     if (message.kind === "decode_pcd") {
       const frame = decodePointCloudFrame(
         message.buffer,

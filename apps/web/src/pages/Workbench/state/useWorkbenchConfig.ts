@@ -21,6 +21,7 @@ import type { ProjectRenderingConfig } from "@/api/projects";
 import { useToastStore } from "@/components/ui/Toast";
 import { useAuthStore } from "@/stores/authStore";
 import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreferences";
+import { normalizePointCloudPreferencePatch } from "./pointCloudAugmentation";
 
 // v0.10.10 · I17.3 · 项目级覆盖的字段名集合（用于 SettingsPage badge 与控件 disabled）。
 // 与 ProjectRenderingConfig 字段同集（平铺命名不变），不含 longTaskSampleRate / layout。
@@ -181,7 +182,7 @@ function applyConfigPatch(
     common: { ...prev.common, ...(patch.common ?? {}) },
     image: { ...prev.image, ...(patch.image ?? {}) },
     video: { ...prev.video, ...(patch.video ?? {}) },
-    pointcloud: { ...prev.pointcloud, ...(patch.pointcloud ?? {}) },
+    pointcloud: { ...prev.pointcloud, ...normalizePointCloudPreferencePatch(patch.pointcloud) },
     layout,
   };
 }

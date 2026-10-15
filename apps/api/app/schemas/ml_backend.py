@@ -10,6 +10,7 @@ from aap_protocol_v2.lifecycle import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.utils.gpu_resource import validate_gpu_resource_id
+from app.schemas.point_cloud_densification import PointCloudDensificationCapability
 
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
@@ -250,6 +251,7 @@ class BackendCapabilities(BaseModel):
     # ADR-0049 · strict canonical `/setup.managed_lifecycle`; None means the
     # backend cannot participate in enforce promotion.
     managed_lifecycle: ManagedLifecycleCapabilities | None = None
+    point_cloud_densification: PointCloudDensificationCapability | None = None
 
     @field_validator("managed_lifecycle", mode="before")
     @classmethod

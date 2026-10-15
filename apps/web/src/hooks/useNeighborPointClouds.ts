@@ -6,13 +6,34 @@
  */
 import { useQueries } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
+import type { PointCloudDisplayStyle } from "@/api/auth";
 import { loadNeighborPcdPositions } from "@/pages/Workbench/stages/three-d/geometry/loadNeighborPcd";
 import type { LidarAxisConvention } from "@/pages/Workbench/stages/three-d/geometry/axisConvention";
+import { resolvePointCloudAugmentation } from "@/pages/Workbench/state/pointCloudAugmentation";
 
 export interface NeighborPcd {
   taskId: string;
   frameIndex: number;
   positions: Float32Array;
+}
+
+export interface NeighborPointCloudPlan {
+  frameCount: 0 | 1 | 2 | 3;
+  displayMode: "surface" | "diagnostic";
+}
+
+/** Keep implicit surface assistance bounded while preserving the explicit overlay contract. */
+export function resolveNeighborPointCloudPlan(
+  displayStyle: PointCloudDisplayStyle,
+  overlayEnabled: boolean,
+  overlayFrameCount: number,
+): NeighborPointCloudPlan {
+  return resolvePointCloudAugmentation({
+    augmentationSource: null,
+    displayStyle,
+    neighborPointOverlay: overlayEnabled,
+    neighborPointOverlayK: overlayFrameCount as 1 | 2 | 3,
+  }).neighborPlan;
 }
 
 export function useNeighborPointClouds(

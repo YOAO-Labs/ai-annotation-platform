@@ -657,6 +657,7 @@ async def test_patch_pointcloud_subtree_fields(httpx_client, annotator):
         json={
             "workbench": {
                 "pointcloud": {
+                    "displayStyle": "surface",
                     "pointSize": 0.12,
                     "persistCameraView": True,
                     "colorizeWithCamera": True,
@@ -681,6 +682,7 @@ async def test_patch_pointcloud_subtree_fields(httpx_client, annotator):
     )
     assert resp.status_code == 200
     wb = resp.json()["workbench"]
+    assert wb["pointcloud"]["displayStyle"] == "surface"
     assert wb["pointcloud"]["pointSize"] == 0.12
     assert wb["pointcloud"]["persistCameraView"] is True
     assert wb["pointcloud"]["colorizeWithCamera"] is True
@@ -721,6 +723,7 @@ async def test_patch_pointcloud_camera_layout_snapshot(httpx_client, annotator):
 async def test_patch_pointcloud_range_and_enum_violations_422(httpx_client, annotator):
     _, token = annotator
     for bad_subtree in (
+        {"pointcloud": {"displayStyle": "mesh"}},  # only points/surface are supported
         {"pointcloud": {"pointSize": 0.5}},  # > 0.3
         {"pointcloud": {"pointSize": 0.001}},  # < 0.01
         {"pointcloud": {"colorizeContrast": 0.1}},  # < 0.5

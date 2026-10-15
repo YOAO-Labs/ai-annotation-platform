@@ -269,6 +269,16 @@ def canonicalize_capability(raw: dict | None) -> dict:
             canonical[field_name] = bool(caps.get(field_name, _DEFAULTS[field_name]))
         else:
             canonical[field_name] = caps.get(field_name, _DEFAULTS[field_name])
+    # Preserve every existing pool fingerprint when the additive producer is absent.
+    if caps.get("point_cloud_densification") is not None:
+        from app.schemas.point_cloud_densification import (
+            PointCloudDensificationCapability,
+        )
+
+        producer = PointCloudDensificationCapability.model_validate(
+            caps["point_cloud_densification"]
+        ).model_dump(mode="json")
+        canonical["point_cloud_densification"] = _canonicalize_schema_value(producer)
     return canonical
 
 
@@ -312,7 +322,7 @@ def diff_capabilities(
     cand_canon = canonicalize_capability(candidate_snapshot)
     differing = tuple(
         field
-        for field in _CANONICAL_FIELDS
+        for field in [*_CANONICAL_FIELDS, "point_cloud_densification"]
         if pool_canon.get(field) != cand_canon.get(field)
     )
     if not differing:

@@ -121,6 +121,8 @@ export function TriViewPanel({
   });
   // 拖拽期冻结取景参考 (起始姿态); null = 无拖拽。
   const [frozen, setFrozen] = useState<Psr | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   // 量出 panel / 3 行的 client rect，由 PointCloudScene 相对主 canvas 统一换算 viewport。
   const layout = useCallback(() => {
@@ -143,18 +145,17 @@ export function TriViewPanel({
     scene.setTriViewLayout({
       panel: { left: pr.left, top: pr.top, width: pr.width, height: pr.height },
       views,
-      visibleRegions: active ? getVisibleRegions?.(panel) : [],
+      visibleRegions: activeRef.current ? getVisibleRegions?.(panel) : [],
     });
-  }, [active, getVisibleRegions, scene]);
+  }, [getVisibleRegions, scene]);
 
   // 挂载注册布局；浮窗 resize 与窗口 resize 重测，卸载恢复主 canvas 旧区域。
-  useEffect(() => {
+  useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel || !scene) return;
     const ro = new ResizeObserver(layout);
     ro.observe(panel);
     window.addEventListener("resize", layout);
-    layout();
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", layout);
@@ -162,14 +163,17 @@ export function TriViewPanel({
     };
   }, [layout, scene]);
 
-  // fixed 浮窗拖动只改位置，不触发 ResizeObserver；父层每次位置/尺寸变化后同步重测。
-  useLayoutEffect(() => layout(), [layout, layoutKey]);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!scene) return;
+    layout();
     scene.setTriViewActive(active);
+  }, [active, layout, layoutKey, scene]);
+
+  // fixed 浮窗拖动只改位置，不触发 ResizeObserver；父层通过 layoutKey 同步重测。
+  useLayoutEffect(() => {
+    if (!scene) return;
     return () => scene.setTriViewActive(false);
-  }, [active, scene]);
+  }, [scene]);
 
   useEffect(() => {
     scene?.setTriViewZoomByView(zoomByView);
@@ -177,7 +181,7 @@ export function TriViewPanel({
 
   // 选中框 PSR 变化 (含拖拽 draft): 只更新裁剪面/相机。DOM 布局由上方的
   // ResizeObserver / layoutKey 负责，避免业务对象引用刷新把 0.5px 测量抖动放大成渲染循环。
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!scene) return;
     scene.setTriViewBox(
       selected
@@ -232,7 +236,7 @@ export function TriViewPanel({
           />
           <TriAxisGlyph view={view} />
           <figcaption className={TRI_CAPTION}>
-            {TRI_LABEL[view]} · {Math.round(zoomByView[view] * 100)}%
+            {TRI_LABEL[view]} · {Math.round(zoomByView[view] * 100)}% · 当前实测
           </figcaption>
         </div>
       ))}

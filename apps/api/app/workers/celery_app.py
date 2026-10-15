@@ -24,6 +24,7 @@ celery_app = Celery(
         "app.workers.video_track_quality",
         "app.workers.mask_qc",
         "app.workers.point_cloud_quality",
+        "app.workers.point_cloud_densification",
         "app.workers.mask_repair",
         "app.workers.mask_format_import",
         # v0.10.16 · async_jobs 兜底信号 + DuckDB 分析同步
@@ -85,6 +86,8 @@ celery_app.conf.update(
         "app.workers.video_track_quality.run": {"queue": "media"},
         "app.workers.mask_qc.run_mask_qc": {"queue": "media"},
         "app.workers.point_cloud_quality.run": {"queue": "media"},
+        "app.workers.point_cloud_densification.run": {"queue": "media"},
+        "app.workers.point_cloud_densification.reconcile": {"queue": "cleanup"},
         "app.workers.mask_repair.run_mask_repair": {"queue": "media"},
         "app.workers.mask_repair.rollback_mask_repair": {"queue": "media"},
         "app.workers.mask_format_import.run_mask_format_import": {"queue": "media"},
@@ -128,6 +131,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "reconcile-point-cloud-preparations": {
+            "task": "app.workers.point_cloud_densification.reconcile",
+            "schedule": timedelta(minutes=15),
+        },
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",
             "schedule": crontab(hour=3, minute=0),  # 每日 03:00 UTC

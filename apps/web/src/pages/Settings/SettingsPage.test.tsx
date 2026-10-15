@@ -316,7 +316,7 @@ describe("SettingsPage", () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /标注偏好/ }));
     expect(screen.getByText(/图像平滑/)).toBeInTheDocument();
-    expect(screen.getAllByTestId(/^setting-field-/)).toHaveLength(45);
+    expect(screen.getAllByTestId(/^setting-field-/)).toHaveLength(46);
     for (const label of [
       "界面布局",
       "标注显示",

@@ -29,11 +29,17 @@ GitHub Actions 的 `services:` 块**不接受 image 的 args**（没法给 MinIO
 ```yaml
 - name: Start MinIO
   run: |
+    minio_image=icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    for attempt in 1 2 3; do
+      docker pull "$minio_image" && break
+      if [ "$attempt" -eq 3 ]; then exit 1; fi
+      sleep 5
+    done
     docker run -d --name minio \
       -p 9000:9000 \
       -e MINIO_ROOT_USER=minioadmin \
       -e MINIO_ROOT_PASSWORD=minioadmin \
-      icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+      "$minio_image" server /data
 
     # 轮询 health 端点直到就绪
     for i in $(seq 1 30); do
@@ -43,6 +49,8 @@ GitHub Actions 的 `services:` 块**不接受 image 的 args**（没法给 MinIO
     docker logs minio
     exit 1
 ```
+
+镜像仓库连接偶尔会在读取响应头时超时。CI 在启动容器前最多拉取三次，两次尝试间等待 5 秒；三次失败即终止该 job，保留 Docker 的原始错误。容器启动和健康检查仍各执行一次。
 
 桶 `annotations` 由 FastAPI lifespan `ensure_bucket` 第一次 HeadBucket 失败时自建，无需预建。
 
@@ -100,6 +108,12 @@ Timeout: 30000ms
 - 压力套件允许 1 次重试（见 `apps/web/playwright.stress.config.ts`）。
 
 同一次取证还确认了 `video-issue-context` 的 stale seek 竞态：同一冻结窗口内，时间轴点击的异步精确取帧迟到后会把键盘步进已达的帧号拽回点击时刻的旧帧（G2-1 实测 F120→F105，两次重试稳定复现）。测试侧先以 `expectPaintSettled` 串行化规避（PR #113）；应用层随后在播放控制器的帧号写入汇聚点加了单调栅栏——暂停态只接受最新导航目标帧或其回声，迟到旧帧回报直接丢弃（Issue #114）。`expectPaintSettled` 因此是冗余防护而非唯一防线，可按需保留。
+
+## 症状 5：E2E 重跑通过，汇总仍读取旧失败
+
+同一 workflow run 的多次尝试可能保留同名报告。默认下载逻辑按 artifact ID 筛选同名报告，可能误选重跑前的旧报告。
+
+PR 和夜间检查先列出当前 run 的全部报告，按名称分组，并按 `created_at` 选择最新报告，再按 artifact ID 下载。未重跑的套件保留原报告；最新报告缺失或失败时，汇总仍会拒绝通过。不要按 ID 大小判断新旧，ID 不保证按创建时间递增。
 
 ## 教训
 

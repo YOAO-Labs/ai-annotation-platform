@@ -1,5 +1,7 @@
 # CVAT / Label Studio 取经合集（2026-05-18）
 
+> 历史源码定位：外部路径来自当时的本地 CVAT / Label Studio 检出，本文未记录固定 commit，当前仓库也不包含这些检出。下文保留代码路径作历史索引，不将它们当成可用本地链接或已验证的当前上游源码。
+
 > **性质**：研究输入，不是行动清单。
 > **来源**：对照阅读 `cvat`（v2.x 主干）+ `label-studio`（OSS 1.x 主干）两份代码，结合当前平台 ROADMAP.md / CHANGELOG.md 的现状摸底。
 > **使用方式**：
@@ -18,11 +20,11 @@
 
 > **§1.1–1.7 已完成**（v0.10.13 / v0.10.15 / v0.10.16，第 1 波收尾）。落地细节与复盘见各自 CHANGELOG / plan / ADR；后续延伸均已转录到主 [ROADMAP.md](../ROADMAP.md) §A/§B。以下仅留一行登记，详情走 SoT。
 
-- **§1.1 Annotation Guide** ✅ v0.10.13 — 项目级 Markdown 指引 + asset（CodeMirror 6 + 工作台浮层）。SoT: CHANGELOG v0.10.13 / [plan](../../docs/plans/archive/2026-05-18-v0.10.13-annotation-guide.md)；延伸见 ROADMAP §A「Annotation Guide 配套延伸」。
+- **§1.1 Annotation Guide** ✅ v0.10.13 — 项目级 Markdown 指引 + asset（CodeMirror 6 + 工作台浮层）。SoT: CHANGELOG v0.10.13 / [plan](../docs/plans/archive/2026-05-18-v0.10.13-annotation-guide.md)；延伸见 ROADMAP §A「Annotation Guide 配套延伸」。
 - **§1.2 `reject_reason_type` 结构化枚举** ✅ v0.10.16 — 4 类 enum（`missing/extra/wrong_label/wrong_geometry`）+ RejectReasonModal。SoT: CHANGELOG v0.10.16。
-- **§1.3 Webhook `event_version` 信封** ✅ v0.10.16（仅 ADR + Pydantic 占位）— [ADR-0025](../../docs/adr/0025-webhook-event-envelope-versioning.md) Proposed；publisher/delivery 表留 §2.1 epic 实施。
+- **§1.3 Webhook `event_version` 信封** ✅ v0.10.16（仅 ADR + Pydantic 占位）— [ADR-0025](../docs/adr/0025-webhook-event-envelope-versioning.md) Proposed；publisher/delivery 表留 §2.1 epic 实施。
 - **§1.4 截图 fixture** — 主 ROADMAP 已有，本文不重复（仅 §7 登记）。
-- **§1.5 Predictions Import 端点** ✅ v0.10.15 — `POST /projects/{id}/predictions/import?format=aap_json|coco`，lenient + dry_run + overwrite。SoT: CHANGELOG v0.10.15 / [ADR-0024](../../docs/adr/archive/0024-aap-json-format.md)；延伸见 ROADMAP §A「Predictions Import / AAP JSON 后续延伸」。
+- **§1.5 Predictions Import 端点** ✅ v0.10.15 — `POST /projects/{id}/predictions/import?format=aap_json|coco`，lenient + dry_run + overwrite。SoT: CHANGELOG v0.10.15 / [ADR-0024](../docs/adr/archive/0024-aap-json-format.md)；延伸见 ROADMAP §A「Predictions Import / AAP JSON 后续延伸」。
 - **§1.6 DuckDB 离线分析视图** ✅ v0.10.16 — 3 固定面板 + super_admin 守卫；升级 ClickHouse 触发=`task_events` 单月 > 1000万 或单 query > 10s。SoT: CHANGELOG v0.10.16。
 - **§1.7 统一异步任务表 `async_jobs`（MVP）** ✅ v0.10.16 — 双写双轨（async_jobs 汇总索引 + 专表 domain 真值）+ Topbar JobsBell。SoT: CHANGELOG v0.10.16；延伸（kind 注册中心 / WS 进度 / 全 kind cancel）见 ROADMAP §B。
 
@@ -32,7 +34,7 @@
 
 ### 2.1 Webhook 系统（一等公民）
 
-- **来源**：CVAT [`cvat/apps/webhooks`](../../cvat/cvat/apps/webhooks)。两表分离：`Webhook(scope, events[])` + `WebhookDelivery(status_code, request, response, redelivered_at)`。
+- **来源**：CVAT `cvat/apps/webhooks`。两表分离：`Webhook(scope, events[])` + `WebhookDelivery(status_code, request, response, redelivered_at)`。
 - **现 ROADMAP**：§B 治理/合规只有一句「Slack/Webhook 集成」，缺设计。
 - **建议**：升级为独立 ADR + epic。
 - **核心字段**：
@@ -66,15 +68,15 @@
 
 ### 2.2 AnnotationFeedback 表（Issue / Comment / BugReport 收敛）◑ 核心已落，剩切单源
 
-> 统一模型本身已落地（[ADR-0027](../../docs/adr/archive/0027-annotation-feedback-unified-table.md)）：`annotation_feedbacks` 表（migration 0076 / v0.10.19）、`v_annotation_feedback_unified` UNION ALL view（0077 / v0.10.21，段二）、bug/comment/reject 三源同事务双写 mirror（`feedback.py mirror_*`）、双写一致性对账安全网（`feedback_reconcile.py` / v0.11.0）均就位。实现的 `kind` / `anchor_type` 枚举与本节原设计基本一致。
+> 统一模型本身已落地（[ADR-0027](../docs/adr/archive/0027-annotation-feedback-unified-table.md)）：`annotation_feedbacks` 表（migration 0076 / v0.10.19）、`v_annotation_feedback_unified` UNION ALL view（0077 / v0.10.21，段二）、bug/comment/reject 三源同事务双写 mirror（`feedback.py mirror_*`）、双写一致性对账安全网（`feedback_reconcile.py` / v0.11.0）均就位。实现的 `kind` / `anchor_type` 枚举与本节原设计基本一致。
 >
 > **唯一仍 open**：ADR-0027 第三段「切单源 + 旧表退役」（标 v0.11.9+，drift 长期为 0 后才切），在主 ROADMAP 优先级表 I4/I12/I18 行跟踪。
 
-- **来源**：CVAT [`Issue`](../../cvat/cvat/apps/engine/issue.py) + Comment thread，所有反馈都锚到 `(frame, position)`。
+- **来源**：CVAT `Issue`（历史路径 `cvat/apps/engine/issue.py`） + Comment thread，所有反馈都锚到 `(frame, position)`。
 
 ### 2.3 Consensus / Replica Jobs（与 GT honeypot 分开做）
 
-- **来源**：CVAT `Task.consensus_replicas` + [`cvat/apps/consensus`](../../cvat/cvat/apps/consensus) 的 intersect_merge。
+- **来源**：CVAT `Task.consensus_replicas` + `cvat/apps/consensus` 的 intersect_merge。
 - **现 ROADMAP**：§C.7 I19 把 GT job / Consensus / IAA 捆成一个 L 体量 epic。
 - **建议拆分**：
   - **I19a · Consensus replicas（先做，更容易）**：`task.consensus_n: int = 1`，>1 时调度器自动分给 N 个不同标注员；提交后 IoU > 0.7 自动合并，否则进 reviewer 队列。**不需要"看不见"的伪装机制**。
@@ -100,7 +102,7 @@
 
 ### 2.6 平台原生 task JSON 格式（"AAP JSON"） ✅ 已完成 v0.10.15
 
-> AAP JSON v1.0 已作导出格式与 COCO/YOLO/VOC 并列、并作 Predictions Import 推荐格式落地（与 §1.5 同窗口）。关键决策（schema_version 必备、annotations/predictions 双数组分开、导出写满 null/导入 lenient、内部 geometry 格式、task_match display_id 优先）均按本节原设计实现。SoT：[ADR-0024](../../docs/adr/archive/0024-aap-json-format.md)、[schema](../../apps/api/app/schemas/aap_json.py)、CHANGELOG v0.10.15。后续延伸（manifest 打包 / 多 shape / video_track 导入 / annotations import / export_meta.filter）见 [ROADMAP §A AI/模型](../ROADMAP.md#ai--模型)「Predictions Import / AAP JSON 后续延伸」。
+> AAP JSON v1.0 已作导出格式与 COCO/YOLO/VOC 并列、并作 Predictions Import 推荐格式落地（与 §1.5 同窗口）。关键决策（schema_version 必备、annotations/predictions 双数组分开、导出写满 null/导入 lenient、内部 geometry 格式、task_match display_id 优先）均按本节原设计实现。SoT：[ADR-0024](../docs/adr/archive/0024-aap-json-format.md)、[schema](../apps/api/app/schemas/aap_json.py)、CHANGELOG v0.10.15。后续延伸（manifest 打包 / 多 shape / video_track 导入 / annotations import / export_meta.filter）见 [ROADMAP §A AI/模型](../ROADMAP.md#ai--模型)「Predictions Import / AAP JSON 后续延伸」。
 
 ---
 
@@ -110,7 +112,7 @@
 
 > 独立包 `ai-annotation-sdk` 与 `aap` CLI / TUI 已落地，覆盖鉴权、项目 / 数据集 / 任务 / 标注 / 预测 / 导出 / 批次 / 成员 / 模型服务与后台任务；OpenAPI 契约测试与能力台账 `api-coverage.toml` 随 SDK 独立发版，文档见 `docs-site/dev/sdk/`。SoT：`packages/python-sdk/` 与 CHANGELOG。仅 PyPI 发布不在仓库内可证。
 
-- **来源**：CVAT [`cvat-sdk`](../../cvat/cvat-sdk) + [`cvat-cli`](../../cvat/cvat-cli)。
+- **来源**：CVAT `cvat-sdk` + `cvat-cli`。
 - **现 ROADMAP**：L7 "公开 SDK"在 12 月+ 长期规划里。
 - **建议升级到 P2**：SDK 是**客户决策物料**——大学实验室 / 初创公司在选标注工具时几乎都会问"有没有 Python SDK"。
 - **零成本做法**：
@@ -234,7 +236,7 @@
 
 | 主题                   | CVAT / LS 的坑                                                                                          | 平台当前正确选择                             | 何时检查                                                           |
 | ---------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------ |
-| Job 状态字段           | CVAT `Job.status`/`stage`/`state` 三字段并存（[models.py:1165](../../cvat/cvat/apps/engine/models.py)） | 单 status enum                               | 加新状态前看一眼是否能用现有 enum 表达                             |
+| Job 状态字段           | CVAT `Job.status`/`stage`/`state` 三字段并存（models.py:1165（历史路径 `cvat/apps/engine/models.py`）） | 单 status enum                               | 加新状态前看一眼是否能用现有 enum 表达                             |
 | Label Config           | LS XML DSL 难维护、难校验                                                                               | JSONB `classes_config` + `attributes_schema` | 永远不要回退到 DSL，要灵活就扩 JSONB schema                        |
 | Task 双重含义          | LS task 既是标注题目也是后台 job                                                                        | 题目 / Celery 分离                           | §1.7 async_jobs 落地后强化                                         |
 | Django app 碎片        | LS 24+ apps 跨 module 依赖混乱                                                                          | apps/api 单仓                                | 不要因为"模块化"动机拆出新 apps/\*                                 |

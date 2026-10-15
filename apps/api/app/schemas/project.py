@@ -14,6 +14,7 @@ from app.schemas._jsonb_types import (
 from app.db.enums import PlatformRole, ProjectRole
 from app.schemas.mask_qc import MaskQCConfig
 from app.schemas.point_cloud_quality import PointCloudQualityConfig
+from app.schemas.point_cloud_auxiliary import PointCloudEnhancementConfig
 from app.services.project_access import ProjectCapability
 from pydantic import field_validator
 
@@ -95,6 +96,9 @@ class ProjectCreate(BaseModel):
     ai_interactive_enabled: bool = True
     # 图片原生 Raster Mask 写入默认开启；部署总闸仍可统一禁用。
     raster_mask_native_editing_enabled: bool = True
+    point_cloud_enhancement_config: PointCloudEnhancementConfig = Field(
+        default_factory=PointCloudEnhancementConfig
+    )
     # v0.10.29 · 视频帧逻辑采样配置; None / 缺省 = 不采样 (空 dict).
     video_sampling: VideoSamplingConfig | None = None
     video_collaboration: VideoCollaborationConfig | None = None
@@ -153,6 +157,16 @@ class ProjectUpdate(BaseModel):
     raster_mask_native_editing_enabled: bool | None = None
     mask_qc_config: MaskQCConfig | None = None
     point_cloud_quality_config: PointCloudQualityConfig | None = None
+    point_cloud_enhancement_config: PointCloudEnhancementConfig | None = None
+
+    @field_validator("point_cloud_enhancement_config")
+    @classmethod
+    def _point_cloud_enhancement_config_cannot_be_null(
+        cls, value: PointCloudEnhancementConfig | None
+    ) -> PointCloudEnhancementConfig:
+        if value is None:
+            raise ValueError("point_cloud_enhancement_config cannot be null")
+        return value
 
     @field_validator("mask_qc_config")
     @classmethod
@@ -274,6 +288,9 @@ class ProjectOut(BaseModel):
     mask_qc_config: MaskQCConfig = Field(default_factory=MaskQCConfig)
     point_cloud_quality_config: PointCloudQualityConfig = Field(
         default_factory=PointCloudQualityConfig
+    )
+    point_cloud_enhancement_config: PointCloudEnhancementConfig = Field(
+        default_factory=PointCloudEnhancementConfig
     )
     # v0.10.10 · I17.3 · 项目级渲染配置覆盖；空 dict 表示项目不覆盖任何字段
     rendering_config: ProjectRenderingConfig = ProjectRenderingConfig()

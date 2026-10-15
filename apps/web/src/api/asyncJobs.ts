@@ -14,6 +14,7 @@ export type AsyncJobKind =
   | "dataset_import"
   | "create_tasks"
   | "point_cloud_cross_frame"
+  | "point_cloud_densification"
   | string;
 
 /** 仅展示 worker 实际支持协作取消的作业。 */
@@ -24,6 +25,7 @@ export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
   "mask_repair",
   "mask_format_import",
   "point_cloud_cross_frame",
+  "point_cloud_densification",
 ]);
 
 export interface AsyncJob {
@@ -113,7 +115,7 @@ export const asyncJobsApi = {
       ? apiClient.get<AsyncJobListResponse>(path, { signal })
       : apiClient.get<AsyncJobListResponse>(path);
   },
-  get: (id: string) => apiClient.get<AsyncJob>(`/async-jobs/${id}`),
+  get: (id: string, init?: RequestInit) => apiClient.get<AsyncJob>(`/async-jobs/${id}`, init),
   cancel: (id: string) =>
     apiClient.post<{ status: string; id: string }>(`/async-jobs/${id}/cancel`),
   retryFailed: (id: string) =>

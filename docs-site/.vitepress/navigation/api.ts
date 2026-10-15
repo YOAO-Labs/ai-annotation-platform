@@ -23,6 +23,7 @@ export const apiSidebar: DefaultTheme.SidebarItem[] = [
     items: [
       { text: "异步任务", link: "/api/guides/async-jobs" },
       { text: "视频追踪作业", link: "/api/guides/video-tracker-jobs" },
+      { text: "点云辅助资产与生成", link: "/api/guides/point-cloud-augmentation" },
     ],
   },
   {

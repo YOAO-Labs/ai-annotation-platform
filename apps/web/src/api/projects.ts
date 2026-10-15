@@ -64,11 +64,29 @@ export interface ProjectRenderingConfig {
   trackerDefaultModel?: string | null;
 }
 
+export interface PointCloudEnhancementConfig {
+  schema_version: 1;
+  enabled: boolean;
+  profile: "omega-current-mono-512" | "omega-current-mono-512-full-lidar";
+  ml_backend_pool_id: string | null;
+}
+
+export const DEFAULT_POINT_CLOUD_ENHANCEMENT_CONFIG: PointCloudEnhancementConfig = {
+  schema_version: 1,
+  enabled: false,
+  profile: "omega-current-mono-512",
+  ml_backend_pool_id: null,
+};
+
 /** v0.6.4 起 ProjectOut 已强类型，ProjectResponse 仅作为旧导出名保留。 */
 // v0.10.10 · 待 codegen 重跑前手动扩 rendering_config 字段。
 // v0.18.27 · codegen 已含 preannotate_pipeline (Array<{[k]:unknown}>), Omit 后用富类型覆盖.
-export type ProjectResponse = Omit<ProjectOut, "preannotate_pipeline"> & {
+export type ProjectResponse = Omit<
+  ProjectOut,
+  "preannotate_pipeline" | "point_cloud_enhancement_config"
+> & {
   rendering_config?: ProjectRenderingConfig;
+  point_cloud_enhancement_config?: PointCloudEnhancementConfig | null;
   // v0.18.27 · 项目级「已保存的编排」(方案 A); null/缺 = 未配编排.
   preannotate_pipeline?: PipelineStagePayload[] | null;
 };
@@ -119,8 +137,12 @@ export type ProjectCreatePayload = ProjectCreate & {
 // v0.10.13 · E1 · 加 annotation_guide / guide_assets; 待 codegen 重跑。
 // v0.18.27 · codegen 已含 preannotate_pipeline (Array<{[k]:unknown}>), Omit 后用富类型覆盖
 // 避免与 PipelineStagePayload[] 交叉时报缺索引签名。
-export type ProjectUpdatePayload = Omit<ProjectUpdate, "preannotate_pipeline"> & {
+export type ProjectUpdatePayload = Omit<
+  ProjectUpdate,
+  "preannotate_pipeline" | "point_cloud_enhancement_config"
+> & {
   rendering_config?: ProjectRenderingConfig | null;
+  point_cloud_enhancement_config?: PointCloudEnhancementConfig | null;
   annotation_guide?: string | null;
   guide_assets?: GuideAssetEntry[] | null;
   // v0.14.13 · 项目级 variant 偏好 (按 backend_id 分桶); 待 codegen 重跑后从 ProjectUpdate 自带.

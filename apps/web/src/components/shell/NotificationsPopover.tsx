@@ -108,6 +108,7 @@ const JOB_KIND_LABEL: Record<string, string> = {
   mask_repair_rollback: "Mask 修复回滚",
   mask_format_import: "Mask 格式导入",
   point_cloud_cross_frame: "3D 跨帧传播",
+  point_cloud_densification: "AI 当前帧点云补强",
 };
 
 function stringValue(value: unknown): string {

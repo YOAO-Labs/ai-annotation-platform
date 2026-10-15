@@ -307,6 +307,10 @@ async def attach_calibration(db: AsyncSession, *, dataset_id: uuid.UUID) -> int:
         normalized = calib.model_dump(exclude_none=True)
 
         for cam_item in cam_to_items.get(cam, []):
+            # Imported per-exposure values and later manual edits are
+            # authoritative. A scene-level file only initializes missing data.
+            if (cam_item.metadata_ or {}).get("calibration") is not None:
+                continue
             # 整体重新赋值整个 dict 以触发 SQLAlchemy JSONB 变更检测。
             cam_item.metadata_ = {
                 **(cam_item.metadata_ or {}),

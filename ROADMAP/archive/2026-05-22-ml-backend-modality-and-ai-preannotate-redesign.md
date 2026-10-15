@@ -12,11 +12,11 @@
 
 | 现状 | 代码位置 |
 |---|---|
-| `MLBackend` 表无 modality / data_type / 能力字段 | [ml_backend.py](../../apps/api/app/db/models/ml_backend.py) |
-| `is_interactive` 是注册表单**手填**布尔，**不从 `/setup.is_interactive` 派生** → 双真相 | [MlBackendFormModal.tsx:47](../../apps/web/src/components/projects/MlBackendFormModal.tsx) |
+| `MLBackend` 表无 modality / data_type / 能力字段 | 历史 `ml_backend.py`；当前[注册表模型](../../apps/api/app/db/models/ml_backend_registry.py) |
+| `is_interactive` 是注册表单**手填**布尔，**不从 `/setup.is_interactive` 派生** → 双真相 | 历史 `MlBackendFormModal.tsx:47`；当前[服务注册表单](../../apps/web/src/pages/ModelMarket/GlobalBackendFormModal.tsx) |
 | `/setup` 的 `supported_prompts` / `supported_trackers` / `params` **平台从不入库**，只在工作台临时拉来置灰工具 | [ml_backends.py:285](../../apps/api/app/api/v1/ml_backends.py) |
 | `Project.ml_backend_id` 单值；绑定时**不校验** `Project.data_type` 与 backend 能力匹配 | [projects.py:361](../../apps/api/app/api/v1/projects.py) |
-| `/ai-pre` 仅图像（`PredictionJob`、单 backend、单 prompt/阈值）；视频走完全独立的另一套（`VideoTrackerJob` + 工作台 Shift+T + ModelMarket 监控页） | [ProjectDetailPanel.tsx:106](../../apps/web/src/pages/AIPreAnnotate/ProjectDetailPanel.tsx) |
+| `/ai-pre` 仅图像（`PredictionJob`、单 backend、单 prompt/阈值）；视频走完全独立的另一套（`VideoTrackerJob` + 工作台 Shift+T + ModelMarket 监控页） | [ProjectDetailPanel.tsx（当前路径）](../../apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx) |
 
 **已先行修复**（2026-05-22）：`/ai-pre` summary 加 `data_type=image` 过滤，挡住视频项目误入图像文本预标页（[admin_preannotate.py:329](../../apps/api/app/api/v1/admin_preannotate.py)）。这是症状止血，根因仍待本 epic。
 

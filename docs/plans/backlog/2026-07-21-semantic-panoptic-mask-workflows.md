@@ -1,12 +1,12 @@
 # 语义 / 全景分割 Mask 工作流
 
-> Status: Deferred · Epic Phase 8
+> Status: research-draft; deferred Epic Phase 8. Reassess project demand and current contracts through the backlog promotion gate before implementation.
 >
-> 父 Epic：[图像 / 视频栅格 Mask 能力统一](2026-07-21-raster-mask-workbench-unification-epic.md)
+> 父 Epic：[图像 / 视频栅格 Mask 能力统一](../2026-07-21-raster-mask-workbench-unification-epic.md)
 >
-> 硬前置：[v0.23.11 Mask 质检、审阅与格式生态](archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)
+> 硬前置：[v0.23.11 Mask 质检、审阅与格式生态](../archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)
 >
-> 排期：当前不占用发布版本；在 3D 标注工作台 0.24.x 完成且出现明确项目需求后重新评估。
+> Scheduling: unscheduled. Use the [promotion gate](README.md#promotion-gate) to reassess project demand, instance-mask contracts and ADR-0055.
 >
 > 这是新的数据语义，不把 instance Mask 字段复用成 class-map；进入实现前必须新增 ADR-0055。
 

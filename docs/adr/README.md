@@ -47,6 +47,8 @@
 
 ### 已采纳（Accepted，归档）
 
+- [0076](archive/0076-current-frame-point-cloud-auxiliary-assets.md) — 当前帧模型几何作为独立可选辅助资产
+
 - [0001](archive/0001-record-architecture-decisions.md) — Record architecture decisions
 - [0002](archive/0002-backend-stack-fastapi-sqlalchemy-alembic.md) — 后端选型：FastAPI + SQLAlchemy 2.0 async + Alembic
 - [0003](archive/0003-openapi-client-codegen.md) — 前端 OpenAPI 客户端生成方案：@hey-api/openapi-ts

@@ -17,6 +17,7 @@ vi.mock("./geometry/pointCloudComputeSession", async (importOriginal) => {
 
 import {
   acquireCameraBitmap,
+  isPointCloudFramePrefetchReady,
   loadPointCloudDepthRasters,
   loadPointCloudBuffer,
   loadTimedDecodedPointCloudFrame,
@@ -294,6 +295,34 @@ describe("pointCloudAssetCache", () => {
     );
   });
 
+  it("reports a prefetched frame as ready only after decode completes", async () => {
+    const url = "https://assets.test/prefetch-readiness.pcd";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(new Uint8Array([1]), { status: 200 })),
+    );
+    let finishDecode!: (frame: { positions: Float32Array }) => void;
+    decodePointCloudFrameAsyncMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishDecode = resolve;
+        }),
+    );
+    const manifest = {
+      point_cloud_url: url,
+      axis_convention: "iso_8855",
+      cameras: [],
+    } as unknown as TaskPointCloudManifestResponse;
+    const prefetch = prefetchPointCloudFrameAssets(manifest);
+
+    await vi.waitFor(() => expect(finishDecode).toBeTypeOf("function"));
+    expect(isPointCloudFramePrefetchReady(manifest)).toBe(false);
+    finishDecode({ positions: new Float32Array([0, 0, 1]) });
+    await prefetch;
+    expect(isPointCloudFramePrefetchReady(manifest)).toBe(true);
+    expect(isPointCloudFramePrefetchReady(manifest, { decimateThreshold: 100_000 })).toBe(false);
+  });
+
   it("aborts obsolete camera downloads when a newer frame prefetch starts", async () => {
     const requests: Array<{
       url: string;
@@ -531,6 +560,7 @@ describe("pointCloudAssetCache", () => {
 
     const prefetch = prefetchPointCloudFrameAssets(manifest, { depthRasters: true });
     await vi.waitFor(() => expect(buildDepthRastersMock).toHaveBeenCalledTimes(1));
+    expect(isPointCloudFramePrefetchReady(manifest, { depthRasters: true })).toBe(false);
     const completedBeforeDepth = await Promise.race([
       prefetch.then(() => true),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 0)),
@@ -539,5 +569,6 @@ describe("pointCloudAssetCache", () => {
     await prefetch;
 
     expect(completedBeforeDepth).toBe(false);
+    expect(isPointCloudFramePrefetchReady(manifest, { depthRasters: true })).toBe(true);
   });
 });

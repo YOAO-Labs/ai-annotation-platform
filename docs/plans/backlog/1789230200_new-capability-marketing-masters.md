@@ -1,6 +1,6 @@
 # New capability marketing masters
 
-> Status: new stories proposed and unscheduled; Mac recording capability integrated. No new story has been enrolled, captured, published, or backed up by this plan.
+> Status: research-draft; new stories are unscheduled. Mac recording capability is integrated; none of these stories has been enrolled, captured, published or backed up by this plan.
 > Baseline: local `52ad4497`, inspected on 2026-09-13. Priority selected by the maintainer: recent capability demonstrations reusable in documentation, the website, and presentations.
 
 ## Recommendation

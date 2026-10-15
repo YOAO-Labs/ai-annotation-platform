@@ -46,7 +46,7 @@ ADR-0022 的过渡决策，会丢失 hole、多连通区域和原始像素边界
 | [v0.23.9](archive/2026-07-21-v0.23.9-mask-advanced-editing-instance-operations.md) | 高级编辑与实例操作       | 套索增减、连通域、填洞、形态学、非重叠绘制、批量 / 视频 / 派生几何转换               | v0.23.8  |
 | [v0.23.10](archive/2026-07-21-v0.23.10-mask-performance-large-canvas.md)           | 性能与大画布             | 字节预算缓存、AABB 裁剪、Worker、tile editor、5K / 8K 可用性                         | v0.23.9  |
 | [v0.23.11](archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)    | 质检、审阅与格式生态     | Mask QC、跨帧稳定性、局部接受、Label Studio / PNG / MOTS 等格式                      | v0.23.10 |
-| [待排期](2026-07-21-semantic-panoptic-mask-workflows.md)                           | 语义 / 全景分割          | class-map、instance + semantic 合成、冲突策略、16-bit 输出与专用工作流               | v0.23.11 |
+| [待排期](backlog/2026-07-21-semantic-panoptic-mask-workflows.md)                   | 语义 / 全景分割          | class-map、instance + semantic 合成、冲突策略、16-bit 输出与专用工作流               | v0.23.11 |
 
 顺延规则：任何版本未满足退出门，后续版本保持 blocked。不能在后续 UI 中临时补写前置数据合同，也不能为了赶版本绕过
 鉴权、乐观锁、对象校验或无损 round-trip。

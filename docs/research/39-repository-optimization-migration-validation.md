@@ -6,6 +6,10 @@
 > `apps/api/tests/test_project_role_migration.py`、`apps/api/tests/test_migration_0173_project_role_preparation.py`
 > 证据图例：**[V]** 本工作树实测；**[GAP]** 未执行/留待 P8 caller 集成
 
+> 本文保留完成时的验收记录。验证器已扩展为支持不可逆迁移之后的可逆后缀，新增独立的
+> `head → 不可逆版本 → head` 验证；下文的后缀拒绝边界与四阶段结果属于历史状态。
+> 当前用法与边界见[迁移指南](../../docs-site/dev/how-to/add-migration.md#ci-校验)。
+
 ## 0. 结论
 
 1. **旧 round-trip 的问题确认 [V]**：`ci.yml` 的 `upgrade head` → `alembic stamp <floor>` →

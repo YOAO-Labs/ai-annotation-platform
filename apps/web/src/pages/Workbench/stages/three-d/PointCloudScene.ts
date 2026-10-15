@@ -36,9 +36,16 @@ import {
   createWebGpuPointCloudLayer,
   type WebGpuPointCloudLayer,
 } from "./rendering/webgpuPointCloudLayer";
+import {
+  applyLegacyPointCloudDisplayStyle,
+  disposeLegacyPointCloudDisplayStyle,
+  pointCloudDisplaySize,
+  type PointCloudDisplayStyle,
+} from "./rendering/pointCloudDisplayStyle";
 import type { GpuCameraTextureSample } from "./rendering/cameraTextureColorNode";
 import type { ColorAdjust } from "./geometry/colorize";
 import type { MeasurementPosition } from "./geometry/measurement";
+import type { DecodedAuxiliaryPointCloudFrame } from "./geometry/pointcloudFrame";
 import {
   POINT_CLOUD_RENDER_ALL,
   POINT_CLOUD_RENDER_MAIN,
@@ -62,6 +69,7 @@ function webGpuPointCapacity(pointCount: number): number {
 // 前/后帧分色(过去冷蓝 / 未来暖橙),让动态目标拖影读起来是"运动方向"而非乱噪。
 const NEIGHBOR_PAST_COLOR = 0x4a90d9; // 过去帧:冷蓝
 const NEIGHBOR_FUTURE_COLOR = 0xd98a4a; // 未来帧:暖橙
+const NEIGHBOR_SURFACE_COLOR = 0xb8c0cc;
 // 时序淡出:帧距越远越淡(distance=1 最实),拖影随距离自然衰减。
 function neighborOpacity(distance: number): number {
   return Math.max(0.15, 0.5 - (Math.max(1, distance) - 1) * 0.12);
@@ -73,6 +81,19 @@ interface NeighborPointLayer {
   material: THREE.PointsMaterial | null;
   webGpuLayer: WebGpuPointCloudLayer | null;
 }
+
+export type NeighborPointDisplayMode = "surface" | "diagnostic";
+
+export interface NeighborPointFrame {
+  positions: Float32Array;
+  matrix: THREE.Matrix4;
+  dir: "past" | "future";
+  distance: number;
+  /** Diagnostic keeps direction colors; surface is a neutral visual-density aid. */
+  displayMode?: NeighborPointDisplayMode;
+}
+
+export type { PointCloudDisplayStyle } from "./rendering/pointCloudDisplayStyle";
 
 // 选中框高亮色(线框)。未选中用类别色。
 const SELECTED_EDGE_COLOR = 0xffd54a;
@@ -219,6 +240,9 @@ export class PointCloudScene {
   // 弱化单色 + 低透明,与当前帧点区分。切帧 / 关开关时整层重建并 dispose。
   private neighborLayer = new THREE.Group();
   private neighborPoints: NeighborPointLayer[] = [];
+  // Generated geometry is visible only in the main scene, outside every annotation target.
+  private augmentationLayer = new THREE.Group();
+  private augmentationPoints: NeighborPointLayer | null = null;
 
   // v0.13.3 · 鲁棒取景中心/半径(mean ± 2.5σ,见 setRobustFrame)。
   private readonly viewCenter = new THREE.Vector3();
@@ -239,6 +263,7 @@ export class PointCloudScene {
   private readonly qualityGroundGrid: THREE.GridHelper;
   private axisGizmoVisible = true;
   private pointSize = 0.06;
+  private displayStyle: PointCloudDisplayStyle = "points";
   private decimateThreshold = DEFAULT_DECIMATE_THRESHOLD;
   private orbitMode: PointCloudViewState["mode"] = "orbit";
   private onViewChange: ((view: PointCloudViewState) => void) | null = null;
@@ -335,6 +360,7 @@ export class PointCloudScene {
     this.scene.add(this.referenceLayer);
     this.scene.add(this.measurementLayer);
     this.scene.add(this.neighborLayer);
+    this.scene.add(this.augmentationLayer);
     this.initAxisGizmo();
 
     // 变换 gizmo:在框 local 空间编辑(缩放/旋转沿框自身轴)。
@@ -437,10 +463,13 @@ export class PointCloudScene {
           const pointSize = (this.pointSize * mainRect.height) / canvasRect.height;
           if (this.webGpuPointLayer) this.webGpuPointLayer.setPointSize(pointSize);
           else if (this.points) {
-            ((this.points as THREE.Points).material as THREE.PointsMaterial).size = pointSize;
+            ((this.points as THREE.Points).material as THREE.PointsMaterial).size =
+              pointCloudDisplaySize(pointSize, this.displayStyle);
           }
-          for (const neighbor of this.neighborPoints) {
-            if (neighbor.material) neighbor.material.size = pointSize * 0.8;
+          for (const neighbor of this.supplementaryPointLayers()) {
+            if (neighbor.material) {
+              neighbor.material.size = pointCloudDisplaySize(pointSize * 0.8, this.displayStyle);
+            }
             neighbor.webGpuLayer?.setPointSize(pointSize * 0.8);
           }
           const viewport = setClientCameraViewport(
@@ -667,10 +696,11 @@ export class PointCloudScene {
       geom.setAttribute("color", new THREE.BufferAttribute(frame.heightColors.slice(), 3));
       geom.computeBoundingBox();
       material = new THREE.PointsMaterial({
-        size: this.pointSize,
+        size: pointCloudDisplaySize(this.pointSize, this.displayStyle),
         vertexColors: true,
         sizeAttenuation: true,
       });
+      applyLegacyPointCloudDisplayStyle(material, this.displayStyle);
       pointObject = new THREE.Points(geom, material);
     } else if (
       this.webGpuPointLayer &&
@@ -702,6 +732,7 @@ export class PointCloudScene {
         pointSize: this.pointSize,
         sizeAttenuation: true,
         selection: true,
+        displayStyle: this.displayStyle,
       });
       pointObject = webGpuLayer.object;
       pointRaycastObject = new THREE.Points(
@@ -984,17 +1015,45 @@ export class PointCloudScene {
     if (this.webGpuPointLayer) {
       this.webGpuPointLayer.setPointSize(size);
     } else if (this.points) {
-      ((this.points as THREE.Points).material as THREE.PointsMaterial).size = size;
+      ((this.points as THREE.Points).material as THREE.PointsMaterial).size = pointCloudDisplaySize(
+        size,
+        this.displayStyle,
+      );
     }
     if (this.pointRaycastObject) {
       (this.pointRaycastObject.material as THREE.PointsMaterial).size = size;
     }
-    for (const neighbor of this.neighborPoints) {
-      if (neighbor.material) neighbor.material.size = size * 0.8;
+    for (const neighbor of this.supplementaryPointLayers()) {
+      if (neighbor.material) {
+        neighbor.material.size = pointCloudDisplaySize(size * 0.8, this.displayStyle);
+      }
       neighbor.webGpuLayer?.setPointSize(size * 0.8);
     }
     this.invalidateMain();
     this.invalidateTri();
+  }
+
+  /** Update point appearance without recreating geometry, renderer, canvas or the raycast target. */
+  setDisplayStyle(style: PointCloudDisplayStyle): void {
+    if (style === this.displayStyle) return;
+    this.displayStyle = style;
+    this.triViewPass.setDisplayStyle(style);
+    if (this.webGpuPointLayer) {
+      this.webGpuPointLayer.setDisplayStyle(style);
+    } else if (this.points) {
+      const material = (this.points as THREE.Points).material as THREE.PointsMaterial;
+      applyLegacyPointCloudDisplayStyle(material, style);
+      material.size = pointCloudDisplaySize(this.pointSize, style);
+    }
+    for (const neighbor of this.supplementaryPointLayers()) {
+      if (neighbor.material) {
+        applyLegacyPointCloudDisplayStyle(neighbor.material, style);
+        neighbor.material.size = pointCloudDisplaySize(this.pointSize * 0.8, style);
+      }
+      neighbor.webGpuLayer?.setDisplayStyle(style);
+    }
+    this.invalidateMain("display-style");
+    this.invalidateTri("display-style");
   }
 
   setGridVisible(visible: boolean) {
@@ -1247,7 +1306,9 @@ export class PointCloudScene {
     this.pointGeometry?.dispose();
     this.pointGeometry = null;
     if (!hadWebGpuLayer && (this.points as THREE.Points).material) {
-      ((this.points as THREE.Points).material as THREE.Material).dispose();
+      const material = (this.points as THREE.Points).material as THREE.PointsMaterial;
+      disposeLegacyPointCloudDisplayStyle(material);
+      material.dispose();
     }
     this.points = null;
     this.pointIndexStride = 1;
@@ -1433,41 +1494,46 @@ export class PointCloudScene {
    * v0.15.18 · 视觉缓解动态拖影:前/后帧分色(过去冷蓝 / 未来暖橙)+ 按帧距时序淡出,
    * 拖影读起来是运动方向而非乱噪。整层重建,旧 geometry/material 全部 dispose。
    */
-  setNeighborPoints(
-    frames: {
-      positions: Float32Array;
-      matrix: THREE.Matrix4;
-      dir: "past" | "future";
-      distance: number;
-    }[],
-  ) {
+  setNeighborPoints(frames: NeighborPointFrame[]) {
     if (frames.length === 0 && this.neighborPoints.length === 0) return;
     for (const pointLayer of this.neighborPoints) this.disposeNeighborPointLayer(pointLayer);
     this.neighborPoints = [];
     for (const f of frames) {
       const geom = new THREE.BufferGeometry();
       geom.setAttribute("position", new THREE.BufferAttribute(f.positions, 3));
-      const color = f.dir === "future" ? NEIGHBOR_FUTURE_COLOR : NEIGHBOR_PAST_COLOR;
+      const displayMode = f.displayMode ?? "diagnostic";
+      const color =
+        displayMode === "surface"
+          ? NEIGHBOR_SURFACE_COLOR
+          : f.dir === "future"
+            ? NEIGHBOR_FUTURE_COLOR
+            : NEIGHBOR_PAST_COLOR;
+      const opacity =
+        displayMode === "surface"
+          ? Math.min(0.22, neighborOpacity(f.distance) * 0.5)
+          : neighborOpacity(f.distance);
       let material: THREE.PointsMaterial | null = null;
       let webGpuLayer: WebGpuPointCloudLayer | null = null;
       let object: THREE.Object3D;
       if (this.rendererStatus.actualBackend === "legacy-webgl2") {
         material = new THREE.PointsMaterial({
-          size: this.pointSize * 0.8,
+          size: pointCloudDisplaySize(this.pointSize * 0.8, this.displayStyle),
           color,
           transparent: true,
-          opacity: neighborOpacity(f.distance),
+          opacity,
           sizeAttenuation: true,
           depthWrite: false,
         });
+        applyLegacyPointCloudDisplayStyle(material, this.displayStyle);
         object = new THREE.Points(geom, material);
       } else {
         webGpuLayer = createWebGpuPointCloudLayer(geom, {
           pointSize: this.pointSize * 0.8,
           sizeAttenuation: true,
           color,
-          opacity: neighborOpacity(f.distance),
+          opacity,
           depthWrite: false,
+          displayStyle: this.displayStyle,
         });
         object = webGpuLayer.object;
       }
@@ -1483,8 +1549,73 @@ export class PointCloudScene {
   private disposeNeighborPointLayer(pointLayer: NeighborPointLayer) {
     this.neighborLayer.remove(pointLayer.object);
     pointLayer.geometry.dispose();
+    if (pointLayer.material) disposeLegacyPointCloudDisplayStyle(pointLayer.material);
     pointLayer.material?.dispose();
     pointLayer.webGpuLayer?.dispose();
+  }
+
+  private supplementaryPointLayers(): NeighborPointLayer[] {
+    return this.augmentationPoints
+      ? [...this.neighborPoints, this.augmentationPoints]
+      : this.neighborPoints;
+  }
+
+  /** Never publishes generated points to pointGeometry, raycast, tri-view or fitting helpers. */
+  setAugmentationPoints(frame: DecodedAuxiliaryPointCloudFrame | null, sourceColor = false): void {
+    if (!frame && !this.augmentationPoints) return;
+    if (this.augmentationPoints) {
+      const previous = this.augmentationPoints;
+      this.augmentationLayer.remove(previous.object);
+      previous.geometry.dispose();
+      if (previous.material) disposeLegacyPointCloudDisplayStyle(previous.material);
+      previous.material?.dispose();
+      previous.webGpuLayer?.dispose();
+      this.augmentationPoints = null;
+    }
+    if (frame) {
+      if (
+        frame.positions.length !== frame.colors.length ||
+        frame.positions.length % 3 !== 0 ||
+        frame.positions.length > 80_000 * 3
+      ) {
+        throw new Error("Invalid auxiliary point-cloud display geometry");
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(frame.positions, 3));
+      if (!sourceColor) geometry.setAttribute("color", new THREE.BufferAttribute(frame.colors, 3));
+      let material: THREE.PointsMaterial | null = null;
+      let webGpuLayer: WebGpuPointCloudLayer | null = null;
+      let object: THREE.Object3D;
+      const color = sourceColor ? 0xb075ff : 0xffffff;
+      if (this.rendererStatus.actualBackend === "legacy-webgl2") {
+        material = new THREE.PointsMaterial({
+          size: pointCloudDisplaySize(this.pointSize * 0.8, this.displayStyle),
+          vertexColors: !sourceColor,
+          color,
+          transparent: true,
+          opacity: 0.65,
+          depthWrite: false,
+          sizeAttenuation: true,
+        });
+        applyLegacyPointCloudDisplayStyle(material, this.displayStyle);
+        object = new THREE.Points(geometry, material);
+      } else {
+        webGpuLayer = createWebGpuPointCloudLayer(geometry, {
+          pointSize: this.pointSize * 0.8,
+          sizeAttenuation: true,
+          color,
+          opacity: 0.65,
+          depthWrite: false,
+          displayStyle: this.displayStyle,
+        });
+        object = webGpuLayer.object;
+      }
+      object.renderOrder = -1;
+      object.userData.pointCloudSource = "vggt_omega";
+      this.augmentationLayer.add(object);
+      this.augmentationPoints = { object, geometry, material, webGpuLayer };
+    }
+    this.invalidateMain("augmentation-points");
   }
 
   private createBoxGroup(id: string): THREE.Group {
@@ -1755,6 +1886,7 @@ export class PointCloudScene {
     // v0.15.18 · 邻帧点云图层:各自持有 geometry + material,全部 dispose。
     for (const pointLayer of this.neighborPoints) this.disposeNeighborPointLayer(pointLayer);
     this.neighborPoints = [];
+    this.setAugmentationPoints(null);
     this.unitEdges.dispose();
     this.unitBox.dispose();
     this.qualityGroundGrid.geometry.dispose();

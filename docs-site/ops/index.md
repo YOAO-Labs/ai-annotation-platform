@@ -32,6 +32,8 @@ last_reviewed: 2026-07-12
 
 ## 升级与健康检查
 
+- [VGGT-Ω 当前帧补强实验](./vggt-omega) — 可选模型容器、后台生成、旧标定修复与资产清理
+
 - [升级指南](/ops/upgrade-guide) — 镜像 rebuild / restart、数据库迁移与版本升级检查
 - [生产部署：健康检查端点](/ops/deploy/docker-compose#_7-健康检查端点) — 验证 API、Worker、数据库和依赖服务
 

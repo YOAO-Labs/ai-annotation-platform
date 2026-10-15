@@ -74,6 +74,26 @@ describe("clientRectToCanvasClipPath", () => {
 });
 
 describe("PointCloudTriViewPass layout invalidation", () => {
+  it("switches the legacy tri-view material to surface splats in place", () => {
+    const pass = new PointCloudTriViewPass("legacy-webgl2", 1);
+    const geometry = new THREE.BufferGeometry().setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3),
+    );
+    pass.setGeometry(geometry);
+    const material = (pass as unknown as { material: THREE.PointsMaterial }).material;
+
+    expect(pass.setDisplayStyle("surface")).toBe(true);
+    expect(material.alphaMap).toBeInstanceOf(THREE.DataTexture);
+    expect(material.alphaTest).toBeGreaterThan(0);
+    expect(pass.setDisplayStyle("surface")).toBe(false);
+    expect(pass.setDisplayStyle("points")).toBe(true);
+    expect(material.alphaMap).toBeNull();
+
+    pass.dispose();
+    geometry.dispose();
+  });
+
   it("keeps the complete view aspect when floating panels obscure part of a docked view", () => {
     const pass = new PointCloudTriViewPass("legacy-webgl2", 1);
     const geometry = new THREE.BufferGeometry().setAttribute(

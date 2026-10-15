@@ -1,7 +1,10 @@
 import { apiClient } from "./client";
 import type { MLBackendResponse } from "@/types";
 import type { OutputAttributeSchemaItem } from "./mlCapabilities";
-import type { MLBackendUnloadResponse } from "./generated/types.gen";
+import type {
+  MLBackendUnloadResponse,
+  PointCloudDensificationCapability,
+} from "./generated/types.gen";
 import type { CocoRle } from "@/pages/Workbench/stage/shared/geometry/maskRle";
 
 // v0.19.0 · ADR-0044 全局 ML 注册表: backend 上提为全局表, 项目层退化为「启用关联 + 变体覆盖」。
@@ -213,6 +216,7 @@ export interface MLBackendCapability {
   // v0.14.14 · backend 自报是否支持 POST /warmup (协议 §4.4); 老 backend 缺字段 = false.
   warmup_endpoint?: boolean;
   models?: MLModelCapability[];
+  point_cloud_densification?: PointCloudDensificationCapability | null;
   // capabilities 端点 (health_meta 派生) 会带派生模态; 原始 /setup 不带.
   modalities?: string[];
   // v0.18.29 · 受控词表校验诊断 (仅 /capabilities 带); 空/缺 = 全合法.

@@ -1,0 +1,31 @@
+{
+  "commit": "48b23c8ce72c9a8fcf987f0d7f43d8e4870759f6",
+  "files": {
+    "LICENSE": "27696e51930daf5d24222e2d9d65339f529153e853de0e2eb457133a1a6f5239",
+    "vggt_omega/__init__.py": "0447a62b3f2ba22950c0a1eaa8f222af49bb9eff6b6f7c6bd85d90c804369083",
+    "vggt_omega/models/__init__.py": "03f463ab5ff4d343e0ef74431f21b6d049a464aaeba98ccfb23fad0bbd6ecac8",
+    "vggt_omega/models/aggregator.py": "85c1b54ecaa50315f4592983182daae187a2084f72b94dafb3913cab79ed4924",
+    "vggt_omega/models/heads/__init__.py": "8ad0eab0cbd8b0d0b96fac525bba3ce401bab7b5da83005cf7c7ad17c39adb77",
+    "vggt_omega/models/heads/camera_head.py": "ff12f931f12df8cd2a65e58f13c2fed01e648747c9e06b0b966df283b600fd47",
+    "vggt_omega/models/heads/dense_head.py": "40261c8ae7f12aca04f1ae0ff1dc6e2ae10d09daf2c6ecd781bbd3e2aad123d8",
+    "vggt_omega/models/heads/text_alignment_head.py": "e683011ca06ddf952dd2ae55f00ade500ffdd85070acf20c6d381599348e41d7",
+    "vggt_omega/models/heads/utils.py": "72b6c9edd0d0db49e780dd89e05c0f8c3e917df22b7ba373c3a1025fd598c468",
+    "vggt_omega/models/layers/__init__.py": "4eb3279d6ce40d641b7b6dcd6d761848a79386761c6cea19481a57e43fe7bbd5",
+    "vggt_omega/models/layers/attention.py": "d13374504a264719d92ca7ca41a07c8110c09fcfc44f96ba7f66ae7f3ca5d499",
+    "vggt_omega/models/layers/block.py": "6a24df9816017cd2c50ce2d0f94c50cf46c9e75f241401dbdcb705c8839f2c2f",
+    "vggt_omega/models/layers/ffn_layers.py": "f1ac17ac2c335edfb9c423a3b5e935ff0e11a635c17d031effa229eba98dba7d",
+    "vggt_omega/models/layers/layer_scale.py": "caaad278087ed724d4cb474196f9f6203e929f20532023a86e92c2d90c56d212",
+    "vggt_omega/models/layers/patch_embed.py": "d2b8778793de1b2f31739263cd06e02214067bdde990da77d887b97a0d9c7be3",
+    "vggt_omega/models/layers/rms_norm.py": "474a2f31700d8cbb6f7ba72ff696adc03b2b308dc4b715052c22c86c4e3d5b56",
+    "vggt_omega/models/layers/rope_position_encoding.py": "75447ac59848596f0353009ce16fe024d911914debd81e23abd2255636ecc5a1",
+    "vggt_omega/models/layers/utils.py": "0629d985c307a4df8bcab08e48ccac7f5e7f3de06674d915d798bbf476b930e4",
+    "vggt_omega/models/layers/vision_transformer.py": "e211ac38804766929f001d74d355f9cefb0daa6955e8adddb5b95e465ab3d02b",
+    "vggt_omega/models/vggt_omega.py": "190b92a37bd1ce27459a8ca92ac5fee4257f37c5b081316dbf685bee06c1f8e7",
+    "vggt_omega/utils/__init__.py": "58cc00a3bfd523e6b0d396a37defe8748f8e9b402db7c416e6492d3c6e37e56a",
+    "vggt_omega/utils/geometry.py": "9f10837532095c49b8b9c1413cb2cd02275efbd89c43d81434fe02d478af58b5",
+    "vggt_omega/utils/load_fn.py": "a8da157a4c9fbf4212d70dbb9d065389d7beb41a9c6e23d2814f3bdee6d5f735",
+    "vggt_omega/utils/pose_enc.py": "494b1b2482c748bc07499f5e695e0d36fd36dda4380d5a112b5e1b0937d31359",
+    "vggt_omega/utils/rotation.py": "4f05fdf1f26c0dbcf6eb3246dc0dec0e050dd72003c964f44026d57e0b446669"
+  },
+  "repository": "https://github.com/facebookresearch/vggt-omega"
+}
