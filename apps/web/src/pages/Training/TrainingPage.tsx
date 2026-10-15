@@ -24,6 +24,7 @@ import {
   trainingProgress,
   trainingStatusLabels,
   trainingStatusVariant,
+  trainingTaskLabel,
 } from "./trainingPresentation";
 
 function WarehouseCards({
@@ -50,7 +51,10 @@ function WarehouseCards({
                   {item.framework === "libreyolo" ? "LibreYOLO" : "Ultralytics"}
                 </h3>
                 <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                  {item.version} · 图片目标检测
+                  {item.version} ·{" "}
+                  {[
+                    ...new Set(item.base_models.map((model) => trainingTaskLabel(model.task))),
+                  ].join(" / ")}
                 </p>
               </div>
             </div>
@@ -80,10 +84,16 @@ function WarehouseCards({
             </Badge>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Badge variant="outline">{item.base_models.map((model) => model.id).join(" / ")}</Badge>
-            <Badge variant={item.capabilities.model_registration ? "ai" : "default"}>
-              {item.capabilities.model_registration ? "支持模型回流" : "权重下载"}
-            </Badge>
+            {item.base_models.map((model) => (
+              <Badge key={model.id} variant="outline">
+                {model.id} · {trainingTaskLabel(model.task)} ·{" "}
+                {(model.capabilities?.model_registration ??
+                ((model.task ?? "image-detection") === "image-detection" &&
+                  item.capabilities.model_registration))
+                  ? "支持模型回流"
+                  : "权重下载"}
+              </Badge>
+            ))}
             {!compact && item.capabilities.resume && (
               <Badge variant="outline">支持检查点续训</Badge>
             )}
@@ -92,7 +102,9 @@ function WarehouseCards({
             <dl className="mt-4 space-y-3 border-t border-border pt-4 text-xs">
               {(item.parameter_schemas ?? []).map((schema) => (
                 <div key={schema.schema_id}>
-                  <dt className="text-muted-foreground">{schema.model_family} 检测参数目录</dt>
+                  <dt className="text-muted-foreground">
+                    {schema.model_family} · {trainingTaskLabel(schema.task)}参数目录
+                  </dt>
                   <dd className="mt-1">
                     {schema.field_count} 个原生字段 · {schema.editable_count} 个支持编辑
                   </dd>
@@ -411,7 +423,7 @@ export function TrainingPage() {
                 <p className="mt-2 text-xs text-muted-foreground">
                   {search
                     ? "试试其他项目名称或编号。"
-                    : "创建图片矩形框项目并完成审核后，即可准备训练数据。"}
+                    : "启用图片项目的矩形框或单多边形标注并完成审核后，即可准备训练数据。"}
                 </p>
                 <Link to="/dashboard" className="mt-4 inline-block text-xs underline">
                   查看项目列表

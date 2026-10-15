@@ -81,6 +81,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
       );
       if (data.id !== datasetId || data.project_id !== projectId)
         throw new Error("冻结数据版本身份不符");
+      if ((data.task ?? "image-detection") !== "image-detection")
+        throw new Error("样本评估目前仅支持图片检测数据版本");
       return data;
     },
     enabled: !!datasetId,
@@ -100,7 +102,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
       if (data.source_version_id !== datasetId) throw new Error("验证成员所属版本不符");
       return data;
     },
-    enabled: !!datasetId,
+    enabled: !!datasetId && dataset.isSuccess && !dataset.isError,
     retry: false,
   });
   const qualification = useQuery({
@@ -381,11 +383,13 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                 {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
                   <option value={datasetId}>{dataset.data?.name ?? datasetId}</option>
                 )}
-                {datasets.data?.items.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
+                {datasets.data?.items
+                  .filter((item) => (item.task ?? "image-detection") === "image-detection")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
               </select>
             </label>
             <PickerPage

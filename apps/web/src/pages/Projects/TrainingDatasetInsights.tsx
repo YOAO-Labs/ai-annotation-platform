@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/Button";
 import { TrainingDatasetSamplePreview } from "./TrainingDatasetSamplePreview";
+import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 
 const inputClass =
   "w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground focus-visible:ring-2 focus-visible:ring-ring";
@@ -191,7 +192,12 @@ function InsightsContent({
   });
   const baseline = useQuery({
     queryKey: [...key, "baseline", baselineId],
-    queryFn: ({ signal }) => trainingDatasetsApi.getSummary(projectId, baselineId, { signal }),
+    queryFn: async ({ signal }) => {
+      const value = await trainingDatasetsApi.getSummary(projectId, baselineId, { signal });
+      if ((value.task ?? "image-detection") !== (version.task ?? "image-detection"))
+        throw new Error("比较基线与当前版本的训练任务不同，请选择相同任务的数据版本");
+      return value;
+    },
     enabled: ready && !!baselineId,
     retry: false,
   });
@@ -206,10 +212,15 @@ function InsightsContent({
     queryFn: ({ signal }) =>
       trainingDatasetsApi.compare(projectId, version.id, baselineId, { signal }),
     enabled:
-      ready && !!baselineId && (view === "compare" || (view === "samples" && change !== "all")),
+      ready &&
+      !!baselineId &&
+      baseline.isSuccess &&
+      !baseline.isError &&
+      (view === "compare" || (view === "samples" && change !== "all")),
     retry: false,
   });
   const sampleVersionId = change === "removed" ? baselineId : version.id;
+  const baselineCompatible = !baselineId || (baseline.isSuccess && !baseline.isError);
   const filterClasses = useQuery({
     queryKey: [...key, "filter-classes", sampleVersionId, filterSearch, filterPage],
     queryFn: ({ signal }) =>
@@ -219,7 +230,7 @@ function InsightsContent({
         { search: filterSearch, offset: filterPage * 25 },
         { signal },
       ),
-    enabled: ready && view === "samples" && !!sampleVersionId,
+    enabled: ready && view === "samples" && !!sampleVersionId && baselineCompatible,
   });
   const selectedClass = useQuery({
     queryKey: [...key, "selected-class", sampleVersionId, classIndex],
@@ -235,7 +246,8 @@ function InsightsContent({
       view === "samples" &&
       !invalidFilters &&
       classIndex !== undefined &&
-      !!sampleVersionId,
+      !!sampleVersionId &&
+      baselineCompatible,
   });
   const filters: DatasetSampleFilters = {
     limit: 25,
@@ -254,7 +266,7 @@ function InsightsContent({
     queryKey: [...key, "samples", filters],
     queryFn: ({ signal }) =>
       trainingDatasetsApi.samples(projectId, version.id, filters, { signal }),
-    enabled: ready && view === "samples" && !invalidFilters,
+    enabled: ready && view === "samples" && !invalidFilters && baselineCompatible,
     retry: false,
   });
   const raw = useQuery({
@@ -283,7 +295,7 @@ function InsightsContent({
       ? classes.error
       : view === "compare"
         ? baselineChoices.error || baseline.error || compared.error
-        : samples.error || filterClasses.error || selectedClass.error;
+        : baseline.error || samples.error || filterClasses.error || selectedClass.error;
   return (
     <section
       className="mt-6 min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5"
@@ -293,7 +305,8 @@ function InsightsContent({
         <div className="min-w-0">
           <h2 className="break-words text-sm font-semibold">{version.name}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            冻结时刻的数据、标注与划分 · 后续任务编辑不改变这里的统计
+            {trainingTaskLabel(version.task)} · 冻结时刻的数据、标注与划分 ·
+            后续任务编辑不改变这里的统计
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
@@ -520,7 +533,14 @@ function InsightsContent({
           </section>
           <div className="grid gap-3 lg:grid-cols-2">
             <Distribution title="图片逻辑尺寸分布（张）" rows={data.dimension_bins} />
-            <Distribution title="归一化矩形框面积分布（实例）" rows={data.box_area_bins} />
+            <Distribution
+              title={
+                version.task === segmentationTask
+                  ? "归一化多边形面积分布（实例）"
+                  : "归一化矩形框面积分布（实例）"
+              }
+              rows={data.box_area_bins}
+            />
           </div>
           <p className="text-xs text-muted-foreground">
             尺寸和面积仅用于描述分布，不构成通用质量评分。已知尺寸{" "}
@@ -562,7 +582,11 @@ function InsightsContent({
                     </option>
                   )}
                 {baselineChoices.data?.items
-                  .filter((item) => item.id !== version.id)
+                  .filter(
+                    (item) =>
+                      item.id !== version.id &&
+                      (item.task ?? "image-detection") === (version.task ?? "image-detection"),
+                  )
                   .map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}

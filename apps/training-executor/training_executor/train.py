@@ -15,6 +15,7 @@ from .files import atomic_json, atomic_bytes, immutable_copy
 from training_contract import verify_native
 from training_contract.catalog import digest
 from training_contract.validation import normalized
+from training_contract.dataset import SEGMENTATION, config_task
 from training_contract.observability import (
     InputMismatchError,
     NativeConfigurationMismatch,
@@ -125,7 +126,12 @@ class UltralyticsCheckpoints:
             names = [names[index] for index in range(len(names))]
         if (
             blob.get("version") != "8.4.177"
-            or blob.get("train_args", {}).get("task") != "detect"
+            or blob.get("train_args", {}).get("task")
+            != (
+                "segment"
+                if config_task(self.spec["frozen_config"]) == SEGMENTATION
+                else "detect"
+            )
             or names != self.spec["frozen_config"]["classes"]
             or type(blob.get("epoch")) is not int
             or blob["epoch"] < 0
@@ -135,6 +141,16 @@ class UltralyticsCheckpoints:
             raise InputMismatchError(
                 "Native checkpoint version, task, class or epoch identity mismatch"
             )
+        if config_task(self.spec["frozen_config"]) == SEGMENTATION:
+            yaml = getattr(model, "yaml", {})
+            if (
+                yaml.get("scale") != "n"
+                or Path(yaml.get("yaml_file", "")).stem != "yolo11n-seg"
+                or type(model.model[-1]).__name__ != "Segment"
+            ):
+                raise InputMismatchError(
+                    "Unqualified segmentation checkpoint architecture"
+                )
 
     def started(self, trainer):
         if self.best_bytes is not None:
@@ -185,6 +201,10 @@ class UltralyticsCheckpoints:
 
 def ultralytics_report(result, spec, comparison=None):
     classes = spec["frozen_config"]["classes"]
+    segmentation = config_task(spec["frozen_config"]) == SEGMENTATION
+    fields = ("precision", "recall", "mAP50", "mAP50-95")
+    if segmentation:
+        fields = tuple(f"{key}({kind})" for kind in ("B", "M") for key in fields)
     per_class = []
     for position, class_index in enumerate(result.box.ap_class_index):
         index = int(class_index)
@@ -199,7 +219,7 @@ def ultralytics_report(result, spec, comparison=None):
                 "name": classes[index],
                 **dict(
                     zip(
-                        ("precision", "recall", "mAP50", "mAP50-95"),
+                        fields,
                         values,
                         strict=True,
                     )
@@ -213,7 +233,7 @@ def ultralytics_report(result, spec, comparison=None):
         "evaluation": {
             "framework": "ultralytics",
             "version": "8.4.177",
-            "task": "detection",
+            "task": "instance-segmentation" if segmentation else "detection",
             "split": "val",
             "imgsz": spec["parameters"]["imgsz"],
             "independent_test_set": False,
@@ -235,6 +255,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     import ultralytics
     from ultralytics import YOLO, settings
     from ultralytics.models.yolo.detect import DetectionTrainer
+    from ultralytics.models.yolo.segment import SegmentationTrainer
     from ultralytics.utils import USER_CONFIG_DIR
 
     if ultralytics.__version__ != "8.4.177":
@@ -253,7 +274,11 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
                 USER_CONFIG_DIR / font,
             )
 
-    class FixedBatchTrainer(DetectionTrainer):
+    segmentation = config_task(spec["frozen_config"]) == SEGMENTATION
+    native_task = "segment" if segmentation else "detect"
+    trainer_class = SegmentationTrainer if segmentation else DetectionTrainer
+
+    class FixedBatchTrainer(trainer_class):
         def preprocess_batch(self, batch):
             result = super().preprocess_batch(batch)
             self._platform_batch_images = int(result["img"].shape[0])
@@ -304,7 +329,15 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
         spec.get("resume_path") or spec.get("initialization_path") or spec["base_path"]
     )
     validate_initialization_input(spec)
-    model = YOLO(model_path, task="detect")
+    model = YOLO(model_path, task=native_task)
+    if model.task != native_task:
+        raise InputMismatchError("Loaded weights do not match the frozen native task")
+    if segmentation and (
+        model.model.yaml.get("scale") != "n"
+        or Path(model.model.yaml.get("yaml_file", "")).stem != "yolo11n-seg"
+        or type(model.model.model[-1]).__name__ != "Segment"
+    ):
+        raise InputMismatchError("Unqualified segmentation base architecture")
     initialization_baseline = prepare_initialization(spec, model)
 
     def started(trainer):

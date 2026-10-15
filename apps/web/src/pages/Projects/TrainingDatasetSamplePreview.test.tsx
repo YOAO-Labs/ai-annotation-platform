@@ -58,6 +58,38 @@ afterEach(() => {
 });
 
 describe("immutable sample preview", () => {
+  it("shows native polygon vertices, area and source version without deriving a rectangle", async () => {
+    vi.mocked(trainingDatasetsApi.sample).mockResolvedValueOnce({
+      sample: insightSample,
+      labels: [
+        {
+          type: "polygon",
+          class_index: 0,
+          class_name: "冻结车辆",
+          points: [
+            [0.1, 0.2],
+            [0.8, 0.2],
+            [0.4, 0.7],
+          ],
+          area: 0.175,
+          annotation_id: "annotation-123",
+          annotation_version: 7,
+        },
+      ],
+      total: 1,
+      offset: 0,
+      limit: 500,
+    });
+    mount();
+    await screen.findByAltText("冻结样本 task-123");
+    const overlay = await screen.findByRole("img", { name: "冻结多边形" });
+    expect(overlay.querySelector("polygon")).toHaveAttribute("points", "0.1,0.2 0.8,0.2 0.4,0.7");
+    expect(overlay.querySelector("rect")).toBeNull();
+    expect(screen.getByText("3 个顶点")).toBeVisible();
+    expect(screen.getByTitle("annotation-123")).toHaveTextContent("17.50% · annotati · 标注版本 7");
+    await userEvent.click(screen.getByLabelText("显示本页冻结多边形"));
+    expect(screen.queryByRole("img", { name: "冻结多边形" })).not.toBeInTheDocument();
+  });
   it("uses authenticated preview bytes and frozen normalized coordinates, toggles overlay and revokes its URL", async () => {
     const user = userEvent.setup();
     const mounted = mount();

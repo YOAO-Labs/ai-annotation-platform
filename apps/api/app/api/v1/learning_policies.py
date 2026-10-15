@@ -72,6 +72,14 @@ async def save_policy(
         raise HTTPException(
             status_code=422, detail="请选择当前项目已就绪的数据作为初始划分"
         )
+    from app.services.training_dataset_bridge import contract_of, TrainingDatasetError
+
+    try:
+        parent_task = contract_of(parent.manifest)["task"]
+    except TrainingDatasetError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if parent_task != "image-detection":
+        raise HTTPException(status_code=422, detail="自动学习策略仅接受检测父数据版本")
     pin = await initialization.resolve(
         db,
         project.id,

@@ -323,11 +323,11 @@ def epoch_event(output, epoch):
     )
 
 
-def test_adapter_requires_qualified_identity_and_does_not_enable_libre_registration(
+def test_adapter_requires_qualified_framework_identity(
     tmp_path,
 ):
     s = spec(tmp_path)
-    assert adapter_for(s["frozen_config"])["model_registration"] is False
+    assert adapter_for(s["frozen_config"])["model_registration"] is True
     s["frozen_config"]["framework_version"] = "other"
     with pytest.raises(ValueError, match="identity"):
         adapter_for(s["frozen_config"])
@@ -474,7 +474,7 @@ def dataset(tmp_path):
             }
         )
     (tmp_path / "manifest.json").write_text(
-        json.dumps({"classes": ["car", "person"], "samples": samples})
+        json.dumps({"schema": 1, "classes": ["car", "person"], "samples": samples})
     )
     return s
 
@@ -507,6 +507,99 @@ def test_native_yaml_normalizes_class_keys_without_changing_frozen_dataset(tmp_p
     assert parsed["val"] == str(tmp_path / "images/val")
     assert (tmp_path / "data.yaml").read_bytes() == original
     assert native["frozen_config"] == s["frozen_config"]
+
+
+def segmentation_dataset(tmp_path):
+    from training_contract import definition, resolve
+    from training_contract.dataset import SEGMENTATION_CONTRACT, segmentation_labels
+    from training_contract.validation import CANONICAL
+
+    s = dataset(tmp_path)
+    schema = definition("ultralytics", "yolo11n-seg")
+    configuration = resolve(
+        "ultralytics",
+        "yolo11n-seg",
+        {
+            "schema_id": schema["schema_id"],
+            "schema_digest": schema["schema_digest"],
+            "values": {"epochs": 3, "batch": 1, "imgsz": 128},
+        },
+    )
+    s["framework"] = "ultralytics"
+    s["frozen_config"].update(
+        framework="ultralytics",
+        framework_version="8.4.177",
+        adapter_revision=2,
+        base_model={"id": "yolo11n-seg"},
+        configuration=configuration,
+        data_contract=SEGMENTATION_CONTRACT,
+    )
+    s["parameters"] = s["frozen_config"]["parameters"] = {
+        key: configuration["effective_values"][key] for key in CANONICAL
+    }
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update(**SEGMENTATION_CONTRACT, format="ultralytics-segmentation")
+    for sample in manifest["samples"]:
+        annotations = (
+            []
+            if sample["split"] == "train"
+            else [
+                {
+                    "id": "source-instance",
+                    "version": 2,
+                    "tool_unit_id": "region",
+                    "class_name": "car",
+                    "geometry": {
+                        "type": "polygon",
+                        "points": [[0.1, 0.1], [0.8, 0.1], [0.6, 0.7], [0.1, 0.8]],
+                    },
+                }
+            ]
+        )
+        text, instances = segmentation_labels(
+            annotations, s["frozen_config"]["classes"]
+        )
+        label = tmp_path / sample["label_path"]
+        label.write_text(text)
+        sample.update(instances=instances, label_sha256=digest_file(label))
+    manifest_path.write_text(json.dumps(manifest))
+    return s
+
+
+def test_segmentation_dataset_requires_matching_task_and_unchanged_instance_receipts(
+    tmp_path,
+):
+    s = segmentation_dataset(tmp_path)
+    adapter_for(s["frozen_config"])
+    validate_dataset(s)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    positive = next(sample for sample in manifest["samples"] if sample["instances"])
+    positive["instances"][0]["annotation_version"] = 0
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="实例"):
+        validate_dataset(s)
+    positive["instances"][0]["annotation_version"] = 2
+    positive["instances"][0]["line_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="receipt changed"):
+        validate_dataset(s)
+
+
+def test_detection_cannot_consume_segmentation_or_claim_legacy_segmentation_identity(
+    tmp_path,
+):
+    s = segmentation_dataset(tmp_path)
+    s["frozen_config"]["configuration"]["identity"]["task"] = "image-detection"
+    with pytest.raises(ValueError, match="task identity"):
+        validate_dataset(s)
+    s["frozen_config"]["configuration"]["identity"]["task"] = (
+        "image-instance-segmentation"
+    )
+    s["frozen_config"]["adapter_revision"] = 1
+    with pytest.raises(ValueError, match="task identity"):
+        validate_dataset(s)
 
 
 @pytest.mark.parametrize("backend", ["pycocotools", None])

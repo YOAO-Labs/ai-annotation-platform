@@ -3,6 +3,7 @@
 import io
 import json
 import uuid
+from copy import deepcopy
 
 import pytest
 from fastapi import HTTPException
@@ -27,6 +28,168 @@ def configuration(**values):
         "schema_digest": schema["schema_digest"],
         "values": values,
     }
+
+
+def segmentation_catalog(monkeypatch):
+    catalog = deepcopy(settings.training_catalog_json)
+    catalog["ultralytics"]["base_models"]["yolo11n-seg"] = {
+        "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
+        "filename": "yolo11n-seg.pt",
+    }
+    monkeypatch.setattr(settings, "training_catalog_json", catalog)
+    schema = definition("ultralytics", "yolo11n-seg")
+    return {
+        "schema_id": schema["schema_id"],
+        "schema_digest": schema["schema_digest"],
+        "values": {"epochs": 2, "batch": 1, "imgsz": 128},
+    }
+
+
+async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes_independent(
+    db_session, super_admin, httpx_client, monkeypatch
+):
+    from training_contract.dataset import SEGMENTATION_CONTRACT
+    from app.services import training_recipes, learning_policies
+
+    owner, token = super_admin
+    project, dataset = await ready_dataset(db_session, owner)
+    configuration = segmentation_catalog(monkeypatch)
+    path = f"/api/v1/projects/{project.id}/training-runs:preflight"
+    headers = {"Authorization": f"Bearer {token}"}
+    body = {
+        "name": "Segmentation",
+        "dataset_id": str(dataset.id),
+        "base_model": "yolo11n-seg",
+        "configuration": configuration,
+        "request_id": str(uuid.uuid4()),
+    }
+    rejected = await httpx_client.post(path, headers=headers, json=body)
+    assert rejected.status_code == 422 and "不匹配" in rejected.text
+    dataset.manifest = {**dataset.manifest, **SEGMENTATION_CONTRACT}
+    dataset.snapshot = {**SEGMENTATION_CONTRACT, "classes": dataset.manifest["classes"]}
+    await db_session.flush()
+    accepted = await httpx_client.post(path, headers=headers, json=body)
+    assert accepted.status_code == 200, accepted.text
+    config = accepted.json()["config"]
+    assert config["data_contract"] == SEGMENTATION_CONTRACT
+    assert config["configuration"]["effective_values"]["task"] == "segment"
+    assert set(config["base_model"]) == {"id", "sha256", "filename"}
+    no_contract = await httpx_client.post(
+        path,
+        headers=headers,
+        json={key: value for key, value in body.items() if key != "configuration"},
+    )
+    assert no_contract.status_code == 422 and "完整" in no_contract.text
+    wrong_base = await httpx_client.post(
+        path, headers=headers, json={**body, "base_model": "yolo11n"}
+    )
+    assert wrong_base.status_code == 422 and "不匹配" in wrong_base.text
+    reusable = training_recipes.snapshot("ultralytics", "yolo11n-seg", configuration)
+    assert (
+        reusable["configuration"]["identity"]["task"] == SEGMENTATION_CONTRACT["task"]
+    )
+    assert training_recipes.compatibility(reusable) == (True, None)
+    with pytest.raises(HTTPException, match="检测"):
+        learning_policies.fixed_template("ultralytics", "yolo11n-seg")
+    model = next(
+        base
+        for item in service.catalog()["items"]
+        for base in item["base_models"]
+        if base["id"] == "yolo11n-seg"
+    )
+    assert (
+        model["capabilities"]["artifact_download"]
+        and not model["capabilities"]["model_registration"]
+    )
+    study = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-studies:preview",
+        headers=headers,
+        json={
+            "base": body,
+            "grid": {"lr0": [0.01]},
+            "objective": "metrics/mAP50-95",
+            "direction": "maximize",
+            "budgets": {
+                "max_trials": 1,
+                "max_planned_epochs": 2,
+                "max_native_seconds": 10,
+            },
+        },
+    )
+    assert study.status_code == 422 and "仅通过图片检测" in study.text
+    preview = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-previews",
+        headers=headers,
+        json={
+            **{key: value for key, value in body.items() if key != "name"},
+            "framework": "ultralytics",
+        },
+    )
+    assert preview.status_code == 422 and "图片检测" in preview.text
+    policy = await httpx_client.put(
+        f"/api/v1/projects/{project.id}/learning-policy",
+        headers=headers,
+        json={
+            "expected_revision": 0,
+            "parent_id": str(dataset.id),
+            "base_model": "yolo11n",
+            "min_changed_samples": 1,
+            "check_interval_minutes": 1,
+            "cooldown_minutes": 0,
+        },
+    )
+    assert policy.status_code == 422 and "检测父数据" in policy.text
+
+
+def test_runtime_image_upgrade_requires_full_qualified_schema_and_source_image(
+    monkeypatch,
+):
+    old, new = "sha256:" + "a" * 64, "sha256:" + "b" * 64
+    identity = schema_identity(definition("ultralytics", "yolo11n"))
+    config = {
+        "framework": "ultralytics",
+        "framework_version": "8.4.177",
+        "adapter_revision": 2,
+        "image_digest": old,
+        "base_model": {"id": "yolo11n"},
+        "configuration": {"identity": identity},
+    }
+    runtime = {
+        "frameworks": {"ultralytics": "8.4.177"},
+        "image_digest": new,
+        "executor_protocol": 2,
+        "supported_configs": supported_identities(),
+    }
+    entry = {"version": "8.4.177", "image_digest": new, "legacy_images": [old]}
+    monkeypatch.setattr(settings, "training_catalog_json", {"ultralytics": entry})
+    assert not service.runtime_compatible(config, runtime)
+    entry["compatible_config_images"] = {old: [identity]}
+    assert service.runtime_compatible(config, runtime)
+    for changed in [
+        {"base_model": {"id": "yolo11n-seg"}},
+        {"image_digest": "sha256:" + "c" * 64},
+        {"configuration": {"identity": {**identity, "schema_digest": "0" * 64}}},
+    ]:
+        assert not service.runtime_compatible({**config, **changed}, runtime)
+    seg_identity = schema_identity(definition("ultralytics", "yolo11n-seg"))
+    segmentation = {
+        **config,
+        "image_digest": new,
+        "base_model": {"id": "yolo11n-seg"},
+        "configuration": {"identity": seg_identity},
+    }
+    old_runtime = {
+        **runtime,
+        "supported_configs": [
+            item for item in supported_identities() if item["task"] == "image-detection"
+        ],
+    }
+    assert not service.runtime_compatible(segmentation, old_runtime)
+    assert service.runtime_compatible(segmentation, runtime)
+    entry["compatible_config_images"][old].append(seg_identity)
+    assert not service.runtime_compatible(
+        {**segmentation, "image_digest": old}, runtime
+    )
 
 
 async def new_v2(client, token, project, dataset):

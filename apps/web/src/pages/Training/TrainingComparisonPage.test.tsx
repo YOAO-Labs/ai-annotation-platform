@@ -19,6 +19,7 @@ import {
   parseComparison,
   type ComparisonExperiment,
 } from "./trainingComparison";
+import { metricLabel, trainingTaskLabel } from "./trainingPresentation";
 
 vi.mock("@/api/trainingRuns", () => ({
   trainingRunsApi: { list: vi.fn(), get: vi.fn(), events: vi.fn(), evaluation: vi.fn() },
@@ -175,6 +176,36 @@ afterEach(() => {
 });
 
 describe("comparison evidence and URL", () => {
+  it("keeps segmentation box and mask curves distinct and labels native fitness as a score", () => {
+    const e = experiment();
+    e.run!.config.configuration = { identity: { task: "image-instance-segmentation" } };
+    e.events = [
+      {
+        sequence: 1,
+        kind: "epoch",
+        epoch: 1,
+        metrics: {
+          "metrics/mAP50(B)": 0.8,
+          "metrics/mAP50(M)": 0.3,
+          fitness: 1.1,
+        },
+      },
+    ];
+    expect(comparisonPoints(e)[0]).toEqual({
+      epoch: 1,
+      "metrics/mAP50(B)": 0.8,
+      "metrics/mAP50(M)": 0.3,
+      fitness: 1.1,
+    });
+    expect(curveData([e], "metrics/mAP50(M)", false)[0].series0).toBe(0.3);
+    expect(metricLabel("metrics/mAP50(B)")).toBe("框 mAP50");
+    expect(metricLabel("metrics/mAP50(M)")).toBe("掩码 mAP50");
+    expect(metricLabel("fitness")).toBe("原生最佳权重选择分数");
+    expect(trainingTaskLabel("image-instance-segmentation")).toBe("图片实例分割");
+    expect(parseComparison(new URLSearchParams("metric=metrics/mAP50(M)")).metricExplicit).toBe(
+      true,
+    );
+  });
   it("rejects duplicate experiments, malformed IDs, oversized lists and invalid references", () => {
     for (const search of [
       `runs=${r1}:${a1},${r1}:${a3}`,

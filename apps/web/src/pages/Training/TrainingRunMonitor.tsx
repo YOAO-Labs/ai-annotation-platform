@@ -24,6 +24,9 @@ import {
   trainingProgress,
   trainingStatusLabels,
   trainingStatusVariant,
+  trainingTaskOf,
+  trainingTaskLabel,
+  segmentationTask,
 } from "./trainingPresentation";
 
 type Action = {
@@ -67,16 +70,21 @@ export function TrainingRunMonitor({
   const [now, setNow] = useState(Date.now);
   const progress = trainingProgress(run);
   const framework = String(run.config.framework ?? "");
+  const task = trainingTaskOf(run.config);
+  const segmentation = task === segmentationTask;
   const points = epochPoints(events, framework);
   const keys = [
     ...new Set(points.flatMap((point) => Object.keys(point).filter((key) => key !== "epoch"))),
   ];
   const scores = keys.filter((key) =>
-    /^metrics\/(mAP50-95|mAP50|mAP75|precision|recall|AR100)(\(B\))?$/.test(key),
+    /^metrics\/(mAP50-95|mAP50|mAP75|precision|recall|AR100)(\([BM]\))?$/.test(key),
   );
   const losses = keys.filter((key) => /loss/i.test(key));
   const latest = points[points.length - 1];
-  const mapKey = scores.find((key) => key.includes("mAP50-95"));
+  const mapKey = scores.find(
+    (key) => key.includes("mAP50-95") && (!segmentation || key.endsWith("(M)")),
+  );
+  const boxMapKey = segmentation ? scores.find((key) => key === "metrics/mAP50-95(B)") : undefined;
   const attempt = attempts.find((item) => item.id === selectedAttemptId);
   const currentAttempt = attempts.find((item) => item.id === run.current_attempt_id);
   const canResume =
@@ -314,13 +322,24 @@ export function TrainingRunMonitor({
                 {eventsError}
               </p>
             )}
-            <div className="mb-4 grid grid-cols-2 gap-3">
+            <p className="mb-3 text-xs text-muted-foreground">{trainingTaskLabel(task)}</p>
+            <div className={`mb-4 grid grid-cols-2 gap-3 ${segmentation ? "lg:grid-cols-3" : ""}`}>
               <div className="rounded-lg bg-muted p-3">
-                <p className="text-xs text-muted-foreground">最近验证 mAP50–95</p>
+                <p className="text-xs text-muted-foreground">
+                  {segmentation ? "最近掩码验证 mAP50–95" : "最近验证 mAP50–95"}
+                </p>
                 <p className="mt-1 font-mono text-stat">
                   {mapKey && latest?.[mapKey] != null ? latest[mapKey].toFixed(4) : "—"}
                 </p>
               </div>
+              {segmentation && (
+                <div className="rounded-lg bg-muted p-3">
+                  <p className="text-xs text-muted-foreground">最近框验证 mAP50–95</p>
+                  <p className="mt-1 font-mono text-stat">
+                    {boxMapKey && latest?.[boxMapKey] != null ? latest[boxMapKey].toFixed(4) : "—"}
+                  </p>
+                </div>
+              )}
               <div className="rounded-lg bg-muted p-3">
                 <p className="text-xs text-muted-foreground">本次已上报轮次</p>
                 <p className="mt-1 font-mono text-stat">

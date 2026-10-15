@@ -83,6 +83,47 @@ def evidence():
     return report, run, attempt, metrics, weights
 
 
+def test_segmentation_evaluation_keeps_box_mask_identity_and_rejects_detection_or_mask_drift():
+    from training_contract.dataset import SEGMENTATION
+
+    report, run, attempt, metrics, weights = evidence()
+    run.config["configuration"] = {"identity": {"task": SEGMENTATION}}
+    report["evaluation"]["task"] = "instance-segmentation"
+    report["summary"] = {
+        "metrics/mAP50-95(B)": 0.8,
+        "metrics/mAP50-95(M)": 0.6,
+        "fitness": 1.4,
+    }
+    report["per_class"] = [
+        {"index": 1, "name": "person", "mAP50-95(B)": 0.8, "mAP50-95(M)": 0.6}
+    ]
+    d = report["comparison"]
+    d["revision"] = 2
+    d["evaluator"]["task"] = "instance-segmentation"
+    d["evaluator"]["options"].update(
+        overlap_mask=False,
+        mask_ratio=1,
+        mask_processing="ultralytics.utils.ops.process_mask",
+    )
+    d["semantics"] = {
+        key: SEMANTICS for key in ("metrics/mAP50-95(B)", "metrics/mAP50-95(M)")
+    }
+    result = parse_evaluation(report, run, attempt, metrics, weights, 0, 50)
+    assert result["identity_status"] == "verified"
+    assert result["summary"] == {"metrics/mAP50-95(B)": 0.8, "metrics/mAP50-95(M)": 0.6}
+    assert result["per_class"][0]["metrics"] == {"mAP50-95(B)": 0.8, "mAP50-95(M)": 0.6}
+    for mutation in ("task", "mask_ratio", "fraction"):
+        changed = copy.deepcopy(report)
+        if mutation == "task":
+            changed["comparison"]["evaluator"]["task"] = "detection"
+        elif mutation == "mask_ratio":
+            changed["comparison"]["evaluator"]["options"]["mask_ratio"] = 4
+        else:
+            changed["summary"]["metrics/mAP50-95(M)"] = 1.4
+        with pytest.raises(ValueError):
+            parse_evaluation(changed, run, attempt, metrics, weights, 0, 50)
+
+
 def test_candidate_sha_and_provenance_do_not_prevent_compatible_comparison():
     report, run, attempt, metrics, weights = evidence()
     first = parse_evaluation(report, run, attempt, metrics, weights, 0, 1)

@@ -12671,7 +12671,10 @@
             "type": "string"
           },
           "task": {
-            "const": "detection",
+            "enum": [
+              "detection",
+              "instance-segmentation"
+            ],
             "title": "Task",
             "type": "string"
           },
@@ -40133,6 +40136,16 @@
       },
       "TrainingBaseModel": {
         "properties": {
+          "capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingCapabilities"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -40143,6 +40156,15 @@
           },
           "sha256": {
             "title": "Sha256",
+            "type": "string"
+          },
+          "task": {
+            "default": "image-detection",
+            "enum": [
+              "image-detection",
+              "image-instance-segmentation"
+            ],
+            "title": "Task",
             "type": "string"
           }
         },
@@ -40616,6 +40638,15 @@
             "title": "Seed",
             "type": "integer"
           },
+          "task": {
+            "default": "image-detection",
+            "enum": [
+              "image-detection",
+              "image-instance-segmentation"
+            ],
+            "title": "Task",
+            "type": "string"
+          },
           "task_ids": {
             "items": {
               "format": "uuid",
@@ -40848,6 +40879,22 @@
             "title": "Status",
             "type": "string"
           },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "image-detection",
+                  "image-instance-segmentation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "image-detection",
+            "title": "Task"
+          },
           "validation": {
             "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
           },
@@ -40928,6 +40975,12 @@
             "title": "Height",
             "type": "number"
           },
+          "type": {
+            "const": "bbox",
+            "default": "bbox",
+            "title": "Type",
+            "type": "string"
+          },
           "width": {
             "title": "Width",
             "type": "number"
@@ -40950,6 +41003,57 @@
           "height"
         ],
         "title": "TrainingDatasetNormalizedBox",
+        "type": "object"
+      },
+      "TrainingDatasetNormalizedPolygon": {
+        "properties": {
+          "annotation_id": {
+            "format": "uuid",
+            "title": "Annotation Id",
+            "type": "string"
+          },
+          "annotation_version": {
+            "title": "Annotation Version",
+            "type": "integer"
+          },
+          "area": {
+            "title": "Area",
+            "type": "number"
+          },
+          "class_index": {
+            "title": "Class Index",
+            "type": "integer"
+          },
+          "class_name": {
+            "title": "Class Name",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "type": {
+            "const": "polygon",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "class_index",
+          "class_name",
+          "points",
+          "area",
+          "annotation_id",
+          "annotation_version"
+        ],
+        "title": "TrainingDatasetNormalizedPolygon",
         "type": "object"
       },
       "TrainingDatasetOut": {
@@ -41080,6 +41184,15 @@
           },
           "status": {
             "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "default": "image-detection",
+            "enum": [
+              "image-detection",
+              "image-instance-segmentation"
+            ],
+            "title": "Task",
             "type": "string"
           }
         },
@@ -41214,7 +41327,14 @@
         "properties": {
           "labels": {
             "items": {
-              "$ref": "#/components/schemas/TrainingDatasetNormalizedBox"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TrainingDatasetNormalizedBox"
+                },
+                {
+                  "$ref": "#/components/schemas/TrainingDatasetNormalizedPolygon"
+                }
+              ]
             },
             "title": "Labels",
             "type": "array"
@@ -41340,6 +41460,15 @@
             "minimum": 0.0,
             "title": "Seed",
             "type": "integer"
+          },
+          "task": {
+            "default": "image-detection",
+            "enum": [
+              "image-detection",
+              "image-instance-segmentation"
+            ],
+            "title": "Task",
+            "type": "string"
           },
           "task_ids": {
             "items": {
@@ -41484,6 +41613,15 @@
           },
           "status": {
             "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "default": "image-detection",
+            "enum": [
+              "image-detection",
+              "image-instance-segmentation"
+            ],
+            "title": "Task",
             "type": "string"
           }
         },
@@ -41671,7 +41809,10 @@
             "$ref": "#/components/schemas/EvaluationEvaluator"
           },
           "revision": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "Revision",
             "type": "integer"
           },

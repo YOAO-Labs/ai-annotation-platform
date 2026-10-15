@@ -6,13 +6,12 @@ from sqlalchemy import select
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import training_runs as runs
-from app.services.learning_policies import fixed_template
 from app.services.training_dataset_bridge import content_digest
 from app.services import training_initialization as initialization
 
 
 def snapshot(framework, base_model, configuration, initialization_pin=None):
-    template = fixed_template(framework, base_model)
+    template = runs.controlled_template(framework, base_model)
     value = {
         key: template[key]
         for key in ("framework", "framework_version", "image_digest", "base_model")

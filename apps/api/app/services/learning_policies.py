@@ -34,21 +34,14 @@ async def project_lock(db, project_id, *, wait=True):
 
 
 def fixed_template(framework, base_model):
-    catalog = runs.catalog()
-    template = next((x for x in catalog["items"] if x["framework"] == framework), None)
-    base = next(
-        (x for x in (template or {}).get("base_models", []) if x["id"] == base_model),
-        None,
-    )
-    if not catalog["enabled"] or not template or not base:
-        raise HTTPException(status_code=409, detail="训练器或基础权重尚未配置")
-    return {
-        "framework": framework,
-        "framework_version": template["version"],
-        "image_digest": template["image_digest"],
-        "base_model": base,
-        "resource_id": catalog["resource_id"],
-    }
+    from training_contract import definition
+
+    template = runs.controlled_template(framework, base_model)
+    if definition(framework, base_model)["task"] != "image-detection":
+        raise HTTPException(
+            status_code=422, detail="自动学习策略目前仅通过图片检测资格验证"
+        )
+    return template
 
 
 def template_current(policy):
@@ -418,6 +411,21 @@ async def check_policy(db, policy_id, *, force=False):
         batch_id=policy.config.get("batch_id"),
         mode="reviewed",
     )
+    parent = await db.get(TrainingDatasetVersion, selection.parent_id)
+    try:
+        valid_parent = (
+            parent is not None
+            and datasets.contract_of(parent.manifest)["task"] == "image-detection"
+        )
+    except TrainingDatasetError:
+        valid_parent = False
+    if not valid_parent:
+        policy.enabled, policy.state, policy.message = (
+            False,
+            "suspended",
+            "自动学习策略的父数据版本不是合格检测任务，请重新保存策略",
+        )
+        return
     snapshot, report = await datasets.freeze_selection(
         db,
         project,

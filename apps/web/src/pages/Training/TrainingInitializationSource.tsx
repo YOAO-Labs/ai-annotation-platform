@@ -12,7 +12,9 @@ export function useTrainingInitializationSource(
   baseModel: string,
   datasetId: string,
   value?: TrainingInitialization,
+  task = "image-detection",
 ) {
+  const supportsProjectWeights = task === "image-detection" && !baseModel.endsWith("-seg");
   const selectedId = value?.kind === "trained_model" ? (value.model_version_id ?? "") : "";
   const view = useTrainingViewOwner(
     projectId,
@@ -21,7 +23,7 @@ export function useTrainingInitializationSource(
   const scope = useMemo(() => ({ owner: view.owner, key: crypto.randomUUID() }), [view.owner]).key;
   const source = useQuery({
     queryKey: ["training-initialization-source", projectId, scope, selectedId],
-    enabled: !!selectedId && !!baseModel,
+    enabled: supportsProjectWeights && !!selectedId && !!baseModel,
     queryFn: async ({ signal }) => {
       view.assert(signal);
       const result = await trainingRunsApi.initializationSource(
@@ -40,12 +42,13 @@ export function useTrainingInitializationSource(
   const trained = value?.kind === "trained_model";
   const valid =
     !trained ||
-    (!!source.data?.eligible &&
+    (supportsProjectWeights &&
+      !!source.data?.eligible &&
       !source.isError &&
       !source.isFetching &&
       !!value.source_digest &&
       value.source_digest === source.data.pin?.source_digest);
-  return { source, valid, selectedId };
+  return { source, valid, selectedId, supportsProjectWeights };
 }
 
 export function TrainingInitializationSource({
@@ -66,6 +69,7 @@ export function TrainingInitializationSource({
   const choices = useInfiniteQuery({
     queryKey: ["training-initialization-choices", projectId, scope],
     initialPageParam: 0,
+    enabled: qualification.supportsProjectWeights,
     queryFn: async ({ pageParam, signal }) => {
       view.assert(signal);
       const result = await trainedModelsApi.list(projectId, pageParam, { signal }, "include");
@@ -105,7 +109,9 @@ export function TrainingInitializationSource({
         >
           <option value="">受控目录基础权重</option>
           {selectedId && !items.some((item) => item.id === selectedId) && (
-            <option value={selectedId}>{pin?.model_name ?? selectedId}（保留的选择）</option>
+            <option value={selectedId} disabled={!qualification.supportsProjectWeights}>
+              {pin?.model_name ?? selectedId}（保留的选择）
+            </option>
           )}
           {items.map((item) => (
             <option key={item.id} value={item.id}>
@@ -115,6 +121,11 @@ export function TrainingInitializationSource({
           ))}
         </select>
       </label>
+      {!qualification.supportsProjectWeights && (
+        <p className="text-muted-foreground">
+          分割的项目模型权重初始化尚未通过资格验证。请选择受控目录权重；中断后可从本实验检查点续训。
+        </p>
+      )}
       {choices.hasNextPage && (
         <Button
           size="sm"

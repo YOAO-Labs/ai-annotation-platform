@@ -1,6 +1,7 @@
 import type { TrainingParameterSchema } from "@/api/generated/types.gen";
 import { trainingOriginLabel, trainingValueLabel } from "./TrainingParameterField";
 import type { ParameterValue } from "./trainingConfiguration";
+import { trainingTaskLabel } from "./trainingPresentation";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -47,6 +48,8 @@ export function TrainingRunReview({
             {[
               ["配置摘要", digest],
               ["数据版本", config.dataset_id],
+              ["训练任务", trainingTaskLabel(schema.task)],
+              ["数据桥接", record(config.data_contract).bridge ?? "矩形框检测"],
               ["训练包 SHA256", config.dataset_sha256],
               ["验证集摘要", config.validation_digest],
               ["类别", Array.isArray(config.classes) ? config.classes.join("、") : ""],

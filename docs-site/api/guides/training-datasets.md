@@ -57,6 +57,12 @@ last_reviewed: 2026-10-16
 
 正式创建请求使用相同选择，增加 `name`、UUID `request_id` 和 `preflight_digest`。相同请求标识与内容重复提交返回原版本；相同标识用于不同请求返回 `409`。正式创建重新读取一致快照，摘要与预检不符时返回 `409`，要求重新预检。
 
+`task` 可显式指定 `image-detection`（默认）或 `image-instance-segmentation`。默认检测任务从规范请求和快照序列化中省略，历史 schema 1 与摘要保持原样。分割使用 schema 2，并固定 `task`、`geometry=normalized-simple-polygon`、`bridge=ultralytics-simple-polygon-1`。父版本任务不一致返回 `422`；列表和详情均返回派生的 `task`。
+
+分割只接受启用区域工具的单一简单多边形，精确去除重复闭合点并规范起点／方向；17 位有效数字保留顶点，原始与 float32 几何均须有效。单实例最多 512 个顶点，单图最多 300 个实例及 8,192 个顶点。孔、多部件、栅格、混合活跃几何、未知类别、退化、自接触／自相交及原生重复实例阻止构建。清单 `instances` 将一基标签行、类别、行 SHA 与来源标注 ID／版本绑定；无目标成员保留空映射。
+
+分割样本详情的 `labels` 返回 `type=polygon`、归一化 `points`、`area`、`annotation_id` 与 `annotation_version`；检测仍返回 `type=bbox` 和中心／宽高。洞察和样本变化筛选的基线须为相同任务，跨任务返回 `422`。去重与验证多重集语义摘要纳入分割任务／几何／桥接身份，不改变检测旧摘要。
+
 版本状态为 `pending`、`running`、`ready`、`failed`、`cancelled`。通过 `POST /api/v1/async-jobs/{async_job_id}/cancel` 取消构建。取消和失败均同步数据版本与后台任务状态；旧执行退出前重试或删除返回 `409`。异步失败通过 `error_code` 和中文 `error_message` 展示，已复制的冻结素材可用于重试。
 
 列表不返回完整素材清单。可用 `status=ready` 等状态筛选，过滤先于 `limit`／`offset` 分页执行。详情的 `manifest` 在就绪后包含 `summary`、`samples`、累计 `split_history`、`content_digest` 和 `validation_digest`，不会暴露存储凭据或源文件签名 URL。构建和发布时重新校验创建者与原 API Key 的当前权限。
@@ -157,6 +163,10 @@ last_reviewed: 2026-10-16
 创建请求包含 `name`、`dataset_id`、`framework`、受控 `base_model`、UUID `request_id` 和 `parameters`。参数范围：`epochs` 1–1000、`batch` 1–64、`imgsz` 128–1280 且为 32 的倍数、`lr0` 大于 0 且不超过 0.1、`seed` 0–2147483647、`patience` 0–1000。原六参数请求继续使用原适配器及精确幂等序列化，不接受任意框架参数。相同请求标识与内容重试返回原实验，防止网络中断后重复启动。
 
 `framework` 支持目录中已验证的 `ultralytics` 和 `libreyolo`。目录的 `capabilities` 返回 `task_types`、`resume`、`artifact_download` 与 `model_registration`；LibreYOLO 的模型注册能力已开放到独立通过原生 CPU 资格检查的 YOLO9 t/s/m/c 检测格式。目录能力表示存在受支持路径，具体冻结实验仍须读取详情顶层 `registration_eligibility` 的 `qualified`、`reason` 和 `qualification`，注册接口会重新计算资格；下载能力不依赖回流资格。配置固定适配器修订和框架原生选项。LibreYOLO 指标文件包含真实 `summary`、`native_raw`、`native_alias_semantics`、`per_class_available=false` 和最终评估权重 SHA-256，不将其别名解释为常规精确率／召回率。
+
+基础权重另返回自己的 `task` 与 `capabilities`。`yolo11n-seg` 目前限定为 `image-instance-segmentation`，必须提交匹配的完整 `configuration`；冻结配置增加 `data_contract` 并与数据清单严格匹配。未知基础规格不会作为已通过资格的目录项展示。分割可以使用普通配方、克隆、训练／续训与下载；模型注册、项目权重初始化、CPU 增强预览、逐样本评估、自动策略和参数搜索继续拒绝未通过的分割任务。
+
+分割最终评估描述符使用 `revision=2`、`evaluator.task=instance-segmentation`，原生指标保留 `(B)` 与 `(M)` 后缀，分别表示框和掩码。逐类别包含两套 precision、recall、mAP50 与 mAP50–95；评估身份包含独立实例掩码、掩码分辨率、实际掩码处理选项及实现源码。`fitness` 是原生选择分数，不属于 0–1 指标。检测描述符仍使用修订 1，原有语义和摘要保持兼容。
 
 状态包括 `queued`、`preparing`、`training`、`evaluating`、`uploading`，停止时为 `cancelling`，终态为 `succeeded`、`failed`、`cancelled`。`lost` 表示心跳超时但仍持有资源，不能当作已停止。事件带当前 `attempt_id` 和连续 `sequence`，重复序号必须具有相同内容。
 

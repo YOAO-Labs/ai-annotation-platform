@@ -1,15 +1,18 @@
 """Capabilities and fixed options of the qualified training adapters."""
 
 from training_contract import ADAPTERS  # re-export the shared legacy identity
+from training_contract.dataset import DETECTION, SEGMENTATION
 
 
-def capabilities(framework):
+def capabilities(framework, task=None):
     adapter = ADAPTERS[framework]
     return {
-        "task_types": ["image-detection"],
+        "task_types": [task]
+        if task
+        else ([DETECTION, SEGMENTATION] if framework == "ultralytics" else [DETECTION]),
         "resume": True,
         "artifact_download": True,
-        "model_registration": adapter["model_registration"],
+        "model_registration": adapter["model_registration"] and task != SEGMENTATION,
     }
 
 

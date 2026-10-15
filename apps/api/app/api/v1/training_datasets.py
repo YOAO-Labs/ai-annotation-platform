@@ -89,7 +89,7 @@ async def create_version(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    request_digest = content_digest(body.model_dump(mode="json"))
+    request_digest = content_digest(body.canonical_payload())
     # Serialize before taking share locks, avoiding share-to-exclusive upgrades.
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))

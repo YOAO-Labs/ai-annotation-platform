@@ -60,6 +60,7 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
 
 def manifest(train=None, val="v1", classes=None):
     return {
+        "schema": 1,
         "classes": classes or ["car"],
         "content_digest": "c" * 64,
         "validation_digest": "d" * 64,
@@ -89,6 +90,7 @@ def frozen_source(monkeypatch):
 
     async def freeze(db, project, selection, **kw):
         snapshot = {
+            "schema": 1,
             "classes": ["car"],
             "samples": [],
             "seed": 42,

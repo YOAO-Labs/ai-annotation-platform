@@ -49,6 +49,29 @@ def objects(monkeypatch):
     return store
 
 
+async def test_segmentation_dataset_is_rejected_even_when_selected_label_is_empty(
+    db_session, super_admin, objects
+):
+    from training_contract.dataset import SEGMENTATION_CONTRACT
+
+    world = await seed(db_session, super_admin[0], objects)
+    version = world.dataset
+    version.snapshot = {**version.snapshot, **SEGMENTATION_CONTRACT}
+    version.snapshot_digest = content_digest(version.snapshot)
+    manifest = {
+        key: value for key, value in version.manifest.items() if key != "content_digest"
+    }
+    manifest.update(**SEGMENTATION_CONTRACT, format="ultralytics-segmentation")
+    manifest["content_digest"] = content_digest(manifest)
+    version.manifest = manifest
+    with pytest.raises(HTTPException) as error:
+        service.checked_dataset(version)
+    assert (
+        error.value.status_code == 422
+        and error.value.detail["code"] == "unsupported_task"
+    )
+
+
 async def test_create_is_idempotent_and_freezes_order_mapping_and_request_binding(
     db_session, super_admin, httpx_client, objects, monkeypatch
 ):

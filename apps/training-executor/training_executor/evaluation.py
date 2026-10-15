@@ -7,12 +7,14 @@ from pathlib import Path
 
 from training_contract.catalog import digest
 from training_contract.validation import normalized
+from training_contract.dataset import SEGMENTATION, config_task
 
 
 def descriptor(spec, weights, implementation, source_files, options, metrics):
     config = spec["frozen_config"]
+    segmentation = config_task(config) == SEGMENTATION
     return {
-        "revision": 1,
+        "revision": 2 if segmentation else 1,
         "config_digest": digest(config),
         "candidate": {
             "weights_sha256": weights["sha256"],
@@ -27,7 +29,7 @@ def descriptor(spec, weights, implementation, source_files, options, metrics):
         "evaluator": {
             "framework": config["framework"],
             "version": config["framework_version"],
-            "task": "detection",
+            "task": "instance-segmentation" if segmentation else "detection",
             "implementation": implementation,
             "source_sha256": digest(
                 [hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in source_files]
@@ -35,7 +37,7 @@ def descriptor(spec, weights, implementation, source_files, options, metrics):
             "options": normalized(options),
         },
         "semantics": {
-            key.removesuffix("(B)"): dict(
+            (key if segmentation else key.removesuffix("(B)")): dict(
                 unit="fraction",
                 direction="higher",
                 minimum=0,
@@ -51,7 +53,7 @@ def descriptor(spec, weights, implementation, source_files, options, metrics):
 def ultralytics_descriptor(spec, weights, validator, metrics):
     from ultralytics.engine import validator as engine
     from ultralytics.utils import metrics as native_metrics, ops
-    from ultralytics.data import augment, dataset
+    from ultralytics.data import augment, dataset, utils as data_utils
 
     args = vars(validator.args)
     fields = (
@@ -73,6 +75,11 @@ def ultralytics_descriptor(spec, weights, validator, metrics):
         "fraction",
     )
     options = {key: args[key] for key in fields}
+    segmentation = config_task(spec["frozen_config"]) == SEGMENTATION
+    if segmentation:
+        options.update({key: args[key] for key in ("overlap_mask", "mask_ratio")})
+        process = validator.process
+        options["mask_processing"] = process.__module__ + "." + process.__name__
     options.update(
         half=args["quantize"] == 16,
         device=str(validator.device),
@@ -94,6 +101,7 @@ def ultralytics_descriptor(spec, weights, validator, metrics):
             ops.__file__,
             augment.__file__,
             dataset.__file__,
+            *([data_utils.__file__] if segmentation else []),
         ],
         options,
         metrics,

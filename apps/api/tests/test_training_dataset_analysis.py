@@ -94,6 +94,38 @@ def derived(specs, **kwargs):
     return service.derive(snapshot, manifest, None, content_digest(snapshot))
 
 
+def test_polygon_insights_use_instance_area_and_keep_source_identity():
+    from training_contract.dataset import SEGMENTATION_CONTRACT, segmentation_labels
+
+    snapshot, manifest = inputs([{"content": "polygon", "split": "val"}])
+    snapshot.update(SEGMENTATION_CONTRACT)
+    manifest.update(**SEGMENTATION_CONTRACT, format="ultralytics-segmentation")
+    ring = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.15], [0.15, 0.15], [0.15, 0.9], [0.1, 0.9]]
+    annotation = {
+        "id": str(uuid.uuid4()),
+        "version": 3,
+        "tool_unit_id": "region",
+        "class_name": "car",
+        "geometry": {"type": "polygon", "points": ring},
+    }
+    snapshot["samples"][0]["annotations"] = [annotation]
+    text, mapping = segmentation_labels([annotation], snapshot["classes"])
+    manifest["samples"][0].update(
+        instances=mapping, label_sha256=hashlib.sha256(text.encode()).hexdigest()
+    )
+    result = service.derive(snapshot, manifest, None, content_digest(snapshot))
+    assert result["overview"]["status"] == "complete"
+    assert result["overview"]["task"] == SEGMENTATION_CONTRACT["task"]
+    label = result["samples"][0]["labels"][0]
+    assert label["type"] == "polygon" and label["annotation_id"] == annotation["id"]
+    assert label["annotation_version"] == 3
+    assert label["area"] == pytest.approx(0.0775)
+    assert result["overview"]["box_area_bins"][1]["val"] == 1
+    detection = derived([{"content": "polygon", "split": "val"}])
+    with pytest.raises(ValueError, match="不同训练任务"):
+        service.compare(detection, result)
+
+
 def test_statistics_use_actual_package_members_and_separate_image_instance_counts():
     snapshot, manifest = inputs(
         [
@@ -538,6 +570,7 @@ async def test_preview_respects_frozen_exif_dimensions_and_paginated_native_labe
     assert detail.status_code == 200, detail.text
     assert detail.json()["total"] == 2 and len(detail.json()["labels"]) == 1
     assert detail.json()["labels"][0] == {
+        "type": "bbox",
         "class_index": 1,
         "class_name": "truck",
         "x_center": 0.25,

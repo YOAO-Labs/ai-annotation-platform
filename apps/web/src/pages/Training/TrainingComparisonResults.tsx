@@ -3,7 +3,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui
 import { Button } from "@/components/ui/Button";
 import { trainingInputClass } from "./TrainingParameterField";
 import { TrainingMetricChart } from "./TrainingMetricChart";
-import { formatDuration, metricLabel } from "./trainingPresentation";
+import {
+  formatDuration,
+  metricLabel,
+  segmentationTask,
+  trainingTaskOf,
+} from "./trainingPresentation";
 import {
   comparisonPoints,
   curveData,
@@ -19,6 +24,13 @@ const name = (e: ComparisonExperiment) =>
   `${e.run?.name ?? "不可用实验"} · 执行 #${e.attempt?.ordinal ?? "?"}`;
 const tableClass =
   "w-full text-left text-xs [&_th]:px-3 [&_th]:py-3 [&_th]:font-medium [&_td]:px-3 [&_td]:py-3 [&_td]:align-top [&_tr]:border-b [&_tr]:border-border";
+const classMetrics = (e: ComparisonExperiment) => {
+  const keys = ["precision", "recall", "mAP50", "mAP50-95"];
+  return e.report?.descriptor?.evaluator.task === "instance-segmentation" ||
+    trainingTaskOf(e.run?.config) === segmentationTask
+    ? ["B", "M"].flatMap((kind) => keys.map((key) => `${key}(${kind})`))
+    : keys;
+};
 
 export function TrainingComparisonResults({
   experiments,
@@ -263,10 +275,11 @@ export function TrainingComparisonResults({
                       <thead>
                         <tr>
                           <th scope="col">原生类别</th>
-                          <th scope="col">Precision</th>
-                          <th scope="col">Recall</th>
-                          <th scope="col">mAP50</th>
-                          <th scope="col">mAP50–95</th>
+                          {classMetrics(e).map((key) => (
+                            <th scope="col" key={key}>
+                              {metricLabel(`metrics/${key}`)}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
@@ -276,7 +289,7 @@ export function TrainingComparisonResults({
                               {row.name}
                               <span className="ml-1 text-muted-foreground">#{row.index}</span>
                             </th>
-                            {["precision", "recall", "mAP50", "mAP50-95"].map((key) => (
+                            {classMetrics(e).map((key) => (
                               <td key={key} className="tabular-nums">
                                 {valueLabel(row.metrics[key])}
                               </td>
@@ -381,7 +394,13 @@ export function TrainingComparisonResults({
       <TabsContent value="curves" className="mt-4">
         <ComparisonCurves
           experiments={experiments}
-          metric={state.metric}
+          metric={
+            !state.metricExplicit &&
+            experiments.length > 0 &&
+            experiments.every((e) => trainingTaskOf(e.run?.config) === segmentationTask)
+              ? "metrics/mAP50-95(M)"
+              : state.metric
+          }
           smoothed={state.smoothing === "ema"}
           onChange={onChange}
         />

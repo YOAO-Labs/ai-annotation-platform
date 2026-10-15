@@ -28,8 +28,10 @@ from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
-    detection_labels,
+    contract_of,
+    native_labels,
 )
+from training_contract.dataset import SEGMENTATION, SEGMENTATION_CONTRACT
 
 MAX_SAMPLES = 20000
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
@@ -157,6 +159,8 @@ async def freeze_selection(
             raise TrainingDatasetError(
                 "parent_not_ready", "父数据版本尚未就绪", status_code=409
             )
+        if contract_of(parent.manifest)["task"] != selection.task:
+            raise TrainingDatasetError("task_mismatch", "父数据版本与当前训练任务不同")
     annotation_json = (
         select(
             func.jsonb_agg(
@@ -203,12 +207,21 @@ async def freeze_selection(
         raise TrainingDatasetError(
             "task_not_found", "选中的任务不属于当前项目或批次", status_code=404
         )
-    binding = (rows[0][2] if rows else project.tool_bindings).get("bbox", {})
+    segmentation = selection.task == SEGMENTATION
+    contract = (
+        dict(SEGMENTATION_CONTRACT)
+        if segmentation
+        else {"schema": 1, "task": "image-detection"}
+    )
+    binding = (rows[0][2] if rows else project.tool_bindings).get(
+        "region" if segmentation else "bbox", {}
+    )
     raw_classes = binding.get("classes", []) if binding.get("enabled") else []
     classes = [item["name"] if isinstance(item, dict) else item for item in raw_classes]
     if not classes or len(set(classes)) != len(classes):
         raise TrainingDatasetError(
-            "invalid_classes", "项目需要启用矩形框并配置不重复的类别"
+            "invalid_classes",
+            "项目需要启用对应的 region 多边形或矩形框工具，并配置不重复的类别",
         )
     samples, excluded, issues = [], [], []
     negatives = {str(value) for value in selection.confirmed_negative_ids}
@@ -235,7 +248,7 @@ async def freeze_selection(
             excluded.append({"task_id": task_id, "code": reason})
             continue
         try:
-            detection_labels(active_annotations, classes)
+            native_labels(active_annotations, classes, contract)
         except TrainingDatasetError as exc:
             issues.append({"task_id": task_id, "code": exc.code, "message": str(exc)})
             continue
@@ -300,9 +313,11 @@ async def freeze_selection(
         "samples": samples,
         "seed": selection.seed,
         "validation_fraction": selection.validation_fraction,
-        "selection": selection.model_dump(mode="json"),
+        "selection": selection.canonical_payload(),
         "authorization": {"actor_id": str(actor_id), "api_key_id": api_key_id},
     }
+    if segmentation:
+        snapshot.update(contract)
     report = {
         "ready": not issues,
         "digest": content_digest(snapshot),

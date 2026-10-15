@@ -42,6 +42,15 @@ async def authorized_analysis(db, project, user, version_id):
     return result
 
 
+def comparison_result(baseline, target):
+    try:
+        return service.compare(baseline.summary, target.summary)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
+
+
 @router.get("", response_model=TrainingDatasetInsightOverview)
 async def overview(
     version_id: uuid.UUID,
@@ -97,7 +106,7 @@ async def comparison(
 ):
     _, target, _ = await authorized_analysis(db, project, user, version_id)
     _, baseline, _ = await authorized_analysis(db, project, user, baseline_id)
-    result = service.compare(baseline.summary, target.summary)
+    result = comparison_result(baseline, target)
     result.pop("changes")
     return {**result, "baseline_id": baseline_id, "version_id": version_id}
 
@@ -134,13 +143,12 @@ async def samples(
         if baseline_id is None:
             raise HTTPException(status_code=422, detail="变化筛选需要选择基线版本")
         _, baseline, _ = await authorized_analysis(db, project, user, baseline_id)
-        selected_contents = service.compare(baseline.summary, target.summary)[
-            "changes"
-        ][change]
+        selected_contents = comparison_result(baseline, target)["changes"][change]
         if change == "removed":
             source_id, source = baseline_id, baseline
     elif baseline_id:
-        await authorized_analysis(db, project, user, baseline_id)
+        _, baseline, _ = await authorized_analysis(db, project, user, baseline_id)
+        comparison_result(baseline, target)
     query = (
         select(Sample)
         .where(Sample.version_id == source_id)

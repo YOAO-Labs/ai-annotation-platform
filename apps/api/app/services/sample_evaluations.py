@@ -42,7 +42,12 @@ from app.services.training_artifacts import (
     _bounded,
 )
 from app.services.training_dataset_analysis import read_media
-from app.services.training_dataset_bridge import content_digest, detection_labels
+from app.services.training_dataset_bridge import (
+    content_digest,
+    detection_labels,
+    contract_of,
+    TrainingDatasetError,
+)
 from app.services.training_datasets import assert_training_authority
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
@@ -85,6 +90,15 @@ def checked_dataset(version):
     ):
         raise reject("dataset_unavailable", "冻结数据版本尚未就绪或快照校验失败")
     manifest = version.manifest
+    try:
+        contract = contract_of(manifest)
+        if (
+            contract["task"] != "image-detection"
+            or contract_of(version.snapshot) != contract
+        ):
+            raise reject("unsupported_task", "样本评估目前仅通过图片检测资格验证", 422)
+    except TrainingDatasetError as exc:
+        raise reject("unsupported_task", str(exc), 422) from exc
     if (
         not manifest.get("content_digest")
         or content_digest({k: v for k, v in manifest.items() if k != "content_digest"})

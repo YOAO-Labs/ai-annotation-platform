@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.schemas.training_run import TrainingEvaluationDescriptor
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_dataset_bridge import content_digest
+from training_contract.dataset import SEGMENTATION, config_task
 
 METRICS = {"mAP50-95", "mAP50", "mAP75", "precision", "recall", "AR100"}
 SEMANTICS = dict(
@@ -15,13 +16,18 @@ SEMANTICS = dict(
 )
 
 
-def metric_values(raw, framework, *, per_class=False):
+def metric_values(raw, framework, *, per_class=False, segmentation=False):
     if not isinstance(raw, dict) or len(raw) > 100:
         raise ValueError("Invalid metric summary")
     values = {}
     for key, value in raw.items():
-        name = key.removeprefix("metrics/").removesuffix("(B)")
-        if name not in METRICS or (
+        name = key.removeprefix("metrics/")
+        base = name.removesuffix("(B)").removesuffix("(M)")
+        if segmentation and not name.endswith(("(B)", "(M)")):
+            continue
+        if not segmentation:
+            name = name.removesuffix("(B)")
+        if (base if segmentation else name) not in METRICS or (
             framework == "libreyolo" and name in {"precision", "recall"}
         ):
             continue
@@ -34,7 +40,7 @@ def metric_values(raw, framework, *, per_class=False):
         if value > 1:
             raise ValueError("Fraction metric exceeds range")
         canonical = name if per_class else "metrics/" + name
-        if canonical not in values or not key.endswith("(B)"):
+        if segmentation or canonical not in values or not key.endswith("(B)"):
             values[canonical] = float(value) if value >= 0 else None
     return values
 
@@ -42,16 +48,20 @@ def metric_values(raw, framework, *, per_class=False):
 def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
     framework = run.config["framework"]
     classes = run.config["classes"]
+    segmentation = config_task(run.config) == SEGMENTATION
+    task = "instance-segmentation" if segmentation else "detection"
     legacy = report.get("evaluation", {})
     if report.get("validation_digest") != run.config["validation_digest"] or (
         legacy.get("framework") != framework
         or legacy.get("version") != run.config["framework_version"]
-        or legacy.get("task") != "detection"
+        or legacy.get("task") != task
     ):
         raise ValueError("Report and frozen experiment identity conflict")
     if legacy.get("weights_sha256", weights["sha256"]) != weights["sha256"]:
         raise ValueError("Report weight identity conflict")
-    summary = metric_values(report.get("summary", {}), framework)
+    summary = metric_values(
+        report.get("summary", {}), framework, segmentation=segmentation
+    )
     rows = report.get("per_class", [])
     if not isinstance(rows, list) or len(rows) > len(classes) or len(classes) > 10000:
         raise ValueError("Invalid per-class coverage")
@@ -72,7 +82,9 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
             dict(
                 index=index,
                 name=classes[index],
-                metrics=metric_values(row, framework, per_class=True),
+                metrics=metric_values(
+                    row, framework, per_class=True, segmentation=segmentation
+                ),
             )
         )
     per_class.sort(key=lambda row: row["index"])
@@ -96,6 +108,8 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
             or d["benchmark"]["classes"] != classes
             or d["evaluator"]["framework"] != framework
             or d["evaluator"]["version"] != run.config["framework_version"]
+            or d["evaluator"]["task"] != task
+            or d["revision"] != (2 if segmentation else 1)
             or d["candidate"]["best_epoch"] is not None
             and d["candidate"]["best_epoch"] > run.config["parameters"]["epochs"]
         ):
@@ -118,6 +132,16 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
             if framework == "ultralytics"
             else {"eval_max_det", "faster_coco_eval"}
         )
+        if segmentation:
+            required |= {"overlap_mask", "mask_ratio", "mask_processing"}
+            if (
+                options.get("overlap_mask") is not False
+                or type(options.get("mask_ratio")) is not int
+                or options["mask_ratio"] != 1
+                or options.get("mask_processing")
+                != "ultralytics.utils.ops.process_mask"
+            ):
+                raise ValueError("Unqualified actual segmentation evaluator options")
         if (
             not required <= options.keys()
             or options["split"] != "val"
@@ -127,7 +151,15 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
         if any(
             k not in d["semantics"] or d["semantics"][k] != SEMANTICS for k in summary
         ) or any(
-            k.removeprefix("metrics/") not in METRICS or semantics != SEMANTICS
+            (
+                k.removeprefix("metrics/").removesuffix("(B)").removesuffix("(M)")
+                if segmentation
+                else k.removeprefix("metrics/")
+            )
+            not in METRICS
+            or segmentation
+            and not k.endswith(("(B)", "(M)"))
+            or semantics != SEMANTICS
             for k, semantics in d["semantics"].items()
         ):
             raise ValueError("Metric semantics conflict")

@@ -1,5 +1,18 @@
 import type { TrainingEpochEvent, TrainingRunOut } from "@/api/trainingRuns";
 
+export const segmentationTask = "image-instance-segmentation";
+export const trainingTaskLabel = (task?: unknown) =>
+  task === segmentationTask
+    ? "图片实例分割"
+    : task == null || task === "image-detection"
+      ? "图片目标检测"
+      : String(task);
+
+export function trainingTaskOf(config?: Record<string, unknown>) {
+  const configuration = config?.configuration as { identity?: { task?: string } } | undefined;
+  return configuration?.identity?.task ?? "image-detection";
+}
+
 export const activeTrainingStates = new Set([
   "queued",
   "preparing",
@@ -52,7 +65,7 @@ export function trainingProgress(run: TrainingRunOut) {
 }
 
 export function metricLabel(key: string) {
-  const normalized = key.replace(/\(B\)$/, "");
+  const normalized = key.replace(/\([BM]\)$/, "");
   const labels: Record<string, string> = {
     "metrics/mAP50-95": "mAP50–95",
     "metrics/mAP50": "mAP50",
@@ -64,11 +77,15 @@ export function metricLabel(key: string) {
     "train/box_loss": "框回归损失",
     "train/cls_loss": "分类损失",
     "train/dfl_loss": "DFL 损失",
+    "train/seg_loss": "掩码训练损失",
     "val/box_loss": "验证框回归损失",
     "val/cls_loss": "验证分类损失",
     "val/dfl_loss": "验证 DFL 损失",
+    "val/seg_loss": "掩码验证损失",
+    fitness: "原生最佳权重选择分数",
   };
-  return labels[normalized] ?? key;
+  const label = labels[normalized] ?? key;
+  return key.endsWith("(M)") ? `掩码 ${label}` : key.endsWith("(B)") ? `框 ${label}` : label;
 }
 
 export function epochPoints(

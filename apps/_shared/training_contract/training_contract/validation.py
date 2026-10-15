@@ -3,7 +3,8 @@
 import math
 from pathlib import PurePath
 
-from .catalog import FIXED, definition, schema_identity
+from .catalog import FIXED, SEGMENTATION_FIXED, definition, schema_identity
+from .dataset import SEGMENTATION
 
 CANONICAL = ("epochs", "batch", "imgsz", "seed", "lr0", "patience")
 
@@ -96,8 +97,11 @@ def resolve(framework, base_model, request):
     origins = {
         key: "user" if key in user_values else "reviewed-default" for key in effective
     }
-    effective.update(FIXED[framework])
-    origins.update({key: "platform" for key in FIXED[framework]})
+    fixed = {**FIXED[framework]}
+    if schema["task"] == SEGMENTATION:
+        fixed.update(SEGMENTATION_FIXED)
+    effective.update(fixed)
+    origins.update({key: "platform" for key in fixed})
     inactive = {}
     if framework == "ultralytics":
         if effective["optimizer"] == "SGD" and effective["momentum"] <= 0:

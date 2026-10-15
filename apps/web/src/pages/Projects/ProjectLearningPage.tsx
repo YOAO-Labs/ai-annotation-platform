@@ -24,6 +24,7 @@ import { ProjectModelsPanel } from "./ProjectModelsPanel";
 import { ProjectLearningPolicyPanel } from "./ProjectLearningPolicyPanel";
 import { TrainingDatasetInsights } from "./TrainingDatasetInsights";
 import { useAuthStore } from "@/stores/authStore";
+import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring";
@@ -77,6 +78,9 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
   const [name, setName] = useState("");
   const [batchId, setBatchId] = useState("");
   const [parentId, setParentId] = useState("");
+  const [trainingTask, setTrainingTask] =
+    useState<NonNullable<TrainingDatasetSelection["task"]>>("image-detection");
+  const taskChosen = useRef(false);
   const [mode, setMode] = useState<"reviewed" | "manager_confirmed">("reviewed");
   const [seed, setSeed] = useState("42");
   const [fraction, setFraction] = useState("20");
@@ -113,6 +117,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
   const checkedDigest = useRef<string | null>(null);
   const selection: TrainingDatasetSelection = useMemo(
     () => ({
+      task: trainingTask,
       batch_id: batchId || null,
       parent_id: parentId || null,
       mode,
@@ -121,7 +126,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
       task_ids: mode === "manager_confirmed" ? selected : [],
       confirmed_negative_ids: mode === "manager_confirmed" ? negatives : [],
     }),
-    [batchId, parentId, mode, seed, fraction, selected, negatives],
+    [trainingTask, batchId, parentId, mode, seed, fraction, selected, negatives],
   );
   const versions = useQuery({
     queryKey: ["training-datasets", projectId, scope, page],
@@ -260,6 +265,13 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
       setNegatives((current) => current.filter((key) => key !== id));
     });
   const unsupported = project.data && (project.data.data_type ?? "image") !== "image";
+  const detectionEnabled = !!project.data?.tool_bindings?.bbox?.enabled;
+  const segmentationEnabled = !!project.data?.tool_bindings?.region?.enabled;
+  useEffect(() => {
+    if (taskChosen.current || !project.data) return;
+    taskChosen.current = true;
+    if (segmentationEnabled && !detectionEnabled) setTrainingTask(segmentationTask);
+  }, [project.data, segmentationEnabled, detectionEnabled]);
 
   return (
     <PageContainer>
@@ -326,7 +338,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
           )}
           {unsupported ? (
             <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">
-              当前支持图片矩形框检测数据。请切换到图片项目。
+              当前支持图片矩形框检测和单多边形实例分割数据。请切换到图片项目。
             </p>
           ) : (
             <section
@@ -340,6 +352,27 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                 冻结本轮图片、标注与类别，生成包含原图的训练包。后续修改标注不会改变已有版本。
               </p>
               <fieldset disabled={busy} className="grid gap-4 border-0 p-0 md:grid-cols-3">
+                <label className="grid gap-1.5 text-xs font-medium">
+                  训练任务
+                  <select
+                    className={inputClass}
+                    value={trainingTask}
+                    onChange={(event) =>
+                      updateSelection(() => {
+                        taskChosen.current = true;
+                        setTrainingTask(event.target.value as typeof trainingTask);
+                        setParentId("");
+                      })
+                    }
+                  >
+                    <option value="image-detection" disabled={!detectionEnabled}>
+                      图片目标检测 · 矩形框
+                    </option>
+                    <option value={segmentationTask} disabled={!segmentationEnabled}>
+                      图片实例分割 · 单多边形
+                    </option>
+                  </select>
+                </label>
                 <label className="grid gap-1.5 text-xs font-medium">
                   版本名称
                   <input
@@ -401,7 +434,11 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                   >
                     <option value="">首次划分</option>
                     {versions.data?.items
-                      .filter((version) => version.status === "ready")
+                      .filter(
+                        (version) =>
+                          version.status === "ready" &&
+                          (version.task ?? "image-detection") === trainingTask,
+                      )
                       .map((version) => (
                         <option key={version.id} value={version.id}>
                           {version.name}
@@ -409,6 +446,13 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                       ))}
                   </select>
                 </label>
+                {trainingTask === segmentationTask && (
+                  <p className="text-xs leading-relaxed text-muted-foreground md:col-span-3">
+                    仅接受 region 的无洞单多边形。洞、多部件、栅格 mask
+                    或混合矩形框标注会在预检时报错。训练包保留实例来源；原生 mask
+                    的像素覆盖取决于训练分辨率。
+                  </p>
+                )}
                 <label className="grid gap-1.5 text-xs font-medium">
                   验证集比例（%）
                   <input
@@ -585,6 +629,9 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                         >
                           {version.name}
                         </button>
+                        <p className="mt-1 text-muted-foreground">
+                          {trainingTaskLabel(version.task)}
+                        </p>
                         {["pending", "running"].includes(version.status) && (
                           <div
                             className="mt-2"
@@ -701,7 +748,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
         <TabsContent value="training">
           {unsupported ? (
             <p className="rounded-lg bg-muted p-5 text-sm text-muted-foreground">
-              当前支持图片矩形框检测训练，请切换到图片项目。
+              当前支持图片目标检测和单多边形实例分割训练，请切换到图片项目。
             </p>
           ) : (
             <ProjectTrainingPanel
@@ -731,12 +778,12 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
           )}
         </TabsContent>
         <TabsContent value="models">
-          {unsupported && (
+          {(unsupported || !detectionEnabled) && (
             <p className="rounded-lg bg-muted p-5 text-sm text-muted-foreground">
               当前模型回流支持图片矩形框检测项目。
             </p>
           )}
-          {!unsupported && (
+          {!unsupported && detectionEnabled && (
             <ProjectModelsPanel
               projectId={projectId}
               classes={(project.data?.tool_bindings?.bbox?.classes ?? []).map((item) => item.name)}
@@ -744,12 +791,12 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
           )}
         </TabsContent>
         <TabsContent value="automation">
-          {unsupported && (
+          {(unsupported || !detectionEnabled) && (
             <p className="rounded-lg bg-muted p-5 text-sm text-muted-foreground">
               当前自动训练支持图片矩形框检测项目。
             </p>
           )}
-          {!unsupported && <ProjectLearningPolicyPanel projectId={projectId} />}
+          {!unsupported && detectionEnabled && <ProjectLearningPolicyPanel projectId={projectId} />}
         </TabsContent>
       </Tabs>
     </PageContainer>

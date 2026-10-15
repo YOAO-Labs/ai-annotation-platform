@@ -15,7 +15,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, column_property
 
 from app.db.base import Base
 
@@ -59,6 +59,9 @@ class TrainingDatasetVersion(Base):
         UUID(as_uuid=True), default=uuid.uuid4, nullable=False
     )
     snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    task = column_property(
+        func.coalesce(snapshot["task"].as_string(), "image-detection")
+    )
     snapshot_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     manifest: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     preparation_report: Mapped[dict | None] = mapped_column(JSONB)

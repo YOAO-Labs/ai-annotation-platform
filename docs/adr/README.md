@@ -127,3 +127,4 @@
 - [0082](archive/0082-budgeted-training-studies.md) — 参数搜索复用普通训练并以进程回执结算预算
 - [0083](archive/0083-human-reviewed-active-learning.md) — 人工主动选样保留独立对照、显式预算与不可变决策
 - [0084](archive/0084-qualified-libreyolo-model-return.md) — LibreYOLO 回流复用受控模型并独立核验原生推理
+- [0085](0085-qualified-polygon-instance-training.md) — 简单多边形实例训练复用原生执行器并独立冻结任务身份

@@ -165,6 +165,54 @@ async def test_catalog_distinguishes_heartbeat_and_template_compatibility(
     assert response.json()["items"][0]["compatible"] is None
 
 
+async def test_segmentation_only_catalog_reports_qualified_runtime_and_actual_capabilities(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    from app.config import settings
+    from training_contract import definition, schema_identity
+    from training_contract.dataset import SEGMENTATION
+
+    monkeypatch.setattr(
+        settings,
+        "training_catalog_json",
+        {
+            "ultralytics": {
+                "version": "8.4.177",
+                "image_digest": IMAGE,
+                "base_models": {
+                    "yolo11n-seg": {"sha256": "a" * 64, "filename": "yolo11n-seg.pt"}
+                },
+            }
+        },
+    )
+    db_session.add(
+        TrainingResourceLease(
+            resource_id=service.resource_id(),
+            executor_id="segmentation-container",
+            last_seen_at=service.now(),
+            runtime={
+                "gpu_uuid": GPU,
+                "image_digest": IMAGE,
+                "frameworks": {"ultralytics": "8.4.177"},
+                "executor_protocol": 2,
+                "supported_configs": [
+                    schema_identity(definition("ultralytics", "yolo11n-seg"))
+                ],
+            },
+        )
+    )
+    await db_session.flush()
+    response = await httpx_client.get(
+        "/api/v1/training/catalog", headers=headers(super_admin)
+    )
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["compatible"] and item["parameter_schemas"][0]["compatible"]
+    assert item["capabilities"]["task_types"] == [SEGMENTATION]
+    assert not item["capabilities"]["model_registration"]
+    assert item["base_models"][0]["task"] == SEGMENTATION
+
+
 async def test_non_managers_cannot_discover_catalog_projects_or_runs(
     db_session, httpx_client, annotator
 ):

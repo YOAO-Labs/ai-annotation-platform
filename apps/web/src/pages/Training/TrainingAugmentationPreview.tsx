@@ -91,7 +91,7 @@ function PreviewContent({
   const caps = useQuery({
     queryKey: ["training-preview-capability", owner.key, projectId],
     queryFn: ({ signal }) => trainingPreviewsApi.capabilities(projectId, { signal }),
-    enabled: input.framework === "ultralytics",
+    enabled: input.framework === "ultralytics" && !input.base_model?.endsWith("-seg"),
     retry: false,
     refetchInterval: 5000,
   });
@@ -247,8 +247,9 @@ function PreviewContent({
         const values = line.trim().split(/\s+/).map(Number);
         return { class_index: values[0], xywh: [values[1], values[2], values[3], values[4]] };
       }) ?? [];
-  const unavailable =
-    input.framework !== "ultralytics"
+  const unavailable = input.base_model?.endsWith("-seg")
+    ? "实例分割尚未通过原生增强预览资格验证；可继续配置与训练。"
+    : input.framework !== "ultralytics"
       ? "LibreYOLO 尚未通过原生增强预览验证；可继续配置与训练。"
       : caps.error
         ? message(caps.error)

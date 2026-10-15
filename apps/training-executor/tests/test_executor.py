@@ -47,6 +47,36 @@ def test_report_keeps_observed_class_identity_and_validation_scope():
     assert report["evaluation"]["independent_test_set"] is False
 
 
+def test_segmentation_report_keeps_box_mask_metrics_and_native_fitness_separate():
+    from training_contract.dataset import SEGMENTATION
+
+    result = SimpleNamespace(
+        box=SimpleNamespace(ap_class_index=[0]),
+        class_result=lambda position: (0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2),
+        results_dict={
+            "metrics/mAP50-95(B)": 0.6,
+            "metrics/mAP50-95(M)": 0.2,
+            "fitness": 0.8,
+        },
+    )
+    report = ultralytics_report(
+        result,
+        {
+            "frozen_config": {
+                "classes": ["shape"],
+                "validation_digest": "frozen",
+                "configuration": {"identity": {"task": SEGMENTATION}},
+            },
+            "parameters": {"imgsz": 128},
+        },
+    )
+    row = report["per_class"][0]
+    assert row["mAP50-95(B)"] == 0.6 and row["mAP50-95(M)"] == 0.2
+    assert row["precision(B)"] == 0.9 and row["precision(M)"] == 0.5
+    assert "mAP50-95" not in row and report["summary"]["fitness"] == 0.8
+    assert report["evaluation"]["task"] == "instance-segmentation"
+
+
 @pytest.mark.parametrize(
     "name", ["../escape", "/absolute", "a/../../escape", "a\\escape"]
 )

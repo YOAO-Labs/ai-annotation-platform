@@ -68,6 +68,7 @@ async def ready_dataset(db, owner):
         snapshot={},
         status="ready",
         manifest={
+            "schema": 1,
             "content_digest": "c" * 64,
             "validation_digest": "d" * 64,
             "classes": ["car"],

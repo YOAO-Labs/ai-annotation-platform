@@ -5,10 +5,12 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from training_contract.dataset import DETECTION
 
 
 class TrainingDatasetSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    task: Literal["image-detection", "image-instance-segmentation"] = DETECTION
     batch_id: uuid.UUID | None = None
     task_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20000)
     mode: Literal["reviewed", "manager_confirmed"] = "reviewed"
@@ -18,6 +20,12 @@ class TrainingDatasetSelection(BaseModel):
     seed: int = Field(default=42, ge=0, le=2147483647)
     validation_fraction: float = Field(default=0.2, ge=0.05, le=0.5)
     parent_id: uuid.UUID | None = None
+
+    def canonical_payload(self):
+        payload = self.model_dump(mode="json")
+        if self.task == DETECTION:
+            payload.pop("task")
+        return payload
 
     @model_validator(mode="after")
     def explicit_confirmation(self):
@@ -60,6 +68,7 @@ class TrainingDatasetSummary(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     name: str
+    task: Literal["image-detection", "image-instance-segmentation"] = DETECTION
     creator_id: uuid.UUID | None
     parent_id: uuid.UUID | None
     async_job_id: uuid.UUID | None

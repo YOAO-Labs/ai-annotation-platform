@@ -5,7 +5,12 @@ import type {
   TrainingRunOut,
 } from "@/api/trainingRuns";
 import { record } from "@/api/trainedModels";
-import { epochPoints } from "./trainingPresentation";
+import {
+  epochPoints,
+  trainingTaskOf,
+  trainingTaskLabel,
+  segmentationTask,
+} from "./trainingPresentation";
 
 export type ComparisonSelection = { runId: string; attemptId: string };
 export type ComparisonExperiment = {
@@ -59,6 +64,7 @@ export function parseComparison(params: URLSearchParams) {
     reference,
     view,
     metric,
+    metricExplicit: params.has("metric"),
     smoothing,
     classPage: Number(classPage),
     showAll: inputs === "all",
@@ -93,6 +99,8 @@ export function frozenInputs(experiment: ComparisonExperiment) {
     .find((a) => a.role === "checkpoint");
   return {
     数据版本: run.dataset_id,
+    训练任务: trainingTaskLabel(trainingTaskOf(config)),
+    数据桥接: record(config.data_contract).bridge ?? "矩形框检测",
     训练包摘要: config.dataset_digest,
     冻结验证摘要: config.validation_digest,
     原生类别顺序: config.classes,
@@ -165,7 +173,12 @@ export function comparisonPoints(experiment: ComparisonExperiment) {
   for (const point of points) {
     if (!Number.isInteger(point.epoch) || point.epoch < 1 || point.epoch > 1000) continue;
     const normalized = Object.fromEntries(
-      Object.entries(point).map(([key, value]) => [key.replace(/\(B\)$/, ""), value]),
+      Object.entries(point).map(([key, value]) => [
+        trainingTaskOf(experiment.run?.config) === segmentationTask
+          ? key
+          : key.replace(/\(B\)$/, ""),
+        value,
+      ]),
     );
     byEpoch.set(point.epoch, normalized);
   }
@@ -184,7 +197,7 @@ export function curveIncompatibility(
     inputs.flatMap((v) =>
       Object.keys(v).filter(
         (k) =>
-          /^(imgsz|batch|amp|conf|iou|max_det|rect|single_cls|classes|agnostic_nms|fraction|augment|eval_interval|faster_coco_eval|quantize|nms|channels_last)$/.test(
+          /^(imgsz|batch|amp|conf|iou|max_det|rect|single_cls|classes|agnostic_nms|fraction|augment|eval_interval|faster_coco_eval|quantize|nms|channels_last|overlap_mask|mask_ratio)$/.test(
             k,
           ) ||
           (!metric.startsWith("metrics/") && /loss|box|cls|dfl|iou|bbox/.test(k)),

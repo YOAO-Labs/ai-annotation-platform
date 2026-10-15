@@ -4,6 +4,7 @@ from copy import deepcopy
 import hashlib
 import json
 from importlib.resources import files
+from .dataset import SEGMENTATION
 
 ADAPTERS = {
     "ultralytics": {"version": "8.4.177", "revision": 1, "model_registration": True},
@@ -272,6 +273,26 @@ LABELS = {
     "freeze": "冻结层或模块（需验证具体命中）",
 }
 
+SEGMENTATION_FIXED = {
+    "task": "segment",
+    "overlap_mask": False,
+    "mask_ratio": 1,
+    "copy_paste": 0.0,
+    "copy_paste_mode": "flip",
+    "degrees": 0.0,
+    "translate": 0.0,
+    "scale": 0.0,
+    "shear": 0.0,
+    "perspective": 0.0,
+    "flipud": 0.0,
+    "multi_scale": 0.0,
+    "rect": False,
+    "mosaic": 0.0,
+    "mixup": 0.0,
+    "cutmix": 0.0,
+    "close_mosaic": 0,
+}
+
 
 def digest(value):
     return hashlib.sha256(
@@ -290,19 +311,22 @@ def definition(framework, base_model=None):
         files(__package__).joinpath("native_inventory.json").read_text()
     )[framework]
     family = "yolo11" if framework == "ultralytics" else "yolo9"
+    segmentation = (
+        framework == "ultralytics" and (base_model or "").lower() == "yolo11n-seg"
+    )
     if base_model is not None and base_model.lower() not in (
-        {"yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x"}
+        {"yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x", "yolo11n-seg"}
         if family == "yolo11"
         else {"libreyolo9t", "libreyolo9s", "libreyolo9m", "libreyolo9c", "libreyolo9e"}
     ):
         raise ValueError("该基础模型家族尚未通过参数契约验证")
     reviewed = {**COMMON, **(ULTRA if framework == "ultralytics" else LIBRE)}
     result = {
-        "schema_id": f"{framework}-{inventory['version']}-{family}-detect-2",
+        "schema_id": f"{framework}-{inventory['version']}-{family}-{'segment' if segmentation else 'detect'}-2",
         "framework": framework,
         "framework_version": inventory["version"],
         "adapter_revision": 2,
-        "task": "image-detection",
+        "task": SEGMENTATION if segmentation else "image-detection",
         "model_family": family,
         "source": inventory["source"],
         "source_sha256": inventory["source_sha256"],
@@ -316,7 +340,16 @@ def definition(framework, base_model=None):
             "native_default": native["default"],
             "aliases": [],
         }
-        if key in reviewed:
+        if segmentation and key in SEGMENTATION_FIXED:
+            field.update(
+                label=LABELS.get(key, reviewed.get(key, (key,))[0]),
+                group="platform",
+                status="platform-managed",
+                rules={},
+                default=SEGMENTATION_FIXED[key],
+                reason="单多边形分割资格固定的 mask 或变换语义，不能提交覆盖",
+            )
+        elif key in reviewed:
             label, group, rule, default = reviewed[key]
             field.update(
                 label=label,
@@ -328,6 +361,10 @@ def definition(framework, base_model=None):
             )
             if key == "nbs" and framework == "libreyolo":
                 field["rules"] = {"anyOf": [{"type": "null"}, field["rules"]]}
+            if segmentation:
+                field["reason"] = (
+                    "已验证 YOLO11n 单多边形分割原生训练路径；取值范围按平台资格收敛"
+                )
         elif key in MANAGED[framework]:
             field.update(
                 label=LABELS.get(key, key),
@@ -363,7 +400,9 @@ def definition(framework, base_model=None):
 
 
 def definitions():
-    return [definition(framework) for framework in ADAPTERS]
+    return [definition(framework) for framework in ADAPTERS] + [
+        definition("ultralytics", "yolo11n-seg")
+    ]
 
 
 def schema_identity(schema):
@@ -386,6 +425,8 @@ def supported_identities():
     for schema in definitions():
         identity = schema_identity(schema)
         result.append(identity)
+        if schema["task"] == SEGMENTATION:
+            continue
         result.append(
             {
                 key: (1 if key == "adapter_revision" else value)

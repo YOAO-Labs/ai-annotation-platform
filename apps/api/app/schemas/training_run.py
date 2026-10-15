@@ -201,7 +201,7 @@ class EvaluationEvaluator(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     framework: Literal["ultralytics", "libreyolo"]
     version: str = Field(min_length=1, max_length=100)
-    task: Literal["detection"]
+    task: Literal["detection", "instance-segmentation"]
     implementation: str = Field(min_length=1, max_length=200)
     source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     options: dict[str, JsonValue] = Field(min_length=1, max_length=100)
@@ -221,12 +221,23 @@ class TrainingRunDetail(BaseModel):
 
 class TrainingEvaluationDescriptor(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    revision: Literal[1]
+    revision: Literal[1, 2]
     config_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     candidate: EvaluationCandidate
     benchmark: EvaluationBenchmark
     evaluator: EvaluationEvaluator
     semantics: dict[str, EvaluationMetricSemantics] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def task_revision(self):
+        segmentation = self.evaluator.task == "instance-segmentation"
+        if (
+            self.revision != (2 if segmentation else 1)
+            or segmentation
+            and self.evaluator.framework != "ultralytics"
+        ):
+            raise ValueError("评估任务、框架与 descriptor 修订不匹配")
+        return self
 
 
 class TrainingClassEvaluation(BaseModel):

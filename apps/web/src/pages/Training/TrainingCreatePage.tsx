@@ -39,6 +39,7 @@ import {
   useTrainingInitializationSource,
 } from "./TrainingInitializationSource";
 import type { TrainingDraft } from "./trainingDraftStorage";
+import { segmentationTask, trainingTaskLabel } from "./trainingPresentation";
 import {
   collectOverrides,
   compatibleDrafts,
@@ -287,6 +288,13 @@ function TrainingCreateContent({
     selectedDataset.data.project_id === projectId &&
     selectedDataset.data.status === "ready" &&
     !!selectedDataset.data.package_sha256;
+  const datasetTask = selectedDataset.data?.task ?? "image-detection";
+  const tasksMatch =
+    !!selectedBase &&
+    !!schema &&
+    datasetTask === (selectedBase.task ?? "image-detection") &&
+    datasetTask === schema.task;
+  const segmentation = (selectedBase?.task ?? schema?.task) === segmentationTask;
   const collected = schema ? collectOverrides(schema, draft.fields) : { values: {}, errors: {} };
   const runtime = modelRuntime(draft.framework, draft.baseModel) ?? "";
   const runtimeRef = useRef(runtime);
@@ -309,6 +317,7 @@ function TrainingCreateContent({
     draft.baseModel,
     draft.datasetId,
     draft.initialization,
+    selectedBase?.task ?? schema?.task,
   );
   useEffect(() => {
     const captured = state.current.current;
@@ -342,6 +351,7 @@ function TrainingCreateContent({
     !!draft.name.trim() &&
     !!validDataset &&
     !!selectedBase &&
+    tasksMatch &&
     schemaMatches &&
     !schemaQuery.isError &&
     !!catalog.data?.enabled &&
@@ -1102,6 +1112,7 @@ function TrainingCreateContent({
                     {choices.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.name}
+                        {` · ${trainingTaskLabel(item.task)}`}
                         {item.status !== "ready" ? "（尚未就绪）" : ""}
                       </option>
                     ))}
@@ -1119,7 +1130,16 @@ function TrainingCreateContent({
                       <option value={draft.framework}>{draft.framework}（目录中不可用）</option>
                     )}
                     {catalog.data?.items.map((item) => (
-                      <option value={item.framework} key={item.framework}>
+                      <option
+                        value={item.framework}
+                        key={item.framework}
+                        disabled={
+                          validDataset &&
+                          !item.base_models.some(
+                            (base) => (base.task ?? "image-detection") === datasetTask,
+                          )
+                        }
+                      >
                         {item.framework} {item.version}
                       </option>
                     ))}
@@ -1134,14 +1154,23 @@ function TrainingCreateContent({
                     onChange={(event) => void chooseModel(event.target.value)}
                   >
                     <option value="">选择基础权重</option>
-                    {draft.baseModel && !selectedBase && (
-                      <option value={draft.baseModel}>{draft.baseModel}（目录中不可用）</option>
-                    )}
-                    {template?.base_models.map((item) => (
-                      <option value={item.id} key={item.id}>
-                        {item.id}
-                      </option>
-                    ))}
+                    {draft.baseModel &&
+                      (!selectedBase ||
+                        (validDataset &&
+                          (selectedBase.task ?? "image-detection") !== datasetTask)) && (
+                        <option value={draft.baseModel} disabled>
+                          {draft.baseModel}（目录不可用或与数据任务不匹配）
+                        </option>
+                      )}
+                    {template?.base_models
+                      .filter(
+                        (item) => !validDataset || (item.task ?? "image-detection") === datasetTask,
+                      )
+                      .map((item) => (
+                        <option value={item.id} key={item.id}>
+                          {item.id} · {trainingTaskLabel(item.task)}
+                        </option>
+                      ))}
                   </select>
                 </label>
               </fieldset>
@@ -1170,6 +1199,16 @@ function TrainingCreateContent({
               {draft.datasetId && selectedDataset.isSuccess && !validDataset && (
                 <p className="mt-4 text-xs text-status-danger">
                   此数据版本不可用于训练，请重新选择就绪版本。
+                </p>
+              )}
+              {validDataset && selectedBase && schema && !tasksMatch && (
+                <p role="alert" className="mt-4 text-xs text-status-danger">
+                  数据版本、基础权重与参数定义的训练任务不匹配。请明确选择对应任务的权重或数据；当前配置已保留。
+                </p>
+              )}
+              {segmentation && (
+                <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+                  实例分割支持单多边形原生训练、检查点续训和产物下载。模型回流、项目权重初始化、增强预览与参数搜索尚未开放。
                 </p>
               )}
               <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
@@ -1333,12 +1372,18 @@ function TrainingCreateContent({
                   <input
                     type="radio"
                     name="training-start-mode"
+                    disabled={segmentation}
                     checked={studyMode}
                     onChange={() => setStudyMode(true)}
                   />
                   有预算的参数搜索
                 </label>
               </fieldset>
+              {segmentation && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  参数搜索目前仅支持图片检测；分割请使用单个训练实验。
+                </p>
+              )}
               {studyMode && (
                 <TrainingStudyCreate
                   key={draft.requestId}

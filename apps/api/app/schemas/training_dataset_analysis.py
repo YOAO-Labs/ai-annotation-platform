@@ -41,6 +41,9 @@ class TrainingDatasetInsightOverview(BaseModel):
     snapshot_digest: str
     manifest_digest: str
     status: Literal["complete", "partial", "unavailable"]
+    task: Literal["image-detection", "image-instance-segmentation"] | None = (
+        "image-detection"
+    )
     counts: dict[str, int]
     splits: dict[str, dict[str, int]]
     classes_total: int
@@ -99,6 +102,7 @@ class TrainingDatasetSamplePage(BaseModel):
 
 
 class TrainingDatasetNormalizedBox(BaseModel):
+    type: Literal["bbox"] = "bbox"
     class_index: int
     class_name: str
     x_center: float
@@ -107,9 +111,19 @@ class TrainingDatasetNormalizedBox(BaseModel):
     height: float
 
 
+class TrainingDatasetNormalizedPolygon(BaseModel):
+    type: Literal["polygon"]
+    class_index: int
+    class_name: str
+    points: list[list[float]]
+    area: float
+    annotation_id: uuid.UUID
+    annotation_version: int
+
+
 class TrainingDatasetSampleDetail(BaseModel):
     sample: TrainingDatasetAnalyzedSampleOut
-    labels: list[TrainingDatasetNormalizedBox]
+    labels: list[TrainingDatasetNormalizedBox | TrainingDatasetNormalizedPolygon]
     total: int | None
     limit: int
     offset: int

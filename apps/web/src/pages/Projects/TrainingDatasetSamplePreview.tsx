@@ -93,6 +93,7 @@ function SamplePreviewContent({
     };
   }, [owner, projectId, sample.version_id, sample.task_id, retry, onObserved]);
   const value = detail.data;
+  const polygons = value?.labels.some((label) => label.type === "polygon") ?? false;
   return (
     <Modal open onClose={onClose} title="冻结样本预览" width={900}>
       <p className="mb-3 break-all text-xs text-muted-foreground">
@@ -100,7 +101,7 @@ function SamplePreviewContent({
         {sample.width ?? "未知"} × {sample.height ?? "未知"}
       </p>
       <p className="mb-4 text-xs text-muted-foreground">
-        图片经冻结身份与字节校验后生成预览；框来自训练包对应的冻结标注。预览按比例缩小。
+        图片经冻结身份与字节校验后生成预览；实例来自训练包对应的冻结标注。预览按比例缩小。
       </p>
       {mediaLoading && (
         <p role="status" className="py-8 text-center text-sm text-muted-foreground">
@@ -134,22 +135,33 @@ function SamplePreviewContent({
               className="pointer-events-none absolute inset-0 size-full text-status-info"
               viewBox="0 0 1 1"
               preserveAspectRatio="none"
-              aria-label="冻结矩形框"
+              aria-label={polygons ? "冻结多边形" : "冻结矩形框"}
               role="img"
             >
-              {value.labels.map((box, index) => (
-                <rect
-                  key={index}
-                  x={box.x_center - box.width / 2}
-                  y={box.y_center - box.height / 2}
-                  width={box.width}
-                  height={box.height}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  vectorEffect="non-scaling-stroke"
-                />
-              ))}
+              {value.labels.map((box, index) =>
+                box.type === "polygon" ? (
+                  <polygon
+                    key={index}
+                    points={box.points.map((point) => point.join(",")).join(" ")}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ) : (
+                  <rect
+                    key={index}
+                    x={box.x_center - box.width / 2}
+                    y={box.y_center - box.height / 2}
+                    width={box.width}
+                    height={box.height}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ),
+              )}
             </svg>
           )}
         </div>
@@ -176,7 +188,7 @@ function SamplePreviewContent({
         <p className="mt-3 text-sm text-muted-foreground">
           {value.sample.explicit_negative
             ? "此样本已明确确认为无目标。"
-            : "训练包中没有框；历史负样本确认信息未保留。"}
+            : "训练包中没有实例；历史负样本确认信息未保留。"}
         </p>
       )}
       {value?.total != null && value.total > 0 && (
@@ -188,10 +200,10 @@ function SamplePreviewContent({
                 checked={boxesVisible}
                 onChange={(event) => setBoxesVisible(event.target.checked)}
               />
-              显示本页冻结框
+              {polygons ? "显示本页冻结多边形" : "显示本页冻结框"}
             </label>
             <span className="text-muted-foreground">
-              当前显示 {page * 500 + 1}–{page * 500 + value.labels.length} / {value.total} 个框
+              当前显示 {page * 500 + 1}–{page * 500 + value.labels.length} / {value.total} 个实例
             </span>
           </div>
           <div className="mt-2 max-h-40 overflow-auto">
@@ -199,8 +211,10 @@ function SamplePreviewContent({
               <thead className="text-muted-foreground">
                 <tr>
                   <th className="py-2 font-medium">冻结类别</th>
-                  <th className="py-2 font-medium">中心位置</th>
-                  <th className="py-2 font-medium">宽 × 高（归一化）</th>
+                  <th className="py-2 font-medium">{polygons ? "顶点数量" : "中心位置"}</th>
+                  <th className="py-2 font-medium">
+                    {polygons ? "面积占比 / 来源标注" : "宽 × 高（归一化）"}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -208,10 +222,19 @@ function SamplePreviewContent({
                   <tr key={index} className="border-t border-border">
                     <td className="py-2">{box.class_name}</td>
                     <td className="py-2 tabular-nums">
-                      {box.x_center.toFixed(4)}, {box.y_center.toFixed(4)}
+                      {box.type === "polygon"
+                        ? `${box.points.length} 个顶点`
+                        : `${box.x_center.toFixed(4)}, ${box.y_center.toFixed(4)}`}
                     </td>
                     <td className="py-2 tabular-nums">
-                      {box.width.toFixed(4)} × {box.height.toFixed(4)}
+                      {box.type === "polygon" ? (
+                        <span title={box.annotation_id}>
+                          {(box.area * 100).toFixed(2)}% · {box.annotation_id.slice(0, 8)} ·
+                          标注版本 {box.annotation_version}
+                        </span>
+                      ) : (
+                        `${box.width.toFixed(4)} × ${box.height.toFixed(4)}`
+                      )}
                     </td>
                   </tr>
                 ))}

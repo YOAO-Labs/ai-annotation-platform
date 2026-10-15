@@ -115,6 +115,7 @@ def test_ancestral_task_content_and_scene_assignments_survive_omission():
 def test_training_zip_has_actual_media_and_separate_paths(tmp_path):
     ids = [str(uuid.uuid4()) for _ in range(3)]
     snapshot = {
+        "schema": 1,
         "classes": ["car"],
         "seed": 42,
         "validation_fraction": 0.2,
@@ -188,6 +189,7 @@ def test_automatic_dedup_keeps_scene_grouping_and_all_split_history(tmp_path):
             }
         )
     snapshot = {
+        "schema": 1,
         "classes": ["car"],
         "seed": 42,
         "validation_fraction": 0.2,
@@ -201,7 +203,10 @@ def test_automatic_dedup_keeps_scene_grouping_and_all_split_history(tmp_path):
             for s in items
         ],
     }
-    parent = {"samples": [{**items[2], "split": "train"}, {**items[3], "split": "val"}]}
+    parent = {
+        "schema": 1,
+        "samples": [{**items[2], "split": "train"}, {**items[3], "split": "val"}],
+    }
     m = build_training_package(
         snapshot, media, tmp_path / "auto.zip", parent_manifest=parent
     )
@@ -215,3 +220,80 @@ def test_automatic_dedup_keeps_scene_grouping_and_all_split_history(tmp_path):
     )
     with zipfile.ZipFile(tmp_path / "auto.zip") as z:
         assert len([n for n in z.namelist() if n.startswith("images/")]) == 3
+
+
+def test_segmentation_package_binds_task_and_instance_sources_without_semantic_id_noise(
+    tmp_path,
+):
+    import hashlib
+    from training_contract.dataset import SEGMENTATION_CONTRACT
+
+    ring = [[0.1, 0.1], [0.8, 0.1], [0.6, 0.3], [0.4, 0.8], [0.1, 0.8]]
+    samples, media = [], []
+    for i in range(3):
+        task_id = str(uuid.uuid4())
+        source = tmp_path / f"{i}.png"
+        source.write_bytes(f"actual-source-{i}".encode())
+        annotations = (
+            []
+            if i == 0
+            else [
+                {
+                    "id": str(uuid.uuid4()),
+                    "version": 4,
+                    "tool_unit_id": "region",
+                    "class_name": "shape",
+                    "geometry": {"type": "polygon", "points": ring},
+                }
+            ]
+        )
+        samples.append({"task_id": task_id, "annotations": annotations})
+        media.append(
+            {
+                "task_id": task_id,
+                "path": str(source),
+                "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "extension": ".png",
+                "width": 160,
+                "height": 96,
+                "size_bytes": source.stat().st_size,
+            }
+        )
+    snapshot = {
+        **SEGMENTATION_CONTRACT,
+        "classes": ["shape"],
+        "samples": samples,
+        "seed": 42,
+        "validation_fraction": 0.2,
+    }
+    archive = tmp_path / "seg.zip"
+    result = build_training_package(snapshot, media, archive)
+    assert (
+        result["task"] == SEGMENTATION_CONTRACT["task"]
+        and result["format"] == "ultralytics-segmentation"
+    )
+    assert result["summary"]["negatives"] == 1
+    by_id = {sample["task_id"]: sample for sample in samples}
+    with zipfile.ZipFile(archive) as package:
+        for sample in result["samples"]:
+            receipt = sample["instances"]
+            source = by_id[sample["task_id"]]["annotations"]
+            assert [entry["annotation_id"] for entry in receipt] == [
+                entry["id"] for entry in source
+            ]
+            assert all(entry["annotation_version"] == 4 for entry in receipt)
+            assert len(package.read(sample["label_path"]).splitlines()) == len(receipt)
+    for sample in samples:
+        for a in sample["annotations"]:
+            a["id"] = str(uuid.uuid4())
+    changed = build_training_package(snapshot, media, tmp_path / "new-ids.zip")
+    assert changed["content_digest"] != result["content_digest"]
+    assert changed["semantic_partitions"] == result["semantic_partitions"]
+    with pytest.raises(TrainingDatasetError) as error:
+        build_training_package(
+            snapshot,
+            media,
+            tmp_path / "wrong-parent.zip",
+            parent_manifest={"schema": 1, "samples": []},
+        )
+    assert error.value.code == "task_mismatch"

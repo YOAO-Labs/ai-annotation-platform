@@ -65,6 +65,9 @@ async def catalog(db: AsyncSession = Depends(get_db)):
             else None
         )
         for schema in item["parameter_schemas"]:
+            base = next(
+                base for base in item["base_models"] if base["task"] == schema["task"]
+            )
             identity = {
                 key: value
                 for key, value in schema.items()
@@ -76,6 +79,7 @@ async def catalog(db: AsyncSession = Depends(get_db)):
                     and service.runtime_compatible(
                         {
                             **legacy,
+                            "base_model": base,
                             "adapter_revision": 2,
                             "configuration": {"identity": identity},
                         },
@@ -84,6 +88,10 @@ async def catalog(db: AsyncSession = Depends(get_db)):
                 )
                 if online
                 else None
+            )
+        if online:
+            item["compatible"] = item["compatible"] or any(
+                schema["compatible"] for schema in item["parameter_schemas"]
             )
     return {
         **result,
@@ -96,17 +104,20 @@ async def catalog(db: AsyncSession = Depends(get_db)):
 
 def preparation_reason(project):
     if (project.data_type or "image") != "image":
-        return "当前支持图片矩形框检测训练"
-    binding = (project.tool_bindings or {}).get("bbox", {})
-    classes = binding.get("classes", []) if binding.get("enabled") else []
-    names = [item.get("name") if isinstance(item, dict) else item for item in classes]
-    if (
-        not names
-        or any(not isinstance(name, str) or not name.strip() for name in names)
-        or len(set(names)) != len(names)
-    ):
-        return "请先启用矩形框并配置不重复的类别"
-    return None
+        return "当前支持图片矩形框检测和单多边形实例分割训练"
+    for tool in ("bbox", "region"):
+        binding = (project.tool_bindings or {}).get(tool, {})
+        classes = binding.get("classes", []) if binding.get("enabled") else []
+        names = [
+            item.get("name") if isinstance(item, dict) else item for item in classes
+        ]
+        if (
+            names
+            and all(isinstance(name, str) and name.strip() for name in names)
+            and len(set(names)) == len(names)
+        ):
+            return None
+    return "请先启用矩形框或 region 多边形，并配置不重复的类别"
 
 
 @router.get("/projects", response_model=TrainingProjectPage)

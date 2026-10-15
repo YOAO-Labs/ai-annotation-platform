@@ -68,7 +68,9 @@ export function TrainingStudyCreate({
       ? ["metrics/mAP50-95", "metrics/mAP50", "metrics/mAP75", "metrics/AR100"]
       : ["metrics/mAP50-95", "metrics/mAP50", "metrics/precision", "metrics/recall"];
   const editable = schema?.fields.filter((field) => field.status === "editable") ?? [];
+  const supported = !schema || schema.task === "image-detection";
   const build = (): TrainingStudyCreate => {
+    if (!supported) throw new Error("参数搜索目前仅通过图片检测资格验证");
     if (!base) throw new Error("请先检查训练配置，再预览参数搜索");
     if (gridText.length > 16 * 1024) throw new Error("网格内容超出大小限制");
     const grid: unknown = JSON.parse(gridText);
@@ -164,7 +166,15 @@ export function TrainingStudyCreate({
           搜索创建结果尚未确认。重试会提交已保存的同一计划；配置暂时锁定。
         </p>
       )}
-      <fieldset disabled={busy || !!pending} className="mt-4 grid min-w-0 gap-4 sm:grid-cols-3">
+      {!supported && (
+        <p role="alert" className="mt-3 text-xs text-status-caution">
+          参数搜索目前仅支持图片检测；分割请使用单个训练实验。
+        </p>
+      )}
+      <fieldset
+        disabled={!supported || busy || !!pending}
+        className="mt-4 grid min-w-0 gap-4 sm:grid-cols-3"
+      >
         <label className="min-w-0 text-xs sm:col-span-3">
           参数网格（JSON）
           <textarea
@@ -268,14 +278,14 @@ export function TrainingStudyCreate({
       )}
       <div className="mt-4 flex flex-wrap gap-2">
         {!pending && (
-          <Button size="sm" disabled={busy || !base} onClick={() => void act(false)}>
+          <Button size="sm" disabled={!supported || busy || !base} onClick={() => void act(false)}>
             {busy ? "处理中…" : "预览全部组合与预算"}
           </Button>
         )}
         <Button
           size="sm"
           variant="primary"
-          disabled={busy || (!pending && !reviewed)}
+          disabled={!supported || busy || (!pending && !reviewed)}
           onClick={() => void act(true)}
         >
           {busy ? "处理中…" : pending ? "重试并确认搜索创建" : "开始参数搜索"}

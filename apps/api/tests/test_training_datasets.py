@@ -57,6 +57,107 @@ async def reviewed_project(db, owner):
     return project, tasks
 
 
+async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_list(
+    db_session, super_admin, httpx_client, source_headers
+):
+    from training_contract.dataset import SEGMENTATION
+
+    owner, token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    project.tool_bindings = {
+        **project.tool_bindings,
+        "region": {"enabled": True, "classes": ["shape"]},
+    }
+    annotations = []
+    for i in range(3):
+        task = await create_task(db_session, project_id=project.id, status="completed")
+        task.reviewed_at = datetime.now(timezone.utc)
+        annotation = Annotation(
+            task_id=task.id,
+            project_id=project.id,
+            user_id=owner.id,
+            class_name="shape",
+            tool_unit_id="region",
+            geometry={
+                "type": "polygon",
+                "points": [[0.1, 0.1], [0.8, 0.1], [0.7, 0.7], [0.1, 0.8]],
+            },
+        )
+        db_session.add(annotation)
+        annotations.append(annotation)
+    negative = await create_task(db_session, project_id=project.id, status="completed")
+    negative.reviewed_at = datetime.now(timezone.utc)
+    negative.submitted_at = negative.skipped_at = datetime.now(timezone.utc)
+    negative.skip_reason = "no_target"
+    await db_session.flush()
+    path = f"/api/v1/projects/{project.id}/training-datasets"
+    headers = {"Authorization": f"Bearer {token}"}
+    preflight = await httpx_client.post(
+        f"{path}:preflight", headers=headers, json={"task": SEGMENTATION}
+    )
+    assert preflight.status_code == 200 and preflight.json()["ready"], preflight.text
+    assert preflight.json()["classes"] == ["shape"]
+    assert preflight.json()["summary"]["negatives"] == 1
+    payload = {
+        "task": SEGMENTATION,
+        "name": "Polygons",
+        "request_id": str(uuid.uuid4()),
+        "preflight_digest": preflight.json()["digest"],
+    }
+    response = await httpx_client.post(path, headers=headers, json=payload)
+    assert response.status_code == 202 and response.json()["task"] == SEGMENTATION, (
+        response.text
+    )
+    version = await db_session.get(
+        TrainingDatasetVersion, uuid.UUID(response.json()["id"])
+    )
+    assert version.snapshot["task"] == SEGMENTATION and version.snapshot["schema"] == 2
+    assert {
+        a["id"] for sample in version.snapshot["samples"] for a in sample["annotations"]
+    } == {str(a.id) for a in annotations}
+    assert all(
+        a["version"] >= 1
+        for sample in version.snapshot["samples"]
+        for a in sample["annotations"]
+    )
+    listed = await httpx_client.get(path, headers=headers)
+    assert (
+        listed.status_code == 200 and listed.json()["items"][0]["task"] == SEGMENTATION
+    )
+    detail = await httpx_client.get(
+        f"{path}/{version.id}?include_manifest=false", headers=headers
+    )
+    assert detail.status_code == 200 and detail.json()["task"] == SEGMENTATION
+    # Unsupported active geometry is an error, never a silently emitted negative.
+    annotations[0].geometry = {
+        **annotations[0].geometry,
+        "holes": [[[0.2, 0.2], [0.3, 0.2], [0.3, 0.3]]],
+    }
+    await db_session.flush()
+    rejected = await httpx_client.post(
+        f"{path}:preflight", headers=headers, json={"task": SEGMENTATION}
+    )
+    assert not rejected.json()["ready"]
+    assert rejected.json()["issues"][0]["code"] == "unsupported_annotation"
+    assert rejected.json()["summary"]["negatives"] == 1
+
+
+def test_default_detection_selection_keeps_legacy_canonical_bytes():
+    expected = {
+        "batch_id": None,
+        "task_ids": [],
+        "mode": "reviewed",
+        "confirmed_negative_ids": [],
+        "seed": 42,
+        "validation_fraction": 0.2,
+        "parent_id": None,
+    }
+    assert TrainingDatasetSelection().canonical_payload() == expected
+    assert (
+        TrainingDatasetSelection(task="image-detection").canonical_payload() == expected
+    )
+
+
 async def test_snapshot_is_fixed_after_task_edits_and_creation_is_idempotent(
     db_session, super_admin, httpx_client, source_headers
 ):

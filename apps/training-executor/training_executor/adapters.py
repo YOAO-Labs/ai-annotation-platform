@@ -7,6 +7,12 @@ from pathlib import Path, PurePosixPath
 import yaml
 from .files import digest_file
 from training_contract import ADAPTERS, verify_frozen
+from training_contract.dataset import (
+    SEGMENTATION,
+    config_task,
+    data_contract,
+    segmentation_labels,
+)
 from training_contract.observability import (
     InputMismatchError,
     NativeConfigurationMismatch,
@@ -48,6 +54,18 @@ def validate_dataset(spec):
     else:
         ordered = names
     manifest = json.loads((root / "manifest.json").read_text())
+    contract = data_contract(manifest)
+    frozen = spec["frozen_config"]
+    segmentation = contract["task"] == SEGMENTATION
+    if (
+        contract["task"] != config_task(frozen)
+        or segmentation
+        and (
+            frozen.get("adapter_revision") != 2
+            or frozen.get("data_contract") != contract
+        )
+    ):
+        raise ValueError("Frozen dataset and native task identity mismatch")
     if (
         ordered != classes
         or manifest["classes"] != classes
@@ -79,7 +97,42 @@ def validate_dataset(spec):
             or digest_file(label) != sample["label_sha256"]
         ):
             raise ValueError("Frozen image or explicit label file missing or changed")
-        for line in label.read_text().splitlines():
+        text = label.read_text()
+        if segmentation:
+            lines = text.splitlines()
+            mapping = sample.get("instances")
+            if not isinstance(mapping, list) or len(mapping) != len(lines):
+                raise ValueError("Frozen segmentation instance receipt missing")
+            annotations = []
+            for line, source in zip(lines, mapping, strict=True):
+                values = line.split()
+                if len(values) < 7 or len(values) % 2 != 1:
+                    raise ValueError("Invalid segmentation label")
+                index = int(values[0])
+                if not 0 <= index < len(classes):
+                    raise ValueError("Invalid segmentation class index")
+                coords = list(map(float, values[1:]))
+                annotations.append(
+                    {
+                        "id": source["annotation_id"],
+                        "version": source["annotation_version"],
+                        "class_name": classes[index],
+                        "tool_unit_id": "region",
+                        "geometry": {
+                            "type": "polygon",
+                            "points": [
+                                coords[i : i + 2] for i in range(0, len(coords), 2)
+                            ],
+                        },
+                    }
+                )
+            canonical, receipt = segmentation_labels(annotations, classes)
+            if canonical != text or receipt != mapping:
+                raise ValueError(
+                    "Frozen segmentation label or instance receipt changed"
+                )
+            continue
+        for line in text.splitlines():
             values = line.split()
             if len(values) != 5:
                 raise ValueError("Invalid detection label")

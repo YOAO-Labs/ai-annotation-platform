@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import re
+from .dataset import DETECTION, config_task
 
 
 LIBRE_RUNTIME = {
@@ -28,6 +29,14 @@ def libre_identity(base_model):
 
 def registration_eligibility(config):
     framework = config.get("framework")
+    if config_task(config) != DETECTION or str(
+        (config.get("base_model") or {}).get("id", "")
+    ).lower().endswith("-seg"):
+        return {
+            "qualified": False,
+            "reason": "该任务尚未通过模型回流与推理资格检查；可下载原生权重",
+            "qualification": None,
+        }
     if framework == "ultralytics":
         return {"qualified": True, "reason": None, "qualification": None}
     if framework != "libreyolo" or config.get("framework_version") != "1.6.0":

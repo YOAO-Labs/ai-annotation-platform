@@ -20,6 +20,8 @@ class TrainingBaseModel(BaseModel):
     id: str
     sha256: str
     filename: str
+    task: Literal["image-detection", "image-instance-segmentation"] = "image-detection"
+    capabilities: TrainingCapabilities | None = None
 
 
 class TrainingSchemaIdentity(BaseModel):

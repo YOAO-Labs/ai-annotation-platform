@@ -7,6 +7,12 @@ import json
 import math
 import zipfile
 from pathlib import Path
+from training_contract.dataset import (
+    DatasetContractError,
+    SEGMENTATION,
+    data_contract,
+    segmentation_labels,
+)
 
 
 class TrainingDatasetError(ValueError):
@@ -14,6 +20,22 @@ class TrainingDatasetError(ValueError):
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+
+
+def contract_of(record):
+    try:
+        return data_contract(record)
+    except DatasetContractError as exc:
+        raise TrainingDatasetError(exc.code, str(exc)) from exc
+
+
+def native_labels(annotations, classes, contract):
+    if contract["task"] == SEGMENTATION:
+        try:
+            return segmentation_labels(annotations, classes)
+        except DatasetContractError as exc:
+            raise TrainingDatasetError(exc.code, str(exc)) from exc
+    return detection_labels(annotations, classes), None
 
 
 def content_digest(value: object) -> str:
@@ -169,14 +191,22 @@ def build_training_package(
     by_task = {sample["task_id"]: sample for sample in snapshot["samples"]}
     if len(media) != len(by_task) or {m["task_id"] for m in media} != set(by_task):
         raise TrainingDatasetError("incomplete_media", "冻结的素材尚未完整物化")
+    contract = contract_of(snapshot)
+    segmentation = contract["task"] == SEGMENTATION
+    if parent_manifest is not None and contract_of(parent_manifest) != contract:
+        raise TrainingDatasetError(
+            "task_mismatch", "父数据版本与当前训练任务或几何身份不同"
+        )
     samples = []
     for item in media:
         sample = by_task[item["task_id"]]
+        labels, instances = native_labels(sample["annotations"], classes, contract)
         samples.append(
             {
                 **item,
                 "scene_id": sample.get("scene_id"),
-                "labels": detection_labels(sample["annotations"], classes),
+                "labels": labels,
+                **({"instances": instances} if segmentation else {}),
             }
         )
     splits = assign_splits(
@@ -223,6 +253,7 @@ def build_training_package(
                     "width": sample["width"],
                     "height": sample["height"],
                     "size_bytes": sample["size_bytes"],
+                    **({"instances": sample["instances"]} if segmentation else {}),
                 }
             )
         # No `path` key: Ultralytics resolves these relative to this YAML file.
@@ -247,12 +278,15 @@ def build_training_package(
                 "negatives": sum(not s["labels"] for s in samples),
             },
         }
+        if segmentation:
+            manifest.update(**contract, format="ultralytics-segmentation")
         manifest["split_history"] = split_history(manifest)
         manifest["semantic_partitions"] = semantic_partitions(manifest)
         manifest["validation_digest"] = content_digest(
             {
                 "classes": classes,
                 "samples": [s for s in manifest_samples if s["split"] == "val"],
+                **({"data_contract": contract} if segmentation else {}),
             }
         )
         manifest["content_digest"] = content_digest(manifest)
@@ -265,6 +299,8 @@ def build_training_package(
 def semantic_partitions(manifest: dict) -> dict:
     """Identify content without database IDs, ordering, paths or actor noise."""
     classes = manifest["classes"]
+    contract = contract_of(manifest)
+    identity = {"data_contract": contract} if contract["task"] == SEGMENTATION else {}
     partitions = {"train": {}, "val": {}}
     for sample in manifest["samples"]:
         values = partitions[sample["split"]]
@@ -279,9 +315,9 @@ def semantic_partitions(manifest: dict) -> dict:
         "train": partitions["train"],
         "val": partitions["val"],
         "train_digest": content_digest(
-            {"classes": classes, "samples": partitions["train"]}
+            {"classes": classes, "samples": partitions["train"], **identity}
         ),
         "validation_digest": content_digest(
-            {"classes": classes, "samples": partitions["val"]}
+            {"classes": classes, "samples": partitions["val"], **identity}
         ),
     }

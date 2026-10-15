@@ -17,7 +17,7 @@ export type ReusableSnapshot = {
   image_digest: string;
   base_model: { id: string; sha256: string; filename: string };
   configuration: {
-    identity: { schema_id: string; schema_digest: string };
+    identity: { schema_id: string; schema_digest: string; task?: string };
     user_values: Record<string, ParameterValue>;
     effective_values: Record<string, ParameterValue>;
   };

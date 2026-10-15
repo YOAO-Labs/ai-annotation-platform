@@ -24,10 +24,12 @@ from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
-    detection_labels,
+    contract_of,
+    native_labels,
     semantic_partitions,
 )
 from app.services.training_datasets import MAX_IMAGE_BYTES, MAX_SAMPLES
+from training_contract.dataset import DETECTION, SEGMENTATION, polygon_area
 
 ANALYSIS_SCHEMA = 1
 HASH = re.compile(r"^[a-f0-9]{64}$")
@@ -96,6 +98,11 @@ def derive(
             "analysis_classes", "冻结类别表不可用", status_code=409
         )
     frozen = {str(s["task_id"]): s for s in snapshot.get("samples", [])}
+    try:
+        contract = contract_of(manifest)
+    except TrainingDatasetError:
+        contract = None
+    segmentation = bool(contract and contract["task"] == SEGMENTATION)
     class_rows = [
         {
             "index": i,
@@ -174,11 +181,17 @@ def derive(
                 not source
                 or "annotations" not in source
                 or snapshot.get("classes") != classes
+                or contract is None
+                or contract_of(snapshot) != contract
             ):
                 raise TrainingDatasetError(
                     "frozen_labels_unavailable", "冻结标注或类别映射未保留"
                 )
-            text = detection_labels(source["annotations"], classes)
+            text, instances = native_labels(source["annotations"], classes, contract)
+            if segmentation and member.get("instances") != instances:
+                raise TrainingDatasetError(
+                    "frozen_instances_mismatch", "冻结实例来源与训练包不一致"
+                )
             if (
                 not row["label_sha256"]
                 or hashlib.sha256(text.encode()).hexdigest() != row["label_sha256"]
@@ -187,7 +200,26 @@ def derive(
                     "frozen_labels_mismatch", "冻结标签与训练包摘要不一致"
                 )
             labels = []
-            for line in text.splitlines():
+            for line_number, line in enumerate(text.splitlines()):
+                if segmentation:
+                    values = line.split()
+                    index = int(values[0])
+                    coords = list(map(float, values[1:]))
+                    points = [coords[i : i + 2] for i in range(0, len(coords), 2)]
+                    labels.append(
+                        {
+                            "type": "polygon",
+                            "class_index": index,
+                            "class_name": classes[index],
+                            "points": points,
+                            "area": polygon_area(points),
+                            "annotation_id": instances[line_number]["annotation_id"],
+                            "annotation_version": instances[line_number][
+                                "annotation_version"
+                            ],
+                        }
+                    )
+                    continue
                 index, x, y, w, h = line.split()
                 index = int(index)
                 labels.append(
@@ -213,7 +245,14 @@ def derive(
                 else False,
                 class_ids=sorted({label["class_index"] for label in labels}),
                 semantic_label_digest=content_digest(
-                    sorted(
+                    {
+                        "data_contract": contract,
+                        "labels": sorted(
+                            (label["class_name"], label["points"]) for label in labels
+                        ),
+                    }
+                    if segmentation
+                    else sorted(
                         (
                             label["class_name"],
                             label["x_center"],
@@ -235,7 +274,11 @@ def derive(
                     class_rows[index][f"{split}_images"] += 1
                 for label in labels:
                     class_rows[label["class_index"]][f"{split}_instances"] += 1
-                    area = label["width"] * label["height"]
+                    area = (
+                        label["area"]
+                        if segmentation
+                        else label["width"] * label["height"]
+                    )
                     area_bins[0 if area < 0.01 else 1 if area < 0.1 else 2][split] += 1
         except (TrainingDatasetError, KeyError, ValueError, TypeError) as exc:
             row["issue"] = (
@@ -306,6 +349,7 @@ def derive(
                 "samples": [
                     [sha, label, n] for (sha, label), n in sorted(multiset.items())
                 ],
+                **({"data_contract": contract} if segmentation else {}),
             }
         )
         if all(valid_hash(sha) and valid_hash(label) for sha, label in multiset)
@@ -336,6 +380,7 @@ def derive(
     )
     overview = {
         "status": status,
+        "task": contract["task"] if contract else None,
         "counts": {
             "images": len(members),
             "instances": sum((r["instances"] or 0) for r in samples if r["included"]),
@@ -394,6 +439,14 @@ def derive(
 
 
 def compare(baseline: dict, target: dict) -> dict:
+    if baseline["overview"].get("task", DETECTION) != target["overview"].get(
+        "task", DETECTION
+    ):
+        raise TrainingDatasetError(
+            "task_mismatch",
+            "不同训练任务的数据版本不能作为同类数据比较",
+            status_code=422,
+        )
     before, after = baseline["contents"], target["contents"]
     common = before.keys() & after.keys()
     changes = {key: set() for key in CHANGES}

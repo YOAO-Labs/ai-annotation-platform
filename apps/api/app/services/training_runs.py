@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from training_contract import definition, resolve, schema_identity, verify_native
 from training_contract.validation import CANONICAL
+from training_contract.dataset import DETECTION, SEGMENTATION
 from training_contract.observability import failure_receipt, redact_text
 
 from app.config import settings
@@ -28,7 +29,11 @@ from app.schemas.training_run import ExecutorFence, TrainingRunCreate
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
-from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_dataset_bridge import (
+    TrainingDatasetError,
+    content_digest,
+    contract_of,
+)
 from app.services.training_datasets import assert_training_authority
 from app.services.training_adapters import ADAPTERS, capabilities, fixed_options
 from app.services import training_initialization as initialization
@@ -76,6 +81,10 @@ def catalog():
             continue
         valid_models = []
         for name, model in models.items():
+            try:
+                task = definition(framework, name)["task"]
+            except ValueError:
+                continue
             sha = model.get("sha256", "")
             filename = model.get("filename", "")
             if (
@@ -86,7 +95,15 @@ def catalog():
                 and "\\" not in filename
                 and ".." not in filename
             ):
-                valid_models.append({"id": name, "sha256": sha, "filename": filename})
+                valid_models.append(
+                    {
+                        "id": name,
+                        "sha256": sha,
+                        "filename": filename,
+                        "task": task,
+                        "capabilities": capabilities(framework, task),
+                    }
+                )
         if valid_models:
             items.append(
                 {
@@ -94,7 +111,17 @@ def catalog():
                     "version": version,
                     "image_digest": image,
                     "base_models": valid_models,
-                    "capabilities": capabilities(framework),
+                    "capabilities": {
+                        "task_types": sorted({base["task"] for base in valid_models}),
+                        **{
+                            key: any(base["capabilities"][key] for base in valid_models)
+                            for key in (
+                                "resume",
+                                "artifact_download",
+                                "model_registration",
+                            )
+                        },
+                    },
                     "parameter_schemas": parameter_summaries(framework, valid_models),
                 }
             )
@@ -128,6 +155,24 @@ def resolve_configuration(framework, base_model, configuration):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def controlled_template(framework, base_model):
+    options = catalog()
+    template = next((x for x in options["items"] if x["framework"] == framework), None)
+    base = next(
+        (x for x in (template or {}).get("base_models", []) if x["id"] == base_model),
+        None,
+    )
+    if not options["enabled"] or not template or not base:
+        raise HTTPException(status_code=409, detail="训练器或基础权重尚未配置")
+    return {
+        "framework": framework,
+        "framework_version": template["version"],
+        "image_digest": template["image_digest"],
+        "base_model": {key: base[key] for key in ("id", "sha256", "filename")},
+        "resource_id": options["resource_id"],
+    }
+
+
 def runtime_compatible(config, runtime):
     framework = config["framework"]
     if config.get("study_budget"):
@@ -154,20 +199,23 @@ def runtime_compatible(config, runtime):
         supported = revision == 1 and "configuration" not in config
     elif protocol == 2:
         try:
-            family = definition(framework, config["base_model"]["id"])["model_family"]
+            schema = definition(framework, config["base_model"]["id"])
+            family = schema["model_family"]
         except (KeyError, ValueError):
             return False
         identity = {
             "framework": framework,
             "framework_version": config["framework_version"],
             "adapter_revision": revision,
-            "task": "image-detection",
+            "task": DETECTION,
             "model_family": family,
         }
         if revision == 2:
             identity = config.get("configuration", {}).get("identity")
-            if not identity:
+            if identity != schema_identity(schema):
                 return False
+        elif schema["task"] != DETECTION:
+            return False
         supported = identity in runtime.get("supported_configs", [])
     else:
         return False
@@ -176,6 +224,16 @@ def runtime_compatible(config, runtime):
     if config["image_digest"] == runtime.get("image_digest"):
         return True
     entry = settings.training_catalog_json.get(framework, {})
+    if (
+        revision == 2
+        and protocol == 2
+        and config["configuration"]["identity"]["task"] == DETECTION
+        and entry.get("version") == config["framework_version"]
+        and entry.get("image_digest") == runtime.get("image_digest")
+        and config.get("configuration", {}).get("identity")
+        in entry.get("compatible_config_images", {}).get(config["image_digest"], [])
+    ):
+        return True
     return bool(
         revision == 1
         and "configuration" not in config
@@ -230,12 +288,25 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         raise HTTPException(status_code=404, detail="训练数据版本不存在")
     if dataset.status != "ready" or not dataset.package_sha256:
         raise HTTPException(status_code=409, detail="训练数据版本尚未就绪")
+    try:
+        contract = contract_of(dataset.manifest)
+        schema = definition(body.framework, body.base_model)
+    except (TrainingDatasetError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if contract["task"] != schema["task"]:
+        raise HTTPException(
+            status_code=422, detail="训练数据任务与基础模型或参数定义不匹配"
+        )
+    if contract["task"] == SEGMENTATION and body.configuration is None:
+        raise HTTPException(
+            status_code=422, detail="分割训练必须提交完整的任务参数配置"
+        )
     config = {
         "adapter_revision": ADAPTERS[body.framework]["revision"],
         "framework": body.framework,
         "framework_version": template["version"],
         "image_digest": template["image_digest"],
-        "base_model": base,
+        "base_model": {key: base[key] for key in ("id", "sha256", "filename")},
         "dataset_id": str(dataset.id),
         "dataset_sha256": dataset.package_sha256,
         "dataset_digest": dataset.manifest["content_digest"],
@@ -245,6 +316,8 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         "resource_id": resource_id(),
         "fixed_options": fixed_options(body.framework),
     }
+    if contract["task"] == SEGMENTATION:
+        config["data_contract"] = contract
     if body.configuration is not None:
         configuration = resolve_configuration(
             body.framework, body.base_model, body.configuration.model_dump()

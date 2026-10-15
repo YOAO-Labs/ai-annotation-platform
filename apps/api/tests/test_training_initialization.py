@@ -282,6 +282,7 @@ async def test_foreign_source_and_target_class_order_are_rejected(
         name="Different classes",
         status="ready",
         manifest={
+            "schema": 1,
             "content_digest": "c" * 64,
             "validation_digest": "d" * 64,
             "classes": ["person", "car"],
