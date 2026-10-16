@@ -23,6 +23,7 @@ from app.schemas.point_cloud_quality import (
     PointCloudQualityConfig,
     PointCloudQualityRunRequest,
 )
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job
 from app.services.mask_qc.service import canonical_digest
 from app.services.point_cloud_quality.config import (
@@ -546,17 +547,19 @@ async def create_quality_run(
 
 
 async def dispatch_quality_run(
-    db: AsyncSession, *, run_id: uuid.UUID, async_job_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    async_job_id: uuid.UUID,
+    dispatcher: QualityJobDispatcher,
 ) -> None:
     run = await db.get(PointCloudQualityRun, run_id)
     job = await db.get(AsyncJob, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise PointCloudQualityError(500, "point_cloud_quality_dispatch_invalid")
     try:
-        from app.workers.point_cloud_quality import run_point_cloud_quality
-
-        run_point_cloud_quality.apply_async(
-            args=[str(run.id)], task_id=job.celery_task_id
+        dispatcher.dispatch_run(
+            "point_cloud_quality", run.id, execution_id=job.celery_task_id
         )
     except Exception as exc:
         raise PointCloudQualityError(

@@ -66,12 +66,17 @@ last_reviewed: 2026-10-16
    `state/useTrackerSeedCollection.ts`（种子分组纯模块 `state/trackerSeedPrompts.ts`），
    批量线后端选择在 `state/useBatchBackendSelection.ts`；后端 Mask 写入经
    `app/services/mask_mutation.py`（版本冲突与幂等键在此收口）。
-5. 异步处理：Celery 信号兜底在 `app/workers/signals.py`
+5. 质量任务派发：路由提交领域记录后，将
+   `app/deps.py::get_quality_job_dispatcher` 装配的执行端口传给领域派发函数。
+   `app/services/quality_job_dispatch.py::QualityJobDispatcher` 持有传输无关契约，
+   `app/workers/quality_dispatch.py::CeleryQualityJobDispatcher` 持有具体 task 调用；
+   覆盖 Mask QC、点云/视频轨迹质检、Mask 修复/回滚和格式导入。
+6. 异步处理：Celery 信号兜底在 `app/workers/signals.py`
    （`task_failure` / `task_revoked` → 连接 → 查作业 → 通用终态 → 领域回填 → 通知 → 提交 → 释放）；
    领域终态差异（`partial` / `rollback_failed` / `cancelled`）由
    `app/services/async_job_terminal.py::DOMAIN_TERMINAL_RECONCILERS` 封闭分派，
    信号兜底不重塑这些值。
-6. 通知：审核入口保存持久通知并 `commit()` 后调用
+7. 通知：审核入口保存持久通知并 `commit()` 后调用
    `NotificationService.publish_committed()`；通用作业终态仍按
    `app/services/async_job_notify.py::notify_job_terminal` 的既有合同在调用方提交前写入和发布。
    列表/投递分别用 `_scope_conditions()` 与 `_allowed_delivery_indices()` 复用

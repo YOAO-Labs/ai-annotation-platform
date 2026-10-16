@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务访问与最终写入准入首片已实施；其余业务模块和跨语言替换尚未实施。
+> Status: in progress — 任务准入与质量执行派发切片已实施；导入计划摘要校验问题待修复，其余业务模块和跨语言替换尚未实施。
 >
 > 创建日期：2026-10-16。
 >
@@ -234,10 +234,12 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 ## 10. 证据范围
 
 - 设计基线来自源码抽查、既有架构决策和 Compose 配置解析；它不代表完整业务域的运行验证。
-- 当前实施与验证仅覆盖下述任务访问/写入准入切片，没有修改数据库 schema 或运行配置；OpenAPI 仅同步邻帧端点描述中的帮助函数名称，未改变路径、字段或响应合同。
-- 后续业务域及语言替换仍按第 8、9 节分别验收；不得把首片结果扩展为全后端已完成解耦。
+- 当前实施与验证覆盖任务访问/写入准入及质量执行派发两个切片，没有修改数据库 schema 或运行配置；首片 OpenAPI 仅同步邻帧端点描述中的帮助函数名称，第二片未改变快照，均未改变路径、字段或响应合同。
+- 后续业务域及语言替换仍按第 8、9 节分别验收；不得把局部结果扩展为全后端已完成解耦。
 
 ## Outcome
+
+### 任务访问与写入准入
 
 - 已实施切片：`services/task_access.py` 统一持有上下文绑定、编辑阶段、有效分派、写能力、审核调整证据和单题/批量可见性。`project_write_guard` 不再导入 API；相关 HTTP、WebSocket、写入服务和跨帧 worker 已迁移，旧私有定义与 package 导出已移除，无兼容 facade。
 - 本片门禁：现有 AST 架构守卫支持明确声明的单文件服务，覆盖 `task_access`、`project_write_guard` 的 API/worker 反向依赖及服务环。新增管理者上下文错配、完成态锁定的行为回归；既有审核证据、权限撤销和写入用例保持原行为。
@@ -246,5 +248,17 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 契约与静态检查：OpenAPI snapshot 与当前路由一致；本片 Python Ruff 检查通过。
 - 正式开发文档：`docs-site/dev/concepts/backend-layers.md`、`repository-map.md`、`task-module.md`、`scheduler-and-task-dispatch.md`、`docs-site/dev/reference/ws-protocol.md`。
 - ADR：[0088 — 任务可见性与写入准入由服务层统一持有](../adr/archive/0088-service-owned-task-admission.md)。
-- 提交：实现、回归与正式文档作为同一切片提交，提交记录见 Git 历史；发布里程碑：Not yet determined。纯内部结构迁移，未新增用户可见行为，未添加 CHANGELOG 条目。
-- 后续范围：全仓入口/数据所有权清单仍需逐业务域补齐；任务派发适配器与作业终态装配、其他业务域迁移及真实跨语言替换演练尚未实施。当前边界仍使用现有 ORM 与 HTTPException，未新增网络调用或独立存储。
+- 提交：`eb9fd7623`，实现、回归与正式文档在同一切片提交；发布里程碑：Not yet determined。纯内部结构迁移，未新增用户可见行为，未添加 CHANGELOG 条目。
+
+### 质量执行派发
+
+- 已实施切片：新增纯类型执行端口 `QualityJobDispatcher` 与具体 `CeleryQualityJobDispatcher`，由 `deps` 装配；五个服务派发入口要求显式注入，11 个 HTTP 处理入口全部迁移，业务服务不再导入这些 worker。没有增加默认实现、兼容 facade、通用字符串任务总线或本地 RPC。
+- 保真范围：三类质检保留预分配执行 ID，Mask 修复/回滚保留 `media` 队列，格式导入保留原 task 的 `delay`；提交顺序、派发失败状态、通知及 HTTP 错误归属不变。架构守卫覆盖端口和五个服务文件，支持 package 内单文件所有者。
+- 本地回归：主要相关回归 98 passed、11 skipped；视频轨迹真实数据库边界与派发失败回归另有 2 passed。11 项跳过均是未声明 lazy-root 规则的所有者；ZIP 重复成员夹具产生一条预期警告。Ruff 与 OpenAPI 检查通过。
+- 实际运行：隔离测试库、真实 Uvicorn、普通/维护 Celery worker 及 MinIO 下，Mask QC、点云质检和视频轨迹质检完成并保留执行 ID；Mask 修复把面积从 4 改为 3，回滚恢复为 4。回滚夹具先补齐生产所需的原始 Mask 上传归属记录，未弱化生产校验。
+- 导入验证发现独立阻断：真实导入已派发并记录执行 ID，但 Worker 以 `format_plan_digest_conflict` 失败。现有 `_plan` 对未规范化 payload 计算摘要，持久化模型会补齐字段，而 Worker 校验持久化表示；后续单独修复并提交，不混入派发解耦。预检夹具暂存对象已纠正到 `import_bucket`。
+- 正式文档：后端分层、仓库地图及 [ADR-0089](../adr/archive/0089-injected-quality-job-dispatch.md)。实现、回归和文档单独提交；纯内部结构迁移，未添加 CHANGELOG 条目。
+
+### 剩余范围
+
+- 数据集、视频帧及训练数据集的其他派发边界、作业终态装配、全仓入口/数据所有权清单、其他业务域和真实跨语言替换演练仍待逐域实施。当前领域服务仍使用现有 ORM 与 HTTPException，未新增网络调用或独立存储。

@@ -19,7 +19,9 @@ from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
+    get_quality_job_dispatcher,
     get_current_user,
     get_db,
     require_project_capability,
@@ -244,6 +246,7 @@ async def create_run(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -263,7 +266,9 @@ async def create_run(
     await db.commit()
     if created and job is not None:
         try:
-            await dispatch_mask_qc_run(db, run_id=run.id, async_job_id=job.id)
+            await dispatch_mask_qc_run(
+                db, run_id=run.id, async_job_id=job.id, dispatcher=quality_dispatcher
+            )
         except MaskQCError as exc:
             _raise_mask_qc_error(exc)
     await db.refresh(run)
@@ -618,11 +623,14 @@ async def _dispatch_repair_or_fail(
     *,
     batch: MaskRepairBatch,
     rollback: bool,
+    dispatcher: QualityJobDispatcher,
 ) -> None:
     job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
     assert job_id is not None
     try:
-        celery_task_id = await dispatch_repair_batch(batch.id, rollback=rollback)
+        celery_task_id = await dispatch_repair_batch(
+            batch.id, rollback=rollback, dispatcher=dispatcher
+        )
     except MaskRepairError as exc:
         await db.rollback()
         locked = (
@@ -699,6 +707,7 @@ async def execute_mask_repairs(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -733,7 +742,9 @@ async def execute_mask_repairs(
     )
     await db.commit()
     if should_dispatch:
-        await _dispatch_repair_or_fail(db, batch=batch, rollback=False)
+        await _dispatch_repair_or_fail(
+            db, batch=batch, rollback=False, dispatcher=quality_dispatcher
+        )
     await db.refresh(batch)
     return batch_out(batch)
 
@@ -762,6 +773,7 @@ async def resume_mask_repairs(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskRepairBatchOut:
     await _load_visible_repair_batch(
         db, repair_id=repair_id, user=current_user, lock=True
@@ -781,7 +793,9 @@ async def resume_mask_repairs(
         status_code=202,
     )
     await db.commit()
-    await _dispatch_repair_or_fail(db, batch=batch, rollback=False)
+    await _dispatch_repair_or_fail(
+        db, batch=batch, rollback=False, dispatcher=quality_dispatcher
+    )
     await db.refresh(batch)
     return batch_out(batch)
 
@@ -798,6 +812,7 @@ async def rollback_mask_repairs(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskRepairBatchOut:
     await _load_visible_repair_batch(
         db, repair_id=repair_id, user=current_user, lock=True
@@ -822,6 +837,8 @@ async def rollback_mask_repairs(
         status_code=202,
     )
     await db.commit()
-    await _dispatch_repair_or_fail(db, batch=batch, rollback=True)
+    await _dispatch_repair_or_fail(
+        db, batch=batch, rollback=True, dispatcher=quality_dispatcher
+    )
     await db.refresh(batch)
     return batch_out(batch)

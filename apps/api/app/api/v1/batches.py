@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
+    get_quality_job_dispatcher,
     get_db,
     get_current_user,
     project_access_for_path,
@@ -379,6 +381,7 @@ async def submit_batch_review(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(project_access_for_path),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
     """整批送审：把批次内所有未送审任务（pending / in_progress）提交质检。
 
@@ -507,7 +510,12 @@ async def submit_batch_review(
 
             for run_id, job_id in mask_qc_dispatches:
                 try:
-                    await dispatch_mask_qc_run(db, run_id=run_id, async_job_id=job_id)
+                    await dispatch_mask_qc_run(
+                        db,
+                        run_id=run_id,
+                        async_job_id=job_id,
+                        dispatcher=quality_dispatcher,
+                    )
                 except MaskQCError:
                     continue
 

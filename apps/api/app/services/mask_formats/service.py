@@ -21,6 +21,7 @@ from app.schemas.mask_format import (
     MaskFormatImportBatchOut,
     MaskFormatImportPreflightResponse,
 )
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.registry import registry
@@ -370,12 +371,11 @@ async def resume_import(
     return batch
 
 
-async def dispatch_import(batch_id: uuid.UUID) -> str:
+async def dispatch_import(
+    batch_id: uuid.UUID, *, dispatcher: QualityJobDispatcher
+) -> str:
     try:
-        from app.workers.mask_format_import import run_mask_format_import
-
-        task = run_mask_format_import.delay(str(batch_id))
-        return str(task.id)
+        return dispatcher.dispatch_mask_import(batch_id)
     except Exception as exc:
         raise MaskFormatError(
             "format_import_dispatch_failed",

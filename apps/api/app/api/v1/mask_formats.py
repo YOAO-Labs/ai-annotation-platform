@@ -11,7 +11,9 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
 from app.db.models.user import User
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
+    get_quality_job_dispatcher,
     get_current_user,
     get_db,
     require_project_owner,
@@ -225,9 +227,10 @@ async def _dispatch_or_fail(
     db: AsyncSession,
     *,
     batch: MaskFormatImport,
+    dispatcher: QualityJobDispatcher,
 ) -> None:
     try:
-        celery_task_id = await dispatch_import(batch.id)
+        celery_task_id = await dispatch_import(batch.id, dispatcher=dispatcher)
     except MaskFormatError as exc:
         await db.rollback()
         locked = (
@@ -263,6 +266,7 @@ async def execute_mask_format_import(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskFormatImportBatchOut:
     try:
         batch, should_dispatch = await execute_import(
@@ -288,7 +292,7 @@ async def execute_mask_format_import(
     )
     await db.commit()
     if should_dispatch:
-        await _dispatch_or_fail(db, batch=batch)
+        await _dispatch_or_fail(db, batch=batch, dispatcher=quality_dispatcher)
     await db.refresh(batch)
     return batch_out(batch)
 
@@ -320,6 +324,7 @@ async def resume_mask_format_import(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskFormatImportBatchOut:
     batch = (
         await db.execute(
@@ -349,6 +354,6 @@ async def resume_mask_format_import(
         detail={"format_id": batch.format_id, "plan_digest": batch.plan_digest},
     )
     await db.commit()
-    await _dispatch_or_fail(db, batch=batch)
+    await _dispatch_or_fail(db, batch=batch, dispatcher=quality_dispatcher)
     await db.refresh(batch)
     return batch_out(batch)

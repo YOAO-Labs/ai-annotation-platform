@@ -36,6 +36,7 @@ from app.schemas.mask_repair import (
     MaskRepairPlanItem,
     MaskRepairPlanSummary,
 )
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
@@ -867,13 +868,14 @@ async def resume_repair_batch(
     return batch
 
 
-async def dispatch_repair_batch(batch_id: uuid.UUID, *, rollback: bool = False) -> str:
+async def dispatch_repair_batch(
+    batch_id: uuid.UUID,
+    *,
+    dispatcher: QualityJobDispatcher,
+    rollback: bool = False,
+) -> str:
     try:
-        from app.workers.mask_repair import run_mask_repair, rollback_mask_repair
-
-        task = rollback_mask_repair if rollback else run_mask_repair
-        result = task.apply_async(args=[str(batch_id)], queue="media")
-        return str(result.id)
+        return dispatcher.dispatch_mask_repair(batch_id, rollback=rollback)
     except Exception as exc:
         raise MaskRepairError(
             status_code=503,

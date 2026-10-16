@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
+from app.deps import get_quality_job_dispatcher
 from app.db.models.annotation import Annotation
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
@@ -301,6 +302,7 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
     db_session,
     monkeypatch,
     tmp_path,
+    app_module,
 ) -> None:
     user, token = super_admin
     project, task, payload = await _seed_aap_import(db_session, owner_id=user.id)
@@ -339,11 +341,15 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
 
     dispatches: list[uuid.UUID] = []
 
-    async def fake_dispatch(import_id: uuid.UUID) -> str:
+    def fake_dispatch(import_id: uuid.UUID) -> str:
         dispatches.append(import_id)
         return "celery-format-import-1"
 
-    monkeypatch.setattr("app.api.v1.mask_formats.dispatch_import", fake_dispatch)
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_quality_job_dispatcher,
+        lambda: SimpleNamespace(dispatch_mask_import=fake_dispatch),
+    )
     execute_payload = {
         "receipt": preflight["receipt"],
         "plan_digest": preflight["plan"]["plan_digest"],

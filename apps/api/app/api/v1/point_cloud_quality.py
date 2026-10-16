@@ -19,7 +19,9 @@ from app.db.models.point_cloud_quality import (
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
+    get_quality_job_dispatcher,
     get_current_user,
     get_db,
     require_project_capability,
@@ -174,6 +176,7 @@ async def create_run(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -196,7 +199,9 @@ async def create_run(
     await db.commit()
     if created and job is not None:
         try:
-            await dispatch_quality_run(db, run_id=run.id, async_job_id=job.id)
+            await dispatch_quality_run(
+                db, run_id=run.id, async_job_id=job.id, dispatcher=quality_dispatcher
+            )
         except PointCloudQualityError as exc:
             run = await db.get(PointCloudQualityRun, run.id)
             if run is not None:

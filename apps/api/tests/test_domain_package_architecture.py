@@ -134,6 +134,12 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="task_access", legacy_facades=()),
     DomainSpec(package="project_write_guard", legacy_facades=()),
+    DomainSpec(package="quality_job_dispatch", legacy_facades=()),
+    DomainSpec(package="mask_repair", legacy_facades=()),
+    DomainSpec(package="mask_formats.service", legacy_facades=()),
+    DomainSpec(package="mask_qc.service", legacy_facades=()),
+    DomainSpec(package="point_cloud_quality.service", legacy_facades=()),
+    DomainSpec(package="video_track_quality", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -261,7 +267,7 @@ def _repo_module_context(path: Path) -> str:
 
 def _iter_domain_files(pkg: str) -> list[tuple[Path, str]]:
     """Yield source modules for a declared service file or domain package."""
-    root = _SERVICES_DIR / pkg
+    root = _SERVICES_DIR.joinpath(*pkg.split("."))
     module_file = root.with_suffix(".py")
     if module_file.is_file():
         return [(module_file, _module_path(module_file.relative_to(_SERVICES_DIR)))]
@@ -549,13 +555,19 @@ def test_scc_detector_finds_two_and_three_node_cycles() -> None:
 
 
 def test_services_graph_has_no_guarded_domain_cycle() -> None:
-    """No SCC may cross the GPU or canonical task-admission boundaries."""
+    """No SCC may cross GPU, task-admission or quality-dispatch boundaries."""
     graph = _service_import_graph()
     guarded_modules = {
         "app.services.ml_client",
         "app.services.ml_backend",
         "app.services.task_access",
         "app.services.project_write_guard",
+        "app.services.quality_job_dispatch",
+        "app.services.mask_repair",
+        "app.services.mask_formats.service",
+        "app.services.mask_qc.service",
+        "app.services.point_cloud_quality.service",
+        "app.services.video_track_quality",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

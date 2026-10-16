@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
+    get_quality_job_dispatcher,
     get_db,
     get_current_user,
 )
@@ -41,6 +43,7 @@ async def submit_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_lifecycle),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
     from app.db.models.task import Task
 
@@ -122,6 +125,7 @@ async def submit_task(
                 db,
                 run_id=mask_qc_run.id,
                 async_job_id=mask_qc_job.id,
+                dispatcher=quality_dispatcher,
             )
         except MaskQCError:
             mask_qc_status = "failed"

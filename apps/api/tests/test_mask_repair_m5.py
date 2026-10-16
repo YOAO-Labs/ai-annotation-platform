@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 
+from app.deps import get_quality_job_dispatcher
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
@@ -313,7 +315,7 @@ async def test_execute_rejects_expired_receipt(
 
 @pytest.mark.asyncio
 async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
-    httpx_client, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch, app_module
 ):
     user, token = super_admin
     project, _task, annotation, issue, source, island = await _seed_repair_issue(
@@ -337,11 +339,15 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     plan = dry_run.json()
     dispatches: list[tuple[uuid.UUID, bool]] = []
 
-    async def fake_dispatch(batch_id: uuid.UUID, *, rollback: bool = False) -> str:
+    def fake_dispatch(batch_id: uuid.UUID, *, rollback: bool) -> str:
         dispatches.append((batch_id, rollback))
         return "celery-mask-repair-1"
 
-    monkeypatch.setattr("app.api.v1.mask_qc.dispatch_repair_batch", fake_dispatch)
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_quality_job_dispatcher,
+        lambda: SimpleNamespace(dispatch_mask_repair=fake_dispatch),
+    )
     payload = {"receipt": plan["receipt"], "plan_digest": plan["plan_digest"]}
     first = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-qc/repairs",

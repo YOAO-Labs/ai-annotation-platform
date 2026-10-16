@@ -19,6 +19,7 @@ from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.schemas.mask_qc import MaskQCConfig, MaskQCRunRequest
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
@@ -885,7 +886,11 @@ async def fail_mask_qc_run(
 
 
 async def dispatch_mask_qc_run(
-    db: AsyncSession, *, run_id: uuid.UUID, async_job_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    async_job_id: uuid.UUID,
+    dispatcher: QualityJobDispatcher,
 ) -> None:
     """Dispatch only after the caller committed the paired run/job rows."""
 
@@ -898,12 +903,7 @@ async def dispatch_mask_qc_run(
             message="Mask QC dispatch contract is incomplete",
         )
     try:
-        from app.workers.mask_qc import run_mask_qc
-
-        run_mask_qc.apply_async(
-            args=[str(run.id)],
-            task_id=job.celery_task_id,
-        )
+        dispatcher.dispatch_run("mask_qc", run.id, execution_id=job.celery_task_id)
     except Exception as exc:
         await db.rollback()
         run = (

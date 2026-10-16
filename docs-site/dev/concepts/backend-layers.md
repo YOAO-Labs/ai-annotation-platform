@@ -41,11 +41,13 @@ services/
 └── data_management/  # schema、查询 primitive 和高层服务
 ```
 
-领域内依赖保持单向：稳定契约和 primitive 不反向导入高层 orchestration，package `__init__.py` 不为了使用便利而 eager-import 整个高层图。服务不得反向导入 `app.api` 或 `app.workers`；需要派发 Celery 任务时使用稳定注册名，或由路由层调用 worker 边界。
+领域内依赖保持单向：稳定契约和 primitive 不反向导入高层 orchestration，package `__init__.py` 不为了使用便利而 eager-import 整个高层图。服务不得反向导入 `app.api` 或 `app.workers`；需要外部执行时注入执行端口，由入口装配传输适配器，不把任务注册名当作传输无关接口。
 
 任务资源的可见性、编辑阶段、有效标注员、标注写能力及审核调整证据统一由 `services/task_access.py` 持有。HTTP 依赖、WebSocket、标注写入服务和 worker 直接消费该所有者，不导入或重新导出 `api/v1/tasks/_shared.py` 的旧私有准入函数。`_shared.py` 保留 FastAPI 依赖适配和其他 HTTP 装配辅助，不是服务层的业务规则来源。
 
 `services/project_write_guard.py` 组合上述规则与当前项目授权，负责异步最终写入准入；账号、成员和资源锁的顺序、检查时点及提交仍由原调用方保持。该边界没有新增远程调用，也尚未去除 ORM 参数和 HTTP 错误映射；不能将它视为已经可独立部署的权限服务。决策见 ADR-0088。
+
+质量执行派发由 `services/quality_job_dispatch.py::QualityJobDispatcher` 定义，仅传递领域类型、资源 ID 和执行 ID，不依赖 ORM、FastAPI 或 Celery。`deps.get_quality_job_dispatcher()` 装配 `workers/quality_dispatch.py::CeleryQualityJobDispatcher`；Mask QC、点云质检、视频轨迹质检、Mask 修复/回滚及格式导入的领域派发函数必须显式接收该端口。路由保持先提交再派发，领域服务保持准入、作业身份和失败落库职责，适配器只选择原有 task 对象及队列选项。此边界没有新增远程调用，也不保证数据库与 broker 原子提交或 exactly-once；决策见 ADR-0089。
 
 `gpu_arbitration` 内部按职责分层：`contracts`（dispatch 请求/grant/错误与失败记录）和 `policy`（mode/claim/shadow 决策）是 cycle-safe 叶模块；`fences`、`proofs`、`control_preparation`、`reconciliation`、`retirement`、`diagnostics` 依次构建在低层之上；`dispatch`、`membership_activation`、`rollout_control` 是允许依赖 `ml_client` 的高层编排模块。`ml_client` 只依赖 `contracts`、`policy`、`rollout_state`。
 
@@ -90,4 +92,4 @@ services/
 | 模型    | 不单独测，由路由 / 服务测试覆盖              |
 | Workers | `tests/test_<task>.py`，用 eager mode        |
 
-领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环；已声明的 `task_access`、`project_write_guard` 单文件服务也纳入反向依赖和环检查。已删除实现路径另由 `tests/test_compat_facades.py` 等既有守卫防止回流，不为新边界保留兼容 facade。
+领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环；明确声明的单文件所有者也纳入反向依赖和环检查，包括 `task_access`、`project_write_guard`、质量派发端口及对应的五个领域服务文件，支持 package 内单文件入口。已删除实现路径另由 `tests/test_compat_facades.py` 等既有守卫防止回流，不为新边界保留兼容 facade。

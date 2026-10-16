@@ -20,6 +20,7 @@ from app.db.models.video_track_quality import (
     VideoTrackQualityIssue,
     VideoTrackQualityRun,
 )
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
 from app.services.async_job import create_job
 from app.services.mask_formats.image_codecs import rasterize_normalized_polygon
@@ -236,17 +237,19 @@ async def refresh_staleness(db: AsyncSession, run: VideoTrackQualityRun) -> bool
 
 
 async def dispatch_quality_run(
-    db: AsyncSession, *, run_id: uuid.UUID, async_job_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    async_job_id: uuid.UUID,
+    dispatcher: QualityJobDispatcher,
 ) -> None:
     run = await db.get(VideoTrackQualityRun, run_id)
     job = await db.get(AsyncJob, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise VideoTrackQualityError(500, "video_track_quality_dispatch_invalid")
     try:
-        from app.workers.video_track_quality import run_video_track_quality
-
-        run_video_track_quality.apply_async(
-            args=[str(run.id)], task_id=job.celery_task_id
+        dispatcher.dispatch_run(
+            "video_track_quality", run.id, execution_id=job.celery_task_id
         )
     except Exception as exc:
         await db.rollback()

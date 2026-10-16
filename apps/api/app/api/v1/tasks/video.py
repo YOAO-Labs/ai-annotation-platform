@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
+    get_quality_job_dispatcher,
     get_db,
     get_current_user,
     require_scopes,
@@ -642,6 +644,7 @@ async def submit_video_segment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
@@ -730,7 +733,9 @@ async def submit_video_segment(
     await db.commit()
     for run_id, job_id in dispatches:
         try:
-            await dispatch_quality_run(db, run_id=run_id, async_job_id=job_id)
+            await dispatch_quality_run(
+                db, run_id=run_id, async_job_id=job_id, dispatcher=quality_dispatcher
+            )
         except VideoTrackQualityError as exc:
             _raise_quality_error(exc)
     return body
@@ -820,6 +825,7 @@ async def run_video_track_quality_now(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_review_write),
+    quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
@@ -838,7 +844,9 @@ async def run_video_track_quality_now(
     await db.commit()
     if created and job is not None:
         try:
-            await dispatch_quality_run(db, run_id=run.id, async_job_id=job.id)
+            await dispatch_quality_run(
+                db, run_id=run.id, async_job_id=job.id, dispatcher=quality_dispatcher
+            )
         except VideoTrackQualityError as exc:
             _raise_quality_error(exc)
     return run
