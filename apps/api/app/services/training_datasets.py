@@ -22,6 +22,7 @@ from app.db.models.user import User
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
+from app.services.async_job_terminal import JobTerminal
 from app.services.project_access import resolve_project_access
 from app.services.project_write_guard import lock_actor_project_authority
 from app.services.storage import storage_service
@@ -440,3 +441,23 @@ async def lock_dataset_execution(db: AsyncSession, version_id: uuid.UUID) -> Non
         raise TrainingDatasetError(
             "execution_stopping", "上次构建仍在停止，请稍后重试", status_code=409
         )
+
+
+async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
+    """Reconcile an interrupted build without changing an already-terminal version."""
+    version = (
+        await db.execute(
+            select(TrainingDatasetVersion)
+            .where(TrainingDatasetVersion.async_job_id == terminal.job_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if version is not None and version.status in {"pending", "running"}:
+        version.status = "cancelled" if terminal.cancelled else "failed"
+        version.error_code = "cancelled" if terminal.cancelled else "worker_failed"
+        version.error_message = (
+            "训练数据构建已取消"
+            if terminal.cancelled
+            else "构建进程异常终止，可重试同一快照"
+        )
+        version.completed_at = datetime.now(timezone.utc)

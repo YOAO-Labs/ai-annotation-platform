@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -25,6 +26,7 @@ from app.schemas.point_cloud_quality import (
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job
+from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.service import canonical_digest
 from app.services.point_cloud_quality.config import (
     effective_thresholds,
@@ -884,3 +886,22 @@ def issue_dedupe_key(
             ),
         }
     )
+
+
+async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
+    """Reconcile the quality ledger without changing a terminal run."""
+    run = (
+        await db.execute(
+            select(PointCloudQualityRun)
+            .where(PointCloudQualityRun.async_job_id == terminal.job_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if run is None or run.status not in {"pending", "running"}:
+        return
+    if terminal.cancelled:
+        run.status = "cancelled"
+    else:
+        run.status = "failed"
+        run.error_message = (terminal.error or "")[:4000]
+    run.completed_at = datetime.now(timezone.utc)

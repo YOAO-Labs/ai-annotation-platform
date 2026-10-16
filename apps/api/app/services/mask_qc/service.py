@@ -23,6 +23,7 @@ from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
+from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.raster_mask_storage import collect_mask_references
 
@@ -919,3 +920,22 @@ async def dispatch_mask_qc_run(
             reason="mask_qc_dispatch_failed",
             message="Mask QC could not be queued",
         ) from exc
+
+
+async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
+    """Reconcile the QC ledger without committing the caller's transaction."""
+    run = (
+        await db.execute(
+            select(MaskQCRun)
+            .where(MaskQCRun.async_job_id == terminal.job_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if run is None or run.status not in {"pending", "running"}:
+        return
+    if terminal.cancelled:
+        run.status = "cancelled"
+    else:
+        run.status = "failed"
+        run.error_message = (terminal.error or "")[:4000]
+    run.completed_at = datetime.now(timezone.utc)

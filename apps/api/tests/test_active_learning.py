@@ -261,6 +261,8 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
 async def test_repeated_cancel_and_old_job_signal_preserve_fences_and_failure(
     db_session, super_admin, monkeypatch
 ):
+    from app.application.job_terminal import apply_signal_terminal
+
     owner, _ = super_admin
     world = await seed(db_session, owner, monkeypatch)
     round, attempt, _ = await create(db_session, owner, world)
@@ -278,7 +280,7 @@ async def test_repeated_cancel_and_old_job_signal_preserve_fences_and_failure(
         and round.error_code == "inference_budget_exhausted"
     )
     job = await db_session.get(AsyncJob, attempt.async_job_id)
-    await service.signal_interrupted(db_session, job, cancelled=True)
+    await apply_signal_terminal(db_session, job, cancelled=True)
     assert (
         round.status == "cancelling"
         and round.error_code == "inference_budget_exhausted"
@@ -287,7 +289,7 @@ async def test_repeated_cancel_and_old_job_signal_preserve_fences_and_failure(
     round.status = attempt.status = "lost"
     await service.new_attempt(db_session, round)
     await db_session.flush()
-    await service.signal_interrupted(db_session, job, cancelled=True)
+    await apply_signal_terminal(db_session, job, cancelled=True)
     assert round.status == "queued" and round.current_attempt_id != attempt.id
 
 

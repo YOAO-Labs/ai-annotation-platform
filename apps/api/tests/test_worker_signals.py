@@ -325,6 +325,43 @@ async def test_mark_cancelled_mask_format_import_keeps_partial(signal_world):
     ]
 
 
+@pytest.mark.parametrize(
+    ("status", "shards", "expected"),
+    [
+        (
+            "running",
+            {"a": {"status": "completed"}, "b": {"status": "failed"}},
+            "partial",
+        ),
+        ("running", {}, "cancelled"),
+        ("completed", {"a": {"status": "completed"}}, "completed"),
+    ],
+)
+async def test_repair_cancellation_preserves_committed_shards_and_terminal_ledger(
+    signal_world, status, shards, expected
+):
+    user_id = await signal_world.user()
+    project_id = await signal_world.project(user_id)
+    job_id, task_id = await signal_world.job(
+        kind="mask_repair", user_id=user_id, project_id=project_id
+    )
+    batch_id = await signal_world.mask_repair(
+        project_id=project_id,
+        user_id=user_id,
+        async_job_id=job_id,
+        status=status,
+        result={"shards": shards},
+    )
+
+    await signals._mark_cancelled(task_id)
+
+    assert (await signal_world.scalar_job(job_id)).status == "cancelled"
+    batch = await signal_world.scalar_repair(batch_id)
+    assert batch.status == expected
+    assert batch.result_json == {"shards": shards}
+    assert await signal_world.notification_types(user_id) == ["job.cancelled"]
+
+
 async def test_mark_failed_mask_repair_rollback_keeps_rollback_failed(signal_world):
     user_id = await signal_world.user()
     project_id = await signal_world.project(user_id)

@@ -9,13 +9,16 @@ last_reviewed: 2026-10-16
 
 ## 分层规则
 
-```
-HTTP → 路由 (api/v1) → 服务 (services) → 模型 (db/models)
-                ↓
-              Schemas (pydantic) — 请求/响应边界
+```mermaid
+flowchart LR
+    Entry["HTTP / Celery 入口"] --> Workflow["application：跨领域工作流与装配"]
+    Entry --> Service["services：领域规则与账本"]
+    Workflow --> Service
+    Service --> Model["db/models"]
+    Entry --> Schema["Schemas：请求/响应边界"]
 ```
 
-**单向依赖**：路由可调服务，服务可调模型；反向调用禁止。
+**单向依赖**：入口可调用应用工作流或领域服务，工作流组合服务，服务可调模型；领域服务不反向导入入口或应用装配。
 
 ## 路由（api/v1）
 
@@ -23,6 +26,14 @@ HTTP → 路由 (api/v1) → 服务 (services) → 模型 (db/models)
 - 不写业务逻辑
 - 必须有 docstring（被 OpenAPI 拾取）
 - 必须给所有响应码写 `responses={}` 类型
+
+## 应用工作流（application）
+
+`application/job_terminal.py` 显式绑定六类作业的领域账本回填及评估/主动学习的中断处理。通用 `async_job` 只持有通用状态；`services/async_job_terminal.py::JobTerminal` 是只含作业 ID、kind、取消标记和错误的不可变事实，不携带 ORM 或传输对象。
+
+领域回填由 `mask_qc.service`、`point_cloud_quality.service`、`mask_repair`、`mask_formats.service` 和 `training_datasets` 的 `reconcile_job_terminal` 持有。`partial`、`rollback_failed` 和已有终态保护仍由各领域决定；评估与主动学习继续采用自身失联、取消意图和 attempt fencing，不强制变成通用终态。
+
+HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负责连接、按执行 ID 查作业、调用工作流与提交/释放。工作流和领域回调不自行提交，通用行、领域行及持久通知仍可在调用方同一事务中回滚。普通 worker 的正常完成路径没有改成事件分发。当前回调仍使用本地 `AsyncSession`，不是可直接替换为 HTTP 的远程接口。
 
 ## 服务（services）
 
@@ -41,7 +52,7 @@ services/
 └── data_management/  # schema、查询 primitive 和高层服务
 ```
 
-领域内依赖保持单向：稳定契约和 primitive 不反向导入高层 orchestration，package `__init__.py` 不为了使用便利而 eager-import 整个高层图。服务不得反向导入 `app.api` 或 `app.workers`；需要外部执行时注入执行端口，由入口装配传输适配器，不把任务注册名当作传输无关接口。
+领域内依赖保持单向：稳定契约和 primitive 不反向导入高层 orchestration，package `__init__.py` 不为了使用便利而 eager-import 整个高层图。服务不得反向导入 `app.api`、`app.workers` 或 `app.application`；需要外部执行时注入执行端口，由入口装配传输适配器，不把任务注册名当作传输无关接口。
 
 任务资源的可见性、编辑阶段、有效标注员、标注写能力及审核调整证据统一由 `services/task_access.py` 持有。HTTP 依赖、WebSocket、标注写入服务和 worker 直接消费该所有者，不导入或重新导出 `api/v1/tasks/_shared.py` 的旧私有准入函数。`_shared.py` 保留 FastAPI 依赖适配和其他 HTTP 装配辅助，不是服务层的业务规则来源。
 
@@ -104,4 +115,4 @@ services/
 | 模型    | 不单独测，由路由 / 服务测试覆盖              |
 | Workers | `tests/test_<task>.py`，用 eager mode        |
 
-领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环，支持 package 内单文件所有者。声明的任务准入、执行派发、审核证据、视频及训练服务均检查 API/worker 反向导入；环检查保护已收敛的数据集、任务准入、执行端口、视频边界，以及训练适配器/领取/产物与六个编排所有者。原视频三模块和训练六模块环已消除；其他服务仍需逐域核查，不把局部门禁视为全服务无环。已删除实现路径另由 `tests/test_compat_facades.py` 等既有守卫防止回流，不保留兼容 facade。
+领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环，支持 package 内单文件所有者。声明的服务禁止反向导入 API、worker 或应用工作流；通用 `async_job` 的应用内依赖限定为自身模型，终态事实模块不依赖其他应用模块。环检查保护已收敛的数据集、任务准入、执行端口、视频、训练及通用作业边界。原视频三模块和训练六模块环已消除；其他服务仍需逐域核查，不把局部门禁视为全服务无环。已删除实现路径另由 `tests/test_compat_facades.py` 等既有守卫防止回流，不保留兼容 facade。

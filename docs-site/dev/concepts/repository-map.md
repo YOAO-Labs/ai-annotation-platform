@@ -18,9 +18,10 @@ last_reviewed: 2026-10-16
 | 前端页面 / 装配 | `apps/web/src/pages/**`                                                                     | 领域 hooks → API client → 生成类型                                                               |
 | 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                                                   |
 | 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                                                           |
-| API 路由        | `apps/api/app/api/v1/**`                                                                    | 服务层；不做业务规则推导                                                                         |
+| API 路由        | `apps/api/app/api/v1/**`                                                                    | 应用工作流或服务层；不做业务规则推导                                                             |
+| 应用工作流      | `apps/api/app/application/**`                                                               | 显式装配领域服务并在调用方事务内协调；不持有领域状态机                                           |
 | 服务层          | `apps/api/app/services/**`                                                                  | 项目授权在 `project_access`，任务访问/写入准入在 `task_access`，聚合 SQL 在 `project_aggregates` |
-| Worker          | `apps/api/app/workers/**`                                                                   | 复用服务层；作业终态走 `async_job_terminal`                                                      |
+| Worker          | `apps/api/app/workers/**`                                                                   | 复用工作流与服务；终态信号仅适配事件、连接及调用方提交                                           |
 | ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                                                         |
 | ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                                            |
 | 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                 |
@@ -83,11 +84,11 @@ last_reviewed: 2026-10-16
      HTTP 的 `app/deps.py::get_training_dataset_dispatcher` 或周期策略 worker →
      `app/workers/training_dataset_dispatch.py::CeleryTrainingDatasetDispatcher`；
      领域保留 version/job/attempt 与派发失败竞态处理，适配器保留线程卸载。
-6. 异步处理：Celery 信号兜底在 `app/workers/signals.py`
-   （`task_failure` / `task_revoked` → 连接 → 查作业 → 通用终态 → 领域回填 → 通知 → 提交 → 释放）；
-   领域终态差异（`partial` / `rollback_failed` / `cancelled`）由
-   `app/services/async_job_terminal.py::DOMAIN_TERMINAL_RECONCILERS` 封闭分派，
-   信号兜底不重塑这些值。
+6. 异步处理：`app/workers/signals.py` 将 `task_failure` / `task_revoked` 交给
+   `app/application/job_terminal.py`，由工作流组合通用状态、领域回填及通知，
+   信号适配器仍控制连接和提交。六类领域回填由各自服务的 `reconcile_job_terminal` 持有，
+   经不可变 `app/services/async_job_terminal.py::JobTerminal` 传递事实；
+   评估与主动学习走各自中断规则，不抹平 `partial`、`rollback_failed` 或非终态取消意图。
 7. 通知：审核入口保存持久通知并 `commit()` 后调用
    `NotificationService.publish_committed()`；通用作业终态仍按
    `app/services/async_job_notify.py::notify_job_terminal` 的既有合同在调用方提交前写入和发布。
@@ -131,7 +132,7 @@ last_reviewed: 2026-10-16
 
 - 项目资源路由在 `resolve_project_access` 上做项目级授权；认证、健康检查与
   平台级管理入口各有自己的守卫（`get_current_user` / `require_roles` 等）。
-- 带领域账本的异步作业在 `DOMAIN_TERMINAL_RECONCILERS` 登记；
-  没有领域账本的作业（如 batch_predict）保持只有通用作业行。
+- 带领域账本的异步作业在 `application/job_terminal.py` 显式绑定领域处理器；
+  没有领域账本的作业（如 batch_predict）保持只有通用作业行，正常 worker 完成路径不变。
 - 页面 URL 规则放 `*UrlState.ts` 并配纯函数测试；页面保留代表性集成用例。
 - 共享包新增能力前，先确认消费 backend 是否同契约；per-model 语义留在 backend 本地。

@@ -23,7 +23,7 @@ from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.user import User
 from app.deps import get_current_user, get_db
-from app.services.async_job_terminal import reconcile_domain_terminal
+from app.application.job_terminal import reconcile_domain_terminal
 from app.services.project_aggregates import project_scope_clause
 from app.schemas.async_job import (
     AsyncJobListResponse,

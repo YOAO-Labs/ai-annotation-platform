@@ -345,6 +345,8 @@ async def test_competing_cancel_publish_and_revocation_cannot_delete_a_committed
 
 
 async def test_crash_signal_preserves_cancel_intent_and_revocation_reason(world):
+    from app.application.job_terminal import apply_signal_terminal
+
     async with world.factory() as db:
         run, attempt = (
             await db.get(Run, world.run.id),
@@ -355,7 +357,7 @@ async def test_crash_signal_preserves_cancel_intent_and_revocation_reason(world)
         run.error_message = attempt.error_message = "Current authority was revoked"
         attempt.claim_id = uuid.uuid4()
         job = await db.get(AsyncJob, attempt.async_job_id)
-        await service.signal_interrupted(db, job, cancelled=False)
+        await apply_signal_terminal(db, job, cancelled=False)
         assert run.status == "cancelling" and run.error_code == "authority_revoked"
         assert attempt.claim_id is None and job.status == "pending"
 

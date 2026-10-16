@@ -23,6 +23,7 @@ from app.schemas.mask_format import (
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
+from app.services.async_job_terminal import JobTerminal
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.registry import registry
 from app.services.storage import storage_service
@@ -382,3 +383,31 @@ async def dispatch_import(
             "format import worker dispatch failed",
             status_code=503,
         ) from exc
+
+
+def _committed_import_items(batch: MaskFormatImport) -> int:
+    return sum(
+        1
+        for value in ((batch.result_json or {}).get("items") or {}).values()
+        if isinstance(value, dict) and value.get("status") == "committed"
+    )
+
+
+async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
+    """Preserve partial imports when cancellation follows committed items."""
+    batch = (
+        await db.execute(
+            select(MaskFormatImport)
+            .where(MaskFormatImport.async_job_id == terminal.job_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if batch is None:
+        return
+    if terminal.cancelled:
+        if batch.status not in {"pending", "running"}:
+            return
+        batch.status = "partial" if _committed_import_items(batch) else "cancelled"
+    else:
+        batch.status = "failed"
+    batch.completed_at = datetime.now(timezone.utc)

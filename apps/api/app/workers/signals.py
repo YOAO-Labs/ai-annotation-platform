@@ -9,9 +9,9 @@ Design:
 * The generic ``async_jobs`` row is looked up through ``celery_task_id``; a
   task without a matching ``async_jobs`` row (``ml_health`` / ``cleanup`` and
   other high-frequency housekeeping) is silently ignored.
-* A job-kind-specific domain ledger is reconciled by
-  :mod:`app.services.async_job_terminal`; the special terminal values
-  (``partial``, ``rollback_failed``) are owned there, not flattened here.
+* Application workflow :mod:`app.application.job_terminal` binds domain ledger
+  handlers and interrupted-inference rules. Domains own special terminal values
+  such as ``partial`` and ``rollback_failed``; the signal never flattens them.
 * Signal callbacks are synchronous and cannot ``await``, so each callback
   drives the async work with ``asyncio.run`` (which builds and disposes an
   ``AsyncEngine`` per call).  The shared skeleton is connect -> find job ->
@@ -31,11 +31,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.application.job_terminal import apply_signal_terminal
 from app.config import settings
-from app.db.models.async_job import AsyncJobStatus
 from app.services import async_job as async_job_svc
-from app.services.async_job_notify import notify_job_terminal
-from app.services.async_job_terminal import reconcile_domain_terminal
 
 log = logging.getLogger(__name__)
 
@@ -57,33 +55,8 @@ async def _apply_terminal(
             aj = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if aj is None:
                 return
-            if aj.kind == "sample_evaluation":
-                from app.services.sample_evaluations import signal_interrupted
-
-                await signal_interrupted(db, aj, cancelled=cancelled)
+            if await apply_signal_terminal(db, aj, cancelled=cancelled, error=error):
                 await db.commit()
-                return
-            if aj.kind == "active_learning_round":
-                from app.services.active_learning import signal_interrupted
-
-                await signal_interrupted(db, aj, cancelled=cancelled)
-                await db.commit()
-                return
-            if cancelled:
-                await async_job_svc.mark_cancelled(db, aj.id)
-            else:
-                # A late failure signal must never overwrite a job that already
-                # reached a terminal state on its own path.
-                if aj.status in {
-                    AsyncJobStatus.COMPLETED.value,
-                    AsyncJobStatus.FAILED.value,
-                    AsyncJobStatus.CANCELLED.value,
-                }:
-                    return
-                await async_job_svc.mark_failed(db, aj.id, error=error or "")
-            await reconcile_domain_terminal(db, aj, cancelled=cancelled, error=error)
-            await notify_job_terminal(db, job_id=aj.id)
-            await db.commit()
     finally:
         await engine.dispose()
 

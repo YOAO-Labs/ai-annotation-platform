@@ -7,8 +7,8 @@ function-local and relative imports.
 Rules enforced per declared ``app.services.<domain>``:
 
 
-1. No module in the package may import ``app.api`` or ``app.workers`` (service → API /
-   worker reverse dependency is forbidden).
+1. No module in the package may import ``app.api``, ``app.workers`` or
+   ``app.application``; domain services never import their composition roots.
 2. No module in the package may import its own compatibility facade (the old flat
    module it replaced). Each domain declares its old facade module roots.
 3. No module in the package may hide an import inside a function body that points at
@@ -83,6 +83,8 @@ class DomainSpec:
     # Optional sub-packages that must stay lazy (no eager high-level imports at the
     # package __init__). Listed as "<pkg>.<sub>".
     lazy_roots: tuple[str, ...] = ()
+    # Optional positive app-dependency boundary for transport-independent owners.
+    allowed_app_imports: tuple[str, ...] | None = None
 
 
 DOMAIN_PACKAGES = (
@@ -158,10 +160,16 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="training_recipes", legacy_facades=()),
     DomainSpec(package="training_runs", legacy_facades=()),
     DomainSpec(package="training_studies", legacy_facades=()),
+    DomainSpec(
+        package="async_job",
+        legacy_facades=(),
+        allowed_app_imports=("app.db.models.async_job",),
+    ),
+    DomainSpec(package="async_job_terminal", legacy_facades=(), allowed_app_imports=()),
 )
 
 # Absolute module roots a service domain must never depend on.
-_FORBIDDEN_ROOTS = ("app.api", "app.workers")
+_FORBIDDEN_ROOTS = ("app.api", "app.workers", "app.application")
 
 
 def _module_path(rel_source: Path) -> str:
@@ -399,7 +407,7 @@ pytestmark = pytest.mark.skipif(
     "spec", DOMAIN_PACKAGES, ids=[d.package for d in DOMAIN_PACKAGES]
 )
 def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
-    """No domain module imports app.api / app.workers or its own legacy facade."""
+    """Domain services avoid entrypoints and respect their app-dependency boundary."""
     files = _iter_domain_files(spec.package)
     if not files:
         pytest.skip(f"package app.services.{spec.package} not created yet")
@@ -410,6 +418,17 @@ def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         context = _source_context_module(path, module)
         for imported, _local in _collect_imports(tree, context):
+            if (
+                spec.allowed_app_imports is not None
+                and (imported == "app" or imported.startswith("app."))
+                and not any(
+                    imported == allowed or imported.startswith(allowed + ".")
+                    for allowed in spec.allowed_app_imports
+                )
+            ):
+                offenders.append(
+                    f"{module}: imports outside its app boundary '{imported}'"
+                )
             for bad in forbidden:
                 if imported == bad or imported.startswith(bad + "."):
                     offenders.append(f"{module}: imports forbidden '{imported}'")
@@ -604,6 +623,8 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.training_runs",
         "app.services.training_studies",
         "app.services.learning_policies",
+        "app.services.async_job",
+        "app.services.async_job_terminal",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

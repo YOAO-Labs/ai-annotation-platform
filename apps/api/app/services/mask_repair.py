@@ -38,6 +38,7 @@ from app.schemas.mask_repair import (
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
+from app.services.async_job_terminal import JobTerminal
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.mask_qc.service import effective_issue_status
@@ -894,6 +895,49 @@ def translate_http_exception(exc: HTTPException) -> MaskRepairError:
     )
 
 
+def _completed_repair_shards(batch: MaskRepairBatch) -> int:
+    return sum(
+        1
+        for value in ((batch.result_json or {}).get("shards") or {}).values()
+        if isinstance(value, dict) and value.get("status") == "completed"
+    )
+
+
+async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
+    """Keep partial repair and rollback-failure semantics in the repair owner."""
+    if terminal.cancelled:
+        # Rollback cancellation belongs to the repair lifecycle, not this fallback.
+        if terminal.kind != "mask_repair":
+            return
+        batch = (
+            await db.execute(
+                select(MaskRepairBatch)
+                .where(MaskRepairBatch.async_job_id == terminal.job_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if batch is None or batch.status not in {"pending", "running"}:
+            return
+        batch.status = "partial" if _completed_repair_shards(batch) else "cancelled"
+        batch.completed_at = datetime.now(timezone.utc)
+        return
+
+    condition = (
+        MaskRepairBatch.rollback_async_job_id == terminal.job_id
+        if terminal.kind == "mask_repair_rollback"
+        else MaskRepairBatch.async_job_id == terminal.job_id
+    )
+    batch = (
+        await db.execute(select(MaskRepairBatch).where(condition).with_for_update())
+    ).scalar_one_or_none()
+    if batch is None:
+        return
+    batch.status = (
+        "rollback_failed" if terminal.kind == "mask_repair_rollback" else "failed"
+    )
+    batch.completed_at = datetime.now(timezone.utc)
+
+
 __all__ = [
     "MAX_SHARD_MUTATIONS",
     "ROLLBACK_TTL",
@@ -904,6 +948,7 @@ __all__ = [
     "dispatch_repair_batch",
     "execute_repair_plan",
     "request_repair_rollback",
+    "reconcile_job_terminal",
     "resume_repair_batch",
     "result_digest",
 ]
