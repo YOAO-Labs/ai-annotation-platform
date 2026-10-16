@@ -2546,7 +2546,7 @@ async def trigger_preannotation(
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
-    from app.workers.tasks import _build_predict_context
+    from app.services.prediction_context import build_predict_context
     from app.services.prediction_retry import retryable_request_context
     from app.services import trained_models
 
@@ -2600,7 +2600,7 @@ async def trigger_preannotation(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    retry_context = _build_predict_context(
+    retry_context = build_predict_context(
         prompt=body.prompt,
         output_mode=body.output_mode,
         params=body.params,
@@ -2838,7 +2838,7 @@ async def trigger_preannotation(
         ref = await trained_models.resolve_reference(
             db, project, body.model_id, source_backend_id
         )
-        checked = _build_predict_context(
+        checked = build_predict_context(
             prompt=body.prompt,
             output_mode=body.output_mode,
             params=body.params,

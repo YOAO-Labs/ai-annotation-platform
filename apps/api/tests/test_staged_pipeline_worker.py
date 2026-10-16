@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 import pytest
 from PIL import Image
 
+from app.services import prediction_context
+
 from app.services.gpu_arbitration.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
@@ -105,8 +107,8 @@ async def test_two_stage_enriches_attributes(monkeypatch):
     )
     # 避免真去对象存储取图
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
 
@@ -148,8 +150,8 @@ async def test_parent_class_filter_routes_by_class(monkeypatch):
         responses=[[_Result("0", [{"score": 0.9, "attributes": {"color": "blue"}}])]]
     )
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     stages = [
@@ -176,8 +178,8 @@ async def test_parent_class_filter_routes_by_class(monkeypatch):
 @pytest.mark.asyncio
 async def test_on_failure_keep_parent_vs_drop_box(monkeypatch):
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
 
@@ -227,7 +229,7 @@ async def test_geometry_stage_appends_polygons(monkeypatch):
     def _boom(_t):
         raise AssertionError("geometry 模式不应加载原图")
 
-    monkeypatch.setattr(worker_tasks, "_load_task_image", _boom)
+    monkeypatch.setattr(prediction_context, "load_task_image", _boom)
     task = _Task()
     boxes = [_bbox(10, 10, 20, 20, cls="car"), _bbox(50, 50, 10, 10, cls="car")]
     detect = _FakeClient(responses=[[_Result(task.id, boxes)]])
@@ -296,8 +298,8 @@ async def test_geometry_stage_appends_polygons(monkeypatch):
 async def test_geometry_stage_class_filter_and_failure(monkeypatch):
     """v0.18.12 · geometry 模式遵守 parent_class_filter; 下游炸 → 不追加 polygon, 计 failed。"""
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: (_ for _ in ()).throw(AssertionError()),
     )
     task = _Task()
@@ -382,8 +384,8 @@ async def test_geometry_stage_records_gpu_arbiter_failure_without_reraising():
 @pytest.mark.asyncio
 async def test_crop_stage_records_gpu_arbiter_failure_and_keeps_parent(monkeypatch):
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda task: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -446,8 +448,8 @@ def test_stage_totals_snapshot_shape():
 async def test_presigned_delivery_wires_upload_crop(monkeypatch):
     """v0.18.4 · upload_crop 非 None → crop 走 presigned URL 投递 (非 data URI)。"""
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -492,8 +494,8 @@ async def test_presigned_delivery_wires_upload_crop(monkeypatch):
 async def test_crop_cache_reused_across_parallel_siblings(monkeypatch):
     """v0.18.4 · 两个并行兄弟阶段 target 同一批父框 → crop 只裁/上传一次 (按 box_idx+pad 复用)。"""
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -543,8 +545,8 @@ async def test_crop_cache_reused_across_parallel_siblings(monkeypatch):
 async def test_skipped_geometry_counted_and_topology_in_extra(monkeypatch):
     """v0.18.4 · 旋转框计入 stats[si].skipped_geometry; extra.pipeline.stages 记拓扑。"""
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -606,8 +608,8 @@ async def test_skipped_geometry_counted_and_topology_in_extra(monkeypatch):
 async def test_drop_box_on_one_sibling_keeps_other_sibling_boxes(monkeypatch):
     """v0.18.4 · 并行扇出: person 阶段 drop_box 失败 → 丢 person 框; car 阶段成功 → car 框保留富集。"""
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -703,8 +705,8 @@ async def test_depth_three_attribute_chain(monkeypatch):
     max_depth=3; enriched_attr_keys 含前缀后的最终键。
     """
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -799,8 +801,8 @@ async def test_crop_detect_geometry_remaps_to_image(monkeypatch):
     单层 person → 在 person crop 上检测 hat (普通检测器), hat 框回映回原图并落在 person 内, 追加进结果。
     """
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -870,8 +872,8 @@ async def test_depth_three_geometry_then_attribute(monkeypatch):
     hat 框回映回原图, color 阶段裁 hat 框跑分类, 加 hat_ 前缀写回 hat 框; max_depth==3。
     """
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
@@ -941,8 +943,8 @@ async def test_depth_three_drop_box_does_not_delete_root(monkeypatch):
     保住 person, 退化为 keep_parent。
     """
     monkeypatch.setattr(
-        worker_tasks,
-        "_load_task_image",
+        prediction_context,
+        "load_task_image",
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()

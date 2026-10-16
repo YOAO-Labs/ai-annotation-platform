@@ -5,7 +5,7 @@
 子框 (parent_annotation_id=选中框, 走 v0.20.9)。
 
 **复用 batch pipeline 下游阶段的同一套投递**: `crop_inputs_from_boxes` (裁 ROI + 上传) +
-`_build_predict_context` (构造 wire) + `merge_classify_attributes` / `remap_geometry_to_image`
+`build_predict_context` (construct the wire context) + `merge_classify_attributes` / `remap_geometry_to_image`
 (产物归位)。与批量二次推理是「同一能力两个触发面」, 产物 schema / 溯源写法一致。
 不走 worker (单框同步秒回), 不新建投递逻辑。
 """
@@ -27,7 +27,8 @@ from app.services.gpu_arbitration.contracts import (
     GPUShadowSessionFactory,
 )
 from app.services.predictions_import import internal_geometry_to_ls_shape
-from app.workers.roi import (
+from app.services import prediction_context
+from app.services.prediction_roi import (
     _box_bbox_pct,
     crop_inputs_from_boxes,
     merge_classify_attributes,
@@ -143,8 +144,6 @@ async def run_secondary_inference(
     - write_target="attributes": 分类 / OCR 属性 union 回原框, 写入键标 origin=ai。
     - write_target="geometry":   crop 上检出的子物几何回映后建子框, 挂在原框下。
     """
-    # 惰性导入 worker 助手, 避免 API 进程在 import 期拉起 celery 相关重依赖。
-    from app.workers.tasks import _build_predict_context, _load_task_image
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import to_internal_shape
     from app.services.storage import StorageService
@@ -157,7 +156,7 @@ async def run_secondary_inference(
 
     try:
         visual_task = resolve_model_task(backend, model_id, visual_task or task_type)
-        context = _build_predict_context(
+        context = prediction_context.build_predict_context(
             prompt=prompt,
             output_mode=_resolve_text_output_mode(backend, model_id),
             params=params,
@@ -196,7 +195,7 @@ async def run_secondary_inference(
         )
 
     # 2. 读原图 (RGB) 供裁 ROI。
-    image = _load_task_image(task)
+    image = prediction_context.load_task_image(task)
 
     # 3. 裁 crop + 上传 (presigned, 对所有走 httpx.get 的 backend 通用)。
     #    自建 2 参 upload_fn (crop_inputs_from_boxes 调 upload_fn(idx, bytes));

@@ -354,7 +354,7 @@ async def _run_segment(
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService, to_video_bbox_result
     from app.services.video_frame_service import build_context_from_task
-    from app.workers.tasks import _build_predict_context
+    from app.services.prediction_context import build_predict_context
 
     task_id = segment["task_id"]
     frame_indices: list[int] = list(segment["frame_indices"])
@@ -400,7 +400,7 @@ async def _run_segment(
                 shadow_session_factory=SessionLocal,
                 dispatch_context_factory=dispatch_context_factory,
             )
-            context = _build_predict_context(
+            context = build_predict_context(
                 prompt=None,
                 output_mode="box",
                 params=stage0.get("params"),
@@ -603,10 +603,10 @@ async def _read_frame_urls(db, ctx, frame_indices: list[int]) -> dict[int, str]:
 def _publish_frame_progress(
     project_id: str, current: int, total: int, *, status: str, error: str | None = None
 ) -> None:
-    """逐帧 job 进度 → 项目 SSE 通道 (复用 tasks._publish_progress 的 payload 形态)。"""
-    from app.workers.tasks import _publish_progress
+    """逐帧 job 进度 → 项目 SSE 通道 (复用 prediction_progress.publish_progress 的 payload 形态)。"""
+    from app.services.prediction_progress import publish_progress
 
-    _publish_progress(project_id, current, total, status=status, error=error)
+    publish_progress(project_id, current, total, status=status, error=error)
 
 
 # ── chord 回调: job 收尾 ────────────────────────────────────────────────────

@@ -129,7 +129,7 @@ class SecondaryInferenceRequest(BaseModel):
     # attributes: 只取这些下游返回键 (None=全取); label 给写回键加前缀 (子命名空间)
     write_keys: list[str] | None = None
     label: str | None = None
-    # backend wire 参数 (与批量下游 _build_predict_context 同义)
+    # backend wire 参数 (与批量下游 build_predict_context 同义)
     model_id: str | None = None
     model_variants: dict[str, str] | None = None
     params: dict | None = None

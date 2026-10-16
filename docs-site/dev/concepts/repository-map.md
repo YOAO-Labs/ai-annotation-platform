@@ -128,6 +128,10 @@ last_reviewed: 2026-10-16
    这些**不**共享，因为池拓扑与 vendor 语义不同。
 4. 平台侧消费：`apps/api/app/services/ml_client.py` 与
    `app/api/v1/ml_backends.py` 调 backend 的 HTTP 协议端点。
+5. 共享预测准备：`app/services/prediction_context.py` 构建上下文与读取原图，
+   `prediction_roi.py` 负责裁剪和回映，`prediction_progress.py` 发布现有项目/全局进度。
+   HTTP、同步二次推理、批量及逐帧 worker 直接导入下层所有者；
+   原执行编排与结果写入事务不变，没有增加语言替换所需的远程协议。
 
 ## 5. 在线学习与模型训练调用链
 

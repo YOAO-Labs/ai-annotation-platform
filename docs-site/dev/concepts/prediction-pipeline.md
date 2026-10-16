@@ -238,19 +238,20 @@ crop 模式默认走 **presigned URL** 而非 `data:` base64：平台把裁好�
 
 当前触发一条：源阶段 `output_mode=both` 且开启文本 prompt 又挂了下游阶段时，一条 both 结果会被两个下游各处理一次。空数组表示无软提示。硬校验违例不进这里，直接 422。
 
-### ROI 模块（`roi.py`）
+### ROI 模块（`prediction_roi.py`）
 
-`apps/api/app/workers/roi.py` 集中所有 ROI 路由纯函数：
+`apps/api/app/services/prediction_roi.py` 集中 ROI 数据与几何处理，批量 worker 和同步二次推理直接消费，不经 worker 转导出。原图 RGB 读取和规范化上下文由同层 `prediction_context.py` 持有；裁剪上传回调及每个父阶段独立的缓存仍由原调用方控制。
 
 | 函数                          | 作用                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `crop_inputs_from_boxes`      | 按父框裁 ROI crop（`pad` 加边、`parent_class_filter` 过滤），返回 `CropBatch(inputs, skipped_geometry)`            |
 | `geometry_prompts_from_boxes` | 父框 → 归一化 prompts 列表（带 `parent_box_idx`），供 box-seg 出多边形与父框对齐                                   |
-| `collect_geometry_shapes`     | 把 box-seg 返回的 polygon 按 `parent_box_idx` 还原到原图坐标，追加进父框预测                                       |
+| `collect_geometry_shapes`     | 按有效 `parent_box_idx` 收集已在原图坐标中的 box-seg 结果，追加进父框预测                                          |
 | `merge_classify_attributes`   | 把下游分类结果按 `write.keys` 白名单 union 进父框 `attributes`                                                     |
 | `box_class_name`              | 从 LS shape 提取 `class_name`（`value.rectanglelabels[0]` / `value.labels[0]`），供 `parent_class_filter` 命中判定 |
+| `remap_geometry_to_image`     | 将 crop 中 `[0,1]` 或 `[0,100]` 几何回映到原图，保留多连通多边形和洞                                               |
 
-旋转框 / 多边形 / 退化框命中阶段路由但几何不支持时计入 `stats[si].skipped_geometry`，不再静默——见下文逐阶段统计。
+旋转框 / 退化框等命中阶段路由但几何不支持时计入 `stats[si].skipped_geometry`，不再静默；多边形父框按外接框裁剪。几何、索引、JPEG 编码和缓存语义不因所有者迁移改变。
 
 ### 逐阶段统计：实时快照 + 终态真值
 
@@ -258,6 +259,8 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 
 - **运行中实时快照**：按 5% 步长把当前累加 `pipeline_stages` 随进度推上 WS `project:{id}:preannotate`（复用现有通道，不新增）。前端阶段卡实时下放，显「待运行 / 运行中 / 已完成」徽标 + 计数 +`ProgressBar`。
 - **终态真值**：`async_jobs.result.pipeline_stages` 落库（job 终态写一次）。WS 重连或运行后回看一律走终态字段，不丢。
+
+发布由 `services/prediction_progress.py::publish_progress` 持有：普通进度只推项目频道，调用方提供 `job_meta` 时才另推 `global:prediction-jobs`；项目消息不混入该元数据。批量与逐帧执行直接调用共享发布者，仍沿用原节流、阶段统计和终态事务，不新建频道或作业状态机。
 
 若 GPU 仲裁在下游派发前拒绝，阶段仍按配置的 `keep_parent|drop_box` 处理，同时把完整根因记入 `PredictionMeta.extra.pipeline.gpu_arbiter_failures`。作业终态的 `async_jobs.result.gpu_arbiter_failures` 则按稳定错误码聚合 `status_code` / `retry_after_s` / `count`；`count` 表示被拒绝的派发次数，不替代 `pipeline_stages[].failed` 的受影响 ROI 计数。
 
@@ -315,7 +318,9 @@ Resident、CPU fallback、Unloaded 或保守 Unknown。容量不足时，authori
 
 - 模型：`apps/api/app/db/models/async_job.py`、`apps/api/app/db/models/prediction.py`
 - Worker：`apps/api/app/workers/tasks.py::batch_predict` / `_run_batch` / `_run_task_pipeline` / `_resolve_input_mode`
-- ROI 路由：`apps/api/app/workers/roi.py`（`crop_inputs_from_boxes` / `geometry_prompts_from_boxes` / `merge_classify_attributes`）
+- ROI 路由：`apps/api/app/services/prediction_roi.py`（`crop_inputs_from_boxes` / `geometry_prompts_from_boxes` / `merge_classify_attributes` / `remap_geometry_to_image`）
+- 上下文与原图：`apps/api/app/services/prediction_context.py`（`build_predict_context` / `model_label` / `load_task_image`）
+- 进度发布：`apps/api/app/services/prediction_progress.py::publish_progress`
 - async job service：`apps/api/app/services/async_job.py`
 - 端点：`apps/api/app/api/v1/predictions.py`（结果查询 + `POST /tasks/{id}/predictions/{pid}/accept` `attribute_overrides`）、`apps/api/app/api/v1/projects.py::trigger_preannotation`（触发）
 - 能力协商：`apps/api/app/services/ml_capabilities.py`（`extract_capabilities` / `derive_modalities`，含 `output_attribute_schema` / `composition` 字段）

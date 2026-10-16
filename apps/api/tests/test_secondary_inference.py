@@ -17,7 +17,7 @@ from PIL import Image
 
 import app.services.ml_client as ml_client_mod
 import app.services.storage as storage_mod
-import app.workers.tasks as tasks_mod
+import app.services.prediction_context as prediction_context
 from app.services.ml_client import PredictionResult
 from app.services.annotation import AnnotationService
 from app.services.secondary_inference import run_secondary_inference
@@ -40,7 +40,7 @@ def _fake_backend(models: list[dict] | None = None):
 def _patch_io(monkeypatch):
     """mock 图像加载 + 对象存储 (crop 投递不落真实 IO)。"""
     monkeypatch.setattr(
-        tasks_mod, "_load_task_image", lambda task: Image.new("RGB", (200, 200))
+        prediction_context, "load_task_image", lambda task: Image.new("RGB", (200, 200))
     )
     monkeypatch.setattr(storage_mod, "StorageService", _FakeStorage)
 
@@ -715,7 +715,7 @@ async def test_task_model_conflict_rejected_before_image_or_storage(monkeypatch)
     def forbidden(*args, **kwargs):
         pytest.fail("invalid task must fail before loading or uploading a crop")
 
-    monkeypatch.setattr(tasks_mod, "_load_task_image", forbidden)
+    monkeypatch.setattr(prediction_context, "load_task_image", forbidden)
     monkeypatch.setattr(storage_mod, "StorageService", forbidden)
     with pytest.raises(HTTPException) as error:
         await run_secondary_inference(

@@ -171,7 +171,7 @@ export function buildSecondaryInferencePayload(
     write_target: cap.writeTarget,
     model_id: m.id,
     // 走协议 v2 结构化 (model_variants 非 null) 的两类: 几何能力 (yolo/onnxtools——即便无变体轴也须
-    // 走 v2 才能透传 class_filter, 见后端 _build_predict_context)、以及声明了变体轴的属性能力
+    // 走 v2 才能透传 class_filter, 见后端 build_predict_context)、以及声明了变体轴的属性能力
     // (rapidocr OCR 的 version/size/lang)。无变体轴的属性能力 (onnxtools 纯分类) 恒 null 留在老扁平路径,
     // 行为不变。用户所选档位覆盖模型默认 (缺轴回落默认), 与交互条 interactiveVariantSlice 同语义。
     model_variants:

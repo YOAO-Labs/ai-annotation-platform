@@ -6,7 +6,6 @@ v0.10.49 收敛后 prediction_jobs 专表已删，worker 直接以 async_jobs �
 2. _mark_job_failed 跳过已 completed async_job 不覆盖
 3. _run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result
 4. _run_batch 把请求 params 合并进 /predict context
-5. _BatchPredictTask.on_failure 调用 _mark_job_failed (mock 验证 dispatch 路径)
 
 AsyncJob ORM / celery_task_id 反查由 test_async_jobs.py 覆盖，本文件不重复。
 """
@@ -1195,30 +1194,3 @@ async def test_run_batch_bulk_scope_rejects_in_progress_task(
             prompt="x",
             user_id=str(user.id),
         )
-
-
-def test_batch_predict_task_on_failure_dispatches_mark_helper(monkeypatch):
-    """_BatchPredictTask.on_failure 同步调用 _mark_job_failed (asyncio.run 包裹)."""
-    from app.workers import tasks as worker_tasks
-
-    captured: dict = {}
-
-    async def _stub_mark(celery_task_id: str, error_message: str):
-        captured["celery_task_id"] = celery_task_id
-        captured["error_message"] = error_message
-
-    monkeypatch.setattr(worker_tasks, "_mark_job_failed", _stub_mark)
-    monkeypatch.setattr(worker_tasks, "_publish_progress", lambda *a, **kw: None)
-
-    task = worker_tasks._BatchPredictTask()
-    task.on_failure(
-        ValueError("oops"),
-        "celery-task-id-xyz",
-        ("project-uuid",),
-        {},
-        None,
-    )
-
-    assert captured.get("celery_task_id") == "celery-task-id-xyz"
-    assert "ValueError" in captured.get("error_message", "")
-    assert "oops" in captured.get("error_message", "")

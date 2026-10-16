@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import pytest
 from PIL import Image
 
-from app.workers.roi import (
+from app.services.prediction_roi import (
     collect_geometry_shapes,
     compose_transforms,
     crop_inputs_from_boxes,

@@ -194,7 +194,7 @@ JWT query param，且 `role` 必须是 `super_admin` 或 `project_admin`，否�
 
 ### 5.2 消息格式
 
-由 worker 的 `_publish_progress` 在带 `job_meta` 时同时 publish 到 `global:prediction-jobs`：
+批量与逐帧 worker 调用共享 `services/prediction_progress.py::publish_progress`；带 `job_meta` 时才同时 publish 到 `global:prediction-jobs`，普通进度仅发项目频道。项目消息不包含 `job_meta`，现有频道和消息字段不变：
 
 ```json
 {

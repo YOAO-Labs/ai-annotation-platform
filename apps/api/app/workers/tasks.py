@@ -1,12 +1,10 @@
 from aap_task_contract import normalize_task_fields
 from app.services.ml_capabilities import resolve_model_task
+from app.services import prediction_context, prediction_progress
 import asyncio
-import json
 import logging
 import time
 import uuid
-
-import redis
 
 from app.config import settings
 from app.services import prediction_retry
@@ -58,174 +56,6 @@ def _stage_totals_snapshot(totals: dict[int, dict]) -> list[dict]:
     实时推送 (运行中快照) 与终态写库 (result.pipeline_stages) 共用同一形态, 前端可无缝切换。
     """
     return [{"stage": sidx, **totals[sidx]} for sidx in sorted(totals)]
-
-
-def _publish_progress(
-    project_id: str,
-    current: int,
-    total: int,
-    status: str = "running",
-    error: str | None = None,
-    job_meta: dict | None = None,
-    pipeline_stages: list[dict] | None = None,
-):
-    """v0.9.5: 单项目预标进度. v0.9.8: 同时发到全局 channel `global:prediction-jobs`,
-    让 Topbar 徽章 / 切项目 toast 可跨项目订阅. job_meta 仅在开始/结束/失败 3 时点发,
-    避免高频中间帧塞爆全局通道.
-
-    v0.18.6: pipeline_stages (运行中逐阶段累加快照) 随项目通道发, 让前端跑批过程中实时更新
-    卡上徽标 (不再等 job 终态); 阶段数少 (单层扇出), 仍按 5% 步长节流由调用方控制。"""
-    payload = {
-        "current": current,
-        "total": total,
-        "status": status,
-        "error": error,
-    }
-    if pipeline_stages is not None:
-        payload["pipeline_stages"] = pipeline_stages
-    r = redis.from_url(settings.redis_url)
-    try:
-        r.publish(f"project:{project_id}:preannotate", json.dumps(payload))
-        if job_meta is not None:
-            global_payload = {**payload, "project_id": project_id, **job_meta}
-            r.publish("global:prediction-jobs", json.dumps(global_payload))
-    finally:
-        r.close()
-
-
-def _build_predict_context(
-    *,
-    prompt: str | None,
-    output_mode: str,
-    params: dict | None,
-    model_id: str | None,
-    task_type: str | None = None,
-    model_variants: dict | None = None,
-    class_filter: list[int] | None = None,
-    box_threshold: float | None = None,
-    text_threshold: float | None = None,
-    frozen_model_ref: dict | None = None,
-    task: str | None = None,
-    prompt_type: str | None = None,
-) -> dict | None:
-    """Build canonical context; legacy task_type is a compatibility input only."""
-    semantic = normalize_task_fields(
-        {"task": task, "task_type": task_type, "prompt_type": prompt_type}
-    )
-    visual_task = semantic.get("task")
-    prompt_type = semantic.get("prompt_type")
-    if frozen_model_ref:
-        if visual_task not in {None, "detect"} or prompt or prompt_type:
-            raise ValueError(
-                "Controlled models require the detect task without prompts"
-            )
-        if class_filter and any(
-            type(i) is not int or not 0 <= i < len(frozen_model_ref["classes"])
-            for i in class_filter
-        ):
-            raise ValueError("Controlled class filter is outside native classes")
-        context = {
-            "task": "detect",
-            "model_id": f"trained:{frozen_model_ref['model_version_id']}",
-            "model_variants": {},
-            "params": params or {},
-            "frozen_model_ref": frozen_model_ref,
-        }
-    elif prompt:
-        context = {"type": prompt_type or "text", "text": prompt, "output": output_mode}
-        if visual_task:
-            context["task"] = visual_task
-        if box_threshold is not None:
-            context["box_threshold"] = box_threshold
-            context["text_threshold"] = text_threshold
-        reserved = {
-            "task",
-            "task_type",
-            "prompt_type",
-            "type",
-            "text",
-            "output",
-            "model_id",
-            "model_variants",
-            "frozen_model_ref",
-        }
-        context.update(
-            {
-                k: v
-                for k, v in (params or {}).items()
-                if v is not None and k not in reserved
-            }
-        )
-        if model_variants:
-            context["model_variants"] = model_variants
-    elif model_variants is not None:
-        context = {"model_variants": model_variants, "params": params or {}}
-        if visual_task or not model_id:
-            context["task"] = visual_task or "detect"
-        if prompt_type:
-            context["type"] = prompt_type
-    elif visual_task or model_id or prompt_type:
-        context = {}
-        if visual_task:
-            context["task"] = visual_task
-        if prompt_type:
-            context["type"] = prompt_type
-        reserved = {
-            "task",
-            "task_type",
-            "prompt_type",
-            "type",
-            "model_id",
-            "frozen_model_ref",
-        }
-        context.update(
-            {
-                k: v
-                for k, v in (params or {}).items()
-                if v is not None and k not in reserved
-            }
-        )
-    else:
-        return None
-    if model_id and not frozen_model_ref:
-        context["model_id"] = model_id
-    if class_filter:
-        context["classes"] = class_filter
-    return context
-
-
-def _model_label(model_variants: dict | None) -> str | None:
-    """从 model_variants 派生展示串, 与 backend 回传的 model_version 一致 (series+size, 如 yolov8l).
-
-    variant 轴未就位时 model_variants 为空 dict {} → 返回 None (不展示误导标签, backend 走默认)。
-    """
-    if not model_variants:
-        return None
-    series = model_variants.get("series")
-    size = model_variants.get("size")
-    if series and size:
-        return f"{series}{size}"
-    vals = [str(v) for v in model_variants.values() if v]
-    return "".join(vals) or None
-
-
-def _load_task_image(task):
-    """v0.18.1 · 从对象存储读 task 原图为 PIL Image (RGB), 供平台裁 ROI crop。
-
-    直接走 StorageService boto3 client (内网 endpoint), 不经 presigned URL / host 重写,
-    避免 worker 容器无法解析 ml_backend_storage_host 的问题。
-    """
-    import io
-
-    from PIL import Image
-
-    from app.services.storage import StorageService
-
-    storage = StorageService()
-    bucket = storage.datasets_bucket if task.dataset_item_id else storage.bucket
-    obj = storage.client.get_object(Bucket=bucket, Key=task.file_path)
-    raw = obj["Body"].read()
-    return Image.open(io.BytesIO(raw)).convert("RGB")
 
 
 def _make_crop_uploader(storage, job_id: str):
@@ -338,7 +168,7 @@ async def _run_task_pipeline(
     stage_modes: ``list[str]`` 与 stages 等长 (按列表位置), 每项 ``"crop"|"geometry"``; None → 全 crop。
     stage_stats: ``{stage号: {...}}`` —— 源阶段 {detected}; 下游 {targeted, ok, failed, skipped_geometry}。
     """
-    from app.workers.roi import (
+    from app.services.prediction_roi import (
         collect_geometry_shapes,
         crop_inputs_from_boxes,
         geometry_prompts_from_boxes,
@@ -358,7 +188,7 @@ async def _run_task_pipeline(
     depths = _compute_stage_depths(stages)
     # geometry 模式纯坐标换算无需原图; 仅当存在 crop 下游阶段时才加载 (省去无谓全图拉取)。
     needs_image = any(modes[si] == "crop" for si in range(1, len(stages)))
-    image = _load_task_image(task) if needs_image else None
+    image = prediction_context.load_task_image(task) if needs_image else None
     delivery = "presigned" if upload_crop is not None else "data_uri"
     enriched_keys: set[str] = set()
     gpu_arbiter_failures: list[dict] = []
@@ -674,7 +504,7 @@ async def _run_batch(
                     )
                     await notify_job_terminal(db, job_id=failed_job_id)
                     await db.commit()
-            _publish_progress(
+            prediction_progress.publish_progress(
                 project_id, 0, 0, status="error", error="ML Backend not found"
             )
             return
@@ -682,8 +512,8 @@ async def _run_batch(
         # 在池内选物理实例，Prediction / FailedPrediction 同时保留逻辑池与执行实例。
         source_pool_id = await MLBackendService(db).pool_id_for_registry(backend.id)
 
-        # v0.9.5 / v0.14.9 / v0.14.17 · 构造 /predict context (扁平文本路径 vs v2 结构化路径,
-        # 见 _build_predict_context). DINO 阈值取项目级 override.
+        # Build /predict context (flat text vs structured v2).
+        # DINO thresholds come from project overrides.
         project = await db.get(Project, uuid.UUID(project_id))
         if project is not None:
             project_name = project.name
@@ -833,7 +663,7 @@ async def _run_batch(
                 db, project_uuid, frozen_model_ref
             )
             model_id = f"trained:{frozen_model_ref['model_version_id']}"
-        context = _build_predict_context(
+        context = prediction_context.build_predict_context(
             prompt=prompt,
             output_mode=output_mode,
             params=params,
@@ -896,8 +726,8 @@ async def _run_batch(
         # domain 字段（batch_id / ml_backend / prompt / total_tasks）进 payload。
         batch = await db.get(TaskBatch, uuid.UUID(batch_id)) if batch_id else None
         # v0.14.18 · payload 记实际模型路由 (溯源 + 任务页展示用了哪个模型)。
-        # output_mode 只在它真正被消费的文本 prompt 路径才记 (见 _build_predict_context 的
-        # `if prompt:` 分支); 几何/yolo 路径不读 output_mode, 记了会误导成「用了 mask」。
+        # output_mode is recorded only for the text-prompt path that consumes it (see build_predict_context);
+        # geometry/YOLO paths do not read it, so recording it would imply an unused mask output.
         job_payload: dict = {
             "batch_id": batch_id,
             "batch_display_id": batch.display_id if batch else None,
@@ -920,7 +750,7 @@ async def _run_batch(
             job_payload["prompt_type"] = prompt_type
         if model_variants is not None:
             job_payload["model_variants"] = model_variants
-            label = _model_label(model_variants)
+            label = prediction_context.model_label(model_variants)
             if label:
                 job_payload["model_label"] = label
         if prompt:
@@ -952,7 +782,7 @@ async def _run_batch(
             "batch_id": batch_id,
         }
         # 开始时点 → 全局通道发 running
-        _publish_progress(
+        prediction_progress.publish_progress(
             project_id,
             0,
             total,
@@ -998,7 +828,7 @@ async def _run_batch(
             )
             await notify_job_terminal(db, job_id=async_job_id)
             await db.commit()
-            _publish_progress(
+            prediction_progress.publish_progress(
                 project_id,
                 processed_count,
                 total,
@@ -1040,7 +870,7 @@ async def _run_batch(
             )
             await notify_job_terminal(db, job_id=async_job_id)
             await db.commit()
-            _publish_progress(
+            prediction_progress.publish_progress(
                 project_id,
                 0,
                 0,
@@ -1092,7 +922,7 @@ async def _run_batch(
                 celery_root_task_id=celery_task_id,
             )
             if disp["dispatched"]:
-                _publish_progress(
+                prediction_progress.publish_progress(
                     project_id,
                     0,
                     disp["total_frames"],
@@ -1115,7 +945,7 @@ async def _run_batch(
             )
             await notify_job_terminal(db, job_id=async_job_id)
             await db.commit()
-            _publish_progress(
+            prediction_progress.publish_progress(
                 project_id, 0, 0, status="completed", job_meta=job_meta_base
             )
             await engine.dispose()
@@ -1159,7 +989,7 @@ async def _run_batch(
                 )
                 stage_modes.append(_resolve_input_mode(s))
                 stage_contexts.append(
-                    _build_predict_context(
+                    prediction_context.build_predict_context(
                         prompt=None,
                         output_mode=output_mode,
                         params=s.get("params"),
@@ -1220,7 +1050,7 @@ async def _run_batch(
                 )
                 await notify_job_terminal(db, job_id=async_job_id)
                 await db.commit()
-                _publish_progress(
+                prediction_progress.publish_progress(
                     project_id,
                     i,
                     total,
@@ -1262,7 +1092,7 @@ async def _run_batch(
                     )
                     await notify_job_terminal(db, job_id=async_job_id)
                     await db.commit()
-                    _publish_progress(
+                    prediction_progress.publish_progress(
                         project_id,
                         i,
                         total,
@@ -1331,7 +1161,7 @@ async def _run_batch(
             # 按 5% 步长 (或末条) 节流, 避免每条都塞快照; 阶段数少, payload 增量可忽略。
             pct = int(((i + 1) / total) * 100) if total > 0 else 0
             stage_step = pct % 5 == 0 or (i + 1) == total
-            _publish_progress(
+            prediction_progress.publish_progress(
                 project_id,
                 i + 1,
                 total,
@@ -1406,7 +1236,7 @@ async def _run_batch(
         await notify_job_terminal(db, job_id=async_job_id)
         await db.commit()
 
-        _publish_progress(
+        prediction_progress.publish_progress(
             project_id,
             total,
             total,
@@ -1462,7 +1292,7 @@ class _BatchPredictTask(celery_app.Task):
         error_message = f"{type(exc).__name__}: {exc}"
         if project_id:
             try:
-                _publish_progress(
+                prediction_progress.publish_progress(
                     str(project_id),
                     0,
                     0,

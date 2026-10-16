@@ -1404,7 +1404,7 @@ async def predict_frame(
 
     与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。
     """
-    from app.workers.tasks import _build_predict_context
+    from app.services.prediction_context import build_predict_context
 
     svc = MLBackendService(db)
     backend = await svc.get(backend_id)
@@ -1430,7 +1430,7 @@ async def predict_frame(
     # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 workers/tasks.py `_run_batch`)。
     project = await db.get(Project, project_id)
     try:
-        context = _build_predict_context(
+        context = build_predict_context(
             prompt=cfg.get("prompt"),
             # 单帧只要框: 文本 backend (gsam2) 输出 box; mask/polygon 非 video_bbox 会被丢弃。
             output_mode=cfg.get("output_mode") or "box",

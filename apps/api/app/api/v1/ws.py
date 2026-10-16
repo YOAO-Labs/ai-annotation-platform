@@ -428,8 +428,8 @@ async def prediction_jobs_socket(
       (project_id / project_name / job_id / status), 让前端跨项目可见
 
     鉴权: 仅 super_admin / project_admin (与 /ai-pre 主页一致), 其他角色直接 close.
-    Channel: redis pub/sub `global:prediction-jobs` (worker `_publish_progress`
-    带 job_meta 时同时发到此通道).
+    Channel: redis pub/sub `global:prediction-jobs` (prediction_progress.publish_progress
+    includes `job_meta` on this channel).
     """
     try:
         payload = decode_access_token(token)

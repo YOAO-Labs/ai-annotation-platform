@@ -36,9 +36,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # worker, script and ordinary test imports must use the new modules directly.
 CURRENT_COMPAT_FACADES: tuple[str, ...] = ()
 
-# Modules permanently deleted in v0.23.2. The architecture guard treats these
-# the same as compat facades (forbids domain packages from importing them) but
-# they additionally must not exist at all.
+# Retired modules must not return through first-party imports or dynamic calls.
 REMOVED_MODULES = (
     "app.services.data_manager",
     "app.services.data_manager_cursor",
@@ -63,6 +61,7 @@ REMOVED_MODULES = (
     "app.services.gpu_dispatch_authority",
     "app.services.gpu_membership_activation",
     "app.services.gpu_rollout_control",
+    "app.workers.roi",
 )
 
 _LEGACY_CALL_REFERENCE_ALLOWLIST: dict[tuple[str, str, str], str] = {}
@@ -186,6 +185,22 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="pointcloud_import", legacy_facades=()),
     DomainSpec(package="scene_inference", legacy_facades=()),
+    DomainSpec(
+        package="prediction_context",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.storage",),
+    ),
+    DomainSpec(
+        package="prediction_progress",
+        legacy_facades=(),
+        allowed_app_imports=("app.config",),
+    ),
+    DomainSpec(
+        package="prediction_roi",
+        legacy_facades=("app.workers.roi",),
+        allowed_app_imports=(),
+    ),
+    DomainSpec(package="secondary_inference", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -655,6 +670,10 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.dataset_frame_grouping",
         "app.services.pointcloud_import",
         "app.services.scene_inference",
+        "app.services.prediction_context",
+        "app.services.prediction_progress",
+        "app.services.prediction_roi",
+        "app.services.secondary_inference",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 
