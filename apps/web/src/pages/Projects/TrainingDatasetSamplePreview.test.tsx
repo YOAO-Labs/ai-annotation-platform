@@ -39,13 +39,15 @@ beforeEach(() => {
     Object.assign(globalThis.URL, { createObjectURL: createUrl, revokeObjectURL: revokeUrl }),
   );
   useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
-  vi.mocked(trainingDatasetsApi.sample).mockResolvedValue({
-    sample: insightSample,
-    labels: [insightBox],
-    total: 1,
-    offset: 0,
-    limit: 500,
-  });
+  vi.mocked(trainingDatasetsApi.sample).mockImplementation(
+    async (_projectId, versionId, taskId) => ({
+      sample: { ...insightSample, version_id: versionId, task_id: taskId },
+      labels: [insightBox],
+      total: 1,
+      offset: 0,
+      limit: 500,
+    }),
+  );
   vi.mocked(trainingDatasetsApi.sampleMedia).mockResolvedValue(
     new Blob(["verified-preview"], { type: "image/png" }),
   );
@@ -126,6 +128,18 @@ describe("immutable sample preview", () => {
     expect(createUrl).not.toHaveBeenCalled();
     expect(observed).not.toHaveBeenCalled();
   });
+  it("rejects a frozen detail response from another member instead of displaying its labels", async () => {
+    vi.mocked(trainingDatasetsApi.sample).mockResolvedValueOnce({
+      sample: { ...insightSample, task_id: "foreign-member" },
+      labels: [{ ...insightBox, class_name: "其他成员类别" }],
+      total: 1,
+      offset: 0,
+      limit: 500,
+    });
+    mount();
+    expect(await screen.findByRole("alert")).toHaveTextContent("冻结标注响应身份与所选成员不一致");
+    expect(screen.queryByText("其他成员类别")).not.toBeInTheDocument();
+  });
   it("resets labels/media on sample and session switches, including another tab's credential change", async () => {
     let resolve!: (blob: Blob) => void;
     vi.mocked(trainingDatasetsApi.sampleMedia).mockImplementationOnce(
@@ -178,7 +192,7 @@ describe("immutable sample preview", () => {
     expect(await screen.findByText(/不能将此样本视为空标注/)).toBeVisible();
     expect(screen.queryByText("此样本已明确确认为无目标。")).not.toBeInTheDocument();
     vi.mocked(trainingDatasetsApi.sample).mockResolvedValueOnce({
-      sample: { ...insightSample, explicit_negative: true },
+      sample: { ...insightSample, task_id: "negative", explicit_negative: true },
       labels: [],
       total: 0,
       offset: 0,
@@ -186,13 +200,15 @@ describe("immutable sample preview", () => {
     });
     mounted.rerender(mounted.update({ ...insightSample, task_id: "negative" }));
     expect(await screen.findByText("此样本已明确确认为无目标。")).toBeVisible();
-    vi.mocked(trainingDatasetsApi.sample).mockResolvedValue({
-      sample: insightSample,
-      labels: [insightBox],
-      total: 501,
-      offset: 0,
-      limit: 500,
-    });
+    vi.mocked(trainingDatasetsApi.sample).mockImplementation(
+      async (_projectId, versionId, taskId) => ({
+        sample: { ...insightSample, version_id: versionId, task_id: taskId },
+        labels: [insightBox],
+        total: 501,
+        offset: 0,
+        limit: 500,
+      }),
+    );
     mounted.rerender(mounted.update({ ...insightSample, task_id: "many-boxes" }));
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "下一页标注" }));

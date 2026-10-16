@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trainingDatasetsApi, type TrainingDatasetAnalyzedSampleOut } from "@/api/trainingDatasets";
 import { useAuthStore } from "@/stores/authStore";
@@ -12,7 +12,45 @@ type Props = {
   onObserved: () => void;
 };
 
+type PanelProps = Omit<Props, "onClose">;
+type PreviewOwner = { userId: string; token: string; key: string };
+
+function ownsPreview(owner: PreviewOwner) {
+  return (
+    useAuthStore.getState().user?.id === owner.userId &&
+    useAuthStore.getState().token === owner.token &&
+    localStorage.getItem("token") === owner.token
+  );
+}
+
 export function TrainingDatasetSamplePreview(props: Props) {
+  const returnFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  return (
+    <Modal
+      open
+      onClose={props.onClose}
+      title="冻结样本预览"
+      width={900}
+      stopEscapePropagation
+      returnFocusRef={returnFocusRef}
+    >
+      <TrainingDatasetSamplePanel
+        projectId={props.projectId}
+        sample={props.sample}
+        onObserved={props.onObserved}
+      />
+      <div className="mt-4 flex justify-end">
+        <Button size="sm" onClick={props.onClose}>
+          关闭预览
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+export function TrainingDatasetSamplePanel(props: PanelProps) {
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const token = useAuthStore((state) => state.token ?? "");
   const owner = useMemo(
@@ -22,9 +60,19 @@ export function TrainingDatasetSamplePreview(props: Props) {
       projectId: props.projectId,
       versionId: props.sample.version_id,
       taskId: props.sample.task_id,
+      contentSha256: props.sample.sha256,
+      labelSha256: props.sample.label_sha256,
       key: crypto.randomUUID(),
     }),
-    [userId, token, props.projectId, props.sample.version_id, props.sample.task_id],
+    [
+      userId,
+      token,
+      props.projectId,
+      props.sample.version_id,
+      props.sample.task_id,
+      props.sample.sha256,
+      props.sample.label_sha256,
+    ],
   );
   return <SamplePreviewContent key={owner.key} {...props} owner={owner} />;
 }
@@ -32,10 +80,13 @@ export function TrainingDatasetSamplePreview(props: Props) {
 function SamplePreviewContent({
   projectId,
   sample,
-  onClose,
   onObserved,
   owner,
-}: Props & { owner: { userId: string; token: string; key: string } }) {
+}: PanelProps & { owner: PreviewOwner }) {
+  const observedRef = useRef(onObserved);
+  useEffect(() => {
+    observedRef.current = onObserved;
+  }, [onObserved]);
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaError, setMediaError] = useState("");
   const [mediaLoading, setMediaLoading] = useState(true);
@@ -51,24 +102,43 @@ function SamplePreviewContent({
       sample.task_id,
       page,
     ],
-    queryFn: ({ signal }) =>
-      trainingDatasetsApi.sample(projectId, sample.version_id, sample.task_id, page * 500, {
-        signal,
-      }),
+    queryFn: async ({ signal }) => {
+      if (!ownsPreview(owner)) throw new Error("登录会话已变化，请重新打开冻结样本");
+      const result = await trainingDatasetsApi.sample(
+        projectId,
+        sample.version_id,
+        sample.task_id,
+        page * 500,
+        { signal },
+      );
+      if (signal.aborted || !ownsPreview(owner))
+        throw new DOMException("预览所属会话已变化", "AbortError");
+      if (
+        result.sample.version_id !== sample.version_id ||
+        result.sample.task_id !== sample.task_id ||
+        result.sample.sha256 !== sample.sha256 ||
+        result.sample.label_sha256 !== sample.label_sha256
+      ) {
+        throw new Error("冻结标注响应身份与所选成员不一致");
+      }
+      return result;
+    },
+    enabled: Boolean(owner.userId && owner.token),
     retry: false,
   });
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
     let createdUrl = "";
-    const owns = () =>
-      active &&
-      useAuthStore.getState().user?.id === owner.userId &&
-      useAuthStore.getState().token === owner.token &&
-      localStorage.getItem("token") === owner.token;
+    const owns = () => active && ownsPreview(owner);
     setMediaUrl("");
     setMediaError("");
     setMediaLoading(true);
+    if (!owns()) {
+      setMediaLoading(false);
+      setMediaError("登录会话已变化，请重新打开冻结样本");
+      return () => controller.abort();
+    }
     void trainingDatasetsApi
       .sampleMedia(projectId, sample.version_id, sample.task_id, { signal: controller.signal })
       .then((blob) => {
@@ -83,7 +153,7 @@ function SamplePreviewContent({
       .finally(() => {
         if (owns()) {
           setMediaLoading(false);
-          onObserved();
+          observedRef.current();
         }
       });
     return () => {
@@ -91,13 +161,14 @@ function SamplePreviewContent({
       controller.abort();
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [owner, projectId, sample.version_id, sample.task_id, retry, onObserved]);
+  }, [owner, projectId, sample.version_id, sample.task_id, retry]);
   const value = detail.data;
   const polygons = value?.labels.some((label) => label.type === "polygon") ?? false;
   return (
-    <Modal open onClose={onClose} title="冻结样本预览" width={900}>
+    <>
       <p className="mb-3 break-all text-xs text-muted-foreground">
-        样本 {sample.task_id} · {sample.split === "val" ? "验证集" : "训练集"} ·{" "}
+        样本 {sample.task_id} ·{" "}
+        {sample.split === "val" ? "验证集" : sample.split === "train" ? "训练集" : "划分未知"} ·{" "}
         {sample.width ?? "未知"} × {sample.height ?? "未知"}
       </p>
       <p className="mb-4 text-xs text-muted-foreground">
@@ -261,11 +332,6 @@ function SamplePreviewContent({
           )}
         </>
       )}
-      <div className="mt-4 flex justify-end">
-        <Button size="sm" onClick={onClose}>
-          关闭预览
-        </Button>
-      </div>
-    </Modal>
+    </>
   );
 }
