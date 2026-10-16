@@ -972,6 +972,28 @@ test.describe("flow recordings", () => {
       );
     }
 
+    const selectedFlow = testInfo.title.split(" —")[0];
+    if (selectedFlow === "pipeline-template-create") {
+      // Template design needs the actual model catalog, but submits no inference.
+      for (const name of ["yolo-backend", "onnxtools-backend"]) {
+        await seed.enableMLBackendByName(
+          cached.projects.image_demo.id,
+          cached.users.admin.email,
+          name,
+        );
+      }
+    }
+    if (selectedFlow.startsWith("model-market-")) {
+      // These management demonstrations deliberately mask private runtime topology.
+      // They exercise real UI behavior against deterministic observations, not inference.
+      flowBehaviorEvidence[selectedFlow] = {
+        kind: "management-observation-snapshot",
+        deterministic_runtime_fixture: true,
+        real_inference: false,
+        fixture_source: "apps/web/e2e/screenshots/flows/model-market-runtime-pool.ts",
+      };
+    }
+
     if (!VALIDATE_ONLY && testInfo.project.name === MARKETING_PROJECT_NAME) {
       await startExternalMarketingRecording(page);
     }

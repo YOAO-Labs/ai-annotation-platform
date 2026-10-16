@@ -282,3 +282,18 @@ test("direct legacy Playwright recording refuses before catalog or database setu
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("management recordings declare catalog-only dependencies without SAM inference", () => {
+  const flows = [
+    "ai-pre-variant-selector",
+    "pipeline-template-create",
+    "model-market-runtime-pool",
+    "model-market-video-pool",
+    "model-market-runtime-partial-failure",
+    "model-market-gpu-resource-overview",
+  ];
+  for (const flow of flows) {
+    assert.equal(recordingPlan([flow]).backendRequirements, "none");
+    assert.equal(recordingInference(flow), "none");
+  }
+});
