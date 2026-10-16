@@ -532,19 +532,14 @@ async def test_video_segment_non_assignee_cannot_claim_assigned_segment(
 
 
 async def test_video_chunks_create_pending_rows_and_enqueue(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch, media_dispatcher
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[tuple[str, list[int]]] = []
 
     monkeypatch.setattr(
         "app.services.video_frame_service.storage_service.generate_download_url",
         lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
-    )
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
     )
 
     resp = await httpx_client.get(
@@ -557,7 +552,7 @@ async def test_video_chunks_create_pending_rows_and_enqueue(
     assert body["fallback_video_url"] == "http://storage.local/playback/clip.mp4"
     assert [chunk["chunk_id"] for chunk in body["chunks"]] == [0, 1]
     assert {chunk["status"] for chunk in body["chunks"]} == {"pending"}
-    assert queued == [(str(item.id), [0, 1])]
+    assert media_dispatcher.video_chunks == [(item.id, [0, 1])]
 
     rows = (
         await db_session.execute(
@@ -568,7 +563,7 @@ async def test_video_chunks_create_pending_rows_and_enqueue(
 
 
 async def test_video_warmup_zero_skips_neighbor_enqueue(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, media_dispatcher
 ):
     user, _ = super_admin
     _, item = await _make_video_task(db_session, user.id)
@@ -576,16 +571,11 @@ async def test_video_warmup_zero_skips_neighbor_enqueue(
         db_session, {"video_chunk_warmup_lookahead": 0}, actor_id=user.id
     )
     await db_session.flush()
-    queued: list[tuple[str, list[int]]] = []
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
-    )
 
     ctx = await build_context_from_dataset_item(db_session, item.id)
-    await list_chunks(db_session, ctx, 0, 0)
+    await list_chunks(db_session, ctx, 0, 0, dispatcher=media_dispatcher)
 
-    assert queued == [(str(item.id), [0])]
+    assert media_dispatcher.video_chunks == [(item.id, [0])]
     rows = (
         await db_session.execute(
             VideoChunk.__table__.select().where(VideoChunk.dataset_item_id == item.id)
@@ -596,7 +586,7 @@ async def test_video_warmup_zero_skips_neighbor_enqueue(
 
 @pytest.mark.parametrize("path", ["chunks?from_frame=0&to_frame=0", "chunks/0"])
 async def test_warmup_setting_failure_does_not_expire_the_primary_response(
-    db_session, httpx_client, super_admin, monkeypatch, path
+    db_session, httpx_client, super_admin, monkeypatch, media_dispatcher, path
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -612,7 +602,6 @@ async def test_warmup_setting_failure_does_not_expire_the_primary_response(
         )
     )
     await db_session.flush()
-    queued = []
 
     async def unavailable(db, *args, **kwargs):
         # A real failed statement leaves this transaction needing rollback.
@@ -623,10 +612,6 @@ async def test_warmup_setting_failure_does_not_expire_the_primary_response(
         "app.services.video_frame_service.storage_service.generate_download_url",
         lambda key, **kwargs: f"http://storage.local/{key}",
     )
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
-    )
     response = await httpx_client.get(
         f"/api/v1/tasks/{task_id}/video/{path}",
         headers={"Authorization": f"Bearer {token}"},
@@ -636,7 +621,7 @@ async def test_warmup_setting_failure_does_not_expire_the_primary_response(
     chunks = body["chunks"] if "chunks" in body else [body]
     assert [chunk["chunk_id"] for chunk in chunks] == [0]
     assert chunks[0]["status"] == "ready"
-    assert queued == []
+    assert media_dispatcher.video_chunks == []
 
 
 async def test_video_chunk_api_exposes_generation_diagnostics(
@@ -810,11 +795,10 @@ async def test_video_chunk_samples_404_when_item_invisible(
 
 
 async def test_video_frame_ready_returns_cached_url_without_enqueue(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch, media_dispatcher
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[object] = []
     db_session.add(
         VideoFrameCache(
             dataset_item_id=item.id,
@@ -832,10 +816,6 @@ async def test_video_frame_ready_returns_cached_url_without_enqueue(
         "app.services.video_frame_service.storage_service.generate_download_url",
         lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
     )
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda *args: queued.append(args),
-    )
 
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frames/12?format=webp&w=512",
@@ -847,15 +827,14 @@ async def test_video_frame_ready_returns_cached_url_without_enqueue(
     body = resp.json()
     assert body["status"] == "ready"
     assert body["url"].endswith(f"/videos/{item.id}/frames/12_512.webp")
-    assert queued == []
+    assert media_dispatcher.video_frames == []
 
 
 async def test_video_frame_pending_does_not_enqueue_duplicate_worker(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, media_dispatcher
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[object] = []
     db_session.add(
         VideoFrameCache(
             dataset_item_id=item.id,
@@ -867,11 +846,6 @@ async def test_video_frame_pending_does_not_enqueue_duplicate_worker(
     )
     await db_session.flush()
 
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda *args: queued.append(args),
-    )
-
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frames/12?format=webp&w=512",
         headers={"Authorization": f"Bearer {token}"},
@@ -880,20 +854,14 @@ async def test_video_frame_pending_does_not_enqueue_duplicate_worker(
     assert resp.status_code == 202
     assert resp.headers["cache-control"] == "no-store"
     assert resp.json()["status"] == "pending"
-    assert queued == []
+    assert media_dispatcher.video_frames == []
 
 
 async def test_video_frame_prefetch_creates_missing_rows(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, media_dispatcher
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[tuple[str, list[dict]]] = []
-
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda item_id, requests: queued.append((item_id, requests)),
-    )
 
     resp = await httpx_client.post(
         f"/api/v1/videos/{item.id}/frames:prefetch",
@@ -905,9 +873,9 @@ async def test_video_frame_prefetch_creates_missing_rows(
     body = resp.json()
     assert [frame["frame_index"] for frame in body["frames"]] == [3, 4]
     assert {frame["status"] for frame in body["frames"]} == {"pending"}
-    assert queued == [
+    assert media_dispatcher.video_frames == [
         (
-            str(item.id),
+            item.id,
             [
                 {"frame_index": 3, "width": 320, "format": "jpeg"},
                 {"frame_index": 4, "width": 320, "format": "jpeg"},
@@ -917,11 +885,10 @@ async def test_video_frame_prefetch_creates_missing_rows(
 
 
 async def test_video_frame_retry_resets_failed_rows_only(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, media_dispatcher
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[tuple[str, list[dict]]] = []
     db_session.add_all(
         [
             VideoFrameCache(
@@ -944,11 +911,6 @@ async def test_video_frame_retry_resets_failed_rows_only(
     )
     await db_session.flush()
 
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda item_id, requests: queued.append((item_id, requests)),
-    )
-
     resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/frames:retry",
         headers={"Authorization": f"Bearer {token}"},
@@ -959,11 +921,8 @@ async def test_video_frame_retry_resets_failed_rows_only(
     body = resp.json()
     assert [frame["frame_index"] for frame in body["frames"]] == [7]
     assert body["frames"][0]["status"] == "pending"
-    assert queued == [
-        (
-            str(item.id),
-            [{"frame_index": 7, "width": 512, "format": "webp"}],
-        )
+    assert media_dispatcher.video_frames == [
+        (item.id, [{"frame_index": 7, "width": 512, "format": "webp"}])
     ]
 
 
@@ -1018,7 +977,7 @@ async def test_video_asset_failures_list_metadata_chunk_and_frame_errors(
 
 
 async def test_video_asset_retry_queues_existing_media_tasks(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, media_dispatcher
 ):
     user, token = super_admin
     _, item = await _make_video_task(db_session, user.id)
@@ -1040,22 +999,6 @@ async def test_video_asset_retry_queues_existing_media_tasks(
     )
     db_session.add_all([chunk, frame])
     await db_session.flush()
-    queued_metadata: list[str] = []
-    queued_chunks: list[tuple[str, list[int]]] = []
-    queued_frames: list[tuple[str, list[dict]]] = []
-
-    monkeypatch.setattr(
-        "app.workers.media.generate_video_metadata.delay",
-        lambda item_id: queued_metadata.append(item_id),
-    )
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued_chunks.append((item_id, chunk_ids)),
-    )
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda item_id, requests: queued_frames.append((item_id, requests)),
-    )
 
     metadata_resp = await httpx_client.post(
         "/api/v1/storage/video-assets/retry",
@@ -1086,13 +1029,10 @@ async def test_video_asset_retry_queues_existing_media_tasks(
     assert metadata_resp.status_code == 202
     assert chunk_resp.status_code == 202
     assert frame_resp.status_code == 202
-    assert queued_metadata == [str(item.id)]
-    assert queued_chunks == [(str(item.id), [1])]
-    assert queued_frames == [
-        (
-            str(item.id),
-            [{"frame_index": 8, "width": 320, "format": "jpeg"}],
-        )
+    assert media_dispatcher.video_metadata == [item.id]
+    assert media_dispatcher.video_chunks == [(item.id, [1])]
+    assert media_dispatcher.video_frames == [
+        (item.id, [{"frame_index": 8, "width": 320, "format": "jpeg"}])
     ]
     await db_session.refresh(chunk)
     await db_session.refresh(frame)
@@ -1103,7 +1043,7 @@ async def test_video_asset_retry_queues_existing_media_tasks(
 
 
 async def test_video_asset_retry_accepts_any_managed_linked_project(
-    db_session, httpx_client, super_admin, project_admin, monkeypatch
+    db_session, httpx_client, project_admin, media_dispatcher
 ):
     """一个 dataset item 可被多个项目的 task 关联：只要其中任一链接项目是该
     管理员合法管理的，重试就应放行（与失败列表 any-owned-project 作用域一致），
@@ -1141,19 +1081,13 @@ async def test_video_asset_retry_accepts_any_managed_linked_project(
     db_session.add(other_task)
     await db_session.flush()
 
-    queued_metadata: list[str] = []
-    monkeypatch.setattr(
-        "app.workers.media.generate_video_metadata.delay",
-        lambda item_id: queued_metadata.append(item_id),
-    )
-
     resp = await httpx_client.post(
         "/api/v1/storage/video-assets/retry",
         headers={"Authorization": f"Bearer {token}"},
         json={"asset_type": "poster", "dataset_item_id": str(item.id)},
     )
     assert resp.status_code == 202, resp.text
-    assert queued_metadata == [str(item.id)]
+    assert media_dispatcher.video_metadata == [item.id]
 
 
 async def test_video_asset_retry_rejects_unmanaged_linked_projects_only(

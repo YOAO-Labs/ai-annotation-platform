@@ -140,6 +140,9 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="mask_qc.service", legacy_facades=()),
     DomainSpec(package="point_cloud_quality.service", legacy_facades=()),
     DomainSpec(package="video_track_quality", legacy_facades=()),
+    DomainSpec(package="media_job_dispatch", legacy_facades=()),
+    DomainSpec(package="dataset", legacy_facades=()),
+    DomainSpec(package="video_frame_service", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -555,7 +558,7 @@ def test_scc_detector_finds_two_and_three_node_cycles() -> None:
 
 
 def test_services_graph_has_no_guarded_domain_cycle() -> None:
-    """No SCC may cross GPU, task-admission or quality-dispatch boundaries."""
+    """No SCC may cross guarded GPU, task-admission or execution boundaries."""
     graph = _service_import_graph()
     guarded_modules = {
         "app.services.ml_client",
@@ -563,6 +566,8 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.task_access",
         "app.services.project_write_guard",
         "app.services.quality_job_dispatch",
+        "app.services.media_job_dispatch",
+        "app.services.dataset",
         "app.services.mask_repair",
         "app.services.mask_formats.service",
         "app.services.mask_qc.service",

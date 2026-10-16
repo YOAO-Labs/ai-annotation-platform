@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import (
     get_db,
     get_current_user,
+    get_media_job_dispatcher,
     require_project_owner,
     require_roles,
     require_scopes,
@@ -40,6 +41,7 @@ from app.services.dataset import (
     DatasetService,
     ensure_dataset_storage_name_is_writable,
 )
+from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.mask_formats.safe_archive import (
     ArchiveLimits,
     ArchiveSafetyError,
@@ -345,6 +347,7 @@ async def upload_complete(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     from app.db.models.dataset import DatasetItem
 
@@ -401,13 +404,9 @@ async def upload_complete(
     await db.commit()
 
     if item.file_type == "image":
-        from app.workers.media import generate_thumbnail
-
-        generate_thumbnail.delay(str(item_id))
+        media_dispatcher.dispatch_thumbnail(item_id)
     elif item.file_type == "video":
-        from app.workers.media import generate_video_metadata
-
-        generate_video_metadata.delay(str(item_id))
+        media_dispatcher.dispatch_video_metadata(item_id)
 
     return {"status": "ok", "item_id": str(item_id), "linked_tasks": linked_tasks}
 
@@ -471,6 +470,7 @@ async def upload_zip(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     """前端 multipart 上传单个 ZIP 包，由后端解压并把每个文件入库 + 上传到 MinIO。
 
@@ -676,16 +676,10 @@ async def upload_zip(
 
     await db.commit()
 
-    if new_image_item_ids:
-        from app.workers.media import generate_thumbnail
-
-        for iid in new_image_item_ids:
-            generate_thumbnail.delay(str(iid))
-    if new_video_item_ids:
-        from app.workers.media import generate_video_metadata
-
-        for iid in new_video_item_ids:
-            generate_video_metadata.delay(str(iid))
+    for iid in new_image_item_ids:
+        media_dispatcher.dispatch_thumbnail(iid)
+    for iid in new_video_item_ids:
+        media_dispatcher.dispatch_video_metadata(iid)
 
     return {
         "added": added,
@@ -703,6 +697,7 @@ async def scan_items(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
@@ -718,7 +713,7 @@ async def scan_items(
     await db.commit()
 
     if new_ids:
-        await svc.enqueue_media_for_items(new_ids)
+        await svc.enqueue_media_for_items(new_ids, dispatcher=media_dispatcher)
 
     return {"status": "ok", "new_items": len(new_ids), "linked_tasks": linked_tasks}
 

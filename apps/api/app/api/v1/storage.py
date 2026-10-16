@@ -7,12 +7,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_current_user, get_db, require_roles
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_media_job_dispatcher,
+    require_roles,
+)
 from app.db.enums import PlatformRole
 from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import storage_service
 from app.schemas.storage import BucketSummary, BucketsResponse
 
@@ -279,6 +285,7 @@ async def retry_video_asset(
     payload: VideoAssetRetryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MEDIA_MANAGERS)),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     item = await db.get(DatasetItem, payload.dataset_item_id)
     if not item or item.file_type != "video":
@@ -288,9 +295,7 @@ async def retry_video_asset(
     await _assert_media_asset_manager(db, item, current_user)
 
     if payload.asset_type in {"probe", "poster", "frame_timetable"}:
-        from app.workers.media import generate_video_metadata
-
-        generate_video_metadata.delay(str(item.id))
+        media_dispatcher.dispatch_video_metadata(item.id)
         return VideoAssetRetryResponse(
             status="queued", asset_type=payload.asset_type, dataset_item_id=item.id
         )
@@ -313,9 +318,7 @@ async def retry_video_asset(
         row.generation_mode = None
         row.diagnostics = {}
         await db.commit()
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(item.id), [payload.chunk_id])
+        media_dispatcher.dispatch_video_chunks(item.id, [payload.chunk_id])
         return VideoAssetRetryResponse(
             status="queued", asset_type=payload.asset_type, dataset_item_id=item.id
         )
@@ -340,10 +343,8 @@ async def retry_video_asset(
     row.status = "pending"
     row.error = None
     await db.commit()
-    from app.workers.media import extract_video_frames
-
-    extract_video_frames.delay(
-        str(item.id),
+    media_dispatcher.dispatch_video_frames(
+        item.id,
         [
             {
                 "frame_index": payload.frame_index,

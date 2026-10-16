@@ -144,7 +144,6 @@ async def test_upload_zip_preserves_subdirectories(
     fake_client = _FakePutOnlyClient()
     monkeypatch.setattr(storage_service, "client", fake_client)
     monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
-    monkeypatch.setattr("app.workers.media.generate_thumbnail.delay", _noop)
 
     ds = await _create_dataset(
         httpx_client, token, f"pc-d1-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -246,7 +245,6 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
     fake_client = _FakePutOnlyClient()
     monkeypatch.setattr(storage_service, "client", fake_client)
     monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
-    monkeypatch.setattr("app.workers.media.generate_thumbnail.delay", _noop)
 
     # ── 情况 A：内容不同，两条都入库 ──
     ds_a = await _create_dataset(
@@ -317,7 +315,6 @@ async def test_upload_zip_scene_auto_inferred(
     fake_client = _FakePutOnlyClient()
     monkeypatch.setattr(storage_service, "client", fake_client)
     monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
-    monkeypatch.setattr("app.workers.media.generate_thumbnail.delay", _noop)
 
     ds = await _create_dataset(
         httpx_client, token, f"scene-auto-{uuid.uuid4().hex[:6]}", "point_cloud"

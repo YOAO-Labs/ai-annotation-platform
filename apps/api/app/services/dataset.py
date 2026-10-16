@@ -26,6 +26,7 @@ from app.services.project_kind import (
     media_kind_aliases,
     project_kind,
 )
+from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.system_settings_service import SystemSettingsService
 
@@ -648,7 +649,9 @@ class DatasetService:
             linked_tasks=linked_tasks,
         )
 
-    async def enqueue_media_for_items(self, item_ids: list[uuid.UUID]) -> None:
+    async def enqueue_media_for_items(
+        self, item_ids: list[uuid.UUID], *, dispatcher: MediaJobDispatcher
+    ) -> None:
         unique_item_ids = list(dict.fromkeys(item_ids))
         if not unique_item_ids:
             return
@@ -659,13 +662,9 @@ class DatasetService:
         )
         for item_id, file_type in rows.all():
             if file_type == "image":
-                from app.workers.media import generate_thumbnail
-
-                generate_thumbnail.delay(str(item_id))
+                dispatcher.dispatch_thumbnail(item_id)
             elif file_type == "video":
-                from app.workers.media import generate_video_metadata
-
-                generate_video_metadata.delay(str(item_id))
+                dispatcher.dispatch_video_metadata(item_id)
 
     async def _find_by_file_path(
         self, dataset_id: uuid.UUID, file_path: str

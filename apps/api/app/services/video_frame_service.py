@@ -35,6 +35,7 @@ from app.schemas.video_frame_service import (
     VideoFramePrefetchResponse,
     VideoManifestV2Response,
 )
+from app.services.media_job_dispatch import MediaJobDispatcher, VideoFrameRequest
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
 
@@ -240,7 +241,11 @@ def _chunk_out(row: VideoChunk) -> VideoChunkOut:
 
 
 async def _warmup_neighbor_chunks(
-    db: AsyncSession, ctx: VideoContext, requested_chunk_ids: list[int]
+    db: AsyncSession,
+    ctx: VideoContext,
+    requested_chunk_ids: list[int],
+    *,
+    dispatcher: MediaJobDispatcher,
 ) -> None:
     """对热点 frame range 的相邻 (向后) chunk 做 look-ahead 预解码 (计划 §1.6)。
 
@@ -268,9 +273,7 @@ async def _warmup_neighbor_chunks(
     to_warm = [r.chunk_id for r in rows if r.status not in {"ready", "pending"}]
     await db.commit()
     if to_warm:
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(ctx.item.id), to_warm)
+        dispatcher.dispatch_video_chunks(ctx.item.id, to_warm)
 
 
 async def list_chunks(
@@ -278,6 +281,8 @@ async def list_chunks(
     ctx: VideoContext,
     from_frame: int | None,
     to_frame: int | None,
+    *,
+    dispatcher: MediaJobDispatcher,
 ) -> VideoChunksResponse:
     start, end = _safe_frame_range(ctx.metadata, from_frame, to_frame)
     requested_ids = _chunk_ids_for_range(start, end)
@@ -289,9 +294,7 @@ async def list_chunks(
     await db.commit()
 
     if missing:
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(ctx.item.id), missing)
+        dispatcher.dispatch_video_chunks(ctx.item.id, missing)
 
     # Freeze the primary response before optional I/O: a failed setting read
     # rolls back its transaction and expires ORM objects in this session.
@@ -302,12 +305,16 @@ async def list_chunks(
         fallback_video_url=_asset_url(_source_key(ctx.item, ctx.metadata)),
         chunks=[_chunk_out(row) for row in rows],
     )
-    await _warmup_neighbor_chunks(db, ctx, requested_ids)
+    await _warmup_neighbor_chunks(db, ctx, requested_ids, dispatcher=dispatcher)
     return response
 
 
 async def get_chunk(
-    db: AsyncSession, ctx: VideoContext, chunk_id: int
+    db: AsyncSession,
+    ctx: VideoContext,
+    chunk_id: int,
+    *,
+    dispatcher: MediaJobDispatcher,
 ) -> VideoChunkOut:
     _metadata_ready(ctx.metadata)
     row = (
@@ -324,11 +331,9 @@ async def get_chunk(
     row.last_accessed_at = _now()
     await db.commit()
     if row.status != "ready":
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(ctx.item.id), [chunk_id])
+        dispatcher.dispatch_video_chunks(ctx.item.id, [chunk_id])
     response = _chunk_out(row)
-    await _warmup_neighbor_chunks(db, ctx, [chunk_id])
+    await _warmup_neighbor_chunks(db, ctx, [chunk_id], dispatcher=dispatcher)
     return response
 
 
@@ -403,6 +408,8 @@ async def get_frame(
     frame_index: int,
     width: int,
     format_: FrameFormat,
+    *,
+    dispatcher: MediaJobDispatcher,
 ) -> VideoFrameOut:
     row, created, stale_pending = await _ensure_frame_row(
         db, ctx, frame_index, width, format_
@@ -410,10 +417,8 @@ async def get_frame(
     should_enqueue = created or stale_pending or row.status == "failed"
     await db.commit()
     if should_enqueue:
-        from app.workers.media import extract_video_frames
-
-        extract_video_frames.delay(
-            str(ctx.item.id),
+        dispatcher.dispatch_video_frames(
+            ctx.item.id,
             [{"frame_index": frame_index, "width": width, "format": format_}],
         )
     return _frame_out(row)
@@ -425,22 +430,22 @@ async def prefetch_frames(
     frame_indices: list[int],
     width: int,
     format_: FrameFormat,
+    *,
+    dispatcher: MediaJobDispatcher,
 ) -> VideoFramePrefetchResponse:
     ensured = [
         await _ensure_frame_row(db, ctx, frame_index, width, format_)
         for frame_index in sorted(set(frame_indices))
     ]
     rows = [row for row, _, _ in ensured]
-    missing = [
+    missing: list[VideoFrameRequest] = [
         {"frame_index": row.frame_index, "width": row.width, "format": row.format}
         for row, created, stale_pending in ensured
         if created or stale_pending or row.status == "failed"
     ]
     await db.commit()
     if missing:
-        from app.workers.media import extract_video_frames
-
-        extract_video_frames.delay(str(ctx.item.id), missing)
+        dispatcher.dispatch_video_frames(ctx.item.id, missing)
     return VideoFramePrefetchResponse(
         dataset_item_id=ctx.item.id,
         task_id=ctx.task_id,
@@ -455,6 +460,7 @@ async def retry_frames(
     width: int,
     format_: FrameFormat,
     *,
+    dispatcher: MediaJobDispatcher,
     force: bool = False,
 ) -> VideoFramePrefetchResponse:
     normalized = sorted(set(frame_indices))
@@ -502,7 +508,7 @@ async def retry_frames(
         )
 
     now = _now()
-    requests = []
+    requests: list[VideoFrameRequest] = []
     for row in rows:
         row.status = "pending"
         row.error = None
@@ -516,9 +522,7 @@ async def retry_frames(
     await db.commit()
 
     if requests:
-        from app.workers.media import extract_video_frames
-
-        extract_video_frames.delay(str(ctx.item.id), requests)
+        dispatcher.dispatch_video_frames(ctx.item.id, requests)
 
     return VideoFramePrefetchResponse(
         dataset_item_id=ctx.item.id,

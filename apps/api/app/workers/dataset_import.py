@@ -27,6 +27,7 @@ from app.services.sources import build_adapter
 from app.services.sources.base import SourceObject
 from app.services.system_settings_service import SystemSettingsService
 from app.workers.celery_app import celery_app
+from app.workers.media_dispatch import CeleryMediaJobDispatcher
 
 log = logging.getLogger(__name__)
 
@@ -258,6 +259,7 @@ async def _run_dataset_import(
                 await db.commit()
 
                 svc = DatasetService(db)
+                dispatcher = CeleryMediaJobDispatcher()
                 added = 0
                 skipped = 0
                 linked_tasks = 0
@@ -312,7 +314,9 @@ async def _run_dataset_import(
                             await db.commit()
                             if outcome.item_id is not None:
                                 try:
-                                    await svc.enqueue_media_for_items([outcome.item_id])
+                                    await svc.enqueue_media_for_items(
+                                        [outcome.item_id], dispatcher=dispatcher
+                                    )
                                 except Exception as exc:  # noqa: BLE001
                                     log.warning(
                                         "dataset_import media enqueue failed "

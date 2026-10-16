@@ -12,6 +12,7 @@ from app.core.security import decode_access_token
 from app.core.token_blacklist import is_blacklisted, get_user_generation
 from app.services.project_access import ProjectAccess, resolve_project_access_by_id
 from app.services.quality_job_dispatch import QualityJobDispatcher
+from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -43,6 +44,13 @@ def get_quality_job_dispatcher() -> QualityJobDispatcher:
     from app.workers.quality_dispatch import CeleryQualityJobDispatcher
 
     return CeleryQualityJobDispatcher()
+
+
+def get_media_job_dispatcher() -> MediaJobDispatcher:
+    """Bind media execution without importing tasks into domain services."""
+    from app.workers.media_dispatch import CeleryMediaJobDispatcher
+
+    return CeleryMediaJobDispatcher()
 
 
 async def get_current_user(

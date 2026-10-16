@@ -27,10 +27,16 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
+from uuid import UUID
 
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+if TYPE_CHECKING:
+    from app.services.media_job_dispatch import VideoFrameRequest
+
 
 if os.environ.get("AAP_WORKTREE_MODE") == "dev":
     raise pytest.UsageError(
@@ -186,8 +192,42 @@ def app_module():
     return app
 
 
+class _MediaJobDispatcherStub:
+    def __init__(self) -> None:
+        self.thumbnails: list[UUID] = []
+        self.video_metadata: list[UUID] = []
+        self.video_chunks: list[tuple[UUID, list[int]]] = []
+        self.video_frames: list[tuple[UUID, list[VideoFrameRequest]]] = []
+
+    def dispatch_thumbnail(self, item_id: UUID) -> None:
+        self.thumbnails.append(item_id)
+
+    def dispatch_video_metadata(self, item_id: UUID) -> None:
+        self.video_metadata.append(item_id)
+
+    def dispatch_video_chunks(self, item_id: UUID, chunk_ids: list[int]) -> None:
+        self.video_chunks.append((item_id, chunk_ids))
+
+    def dispatch_video_frames(
+        self, item_id: UUID, requests: list[VideoFrameRequest]
+    ) -> None:
+        self.video_frames.append((item_id, requests))
+
+
 @pytest.fixture
-async def httpx_client(app_module, db_session: AsyncSession):
+def media_dispatcher(app_module):
+    from app.deps import get_media_job_dispatcher
+
+    dispatcher = _MediaJobDispatcherStub()
+    app_module.dependency_overrides[get_media_job_dispatcher] = lambda: dispatcher
+    yield dispatcher
+    app_module.dependency_overrides.pop(get_media_job_dispatcher, None)
+
+
+@pytest.fixture
+async def httpx_client(
+    app_module, db_session: AsyncSession, media_dispatcher: _MediaJobDispatcherStub
+):
     """ASGI httpx client，dependency_overrides[get_db] 绑定到 db_session。
 
     fixture 在 db_session 写入的数据对 API 可见（fixture 与 API 共享同一 SAVEPOINT 事务）。

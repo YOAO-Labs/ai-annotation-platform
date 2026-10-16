@@ -66,11 +66,14 @@ last_reviewed: 2026-10-16
    `state/useTrackerSeedCollection.ts`（种子分组纯模块 `state/trackerSeedPrompts.ts`），
    批量线后端选择在 `state/useBatchBackendSelection.ts`；后端 Mask 写入经
    `app/services/mask_mutation.py`（版本冲突与幂等键在此收口）。
-5. 质量任务派发：路由提交领域记录后，将
-   `app/deps.py::get_quality_job_dispatcher` 装配的执行端口传给领域派发函数。
-   `app/services/quality_job_dispatch.py::QualityJobDispatcher` 持有传输无关契约，
-   `app/workers/quality_dispatch.py::CeleryQualityJobDispatcher` 持有具体 task 调用；
-   覆盖 Mask QC、点云/视频轨迹质检、Mask 修复/回滚和格式导入。
+5. 领域执行派发：
+   - 质量：`app/services/quality_job_dispatch.py::QualityJobDispatcher` →
+     `app/deps.py::get_quality_job_dispatcher` 装配
+     `app/workers/quality_dispatch.py::CeleryQualityJobDispatcher`；
+     覆盖三类质检、Mask 修复/回滚和格式导入。
+   - 媒体：`app/services/media_job_dispatch.py::MediaJobDispatcher` →
+     `app/deps.py::get_media_job_dispatcher` 装配 `app/workers/media_dispatch.py`；
+     数据集入库、视频缓存和资产重试共用该端口，连接器导入 worker 自行装配。
 6. 异步处理：Celery 信号兜底在 `app/workers/signals.py`
    （`task_failure` / `task_revoked` → 连接 → 查作业 → 通用终态 → 领域回填 → 通知 → 提交 → 释放）；
    领域终态差异（`partial` / `rollback_failed` / `cancelled`）由

@@ -14,7 +14,12 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_chapter import VideoChapter
-from app.deps import get_current_user, get_db, require_active_task_actor
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_media_job_dispatcher,
+    require_active_task_actor,
+)
 from app.schemas.task import (
     TaskVideoFrameTimetableResponse,
     VideoFrameTimetableEntry,
@@ -39,6 +44,7 @@ from app.schemas.video_frame_service import (
     VideoSegmentsResponse,
 )
 from app.services.audit import AuditAction, AuditService
+from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.project_access import resolve_project_access
 from app.services.video_frame_service import (
     build_context_from_dataset_item,
@@ -190,10 +196,13 @@ async def get_video_chunks(
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
-    return await list_video_chunks(db, ctx, from_frame, to_frame)
+    return await list_video_chunks(
+        db, ctx, from_frame, to_frame, dispatcher=media_dispatcher
+    )
 
 
 @router.get("/{dataset_item_id}/chunks/{chunk_id}", response_model=VideoChunkOut)
@@ -203,10 +212,11 @@ async def get_video_chunk(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
-    body = await get_video_chunk_asset(db, ctx, chunk_id)
+    body = await get_video_chunk_asset(db, ctx, chunk_id, dispatcher=media_dispatcher)
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -254,10 +264,13 @@ async def get_video_frame(
     w: int = Query(default=512, ge=1, le=4096),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
-    body = await get_video_frame_asset(db, ctx, frame_index, w, format)
+    body = await get_video_frame_asset(
+        db, ctx, frame_index, w, format, dispatcher=media_dispatcher
+    )
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -276,11 +289,17 @@ async def prefetch_video_frame_assets(
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
     return await prefetch_video_frames(
-        db, ctx, payload.frame_indices, payload.width, payload.format
+        db,
+        ctx,
+        payload.frame_indices,
+        payload.width,
+        payload.format,
+        dispatcher=media_dispatcher,
     )
 
 
@@ -293,6 +312,7 @@ async def retry_video_frame_assets(
     payload: VideoFrameRetryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
@@ -302,6 +322,7 @@ async def retry_video_frame_assets(
         payload.frame_indices,
         payload.width,
         payload.format,
+        dispatcher=media_dispatcher,
         force=payload.force,
     )
 

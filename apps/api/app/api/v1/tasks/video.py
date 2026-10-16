@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
     get_quality_job_dispatcher,
+    get_media_job_dispatcher,
     get_db,
     get_current_user,
     require_scopes,
@@ -88,6 +89,7 @@ from app.services.video_tracking.jobs import (
     save_video_mask_keyframe,
 )
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
+from app.services.media_job_dispatch import MediaJobDispatcher
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
 
 
@@ -944,11 +946,14 @@ async def get_video_chunks(
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
     ctx = await build_context_from_task(db, task)
-    return await list_video_chunks(db, ctx, from_frame, to_frame)
+    return await list_video_chunks(
+        db, ctx, from_frame, to_frame, dispatcher=media_dispatcher
+    )
 
 
 @router.get("/{task_id}/video/chunks/{chunk_id}", response_model=VideoChunkOut)
@@ -958,11 +963,12 @@ async def get_video_chunk(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
     ctx = await build_context_from_task(db, task)
-    body = await get_video_chunk_asset(db, ctx, chunk_id)
+    body = await get_video_chunk_asset(db, ctx, chunk_id, dispatcher=media_dispatcher)
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -978,11 +984,14 @@ async def get_video_frame(
     w: int = Query(default=512, ge=1, le=4096),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
     ctx = await build_context_from_task(db, task)
-    body = await get_video_frame_asset(db, ctx, frame_index, w, format)
+    body = await get_video_frame_asset(
+        db, ctx, frame_index, w, format, dispatcher=media_dispatcher
+    )
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -1001,12 +1010,18 @@ async def prefetch_video_frame_assets(
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
     ctx = await build_context_from_task(db, task)
     return await prefetch_video_frames(
-        db, ctx, payload.frame_indices, payload.width, payload.format
+        db,
+        ctx,
+        payload.frame_indices,
+        payload.width,
+        payload.format,
+        dispatcher=media_dispatcher,
     )
 
 
@@ -1020,6 +1035,7 @@ async def retry_video_frame_assets(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
@@ -1030,6 +1046,7 @@ async def retry_video_frame_assets(
         payload.frame_indices,
         payload.width,
         payload.format,
+        dispatcher=media_dispatcher,
         force=payload.force,
     )
 
