@@ -153,6 +153,8 @@ test("owned lifecycle preserves environment, creates private auth, propagates ca
   const [xorg, wm, capture] = f.launched;
   assert.equal(xorg.args[0], ":90");
   assert.ok(xorg.args.includes("-nolisten"));
+  assert.equal(xorg.args[xorg.args.indexOf("-s") + 1], "0");
+  assert.ok(xorg.args.includes("-dpms"));
   assert.notEqual(xorg.args[xorg.args.indexOf("-seat") + 1], "seat0");
   assert.match(wm.args.join(" "), /--no-composite/);
   assert.equal(capture.env.MARKETING_CAPTURE_DRIVER, "x11grab");

@@ -263,6 +263,7 @@ pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point --head
 默认选择 `nvidia-smi` 报告的第一个 GPU；可通过 `MARKETING_HEADLESS_GPU` 指定其 PCI bus ID。
 可用 `MARKETING_FFMPEG`、`MARKETING_FFPROBE` 指定编码工具；默认验证 PATH 中的工具，不符合时尝试 `/usr/bin`。
 入口仅给 ffmpeg/ffprobe 添加临时 PATH 链接，保留 Node/pnpm 路径。
+专用 Xorg 会话关闭屏保和 DPMS，避免长时间准备夹具时自动关闭采集显示输出。
 它不修改系统 Xorg 配置、不重启登录管理器、不改设备权限，也不影响已有桌面；结束或中断时清理自己启动的进程组和临时文件。
 `--list`、`--plan` 保持只读。该选项仍执行相同的硬件合成和有效帧率门禁；不能用 Xvfb 或软件渲染替代。
 
