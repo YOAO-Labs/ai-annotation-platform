@@ -27,6 +27,8 @@ interface ModalProps {
   stopEscapePropagation?: boolean;
   /** Restore focus for controlled dialogs whose trigger lives outside the Root. */
   returnFocusRef?: RefObject<HTMLElement | null>;
+  /** Optionally focus a specific field when the controlled dialog opens. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
@@ -40,6 +42,7 @@ export function Modal({
   containerRef,
   stopEscapePropagation = false,
   returnFocusRef,
+  initialFocusRef,
   children,
 }: ModalProps) {
   const contentRef = useElementStyle<HTMLDivElement>({ width });
@@ -65,6 +68,13 @@ export function Modal({
           data-modal=""
           ref={contentRef}
           aria-describedby={undefined}
+          onOpenAutoFocus={(event) => {
+            const target = initialFocusRef?.current;
+            if (target?.isConnected) {
+              event.preventDefault();
+              target.focus();
+            }
+          }}
           onCloseAutoFocus={(event) => {
             const target = returnFocusRef?.current;
             if (target?.isConnected) {

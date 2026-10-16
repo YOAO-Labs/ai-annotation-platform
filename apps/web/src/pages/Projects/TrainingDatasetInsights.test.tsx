@@ -40,6 +40,11 @@ vi.mock("./TrainingDatasetSamplePreview", () => ({
     </div>
   ),
 }));
+vi.mock("./TrainingDatasetSampleComparison", () => ({
+  TrainingDatasetSampleComparison: ({ contentSha256 }: { contentSha256: string }) => (
+    <div role="dialog">前后版本 {contentSha256}</div>
+  ),
+}));
 const clients: QueryClient[] = [];
 function RouteState() {
   const location = useLocation();
@@ -48,6 +53,7 @@ function RouteState() {
     <>
       <output data-testid="url">{location.search}</output>
       <button onClick={() => navigate(-1)}>测试返回</button>
+      <button onClick={() => navigate(1)}>测试前进</button>
     </>
   );
 }
@@ -104,6 +110,17 @@ afterEach(() => {
 });
 
 describe("frozen training data insights", () => {
+  it("retires paired preview state when a view changes so browser history cannot revive it", async () => {
+    const user = userEvent.setup();
+    mount("&data_view=samples&data_baseline=dataset-old&data_change=labels_changed");
+    await user.click(await screen.findByRole("button", { name: "前后对照" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(insightSample.sha256!);
+    await user.click(screen.getByRole("button", { name: "版本比较" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "测试返回" }));
+    await screen.findByRole("button", { name: "前后对照" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
   it("distinguishes images and instances, keeps missing historical evidence explicit, and loads manifests lazily", async () => {
     mount();
     expect(await screen.findByText("类别分布")).toBeVisible();
@@ -159,6 +176,7 @@ describe("frozen training data insights", () => {
         20,
         "ready",
         expect.anything(),
+        { task: "detect" },
       ),
     );
     await user.click(screen.getByRole("button", { name: /移除内容/ }));

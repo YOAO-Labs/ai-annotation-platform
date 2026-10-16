@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Image as ImageIcon } from "lucide-react";
 import {
@@ -13,6 +13,11 @@ import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/Button";
 import { TrainingDatasetSamplePreview } from "./TrainingDatasetSamplePreview";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
+import { TrainingDatasetClassChart, TrainingDatasetSplitChart } from "./TrainingDatasetCharts";
+import { TrainingDatasetDetectionCharts } from "./TrainingDatasetDetectionCharts";
+import { TrainingDatasetSampleComparison } from "./TrainingDatasetSampleComparison";
+import { datasetComparisonReason, datasetParentReason } from "./datasetCompatibility";
+import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
 
 const inputClass =
   "w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground focus-visible:ring-2 focus-visible:ring-ring";
@@ -25,8 +30,8 @@ const changes: Record<DatasetSampleChange, string> = {
   multiplicity_changed: "重复次数变化",
   task_ids_changed: "任务 ID 变化",
   reintroduced: "祖先内容重新纳入",
-  unchanged: "内容与标注未变",
-  unknown: "标注变化无法确认",
+  unchanged: "训练语义未变化",
+  unknown: "训练语义变化无法确认",
 };
 const exclusionReasons: Record<string, string> = {
   unsupported_media: "不是图片任务",
@@ -110,15 +115,17 @@ export function TrainingDatasetInsights(props: {
 }) {
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const token = useAuthStore((state) => state.token ?? "");
+  const revision = useTrainingSessionRevision();
   const owner = useMemo(
     () => ({
       userId,
       token,
+      revision,
       projectId: props.projectId,
       versionId: props.version.id,
       key: crypto.randomUUID(),
     }),
-    [userId, token, props.projectId, props.version.id],
+    [userId, token, revision, props.projectId, props.version.id],
   );
   return <InsightsContent key={owner.key} {...props} owner={owner} />;
 }
@@ -163,6 +170,11 @@ function InsightsContent({
     opener: HTMLButtonElement;
   } | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
+  const [comparisonPreview, setComparisonPreview] = useState<{
+    sha: string;
+    scope: string;
+    opener: HTMLButtonElement;
+  } | null>(null);
   const ready = version.status === "ready";
   const key = ["training-data-insights", owner.key, projectId, version.id];
   const update = (values: Record<string, string>) =>
@@ -194,18 +206,35 @@ function InsightsContent({
     queryKey: [...key, "baseline", baselineId],
     queryFn: async ({ signal }) => {
       const value = await trainingDatasetsApi.getSummary(projectId, baselineId, { signal });
-      if ((value.task ?? "detect") !== (version.task ?? "detect"))
-        throw new Error("比较基线与当前版本的训练任务不同，请选择相同任务的数据版本");
+      const reason = datasetComparisonReason(version, value);
+      if (reason) throw new Error(`比较基线不可用：${reason}`);
       return value;
     },
     enabled: ready && !!baselineId,
     retry: false,
   });
   const baselineChoices = useQuery({
-    queryKey: [...key, "baseline-choices", baselinePage],
+    queryKey: [...key, "baseline-choices", version.task ?? "detect", baselinePage],
     queryFn: ({ signal }) =>
-      trainingDatasetsApi.list(projectId, baselinePage * 20, "ready", { signal }),
+      trainingDatasetsApi.list(
+        projectId,
+        baselinePage * 20,
+        "ready",
+        { signal },
+        { task: version.task ?? "detect" },
+      ),
     enabled: ready && view === "compare",
+  });
+  const baselineOverview = useQuery({
+    queryKey: [...key, "baseline-overview", baselineId],
+    queryFn: ({ signal }) => trainingDatasetsApi.insights(projectId, baselineId, { signal }),
+    enabled:
+      ready &&
+      !!baselineId &&
+      baseline.isSuccess &&
+      !baseline.isError &&
+      (view === "compare" || view === "samples"),
+    retry: false,
   });
   const compared = useQuery({
     queryKey: [...key, "compare", baselineId],
@@ -261,6 +290,7 @@ function InsightsContent({
   const sampleScope = JSON.stringify([view, filters]);
   useEffect(() => {
     setPreview(null);
+    setComparisonPreview(null);
   }, [sampleScope]);
   const samples = useQuery({
     queryKey: [...key, "samples", filters],
@@ -290,6 +320,11 @@ function InsightsContent({
       ...values,
     });
   const data = overview.data;
+  const baselineUnknownContents =
+    baselineOverview.data?.observations.unknown_contents ??
+    (baselineOverview.data?.status === "complete" ? 0 : null);
+  const targetUnknownContents =
+    data?.observations.unknown_contents ?? (data?.status === "complete" ? 0 : null);
   const error =
     view === "overview"
       ? classes.error
@@ -298,21 +333,93 @@ function InsightsContent({
         : baseline.error || samples.error || filterClasses.error || selectedClass.error;
   return (
     <section
-      className="mt-6 min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5"
+      className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5"
       aria-label="数据版本详情"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="break-words text-sm font-semibold">{version.name}</h2>
+          <p className="mt-1 text-2xs text-muted-foreground">
+            {version.version_ordinal != null
+              ? `任务版本 #${version.version_ordinal}`
+              : "历史版本 · 待关联任务序号"}
+            {" · "}
+            {version.status === "ready" ? "已就绪" : version.status}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {trainingTaskLabel(version.task)} · 冻结时刻的数据、标注与划分 ·
             后续任务编辑不改变这里的统计
+          </p>
+          <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-muted-foreground">
+            <time dateTime={version.created_at}>
+              {new Date(version.created_at).toLocaleString("zh-CN")}
+            </time>
+            <span>{version.format ?? "ultralytics-yolo"}</span>
+            {version.contract_profile && (
+              <span>
+                {version.contract_profile.source_media_type ?? "未知来源"} →{" "}
+                {version.contract_profile.media_type ?? "未知输出"} ·{" "}
+                {version.contract_profile.geometry}
+              </span>
+            )}
+            {version.completed_at && (
+              <time dateTime={version.completed_at}>
+                完成于 {new Date(version.completed_at).toLocaleString("zh-CN")}
+              </time>
+            )}
+            {version.size_bytes != null && (
+              <span>训练包 {(version.size_bytes / 1024 / 1024).toFixed(2)} MiB</span>
+            )}
+            {version.parent_id && (
+              <span title={version.parent_id}>继承自 {version.parent_id.slice(0, 8)}</span>
+            )}
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
           收起数据详情
         </Button>
       </div>
+      {data && (
+        <dl aria-label="冻结版本摘要" className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
+          {[
+            ["训练包图片", data.counts.images],
+            [data.status === "complete" ? "标注实例" : "已知标注实例", data.counts.instances],
+            ["定义类别", data.classes_total],
+            [
+              data.status === "complete" ? "观察到的类别" : "已知观察类别",
+              data.counts.observed_classes ?? "未知",
+            ],
+            [
+              (data.observations.unknown_contents ?? 0) > 0 ? "已知唯一图片内容" : "唯一图片内容",
+              data.counts.unique_contents,
+            ],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-muted p-3">
+              <dt className="text-xs text-muted-foreground">{label}</dt>
+              <dd className="mt-1 text-xl font-semibold tabular-nums">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {ready && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-2xs text-muted-foreground">
+            冻结版本 {version.id.slice(0, 8)} · 后续项目编辑不改变此版本
+          </p>
+          {!datasetParentReason(version, version.task ?? "detect") ? (
+            <Link
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              to={`/projects/${projectId}/learning/new?${new URLSearchParams({ dataset: version.id, tab: "data", return_tab: "data", return_dataset: version.id, data_task: version.task ?? "detect" })}`}
+            >
+              使用此版本新建实验
+            </Link>
+          ) : (
+            <span className="text-2xs text-muted-foreground">
+              训练入口不可用：{datasetParentReason(version, version.task ?? "detect")}
+            </span>
+          )}
+        </div>
+      )}
       <nav className="mt-4 flex gap-2 border-b border-border pb-3" aria-label="数据洞察视图">
         {(
           [
@@ -370,25 +477,21 @@ function InsightsContent({
       )}
       {ready && view === "overview" && data && (
         <div className="mt-4 space-y-5">
-          <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {[
-              ["训练包图片", data.counts.images],
-              ["标注实例", data.counts.instances],
-              ["唯一图片内容", data.counts.unique_contents],
-              ["重复图片项", data.counts.duplicate_images],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-lg bg-muted p-3">
-                <dt className="text-xs text-foreground">{label}</dt>
-                <dd className="mt-1 text-stat font-semibold tabular-nums">{value}</dd>
-              </div>
-            ))}
-          </dl>
           <p className="text-xs text-muted-foreground">
             图片数与实例数按实际训练包计数，包含重复图片项。明确负样本{" "}
             {data.counts.explicit_negatives} 张；确认历史未知的空标注{" "}
             {data.counts.negative_confirmation_unknown} 张。可确认标注{" "}
-            {data.counts.known_label_images} / {data.counts.images} 张。
+            {data.counts.known_label_images} / {data.counts.images} 张。 冻结定义{" "}
+            {data.classes_total} 个类别；已观察类别与未出现类别以可确认标注为依据。 内容身份未知{" "}
+            {data.observations.unknown_contents ?? 0} 张，划分未知{" "}
+            {data.observations.unknown_split ?? 0} 张。
           </p>
+          <TrainingDatasetSplitChart
+            splits={data.splits}
+            totalMembers={data.counts.images}
+            unknownMembers={data.observations.unknown_split ?? 0}
+            onSelect={(split) => showSamples({ data_split: split, data_change: "all" })}
+          />
           <div className="grid gap-3 md:grid-cols-2">
             {(
               [
@@ -448,10 +551,31 @@ function InsightsContent({
               </label>
             </div>
             <p className="mb-2 text-xs text-muted-foreground">
-              “图片”表示出现该类的图片项数；一张图片可能包含多个实例。验证集中未出现{" "}
-              {data.observations.classes_absent_from_validation ?? 0} 个类别，训练集中未出现{" "}
-              {data.observations.classes_absent_from_train ?? 0} 个类别。
+              “图片”表示出现该类的图片项数；一张图片可能包含多个实例。
+              {data.status !== "complete"
+                ? "以下未出现类别仅依据已知标注，不能断言整个版本缺少该类别。"
+                : ""}
+              验证集中已知标注未出现{" "}
+              {data.observations.classes_with_no_known_validation_instances ??
+                data.observations.classes_absent_from_validation ??
+                "未知"}{" "}
+              个类别，训练集中未出现{" "}
+              {data.observations.classes_with_no_known_train_instances ??
+                data.observations.classes_absent_from_train ??
+                "未知"}{" "}
+              个类别。
             </p>
+            <TrainingDatasetClassChart
+              rows={classes.data?.items ?? []}
+              partial={data.status !== "complete"}
+              onSelect={(index, split) =>
+                showSamples({
+                  data_class: String(index),
+                  data_split: split ?? "",
+                  data_change: "all",
+                })
+              }
+            />
             {classes.isLoading && (
               <p role="status" className="py-4 text-xs text-muted-foreground">
                 正在加载类别分布…
@@ -531,6 +655,9 @@ function InsightsContent({
               onChange={setClassPage}
             />
           </section>
+          {data.task_statistics?.task === "detect" && (
+            <TrainingDatasetDetectionCharts data={data.task_statistics} />
+          )}
           <div className="grid gap-3 lg:grid-cols-2">
             <Distribution title="图片逻辑尺寸分布（张）" rows={data.dimension_bins} />
             <Distribution
@@ -588,8 +715,15 @@ function InsightsContent({
                       (item.task ?? "detect") === (version.task ?? "detect"),
                   )
                   .map((item) => (
-                    <option key={item.id} value={item.id}>
+                    <option
+                      key={item.id}
+                      value={item.id}
+                      disabled={!!datasetComparisonReason(version, item)}
+                    >
                       {item.name}
+                      {datasetComparisonReason(version, item)
+                        ? ` · ${datasetComparisonReason(version, item)}`
+                        : ""}
                     </option>
                   ))}
               </select>
@@ -623,9 +757,19 @@ function InsightsContent({
           {compared.data && (
             <>
               <p className="text-xs text-muted-foreground">
-                按唯一图片内容比较，忽略路径及任务 ID 噪声；变化类别可重叠。
-                {compared.data.status !== "complete" && "部分冻结证据未保留，未知标注变化已单列。"}
+                按已知 SHA 的唯一图片内容集合比较，忽略路径及任务 ID 噪声；变化类别可重叠。
+                基线实际成员 {compared.data.baseline_members} 项 → 当前{" "}
+                {compared.data.target_members} 项，下面各类变化不能相加。
+                {compared.data.status !== "complete" &&
+                  "部分冻结证据未保留，无法确认的训练语义已单列。"}
               </p>
+              {(baselineUnknownContents !== 0 || targetUnknownContents !== 0) && (
+                <p className="rounded-md bg-status-caution-soft p-3 text-xs text-status-caution">
+                  基线内容身份未知 {baselineUnknownContents ?? "待确认"} 张，当前未知{" "}
+                  {targetUnknownContents ?? "待确认"}{" "}
+                  张。新增与移除仅表示已知身份集合的差异，不能排除未知成员含有同一内容。
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 {Object.entries(changes)
                   .filter(([key]) => key !== "all")
@@ -635,7 +779,13 @@ function InsightsContent({
                       className="cursor-pointer rounded-lg border border-border p-3 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => showSamples({ data_change: key })}
                     >
-                      <span className="text-xs text-muted-foreground">{label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {key === "added" && baselineUnknownContents !== 0
+                          ? "已知内容新增（待核实）"
+                          : key === "removed" && targetUnknownContents !== 0
+                            ? "已知内容移除（待核实）"
+                            : label}
+                      </span>
                       <strong className="mt-1 block text-stat font-semibold tabular-nums">
                         {compared.data!.counts[key] ?? 0}
                       </strong>
@@ -819,7 +969,13 @@ function InsightsContent({
                   <tr key={`${item.version_id}:${item.task_id}`} className="border-t border-border">
                     <td className="py-3 pr-3 font-mono">{item.task_id.slice(0, 8)}</td>
                     <td className="py-3 pr-3 tabular-nums">
-                      {item.split === "val" ? "验证" : item.split === "train" ? "训练" : "未入包"}
+                      {item.split === "val"
+                        ? "验证"
+                        : item.split === "train"
+                          ? "训练"
+                          : item.included
+                            ? "划分未知"
+                            : "未入包"}
                       <span className="mt-1 block text-muted-foreground">
                         {item.width ?? "未知"} × {item.height ?? "未知"}
                       </span>
@@ -854,6 +1010,21 @@ function InsightsContent({
                         <ImageIcon className="size-3.5" />
                         预览冻结样本
                       </Button>
+                      {baselineId && baselineCompatible && item.included && item.sha256 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(event) =>
+                            setComparisonPreview({
+                              sha: item.sha256!,
+                              scope: sampleScope,
+                              opener: event.currentTarget,
+                            })
+                          }
+                        >
+                          前后对照
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -909,6 +1080,27 @@ function InsightsContent({
           onObserved={observed}
         />
       )}
+      {comparisonPreview &&
+        comparisonPreview.scope === sampleScope &&
+        view === "samples" &&
+        baselineCompatible && (
+          <TrainingDatasetSampleComparison
+            projectId={projectId}
+            baselineVersionId={baselineId}
+            targetVersionId={version.id}
+            contentSha256={comparisonPreview.sha}
+            baselineUnknownContents={baselineUnknownContents}
+            targetUnknownContents={targetUnknownContents}
+            onObserved={observed}
+            onClose={() => {
+              const opener = comparisonPreview.opener;
+              setComparisonPreview(null);
+              requestAnimationFrame(() => {
+                if (opener.isConnected) opener.focus();
+              });
+            }}
+          />
+        )}
     </section>
   );
 }

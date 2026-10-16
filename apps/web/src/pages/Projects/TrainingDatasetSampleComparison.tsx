@@ -17,6 +17,8 @@ type Props = {
   baselineVersionId: string;
   targetVersionId: string;
   contentSha256: string;
+  baselineUnknownContents?: number | null;
+  targetUnknownContents?: number | null;
   onClose: () => void;
   onObserved: () => void;
 };
@@ -138,7 +140,13 @@ export function TrainingDatasetSampleComparison(props: Props) {
       stopEscapePropagation
       returnFocusRef={returnFocusRef}
     >
-      <ComparisonContent key={owner.key} owner={owner} onObserved={props.onObserved} />
+      <ComparisonContent
+        key={owner.key}
+        owner={owner}
+        onObserved={props.onObserved}
+        baselineUnknownContents={props.baselineUnknownContents ?? null}
+        targetUnknownContents={props.targetUnknownContents ?? null}
+      />
       <div className="mt-4 flex justify-end border-t border-border pt-3">
         <Button size="sm" onClick={props.onClose}>
           关闭对照
@@ -148,7 +156,17 @@ export function TrainingDatasetSampleComparison(props: Props) {
   );
 }
 
-function ComparisonContent({ owner, onObserved }: { owner: Owner; onObserved: () => void }) {
+function ComparisonContent({
+  owner,
+  onObserved,
+  baselineUnknownContents,
+  targetUnknownContents,
+}: {
+  owner: Owner;
+  onObserved: () => void;
+  baselineUnknownContents: number | null;
+  targetUnknownContents: number | null;
+}) {
   const baseline = useContentMembers(owner, owner.baselineVersionId);
   const target = useContentMembers(owner, owner.targetVersionId);
   if (!CONTENT_HASH.test(owner.contentSha256))
@@ -178,6 +196,7 @@ function ComparisonContent({ owner, onObserved }: { owner: Owner; onObserved: ()
           owner={owner}
           members={baseline}
           opposite={target.query.data}
+          unknownContents={baselineUnknownContents}
           onObserved={onObserved}
         />
         <ComparisonSide
@@ -186,6 +205,7 @@ function ComparisonContent({ owner, onObserved }: { owner: Owner; onObserved: ()
           owner={owner}
           members={target}
           opposite={baseline.query.data}
+          unknownContents={targetUnknownContents}
           onObserved={onObserved}
         />
       </div>
@@ -199,6 +219,7 @@ function ComparisonSide({
   owner,
   members,
   opposite,
+  unknownContents,
   onObserved,
 }: {
   label: "基线版本" | "当前版本";
@@ -206,6 +227,7 @@ function ComparisonSide({
   owner: Owner;
   members: ReturnType<typeof useContentMembers>;
   opposite: TrainingDatasetSamplePage | undefined;
+  unknownContents: number | null;
   onObserved: () => void;
 }) {
   const { query, page, selected, select, navigate } = members;
@@ -241,13 +263,15 @@ function ComparisonSide({
       )}
       {data?.total === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          {opposite?.total === 0
-            ? "两侧都没有该内容的训练成员。"
-            : opposite && opposite.total > 0
-              ? label === "基线版本"
-                ? "新增内容：该内容未出现在基线版本中。"
-                : "移除内容：该内容未出现在当前版本中。"
-              : "该版本中没有该内容的训练成员；另一侧尚未确认。"}
+          {unknownContents !== 0
+            ? `该版本已知身份中未找到匹配；内容身份未知 ${unknownContents ?? "待确认"} 张，新增或移除尚不能完全确认。`
+            : opposite?.total === 0
+              ? "两侧都没有该内容的训练成员。"
+              : opposite && opposite.total > 0
+                ? label === "基线版本"
+                  ? "新增内容：该内容未出现在基线版本中。"
+                  : "移除内容：该内容未出现在当前版本中。"
+                : "该版本中没有该内容的训练成员；另一侧尚未确认。"}
         </p>
       )}
       {data && data.total > 0 && (

@@ -4,8 +4,40 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Modal } from "./Modal";
+import { useRef, useState } from "react";
+import userEvent from "@testing-library/user-event";
 
 describe("<Modal />", () => {
+  it("focuses a requested field and restores the controlled trigger after Escape", async () => {
+    function Form() {
+      const [open, setOpen] = useState(false);
+      const field = useRef<HTMLInputElement>(null);
+      const trigger = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={trigger} onClick={() => setOpen(true)}>
+            新版本
+          </button>
+          <Modal
+            open={open}
+            onClose={() => setOpen(false)}
+            title="创建版本"
+            initialFocusRef={field}
+            returnFocusRef={trigger}
+          >
+            <input aria-label="版本名称" ref={field} />
+          </Modal>
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Form />);
+    await user.click(screen.getByRole("button", { name: "新版本" }));
+    expect(screen.getByLabelText("版本名称")).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新版本" })).toHaveFocus();
+  });
   it("open=false 不渲染", () => {
     render(
       <Modal open={false} onClose={() => {}}>

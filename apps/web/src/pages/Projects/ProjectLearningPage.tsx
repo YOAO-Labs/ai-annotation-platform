@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, Outlet, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, FlaskConical, GitBranch, Layers, Settings2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
@@ -15,6 +15,7 @@ import {
 import { useProject } from "@/hooks/useProjects";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectTrainingDataVersions } from "./ProjectTrainingDataVersions";
 import { TrainingError } from "../Training/TrainingFeedback";
@@ -26,6 +27,17 @@ import { TrainingDatasetInsights } from "./TrainingDatasetInsights";
 import { useAuthStore } from "@/stores/authStore";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 import { newTrainingVersionName } from "../Training/trainingNames";
+import { TASKS } from "@/api/generated/capabilityVocab.gen";
+import type { ProjectTaskDatasetOut, TrainingDatasetCreate } from "@/api/generated/types.gen";
+import { datasetParentReason } from "./datasetCompatibility";
+import { ApiError } from "@/api/client";
+import { getAuthSessionRevision } from "@/stores/authSession";
+import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
+
+type DatasetTask = ProjectTaskDatasetOut["task"];
+const datasetTasks: DatasetTask[] = ["detect", "segment", "classify", "pose", "obb"];
+const isDatasetTask = (value: unknown): value is DatasetTask =>
+  datasetTasks.includes(value as DatasetTask);
 
 export type ProjectLearningOutletContext = {
   createButtonRef: RefObject<HTMLButtonElement>;
@@ -46,9 +58,10 @@ export function ProjectLearningPage() {
   const [params] = useSearchParams();
   const userId = useAuthStore((state) => state.user?.id);
   const token = useAuthStore((state) => state.token);
+  const revision = useTrainingSessionRevision();
   const owner = useMemo(
-    () => ({ id, userId, token, key: crypto.randomUUID() }),
-    [id, userId, token],
+    () => ({ id, userId, token, revision, key: crypto.randomUUID() }),
+    [id, userId, token, revision],
   );
   if (params.get("new") === "1") {
     const next = new URLSearchParams();
@@ -63,6 +76,7 @@ export function ProjectLearningPage() {
         key={owner.key}
         projectId={id}
         scope={owner.key}
+        revision={owner.revision}
         createButtonRef={createButtonRef}
       />
       <Outlet context={{ createButtonRef } satisfies ProjectLearningOutletContext} />
@@ -73,10 +87,12 @@ export function ProjectLearningPage() {
 function ProjectLearningContent({
   projectId,
   scope,
+  revision,
   createButtonRef,
 }: {
   projectId: string;
   scope: string;
+  revision: number;
   createButtonRef: RefObject<HTMLButtonElement>;
 }) {
   const [params, setParams] = useSearchParams();
@@ -93,12 +109,21 @@ function ProjectLearningContent({
   const client = useQueryClient();
   const project = useProject(projectId);
   const datasetForm = useRef<HTMLElement>(null);
+  const prepareButtonRef = useRef<HTMLButtonElement>(null);
+  const versionNameRef = useRef<HTMLInputElement>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState(newTrainingVersionName);
   const [batchId, setBatchId] = useState("");
   const [parentId, setParentId] = useState("");
-  const [trainingTask, setTrainingTask] =
-    useState<NonNullable<TrainingDatasetSelection["task"]>>("detect");
-  const taskChosen = useRef(false);
+  const [trainingTask, setTrainingTask] = useState<NonNullable<TrainingDatasetSelection["task"]>>(
+    params.get("data_task") === segmentationTask ? segmentationTask : "detect",
+  );
+  const [browseTask, setBrowseTask] = useState<DatasetTask>(
+    isDatasetTask(params.get("data_task")) ? (params.get("data_task") as DatasetTask) : "detect",
+  );
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagnosticsPage, setDiagnosticsPage] = useState(0);
+  const taskChosen = useRef(params.has("data_task") || params.has("dataset"));
   const [mode, setMode] = useState<"reviewed" | "manager_confirmed">("reviewed");
   const [seed, setSeed] = useState("42");
   const [fraction, setFraction] = useState("20");
@@ -106,6 +131,7 @@ function ProjectLearningContent({
   const [negatives, setNegatives] = useState<string[]>([]);
   const [taskPage, setTaskPage] = useState(0);
   const [page, setPage] = useState(0);
+  const [parentPage, setParentPage] = useState(0);
   const detailId = params.get("dataset") ?? "";
   const alive = useRef(true);
   useEffect(() => {
@@ -115,7 +141,7 @@ function ProjectLearningContent({
     };
   }, []);
   const setDetailId = (value: string) => {
-    if (!alive.current) return;
+    if (!owns()) return;
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       if (value) next.set("dataset", value);
@@ -131,8 +157,30 @@ function ProjectLearningContent({
   };
   const [report, setReport] = useState<TrainingDatasetPreflight | null>(null);
   const [error, setError] = useState("");
+  const [pendingCreate, setPendingCreate] = useState<TrainingDatasetCreate | null>(null);
   const requestId = useRef(crypto.randomUUID());
   const checkedDigest = useRef<string | null>(null);
+  const selectionEpoch = useRef(0);
+  const draftSnapshot = {
+    name,
+    batchId,
+    parentId,
+    mode,
+    seed,
+    fraction,
+    selected,
+    negatives,
+    report,
+    requestId: requestId.current,
+    checkedDigest: checkedDigest.current,
+    error,
+    pendingCreate,
+  };
+  const currentDraft = useRef(draftSnapshot);
+  currentDraft.current = draftSnapshot;
+  const taskDrafts = useRef(new Map<typeof trainingTask, typeof draftSnapshot>());
+  const owns = () => alive.current && getAuthSessionRevision() === revision;
+  const activeTask = useRef(trainingTask);
   const selection: TrainingDatasetSelection = useMemo(
     () => ({
       task: trainingTask,
@@ -147,14 +195,51 @@ function ProjectLearningContent({
     [trainingTask, batchId, parentId, mode, seed, fraction, selected, negatives],
   );
   const versions = useQuery({
-    queryKey: ["training-datasets", projectId, scope, page],
-    queryFn: () => trainingDatasetsApi.list(projectId, page * 20),
+    queryKey: ["training-datasets", projectId, scope, browseTask, page],
+    queryFn: ({ signal }) =>
+      trainingDatasetsApi.list(projectId, page * 20, undefined, { signal }, { task: browseTask }),
     enabled: tab === "data",
     refetchInterval: (query) =>
       tab === "data" &&
       query.state.data?.items.some((item) => ["pending", "running"].includes(item.status))
         ? 2000
         : false,
+  });
+  const taskDatasets = useQuery({
+    queryKey: ["task-datasets", projectId, scope],
+    queryFn: ({ signal }) => trainingDatasetsApi.taskDatasets(projectId, { signal }),
+    enabled: tab === "data",
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.items.some(
+        (item) => (item.status_counts.pending ?? 0) + (item.status_counts.running ?? 0) > 0,
+      )
+        ? 2000
+        : false,
+  });
+  const diagnostics = useQuery({
+    queryKey: ["task-dataset-diagnostics", projectId, scope, diagnosticsPage],
+    queryFn: ({ signal }) =>
+      trainingDatasetsApi.unrecognizedVersions(projectId, diagnosticsPage * 20, { signal }),
+    enabled: tab === "data" && diagnosticsOpen,
+    retry: false,
+  });
+  const parents = useQuery({
+    queryKey: ["training-dataset-parents", projectId, scope, trainingTask, parentPage],
+    queryFn: ({ signal }) =>
+      trainingDatasetsApi.list(
+        projectId,
+        parentPage * 20,
+        "ready",
+        { signal },
+        { task: trainingTask },
+      ),
+    enabled: tab === "data" && createOpen,
+  });
+  const selectedParent = useQuery({
+    queryKey: ["training-dataset-parent", projectId, scope, parentId],
+    queryFn: ({ signal }) => trainingDatasetsApi.getSummary(projectId, parentId, { signal }),
+    enabled: createOpen && !!parentId,
   });
   const batches = useQuery({
     queryKey: ["batches", projectId, scope],
@@ -179,42 +264,73 @@ function ProjectLearningContent({
       query.state.data && ["pending", "running"].includes(query.state.data.status) ? 2000 : false,
   });
   const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["task-datasets", projectId] });
     void client.invalidateQueries({ queryKey: ["training-datasets", projectId] });
     void client.invalidateQueries({ queryKey: ["training-dataset", projectId] });
+    void client.invalidateQueries({ queryKey: ["training-dataset-parents", projectId] });
   };
   const preflight = useMutation({
     mutationFn: () => trainingDatasetsApi.preflight(projectId, selection),
-    onSuccess: (value) => {
+    onMutate: () => selectionEpoch.current,
+    onSuccess: (value, _variables, epoch) => {
+      if (!owns() || epoch !== selectionEpoch.current) return;
       if (checkedDigest.current && checkedDigest.current !== value.digest)
         requestId.current = crypto.randomUUID();
       checkedDigest.current = value.digest;
       setReport(value);
       setError("");
     },
-    onError: (reason: Error) => {
+    onError: (reason: Error, _variables, epoch) => {
+      if (!owns() || epoch !== selectionEpoch.current) return;
       setReport(null);
       setError(reason.message);
     },
   });
   const create = useMutation({
-    mutationFn: () =>
-      trainingDatasetsApi.create(projectId, {
-        ...selection,
-        name: name.trim(),
-        request_id: requestId.current,
-        preflight_digest: report!.digest,
-      }),
-    onSuccess: (value) => {
+    mutationFn: (body: TrainingDatasetCreate) => trainingDatasetsApi.create(projectId, body),
+    onMutate: (body) => {
+      setPendingCreate(body);
+      return selectionEpoch.current;
+    },
+    onSuccess: (value, body, epoch) => {
+      if (!owns()) return;
+      refresh();
+      const previous = taskDrafts.current.get(body.task ?? "detect");
+      if (previous?.pendingCreate?.request_id === body.request_id)
+        taskDrafts.current.set(body.task ?? "detect", {
+          ...previous,
+          pendingCreate: null,
+          report: null,
+          error: "",
+          requestId: crypto.randomUUID(),
+          checkedDigest: null,
+        });
+      setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
+      if (epoch !== selectionEpoch.current) return;
       setDetailId(value.id);
+      setCreateOpen(false);
       setName(newTrainingVersionName());
       setReport(null);
       requestId.current = crypto.randomUUID();
       checkedDigest.current = null;
-      refresh();
     },
-    onError: (reason: Error) => {
+    onError: (reason: Error, body, epoch) => {
+      if (!owns()) return;
+      const refused = reason instanceof ApiError && reason.status < 500;
+      if (refused) {
+        const previous = taskDrafts.current.get(body.task ?? "detect");
+        if (previous?.pendingCreate?.request_id === body.request_id)
+          taskDrafts.current.set(body.task ?? "detect", {
+            ...previous,
+            pendingCreate: null,
+            report: null,
+            error: reason.message,
+          });
+        setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
+      }
+      if (epoch !== selectionEpoch.current) return;
       setError(reason.message);
-      setReport(null);
+      if (refused) setReport(null);
     },
   });
   const action = useMutation({
@@ -227,7 +343,7 @@ function ProjectLearningContent({
     }) => {
       if (kind === "download") {
         const result = await trainingDatasetsApi.download(projectId, version.id);
-        if (!alive.current) return;
+        if (!owns()) return;
         const link = document.createElement("a");
         link.href = result.url;
         link.download = `${version.name}.zip`;
@@ -244,9 +360,9 @@ function ProjectLearningContent({
           confirmLabel: "删除数据版本",
         })
       ) {
-        if (!alive.current) return;
+        if (!owns()) return;
         await trainingDatasetsApi.remove(projectId, version.id);
-        if (!alive.current) return;
+        if (!owns()) return;
         setParams((previous) => {
           if (previous.get("dataset") !== version.id) return previous;
           const next = new URLSearchParams(previous);
@@ -270,10 +386,60 @@ function ProjectLearningContent({
   const busy = preflight.isPending || create.isPending;
   const updateSelection = (update: () => void) => {
     update();
+    selectionEpoch.current += 1;
     requestId.current = crypto.randomUUID();
     checkedDigest.current = null;
     setReport(null);
     setError("");
+  };
+  const activateTask = useCallback((task: typeof trainingTask) => {
+    if (activeTask.current === task) return;
+    taskDrafts.current.set(activeTask.current, currentDraft.current);
+    activeTask.current = task;
+    selectionEpoch.current += 1;
+    const draft = taskDrafts.current.get(task);
+    setTrainingTask(task);
+    setName(draft?.name ?? newTrainingVersionName());
+    setBatchId(draft?.batchId ?? "");
+    setParentId(draft?.parentId ?? "");
+    setMode(draft?.mode ?? "reviewed");
+    setSeed(draft?.seed ?? "42");
+    setFraction(draft?.fraction ?? "20");
+    setSelected(draft?.selected ?? []);
+    setNegatives(draft?.negatives ?? []);
+    setReport(draft?.report ?? null);
+    setError(draft?.error ?? "");
+    setPendingCreate(draft?.pendingCreate ?? null);
+    requestId.current = draft?.requestId ?? crypto.randomUUID();
+    checkedDigest.current = draft?.checkedDigest ?? null;
+    setPage(0);
+    setParentPage(0);
+    setTaskPage(0);
+  }, []);
+  const chooseTask = (task: DatasetTask) => {
+    taskChosen.current = true;
+    setBrowseTask(task);
+    setPage(0);
+    if (task === "detect" || task === "segment") activateTask(task);
+    else {
+      selectionEpoch.current += 1;
+      setCreateOpen(false);
+    }
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("data_task", task);
+      [
+        "dataset",
+        "data_baseline",
+        "data_view",
+        "data_change",
+        "data_class",
+        "data_split",
+        "data_kind",
+        "data_page",
+      ].forEach((key) => next.delete(key));
+      return next;
+    });
   };
   const toggleTask = (id: string) =>
     updateSelection(() => {
@@ -290,11 +456,38 @@ function ProjectLearningContent({
   const selectedClasses = selectedBinding?.classes ?? [];
   const selectedTaskEnabled =
     trainingTask === segmentationTask ? segmentationEnabled : detectionEnabled;
+  const taskDataset = taskDatasets.data?.items.find((item) => item.task === browseTask);
+  const createCapability = taskDataset?.capabilities.create_version;
+  const qualifiedTask = browseTask === "detect" || browseTask === "segment";
+  const parentReason =
+    parentId && selectedParent.data ? datasetParentReason(selectedParent.data, trainingTask) : null;
   useEffect(() => {
     if (taskChosen.current || !project.data) return;
+    if (!segmentationEnabled && !detectionEnabled) {
+      const first = taskDatasets.data?.items[0]?.task;
+      if (first) {
+        taskChosen.current = true;
+        setBrowseTask(first);
+      }
+      return;
+    }
     taskChosen.current = true;
-    if (segmentationEnabled && !detectionEnabled) setTrainingTask(segmentationTask);
-  }, [project.data, segmentationEnabled, detectionEnabled]);
+    if (segmentationEnabled && !detectionEnabled) {
+      activateTask(segmentationTask);
+      setBrowseTask(segmentationTask);
+    }
+  }, [project.data, segmentationEnabled, detectionEnabled, activateTask, taskDatasets.data]);
+  useEffect(() => {
+    const rawTask = detailId ? detail.data?.task : params.get("data_task");
+    if (!isDatasetTask(rawTask) || rawTask === browseTask) return;
+    taskChosen.current = true;
+    setBrowseTask(rawTask);
+    if (rawTask === "detect" || rawTask === "segment") activateTask(rawTask);
+    else {
+      selectionEpoch.current += 1;
+      setCreateOpen(false);
+    }
+  }, [detail.data?.task, detailId, params, browseTask, activateTask]);
 
   return (
     <PageContainer>
@@ -373,7 +566,7 @@ function ProjectLearningContent({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="data" forceMount className="data-[state=inactive]:hidden">
-          {error && (
+          {error && !createOpen && (
             <p
               role="alert"
               className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
@@ -381,43 +574,181 @@ function ProjectLearningContent({
               {error}
             </p>
           )}
-          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
-            <div className="min-w-0 space-y-5">
-              <ProjectTrainingDataVersions
-                data={versions.data}
-                loading={versions.isLoading}
-                error={versions.error?.message}
-                pending={action.isPending}
-                page={page}
-                onPage={setPage}
-                onRetry={() => void versions.refetch()}
-                onSelect={setDetailId}
-                onAction={(kind, version) => action.mutate({ kind, version })}
-                onPrepare={
-                  unsupported
-                    ? undefined
-                    : () => {
-                        datasetForm.current?.scrollIntoView?.({
-                          block: "start",
-                          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-                            ? "auto"
-                            : "smooth",
-                        });
-                        datasetForm.current
-                          ?.querySelector<HTMLInputElement>("input")
-                          ?.focus({ preventScroll: true });
-                      }
+          <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">项目衍生数据集</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                每个训练任务独立管理冻结版本；统计与差异始终来自所选版本。
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="grid gap-1.5 text-xs font-medium">
+                数据集任务
+                <select
+                  className={inputClass}
+                  value={browseTask}
+                  disabled={busy}
+                  onChange={(event) => chooseTask(event.target.value as DatasetTask)}
+                >
+                  {(taskDatasets.data?.items.length
+                    ? taskDatasets.data.items.map((item) => item.task)
+                    : (["detect", "segment"] as DatasetTask[])
+                  ).map((task) => (
+                    <option value={task} key={task}>
+                      {task === "detect" || task === "segment"
+                        ? trainingTaskLabel(task)
+                        : TASKS[task].label}
+                    </option>
+                  ))}
+                  {taskDatasets.data &&
+                    !taskDatasets.data.items.some((item) => item.task === browseTask) && (
+                      <option value={browseTask}>{TASKS[browseTask].label} · 尚无任务数据集</option>
+                    )}
+                </select>
+              </label>
+              <Button
+                ref={prepareButtonRef}
+                disabled={
+                  !qualifiedTask ||
+                  (!pendingCreate &&
+                    (!!unsupported ||
+                      !selectedTaskEnabled ||
+                      createCapability?.supported === false))
                 }
-              />
+                onClick={() => setCreateOpen(true)}
+              >
+                准备新版本
+              </Button>
+            </div>
+          </header>
+          {taskDatasets.error && (
+            <TrainingError
+              message={taskDatasets.error.message}
+              onRetry={() => void taskDatasets.refetch()}
+            />
+          )}
+          {taskDataset && (
+            <div className="mb-4 text-xs text-muted-foreground">
+              <p>
+                本任务 {taskDataset.version_count} 个版本 · 已就绪{" "}
+                {taskDataset.status_counts.ready ?? 0} 个
+                {taskDataset.pending_membership_count > 0 &&
+                  ` · ${taskDataset.pending_membership_count} 个历史版本待关联序号`}
+              </p>
+              <details className="mt-2">
+                <summary className="cursor-pointer">查看任务能力</summary>
+                <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {(
+                    [
+                      ["create_version", "创建版本"],
+                      ["qualified_training", "合格训练"],
+                      ["overview_statistics", "概览统计"],
+                      ["task_statistics", "任务统计"],
+                      ["sample_preview", "样本预览"],
+                      ["semantic_comparison", "语义比较"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <div key={key}>
+                      <dt className="inline font-medium text-foreground">{label}：</dt>
+                      <dd className="inline">
+                        {taskDataset.capabilities[key].supported
+                          ? "可用"
+                          : (taskDataset.capabilities[key].reason ?? "尚未资格验证")}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
+            </div>
+          )}
+          {(!qualifiedTask || createCapability?.supported === false) && (
+            <p className="mb-4 rounded-md bg-muted p-3 text-xs text-muted-foreground">
+              {createCapability?.reason ??
+                "该任务的冻结、导出与训练链路尚未资格验证，暂不能创建版本。"}
+            </p>
+          )}
+          {!!taskDatasets.data?.unrecognized_version_count && (
+            <section className="mb-4 rounded-lg border border-border p-3 text-xs">
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-expanded={diagnosticsOpen}
+                onClick={() => setDiagnosticsOpen((value) => !value)}
+              >
+                未识别的历史版本 · {taskDatasets.data.unrecognized_version_count}
+              </Button>
+              {diagnosticsOpen && (
+                <div className="mt-2 space-y-2">
+                  <p className="text-muted-foreground">
+                    这些记录未分配到任务版本流，原始冻结数据保持不变。
+                  </p>
+                  {diagnostics.isLoading && <p role="status">正在读取诊断…</p>}
+                  {diagnostics.error && (
+                    <TrainingError
+                      message={diagnostics.error.message}
+                      onRetry={() => void diagnostics.refetch()}
+                    />
+                  )}
+                  {diagnostics.data?.items.map((item) => (
+                    <div key={item.id} className="rounded-md bg-muted p-3">
+                      <p className="font-medium">{item.name}</p>
+                      <p className="mt-1 break-all text-muted-foreground">
+                        {item.id} · {item.raw_task ?? "任务缺失或非字符串"} · {item.reason}
+                      </p>
+                    </div>
+                  ))}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!diagnosticsPage || diagnostics.isFetching}
+                      onClick={() => setDiagnosticsPage((value) => value - 1)}
+                    >
+                      上一页诊断
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={
+                        (diagnosticsPage + 1) * 20 >= (diagnostics.data?.total ?? 0) ||
+                        diagnostics.isFetching
+                      }
+                      onClick={() => setDiagnosticsPage((value) => value + 1)}
+                    >
+                      下一页诊断
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+          {unsupported && (
+            <p className="mb-4 rounded-md bg-muted p-3 text-xs text-muted-foreground">
+              当前支持图片矩形框检测和单多边形实例分割数据，请切换到图片项目。
+            </p>
+          )}
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(18rem,21rem)_minmax(0,1fr)]">
+            <ProjectTrainingDataVersions
+              data={versions.data}
+              loading={versions.isLoading}
+              error={versions.error?.message}
+              pending={action.isPending}
+              selectedId={detailId}
+              page={page}
+              onPage={setPage}
+              onRetry={() => void versions.refetch()}
+              onSelect={setDetailId}
+              onAction={(kind, version) => action.mutate({ kind, version })}
+            />
+            <div className="min-w-0">
               {detailId && detail.isLoading && (
-                <p role="status" className="mt-5 text-sm text-muted-foreground">
+                <p role="status" className="p-5 text-sm text-muted-foreground">
                   正在加载所选数据版本…
                 </p>
               )}
               {detail.error && (
-                <p role="alert" className="mt-5 text-sm text-status-danger">
-                  {detail.error.message}
-                </p>
+                <TrainingError
+                  message={detail.error.message}
+                  onRetry={() => void detail.refetch()}
+                />
               )}
               {tab === "data" && detail.data && (
                 <TrainingDatasetInsights
@@ -426,295 +757,417 @@ function ProjectLearningContent({
                   onClose={() => setDetailId("")}
                 />
               )}
-            </div>
-            <div className="min-w-0">
-              {unsupported ? (
-                <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">
-                  当前支持图片矩形框检测和单多边形实例分割数据。请切换到图片项目。
-                </p>
-              ) : (
+              {!detailId && (
                 <section
-                  ref={datasetForm}
-                  aria-labelledby="create-dataset-title"
-                  className="rounded-xl border border-border bg-card p-4 sm:p-5"
+                  aria-label="数据版本详情"
+                  className="rounded-xl border border-dashed border-border bg-card px-5 py-16 text-center"
                 >
-                  <h2 id="create-dataset-title" className="mb-1 text-sm font-semibold">
-                    创建训练数据版本
-                  </h2>
-                  <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
-                    冻结本轮图片、标注与类别，生成包含原图的训练包。后续修改标注不会改变已有版本。
+                  <Database
+                    aria-hidden="true"
+                    className="mx-auto mb-3 size-6 text-muted-foreground"
+                  />
+                  <h3 className="text-sm font-medium">选择一个冻结版本</h3>
+                  <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
+                    在左侧选择版本，查看本轮图片、类别、划分与变化。准备新版本时会冻结当前项目标注。
                   </p>
-                  <fieldset disabled={busy} className="grid gap-4 border-0 p-0 sm:grid-cols-2">
-                    <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
-                      训练任务
-                      <select
-                        className={inputClass}
-                        value={trainingTask}
-                        onChange={(event) =>
-                          updateSelection(() => {
-                            taskChosen.current = true;
-                            setTrainingTask(event.target.value as typeof trainingTask);
-                            setParentId("");
-                            setNegatives([]);
-                          })
-                        }
-                      >
-                        <option value="detect" disabled={!detectionEnabled}>
-                          图片目标检测 · 矩形框
-                        </option>
-                        <option value={segmentationTask} disabled={!segmentationEnabled}>
-                          图片实例分割 · 单多边形
-                        </option>
-                      </select>
-                    </label>
-                    <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
-                      版本名称
-                      <input
-                        className={inputClass}
-                        value={name}
-                        maxLength={120}
-                        onChange={(event) => {
-                          setName(event.target.value);
-                          requestId.current = crypto.randomUUID();
-                        }}
-                        placeholder="例如：路口车辆首轮数据"
-                      />
-                    </label>
-                    <label className="grid gap-1.5 text-xs font-medium">
-                      数据范围
-                      <select
-                        className={inputClass}
-                        value={batchId}
-                        onChange={(event) =>
-                          updateSelection(() => {
-                            setBatchId(event.target.value);
-                            setSelected([]);
-                            setNegatives([]);
-                            setTaskPage(0);
-                          })
-                        }
-                      >
-                        <option value="">整个项目</option>
-                        {batches.data?.map((batch) => (
-                          <option key={batch.id} value={batch.id}>
-                            {batch.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="grid gap-1.5 text-xs font-medium">
-                      标注纳入方式
-                      <select
-                        className={inputClass}
-                        value={mode}
-                        onChange={(event) =>
-                          updateSelection(() => {
-                            setMode(event.target.value as typeof mode);
-                            setSelected([]);
-                            setNegatives([]);
-                          })
-                        }
-                      >
-                        <option value="reviewed">已审核通过</option>
-                        <option value="manager_confirmed">负责人明确确认</option>
-                      </select>
-                    </label>
-                    <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
-                      继承数据划分
-                      <select
-                        className={inputClass}
-                        value={parentId}
-                        onChange={(event) => updateSelection(() => setParentId(event.target.value))}
-                      >
-                        <option value="">首次划分</option>
-                        {versions.data?.items
-                          .filter(
-                            (version) =>
-                              version.status === "ready" &&
-                              (version.task ?? "detect") === trainingTask,
-                          )
-                          .map((version) => (
-                            <option key={version.id} value={version.id}>
-                              {version.name}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <div
-                      className="rounded-md bg-muted p-3 text-xs sm:col-span-2"
-                      aria-live="polite"
-                    >
-                      <p className="font-medium">
-                        抽取范围：{trainingTaskLabel(trainingTask)} · {selectedTool} 工具
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        类别（{selectedClasses.length}）：
-                        {selectedClasses
-                          .map((value) => (typeof value === "string" ? value : value.name))
-                          .join("、") || "尚未配置"}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        每个版本固定一个训练任务。同一项目可分别创建检测、分割等数据版本；其他工具标注会排除并计数。无目标确认仅针对当前所选任务。
-                      </p>
-                    </div>
-                    {trainingTask === segmentationTask && (
-                      <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
-                        仅接受 region 的无洞单多边形。洞、多部件、栅格 mask
-                        会在预检时报错；其他工具的标注会单独计数并排除。训练包保留实例来源；原生
-                        mask 的像素覆盖取决于训练分辨率。
-                      </p>
-                    )}
-                    <label className="grid gap-1.5 text-xs font-medium">
-                      验证集比例（%）
-                      <input
-                        type="number"
-                        min={5}
-                        max={50}
-                        className={inputClass}
-                        value={fraction}
-                        onChange={(event) => updateSelection(() => setFraction(event.target.value))}
-                      />
-                    </label>
-                    <label className="grid gap-1.5 text-xs font-medium">
-                      划分随机种子
-                      <input
-                        type="number"
-                        min={0}
-                        max={2147483647}
-                        className={inputClass}
-                        value={seed}
-                        onChange={(event) => updateSelection(() => setSeed(event.target.value))}
-                      />
-                    </label>
-                    {mode === "manager_confirmed" && (
-                      <div className="sm:col-span-2">
-                        <p className="mb-2 text-xs text-muted-foreground">
-                          选择本轮确认用于训练的任务。空白图片只有勾选“确认为无目标”后才会作为负样本。
-                        </p>
-                        {taskList.error && (
-                          <p role="alert" className="text-xs text-status-danger">
-                            {taskList.error.message}
-                          </p>
-                        )}
-                        <div className="max-h-64 overflow-auto rounded-md border border-border">
-                          {taskList.data?.items.map((task) => (
-                            <div
-                              key={task.id}
-                              className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0"
-                            >
-                              <label className="flex min-w-0 items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={selected.includes(task.id)}
-                                  onChange={() => toggleTask(task.id)}
-                                />
-                                <span className="truncate">
-                                  {task.display_id} · {task.file_name}
-                                </span>
-                              </label>
-                              <label className="flex items-center gap-2 text-muted-foreground">
-                                <input
-                                  type="checkbox"
-                                  disabled={!selected.includes(task.id)}
-                                  checked={negatives.includes(task.id)}
-                                  onChange={() =>
-                                    updateSelection(() =>
-                                      setNegatives((current) =>
-                                        current.includes(task.id)
-                                          ? current.filter((key) => key !== task.id)
-                                          : [...current, task.id],
-                                      ),
-                                    )
-                                  }
-                                />
-                                确认为无目标
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                          <span>已选择 {selected.length} 个任务</span>
-                          <Button
-                            size="sm"
-                            disabled={!taskPage || taskList.isFetching}
-                            onClick={() => setTaskPage((value) => value - 1)}
-                          >
-                            上一页
-                          </Button>
-                          <Button
-                            size="sm"
-                            disabled={
-                              taskList.isFetching || (taskList.data?.items.length ?? 0) < 25
-                            }
-                            onClick={() => setTaskPage((value) => value + 1)}
-                          >
-                            下一页
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </fieldset>
-                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
-                    <Button
-                      disabled={
-                        busy ||
-                        !selectedTaskEnabled ||
-                        !selectedClasses.length ||
-                        (mode === "manager_confirmed" && !selected.length) ||
-                        !seed ||
-                        !fraction
-                      }
-                      onClick={() => preflight.mutate()}
-                    >
-                      {preflight.isPending ? "正在检查素材…" : "检查训练数据"}
-                    </Button>
-                    <Button
-                      variant="primary"
-                      disabled={busy || !report?.ready || !name.trim()}
-                      onClick={() => create.mutate()}
-                    >
-                      {create.isPending ? "正在创建…" : "创建数据版本"}
-                    </Button>
-                  </div>
-                  {report && (
-                    <div className="mt-4 rounded-md bg-muted p-3 text-xs" aria-live="polite">
-                      <p className="font-medium">
-                        {report.ready ? "数据检查通过" : "需要处理数据问题"}
-                      </p>
-                      <p className="mt-2 text-muted-foreground">
-                        正样本 {report.summary.positives} · 负样本 {report.summary.negatives} · 排除{" "}
-                        {report.summary.excluded} · 类别 {report.classes.length}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        {trainingTaskLabel(report.task ?? trainingTask)} · 对象{" "}
-                        {report.summary.objects ?? 0} · 排除其他工具标注{" "}
-                        {report.summary.excluded_annotations ?? 0} 条
-                      </p>
-                      {report.issues.map((issue, index) => (
-                        <p className="mt-2 text-status-danger" key={index}>
-                          {String(issue.message ?? issue.code)}
-                          {issue.task_id ? `（${issue.task_id}）` : ""}
-                        </p>
-                      ))}
-                      {report.excluded.length > 0 && (
-                        <details className="mt-2">
-                          <summary className="cursor-pointer">查看排除原因</summary>
-                          <ul className="mt-2 space-y-1">
-                            {report.excluded.map((item, index) => (
-                              <li key={index}>
-                                任务 {String(item.task_id).slice(0, 8)}：
-                                {exclusionReasons[String(item.code)] ?? "不符合当前数据条件"}
-                              </li>
-                            ))}
-                          </ul>
-                        </details>
-                      )}
-                    </div>
-                  )}
                 </section>
               )}
             </div>
           </div>
+          <Modal
+            open={createOpen}
+            onClose={() => setCreateOpen(false)}
+            title="新建数据版本"
+            width={880}
+            returnFocusRef={prepareButtonRef}
+            initialFocusRef={versionNameRef}
+          >
+            <section ref={datasetForm} aria-labelledby="create-dataset-title" className="min-w-0">
+              {error && (
+                <p
+                  role="alert"
+                  className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
+                >
+                  {error}
+                </p>
+              )}
+              <h2 id="create-dataset-title" className="mb-1 text-sm font-semibold">
+                创建训练数据版本
+              </h2>
+              <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+                冻结本轮图片、标注与类别，生成包含原图的训练包。后续修改标注不会改变已有版本。
+              </p>
+              {pendingCreate && (
+                <div
+                  role="status"
+                  className="mb-4 rounded-md bg-status-caution-soft p-3 text-xs text-status-caution"
+                >
+                  <p>
+                    上次创建结果尚未确认，原始请求已保留。确认会复用同一请求，避免重复创建；确认前暂时锁定编辑与重新检查。
+                  </p>
+                  <Button
+                    size="sm"
+                    className="mt-2"
+                    disabled={busy}
+                    onClick={async () => {
+                      const pending = pendingCreate;
+                      const accepted = await confirmDialog({
+                        title: "放弃未确认请求？",
+                        description:
+                          "服务器可能已创建该版本。建议先确认原请求；放弃后再次创建会使用新的请求标识。",
+                        confirmLabel: "放弃原请求",
+                        tone: "danger",
+                      });
+                      if (
+                        !accepted ||
+                        !owns() ||
+                        currentDraft.current.pendingCreate?.request_id !== pending.request_id
+                      )
+                        return;
+                      setPendingCreate(null);
+                      setReport(null);
+                      setError("");
+                      checkedDigest.current = null;
+                      requestId.current = crypto.randomUUID();
+                      selectionEpoch.current += 1;
+                    }}
+                  >
+                    放弃未确认请求
+                  </Button>
+                </div>
+              )}
+              <fieldset
+                disabled={busy || !!pendingCreate}
+                className="grid gap-4 border-0 p-0 sm:grid-cols-2"
+              >
+                <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
+                  训练任务
+                  <select
+                    className={inputClass}
+                    value={trainingTask}
+                    onChange={(event) => chooseTask(event.target.value as typeof trainingTask)}
+                  >
+                    <option value="detect" disabled={!detectionEnabled}>
+                      图片目标检测 · 矩形框
+                    </option>
+                    <option value={segmentationTask} disabled={!segmentationEnabled}>
+                      图片实例分割 · 单多边形
+                    </option>
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
+                  版本名称
+                  <input
+                    ref={versionNameRef}
+                    className={inputClass}
+                    value={name}
+                    maxLength={120}
+                    onChange={(event) => {
+                      setName(event.target.value);
+                      requestId.current = crypto.randomUUID();
+                    }}
+                    placeholder="例如：路口车辆首轮数据"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium">
+                  数据范围
+                  <select
+                    className={inputClass}
+                    value={batchId}
+                    onChange={(event) =>
+                      updateSelection(() => {
+                        setBatchId(event.target.value);
+                        setSelected([]);
+                        setNegatives([]);
+                        setTaskPage(0);
+                      })
+                    }
+                  >
+                    <option value="">整个项目</option>
+                    {batches.data?.map((batch) => (
+                      <option key={batch.id} value={batch.id}>
+                        {batch.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium">
+                  标注纳入方式
+                  <select
+                    className={inputClass}
+                    value={mode}
+                    onChange={(event) =>
+                      updateSelection(() => {
+                        setMode(event.target.value as typeof mode);
+                        setSelected([]);
+                        setNegatives([]);
+                      })
+                    }
+                  >
+                    <option value="reviewed">已审核通过</option>
+                    <option value="manager_confirmed">负责人明确确认</option>
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
+                  继承数据划分
+                  <select
+                    className={inputClass}
+                    value={parentId}
+                    onChange={(event) => updateSelection(() => setParentId(event.target.value))}
+                  >
+                    <option value="">首次划分</option>
+                    {parentId &&
+                      !parents.data?.items.some((version) => version.id === parentId) && (
+                        <option value={parentId}>
+                          {selectedParent.data?.name ?? "正在核验父版本…"}
+                        </option>
+                      )}
+                    {parents.data?.items
+                      .filter(
+                        (version) =>
+                          version.status === "ready" && (version.task ?? "detect") === trainingTask,
+                      )
+                      .map((version) => (
+                        <option
+                          key={version.id}
+                          value={version.id}
+                          disabled={!!datasetParentReason(version, trainingTask)}
+                        >
+                          {version.name}
+                          {datasetParentReason(version, trainingTask)
+                            ? ` · ${datasetParentReason(version, trainingTask)}`
+                            : ""}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {(parents.error || selectedParent.error) && (
+                  <p role="alert" className="text-xs text-status-danger sm:col-span-2">
+                    {parents.error?.message ?? selectedParent.error?.message}
+                  </p>
+                )}
+                {parentReason && (
+                  <p role="alert" className="text-xs text-status-caution sm:col-span-2">
+                    父版本不可用：{parentReason}。服务端还会核验冻结分组证据。
+                  </p>
+                )}
+                {((parents.data?.total ?? 0) > 20 || parentPage > 0) && (
+                  <nav
+                    aria-label="父版本分页"
+                    className="flex flex-wrap items-center justify-end gap-2 sm:col-span-2"
+                  >
+                    <span className="mr-auto text-xs text-muted-foreground">
+                      第 {parentPage + 1} 页 · 共 {parents.data?.total ?? 0} 个已就绪版本
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={!parentPage || parents.isFetching}
+                      onClick={() => setParentPage((p) => p - 1)}
+                    >
+                      上一页父版本
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={
+                        parents.isFetching || (parentPage + 1) * 20 >= (parents.data?.total ?? 0)
+                      }
+                      onClick={() => setParentPage((p) => p + 1)}
+                    >
+                      下一页父版本
+                    </Button>
+                  </nav>
+                )}
+                <div className="rounded-md bg-muted p-3 text-xs sm:col-span-2" aria-live="polite">
+                  <p className="font-medium">
+                    抽取范围：{trainingTaskLabel(trainingTask)} · {selectedTool} 工具
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    类别（{selectedClasses.length}）：
+                    {selectedClasses
+                      .map((value) => (typeof value === "string" ? value : value.name))
+                      .join("、") || "尚未配置"}
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    每个版本固定一个训练任务。同一项目可分别创建检测、分割等数据版本；其他工具标注会排除并计数。无目标确认仅针对当前所选任务。
+                  </p>
+                </div>
+                {trainingTask === segmentationTask && (
+                  <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
+                    仅接受 region 的无洞单多边形。洞、多部件、栅格 mask
+                    会在预检时报错；其他工具的标注会单独计数并排除。训练包保留实例来源；原生 mask
+                    的像素覆盖取决于训练分辨率。
+                  </p>
+                )}
+                <label className="grid gap-1.5 text-xs font-medium">
+                  验证集比例（%）
+                  <input
+                    type="number"
+                    min={5}
+                    max={50}
+                    className={inputClass}
+                    value={fraction}
+                    onChange={(event) => updateSelection(() => setFraction(event.target.value))}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium">
+                  划分随机种子
+                  <input
+                    type="number"
+                    min={0}
+                    max={2147483647}
+                    className={inputClass}
+                    value={seed}
+                    onChange={(event) => updateSelection(() => setSeed(event.target.value))}
+                  />
+                </label>
+                {mode === "manager_confirmed" && (
+                  <div className="sm:col-span-2">
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      选择本轮确认用于训练的任务。空白图片只有勾选“确认为无目标”后才会作为负样本。
+                    </p>
+                    {taskList.error && (
+                      <p role="alert" className="text-xs text-status-danger">
+                        {taskList.error.message}
+                      </p>
+                    )}
+                    <div className="max-h-64 overflow-auto rounded-md border border-border">
+                      {taskList.data?.items.map((task) => (
+                        <div
+                          key={task.id}
+                          className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0"
+                        >
+                          <label className="flex min-w-0 items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selected.includes(task.id)}
+                              onChange={() => toggleTask(task.id)}
+                            />
+                            <span className="truncate">
+                              {task.display_id} · {task.file_name}
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-2 text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              disabled={!selected.includes(task.id)}
+                              checked={negatives.includes(task.id)}
+                              onChange={() =>
+                                updateSelection(() =>
+                                  setNegatives((current) =>
+                                    current.includes(task.id)
+                                      ? current.filter((key) => key !== task.id)
+                                      : [...current, task.id],
+                                  ),
+                                )
+                              }
+                            />
+                            确认为无目标
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                      <span>已选择 {selected.length} 个任务</span>
+                      <Button
+                        size="sm"
+                        disabled={!taskPage || taskList.isFetching}
+                        onClick={() => setTaskPage((value) => value - 1)}
+                      >
+                        上一页
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={taskList.isFetching || (taskList.data?.items.length ?? 0) < 25}
+                        onClick={() => setTaskPage((value) => value + 1)}
+                      >
+                        下一页
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </fieldset>
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+                <Button
+                  disabled={
+                    busy ||
+                    !!pendingCreate ||
+                    !selectedTaskEnabled ||
+                    !selectedClasses.length ||
+                    !!parentReason ||
+                    (!!parentId && !selectedParent.isSuccess) ||
+                    (mode === "manager_confirmed" && !selected.length) ||
+                    !seed ||
+                    !fraction
+                  }
+                  onClick={() => preflight.mutate()}
+                >
+                  {preflight.isPending ? "正在检查素材…" : "检查训练数据"}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={
+                    busy ||
+                    (!pendingCreate &&
+                      (!report?.ready ||
+                        !name.trim() ||
+                        !!parentReason ||
+                        (!!parentId && !selectedParent.isSuccess)))
+                  }
+                  onClick={() =>
+                    create.mutate(
+                      pendingCreate ?? {
+                        ...selection,
+                        name: name.trim(),
+                        request_id: requestId.current,
+                        preflight_digest: report!.digest,
+                      },
+                    )
+                  }
+                >
+                  {create.isPending
+                    ? "正在创建…"
+                    : pendingCreate
+                      ? "确认原创建请求"
+                      : "创建数据版本"}
+                </Button>
+              </div>
+              {report && (
+                <div className="mt-4 rounded-md bg-muted p-3 text-xs" aria-live="polite">
+                  <p className="font-medium">
+                    {report.ready ? "数据检查通过" : "需要处理数据问题"}
+                  </p>
+                  <p className="mt-2 text-muted-foreground">
+                    正样本 {report.summary.positives} · 负样本 {report.summary.negatives} · 排除{" "}
+                    {report.summary.excluded} · 类别 {report.classes.length}
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    {trainingTaskLabel(report.task ?? trainingTask)} · 对象{" "}
+                    {report.summary.objects ?? 0} · 排除其他工具标注{" "}
+                    {report.summary.excluded_annotations ?? 0} 条
+                  </p>
+                  {report.issues.map((issue, index) => (
+                    <p className="mt-2 text-status-danger" key={index}>
+                      {String(issue.message ?? issue.code)}
+                      {issue.task_id ? `（${issue.task_id}）` : ""}
+                    </p>
+                  ))}
+                  {report.excluded.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer">查看排除原因</summary>
+                      <ul className="mt-2 space-y-1">
+                        {report.excluded.map((item, index) => (
+                          <li key={index}>
+                            任务 {String(item.task_id).slice(0, 8)}：
+                            {exclusionReasons[String(item.code)] ?? "不符合当前数据条件"}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+            </section>
+          </Modal>
         </TabsContent>
         <TabsContent value="training">
           {unsupported ? (

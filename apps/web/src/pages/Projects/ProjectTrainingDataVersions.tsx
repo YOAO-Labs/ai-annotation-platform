@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { TrainingError, TrainingLoading } from "../Training/TrainingFeedback";
 import { trainingTaskLabel } from "../Training/trainingPresentation";
+import { cn } from "@/lib/utils";
 
 type DatasetAction = "retry" | "download" | "delete" | "cancel";
 const statuses: Record<string, string> = {
@@ -26,6 +27,7 @@ export function ProjectTrainingDataVersions({
   onSelect,
   onAction,
   onPrepare,
+  selectedId,
 }: {
   data?: { items: TrainingDatasetSummary[]; total: number };
   loading: boolean;
@@ -37,6 +39,7 @@ export function ProjectTrainingDataVersions({
   onSelect: (id: string) => void;
   onAction: (kind: DatasetAction, version: TrainingDatasetSummary) => void;
   onPrepare?: () => void;
+  selectedId?: string;
 }) {
   return (
     <section
@@ -69,23 +72,37 @@ export function ProjectTrainingDataVersions({
         </div>
       )}
       {!!data?.items.length && (
-        <ul className="divide-y divide-border">
+        <ul className="max-h-[60vh] divide-y divide-border overflow-y-auto">
           {data.items.map((version) => {
             const building = ["pending", "running"].includes(version.status);
             return (
-              <li key={version.id} className="p-4 sm:p-5">
+              <li
+                key={version.id}
+                className={cn("p-4 transition-colors", selectedId === version.id && "bg-primary/5")}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <button
                       title={version.name}
+                      aria-current={selectedId === version.id ? "true" : undefined}
                       className="rounded-sm break-words text-left text-sm font-semibold transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => onSelect(version.id)}
                     >
                       {version.name}
                     </button>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {trainingTaskLabel(version.task)} ·{" "}
-                      {version.source_media_type === "video" ? "视频来源 → 图片" : "图片来源"}
+                      {version.version_ordinal != null
+                        ? `#${version.version_ordinal} · `
+                        : "待关联序号 · "}
+                      {trainingTaskLabel(version.task)}
+                      {" · "}
+                      {(version.contract_profile
+                        ? version.contract_profile.source_media_type
+                        : version.source_media_type) ?? "未知来源"}
+                      {" → "}
+                      {(version.contract_profile
+                        ? version.contract_profile.media_type
+                        : version.media_type) ?? "未知输出"}
                     </p>
                   </div>
                   <Badge
@@ -103,17 +120,11 @@ export function ProjectTrainingDataVersions({
                     {statuses[version.status] ?? version.status}
                   </Badge>
                 </div>
-                <dl className="mt-4 grid grid-cols-3 gap-3 text-xs sm:grid-cols-5">
+                <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
                   {[
-                    ["类别", version.class_count ?? 0],
+                    ["类别", version.class_count ?? "—"],
                     ["样本", version.summary?.samples ?? version.summary?.eligible ?? "—"],
                     ["对象", version.summary?.objects ?? "—"],
-                    ...(version.status === "ready"
-                      ? [
-                          ["训练", version.summary?.train ?? "—"],
-                          ["验证", version.summary?.val ?? "—"],
-                        ]
-                      : []),
                   ].map(([label, value]) => (
                     <div key={String(label)}>
                       <dt className="text-2xs text-muted-foreground">{String(label)}</dt>
@@ -121,6 +132,11 @@ export function ProjectTrainingDataVersions({
                     </div>
                   ))}
                 </dl>
+                {version.parent_id && (
+                  <p className="mt-2 text-2xs text-muted-foreground" title={version.parent_id}>
+                    继承自 {version.parent_id.slice(0, 8)}
+                  </p>
+                )}
                 {building && (
                   <div
                     className="mt-3"

@@ -12,6 +12,9 @@ import type {
   TrainingDatasetSamplePage,
   TrainingDatasetSampleDetail,
   TrainingDatasetAnalyzedSampleOut,
+  ProjectTaskDatasetPage,
+  UnrecognizedTrainingDatasetVersionPage,
+  ProjectTaskDatasetOut,
 } from "./generated/types.gen";
 
 export type {
@@ -46,6 +49,12 @@ export type DatasetSampleFilters = {
   kind?: "all" | "positive" | "negative" | "excluded" | "unavailable";
   baseline_id?: string;
   change?: DatasetSampleChange;
+  content_sha256?: string;
+};
+
+export type DatasetVersionFilters = {
+  task?: ProjectTaskDatasetOut["task"];
+  task_dataset_id?: string;
 };
 
 const queryString = (values: Record<string, string | number | undefined>) => {
@@ -59,9 +68,22 @@ const queryString = (values: Record<string, string | number | undefined>) => {
 const base = (projectId: string) => `/projects/${projectId}/training-datasets`;
 
 export const trainingDatasetsApi = {
-  list: (projectId: string, offset = 0, status?: "ready", options?: RequestInit) =>
+  taskDatasets: (projectId: string, options?: RequestInit) =>
+    apiClient.get<ProjectTaskDatasetPage>(`/projects/${projectId}/task-datasets`, options),
+  unrecognizedVersions: (projectId: string, offset = 0, options?: RequestInit) =>
+    apiClient.get<UnrecognizedTrainingDatasetVersionPage>(
+      `/projects/${projectId}/task-datasets/unrecognized-versions?${queryString({ limit: 20, offset })}`,
+      options,
+    ),
+  list: (
+    projectId: string,
+    offset = 0,
+    status?: "ready",
+    options?: RequestInit,
+    filters: DatasetVersionFilters = {},
+  ) =>
     apiClient.get<TrainingDatasetPage>(
-      `${base(projectId)}?limit=20&offset=${offset}${status ? `&status=${status}` : ""}`,
+      `${base(projectId)}?${queryString({ limit: 20, offset, status, ...filters })}`,
       options,
     ),
   get: (projectId: string, id: string, options?: RequestInit) =>

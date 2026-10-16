@@ -32,6 +32,8 @@ const initial: Props = {
   baselineVersionId: "baseline",
   targetVersionId: "target",
   contentSha256: CONTENT,
+  baselineUnknownContents: 0,
+  targetUnknownContents: 0,
   onClose: close,
   onObserved: observed,
 };
@@ -179,6 +181,14 @@ describe("frozen content comparison", () => {
     vi.mocked(trainingDatasetsApi.samples).mockImplementation(normalMembers);
     await userEvent.click(screen.getByRole("button", { name: "重试成员读取" }));
     expect(await screen.findByText("新增内容：该内容未出现在基线版本中。")).toBeVisible();
+  });
+  it("does not assert an addition when the baseline has members with unknown content identity", async () => {
+    vi.mocked(trainingDatasetsApi.samples).mockImplementation(async (_projectId, versionId) =>
+      page(versionId, versionId === "baseline" ? [] : [member(versionId)]),
+    );
+    mount({ baselineUnknownContents: 1 });
+    expect(await screen.findByText(/该版本已知身份中未找到匹配；内容身份未知 1 张/)).toBeVisible();
+    expect(screen.queryByText(/新增内容：/)).not.toBeInTheDocument();
   });
 
   it("does not call content absent from both versions an addition and removal", async () => {
