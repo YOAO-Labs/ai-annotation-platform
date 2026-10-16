@@ -112,7 +112,12 @@ import { recordingAnchor } from "./_canvas";
 import { PROJECT_ONBOARDING_RECORDING_NAME, runProjectOnboarding } from "./project-onboarding";
 import { installRecordingWorkbenchLayout } from "./_workbench-layout";
 import type { SourceGifVariant } from "../_helpers/flow-manifest";
-import { recordingPlan, recordingInference, assertRecordingMode } from "../recording-plan.mjs";
+import {
+  recordingPlan,
+  recordingInference,
+  assertRecordingMode,
+  recordingTimeout,
+} from "../recording-plan.mjs";
 import {
   archiveMarketingMaster,
   clipFromEpochWindow,
@@ -151,6 +156,10 @@ const SELECTED_CAPTURE = process.env.SCREENSHOT_RECORDING_FLOWS
       process.env.SCREENSHOT_RECORDING_PROFILE,
     )
   : null;
+function setFlowTimeout(requested: number): void {
+  test.setTimeout(recordingTimeout(requested, test.info().timeout, Boolean(SELECTED_CAPTURE)));
+}
+
 const VIDEO_ML_CAPTURE_FLOWS = new Set([
   "video-tracker-range",
   "video-tracker-cross-frame-points",
@@ -926,8 +935,7 @@ function hasLiveSam3(catalog: ScreenshotSeedCatalog): boolean {
 
 test.describe("flow recordings", () => {
   test.beforeEach(async ({ page, seed }, testInfo) => {
-    if (SELECTED_CAPTURE)
-      testInfo.setTimeout(SELECTED_CAPTURE.backendRequirements !== "none" ? 600_000 : 420_000);
+    if (SELECTED_CAPTURE) testInfo.setTimeout(recordingTimeout(420_000, testInfo.timeout, true));
     if (SELECTED_CAPTURE && VIDEO_ML_CAPTURE_FLOWS.has(testInfo.title.split(" —")[0]))
       testInfo.setTimeout(1_200_000);
     if (SELECTED_CAPTURE) {
@@ -1098,7 +1106,7 @@ test.describe("flow recordings", () => {
     test(`sam-tool-${demo.tool} — ${demo.label}真实推理`, async ({ page, seed }) => {
       if (!cached) throw new Error("screenshot seed catalog 未完成");
       test.skip(!hasLiveSam3(cached), "真实 SAM 工具视频需要 live SAM3");
-      test.setTimeout(SELECTED_CAPTURE ? 300_000 : 150_000);
+      setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 150_000);
       const t0 = Date.now();
       await installScreenshotEnvironment(page);
       await seed.injectToken(page, cached.users.admin.email);
@@ -1138,7 +1146,7 @@ test.describe("flow recordings", () => {
 
   test("smart-scribble — 已存 Mask 正负笔迹精修", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(300_000);
+    setFlowTimeout(300_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.annotating;
     const cleanup: CandidateReviewCleanupRecord = {
@@ -1182,7 +1190,7 @@ test.describe("flow recordings", () => {
   test("sam-interactive — Magic Box 候选→人工确认", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     test.skip(!hasLiveSam3(cached), "首页 AI 视频需要 live SAM3");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 150_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 150_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -1212,7 +1220,7 @@ test.describe("flow recordings", () => {
 
   test("review-reject — 审核拒回流程", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 150_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 150_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.review;
     const reviewerEmail = cached.users.reviewer.email;
@@ -1276,7 +1284,7 @@ test.describe("flow recordings", () => {
 
   test("ocr-inference — 真实 RapidOCR 当前题推理", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
     const t0 = Date.now();
     // 保留推理中 badge / loader 的自然动效，不安装静态 PNG 专用的禁动环境。
     await seed.injectToken(page, cached.users.project_admin.email);
@@ -1294,7 +1302,7 @@ test.describe("flow recordings", () => {
 
   test("current-task-image-inference — 项目编排推理到人工采纳", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
     const t0 = Date.now();
     await seed.injectToken(page, cached.users.project_admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1322,7 +1330,7 @@ test.describe("flow recordings", () => {
 
   test("current-frame-video-inference — 当前帧车辆推理与作用域核对", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000);
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -1346,7 +1354,7 @@ test.describe("flow recordings", () => {
 
   test("secondary-inference-attribute — 裁剪 OCR 属性写回与人工校正", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 180_000);
     const t0 = Date.now();
     await seed.injectToken(page, cached.users.project_admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1399,7 +1407,7 @@ test.describe("flow recordings", () => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     // The screenshot seed/repair fixture may take several minutes on a live
     // media worker; keep the per-test budget separate from the 20s UI waits.
-    test.setTimeout(420_000);
+    setFlowTimeout(420_000);
     const t0 = Date.now();
     await seed.injectToken(page, cached.users.project_admin.email);
     const result = await runWorkspaceLayoutPersistence(page, cached);
@@ -1548,7 +1556,7 @@ test.describe("flow recordings", () => {
 
   test("mask-draw — Mask 笔刷涂抹", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.annotator.email);
@@ -1584,7 +1592,7 @@ test.describe("flow recordings", () => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     const project = cached.projects.image_demo;
     const task = project.tasks.annotating;
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
     const cleanup: CandidateReviewCleanupRecord = {
       projectId: project.id,
       taskId: task.id,
@@ -1619,7 +1627,7 @@ test.describe("flow recordings", () => {
 
   test("candidate-review-lifecycle — 跳过、采纳、驳回与最终计数", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.annotating;
     const cleanupRecord: CandidateReviewCleanupRecord = {
@@ -1708,7 +1716,7 @@ test.describe("flow recordings", () => {
 
   test("video-timeline-prediction-navigation — AI 预测密度与帧导航", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 真实双目标视频推理 + 4K H.264 归档转码
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 真实双目标视频推理 + 4K H.264 归档转码
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -1733,7 +1741,7 @@ test.describe("flow recordings", () => {
 
   test("video-chapter — 时间轴圈选与拖柄调整章节", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -1767,7 +1775,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-range — 时间轴刷选追踪范围", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1785,7 +1793,7 @@ test.describe("flow recordings", () => {
 
   test("video-track-batch-propagate — 双轨迹批量延展并复核", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 双轨迹真实视频推理 + 候选审阅 + 4K H.264 归档
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 双轨迹真实视频推理 + 候选审阅 + 4K H.264 归档
     const project = cached.projects.video_demo;
     const task = project.tasks.tracking;
     const userEmail = cached.users.project_admin.email;
@@ -1864,7 +1872,7 @@ test.describe("flow recordings", () => {
 
   test("video-propagate-track-vs-copy — 几何复制与 AI 延展对比", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 真实 30 帧 SAM2 追踪 + 候选审阅 + 4K H.264 归档
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 180_000); // 真实 30 帧 SAM2 追踪 + 候选审阅 + 4K H.264 归档
     const project = cached.projects.video_demo;
     const task = project.tasks.tracking;
     const userEmail = cached.users.project_admin.email;
@@ -1934,7 +1942,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-cross-frame-points — 双目标跨帧多正点", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1957,7 +1965,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-positive-negative — 双目标正负点修正", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1980,7 +1988,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-box-seed — 双目标整车框种子", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -1997,7 +2005,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-text-discovery — 文本发现双目标并采纳轨迹", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000);
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
     await applyScreenshotTheme(page, "dark");
@@ -2014,7 +2022,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-combo-discovery — 文本发现后逐对象记忆追踪", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000); // 真实两趟视频推理 + 4K H.264 归档转码
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000); // 真实两趟视频推理 + 4K H.264 归档转码
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -2031,7 +2039,7 @@ test.describe("flow recordings", () => {
 
   test("video-mask-correction-propagate — 错帧加减笔迹后重传播", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000); // 两次 Mask 提交 + 真实视频重传播 + 4K H.264 归档
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 240_000); // 两次 Mask 提交 + 真实视频重传播 + 4K H.264 归档
     const t0 = Date.now();
     await seed.enableMLBackendByName(
       cached.projects.video_demo.id,
@@ -2055,7 +2063,7 @@ test.describe("flow recordings", () => {
 
   test("pipeline-template-create — 创建车辆检测到属性分类公共模板", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(150_000);
+    setFlowTimeout(150_000);
     const t0 = Date.now();
     let pipelineId: string | null = null;
     try {
@@ -2075,7 +2083,7 @@ test.describe("flow recordings", () => {
 
   test("pipeline-apply-project — 套用公共模板并运行项目默认编排", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 240_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.clean;
     const userEmail = cached.users.admin.email;
@@ -2156,7 +2164,7 @@ test.describe("flow recordings", () => {
 
   test("jobs-retry-recovery — 失败预测重试后进入结果", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 150_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 150_000);
     const project = cached.projects.ocr_demo;
     const task = project.tasks.ocr;
     const userEmail = cached.users.admin.email;
@@ -2184,7 +2192,7 @@ test.describe("flow recordings", () => {
 
   test("model-market-runtime-pool — 服务池运行时观测与实例下钻", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2195,7 +2203,7 @@ test.describe("flow recordings", () => {
 
   test("model-market-video-pool — 视频追踪独立显存池与预热入口", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2209,7 +2217,7 @@ test.describe("flow recordings", () => {
     seed,
   }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2223,7 +2231,7 @@ test.describe("flow recordings", () => {
     seed,
   }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2234,7 +2242,7 @@ test.describe("flow recordings", () => {
 
   test("platform-overview — 全局统计、模型成本与近期活动", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2245,7 +2253,7 @@ test.describe("flow recordings", () => {
 
   test("project-actions-menu — 导入、导出与复制入口", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2256,7 +2264,7 @@ test.describe("flow recordings", () => {
 
   test("jobs-bell-active — 进度、取消与完成产物下载", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2267,7 +2275,7 @@ test.describe("flow recordings", () => {
 
   test("video-tracker-job-states — 四状态、筛选与返回视频工作台", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 1_800_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 1_800_000 : 120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2278,7 +2286,7 @@ test.describe("flow recordings", () => {
 
   test("project-ml-routing — 批量主后端与交互能力自动分流", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 900_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 900_000 : 120_000);
     const t0 = Date.now();
     try {
       await installScreenshotEnvironment(page);
@@ -2296,7 +2304,7 @@ test.describe("flow recordings", () => {
 
   test("background-export-download — 后台多格式导出与 ZIP 下载", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(150_000);
+    setFlowTimeout(150_000);
     const project = cached.projects.image_demo;
     const task = project.tasks.clean;
     const record: { projectId: string; taskId: string; jobId?: string } = {
@@ -2327,7 +2335,7 @@ test.describe("flow recordings", () => {
 
   test("project-onboarding — 登录、创建项目并进入工作台", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 150_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 150_000);
     const userEmail = cached.users.admin.email;
     let createdProjectId: string | undefined;
     const t0 = Date.now();
@@ -2345,7 +2353,7 @@ test.describe("flow recordings", () => {
 
   test("project-create-existing-resources — 创建项目并复用已有资源", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(120_000);
+    setFlowTimeout(120_000);
     const userEmail = cached.users.project_admin.email;
     let createdProjectId: string | undefined;
     const t0 = Date.now();
@@ -2366,7 +2374,7 @@ test.describe("flow recordings", () => {
 
   test("video-track-carryover — 跨帧虚影 Tab 续写", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2394,7 +2402,7 @@ test.describe("flow recordings", () => {
 
   test("video-mask-track-edit — Mask 轨迹创建与后续帧编辑", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // 视频解码、两次 Mask 提交与归档
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // 视频解码、两次 Mask 提交与归档
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2414,7 +2422,7 @@ test.describe("flow recordings", () => {
 
   test("ai-tracker-panel — AI 与追踪面板停靠、隐藏恢复与并存", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    if (SELECTED_CAPTURE) test.setTimeout(1_800_000);
+    if (SELECTED_CAPTURE) setFlowTimeout(1_800_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2428,7 +2436,7 @@ test.describe("flow recordings", () => {
 
   test("pointcloud-controls — 点云控件(上色/点大小/深度)", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000); // 点云加载与 4K H.264 归档都较重
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 180_000); // 点云加载与 4K H.264 归档都较重
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2439,7 +2447,7 @@ test.describe("flow recordings", () => {
 
   test("pointcloud-view — 点云视图导航(拖动旋转)", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000); // 点云加载与 4K H.264 归档都较重
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 180_000); // 点云加载与 4K H.264 归档都较重
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2454,7 +2462,7 @@ test.describe("flow recordings", () => {
       "billboard 多角度核对需要 marketing-master 的硬件 WebGL 与 60Hz 运行面",
     );
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
     const userEmail = cached.users.admin.email;
     const task = cached.projects.pointcloud_demo.tasks.frame_000;
     let annotationId: string | null = null;
@@ -2491,7 +2499,7 @@ test.describe("flow recordings", () => {
 
   test("storage-connector-create-test — 创建 S3 连接器并测试样本数", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(90_000);
+    setFlowTimeout(90_000);
     const userEmail = cached.users.admin.email;
     let connectionId: string | null = null;
     const t0 = Date.now();
@@ -2511,7 +2519,7 @@ test.describe("flow recordings", () => {
 
   test("video-draw — 视频画框轨迹(track 关键帧插值)", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2536,7 +2544,7 @@ test.describe("flow recordings", () => {
 
   test("large-image-progressive — 大图渐进式高清切片", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 90_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 90_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2560,7 +2568,7 @@ test.describe("flow recordings", () => {
 
   test("large-image-pyramid-recovery — 单切片失败后自动恢复", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 90_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 90_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2574,7 +2582,7 @@ test.describe("flow recordings", () => {
 
   test("large-image-mask-limit — 超大图矢量标注与 Mask 尺寸门禁", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 90_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 90_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2592,7 +2600,7 @@ test.describe("flow recordings", () => {
       "真实点云种框需要 marketing-master 的硬件 WebGL 与 60Hz 运行面",
     );
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 120_000);
     const t0 = Date.now();
     const userEmail = cached.users.admin.email;
     let created: { taskId: string; annotationId: string } | null = null;
@@ -2621,7 +2629,7 @@ test.describe("flow recordings", () => {
       "3D 面板布局需要 marketing-master 的硬件 WebGL 与 60Hz 运行面",
     );
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
     const userEmail = cached.users.admin.email;
     const task = cached.projects.pointcloud_demo.tasks.frame_000;
     let annotationId: string | null = null;
@@ -2655,7 +2663,7 @@ test.describe("flow recordings", () => {
       "真实点云跨帧链需要 marketing-master 的硬件 WebGL 与 60Hz 运行面",
     );
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 120_000);
     const userEmail = cached.users.admin.email;
     const frame0 = cached.projects.pointcloud_demo.tasks.frame_000;
     const cleanup: Array<{ taskId: string; annotationId: string }> = [];
@@ -2713,7 +2721,7 @@ test.describe("flow recordings", () => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     // 与 workspace-layout-persistence 相同：流程自己走真实偏好读写与刷新核验，
     // 隔离库的播种 / 重建可能很慢，测试预算单独给出。
-    test.setTimeout(420_000);
+    setFlowTimeout(420_000);
     const t0 = Date.now();
     await seed.injectToken(page, cached.users.annotator.email);
     let annotationId: string | undefined;
@@ -2735,7 +2743,7 @@ test.describe("flow recordings", () => {
 
   test("polygon-boundary-trace — 沿已有边界追踪相邻多边形", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.annotator.email);
@@ -2762,7 +2770,7 @@ test.describe("flow recordings", () => {
 
   test("mask-slice-instances — Mask 直线切割为两个实例", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     const taskId = cached.projects.image_demo.tasks.annotating.id;
     const userEmail = cached.users.annotator.email;
@@ -2787,7 +2795,7 @@ test.describe("flow recordings", () => {
 
   test("polygon-slice-undo — 多边形切割与撤销重做", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.annotator.email);
@@ -2814,7 +2822,7 @@ test.describe("flow recordings", () => {
 
   test("video-comment-badges — 视频对象评论角标与对象讨论", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2830,7 +2838,7 @@ test.describe("flow recordings", () => {
 
   test("video-issue-resolution — 视频问题定位与连续处理", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 420_000 : 180_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2846,7 +2854,7 @@ test.describe("flow recordings", () => {
 
   test("project-guide-autosave — 标注指引表格编辑自动保存", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2860,7 +2868,7 @@ test.describe("flow recordings", () => {
   test("discussion-mention-return — 提及成员并从通知返回原评论", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     // 双浏览器上下文（管理员 + 被提及成员）登录与通知往返最慢：单独放宽预算。
-    test.setTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
+    setFlowTimeout(SELECTED_CAPTURE ? 600_000 : 300_000);
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);
@@ -2876,7 +2884,7 @@ test.describe("flow recordings", () => {
 
   test("discussion-target-drafts — 讨论草稿按收件人各自保留", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     const taskId = cached.projects.image_demo.tasks.annotating.id;
     const userEmail = cached.users.annotator.email;
@@ -2907,7 +2915,7 @@ test.describe("flow recordings", () => {
 
   test("task-drawing-comment — 在题图上圈点并随评论发送", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     const taskId = cached.projects.image_demo.tasks.annotating.id;
     const userEmail = cached.users.annotator.email;
@@ -2939,7 +2947,7 @@ test.describe("flow recordings", () => {
 
   test("project-invitation-join — 项目邀请创建与被邀请人加入", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
-    test.setTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
+    setFlowTimeout(SELECTED_CAPTURE ? 300_000 : 180_000); // Include isolated seed and encoding.
     const t0 = Date.now();
     await installScreenshotEnvironment(page);
     await seed.injectToken(page, cached.users.admin.email);

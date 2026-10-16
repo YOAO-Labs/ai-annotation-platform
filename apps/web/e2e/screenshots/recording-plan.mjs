@@ -208,3 +208,8 @@ export function assertRecordingMode(profile, validateOnly) {
     );
   }
 }
+
+// Selected captures include isolated fixture reconstruction and master encoding.
+export function recordingTimeout(requested, current, selected) {
+  return selected ? Math.max(900_000, current, requested) : requested;
+}
