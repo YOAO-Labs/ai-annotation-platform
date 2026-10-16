@@ -128,7 +128,7 @@ async def test_export_aap_json_project_envelope(
 
     body = json.loads(await ExportService(db_session).export_aap_json(project.id))
 
-    assert body["schema_version"] == "1.6"
+    assert body["schema_version"] == "1.7"
     assert body["exported_from"]["project_display_id"] == project.display_id
     assert body["project"]["annotation_guide"] == "# 测试指引\n请标注所有车辆."
     assert body["project"]["type_key"] == "image-det"
@@ -185,7 +185,7 @@ async def test_export_aap_json_empty_project(
     await db_session.flush()
 
     body = json.loads(await ExportService(db_session).export_aap_json(project.id))
-    assert body["schema_version"] == "1.6"
+    assert body["schema_version"] == "1.7"
     assert body["tasks"] == []
 
 
@@ -487,7 +487,7 @@ async def test_export_aap_json_video_project_task_block(
     monkeypatch.setattr("app.services.exporting.service.load_coco_rle", _fake_load)
 
     body = json.loads(await ExportService(db_session).export_aap_json(project.id))
-    assert body["schema_version"] == "1.6"
+    assert body["schema_version"] == "1.7"
     assert len(body["tasks"]) == 1
     t0 = body["tasks"][0]
     assert t0["media_type"] == "video"
@@ -602,7 +602,7 @@ async def test_export_aap_json_preserves_scene_track_presence_intervals(
     await db_session.flush()
 
     body = json.loads(await ExportService(db_session).export_aap_json(project.id))
-    assert body["schema_version"] == "1.6"
+    assert body["schema_version"] == "1.7"
     assert body["scene_tracks"] == [
         {
             "track_id": "trk-export-gap",

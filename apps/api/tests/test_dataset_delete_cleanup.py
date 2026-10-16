@@ -36,6 +36,9 @@ class _FailingFlushSession:
     async def execute(self, _query):
         return next(self.results)
 
+    async def scalar(self, _query):
+        return None
+
     async def delete(self, value: object) -> None:
         self.deleted.append(value)
 

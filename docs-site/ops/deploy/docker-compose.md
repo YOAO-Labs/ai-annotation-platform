@@ -75,6 +75,7 @@ last_reviewed: 2026-08-14
 | `MINIO_DATASETS_BUCKET`             | `datasets`       | 上传 dataset 桶。                                                                                                                                                                               |
 | `MINIO_BUG_REPORTS_BUCKET`          | `bug-reports`    | bug 反馈附件桶。                                                                                                                                                                                |
 | `MINIO_AVATARS_BUCKET`              | `avatars`        | 用户头像桶（上传后规范化的 256×256 WebP；永久保留、纳入备份、不挂 lifecycle）。                                                                                                                 |
+| `MINIO_TRAINING_BUCKET`             | `training`       | 训练数据版本、冻结原图与训练包；永久保留、纳入备份，不挂 lifecycle。                                                                                                                            |
 | `MINIO_DATA_DIR`                    | `miniodata`      | Compose 的 MinIO `/data` 来源；可设宿主机绝对路径改为 bind mount。切换只改变挂载位置，不会自动迁移旧卷数据，切换前先停服务并复制 / 校验数据。                                                   |
 | `MINIO_PUBLIC_URL`                  | 空               | 客户端拿 presigned URL 时走的外网地址；与 `MINIO_ENDPOINT` 不同时必填（容器内/外网络两层视角）。                                                                                                |
 | `MINIO_USE_SSL`                     | `false`          | 决定 API / worker 连 `MINIO_ENDPOINT` 以 HTTP 还是 HTTPS；只有该 endpoint 本身提供 TLS 时才设 `true`。公网预签名 URL 是否 HTTPS 由 `MINIO_PUBLIC_URL` 决定，不要因外层 LB 终结 TLS 而误改本项。 |
@@ -409,6 +410,8 @@ mc mirror anno/avatars     s3-backup/anno/avatars
 
 桶名见 `MINIO_BUCKET` / `MINIO_DATASETS_BUCKET` / `MINIO_AVATARS_BUCKET`（默认 `annotations` / `datasets` / `avatars`）。恢复时先恢复数据库再回灌这三个桶，确保 `users.avatar_ref` 指向的对象已就位。
 
+启用在线学习数据版本后，另需备份并恢复 `MINIO_TRAINING_BUCKET`（默认 `training`）；数据库中的版本引用不能替代冻结原图和训练包。
+
 ### 5.3 Redis
 
 Redis 当前没有 volume，也不是业务系统真值，但其中运行状态丢失后不能简单当作“无影响重启”：
@@ -685,8 +688,76 @@ backend `/health` 返回新增 `gpu_info` / `cache` 子对象，便于运维一�
 
 > 这套 Prometheus/Grafana 与超管「模型市场」的实时 PerfHud 是**两套通道、同一数据源**（`/metrics` vs `/health` 共用同一次采样）：PerfHud 管"实时一眼看"，Prometheus 管"历史趋势 + 告警"。详见 [可观测性](/ops/observability/)。
 
+### 8.5 受控训练执行器 (Training Executor)
+
+模型训练是长耗时、高算力占用的批处理任务，平台通过独立的拉取式执行器（`apps/training-executor`）与独立 Compose 覆盖文件 `docker-compose.training.yml` 运行，不占用普通 Celery worker。
+
+#### 1. 准备配置与 Token 密钥
+
+执行器与平台 API 通过共享密钥进行内部认证。生成一个至少 32 字符的安全随机 Token 并写入受限权限的文件：
+
+```bash
+# 生成私有 Token 文件（权限 600）
+openssl rand -hex 32 > ./secrets/training_executor_token
+chmod 600 ./secrets/training_executor_token
+```
+
+在平台的 `.env` 中配置相同的 Token 及启用开关：
+
+```bash
+TRAINING_ENABLED=true
+TRAINING_EXECUTOR_TOKEN=<secrets/training_executor_token 中的内容>
+```
+
+#### 2. 配置执行器环境变量
+
+获取宿主机物理 GPU 的真实 UUID：
+
+```bash
+nvidia-smi -L
+# 输出示例：GPU 0: NVIDIA GeForce RTX 4090 (UUID: GPU-12345678-abcd-ef01-2345-6789abcdef01)
+```
+
+在执行器环境或 `.env` 中指定：
+
+```bash
+TRAINING_GPU_UUID="GPU-12345678-abcd-ef01-2345-6789abcdef01"
+TRAINING_EXECUTOR_TOKEN_PATH="./secrets/training_executor_token"
+TRAINING_MODELS_PATH="./training/models"
+TRAINING_IMAGE="registry.example.com/team/annotation-training:controlled"
+TRAINING_IMAGE_DIGEST="sha256:..."
+```
+
+将示例仓库替换为部署主机可访问的实际 registry，先完成登录。`TRAINING_IMAGE` 可带标签但不得包含 `@digest`；`TRAINING_IMAGE_DIGEST` 必须是该仓库已发布镜像的 manifest 摘要，不能使用 `docker image inspect` 的 `.Id`。Compose 将二者组成同一个不可变引用用于运行镜像及执行器上报身份，单独改变标签不会绕过摘要固定。
+
+#### 3. 构建镜像并启动执行器
+
+```bash
+# 1. 使用仓库根目录上下文构建并发布（也可采用已发布、已核验的镜像）
+export TRAINING_IMAGE="registry.example.com/team/annotation-training:controlled"
+TRAINING_BUILD_METADATA=$(mktemp)
+docker buildx build -f apps/training-executor/Dockerfile \
+  -t "$TRAINING_IMAGE" --push --metadata-file "$TRAINING_BUILD_METADATA" .
+
+# 2. 从本次发布元数据获取确切 manifest digest（需要 jq）
+export TRAINING_IMAGE_DIGEST=$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "$TRAINING_BUILD_METADATA")
+rm -f "$TRAINING_BUILD_METADATA"
+
+# 3. 将相同 digest 同步到平台训练目录后，按固定摘要启动
+docker compose -f docker-compose.training.yml --profile training up -d training-executor
+```
+
+将镜像仓库和摘要保存在部署配置中；Compose 不再包含 `build`，启动时只选择已发布镜像。仅修改 API/Web 业务代码无需重新构建训练镜像。
+
+#### 4. 训练参数契约与镜像升级
+
+训练镜像使用仓库根目录构建上下文：`docker build -f apps/training-executor/Dockerfile .`。专用 `Dockerfile.dockerignore` 仅包含执行器及共享参数包，避免将工作树运行数据或凭据发送到构建上下文。API 镜像也安装同一 `aap-training-contract` 包；更改定义后需要重建执行器、刷新对应 API/worker，并检查 runtime 的精确 `supported_configs` 与目录状态。
+
+保留历史冻结配置和旧镜像。仅在完成原生及恢复资格后，可为当前受控框架目录增加 `legacy_images: ["sha256:旧镜像身份"]`；它只允许新镜像执行已冻结的修订 1 实验，不能扩展参数或跨版本、跨资源领取。未配置时仍要求精确镜像。镜像目录改变后自动策略暂停，负责人重新保存后才采用新环境；不要改写历史配置摘要或强行释放 GPU 租约。
+
 ### 进一步阅读
 
+- [在线学习与训练体系](/dev/concepts/training-datasets) — 架构、状态机、参数契约与数据版本
 - [ADR-0012](/dev/adr/archive/0012-sam-backend-as-independent-gpu-service) — 为什么 SAM backend 独立 GPU 服务化
 - [ADR-0013](/dev/adr/archive/0013-mask-to-polygon-server-side) — mask→polygon 后端化决策
 

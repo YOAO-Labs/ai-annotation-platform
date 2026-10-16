@@ -168,7 +168,13 @@ async def test_apply_public_pipeline_copies_private_and_bumps_usage(
     assert data["scope"] == "private"
     assert data["project_id"] == str(target.id)
     assert data["is_default"] is True
-    assert data["stages"] == template.stages
+    assert data["stages"] == [
+        {
+            **{k: v for k, v in stage.items() if k != "task_type"},
+            **({"task": "classify"} if "task_type" in stage else {}),
+        }
+        for stage in template.stages
+    ]
 
     await db_session.refresh(template)
     assert template.usage_count == 1

@@ -1,7 +1,10 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning"]
 
 [operations]
+"GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/training/projects" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/training/runs" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/feedbacks" = { status = "covered" }
 "GET /api/v1/feedbacks/{root_feedback_id}/thread" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/feedbacks" = { status = "covered" }
@@ -223,3 +226,114 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "PUT /api/v1/projects/{project_id}/ml-backends/{backend_id}" = { status = "excluded", reason = "no-external-demand" }
 "PUT /api/v1/projects/{project_id}/ml-backends/{backend_id}/enablement" = { status = "covered" }
 "PUT /api/v1/tasks/{task_id}/video/tracks/{annotation_id}/mask-keyframes/{frame_index}" = { status = "excluded", reason = "workbench-internal" }
+
+# Project learning is currently exposed through the web UI and raw API.
+"GET /api/v1/projects/{project_id}/task-datasets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/task-datasets/unrecognized-versions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-datasets:preflight" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-datasets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-datasets/{version_id}/retry" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/download" = { status = "excluded", reason = "web-only" }
+"DELETE /api/v1/projects/{project_id}/training-datasets/{version_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/classes" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/compare" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/media" = { status = "excluded", reason = "web-only" }
+
+"POST /api/v1/internal/training/attempts/{attempt_id}/finish" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/attempts/{attempt_id}/heartbeat" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/attempts/{attempt_id}/observations" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/internal/training/attempts/{attempt_id}/recover" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/attempts/{attempt_id}/uploads" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/claim" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/claim" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/{preview_id}/heartbeat" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/{preview_id}/uploads" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/internal/training/previews/{preview_id}/finish" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-previews/capabilities" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-previews" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-previews/{preview_id}" = { status = "excluded", reason = "web-only" }
+"DELETE /api/v1/projects/{project_id}/training-previews/{preview_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-previews/{preview_id}/cancel" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-previews/{preview_id}/images/{index}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-runs" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/catalog" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/initialization-sources/{model_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/parameter-schema" = { status = "excluded", reason = "web-only" }
+"DELETE /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/artifacts/{name}/download" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/evaluation" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-runs/{run_id}/cancel" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/events" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/telemetry" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/logs" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/recovery" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-runs/{run_id}/resume" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-runs:preflight" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/model-releases" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/model-releases" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/trained-models" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/trained-models" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/trained-models/{version_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/trained-models/{version_id}/deploy" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/trained-models/{version_id}/download" = { status = "excluded", reason = "web-only" }
+
+"DELETE /api/v1/projects/{project_id}/learning-policy" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/learning-policy" = { status = "excluded", reason = "web-only" }
+"PUT /api/v1/projects/{project_id}/learning-policy" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/learning-policy/check" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/learning-policy/disable" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/learning-policy/triggers" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/training-recipes" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes:resolve" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-recipes/{recipe_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-recipes/{recipe_id}/revisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes/{recipe_id}/revisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-recipes/{recipe_id}/archive" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-recipes/clone/{run_id}" = { status = "excluded", reason = "web-only" }
+"DELETE /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/compare" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/qualification" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/report" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/samples" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/image" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/source" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/sample-evaluations" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/cancel" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/sample-evaluations/{evaluation_id}/retry" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/model-lineage/{kind}/{node_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/trained-models/{version_id}/decisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/trained-models/{version_id}/decisions" = { status = "excluded", reason = "web-only" }
+
+"POST /api/v1/projects/{project_id}/training-studies:preview" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-studies" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-studies" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-studies/{study_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-studies/{study_id}/cancel" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/active-learning-rounds" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/pool" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/attempts/{attempt_id}/report" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/cancel" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/candidates" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/candidates/{ordinal}/image" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/decisions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/decisions" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/feedback" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/feedback" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/retry" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds:preview" = { status = "excluded", reason = "web-only" }

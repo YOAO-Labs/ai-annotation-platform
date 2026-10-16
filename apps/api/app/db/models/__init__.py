@@ -1,4 +1,6 @@
 from app.db.models.user import User
+from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
+from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.db.models.group import Group
 from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
@@ -38,6 +40,12 @@ from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
+from app.db.models.trained_model import (
+    ModelDeployment,
+    ModelRelease,
+    ProjectModelSelection,
+    TrainedModelVersion,
+)
 from app.db.models.video_tracker_job import (
     VideoTrackerJob,
     VideoTrackerJobKind,
@@ -76,6 +84,42 @@ from app.db.models.system_setting import SystemSetting
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.export_artifact import ExportArtifact
+from app.db.models.training_dataset import TrainingDatasetVersion
+from app.db.models.training_storage_deletion import TrainingStorageDeletion
+from app.db.models.project_task_dataset import (
+    ProjectTaskDataset,
+    TaskDatasetVersionMembership,
+)
+from app.db.models.training_dataset_analysis import (
+    TrainingDatasetAnalysis,
+    TrainingDatasetAnalyzedSample,
+)
+from app.db.models.model_decision import ModelDecision
+from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
+from app.db.models.active_learning import (
+    ActiveLearningRound as ActiveLearningRound,
+    ActiveLearningAttempt as ActiveLearningAttempt,
+    ActiveLearningCandidate as ActiveLearningCandidate,
+    ActiveLearningPoolMember as ActiveLearningPoolMember,
+    ActiveLearningDecision as ActiveLearningDecision,
+    ActiveLearningReference as ActiveLearningReference,
+    ActiveLearningFeedback as ActiveLearningFeedback,
+)
+from app.db.models.sample_evaluation import (
+    SampleEvaluationRun,
+    SampleEvaluationAttempt,
+    SampleEvaluationSample,
+)
+from app.db.models.training_run import (
+    TrainingRun,
+    TrainingAttempt,
+    TrainingEvent,
+    TrainingResourceLease,
+)
+from app.db.models.training_observability import (
+    TrainingTelemetrySample,
+    TrainingLogChunk,
+)
 from app.db.models.storage_connection import (
     StorageConnection,
     StorageConnectionKind,
@@ -83,6 +127,17 @@ from app.db.models.storage_connection import (
 )
 
 __all__ = [
+    "TrainedModelVersion",
+    "ModelDeployment",
+    "ModelRelease",
+    "ProjectModelSelection",
+    "TrainingRun",
+    "SampleEvaluationRun",
+    "SampleEvaluationAttempt",
+    "SampleEvaluationSample",
+    "TrainingAttempt",
+    "TrainingEvent",
+    "TrainingResourceLease",
     "User",
     "Group",
     "Organization",
@@ -160,7 +215,26 @@ __all__ = [
     "AsyncJobKind",
     "AsyncJobStatus",
     "ExportArtifact",
+    "TrainingDatasetVersion",
+    "TrainingStorageDeletion",
+    "ProjectTaskDataset",
+    "TaskDatasetVersionMembership",
+    "TrainingDatasetAnalysis",
+    "TrainingDatasetAnalyzedSample",
     "StorageConnection",
     "StorageConnectionKind",
     "StorageConnectionScope",
 ]
+
+from app.db.models.learning_policy import LearningPolicy, LearningTrigger
+
+__all__ += ["LearningPolicy", "LearningTrigger"]
+
+__all__ += ["TrainingRecipe", "TrainingRecipeRevision"]
+__all__ += ["TrainingPreview", "TrainingPreviewResourceLease"]
+
+__all__ += ["TrainingTelemetrySample", "TrainingLogChunk"]
+
+__all__ += ["ModelDecision"]
+
+__all__ += ["TrainingStudy", "TrainingTrial"]

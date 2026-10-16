@@ -44,6 +44,20 @@ from app.api.v1 import (
     storage_connections,
     system_settings,
     tasks,
+    training_datasets,
+    project_task_datasets,
+    training_dataset_analysis,
+    training_runs,
+    training_studies,
+    sample_evaluations,
+    active_learning,
+    training_previews,
+    training_observability,
+    training_hub,
+    trained_models,
+    model_lineage,
+    learning_policies,
+    training_recipes,
     users,
     video_tracker_jobs,
     videos,
@@ -77,6 +91,25 @@ api_router.include_router(
     tags=["admin-alias-freq"],
 )
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
+api_router.include_router(training_datasets.router, tags=["training-datasets"])
+api_router.include_router(project_task_datasets.router, tags=["training-datasets"])
+api_router.include_router(training_dataset_analysis.router, tags=["training-datasets"])
+api_router.include_router(training_runs.router, tags=["training-runs"])
+api_router.include_router(training_studies.router, tags=["training-studies"])
+api_router.include_router(sample_evaluations.router, tags=["sample-evaluations"])
+api_router.include_router(active_learning.router, tags=["active-learning"])
+api_router.include_router(training_hub.router, tags=["training-hub"])
+api_router.include_router(training_runs.executor_router, tags=["training-executor"])
+api_router.include_router(training_previews.router, tags=["training-previews"])
+api_router.include_router(training_previews.executor_router, tags=["training-executor"])
+api_router.include_router(training_observability.router, tags=["training-runs"])
+api_router.include_router(
+    training_observability.executor_router, tags=["training-executor"]
+)
+api_router.include_router(trained_models.router, tags=["trained-models"])
+api_router.include_router(model_lineage.router, tags=["trained-models"])
+api_router.include_router(learning_policies.router, tags=["learning-policies"])
+api_router.include_router(training_recipes.router, tags=["training-recipes"])
 api_router.include_router(project_performance.router, tags=["project-performance"])
 api_router.include_router(task_views.router, tags=["task-views"])
 api_router.include_router(data_manager.router, tags=["data-manager"])

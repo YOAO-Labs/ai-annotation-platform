@@ -35,7 +35,8 @@ from model_registry import (
     openvocab_family,
 )
 from observability import record_inference
-from schemas import Context, Variants
+from schemas import Context, model_key_for_context
+from sample_evaluations import FIXED_OPTIONS, observed_inference
 
 logger = logging.getLogger("yolo-backend.predictor")
 
@@ -258,19 +259,14 @@ class YoloPredictor:
         file_path: str,
         ctx: Context,
     ) -> tuple[list[dict[str, Any]], bool, int | None, int]:
-        variants: Variants = ctx.variants
         if ctx.type == "text":
             return await self._predict_open_text(file_path, ctx)
         if ctx.type == "exemplar":
             return await self._predict_visual_prompt(file_path, ctx)
-        if ctx.type == "tracker":
+        if ctx.task == "tracker":
             return await self._predict_tracker(file_path, ctx)
 
-        async with self._pool.borrow(
-            ctx.type,
-            variants.series,
-            variants.size,
-        ) as lease:
+        async with self._pool.borrow(*model_key_for_context(ctx)) as lease:
             items, inference_ms = await _run_blocking_until_complete(
                 partial(self._predict_closed_sync, lease.model, file_path, ctx)
             )
@@ -282,12 +278,20 @@ class YoloPredictor:
         file_path: str,
         ctx: Context,
     ) -> tuple[list[dict[str, Any]], int]:
-        variants = ctx.variants
-        task = ctx.type
+        task = ctx.task
         params = ctx.params
         img = fetch_image(file_path)
         img_w, img_h = img.size
         started = time.monotonic()
+        options = (
+            {
+                key: value
+                for key, value in FIXED_OPTIONS.items()
+                if key not in {"max_det", "classes", "verbose"}
+            }
+            if ctx.sample_evaluation
+            else {}
+        )
         results = model.predict(
             img,
             conf=params.conf,
@@ -296,22 +300,30 @@ class YoloPredictor:
             classes=getattr(ctx, "classes", None) or None,
             device=str(model.device),
             verbose=False,
+            **options,
         )
         elapsed = time.monotonic() - started
-        record_inference(task, variants.series, variants.size, elapsed)
+        _, series, size = model_key_for_context(ctx)
+        record_inference(task, series, size, elapsed)
         inference_ms = int(elapsed * 1000)
+        if ctx.sample_evaluation:
+            ctx._evaluation_meta = observed_inference(model, ctx, img_w, img_h)
         if not results:
             return [], inference_ms
 
         result = results[0]
+        if ctx.sample_evaluation and tuple(result.orig_shape) != (img_h, img_w):
+            raise ValueError(
+                "Evaluation result logical dimensions differ from normalized input"
+            )
         names: dict[int, str] = getattr(result, "names", {}) or getattr(
             model, "names", {}
         )
-        if task == "detection":
+        if task == "detect":
             items = _emit_detection(result, names, img_w, img_h)
-        elif task == "segmentation":
+        elif task == "segment":
             items = _emit_segmentation(result, names, img_w, img_h)
-        elif task == "keypoint":
+        elif task == "pose":
             items = _emit_keypoint(result, names, img_w, img_h)
         elif task == "obb":
             items = _emit_obb(result, names, img_w, img_h)
@@ -691,6 +703,7 @@ def _emit_detection(
                 normalized=normalized,
             )
         )
+        out[-1]["native_class_index"] = cls_idx
     return out
 
 

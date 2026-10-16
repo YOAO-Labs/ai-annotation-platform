@@ -1,3 +1,4 @@
+import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -554,15 +555,17 @@ function requestInputSummary(input: Record<string, unknown>): Array<[string, str
     rows.push(["提示词", input.prompt]);
   }
   const taskLabels: Record<string, string> = {
-    detection: "检测",
-    segmentation: "分割",
-    keypoint: "关键点",
+    detect: "检测",
+    segment: "分割",
+    pose: "关键点",
     obb: "旋转框检测",
     ocr: "文字识别",
     doc_layout: "文档版面",
   };
-  if (typeof input.task_type === "string") {
-    rows.push(["任务类型", taskLabels[input.task_type] ?? input.task_type]);
+  const task = input.task ?? input.task_type;
+  if (typeof task === "string") {
+    const canonicalTask = normalizeTask(task);
+    rows.push(["任务类型", taskLabels[canonicalTask] ?? canonicalTask]);
   }
   const variants = input.model_variants;
   if (variants && typeof variants === "object" && !Array.isArray(variants)) {

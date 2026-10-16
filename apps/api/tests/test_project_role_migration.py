@@ -311,8 +311,10 @@ def test_0174_converts_and_downgrade_refuses(test_db_url, apply_migrations):
         asyncio.run(step("convert"))
         asyncio.run(step("verify"))
     finally:
-        command.upgrade(config, "head")
-        asyncio.run(step("cleanup"))
+        try:
+            command.upgrade(config, "head")
+        finally:
+            asyncio.run(step("cleanup"))
 
 
 def _apply_upgrade(sync_conn, migration) -> None:

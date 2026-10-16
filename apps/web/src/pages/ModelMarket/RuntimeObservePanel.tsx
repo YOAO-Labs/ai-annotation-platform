@@ -507,7 +507,7 @@ function useWarmupDispatcher(
       mlBackendsApi.warmup(projectId, backendId, {
         ...(target?.task ? { task: target.task } : {}),
         ...(target?.variants ? { variants: target.variants } : {}),
-        ...(target?.taskType ? { task_type: target.taskType } : {}),
+        ...(target?.taskType ? { modality: target.taskType } : {}),
       }),
     onSuccess: () => invalidateRuntimeQueries(qc),
   });

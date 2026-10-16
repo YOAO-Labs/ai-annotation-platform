@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from aap_protocol_v2.lifecycle import managed_lifecycle_capability_sha256
+from fastapi import HTTPException
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -873,6 +874,20 @@ class MLBackendService:
         """Run non-mutating legacy job and managed-GPU deletion guards."""
         if await self.get(registry_id) is None:
             return False
+        from app.db.models.sample_evaluation import SampleEvaluationRun
+        from app.db.models.trained_model import ModelDeployment
+
+        if await self.db.scalar(
+            select(SampleEvaluationRun.id)
+            .join(
+                ModelDeployment, ModelDeployment.id == SampleEvaluationRun.deployment_id
+            )
+            .where(ModelDeployment.registry_id == registry_id)
+            .limit(1)
+        ):
+            raise HTTPException(
+                status_code=409, detail="推理实例被冻结样本评估引用，请先结束并删除评估"
+            )
         running_jobs = await self._count_running_predictions(registry_id)
         if running_jobs:
             raise MLBackendDeleteBlocked(running_jobs)
@@ -1174,6 +1189,7 @@ class MLBackendService:
         registry_id: uuid.UUID,
         sam_variant: str | None = None,
         dino_variant: str | None = None,
+        modality: str | None = None,
         task_type: str | None = None,
     ) -> dict | None:
         backend = await self.get(registry_id)
@@ -1185,7 +1201,10 @@ class MLBackendService:
             shadow_session_factory=self.shadow_session_factory,
             dispatch_context_factory=self.dispatch_context_factory,
         ).reload(
-            sam_variant=sam_variant, dino_variant=dino_variant, task_type=task_type
+            sam_variant=sam_variant,
+            dino_variant=dino_variant,
+            modality=modality,
+            task_type=task_type,
         )
 
     async def warmup(self, registry_id: uuid.UUID, body: dict) -> dict | None:

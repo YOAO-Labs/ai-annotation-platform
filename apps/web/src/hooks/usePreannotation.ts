@@ -78,7 +78,7 @@ export interface TriggerPreannotationPayload {
   /** v0.14.9 · 能力声明协议 v2: 多模型 backend 时指定目标 model 条目 id. */
   model_id?: string;
   /** v0.14.9 · 任务类型便捷别名 ("ocr" / "doc_layout" / "text"); OCR / 版面预标透传. */
-  task_type?: string;
+  task?: string;
   /** v0.14.17 · 协议 v2 结构化路径 (YOLO 等多 task 几何 backend): 选中 variant 组合 (dict[axis,value]).
    *  非空时后端构造 v2 context (model_variants dict + nested params), 修通 YOLO 批量预标. */
   model_variants?: Record<string, string>;
@@ -110,7 +110,7 @@ export interface PipelineStagePayload {
   /** v0.21.5 · 初始输入节点(parent_stage=null)的数据源描述; 下游 stage 无此字段。 */
   source?: PipelineSource;
   model_id?: string;
-  task_type?: string;
+  task?: string;
   model_variants?: Record<string, string>;
   params?: Record<string, unknown>;
   class_filter?: number[];

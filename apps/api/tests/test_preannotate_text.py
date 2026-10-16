@@ -357,7 +357,7 @@ async def test_preannotate_forwards_model_id_and_task_type(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["task_type"] == "ocr"
+    assert _mock_celery["kwargs"]["task"] == "ocr"
     assert _mock_celery["kwargs"]["model_id"] == "pp-ocrv4"
 
 

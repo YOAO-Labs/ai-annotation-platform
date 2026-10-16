@@ -75,7 +75,7 @@ describe("能力判据跨端契约 (前端 stageWarning ↔ 后端 pipeline_vali
       // task 经 payload.task_type 传入 (复刻 StageCard: 分类/识别下游 payload 带 task_type);
       // stageWarning 据此对 task=ocr 豁免 class 判据。
       const payload = c.writes_attributes
-        ? ({ ...attrPayload, task_type: c.model_caps.task } as PipelineStagePayload)
+        ? ({ ...attrPayload, task: c.model_caps.task } as PipelineStagePayload)
         : geomPayload;
       const warning = stageWarning(payload, toCaps(c.model_caps));
       // 前端单条警示: 取 expect_codes[0] (后端顺序 batchable 先于 class); 空 → 无警示。

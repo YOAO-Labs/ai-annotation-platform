@@ -106,7 +106,7 @@ def test_health_pool_loaded_key_string_uses_series_size_task(client) -> None:
     )
     pool = client.get("/health").json()["pool"]
     keys = [e["key"] for e in pool["loaded_keys"]]
-    assert "yolo11/s/detection" in keys
+    assert "yolo11/s/detect" in keys
 
 
 def test_health_declares_cpu_fallback_capability(client) -> None:

@@ -1,3 +1,4 @@
+from aap_task_contract import Task as VisualTaskName, normalize_task_fields
 import logging
 
 from pydantic import (
@@ -132,7 +133,14 @@ class SecondaryInferenceRequest(BaseModel):
     model_id: str | None = None
     model_variants: dict[str, str] | None = None
     params: dict | None = None
-    task_type: str | None = None
+    task: VisualTaskName | None = None
+    prompt_type: Literal["text"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_task_fields(cls, value):
+        return normalize_task_fields(value)
+
     prompt: str | None = None
     class_filter: list[int] | None = None
     # ROI 外扩比例 (贴边小目标留边给上下文); 上下界与批量 pipeline ROI.pad 对齐 [0, 0.5]。

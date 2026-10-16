@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from aap_protocol_v2.predict import normalize_context_task
+from aap_task_contract import (
+    TASK_ALIASES,
+    TASK_VALUES,
+    legacy_inference_task,
+    normalize_modality_fields,
+    normalize_task,
+)
+from app.services.ml_capabilities import resolve_model_task
+
 import asyncio
 from contextlib import asynccontextmanager
 import json
@@ -135,6 +145,7 @@ async def _bounded_stream_response(
     response: httpx.Response,
     *,
     max_bytes: int,
+    reason: str = "mask_response_too_large",
 ) -> httpx.Response:
     declared = response.headers.get("content-length")
     if declared:
@@ -146,20 +157,20 @@ async def _bounded_stream_response(
             raise HTTPException(
                 status_code=413,
                 detail={
-                    "reason": "mask_response_too_large",
+                    "reason": reason,
                     "message": "ML backend response exceeds the byte budget",
                     "max_bytes": max_bytes,
                     "declared_bytes": declared_bytes,
                 },
             )
     body = bytearray()
-    async for chunk in response.aiter_bytes():
+    async for chunk in response.aiter_bytes(chunk_size=min(max_bytes + 1, 64 * 1024)):
         body.extend(chunk)
         if len(body) > max_bytes:
             raise HTTPException(
                 status_code=413,
                 detail={
-                    "reason": "mask_response_too_large",
+                    "reason": reason,
                     "message": "ML backend response exceeds the byte budget",
                     "max_bytes": max_bytes,
                     "received_bytes": len(body),
@@ -228,6 +239,22 @@ class MLBackendClient:
         self.max_concurrency = int(
             extra.get("max_concurrency", _DEFAULT_MAX_CONCURRENCY)
         )
+
+    def _predict_context(self, context: dict) -> dict:
+        normalized = normalize_context_task(context)
+        task = resolve_model_task(
+            self._backend, normalized.get("model_id"), normalized.get("task")
+        )
+        if task is not None:
+            normalized["task"] = task
+        meta = getattr(self._backend, "health_meta", None) or {}
+        revision = (meta.get("capabilities") or {}).get("task_contract_revision", 0)
+        if revision != 1:
+            # Compatibility is confined to the transport; stored context is canonical.
+            task = normalized.pop("task", None)
+            if task is not None and "type" not in normalized:
+                normalized["type"] = legacy_inference_task(task)
+        return normalized
 
     @property
     def _semaphore(self) -> asyncio.Semaphore | None:
@@ -505,15 +532,58 @@ class MLBackendClient:
             return _NullCtx()
         return semaphore
 
+    async def install_trained_model(self, payload: dict) -> dict:
+        async with httpx.AsyncClient(timeout=180) as client:
+            response = await client.post(
+                f"{self.base_url}/managed-models", json=payload, headers=self._headers()
+            )
+            _raise_for_backend_status(response)
+            return response.json()
+
+    async def trained_model_receipt(self, version_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/managed-models/{version_id}", headers=self._headers()
+            )
+            _raise_for_backend_status(response)
+            return response.json()
+
+    async def managed_evaluation_request(
+        self, path: str, *, payload: dict | None = None, params: dict | None = None
+    ) -> dict:
+        """Read/seal a request without starting native work or GPU admission."""
+        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            async with client.stream(
+                "POST" if payload is not None else "GET",
+                f"{self.base_url}/managed-evaluation/{path}",
+                json=payload,
+                params=params,
+                headers=self._headers(),
+            ) as streamed:
+                response = await _bounded_stream_response(
+                    streamed,
+                    max_bytes=256 * 1024,
+                    reason="evaluation_response_too_large",
+                )
+            _raise_for_backend_status(response)
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("Evaluation backend response must be an object")
+            return data
+
     async def predict(
-        self, tasks: list[dict], context: dict | None = None
+        self,
+        tasks: list[dict],
+        context: dict | None = None,
+        *,
+        max_response_bytes: int | None = None,
     ) -> list[PredictionResult]:
         start = time.monotonic()
         outcome = "success"
         payload: dict = {"tasks": tasks}
         if context:
             # v0.9.5 · 批量预标透传 context（含 type=text + prompt + output 三模式 + DINO 阈值）。
-            payload["context"] = context
+            payload["context"] = self._predict_context(context)
         try:
             async with await self._acquire():
                 async with self._gpu_dispatch(
@@ -522,15 +592,41 @@ class MLBackendClient:
                     async with httpx.AsyncClient(
                         timeout=settings.ml_predict_timeout
                     ) as client:
-                        resp = await client.post(
-                            f"{self.base_url}/predict",
-                            json=payload,
-                            headers=self._headers(grant),
-                        )
+                        if max_response_bytes is None:
+                            resp = await client.post(
+                                f"{self.base_url}/predict",
+                                json=payload,
+                                headers=self._headers(grant),
+                            )
+                        else:
+                            async with client.stream(
+                                "POST",
+                                f"{self.base_url}/predict",
+                                json=payload,
+                                headers=self._headers(grant),
+                            ) as streamed:
+                                if grant is not None:
+                                    grant.report_response(streamed.status_code)
+                                resp = await _bounded_stream_response(
+                                    streamed,
+                                    max_bytes=max_response_bytes,
+                                    reason="evaluation_response_too_large",
+                                )
                         if grant is not None:
                             grant.report_response(resp.status_code)
-                        resp.raise_for_status()
+                        if max_response_bytes is None:
+                            resp.raise_for_status()
+                        else:
+                            _raise_for_backend_status(resp)
                         data = resp.json()
+                        if max_response_bytes is not None and (
+                            not isinstance(data, dict)
+                            or not isinstance(data.get("results"), list)
+                            or any(
+                                not isinstance(item, dict) for item in data["results"]
+                            )
+                        ):
+                            raise ValueError("Invalid batch prediction response")
         except Exception:
             outcome = "error"
             observe_ml_backend(self.backend_id, outcome, time.monotonic() - start)
@@ -563,6 +659,10 @@ class MLBackendClient:
         *,
         max_response_bytes: int | None = None,
     ) -> PredictionResult:
+        try:
+            context = self._predict_context(context)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         start = time.monotonic()
         outcome = "success"
         try:
@@ -667,6 +767,7 @@ class MLBackendClient:
         sam_variant: str | None = None,
         dino_variant: str | None = None,
         task_type: str | None = None,
+        modality: str | None = None,
     ) -> dict:
         """B-28+ · 让 backend 重新加载模型. 重载耗时可能远高于 health 探活, 用 predict 超时配额.
 
@@ -678,8 +779,17 @@ class MLBackendClient:
             body["sam_variant"] = sam_variant
         if dino_variant:
             body["dino_variant"] = dino_variant
-        if task_type:
-            body["task_type"] = task_type
+        semantic = normalize_modality_fields(
+            {"modality": modality, "task_type": task_type}
+        )
+        if semantic.get("modality"):
+            meta = getattr(self._backend, "health_meta", None) or {}
+            key = (
+                "modality"
+                if (meta.get("capabilities") or {}).get("task_contract_revision") == 1
+                else "task_type"
+            )
+            body[key] = semantic["modality"]
         async with self._gpu_dispatch("reload", AdmissionScope.RELOAD) as grant:
             async with httpx.AsyncClient(timeout=settings.ml_predict_timeout) as client:
                 resp = await client.post(
@@ -835,16 +945,23 @@ class MLBackendClient:
     async def warmup(self, body: dict) -> dict:
         """v0.14.14 协议 §4.4 · 把指定 variant 权重加载到 pool, 不跑 forward.
 
-        body 由前端原样传入 (各 backend schema 不同: yolo 要 task+variants{series,size},
+        body 保留各 backend 的结构 (yolo 要 task+variants{series,size},
         gsam2 要 variants{sam_variant,dino_variant}, sam3 可空或 variants{model_variant}).
         响应统一为 {ok, model_load_ms, cache_hit, evicted}. 用 predict 超时配额 (加载
         可能数秒).
         """
+        payload = dict(body or {})
+        task = payload.get("task")
+        if isinstance(task, str) and (task in TASK_VALUES or task in TASK_ALIASES):
+            task = normalize_task(task)
+            meta = getattr(self._backend, "health_meta", None) or {}
+            revision = (meta.get("capabilities") or {}).get("task_contract_revision", 0)
+            payload["task"] = task if revision == 1 else legacy_inference_task(task)
         async with self._gpu_dispatch("warmup", AdmissionScope.WARMUP) as grant:
             async with httpx.AsyncClient(timeout=settings.ml_predict_timeout) as client:
                 resp = await client.post(
                     f"{self.base_url}/warmup",
-                    json=body or {},
+                    json=payload,
                     headers=self._headers(grant),
                 )
                 if grant is not None:

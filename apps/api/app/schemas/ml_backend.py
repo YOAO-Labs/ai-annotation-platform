@@ -8,6 +8,7 @@ from aap_protocol_v2.lifecycle import (
     canonical_managed_lifecycle_capabilities,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from aap_task_contract import normalize_task, normalize_modality_fields
 
 from app.utils.gpu_resource import validate_gpu_resource_id
 
@@ -173,6 +174,12 @@ class ModelCapability(BaseModel):
     id: str
     display_name: str | None = None
     task: str = "unknown"
+
+    @field_validator("task", mode="before")
+    @classmethod
+    def canonical_task(cls, value):
+        return normalize_task(value, allow_unknown=True)
+
     model_family: str | None = None
     infra: str = "unknown"
     is_interactive: bool = False
@@ -240,6 +247,7 @@ class BackendCapabilities(BaseModel):
     name: str | None = None
     version: str | None = None
     protocol_version: str = "1"
+    task_contract_revision: Literal[0, 1] = 0
     compat_protocol_versions: list[str] = []
     model_version: str | None = None
     weights_version: str | None = None
@@ -552,7 +560,12 @@ class MLBackendReloadRequest(BaseModel):
     sam_variant: str | None = None
     dino_variant: str | None = None
     # v0.10.36 · "image" 预热图片池 (默认), "video" 预热独立 video tracker 池 (仅认 sam_variant)
-    task_type: str | None = None
+    modality: Literal["image", "video"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_modality_fields(cls, value):
+        return normalize_modality_fields(value)
 
 
 class InteractiveRequest(BaseModel):

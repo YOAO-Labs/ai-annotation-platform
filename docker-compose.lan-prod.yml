@@ -14,6 +14,7 @@ x-runtime: &runtime
   env_file: .env.production
   environment:
     ALEMBIC_AUTO_UPGRADE: "false"
+    MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:?.env.production must set MINIO_TRAINING_BUCKET}
   restart: unless-stopped
   init: true
   logging: *logging

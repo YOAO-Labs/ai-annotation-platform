@@ -40,7 +40,7 @@ async def test_protocol_task_metadata_shape(httpx_client, auth_headers):
     r = await httpx_client.get("/api/v1/ml-capabilities/protocol", headers=auth_headers)
     assert r.status_code == 200
     tasks = r.json()["tasks"]
-    detection = next(t for t in tasks if t["id"] == "detection")
+    detection = next(t for t in tasks if t["id"] == "detect")
     assert detection["label"] == "目标检测"
     assert detection["summary"]
     assert detection["protocol_notes"]

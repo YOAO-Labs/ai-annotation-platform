@@ -105,11 +105,11 @@ export interface InteractiveToolBarProps {
 
 // model.task → 中文分组标题. 受控 task 之外的归「其他」。
 const MODEL_TASK_LABELS: Record<string, string> = {
-  detection: "检测",
+  detect: "检测",
   obb: "旋转框检测",
-  segmentation: "分割",
-  keypoint: "关键点",
-  classification: "分类",
+  segment: "分割",
+  pose: "关键点",
+  classify: "分类",
   ocr: "文字识别",
   doc_layout: "版面分析",
   tracker: "视频追踪",

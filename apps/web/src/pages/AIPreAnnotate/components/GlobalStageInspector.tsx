@@ -182,7 +182,7 @@ export function GlobalStageInspector({
         stage: stageIndex,
         ml_backend_id: selectedOption.backendId,
         model_id: selectedOption.model.id,
-        task_type: selectedOption.model.task,
+        task: selectedOption.model.task,
         ...(hasVariants ? { model_variants: modelVariants } : {}),
         ...(clsIdx.length > 0
           ? { class_filter: Array.from(new Set(clsIdx)).sort((a, b) => a - b) }
@@ -200,7 +200,7 @@ export function GlobalStageInspector({
       stage: stageIndex,
       ml_backend_id: selectedOption.backendId,
       model_id: selectedOption.model.id,
-      task_type: selectedOption.model.task,
+      task: selectedOption.model.task,
       parent_stage: parentStageIndex ?? 0,
       ...(hasVariants ? { model_variants: modelVariants } : {}),
       roi: { mode: shape.roiMode, pad },

@@ -113,13 +113,13 @@ describe("派生", () => {
 
 describe("下游归类 classifyDownstream / deriveDownstreamShape", () => {
   // 项目侧 StageCard 与全局侧 GlobalStageInspector 共用的单一判据; 锁死四类映射。
-  const detect = { task: "detection", is_interactive: false };
-  const boxSeg = { task: "segmentation", supported_prompts: ["bbox"], is_interactive: false };
-  const segNoBbox = { task: "segmentation", supported_prompts: [], is_interactive: false };
+  const detect = { task: "detect", is_interactive: false };
+  const boxSeg = { task: "segment", supported_prompts: ["bbox"], is_interactive: false };
+  const segNoBbox = { task: "segment", supported_prompts: [], is_interactive: false };
   const ocr = { task: "ocr", composition: "atom" as const, is_interactive: false };
   const ocrComposite = { task: "ocr", composition: "composite" as const, is_interactive: false };
-  const classify = { task: "classification", is_interactive: false };
-  const interactive = { task: "detection", is_interactive: true };
+  const classify = { task: "classify", is_interactive: false };
+  const interactive = { task: "detect", is_interactive: true };
 
   it("检测: crop 投递 / 产几何", () => {
     expect(classifyDownstream(detect)).toMatchObject({
@@ -204,7 +204,7 @@ describe("下游归类 classifyDownstream / deriveDownstreamShape", () => {
 
 describe("输入节点归类 sourceNodeShape (v0.21.5 · 源类型/执行单位由 source 元数据携带)", () => {
   it("image 源 + detection → 图像 / 目标检测 / 检测框", () => {
-    const s = sourceNodeShape({ kind: "dataset", data_type: "image" }, { task: "detection" });
+    const s = sourceNodeShape({ kind: "dataset", data_type: "image" }, { task: "detect" });
     expect(s.role.label).toBe("目标检测");
     expect(s.sourceType).toBe("image");
     expect(s.sourceTypeLabel).toBe("图像");
@@ -238,7 +238,7 @@ describe("输入节点归类 sourceNodeShape (v0.21.5 · 源类型/执行单位�
     const s = sourceNodeShape(
       { kind: "dataset", data_type: "video", execution_unit: "frame" },
       {
-        task: "detection",
+        task: "detect",
       },
     );
     expect(s.sourceType).toBe("video");

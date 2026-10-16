@@ -22,12 +22,15 @@ SAM 2 image embedding LRU 缓存:
 
 from __future__ import annotations
 
+from aap_protocol_v2.predict import normalize_context_task
+from aap_task_contract import normalize_modality_fields
+
 import asyncio
 import functools
 import logging
 import os
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import httpx
 import torch
@@ -73,6 +76,7 @@ from aap_protocol_v2.lifecycle import (
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.routing import APIRoute
+from pydantic import model_validator
 from pydantic import BaseModel, ValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -451,7 +455,17 @@ def _resolve_video_variant(ctx: dict) -> str:
 
 def _normalize_predict_context(ctx: dict) -> dict:
     try:
-        normalized, deprecated = normalize_context_model_variants(ctx)
+        normalized = normalize_context_task(
+            ctx,
+            model_task={
+                "grounded-sam2-detection": "detect",
+                "grounded-sam2-segmentation": "segment",
+                "grounded-sam2-interactive-seg": "interactive_seg",
+                "grounded-sam2-tracker": "tracker",
+                "grounded-sam2-box-seg": "segment",
+            }.get(ctx.get("model_id")),
+        )
+        normalized, deprecated = normalize_context_model_variants(normalized)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     # 同一请求 ctx 常被图像 (_resolve_variant) 与视频 (_resolve_video_variant)
@@ -776,6 +790,7 @@ def setup() -> dict:
     # - params: JSON Schema (Draft-07 子集) — 前端 schema-form 自动渲染参数面板
     base = {
         "protocol_version": PROTOCOL_VERSION,
+        "task_contract_revision": 1,
         "compat_protocol_versions": COMPAT_PROTOCOL_VERSIONS,
         "name": "grounded-sam2",
         "version": BACKEND_VERSION,
@@ -880,7 +895,7 @@ def setup() -> dict:
         {
             "id": "grounded-sam2-detection",
             "display_name": "Grounded-SAM 2 · 文本检测 (DINO)",
-            "task": "detection",
+            "task": "detect",
             "model_family": "grounded-sam2",
             "infra": "pytorch",
             "is_interactive": False,
@@ -901,7 +916,7 @@ def setup() -> dict:
         {
             "id": "grounded-sam2-segmentation",
             "display_name": "Grounded-SAM 2 · 文本分割 (DINO + SAM)",
-            "task": "segmentation",
+            "task": "segment",
             "model_family": "grounded-sam2",
             "infra": "pytorch",
             "is_interactive": False,
@@ -993,7 +1008,7 @@ def setup() -> dict:
             # 但作为独立 model 暴露——非交互, 供多阶段编排消费上游检测框(geometry-prompt 批量)。
             "id": "grounded-sam2-box-seg",
             "display_name": "Grounded-SAM 2 · 框→分割 (SAM)",
-            "task": "segmentation",
+            "task": "segment",
             "model_family": "grounded-sam2",
             "infra": "pytorch",
             "is_interactive": False,
@@ -1145,13 +1160,18 @@ async def lifecycle_reset(request: Request) -> dict[str, Any]:
 class ReloadRequest(BaseModel):
     """可选指定变体预热. 缺省回退 env 默认变体.
 
-    task_type 区分预热目标池: "image" (默认, 图片池) / "video"
+    modality 区分预热目标池: "image" (默认, 图片池) / "video"
     (独立 video tracker 池). 旧调用不传 = "image", 行为完全不变.
     """
 
     sam_variant: str | None = None
     dino_variant: str | None = None
-    task_type: str = "image"
+    modality: Literal["image", "video"] = "image"
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_modality_fields(cls, value):
+        return normalize_modality_fields(value)
 
 
 @app.post("/reload")
@@ -1160,15 +1180,15 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
 
     接受可选 {sam_variant, dino_variant} 预热指定变体 (模型市场单变体预热);
     缺省回退 env 默认变体. 非法变体 422 (同 predict 的 _resolve_variant 校验).
-    task_type="video" 时预热独立 video tracker 池 (不用 dino).
+    modality="video" 时预热独立 video tracker 池 (不用 dino).
     """
     if _pool is None or _video_pool is None:
         raise HTTPException(status_code=503, detail="backend not ready")
     operation = _request_operation(request)
-    task_type = (req.task_type if req else None) or "image"
+    modality = (req.modality if req else None) or "image"
 
     # video 分支: 预热独立 video tracker 池 (单维 sam_variant, 无 dino).
-    if task_type == "video":
+    if modality == "video":
         sv = (req.sam_variant if req else None) or SAM_VARIANT
         if sv not in SAM2_CONFIGS:
             raise VariantNotSupportedError("sam_variant", sv, sorted(SAM2_CONFIGS))
@@ -1191,13 +1211,13 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
             "loaded": True,
             "reloaded": not cache_hit,
             "sam_variant": sv,
-            "task_type": "video",
+            "modality": "video",
         }
 
-    if task_type != "image":
+    if modality != "image":
         raise HTTPException(
             status_code=422,
-            detail=f"unsupported task_type: {task_type!r}; allowed=['image', 'video']",
+            detail=f"unsupported modality: {modality!r}; allowed=['image', 'video']",
         )
 
     sv = (req.sam_variant if req else None) or SAM_VARIANT
@@ -1227,7 +1247,7 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
         "reloaded": not cache_hit,
         "sam_variant": sv,
         "dino_variant": dv,
-        "task_type": "image",
+        "modality": "image",
     }
 
 
@@ -2172,7 +2192,9 @@ async def predict(request: Request):
     # 批量: tasks 数组（M0 仅支持顶层 context.text 时整批同 prompt）
     if isinstance(body, dict) and "tasks" in body:
         tasks = body["tasks"]
-        ctx = body.get("context") or {"type": "text", "text": body.get("text", "")}
+        ctx = _normalize_predict_context(
+            body.get("context") or {"type": "text", "text": body.get("text", "")}
+        )
         # 文本批量按 model_id 路由输出形态 (统一 wire): detection→box(纯 DINO),
         # segmentation→ctx.output||mask(DINO+SAM)。无 model_id 回落 ctx.output (老 wire 兼容)。
         # type 强制 text 以走 _run_prompt 文本分支 (前端可能发 type=task)。box-seg 走 per-task prompts。

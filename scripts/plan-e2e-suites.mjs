@@ -55,6 +55,7 @@ const SHARED_CONTRACT_SUITES = {
     wired: false,
     triggers: [
       "apps/_shared/protocol_v2/",
+      "apps/_shared/task_contract/",
       "scripts/run-ml-cpu-tests.sh",
       "scripts/ml-cpu-deps/",
       ".github/workflows/ml-cpu-test.yml",

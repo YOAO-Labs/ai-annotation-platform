@@ -69,8 +69,40 @@ curl -H "Authorization: Bearer $METRICS_SD_TOKEN" \
   http://anno-api:8000/api/v1/internal/metrics-targets
 ```
 
+## 训练执行器内部端点 (/api/v1/internal/training/\*)
+
+独立训练执行器（`apps/training-executor`）与平台 API 之间的拉取式通信协议端点，不包含在 OpenAPI 公开 schema 中，由 Nginx/Caddy 网络隔离并在应用层通过共享密钥严格鉴权。
+
+### 鉴权机制
+
+- 请求头：`X-Training-Executor-Token: <token>`
+- Token 来源：环境变量 `TRAINING_EXECUTOR_TOKEN`（生产环境通过 Docker Secret `/run/secrets/training_executor_token` 挂载，至少 32 字符的随机字符串）。
+- API 启动时读取同一 token，使用常量时间比较验证请求头；未配置 token 或验证失败返回 401。
+
+### 端点列表
+
+| 方法   | 路径                                                           | 行为与用途                                                                                            |
+| ------ | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/v1/internal/training/claim`                              | 执行器根据自身节点与 GPU UUID 认领排队中的训练实验，建立 `TrainingResourceLease` 与 `TrainingAttempt` |
+| `POST` | `/api/v1/internal/training/attempts/{attempt_id}/heartbeat`    | 周期性上报执行器心跳，延长租约有效期                                                                  |
+| `POST` | `/api/v1/internal/training/attempts/{attempt_id}/uploads`      | 请求产物上传的短期对象存储预签名 PUT URL（训练包、检查点、权重、日志与评估结果）                      |
+| `POST` | `/api/v1/internal/training/attempts/{attempt_id}/finish`       | 提交不可变产物清单与最终执行结果；平台验证文件大小、SHA-256 与评估报告无误后转为终态                  |
+| `POST` | `/api/v1/internal/training/attempts/{attempt_id}/recover`      | 执行器重启后核对原租约分配并尝试恢复未完成的 Attempt                                                  |
+| `POST` | `/api/v1/internal/training/attempts/{attempt_id}/observations` | 批量上报训练遥测采样（CPU/GPU/显存/吞吐）与脱敏日志块，幂等游标推进                                   |
+| `POST` | `/api/v1/internal/training/previews/claim`                     | 认领原生数据增强预览任务，独占节点 CPU 槽                                                             |
+| `POST` | `/api/v1/internal/training/previews/{preview_id}/heartbeat`    | 增强预览心跳上报                                                                                      |
+| `POST` | `/api/v1/internal/training/previews/{preview_id}/uploads`      | 获取预览图片与元数据的短期上传 URL                                                                    |
+| `POST` | `/api/v1/internal/training/previews/{preview_id}/finish`       | 提交预览完成收据与生成的 PNG 校验摘要                                                                 |
+
+### 隔离与安全性
+
+- **网段与反代**：Nginx / Caddy 默认拦截对 `/api/v1/internal/*` 的外部公网访问；训练执行器容器仅能在内部容器网络通过 `TRAINING_API_URL` 访问。
+- **租约与防护**：所有回报接口均要求同时匹配当前执行器标识、boot ID、有效 GPU 租约与当前 Attempt。已取消或已退出的旧执行 Attempt 无法覆盖新执行的状态。
+
 ## 关联文档
 
 - [可观测性总览](/ops/observability/) — Prometheus / Grafana 接入指南
 - [环境变量参考 · METRICS_SD_TOKEN](/dev/reference/env-vars#服务发现鉴权)
+- [环境变量参考 · TRAINING_EXECUTOR_TOKEN](/dev/reference/env-vars)
+- [在线学习与训练体系](/dev/concepts/training-datasets) — 训练数据版本、执行器与模型闭环
 - [Runbook · ML Backend 不可用](/ops/runbooks/ml-backend-down)

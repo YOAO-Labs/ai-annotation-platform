@@ -45,7 +45,8 @@ def test_cache_key_is_target_order_independent_and_contract_sensitive() -> None:
         updated_at,
         5,
     )
-    assert base == "81b5ba8014714ec9ccdef7792801b8fb8624ec1f748174acbf2143af0198b9bf"
+    assert base == "7b334c5eaaac40eed576b1afa0247db6306df8a96bb6e6a19c26a09d593149ef"
+    assert base != "81b5ba8014714ec9ccdef7792801b8fb8624ec1f748174acbf2143af0198b9bf"
     assert base == cache.compute_cache_key(
         scope_id,
         ["yolo", "coco"],

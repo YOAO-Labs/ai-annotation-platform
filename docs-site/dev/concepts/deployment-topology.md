@@ -40,9 +40,18 @@ prompt、媒体和 pipeline 参数是推理输入，不是直接选择物理主�
 
 Kubernetes 编排目前不是既定路线；如果 Compose 和服务池已无法满足调度、容错或运维要求，应先新建 ADR 论证迁移边界。
 
+### 受控训练计算节点 (Training Executor)
+
+模型训练是长耗时、高算力占用的批处理任务，与秒级响应的 ML 推理和普通 Celery 异步任务有本质区别：
+
+- **拉取式执行器**：训练使用独立的 `training-executor` 容器（由 `docker-compose.training.yml` 启动），不占用普通的 Celery worker。执行器通过内部 HTTP 轮询 (`/api/v1/internal/training/claim`) 获取排队中的训练实验，支持单物理节点部署或独立 GPU 主机部署。
+- **物理 GPU 独占锁**：执行器利用宿主状态卷上的 OS 文件锁（flock）保证物理 GPU 的严格独占。每个物理 GPU 同时仅允许一个训练实验运行，训练子进程继承锁句柄，彻底杜绝多实验并发导致的 CUDA OOM。
+- **凭据与网络边界**：执行器与 API 通信采用独立的随机共享凭据 (`TRAINING_EXECUTOR_TOKEN`，至少 32 字符，通过 Docker secret 注入)，仅能访问内部受控端点 (`/api/v1/internal/training/*`)，不暴露给外部网络或普通用户 JWT。
+- **存储拓扑**：训练包与产物独立存储于 MinIO `training` 桶（不可变、不设置生命周期过期），执行器使用 API 签发的短期对象存储 URL 下载训练包并上传产物，无需直接持有 MinIO 管理凭据。
+
 ## 生产入口与端口
 
-需要在现有主机上保留开发环境并新增独立生产业务数据时，另有[局域网生产部署](/ops/deploy/lan-production)：`docker-compose.lan-prod.yml` 使用独立 Compose 项目，Caddy 在局域网 3030/8080 终结内部 HTTPS；PostgreSQL 实例、MinIO 实例和模型服务复用，新数据库、八个桶、Redis、Worker、Beat、DuckDB 和 CA 卷独立。下面的 8088 拓扑仍适用于整栈生产覆盖文件，两个入口不要叠加使用。
+需要在现有主机上保留开发环境并新增独立生产业务数据时，另有[局域网生产部署](/ops/deploy/lan-production)：`docker-compose.lan-prod.yml` 使用独立 Compose 项目，Caddy 在局域网 3030/8080 终结内部 HTTPS；PostgreSQL 实例、MinIO 实例和模型服务复用，新数据库、九个桶、Redis、Worker、Beat、DuckDB 和 CA 卷独立。下面的 8088 拓扑仍适用于整栈生产覆盖文件，两个入口不要叠加使用。
 
 <ExcalidrawDiagram
   src="/diagrams/shared/deployment/production-network-boundaries.svg"
@@ -59,6 +68,7 @@ Kubernetes 编排目前不是既定路线；如果 Compose 和服务池已无法
 | API                        | `${PROXY_BIND_HOST:-127.0.0.1}:8080` → 容器 8000 | 仅回环 / 内网，不作为公网 SDK 入口                                                          |
 | PostgreSQL / Redis / MinIO | Compose 内网 5432 / 6379 / 9000                  | prod 叠加文件用 `!reset []` 移除宿主端口                                                    |
 | 可选 ML Backend            | 当前 profile 发布 8001–8005                      | 只允许 worker 所在可信网络访问；现有 ML 叠加文件不会自动绑定内网 IP，需防火墙或部署覆盖收紧 |
+| 可选 Training Executor     | 无暴露外部端口（拉取式客户端）                   | 仅出站访问 API 内部接口与 MinIO 预签名 URL；凭据文件通过 Docker secret 隔离                 |
 | 可选监控                   | 9090 / 3001 / 9093                               | 默认 profile 不启动；启动后只限内网 / VPN                                                   |
 
 客户端通过 `MINIO_PUBLIC_URL` 获取对象的预签名 URL，不意味着要把 MinIO 原生 9000 端口直接公开。可以使用受 TLS 保护的同源反代路径或独立对象存储域名。详细边界见 [端口暴露与网络安全](/ops/deploy/network-security)。

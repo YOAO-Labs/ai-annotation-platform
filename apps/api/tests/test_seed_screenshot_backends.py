@@ -195,7 +195,7 @@ async def test_reconcile_creates_exact_primary_and_enabled_bindings(
             "stage": 0,
             "ml_backend_id": str(ocr.id),
             "model_id": "ocr-e2e",
-            "task_type": "ocr",
+            "task": "ocr",
         }
     ]
     assert projects["pointcloud_demo"].ml_backend_pool_id is None

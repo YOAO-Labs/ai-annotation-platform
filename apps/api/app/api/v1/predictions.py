@@ -229,6 +229,13 @@ async def retry_failed_prediction(
                 "resource_profile"
             ) or {}
             device = rp.get("device")
+            context = (fp.extra or {}).get("request_context") or {}
+            from app.services.trained_models import controlled_device, is_controlled
+
+            if is_controlled(context.get("model_id")) or context.get(
+                "frozen_model_ref"
+            ):
+                device = controlled_device(backend)
     queue = resolve_preannotate_queue(
         [device],
         gpu_queue=settings.preannotate_gpu_queue,

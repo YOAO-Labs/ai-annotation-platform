@@ -245,7 +245,7 @@ export default function GlobalPipelineLibraryPage() {
         warning: stageWarning(p, stageCapsRef.current[e.sid]),
         classFilter: classFilterText(p),
         modelId: p?.model_id,
-        taskType: p?.task_type,
+        taskType: p?.task,
         roiInfo: roiText(p),
         variantInfo: variantText(p),
       };

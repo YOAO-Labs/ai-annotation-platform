@@ -15,7 +15,7 @@ ML backend 协议 v2 的共享 Pydantic schema 与受控词表常量。
   - `NativeMaskCandidate` / `MaskPromptPayload` / `ScribblePrompt` /
     `CorrectionFramePrompt`（原生 Mask 交互与视频纠错的加法 wire contract）
   - `MaskInteractionDiagnostic` / `MaskInteractionFallback`（空结果、稳定错误原因与显式降级 lineage）
-- `aap_protocol_v2.vocab` — 协议 v2 受控词表常量（与 `apps/api/app/services/capability_registry.py` SSOT 同源镜像）
+- `aap_protocol_v2.vocab` — 协议 v2 受控词表常量（任务词表来自 `aap-task-contract`，其余元数据与 API registry 同源镜像）
   - `TASK_VALUES` / `INFRA_VALUES` / `GEOMETRY_VALUES` / `PROMPT_VALUES` /
     `INPUT_VALUES`
 - `aap_protocol_v2.lifecycle` — 受管 GPU 生命周期 wire 模型、header 常量与 EdDSA admission token codec
@@ -37,8 +37,9 @@ ML backend 协议 v2 的共享 Pydantic schema 与受控词表常量。
 
 ```dockerfile
 # build context = ./apps
+COPY _shared/task_contract/ /app/task_contract/
 COPY _shared/protocol_v2/ /app/protocol_v2/
-RUN pip install --no-build-isolation -e /app/protocol_v2
+RUN pip install --no-build-isolation -e /app/task_contract -e /app/protocol_v2
 ```
 
 backend 代码：

@@ -76,6 +76,12 @@ export function ProjectActionsMenu({
             icon: "users",
             onSelect: () => navigate(`/projects/${project.id}/data-manager?section=members`),
           },
+          {
+            id: "online-learning",
+            label: "在线学习",
+            icon: "db",
+            onSelect: () => navigate(`/projects/${project.id}/learning`),
+          },
           { id: "div-0", divider: true, label: "" },
           {
             id: "duplicate",

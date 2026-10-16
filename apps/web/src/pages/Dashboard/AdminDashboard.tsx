@@ -14,7 +14,7 @@ import { useAdminStats, usePredictionCostStats } from "@/hooks/useDashboard";
 import { useProjects } from "@/hooks/useProjects";
 import { useAuditLogs } from "@/hooks/useAudit";
 import { ROLE_LABELS } from "@/constants/roles";
-import { CreateProjectWizard } from "@/components/projects/CreateProjectWizard";
+import { CreateProjectWizard } from "@/components/projects/LazyCreateProjectWizard";
 import { ImportDatasetWizard } from "@/components/datasets/ImportDatasetWizard";
 import { auditActionLabel } from "@/utils/auditLabels";
 import { projectDisplayType } from "@/utils/projectDisplay";

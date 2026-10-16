@@ -86,6 +86,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_AUDIT_ARCHIVE_BUCKET: ${MINIO_AUDIT_ARCHIVE_BUCKET:-audit-archive}
@@ -121,6 +122,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       CONNECTOR_ENCRYPTION_KEY: ${CONNECTOR_ENCRYPTION_KEY:-}
@@ -188,6 +190,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       IMAGE_PYRAMID_AUTO_GENERATE: ${IMAGE_PYRAMID_AUTO_GENERATE:-false}
@@ -239,6 +242,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
@@ -290,6 +294,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
@@ -342,6 +347,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
@@ -383,6 +389,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
@@ -431,6 +438,7 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}

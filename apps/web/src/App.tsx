@@ -45,6 +45,46 @@ const StoragePage = lazy(() =>
 const ProjectSettingsPage = lazy(() =>
   import("@/pages/Projects/ProjectSettingsPage").then((m) => ({ default: m.ProjectSettingsPage })),
 );
+const ProjectLearningPage = lazy(() =>
+  import("@/pages/Projects/ProjectLearningPage").then((m) => ({ default: m.ProjectLearningPage })),
+);
+const TrainingCreatePage = lazy(() =>
+  import("@/pages/Training/TrainingCreatePage").then((m) => ({ default: m.TrainingCreatePage })),
+);
+const TrainingComparisonPage = lazy(() =>
+  import("@/pages/Training/TrainingComparisonPage").then((m) => ({
+    default: m.TrainingComparisonPage,
+  })),
+);
+const ModelLineagePage = lazy(() =>
+  import("@/pages/Training/ModelLineagePage").then((m) => ({ default: m.ModelLineagePage })),
+);
+const SampleEvaluationPage = lazy(() =>
+  import("@/pages/Training/SampleEvaluationPage").then((m) => ({
+    default: m.SampleEvaluationPage,
+  })),
+);
+const SampleEvaluationCreatePage = lazy(() =>
+  import("@/pages/Training/SampleEvaluationCreate").then((m) => ({
+    default: m.SampleEvaluationCreatePage,
+  })),
+);
+const TrainingPage = lazy(() =>
+  import("@/pages/Training/TrainingPage").then((m) => ({ default: m.TrainingPage })),
+);
+const ActiveLearningPage = lazy(() =>
+  import("@/pages/Training/ActiveLearningPage").then((m) => ({ default: m.ActiveLearningPage })),
+);
+const ActiveLearningCreatePage = lazy(() =>
+  import("@/pages/Training/ActiveLearningCreate").then((m) => ({
+    default: m.ActiveLearningCreatePage,
+  })),
+);
+const ActiveLearningRoundPage = lazy(() =>
+  import("@/pages/Training/ActiveLearningRound").then((m) => ({
+    default: m.ActiveLearningRoundPage,
+  })),
+);
 const ProjectDataManagerPage = lazy(() =>
   import("@/pages/Projects/ProjectDataManagerPage").then((m) => ({
     default: m.ProjectDataManagerPage,
@@ -215,16 +255,6 @@ function AppShell() {
       )}
       {/* v0.9.11 PerfHud · 全局浮窗 (内部按角色 gating + visibility store 控制渲染) */}
       <PerfHud />
-    </div>
-  );
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className={styles.placeholder}>
-      <div className={styles.placeholderIcon}>🚧</div>
-      <h2 className={styles.placeholderTitle}>{title}</h2>
-      <p className={styles.placeholderText}>此功能模块正在开发中</p>
     </div>
   );
 }
@@ -460,7 +490,7 @@ export function App() {
             path="/training"
             element={
               <RequirePagePermission pageKey="training">
-                <PlaceholderPage title="训练队列" />
+                <TrainingPage />
               </RequirePagePermission>
             }
           />
@@ -496,6 +526,80 @@ export function App() {
               </RequireProjectAccess>
             }
           />
+          <Route
+            path="/projects/:id/learning/lineage/:kind/:nodeId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ModelLineagePage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/active-learning/new"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ActiveLearningCreatePage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/active-learning/:roundId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ActiveLearningRoundPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/active-learning"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ActiveLearningPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/evaluations/new"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <SampleEvaluationCreatePage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/evaluations/:evaluationId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <SampleEvaluationPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/evaluations"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <SampleEvaluationPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/compare"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <TrainingComparisonPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <ProjectLearningPage />
+              </RequireProjectAccess>
+            }
+          >
+            <Route path="new" element={<TrainingCreatePage />} />
+          </Route>
           <Route
             path="/project-templates"
             element={

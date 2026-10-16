@@ -118,3 +118,16 @@
 - [0072](archive/0072-workbench-dockable-layout.md) — 工作台采用受控 Dockview 布局与单一快照写入者
 - [0073](archive/0073-shared-surface-for-3d-docking.md) — 3D 自由布局采用工作区共享渲染 surface 与整组相机呈现
 - [0074](archive/0074-atomic-annotation-slice-restore.md) — 图片对象切割采用受限操作账本与原子恢复
+- [0076](archive/0076-controlled-trained-model-identity.md) — 受控模型、部署与发布分离，预测冻结权重及类别来源
+- [0077](archive/0077-native-augmentation-preview-cpu-ownership.md) — 原生增强预览采用独立且有界的 CPU 所有权，确认退出后发布并保留过期清理墓碑
+- [0078](archive/0078-attempt-observability-and-redacted-logs.md) — 执行观测独立于训练所有权，日志保存前脱敏并通过不可变历史副本下载
+- [0079](archive/0079-frozen-sample-evaluation.md) — 冻结逐样本证据、后端请求锁／收据与当前源核对
+- [0080](0080-model-lineage-and-decisions.md) — 模型谱系按需读取，候选决策独立追加并保留当前发布
+- [0081](archive/0081-controlled-training-initialization.md) — 项目权重初始化保留固定来源并创建全新训练状态
+- [0082](archive/0082-budgeted-training-studies.md) — 参数搜索复用普通训练并以进程回执结算预算
+- [0083](archive/0083-human-reviewed-active-learning.md) — 人工主动选样保留独立对照、显式预算与不可变决策
+- [0084](archive/0084-qualified-libreyolo-model-return.md) — LibreYOLO 回流复用受控模型并独立核验原生推理
+- [0085](0085-qualified-polygon-instance-training.md) — 简单多边形实例训练复用原生执行器并独立冻结任务身份
+
+- [0086](0086-canonical-task-data-contracts.md) — 任务名称共享并与格式、媒体及冻结身份分离
+- [0087](archive/0087-project-task-dataset-streams.md) — 项目按任务派生版本流，管理关联与冻结身份分离

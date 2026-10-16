@@ -14,7 +14,7 @@ import { useToastStore } from "@/components/ui/Toast";
 import { Can } from "@/components/guards/Can";
 import { useProjectPage, useProjectStats } from "@/hooks/useProjects";
 import { type ProjectResponse } from "@/api/projects";
-import { CreateProjectWizard } from "@/components/projects/CreateProjectWizard";
+import { CreateProjectWizard } from "@/components/projects/LazyCreateProjectWizard";
 import { ImportDatasetWizard } from "@/components/datasets/ImportDatasetWizard";
 import { useAuthStore } from "@/stores/authStore";
 import { useAuditLogs } from "@/hooks/useAudit";

@@ -128,13 +128,15 @@ async def run_secondary_inference(
     model_id: str | None,
     model_variants: dict | None,
     params: dict | None,
-    task_type: str | None,
+    task_type: str | None = None,
     prompt: str | None,
     class_filter: list[int] | None,
     pad: float,
     user_id: uuid.UUID,
     shadow_session_factory: GPUShadowSessionFactory | None = None,
     dispatch_context_factory: GPUDispatchContextFactory | None = None,
+    visual_task: str | None = None,
+    prompt_type: str | None = None,
 ) -> tuple[Annotation, list[Annotation]]:
     """在选中框 ROI 上跑一次能力, 产物落库。返回 (更新后的原框, 新建子框列表)。
 
@@ -146,6 +148,28 @@ async def run_secondary_inference(
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import to_internal_shape
     from app.services.storage import StorageService
+    from app.services.trained_models import is_controlled
+
+    if is_controlled(model_id):
+        raise HTTPException(status_code=422, detail="受控模型当前不支持框内二次推理")
+
+    from app.services.ml_capabilities import resolve_model_task
+
+    try:
+        visual_task = resolve_model_task(backend, model_id, visual_task or task_type)
+        context = _build_predict_context(
+            prompt=prompt,
+            output_mode=_resolve_text_output_mode(backend, model_id),
+            params=params,
+            model_id=model_id,
+            task=visual_task,
+            task_type=task_type,
+            prompt_type=prompt_type,
+            model_variants=model_variants,
+            class_filter=class_filter,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # 1. 内部几何 (0-1) → LS 标准 box (百分比 0-100), 供 crop 复用批量投递。
     #    起始不带 attributes: merge 后 box["attributes"] 里的键即全为 AI 写入 (精确标 origin)。
@@ -200,15 +224,6 @@ async def run_secondary_inference(
         )
 
     # 4. 构造发往 backend 的 context (与批量下游同一纯函数)。
-    context = _build_predict_context(
-        prompt=prompt,
-        output_mode=_resolve_text_output_mode(backend, model_id),
-        params=params,
-        model_id=model_id,
-        task_type=task_type,
-        model_variants=model_variants,
-        class_filter=class_filter,
-    )
 
     # 5. 同步推理。批量 wire 的 predict() 不翻译传输层异常 (worker 靠原始异常分类失败原因),
     #    但二次推理是同步用户请求 —— 冒泡的 ReadTimeout 会变成含糊的 500。这里按

@@ -188,7 +188,7 @@ async def test_pipeline_source_stage_is_execution_source(
     assert resp.status_code == 200, resp.text
     assert _mock_celery["args"][1] == str(detect.id)
     assert _mock_celery["kwargs"]["model_id"] == "detect-root"
-    assert _mock_celery["kwargs"]["task_type"] == "object_detection"
+    assert _mock_celery["kwargs"]["task"] == "detect"
     assert _mock_celery["kwargs"]["model_variants"] == {"size": "n"}
     assert _mock_celery["kwargs"]["params"] == {"conf": 0.4}
     assert _mock_celery["kwargs"]["class_filter"] == [1, 2]

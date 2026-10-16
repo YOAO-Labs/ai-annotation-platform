@@ -53,7 +53,7 @@ export function apiErrorDetailMessage(rawDetail: unknown): string | undefined {
 async function request<T>(
   path: string,
   init?: RequestInit,
-  opts?: { anonymous?: boolean; silent?: boolean },
+  opts?: { anonymous?: boolean; silent?: boolean; responseType?: "blob" },
 ): Promise<T> {
   const token = opts?.anonymous ? null : localStorage.getItem("token");
   const owner = useAuthStore.getState();
@@ -116,11 +116,13 @@ async function request<T>(
 
   // 204 No Content
   if (res.status === 204) return undefined as T;
-  return res.json();
+  return opts?.responseType === "blob" ? (res.blob() as Promise<T>) : res.json();
 }
 
 export const apiClient = {
   get: <T>(path: string, init?: RequestInit) => request<T>(path, init),
+  getBlob: (path: string, init?: RequestInit) =>
+    request<Blob>(path, init, { responseType: "blob" }),
   /**
    * 探测式 GET：不弹全局 toast（调用方自带错误展示，例如能力目录的黄色降级提示）。
    * 5xx/403 仍正常抛 ApiError；只是不重复弹通知。用于按 backend 批量探测的端点

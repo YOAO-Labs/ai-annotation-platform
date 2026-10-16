@@ -100,7 +100,7 @@ describe("buildSecondaryInferencePayload", () => {
     expect(payload.write_target).toBe("geometry");
     expect(payload.model_id).toBe("yolo-det");
     expect(payload.model_variants).toEqual({ size: "l" });
-    expect(payload.task_type).toBe("detection");
+    expect(payload.task).toBe("detect");
     expect(payload.write_keys).toBeNull();
   });
 
@@ -116,7 +116,7 @@ describe("buildSecondaryInferencePayload", () => {
       cap(
         {
           id: "onnx-cls",
-          task: "classification",
+          task: "classify",
           output_attribute_schema: [
             { key: "color", label: "颜色", type: "select", options: [] },
             { key: "vehicle_type", label: "类型", type: "select", options: [] },
@@ -128,7 +128,7 @@ describe("buildSecondaryInferencePayload", () => {
     expect(payload.write_target).toBe("attributes");
     expect(payload.model_variants).toBeNull();
     expect(payload.write_keys).toEqual(["color", "vehicle_type"]);
-    expect(payload.task_type).toBe("classification");
+    expect(payload.task).toBe("classify");
   });
 
   it("attributes: 无输出 schema → write_keys=null (全取)", () => {
@@ -163,7 +163,7 @@ describe("buildSecondaryInferencePayload", () => {
   });
 
   it("variants: 无变体轴的 attributes 能力 → null (走扁平路径)", () => {
-    const c = cap({ id: "cls", task: "classification" }, "attributes");
+    const c = cap({ id: "cls", task: "classify" }, "attributes");
     expect(buildSecondaryInferencePayload(c, undefined, { size: "s" }).model_variants).toBeNull();
   });
 

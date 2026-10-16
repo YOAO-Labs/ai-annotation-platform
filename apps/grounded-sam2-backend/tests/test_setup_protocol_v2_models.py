@@ -51,7 +51,7 @@ def test_box_seg_model_is_public_non_interactive_atom():
     """v0.18.12 · 框→mask 批量分割原子: public(无 visibility)、非交互、composition=atom、bbox→polygon。"""
     data = setup()
     box_seg = next(m for m in data["models"] if m["id"] == "grounded-sam2-box-seg")
-    assert box_seg["task"] == "segmentation"
+    assert box_seg["task"] == "segment"
     assert box_seg["is_interactive"] is False
     assert box_seg["supported_prompts"] == ["bbox"]
     assert box_seg["supported_geometric_outputs"] == ["polygon"]
@@ -73,7 +73,7 @@ def test_composition_annotations():
 def test_setup_models_cover_protocol_tasks():
     data = setup()
     tasks = {m["task"] for m in data["models"]}
-    assert tasks == {"detection", "segmentation", "interactive_seg", "tracker"}
+    assert tasks == {"detect", "segment", "interactive_seg", "tracker"}
 
 
 def test_setup_models_declare_supported_inputs():
@@ -151,7 +151,7 @@ def test_setup_each_model_carries_infra_pytorch():
 
 def test_detection_model_text_to_bbox():
     data = setup()
-    det = next(m for m in data["models"] if m["task"] == "detection")
+    det = next(m for m in data["models"] if m["task"] == "detect")
     assert det["supported_prompts"] == ["text"]
     assert det["supported_geometric_outputs"] == ["bbox"]
     assert det["is_interactive"] is False
@@ -159,7 +159,7 @@ def test_detection_model_text_to_bbox():
 
 def test_segmentation_model_text_to_polygon():
     data = setup()
-    seg = next(m for m in data["models"] if m["task"] == "segmentation")
+    seg = next(m for m in data["models"] if m["task"] == "segment")
     assert seg["supported_prompts"] == ["text"]
     assert seg["supported_geometric_outputs"] == ["polygon"]
 

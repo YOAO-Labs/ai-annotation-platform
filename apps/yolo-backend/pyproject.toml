@@ -2,23 +2,29 @@
 name = "yolo-backend"
 version = "0.1.0"
 description = "YOLO (ultralytics) ML Backend for ai-annotation-platform — det/seg/pose/obb multi-task, multi-series"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.14"
 
-# torch / torchvision 由 docker base image (pytorch/pytorch:2.6.0-cuda12.4-cudnn-runtime) 锁定,
-# 不在此处重复声明以避免 pip 误升级覆盖预装版本.
-# ultralytics 8.4.x 同时覆盖 yolov8 ~ yolo26 + rt-detr 全系预训练权重 (assets v8.3.0 + v8.4.0).
+# Binary packages are supplied by the matching immutable Docker base.
 dependencies = [
+    "aap-task-contract",
+    "torch==2.14.1",
+    "torchvision==0.29.1",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "pydantic>=2.5",
     "httpx>=0.27",
     "numpy>=1.24,<3.0",
     "pillow>=10.0",
-    "opencv-python-headless>=4.9",
+    "opencv-python>=4.9",
     "prometheus-client>=0.20",
     "cryptography>=43.0.0",
     "PyJWT>=2.10,<3",
-    "ultralytics>=8.4.0,<8.5",
+    "ultralytics==8.4.177",
+    "libreyolo==1.6.0",
+    "aap-training-contract",
+    "clip",
+    "setuptools>=68",
+    "wheel",
     # Ultralytics tracker runtime dependency; bake it in instead of AutoUpdate.
     "lap>=0.5.12",
     # PerfHud · GPU util/温度/功耗 + 容器 CPU/RAM
@@ -37,11 +43,23 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle"]
+py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle", "managed_models", "libreyolo_adapter", "sample_evaluations"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../_shared/task_contract", editable = true }
+aap-training-contract = { path = "../_shared/training_contract", editable = true }
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
+clip = { git = "https://github.com/ultralytics/CLIP.git", rev = "7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40" }
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # 共享包从 apps/_shared/* 注入: Docker 容器内由 `pip install -e /app/protocol_v2` 提供;
 # 本地 pytest 通过 pythonpath 直接定位 src/.
-pythonpath = [".", "../_shared/protocol_v2/src", "../_shared/mask_utils/src", "../_shared/backend_runtime/src"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/mask_utils/src", "../_shared/backend_runtime/src", "../_shared/training_contract"]
 asyncio_mode = "auto"

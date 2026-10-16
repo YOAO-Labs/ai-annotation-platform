@@ -57,3 +57,32 @@ it("a late 401 does not clear newer credentials", async () => {
   vi.unstubAllGlobals();
   useAuthStore.getState().logout();
 });
+
+it("reads authenticated binary responses with abort support and preserves structured errors", async () => {
+  const controller = new AbortController();
+  const blob = new Blob(["snapshot bytes"], { type: "image/png" });
+  const binary = vi.fn().mockResolvedValue(blob);
+  const fetch = vi.fn().mockResolvedValueOnce({ ok: true, status: 200, blob: binary });
+  vi.stubGlobal("fetch", fetch);
+  useAuthStore.getState().setAuth("binary-token", { id: "binary-user" } as MeResponse);
+  try {
+    expect(await apiClient.getBlob("/frozen-media", { signal: controller.signal })).toBe(blob);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/frozen-media",
+      expect.objectContaining({
+        signal: controller.signal,
+        headers: expect.objectContaining({ Authorization: "Bearer binary-token" }),
+      }),
+    );
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Frozen media digest mismatch" }), { status: 409 }),
+    );
+    await expect(apiClient.getBlob("/frozen-media")).rejects.toMatchObject({
+      status: 409,
+      message: "Frozen media digest mismatch",
+    });
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});

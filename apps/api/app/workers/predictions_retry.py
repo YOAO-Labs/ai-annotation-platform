@@ -271,6 +271,12 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
             model_version=first.model_version,
             inference_time_ms=first.inference_time_ms,
             ml_backend_pool_id=retry_pool_id,
+            token_meta=first.meta,
+            **(
+                {"model_provenance": request_context["frozen_model_ref"]}
+                if request_context and request_context.get("frozen_model_ref")
+                else {}
+            ),
         )
         # 删除 failed_prediction 行
         fp_again = await db.get(FailedPrediction, fid)

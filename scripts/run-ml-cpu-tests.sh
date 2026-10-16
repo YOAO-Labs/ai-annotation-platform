@@ -5,7 +5,8 @@
 # Isolated per suite: every invocation creates its own throwaway virtualenv, so
 # no suite can inherit another package's `sys.modules` (the committed tests
 # install MagicMock torch stubs, and a shared interpreter would let a stub leak
-# into a later suite). No GPU, weights or network are used by the tests.
+# into a later suite). YOLO native tests also run in a separate interpreter from
+# its stubbed contract tests. No GPU, weights or network are used by the tests.
 #
 # Usage:
 #   scripts/run-ml-cpu-tests.sh plan "<spec>"   # print name=value suite flags
@@ -132,7 +133,7 @@ install_editable() {
   local dir="$1" python_version="$2" extras="$3"
   new_venv "$python_version"
   log "install $dir editable [$extras] (python $python_version)"
-  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e ".[$extras]"
+  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/task_contract" -e ".[$extras]"
 }
 
 install_file() {
@@ -147,7 +148,7 @@ run_pytest() {
   local dir="$1" venv="$2"
   shift 2
   log "pytest $dir $*"
-  run_in "$dir" "$venv/bin/python" -m pytest -q "$@"
+  run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "$@"
 }
 
 # run: install the minimal dependencies for one suite and execute its tests.
@@ -164,12 +165,17 @@ run() {
       ;;
     shared-protocol-v2)
       install_editable "apps/_shared/protocol_v2" "3.10" "test"
+      run_pytest "apps/_shared/task_contract" "$VENV_PATH"
       run_pytest "apps/_shared/protocol_v2" "$VENV_PATH"
       ;;
     yolo)
-      # Test-only deps: deliberately avoids the backend's ultralytics -> torch runtime stack.
-      install_file "apps/yolo-backend" "3.10" "yolo-test-only.txt"
-      run_pytest "apps/yolo-backend" "$VENV_PATH"
+      # Native loading verifies the exact qualified binary/runtime identity.
+      # Install the backend lock, including its pinned CUDA wheels, but execute
+      # on CPU. Do not mix real tensors with the older contract tests' stubs.
+      new_venv "3.12"
+      run_in "apps/yolo-backend" env UV_PROJECT_ENVIRONMENT="$VENV_PATH" uv sync --locked --extra dev
+      run_pytest "apps/yolo-backend" "$VENV_PATH" --ignore=tests/test_libreyolo_adapter.py
+      run_pytest "apps/yolo-backend" "$VENV_PATH" tests/test_libreyolo_adapter.py
       ;;
     rapidocr)
       install_editable "apps/rapidocr-backend" "3.10" "dev"

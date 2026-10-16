@@ -905,6 +905,9 @@ def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None
         try:
             if action == "seed":
                 async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                    state["revision"] = await db.scalar(
+                        text("SELECT version_num FROM alembic_version")
+                    )
                     owner = await create_user(
                         db,
                         "project_admin",
@@ -961,7 +964,7 @@ def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None
                 async with engine.begin() as conn:
                     if not await conn.run_sync(_has_preparation_column):
                         await conn.run_sync(_replay_migration, migration, "upgrade")
-                    await conn.run_sync(_set_alembic_version, "0174")
+                    await conn.run_sync(_set_alembic_version, state["revision"])
             elif action == "audit":
                 async with read_only_audit_session(engine) as db:
                     state["report"] = await collect_report(db, run_id="pre-0173")

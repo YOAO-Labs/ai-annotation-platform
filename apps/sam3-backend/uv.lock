@@ -1,6 +1,11 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.12.*"
+
+[[package]]
+name = "aap-task-contract"
+version = "0.1.0"
+source = { editable = "../_shared/task_contract" }
 
 [[package]]
 name = "annotated-doc"
@@ -794,6 +799,7 @@ name = "sam3-backend"
 version = "0.10.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aap-task-contract" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -820,6 +826,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27" },

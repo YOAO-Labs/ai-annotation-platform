@@ -14,6 +14,14 @@ last_reviewed: 2026-07-22
 
 ---
 
+## 任务字段与兼容输入
+
+新能力条目的 `task` 使用 `detect`、`segment`、`classify`、`pose`、`obb`；`ocr`、`doc_layout`、`tracker`、`interactive_seg` 保留。参考 backend 在 `/setup` 顶层声明 `task_contract_revision=1`，预测通过 `context.task` 接收任务，`context.type` 仅携带 `text`、`point`、`interactive_box`、`exemplar`、`mask`、`scribble` 等提示模式。未给任务时，可从显式选定的模型推导；显式任务与模型不一致返回 `422`。
+
+API 请求和保存的流水线使用 `task`；兼容读取旧 `task_type` 和旧视觉名称，两个字段经别名归一化后冲突则拒绝。持久化与公开响应只写规范字段。平台对未声明修订的外部 backend 在传输层恢复旧视觉 `context.type`，不污染新的保存格式。提示模式与视觉任务可同时存在。
+
+`POST /reload` 的池选择使用 `modality=image|video`，旧 `task_type=image|video` 仅作媒体兼容输入，与视觉任务别名分别解析。`task_id` 工作项标识、预测结果中的工作项 `task` 关联键，以及几何/COCO 字段名称均保留。共同词表与解析器位于 `apps/_shared/task_contract`，协议包与训练包直接依赖它。
+
 ## 端点总览
 
 | 端点        | 方法 | 用途                         | 必需 | 平台调用点                                                                                |
@@ -106,7 +114,7 @@ GPU backend 应在 `/health` 顶层返回 `compute`：
 
 平台仅在“已知配置 GPU + 实际为 CPU + 未显式声明不支持 fallback”时显示 CPU 回退警示；显式 CPU、unknown 和 `null` 均不告警。实时 `/health` 返回可解析的 HTTP 200 时以实时 `compute` 为准，即使 backend 自报 degraded 或值为 `null`；只有实时 HTTP 探测不可达/失败时才使用注册表缓存。torch 的进程级 latch 不能枚举旧 pool，因此 `effective_device=cpu` 与仍有 GPU pool 驻留可以同时成立。`compute` 是诊断信号，不证明 GPU 权重、tensor 或 cache 已释放，不能单独作为显存驻留或账本减账依据。
 
-> **可选模型管理端点 `POST /reload` / `POST /unload`**（非协议必需，部分 backend 实现）：无 lifecycle body 的 `/unload` 是 legacy best-effort 行为，不能统一证明全部 image/video/variant/session pool 已清空。例如 Grounded-SAM2 仍只清 image pool，不能作为显存仲裁减账凭据。YOLO、ONNXTools 与 RapidOCR 的 bodyless legacy 路径会走各自全池清理，但仍只用于向后兼容；没有 generation、fencing 与受管响应，不能作为减账证据。Grounded-SAM2 的 `/reload` 接受可选 body `{ "sam_variant": "small", "dino_variant": "B" }` 预热**指定变体**（缺省回退 backend 启动默认变体；非法变体值 422，校验同 `/predict` 的 `context.model_variants`）；也接受可选 `"task_type": "image" | "video"`（默认 `image`，向后兼容）：`task_type="video"` 时**只认 `sam_variant`**（video tracker 不用 DINO），预热**独立 video 池** `VideoPool`，返回 `{ ok, loaded, reloaded, sam_variant, task_type: "video" }`。平台经 `POST /api/v1/projects/{pid}/ml-backends/{bid}/reload`（同 body）代理，模型市场「变体」面板按图像 / 视频两组分别走此链路。新 backend 应优先实现 §4.4 `/warmup`；接入方不得把未完成受管契约的 legacy unload 声明为可驱逐能力。
+> **可选模型管理端点 `POST /reload` / `POST /unload`**（非协议必需，部分 backend 实现）：无 lifecycle body 的 `/unload` 是 legacy best-effort 行为，不能统一证明全部 image/video/variant/session pool 已清空。例如 Grounded-SAM2 仍只清 image pool，不能作为显存仲裁减账凭据。YOLO、ONNXTools 与 RapidOCR 的 bodyless legacy 路径会走各自全池清理，但仍只用于向后兼容；没有 generation、fencing 与受管响应，不能作为减账证据。Grounded-SAM2 的 `/reload` 接受可选 body `{ "sam_variant": "small", "dino_variant": "B" }` 预热**指定变体**（缺省回退 backend 启动默认变体；非法变体值 422，校验同 `/predict` 的 `context.model_variants`）；也接受可选 `"modality": "image" | "video"`（默认 `image`，向后兼容）：`modality="video"` 时**只认 `sam_variant`**（video tracker 不用 DINO），预热**独立 video 池** `VideoPool`，返回 `{ ok, loaded, reloaded, sam_variant, modality: "video" }`。平台经 `POST /api/v1/projects/{pid}/ml-backends/{bid}/reload`（同 body）代理，模型市场「变体」面板按图像 / 视频两组分别走此链路。新 backend 应优先实现 §4.4 `/warmup`；接入方不得把未完成受管契约的 legacy unload 声明为可驱逐能力。
 
 ### 1.3 受管 GPU 生命周期（能力协商）
 
@@ -644,7 +652,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 **与 §2.2 的 `type=video_tracker` 是两条不同的链**。§2.2 是「人在环、单对象、种子传播」的交互式追踪（SAM2/SAM3，`predict_interactive`，平台分窗续追）；这里的**检测式追踪**（detect-then-track）是「无种子、多对象、全自动、离线批量」：检测器逐帧出框 + 内建关联算法（ByteTrack / BoT-SORT），**时间关联全在 backend 内**，平台只投整段视频、收已聚合的轨迹，自己不做任何时间编排。它走**标准批量 `/predict`**（复数 `tasks` wire），不进交互式那条链。
 
-**请求**：`context.type="tracker"`，`task.file_path` 是整段视频（presigned URL 或本地路径，backend 内部解帧）：
+**请求**：`context.task="tracker"`，`task.file_path` 是整段视频（presigned URL 或本地路径，backend 内部解帧）：
 
 ```json
 {
@@ -847,7 +855,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 {
   "id": "detect", // 必填. backend 内唯一,(backend_id,id) 构成目录主键
   "display_name": "YOLO 目标检测", // UI 展示名
-  "task": "detection", // 必填. 受控词表,条目边界,决定输出几何与项目兼容性
+  "task": "detect", // 必填. 受控词表,条目边界,决定输出几何与项目兼容性
   "model_family": "yolo", // 可选. 家族标签(yolo/sam/paddleocr…),UI 二级分组用
   "infra": "pytorch", // 可选. 缺省继承 backend.infra
   "is_interactive": false, // 该 model 是否支持交互式 /predict
@@ -888,11 +896,11 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 | `task`            | 输出几何                        | 对应 result type                   | 备注                            |
 | ----------------- | ------------------------------- | ---------------------------------- | ------------------------------- |
-| `detection`       | `bbox`                          | `rectanglelabels`                  |                                 |
+| `detect`          | `bbox`                          | `rectanglelabels`                  |                                 |
 | `obb`             | `rotated_bbox`                  | `rectanglelabels`（带 `rotation`） | 与 detection 输出几何不同，单列 |
-| `segmentation`    | `polygon`                       | `polygonlabels`                    | 实例/语义分割统一 polygon 落地  |
-| `keypoint`        | `keypoint`                      | `keypointlabels`                   | pose / 关键点                   |
-| `classification`  | `none`                          | 无几何，写 attribute               | 整图/区域分类                   |
+| `segment`         | `polygon`                       | `polygonlabels`                    | 实例/语义分割统一 polygon 落地  |
+| `pose`            | `keypoint`                      | `keypointlabels`                   | pose / 关键点                   |
+| `classify`        | `none`                          | 无几何，写 attribute               | 整图/区域分类                   |
 | `ocr`             | `bbox`/`rotated_bbox`/`polygon` | 对应几何 + `attributes.text`       | §4.1.8                          |
 | `doc_layout`      | `bbox`/`polygon`                | 对应几何，class=版面类别           | §4.1.8                          |
 | `tracker`         | per-frame geometry              | （video tracker 协议，§2.2）       | 模态=video                      |
@@ -922,7 +930,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 **`composition`（原子 vs 内部编排，可选）** <!-- since 协议 v2.2 --> —— `atom`（单次推理 / 单原子） / `composite`（一个 model 内部编排多个原子、一次 `/predict` 一气呵成）：
 
 - **动机**：model 目录把「原子」与「内部编排」平铺为平级条目，`task` 只描述输出形态、与「原子/复合」正交。`composition` 把「是原子还是内部编排」做成机器可读字段，取代早期靠读 `display_name` + 经验判断的做法。
-- **唯一的可见性/过滤轴**：`composition` 是平台过滤选用入口的唯一依据。**编排下游 stage 选择器只收 `atom`**（编排只组合原子，不把一锅端复合体当 stage）；单阶段 / 工作台多模型选择器不过滤，`composite` 可直接选用（开箱即用）。例：grounded-sam2 `segmentation` = `composite`（单步可选、但不作编排下游）；onnxtools 一锅端 `vehicle-attr` = `composite`（单阶段默认、不作编排下游）；`vehicle-detect` / `vehicle-attr-classify` = `atom`（可作编排上/下游）。
+- **唯一的可见性/过滤轴**：`composition` 是平台过滤选用入口的唯一依据。**编排下游 stage 选择器只收 `atom`**（编排只组合原子，不把一锅端复合体当 stage）；单阶段 / 工作台多模型选择器不过滤，`composite` 可直接选用（开箱即用）。例：grounded-sam2 `segment` = `composite`（单步可选、但不作编排下游）；onnxtools 一锅端 `vehicle-attr` = `composite`（单阶段默认、不作编排下游）；`vehicle-detect` / `vehicle-attr-classify` = `atom`（可作编排上/下游）。
 - **缺省**：`atom`（绝大多数 model 是单次推理；老 backend 不报字段即按原子）。平台 `extract_capabilities` 透传，缺省回落 `atom`。
 - **边界**：不改 `/predict` 协议、不参与兼容性校验。消费方：模型市场据此给卡片打「原子 / 内置流程」徽标；编排下游选择器 + 属性导入源据此过滤（只取 `atom`）。
 
@@ -936,7 +944,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
   "models": [
     {
       "id": "detect",
-      "task": "detection",
+      "task": "detect",
       "model_family": "yolo",
       "infra": "pytorch",
       "supported_prompts": ["none"],
@@ -971,11 +979,11 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 #### 4.1.5 向后兼容规则
 
-| backend 形态                  | 平台解析                                                                                                                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 无 `models[]`                 | 顶层 `supported_*` / `params` 合成 1 个隐式 model：`id="default"`，`task` 由现有信号推断（`supported_trackers` 非空 → `tracker`、`supported_prompts` 含 point/interactive_box/text/exemplar → `interactive_seg`、否则 `detection`），`infra="unknown"` |
-| 无 `infra`                    | model.infra = backend.infra = `"unknown"`                                                                                                                                                                                                              |
-| 有 `models[]` 但条目缺 `task` | 该条目按 `unknown` task 入目录，UI 标「能力未声明」，兼容性校验 fail-open（放行，留到 `/predict` 暴露）                                                                                                                                                |
+| backend 形态                  | 平台解析                                                                                                                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 无 `models[]`                 | 顶层 `supported_*` / `params` 合成 1 个隐式 model：`id="default"`，`task` 由现有信号推断（`supported_trackers` 非空 → `tracker`、`supported_prompts` 含 point/interactive_box/text/exemplar → `interactive_seg`、否则 `detect`），`infra="unknown"` |
+| 无 `infra`                    | model.infra = backend.infra = `"unknown"`                                                                                                                                                                                                           |
+| 有 `models[]` 但条目缺 `task` | 该条目按 `unknown` task 入目录，UI 标「能力未声明」，兼容性校验 fail-open（放行，留到 `/predict` 暴露）                                                                                                                                             |
 
 老 backend（grounded-sam2 / sam3 / echo）**不需要任何改动**即可继续工作 —— 它们落到「隐式单 model」路径。
 
@@ -996,7 +1004,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
     {
       "id": "detect",
       "display_name": "YOLO 目标检测",
-      "task": "detection",
+      "task": "detect",
       "model_family": "yolo",
       "supported_prompts": ["none"],
       "supported_geometric_outputs": ["bbox"],
@@ -1067,14 +1075,14 @@ span 边界继续使用上一窗末帧 geometry 续种。
     },
     {
       "id": "segment",
-      "task": "segmentation",
+      "task": "segment",
       "supported_geometric_outputs": ["polygon"],
       "model_family": "yolo",
       "/* variants 同上 */": null,
     },
     {
       "id": "pose",
-      "task": "keypoint",
+      "task": "pose",
       "supported_geometric_outputs": ["keypoint"],
       "model_family": "yolo",
       "/* … */": null,
@@ -1088,7 +1096,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
     },
     {
       "id": "classify",
-      "task": "classification",
+      "task": "classify",
       "supported_geometric_outputs": ["none"],
       "output_attribute_types": ["class"],
       "model_family": "yolo",
@@ -1148,7 +1156,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 布尔字段，缺省 `false`。决定前端列表视图如何对待"同 variant 跨多 task"的情形：
 
 - **`false`（yolo 风格，默认）**：每 task 独立物理权重（yolov8n-det.pt / yolov8n-seg.pt / yolov8n-pose.pt / yolov8n-obb.pt 都是独立文件）。模型市场列表中每 (task, variant) 一行，行名加任务后缀（`YOLOv8-Det` / `YOLOv8-OBB`）。
-- **`true`（gsam2 / sam3 风格）**：同 backend 内多 task 共享同一份权重（SAM 2.1 Tiny 一份 `.pt` 同时服务 segmentation / interactive_seg / tracker；GroundingDINO Swin-T 一份 `.pt` 同时服务 detection / segmentation）。模型市场列表按 `(backend, axis_key, axis_value)` 聚合到一行，`task` 列汇总所有用到此权重的 task。
+- **`true`（gsam2 / sam3 风格）**：同 backend 内多 task 共享同一份权重（SAM 2.1 Tiny 一份 `.pt` 同时服务 segment / interactive_seg / tracker；GroundingDINO Swin-T 一份 `.pt` 同时服务 detect / segmentation）。模型市场列表按 `(backend, axis_key, axis_value)` 聚合到一行，`task` 列汇总所有用到此权重的 task。
 
 **结合 `supported_variants` 按 task 暴露**：当 `variants_shared_across_tasks=true` 时，每个 model 只声明该 task **真正用到的 axes**（如 grounded-sam2 的 `detection` 只声明 `dino_variant` 轴而非两轴），让前端目录的 task 列准确反映哪些 task 用 SAM、哪些 task 用 DINO。
 
@@ -1188,13 +1196,13 @@ span 边界继续使用上一窗末帧 geometry 续种。
   "models": [
     {
       "id": "yolov8n-coco",
-      "task": "detection",
+      "task": "detect",
       "model_family": "yolo",
       "supported_geometric_outputs": ["bbox"],
     },
     {
       "id": "rtmpose",
-      "task": "keypoint",
+      "task": "pose",
       "model_family": "rtmpose",
       "supported_geometric_outputs": ["keypoint"],
     },
@@ -1207,7 +1215,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
     },
     {
       "id": "u2net",
-      "task": "segmentation",
+      "task": "segment",
       "model_family": "u2net",
       "supported_geometric_outputs": ["polygon"],
     },
@@ -1227,7 +1235,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 **真实参考 backend `rapidocr`**（[`apps/rapidocr-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/rapidocr-backend)）把 RapidOCR 的 `det → cls → rec` 三段拆为**原子能力 + 端到端编排**，自报三个 model：
 
-- `ocr-det`（`task: "detection"`，原子）：full_image → `polygon` 四点文本框，无属性。
+- `ocr-det`（`task: "detect"`，原子）：full_image → `polygon` 四点文本框，无属性。
 - `ocr-rec`（`task: "ocr"`，原子）：`crop` → `attributes.text` + `orientation`，内部跑文本行方向分类（cls）做 180° 校正。
 - `ocr-e2e`（`task: "ocr"`，composite）：full_image → `polygon` + text + orientation + language，一次 `/predict` 跑完三段。
 
@@ -1258,7 +1266,7 @@ POST /projects/{pid}/ml-backends/{bid}/capabilities/refresh  # 强制重探 /set
 
 #### 4.1.10 可跑参考实现
 
-**真实推理参考实现（v0.14.12 起）**：[`apps/yolo-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/yolo-backend) —— ultralytics 多任务多系列 backend，覆盖 detection / segmentation(instance) / keypoint / obb 四 task × v8/v9/v10/v11/v12/v26/rt-detr 七系列，共 80 个有效预训练组合。`/setup.models[]` 按 task 拆 4 条目，`supported_variants` 走 series × size 两轴，按预训练矩阵严格过滤。`/predict` 零 adapter 命中 4 种 result type，结果直落平台 `apps/api/app/services/prediction.py::to_internal_shape` → internal Geometry。可作为新接入 backend 的首选骨架参考。
+**真实推理参考实现**：[`apps/yolo-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/yolo-backend) —— ultralytics 多任务多系列 backend，覆盖 detect / segment(instance) / pose / obb 四 task × v8/v9/v10/v11/v12/v26/rt-detr 七系列，共 80 个有效预训练组合。`/setup.models[]` 按 task 拆 4 条目，`supported_variants` 走 series × size 两轴，按预训练矩阵严格过滤。`/predict` 零 adapter 命中 4 种 result type，结果直落平台 `apps/api/app/services/prediction.py::to_internal_shape` → internal Geometry。可作为新接入 backend 的首选骨架参考。
 
 **真实 OCR 参考实现**：[`apps/rapidocr-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/rapidocr-backend) —— RapidOCR(ONNX) backend，`ocr` 任务族首个真实推理实现。把一条 OCR 流水线拆为原子能力（`ocr-det` 检测 + `ocr-rec` 识别）+ 端到端 composite（`ocr-e2e`），详见 §4.1.8。`/setup.models[]` 三条目走 version × size × lang 多轴 `variants`，权重 bind-mount 注入（`download_models.py` 拉取）。可作为「单 backend 把流水线拆成原子 + 编排入口」与 OCR 富属性（text/orientation/language）落点的参考。
 
@@ -1382,7 +1390,7 @@ cd ../.. && pnpm codegen
         {
           "id": "grounded-sam2-detection",
           "display_name": "Grounded-SAM 2 · 文本检测 (DINO)",
-          "task": "detection",
+          "task": "detect",
           "infra": "pytorch",
           "is_interactive": false,
           "supported_prompts": ["text"],
@@ -1452,7 +1460,7 @@ v0.14.12 时三家 backend 的 `/health.pool` 字段各不相同（yolo 用 `poo
 
 | backend               | key 形式                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| yolo-backend          | `{series}/{size}/{task}`，如 `yolov11/s/detection`                                                                       |
+| yolo-backend          | `{series}/{size}/{task}`，如 `yolov11/s/detect`                                                                          |
 | grounded-sam2-backend | image pool 用 `sam={sam_variant}/dino={dino_variant}`，如 `sam=tiny/dino=B`；video pool 的 key 就是 `sam_variant` 字符串 |
 | sam3-backend          | 模型变体字符串，如 `sam3`；cap 永远 `1`                                                                                  |
 
@@ -1474,7 +1482,7 @@ v0.14.12 时三家 backend 的 `/health.pool` 字段各不相同（yolo 用 `poo
 // yolo-backend (闭集 / 开集文本检测分割)
 POST /warmup
 {
-  "task": "detection",
+  "task": "detect",
   "variants": { "series": "yolov11", "size": "s" }
 }
 
@@ -1490,7 +1498,7 @@ POST /warmup
 // grounded-sam2-backend (同时预热 SAM + DINO)
 POST /warmup
 {
-  "task": "segmentation",
+  "task": "segment",
   "variants": { "sam_variant": "small", "dino_variant": "B" }
 }
 
@@ -1625,6 +1633,7 @@ async def setup():
         "name": "echo-backend",
         "version": "0.1.0",
         "protocol_version": "2.1",
+        "task_contract_revision": 1,
         "compat_protocol_versions": ["2.0"],
         "model_version": MODEL_VERSION,
         "is_interactive": False,
@@ -1633,7 +1642,7 @@ async def setup():
             {
                 "id": "echo-detect",
                 "display_name": "Echo 固定框 demo",
-                "task": "detection",
+                "task": "detect",
                 "supported_prompts": ["none"],
                 "supported_geometric_outputs": ["bbox"],
             }
@@ -1816,3 +1825,52 @@ ACK + fresh health 提交 Resident 或保守 Unknown。冻结 marker 不随 owne
 派发只认逐卡 effective mode，不能被全局 desired mode 提前短路：demotion 握手完成前，即使 desired 已回到 off/observe，旧 effective=enforce 的卡仍发送受管请求。多卡部分灰度时，已知卡 B 的 off/observe 不受卡 A enforce 影响；但缺失或未知 resource 的注册项无法安全归属，只要任一卡真正 effective enforce 就在 backend HTTP 前返回 `gpu_config_invalid`。仅带新鲜 connected health 且明确 `configured_device=cpu`、没有任何 GPU 正证据的 null-claim backend 可豁免。未注册 URL 的 smoke-test 始终可做只读 health；任一卡进入 effective enforce 后，raw reload 同样在 backend HTTP 前拒绝。
 
 ---
+
+## 12. 受控自训模型部署协议 (/managed-models)
+
+YOLO backend（[`apps/yolo-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/yolo-backend)）支持通过受控端点动态部署平台在线学习产出的自训模型（`TrainedModelVersion`）。支持 Ultralytics YOLO 原生权重与 LibreYOLO YOLO9 原生权重（经 CPU 适配器运行），实现训练权重到预标注实例的安全回流。
+
+### 鉴权机制
+
+- 请求头：`Authorization: Bearer <YOLO_MANAGED_MODELS_TOKEN>`
+- 凭据配置：backend 容器设置环境变量 `YOLO_MANAGED_MODELS_TOKEN`（至少 32 字符随机串），平台端在超管「模型市场」对应的 YOLO registry 实例中配置相同 token；为空时禁用该受控安装路径。
+
+### 端点规范
+
+#### 1. 安装自训模型：`POST /managed-models`
+
+平台向已认证的 YOLO backend 下发自训模型安装指令：
+
+```json
+{
+  "version_id": "4b6a8276-8f2b-4d45-9ec2-6718d7ef2882",
+  "name": "yolo11n-defect-v1",
+  "framework": "ultralytics",
+  "model_family": "yolo11",
+  "model_size": "n",
+  "task": "detect",
+  "classes": ["scratch", "dent", "bubble"],
+  "weights_url": "http://minio:9000/training/projects/.../best.pt?X-Amz-Signature=...",
+  "weights_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "weights_size_bytes": 5242880
+}
+```
+
+- backend 下载权重，校验实际字节大小、SHA-256 摘要与原生架构元数据；
+- 校验通过后原子写入 managed storage 目录并生成安装收据（receipt）；
+- 安装失败返回 422 及明确的错误原因（如 `weights_corrupted`、`classes_mismatch`、`framework_incompatible`）。
+
+#### 2. 查询与试用：`GET /managed-models/{version_id}`
+
+平台查询模型部署健康状态，并在固定验证样本上执行推理试用：
+
+- 返回已固定的安装收据：`installed`、`model_family`、`model_size`、`artifact_format`、`runtime_qualification` 等；
+- 包含在验证图上的实际试用预测框、置信度与推理耗时；
+- 平台负责人核验试用结果无误后，方可完成项目级模型发布（`ModelRelease`）。
+
+### 回流资格（Model Return Qualification）
+
+- **Ultralytics YOLO11**：支持图片目标检测（`detect`）与简单多边形实例分割（`segment`）；
+- **LibreYOLO YOLO9**：支持 t/s/m/c 规格的原生目标检测最佳权重，使用经过验证的原生 CPU 推理适配器借用池运行；原生指标缺口（缺失常规 precision/recall）在平台内明确保留。
+
+详见[在线学习与训练体系](/dev/concepts/training-datasets#模型身份与回流)。

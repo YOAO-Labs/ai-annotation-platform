@@ -13,17 +13,16 @@ caller must start the reversible round trip *at that revision*
 ``alembic stamp <floor>``: stamp only rewrites the version marker and never
 executes the real schema/data rollback.
 
+The policy also reports reversible revisions above the unique irreversible
+revision.  The runner validates that suffix with a real ``head -> irreversible
+-> head`` round trip, stopping before the irreversible downgrade.  The prefix
+below the barrier still requires its independent real rollback to base.
+
 The policy is deliberately fail-closed.  A chain with multiple heads, a merge
 revision, an orphan/branch revision, an unknown parent, a cycle, more than one
-irreversible revision, an irreversible revision at the base, or any reversible
-revision above the unique irreversible revision raises ``UnsupportedChain``.
-
-The last shape is not impossible to validate: ``head -> <irreversible>`` is
-itself a valid reversible segment.  This runner simply does not implement
-post-irreversible suffix validation yet, so it refuses the shape rather than
-silently validating only the prefix below the irreversible revision.  When every
-migration is reversible the floor is the current head, keeping the round trip
-identical to a plain ``downgrade base``.
+irreversible revision, or an irreversible revision at the base raises
+``UnsupportedChain``.  When every migration is reversible the floor is the
+current head, keeping the round trip identical to a plain ``downgrade base``.
 
 The frozen stdout contract (a single line with the floor revision) is preserved
 for existing callers; ``--json`` additionally emits the full policy.
@@ -43,7 +42,7 @@ from alembic.util import load_python_file
 
 
 class UnsupportedChain(RuntimeError):
-    """The revision graph cannot be expressed as one reversible segment."""
+    """The revision graph cannot be expressed as the supported linear segments."""
 
 
 @dataclass(frozen=True)
@@ -59,6 +58,7 @@ class ChainPolicy:
     reversible_floor: str
     irreversible: tuple[str, ...]
     reversible_segment: tuple[str, ...]
+    post_irreversible_segment: tuple[str, ...]
 
 
 def _single_parent(revision: Revision) -> str | None:
@@ -111,19 +111,17 @@ def classify_chain(revisions: dict[str, Revision], head: str) -> ChainPolicy:
 
     if not irreversible:
         floor = head
+        suffix = ()
     else:
-        if order[0].revision != irreversible[0]:
-            suffix = [r.revision for r in order if r.revision != irreversible[0]]
-            raise UnsupportedChain(
-                "reversible revisions sit above irreversible "
-                f"{irreversible[0]!r} ({', '.join(suffix[:5])}...); post-irreversible "
-                "suffix validation is not implemented, so this chain shape is "
-                "unsupported"
-            )
-        parent = _single_parent(order[0])
+        barrier_index = next(
+            i for i, revision in enumerate(order) if revision.irreversible
+        )
+        barrier = order[barrier_index]
+        suffix = tuple(revision.revision for revision in order[:barrier_index])
+        parent = _single_parent(barrier)
         if parent is None:
             raise UnsupportedChain(
-                f"irreversible revision {order[0].revision!r} sits at base; there "
+                f"irreversible revision {barrier.revision!r} sits at base; there "
                 "is no reversible segment to validate"
             )
         floor = parent
@@ -135,6 +133,7 @@ def classify_chain(revisions: dict[str, Revision], head: str) -> ChainPolicy:
         reversible_floor=floor,
         irreversible=irreversible,
         reversible_segment=segment,
+        post_irreversible_segment=suffix,
     )
 
 

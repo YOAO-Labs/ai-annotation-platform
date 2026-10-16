@@ -18,6 +18,9 @@ sam3-backend main.py 收到 type=point 时返回 400. /setup.supported_prompts �
 
 from __future__ import annotations
 
+from aap_task_contract import Task as VisualTaskName
+from aap_protocol_v2.predict import normalize_context_task
+
 import math
 from typing import Any, Literal
 
@@ -75,6 +78,13 @@ class Exemplar(BaseModel):
 
 
 class Context(BaseModel):
+    task: VisualTaskName | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_task_fields(cls, value):
+        return normalize_context_task(value) if isinstance(value, dict) else value
+
     # "interactive_box" = SAM-style 单框单 mask (开 inst 后); "bbox" 为纯几何形状,
     # 不再作交互 prompt (PCS 全图相似统一走 "exemplar"). "point" 升级为 inst 单实例点交互 (累加).
     type: Literal[

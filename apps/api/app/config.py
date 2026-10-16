@@ -206,6 +206,13 @@ class Settings(BaseSettings):
     # 用户头像独立桶。头像不可重生、需备份、需长期保留,故不挂任何 lifecycle 规则,
     # 与任务数据/派生缓存的生命周期彻底解耦。
     minio_avatars_bucket: str = "avatars"
+    minio_training_bucket: str = "training"
+    training_enabled: bool = False
+    training_executor_token: str = Field(default="", repr=False)
+    training_node_id: str = "local"
+    training_gpu_uuid: str = ""
+    training_catalog_json: dict[str, dict] = Field(default_factory=dict)
+    training_heartbeat_timeout_seconds: int = Field(default=60, ge=30, le=600)
     minio_use_ssl: bool = False
     # 浏览器可达的签名 URL 根地址：可为绝对 URL，也可为 DEV 同源前缀
     # (/minio，由 Vite 代理到对象存储)。

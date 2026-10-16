@@ -16,6 +16,26 @@ const base: Annotation = {
 };
 
 describe("BoxListItem", () => {
+  it("pins row actions without hover and retires them when the row owner changes", () => {
+    const onSelect = vi.fn();
+    const onAccept = vi.fn();
+    const props = {
+      selected: false,
+      imageWidth: 1000,
+      imageHeight: 500,
+      onSelect,
+      onAccept,
+      isAi: true,
+    };
+    const { getByLabelText, rerender } = render(<BoxListItem {...props} b={base} />);
+    fireEvent.click(getByLabelText("更多操作"));
+    expect(getByLabelText("更多操作")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(getByLabelText("采纳预测"));
+    expect(onAccept).toHaveBeenCalledOnce();
+    expect(onSelect).not.toHaveBeenCalled();
+    rerender(<BoxListItem {...props} b={{ ...base, id: "another-prediction" }} />);
+    expect(getByLabelText("更多操作")).toHaveAttribute("aria-expanded", "false");
+  });
   it("shows bbox tool metadata", () => {
     const b: Annotation = {
       ...base,

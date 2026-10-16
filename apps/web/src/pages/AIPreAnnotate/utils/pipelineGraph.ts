@@ -1,3 +1,4 @@
+import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 /**
  * v0.18.16 · 受限树形流水线 → react-flow 图的纯函数层.
  *
@@ -55,7 +56,7 @@ export function roleOf(payload: PipelineStagePayload | null | undefined): StageR
       ? { label: "检测", variant: "accent", icon: "box" }
       : { label: "分割", variant: "ai", icon: "sparkles" };
   }
-  if (payload?.task_type === "ocr") {
+  if (payload?.task === "ocr") {
     return { label: "识别", variant: "success", icon: "tag" };
   }
   return { label: "分类", variant: "success", icon: "tag" };
@@ -119,13 +120,14 @@ export interface DownstreamKind {
 }
 
 export function classifyDownstream(model: DownstreamModelLike | null | undefined): DownstreamKind {
+  const task = normalizeTask(model?.task ?? "");
   const isBoxSegGeometry =
-    model?.task === "segmentation" &&
+    task === "segment" &&
     (model?.supported_prompts ?? []).includes("bbox") &&
     !model?.is_interactive;
-  const isCropDetectGeometry = model?.task === "detection" && !model?.is_interactive;
+  const isCropDetectGeometry = task === "detect" && !model?.is_interactive;
   const isOcrRecognize =
-    model?.task === "ocr" && model?.composition !== "composite" && !model?.is_interactive;
+    task === "ocr" && model?.composition !== "composite" && !model?.is_interactive;
   return {
     isBoxSegGeometry: !!isBoxSegGeometry,
     isCropDetectGeometry: !!isCropDetectGeometry,
@@ -206,7 +208,7 @@ export function sourceNodeShape(
   source: PipelineSource | null | undefined,
   model: SourceModelLike | null | undefined,
 ): SourceNodeShape {
-  const task = model?.task;
+  const task = normalizeTask(model?.task ?? "");
   const meta = isTaskId(task) ? TASKS[task] : undefined;
   const sourceType = (source?.data_type as ModalityId | undefined) ?? "image";
   const isTracker = task === "tracker";
@@ -267,7 +269,7 @@ export function stageWarning(
     return null;
   }
   // task=ocr 是识别阶段 (产 text/orientation/language 非 class), 不套「分类下游须产 class」判据。
-  if (caps.producesClass === false && payload?.task_type !== "ocr")
+  if (caps.producesClass === false && payload?.task !== "ocr")
     return "该模型不产类别属性（output_attribute_types 不含 class），作分类下游属性恒空";
   if (!caps.producesAttributes) return "该后端不自报输出属性，作下游分类只会重新检测、属性恒空";
   return null;

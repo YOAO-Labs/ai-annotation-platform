@@ -32,6 +32,13 @@ celery_app = Celery(
         "app.workers.async_jobs_cleanup",
         # v0.10.27 · 导出异步化 + 过期产物清理
         "app.workers.export",
+        "app.workers.training_dataset",
+        "app.workers.sample_evaluations",
+        "app.workers.active_learning",
+        "app.workers.training_preview_cleanup",
+        "app.workers.training_observability_cleanup",
+        "app.workers.learning_policy",
+        "app.workers.training_study",
         "app.workers.export_cleanup",
         # v0.11.15 · 外部连接器数据集导入
         "app.workers.dataset_import",
@@ -95,6 +102,19 @@ celery_app.conf.update(
         "app.workers.async_jobs_cleanup.purge_old_async_jobs": {"queue": "cleanup"},
         # v0.10.27 · 导出 worker 独立 export 队列；过期产物清理走 cleanup
         "app.workers.export.run_export": {"queue": "export"},
+        "app.workers.training_dataset.run_training_dataset": {"queue": "export"},
+        "app.workers.sample_evaluations.run_sample_evaluation": {"queue": "ml.cpu"},
+        "app.workers.sample_evaluations.maintain_evaluations": {"queue": "default"},
+        "app.workers.active_learning.run_round": {"queue": "ml.cpu"},
+        "app.workers.active_learning.maintain_rounds": {"queue": "default"},
+        "app.workers.training_preview_cleanup.purge_expired_previews": {
+            "queue": "cleanup"
+        },
+        "app.workers.training_observability_cleanup.purge_observations": {
+            "queue": "cleanup"
+        },
+        "app.workers.learning_policy.check_policies": {"queue": "default"},
+        "app.workers.training_study.check_studies": {"queue": "default"},
         "app.workers.export_cleanup.purge_expired_export_artifacts": {
             "queue": "cleanup"
         },
@@ -128,6 +148,30 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "maintain-active-learning-rounds": {
+            "task": "app.workers.active_learning.maintain_rounds",
+            "schedule": crontab(minute="*"),
+        },
+        "maintain-sample-evaluations": {
+            "task": "app.workers.sample_evaluations.maintain_evaluations",
+            "schedule": crontab(minute="*"),
+        },
+        "purge-training-observations": {
+            "task": "app.workers.training_observability_cleanup.purge_observations",
+            "schedule": crontab(minute=0),
+        },
+        "purge-expired-training-previews": {
+            "task": "app.workers.training_preview_cleanup.purge_expired_previews",
+            "schedule": crontab(minute="*"),
+        },
+        "check-learning-policies": {
+            "task": "app.workers.learning_policy.check_policies",
+            "schedule": crontab(minute="*"),
+        },
+        "check-training-studies": {
+            "task": "app.workers.training_study.check_studies",
+            "schedule": timedelta(seconds=10),
+        },
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",
             "schedule": crontab(hour=3, minute=0),  # 每日 03:00 UTC

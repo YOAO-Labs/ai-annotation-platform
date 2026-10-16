@@ -147,10 +147,10 @@ export function StageCard({
       (m) =>
         m.composition !== "composite" &&
         !m.is_interactive &&
-        (m.task === "classification" ||
-          m.task === "detection" ||
+        (m.task === "classify" ||
+          m.task === "detect" ||
           m.task === "ocr" ||
-          (m.task === "segmentation" && (m.supported_prompts ?? []).includes("bbox"))),
+          (m.task === "segment" && (m.supported_prompts ?? []).includes("bbox"))),
     );
   }, [cfg.capabilitiesQ.data]);
 
@@ -159,7 +159,7 @@ export function StageCard({
   useEffect(() => {
     setSelectedModelId((prev) => {
       if (prev && downstreamModels.some((m) => m.id === prev)) return prev;
-      const classify = downstreamModels.find((m) => m.task === "classification");
+      const classify = downstreamModels.find((m) => m.task === "classify");
       return classify?.id ?? downstreamModels[0]?.id ?? null;
     });
   }, [backendId, downstreamModels]);
@@ -204,7 +204,7 @@ export function StageCard({
       return {
         ml_backend_id: backendId,
         model_id: selectedModel.id,
-        task_type: selectedModel.task,
+        task: selectedModel.task,
         model_variants: variantSlice,
         params: {},
         parent_class_filter: classArr.length > 0 ? classArr : undefined,
@@ -232,7 +232,7 @@ export function StageCard({
     return {
       ml_backend_id: stageArgs.ml_backend_id,
       model_id: selectedModel?.id ?? stageArgs.model_id,
-      task_type: selectedModel?.task ?? stageArgs.task_type,
+      task: selectedModel?.task ?? stageArgs.task,
       model_variants: downstreamVariants,
       params: stageArgs.params,
       parent_class_filter: classArr.length > 0 ? classArr : undefined,
@@ -410,11 +410,11 @@ export function StageCard({
             {downstreamModels.map((m) => (
               <option key={m.id} value={m.id}>
                 {(m.display_name || m.id) +
-                  (m.task === "segmentation"
+                  (m.task === "segment"
                     ? "（框→分割）"
                     : m.task === "ocr"
                       ? "（识别）"
-                      : m.task === "detection"
+                      : m.task === "detect"
                         ? "（检测）"
                         : "（分类）")}
               </option>

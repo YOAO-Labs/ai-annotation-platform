@@ -31,6 +31,12 @@ describe("deriveSamplingStep", () => {
     expect(deriveSamplingStep({ mode: "fps", target_fps: 25 }, 60)).toBe(2);
   });
 
+  it("mode=fps uses the server ties-to-even rule", () => {
+    expect(deriveSamplingStep({ mode: "fps", target_fps: 12 }, 30)).toBe(2);
+    expect(deriveSamplingStep({ mode: "fps", target_fps: 20 }, 30)).toBe(2);
+    expect(deriveSamplingStep({ mode: "fps", target_fps: 20 }, 70)).toBe(4);
+  });
+
   it("mode=fps falls back to 1 when target / source invalid", () => {
     expect(deriveSamplingStep({ mode: "fps" }, 30)).toBe(1);
     expect(deriveSamplingStep({ mode: "fps", target_fps: null }, 30)).toBe(1);

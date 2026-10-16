@@ -118,10 +118,10 @@ describe("StageCard v0.18.5/6", () => {
       isLoading: false,
       data: {
         models: [
-          { id: "vehicle-attr", task: "detection", display_name: "检测+分类" },
+          { id: "vehicle-attr", task: "detect", display_name: "检测+分类" },
           {
             id: "vehicle-attr-classify",
-            task: "classification",
+            task: "classify",
             display_name: "纯分类·吃 ROI",
             supported_variants: [{ key: "conf_size", variants: [{ value: "L" }] }],
             output_attribute_schema: [{ key: "color", label: "颜色", type: "select" }],
@@ -137,7 +137,7 @@ describe("StageCard v0.18.5/6", () => {
     const calls = onChange.mock.calls;
     const lastPayload = calls[calls.length - 1]?.[1];
     expect(lastPayload?.model_id).toBe("vehicle-attr-classify");
-    expect(lastPayload?.task_type).toBe("classification");
+    expect(lastPayload?.task).toBe("classify");
     // 既有小毛病修复: 源 class_filter 不透传; 变体只保留下游 model 自报的轴 (series 被滤掉)。
     expect(lastPayload?.class_filter).toBeUndefined();
     expect(lastPayload?.model_variants).toEqual({ conf_size: "L" });
@@ -152,7 +152,7 @@ describe("StageCard v0.18.5/6", () => {
         models: [
           {
             id: "grounded-sam2-box-seg",
-            task: "segmentation",
+            task: "segment",
             display_name: "框→分割",
             is_interactive: false,
             supported_prompts: ["bbox"],
@@ -172,7 +172,7 @@ describe("StageCard v0.18.5/6", () => {
     const calls = onChange.mock.calls;
     const lastPayload = calls[calls.length - 1]?.[1];
     expect(lastPayload?.model_id).toBe("grounded-sam2-box-seg");
-    expect(lastPayload?.task_type).toBe("segmentation");
+    expect(lastPayload?.task).toBe("segment");
     expect(lastPayload?.roi?.mode).toBe("geometry");
     expect(lastPayload?.write?.target).toBe("geometry");
     expect(lastPayload?.model_variants).toEqual({ sam_variant: "tiny" }); // dino 被过滤
@@ -197,7 +197,7 @@ describe("StageCard v0.18.5/6", () => {
         models: [
           {
             id: "hat-detector",
-            task: "detection",
+            task: "detect",
             display_name: "帽子检测",
             is_interactive: false,
             supported_variants: [{ key: "size", variants: [{ value: "s" }] }],
@@ -212,7 +212,7 @@ describe("StageCard v0.18.5/6", () => {
     const calls = onChange.mock.calls;
     const lastPayload = calls[calls.length - 1]?.[1];
     expect(lastPayload?.model_id).toBe("hat-detector");
-    expect(lastPayload?.task_type).toBe("detection");
+    expect(lastPayload?.task).toBe("detect");
     expect(lastPayload?.roi?.mode).toBe("crop");
     expect(lastPayload?.input?.mode).toBe("crop");
     expect(lastPayload?.write?.target).toBe("geometry");
@@ -257,11 +257,11 @@ describe("StageCard v0.18.5/6", () => {
     expect(screen.queryByText(/不产类别属性/)).toBeNull();
     // 已选 rec 下游 → 对齐整图 OCR 同胞 (e2e), 使 configReady + version/size/lang 轴就位
     expect(mockCfg.selectTaskModel).toHaveBeenCalledWith("ocr-e2e");
-    // 上抛 attributes payload: model_id=ocr-rec + task_type=ocr + crop 投递 + 写属性
+    // 上抛 attributes payload: model_id=ocr-rec + task=ocr + crop 投递 + 写属性
     const calls = onChange.mock.calls;
     const lastPayload = calls[calls.length - 1]?.[1];
     expect(lastPayload?.model_id).toBe("ocr-rec");
-    expect(lastPayload?.task_type).toBe("ocr");
+    expect(lastPayload?.task).toBe("ocr");
     expect(lastPayload?.roi?.mode).toBe("crop");
     expect(lastPayload?.write?.target).toBe("attributes");
     // 变体按 rec 自报轴保留 version/size/lang (与 e2e 同胞共用同套轴)。

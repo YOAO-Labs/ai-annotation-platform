@@ -31,8 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3 -m pip install --upgrade pip "setuptools>=68" wheel
 
 # 共享 protocol_v2 包（apps/_shared/protocol_v2）。与其余 backend 共用，单一来源。
+COPY _shared/task_contract/ /app/task_contract/
 COPY _shared/protocol_v2/ /app/protocol_v2/
-RUN python3 -m pip install --no-build-isolation -e /app/protocol_v2
+RUN python3 -m pip install --no-build-isolation -e /app/task_contract -e /app/protocol_v2
 
 # 共享 backend_runtime 包 (apps/_shared/backend_runtime). 仅消费 versions_payload
 # (RapidOCR.load_img 自带下载, 不用 fetch_image)。与其余 backend 单一来源。

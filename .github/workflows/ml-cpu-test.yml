@@ -13,7 +13,7 @@
 # Scope: the 88 Python test files that are otherwise not wired (89 not-wired
 # minus the Node image-reference test owned by the P8 caller work). No GPU, no
 # model weights, no network beyond dependency installation. `grounded-sam2` and
-# `sam3` install CPU torch; `yolo` deliberately avoids ultralytics/torch;
+# `sam3` install CPU torch; `yolo` installs its qualified lock and executes on CPU;
 # `rapidocr` needs neither rapidocr/onnxruntime/cv2; `onnxtools` adds cv2 and
 # reports 3 upstream-gated skips. Each suite runs in its own throwaway venv so
 # committed `sys.modules` torch stubs cannot leak across suites.
@@ -126,9 +126,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
       - name: Install uv
         run: pip install uv
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ml-cpu-uv-${{ runner.os }}-yolo-${{ hashFiles('apps/yolo-backend/uv.lock') }}
+          restore-keys: |
+            ml-cpu-uv-${{ runner.os }}-yolo-
       - name: Run yolo backend tests
         run: bash scripts/run-ml-cpu-tests.sh run yolo
 

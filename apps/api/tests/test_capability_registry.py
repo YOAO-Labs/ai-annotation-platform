@@ -41,14 +41,14 @@ def test_re_export_aligned():
 
 
 def test_protocol_v2_task_count_and_ids():
-    """v0.14.9 协议 v2 边界: 恰好 9 个 task, 顺序固定。"""
+    """The protocol lists the nine canonical tasks in contract order."""
     assert len(reg.TASKS) == 9
     assert reg.TASK_VALUES == (
-        "detection",
+        "detect",
+        "segment",
+        "classify",
+        "pose",
         "obb",
-        "segmentation",
-        "keypoint",
-        "classification",
         "ocr",
         "doc_layout",
         "tracker",

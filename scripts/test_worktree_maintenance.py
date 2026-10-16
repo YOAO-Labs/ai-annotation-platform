@@ -52,6 +52,7 @@ class MaintenanceTests(unittest.TestCase):
                 "MINIO_ENDPOINT": "minio:9000",
                 "MINIO_ACCESS_KEY": "fixture",
                 "MINIO_SECRET_KEY": "fixture-secret",
+                "MINIO_TRAINING_BUCKET": "fixture-training",
                 "AAP_IMAGE_TAG": "fixture",
                 "AAP_SHARED_NETWORK": "fixture",
                 "AAP_PRODUCTION_STATE_DIR": temporary,
@@ -81,8 +82,9 @@ class MaintenanceTests(unittest.TestCase):
                         },
                         capture_output=True,
                         text=True,
-                        check=True,
+                        check=False,
                     )
+                    self.assertEqual(result.returncode, 0, result.stderr)
                     services = json.loads(result.stdout)["services"]
                     worker = services["celery-worker-maintenance"]
                     self.assertEqual(
@@ -121,6 +123,10 @@ class MaintenanceTests(unittest.TestCase):
                     else:
                         self.assertNotIn("secrets", worker)
                         self.assertNotIn("DATABASE_URL", worker["environment"])
+                        self.assertEqual(
+                            worker["environment"]["MINIO_TRAINING_BUCKET"],
+                            values["MINIO_TRAINING_BUCKET"],
+                        )
 
     def test_only_owner_required_tasks_route_to_maintenance(self):
         result = subprocess.run(

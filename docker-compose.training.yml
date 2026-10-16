@@ -1,0 +1,37 @@
+services:
+  training-executor:
+    profiles: [training]
+    image: ${TRAINING_IMAGE:?Set the training image repository}@${TRAINING_IMAGE_DIGEST:?Set the immutable image manifest digest}
+    environment:
+      TRAINING_API_URL: ${TRAINING_API_URL:-http://host.docker.internal:8000/api/v1/internal/training}
+      TRAINING_EXECUTOR_TOKEN_FILE: /run/secrets/training_executor_token
+      TRAINING_NODE_ID: ${TRAINING_NODE_ID:-local}
+      TRAINING_GPU_UUID: ${TRAINING_GPU_UUID:?Set exactly one physical GPU UUID}
+      TRAINING_IMAGE_REFERENCE: ${TRAINING_IMAGE:?Set the training image repository}@${TRAINING_IMAGE_DIGEST:?Set the immutable image manifest digest}
+    secrets:
+      - training_executor_token
+    volumes:
+      - training-state:/state
+      - ${TRAINING_MODELS_PATH:-./training/models}:/models:ro
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${TRAINING_GPU_UUID}"]
+              capabilities: [gpu]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    shm_size: 1gb
+    stop_grace_period: 45s
+    restart: unless-stopped
+
+secrets:
+  training_executor_token:
+    file: ${TRAINING_EXECUTOR_TOKEN_PATH:?Set the private executor token file}
+
+volumes:
+  training-state:

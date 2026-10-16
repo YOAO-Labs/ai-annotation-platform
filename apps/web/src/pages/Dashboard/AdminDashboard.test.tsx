@@ -204,18 +204,18 @@ describe("AdminDashboard", () => {
     expect(screen.getAllByText("进行中").length).toBeGreaterThan(0);
   });
 
-  it("点击「新建项目」→ wizard open", () => {
+  it("点击「新建项目」→ wizard open", async () => {
     mockUseAdminStats.mockReturnValue({ data: baseStats, isLoading: false });
     renderUI();
     expect(screen.queryByTestId("cp-wizard")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("新建项目"));
-    expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
+    expect(await screen.findByTestId("cp-wizard")).toBeInTheDocument();
   });
 
-  it("初始 ?new=1 → wizard 立即 open", () => {
+  it("初始 ?new=1 → wizard 加载后 open", async () => {
     mockUseAdminStats.mockReturnValue({ data: baseStats, isLoading: false });
     renderUI("/overview?new=1");
-    expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
+    expect(await screen.findByTestId("cp-wizard")).toBeInTheDocument();
   });
 
   it("点击「导入数据集」→ import wizard open", () => {

@@ -280,7 +280,7 @@ def _det_entry() -> dict:
     return {
         "id": DET_MODEL_ID,
         "display_name": "RapidOCR · 文本检测（原子）",
-        "task": "detection",
+        "task": "detect",
         "model_family": "rapidocr",
         "infra": "onnx",
         "composition": "atom",

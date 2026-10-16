@@ -18,6 +18,10 @@ log = logging.getLogger(__name__)
 
 
 TERMINAL_NOTIFY_KINDS = {
+    "training_dataset",
+    "training_run",
+    "sample_evaluation",
+    "active_learning_round",
     "batch_predict",
     "video_tracker",
     "video_correction",
@@ -91,6 +95,9 @@ _RESULT_SUMMARY_KEYS = (
     "archived",
     "deleted",
     "run_id",
+    "evaluation_id",
+    "round_id",
+    "attempt_id",
     "issue_count",
     "result_digest",
     "rolled_back_count",

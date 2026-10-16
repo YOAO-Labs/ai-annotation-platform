@@ -5,6 +5,23 @@
 
 按模块分组列出 `apps/api/app/api/v1/` 下所有 `@router.*` 装饰的路由。
 
+## `active_learning.py`
+
+| Method | Path |
+|---|---|
+| GET | `/pool` |
+| POST | `:preview` |
+| GET | `/{round_id}` |
+| POST | `/{round_id}/cancel` |
+| POST | `/{round_id}/retry` |
+| GET | `/{round_id}/attempts/{attempt_id}/report` |
+| GET | `/{round_id}/candidates` |
+| GET | `/{round_id}/candidates/{ordinal}/image` |
+| GET | `/{round_id}/decisions` |
+| POST | `/{round_id}/decisions` |
+| GET | `/{round_id}/feedback` |
+| POST | `/{round_id}/feedback` |
+
 ## `admin_alias_freq.py`
 
 | Method | Path |
@@ -308,6 +325,14 @@
 | POST | `/register` |
 | POST | `/invitations/accept` |
 
+## `learning_policies.py`
+
+| Method | Path |
+|---|---|
+| POST | `/disable` |
+| POST | `/check` |
+| GET | `/triggers` |
+
 ## `mask_formats.py`
 
 | Method | Path |
@@ -383,6 +408,14 @@
 | GET | `/protocol` |
 | GET | `/instances` |
 
+## `model_lineage.py`
+
+| Method | Path |
+|---|---|
+| GET | `/model-lineage/{kind}/{node_id}` |
+| GET | `/trained-models/{version_id}/decisions` |
+| POST | `/trained-models/{version_id}/decisions` |
+
 ## `notifications.py`
 
 | Method | Path |
@@ -438,6 +471,12 @@
 | PUT | `/{pipeline_id}` |
 | DELETE | `/{pipeline_id}` |
 
+## `project_task_datasets.py`
+
+| Method | Path |
+|---|---|
+| GET | `/unrecognized-versions` |
+
 ## `project_templates.py`
 
 | Method | Path |
@@ -475,6 +514,21 @@
 | GET | `/{project_id}/orphan-tasks/preview` |
 | POST | `/{project_id}/orphan-tasks/cleanup` |
 | GET | `/{project_id}/datasets` |
+
+## `sample_evaluations.py`
+
+| Method | Path |
+|---|---|
+| GET | `/qualification` |
+| GET | `/compare` |
+| GET | `/{evaluation_id}` |
+| POST | `/{evaluation_id}/cancel` |
+| POST | `/{evaluation_id}/retry` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/report` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/samples` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/image` |
+| GET | `/{evaluation_id}/attempts/{attempt_id}/samples/{ordinal}/source` |
+| DELETE | `/{evaluation_id}` |
 
 ## `scenes.py`
 
@@ -695,6 +749,99 @@
 | POST | `/{task_id}/video/tracks/{annotation_id}:propagate` |
 | POST | `/{task_id}/video:track` |
 
+## `trained_models.py`
+
+| Method | Path |
+|---|---|
+| POST | `/trained-models` |
+| GET | `/trained-models` |
+| GET | `/trained-models/{version_id}` |
+| POST | `/trained-models/{version_id}/deploy` |
+| GET | `/trained-models/{version_id}/download` |
+| GET | `/model-releases` |
+| POST | `/model-releases` |
+
+## `training_dataset_analysis.py`
+
+| Method | Path |
+|---|---|
+| GET | `/classes` |
+| GET | `/compare` |
+| GET | `/samples` |
+| GET | `/samples/{task_id}` |
+| GET | `/samples/{task_id}/media` |
+
+## `training_datasets.py`
+
+| Method | Path |
+|---|---|
+| POST | `:preflight` |
+| GET | `/{version_id}` |
+| POST | `/{version_id}/retry` |
+| GET | `/{version_id}/download` |
+| DELETE | `/{version_id}` |
+
+## `training_hub.py`
+
+| Method | Path |
+|---|---|
+| GET | `/catalog` |
+| GET | `/projects` |
+| GET | `/runs` |
+
+## `training_observability.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{run_id}/attempts/{attempt_id}/telemetry` |
+| GET | `/{run_id}/attempts/{attempt_id}/logs` |
+| GET | `/{run_id}/recovery` |
+
+## `training_previews.py`
+
+| Method | Path |
+|---|---|
+| GET | `/capabilities` |
+| GET | `/{preview_id}` |
+| POST | `/{preview_id}/cancel` |
+| DELETE | `/{preview_id}` |
+| GET | `/{preview_id}/images/{index}` |
+
+## `training_recipes.py`
+
+| Method | Path |
+|---|---|
+| POST | `:resolve` |
+| POST | `/{recipe_id}/revisions` |
+| GET | `/{recipe_id}` |
+| GET | `/{recipe_id}/revisions` |
+| POST | `/{recipe_id}/archive` |
+| GET | `/clone/{run_id}` |
+
+## `training_runs.py`
+
+| Method | Path |
+|---|---|
+| GET | `/catalog` |
+| GET | `/initialization-sources/{model_id}` |
+| POST | `:preflight` |
+| GET | `/parameter-schema` |
+| GET | `/{run_id}` |
+| GET | `/{run_id}/events` |
+| GET | `/{run_id}/attempts/{attempt_id}/evaluation` |
+| POST | `/{run_id}/cancel` |
+| POST | `/{run_id}/resume` |
+| GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download` |
+| DELETE | `/{run_id}` |
+
+## `training_studies.py`
+
+| Method | Path |
+|---|---|
+| POST | `:preview` |
+| GET | `/{study_id}` |
+| POST | `/{study_id}/cancel` |
+
 ## `users.py`
 
 | Method | Path |
@@ -749,4 +896,4 @@
 
 ---
 
-_共 68 模块 / 432 路由_
+_共 82 模块 / 509 路由_

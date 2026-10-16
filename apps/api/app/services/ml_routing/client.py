@@ -106,9 +106,16 @@ class RoutedMLBackendClient:
         return transport
 
     @asynccontextmanager
-    async def _routed_transport(self) -> AsyncIterator[Any]:
+    async def _routed_transport(
+        self, *, required_instance_id: uuid.UUID | None = None
+    ) -> AsyncIterator[Any]:
         pool = await self._pool()
         if pool is None:
+            if required_instance_id is not None:
+                raise RoutingError(
+                    RejectionReason.POOL_UNAVAILABLE,
+                    "controlled models require a verified service pool",
+                )
             # Production registries are singleton-backfilled. Keep off/observe
             # compatible with pre-backfill rows and lightweight unit fixtures;
             # enforce must fail closed when no logical route can be resolved.
@@ -154,6 +161,11 @@ class RoutedMLBackendClient:
                 owner=self.owner,
                 operation=self.operation,
                 project_id=self.project_id,
+                **(
+                    {"required_instance_id": required_instance_id}
+                    if required_instance_id is not None
+                    else {}
+                ),
             ) as (instance_id, _lease, selection):
                 if instance_id is None:
                     raise RoutingError(
@@ -174,12 +186,63 @@ class RoutedMLBackendClient:
                 await ledger.aclose()
 
     async def predict(
-        self, tasks: list[dict], context: dict | None = None
+        self,
+        tasks: list[dict],
+        context: dict | None = None,
+        *,
+        max_response_bytes: int | None = None,
     ) -> list[Any]:
-        async with self._routed_transport() as client:
+        from app.services import trained_models
+
+        model_id = (context or {}).get("model_id") or ""
+        ref = (context or {}).get("frozen_model_ref")
+        controlled = (
+            model_id.startswith("trained:")
+            or model_id == "project-release"
+            or ref is not None
+        )
+        required_instance_id = None
+        wire = context
+        if controlled:
+            if not ref or model_id != f"trained:{ref.get('model_version_id')}":
+                raise ValueError(
+                    "Controlled prediction requires a frozen model identity"
+                )
+            required_instance_id = await trained_models.validate_frozen_reference(
+                self.db, self.project_id, ref
+            )
+            if self.requested_registry_id != required_instance_id:
+                raise ValueError(
+                    "Requested registry differs from the frozen deployment"
+                )
+            wire = trained_models.wire_context(ref, (context or {}).get("params"))
+            if (context or {}).get("classes"):
+                wire["classes"] = context["classes"]
+            if (context or {}).get("sample_evaluation") is not None:
+                wire["sample_evaluation"] = context["sample_evaluation"]
+        route_args = (
+            {"required_instance_id": required_instance_id} if controlled else {}
+        )
+        async with self._routed_transport(**route_args) as client:
+            response_limit = (
+                {"max_response_bytes": max_response_bytes}
+                if max_response_bytes is not None
+                else {}
+            )
             if context is None:
-                return await client.predict(tasks)
-            return await client.predict(tasks, context=context)
+                return await client.predict(tasks, **response_limit)
+            results = await client.predict(tasks, context=wire, **response_limit)
+            if controlled:
+                expected_tasks = {str(task["id"]) for task in tasks}
+                if (
+                    len(results) != len(tasks)
+                    or {str(result.task_id) for result in results} != expected_tasks
+                ):
+                    raise ValueError(
+                        "Controlled prediction returned different task identities"
+                    )
+                trained_models.validate_and_map_results(results, ref)
+            return results
 
     async def predict_interactive(
         self,
@@ -188,6 +251,12 @@ class RoutedMLBackendClient:
         *,
         max_response_bytes: int | None = None,
     ) -> Any:
+        if (
+            (context.get("model_id") or "").startswith("trained:")
+            or context.get("model_id") == "project-release"
+            or context.get("frozen_model_ref")
+        ):
+            raise ValueError("Controlled models do not support interactive prediction")
         async with self._routed_transport() as client:
             response_limit = (
                 {"max_response_bytes": max_response_bytes}

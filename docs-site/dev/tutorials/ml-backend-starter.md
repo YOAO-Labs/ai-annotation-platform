@@ -56,7 +56,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 `/versions` 是可选的。三个关键认知：
 
-- **`/setup` 是能力的唯一真相源**：前端哪些 AI 工具可用、参数面板长什么样，全部由 `/setup` 返回体决定。echo 声明了 `protocol_version: "2.1"`、一条 `models[]` 目录条目（`task: "detection"`、`supported_prompts: ["none"]` 表示纯批量）。
+- **`/setup` 是能力的唯一真相源**：前端哪些 AI 工具可用、参数面板长什么样，全部由 `/setup` 返回体决定。echo 声明了 `protocol_version: "2.1"`、一条 `models[]` 目录条目（`task: "detect"`、`supported_prompts: ["none"]` 表示纯批量）。
 - **`/predict` 的 `result[]` 是 Label Studio 风格标注数组**：`type` + `value`（坐标兼容 `[0,1]` 与 `[0,100]` 百分比），见协议 §3。
 - **平台不强校验 schema**：契约靠你自觉对齐，跑不通时优先对照协议文档逐字段排查。
 

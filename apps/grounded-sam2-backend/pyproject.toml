@@ -8,6 +8,7 @@ requires-python = ">=3.10,<3.11"
 # 不在此处重复声明以避免 pip 误升级覆盖预装版本.
 # 与官仓 IDEA-Research/Grounded-SAM-2/Dockerfile 对齐: CUDA 12.1, Python 3.10, torch 2.3.1, torchvision 0.18.1.
 dependencies = [
+    "aap-task-contract",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "pydantic>=2.5",
@@ -49,4 +50,7 @@ py-modules = ["main", "predictor", "schemas", "embedding_cache", "observability"
 testpaths = ["tests"]
 # v0.9.4 phase 3: mask_utils 共享包从 apps/_shared/mask_utils 注入. Docker 容器内由
 # `pip install -e /app/mask_utils` 提供; 本地 pytest 通过 pythonpath 直接定位 src/.
-pythonpath = [".", "../_shared/mask_utils/src", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/mask_utils/src", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../_shared/task_contract", editable = true }

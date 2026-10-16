@@ -290,7 +290,11 @@ def to_internal_shape(s: dict) -> dict:
         y = float(val.get("y", 0))
         w = float(val.get("width", 0))
         h = float(val.get("height", 0))
-        scale = _percent_scale([x, y, w, h])
+        scale = (
+            100.0
+            if s.get("coordinate_units") == "percent"
+            else _percent_scale([x, y, w, h])
+        )
         x /= scale
         y /= scale
         w /= scale
@@ -469,6 +473,7 @@ class PredictionService:
         source: str = "ml_backend",
         pipeline_extra: dict | None = None,
         ml_backend_pool_id: uuid.UUID | None = None,
+        model_provenance: dict | None = None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         result = _remap_track_ids(result)
@@ -506,7 +511,10 @@ class PredictionService:
             total_cost=meta_data.get("total_cost"),
             # v0.18.1 · 多阶段预标注阶段元信息 (stage_count / enriched_attr_keys),
             # 追溯「哪个属性来自哪个阶段」; MVP 暂存 extra JSONB 不改表。
-            extra=pipeline_extra or {},
+            extra={
+                **(pipeline_extra or {}),
+                **({"trained_model": model_provenance} if model_provenance else {}),
+            },
         )
         self.db.add(meta)
 

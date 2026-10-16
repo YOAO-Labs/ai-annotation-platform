@@ -114,7 +114,7 @@ function argsToStage(
     stage,
     ml_backend_id: args.ml_backend_id,
     model_id: args.model_id,
-    task_type: args.task_type,
+    task: args.task,
     model_variants: args.model_variants,
     params: args.params,
     class_filter: args.class_filter,
@@ -470,7 +470,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
         warning: stageWarning(p, stageCapsRef.current[e.sid]),
         classFilter: classFilterText(p),
         modelId: p?.model_id,
-        taskType: p?.task_type,
+        taskType: p?.task,
         roiInfo: roiText(p),
         variantInfo: variantText(p),
       };

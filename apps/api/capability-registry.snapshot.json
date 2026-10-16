@@ -204,6 +204,24 @@
       "summary": "旧单框提示, 已被 interactive_box 取代; 仅兼容历史快照。"
     }
   ],
+  "task_aliases": {
+    "classification": "classify",
+    "cls": "classify",
+    "detection": "detect",
+    "image-classification": "classify",
+    "image-detection": "detect",
+    "image-instance-segmentation": "segment",
+    "image-keypoints": "pose",
+    "image_classification": "classify",
+    "image_detection": "detect",
+    "image_instance_segmentation": "segment",
+    "instance-segmentation": "segment",
+    "instance_segmentation": "segment",
+    "keypoint": "pose",
+    "keypoints": "pose",
+    "object_detection": "detect",
+    "segmentation": "segment"
+  },
   "tasks": [
     {
       "default_geometry": [
@@ -213,7 +231,7 @@
         "image",
         "video"
       ],
-      "id": "detection",
+      "id": "detect",
       "label": "目标检测",
       "protocol_notes": "/predict 响应 result.type=rectanglelabels, value 含 x/y/width/height + rectanglelabels[]; 协议 v2 §4.1 范例 A。",
       "suggested_backends": [
@@ -260,39 +278,12 @@
     },
     {
       "default_geometry": [
-        "rotated_bbox"
-      ],
-      "default_modalities": [
-        "image"
-      ],
-      "id": "obb",
-      "label": "旋转框",
-      "protocol_notes": "/predict 响应 value 含 x/y/width/height/rotation; rotation 单位为度 (0-360)。",
-      "suggested_backends": [
-        {
-          "builtin": false,
-          "infra": null,
-          "name": "X-AnyLabeling (YOLOv8-OBB)",
-          "repo_url": "https://github.com/CVHub520/X-AnyLabeling",
-          "research_link": "docs/research/04-x-anylabeling.md",
-          "summary": "自带 OBB 模型, 协议直连本平台。"
-        }
-      ],
-      "summary": "在图像中输出带旋转角度的矩形 (Oriented Bounding Box)。",
-      "typical_models": [
-        "YOLOv8-OBB",
-        "Rotated DETR",
-        "Oriented R-CNN"
-      ]
-    },
-    {
-      "default_geometry": [
         "polygon"
       ],
       "default_modalities": [
         "image"
       ],
-      "id": "segmentation",
+      "id": "segment",
       "label": "实例分割",
       "protocol_notes": "/predict 响应 result.type=polygonlabels, value.points 为闭合多边形; 可由平台 mask→polygon 转换器从 mask 像素输出派生。",
       "suggested_backends": [
@@ -331,12 +322,39 @@
     },
     {
       "default_geometry": [
+        "none"
+      ],
+      "default_modalities": [
+        "image"
+      ],
+      "id": "classify",
+      "label": "图像分类",
+      "protocol_notes": "/predict 响应 result.type=choices, value.choices 为类别名数组; supported_geometric_outputs=['none']。",
+      "suggested_backends": [
+        {
+          "builtin": false,
+          "infra": null,
+          "name": "Label Studio ML Backend (HuggingFace classifier)",
+          "repo_url": "https://github.com/HumanSignal/label-studio-ml-backend",
+          "research_link": "docs/research/01-label-studio.md",
+          "summary": "HuggingFace transformer 分类示例。"
+        }
+      ],
+      "summary": "对整张图或裁片输出类别标签, 无几何输出。",
+      "typical_models": [
+        "ResNet",
+        "ViT",
+        "EfficientNet"
+      ]
+    },
+    {
+      "default_geometry": [
         "keypoint"
       ],
       "default_modalities": [
         "image"
       ],
-      "id": "keypoint",
+      "id": "pose",
       "label": "关键点",
       "protocol_notes": "/predict 响应 result.type=keypointlabels; 每点含 x/y/visibility, 建议同时声明 skeleton 边以便平台渲染连线。",
       "suggested_backends": [
@@ -358,29 +376,29 @@
     },
     {
       "default_geometry": [
-        "none"
+        "rotated_bbox"
       ],
       "default_modalities": [
         "image"
       ],
-      "id": "classification",
-      "label": "图像分类",
-      "protocol_notes": "/predict 响应 result.type=choices, value.choices 为类别名数组; supported_geometric_outputs=['none']。",
+      "id": "obb",
+      "label": "旋转框",
+      "protocol_notes": "/predict 响应 value 含 x/y/width/height/rotation; rotation 单位为度 (0-360)。",
       "suggested_backends": [
         {
           "builtin": false,
           "infra": null,
-          "name": "Label Studio ML Backend (HuggingFace classifier)",
-          "repo_url": "https://github.com/HumanSignal/label-studio-ml-backend",
-          "research_link": "docs/research/01-label-studio.md",
-          "summary": "HuggingFace transformer 分类示例。"
+          "name": "X-AnyLabeling (YOLOv8-OBB)",
+          "repo_url": "https://github.com/CVHub520/X-AnyLabeling",
+          "research_link": "docs/research/04-x-anylabeling.md",
+          "summary": "自带 OBB 模型, 协议直连本平台。"
         }
       ],
-      "summary": "对整张图或裁片输出类别标签, 无几何输出。",
+      "summary": "在图像中输出带旋转角度的矩形 (Oriented Bounding Box)。",
       "typical_models": [
-        "ResNet",
-        "ViT",
-        "EfficientNet"
+        "YOLOv8-OBB",
+        "Rotated DETR",
+        "Oriented R-CNN"
       ]
     },
     {

@@ -17,6 +17,8 @@ v0.14.9 · 能力声明协议 v2 (多模型目录 + infra):
 
 from __future__ import annotations
 
+from aap_task_contract import normalize_task
+
 from aap_protocol_v2.lifecycle import canonical_managed_lifecycle_capabilities
 
 from app.config import settings
@@ -126,7 +128,7 @@ def _effective_max_window_frames(model: dict) -> int | None:
 
 def _normalize_model(model: dict, backend_infra: str) -> dict:
     """规范化一个 `/setup.models[]` 条目, infra 缺省继承 backend 默认。"""
-    task = model.get("task") or "unknown"
+    task = normalize_task(model.get("task") or "unknown", allow_unknown=True)
     geo = list(model.get("supported_geometric_outputs") or [])
     if not geo and task in _TASK_DEFAULT_GEOMETRY:
         geo = list(_TASK_DEFAULT_GEOMETRY[task])
@@ -220,7 +222,7 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
     elif any(p in PROMPTS_INTERACTIVE_ROUTE for p in prompts):
         task = "interactive_seg"
     else:
-        task = "detection"
+        task = "detect"
     model_id = str(setup.get("name") or "default")
     supported_inputs = _synthesize_supported_inputs(prompts)
     default_input_type = setup.get("default_input_type")
@@ -406,6 +408,10 @@ def extract_capabilities(setup: dict | None) -> dict | None:
         # interchangeability checks.  Runtime and display metadata remain excluded.
         "version": setup.get("version"),
         "protocol_version": setup.get("protocol_version") or "1",
+        "task_contract_revision": 1
+        if type(setup.get("task_contract_revision")) is int
+        and setup["task_contract_revision"] == 1
+        else 0,
         "compat_protocol_versions": list(setup.get("compat_protocol_versions") or []),
         "model_version": setup.get("model_version"),
         "weights_version": setup.get("weights_version"),
@@ -454,3 +460,23 @@ def derive_modalities(caps: dict | None) -> list[str]:
         if mod not in mods:
             mods.append(mod)
     return sorted(set(mods), key=lambda m: _MODALITY_ORDER.get(m, 99))
+
+
+def resolve_model_task(
+    backend, model_id: str | None, task: str | None = None
+) -> str | None:
+    """Resolve an explicit model's task while leaving opaque model IDs intact."""
+    current = normalize_task(task) if task is not None else None
+    meta = getattr(backend, "health_meta", None) or {}
+    caps = meta.get("capabilities") or {}
+    for model in caps.get("models") or []:
+        if model_id is not None and str(model.get("id")) == str(model_id):
+            expected = normalize_task(
+                model.get("task") or "unknown", allow_unknown=True
+            )
+            if expected not in TASK_VALUES:
+                return current
+            if current is not None and current != expected:
+                raise ValueError("task 与所选模型的任务不一致")
+            return expected
+    return current

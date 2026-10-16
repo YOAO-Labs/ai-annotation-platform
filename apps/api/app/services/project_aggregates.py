@@ -106,6 +106,17 @@ def _managed_project_ids(user: User) -> Select[tuple[object]]:
     return select(Project.id).where(Project.owner_id == user.id)
 
 
+def managed_project_scope_clause(user: User, project_column):
+    """Management-only aggregate scope, mirroring the canonical access resolver."""
+    if not getattr(user, "is_active", False) or user.role not in PLATFORM_ROLES:
+        return false()
+    if user.role == PlatformRole.SUPER_ADMIN.value:
+        return None
+    if platform_role_is_manager(user.role):
+        return project_column.in_(_managed_project_ids(user))
+    return false()
+
+
 def project_scope_clause(user: User, project_column, *, project_roles=()):
     """SQL predicate restricting ``project_column`` to the account's projects.
 

@@ -27,7 +27,10 @@ export function deriveSamplingStep(
       Number.isFinite(sourceFps) &&
       sourceFps > 0
     ) {
-      return Math.max(1, Math.round(sourceFps / target));
+      const ratio = sourceFps / target;
+      const floor = Math.floor(ratio);
+      const rounded = ratio - floor === 0.5 ? floor + (floor % 2) : Math.round(ratio);
+      return Math.max(1, rounded);
     }
     return 1;
   }

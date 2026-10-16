@@ -7,6 +7,12 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
+from aap_task_contract import (
+    TASK_VALUES,
+    TASK_ALIASES,
+    normalize_task,
+    normalize_task_fields,
+)
 
 LEGACY_CONTEXT_VARIANT_FIELDS = (
     "variants",
@@ -112,3 +118,35 @@ def _as_mapping(raw: Any, field_name: str) -> Mapping[str, Any]:
         if isinstance(dumped, Mapping):
             return dumped
     raise ValueError(f"{field_name} must be an object")
+
+
+def normalize_context_task(
+    context: Mapping[str, Any], *, model_task: str | None = None
+) -> dict[str, Any]:
+    """Separate the visual task from prompt/control type without changing evidence.
+
+    Apply only to context, never the predict envelope whose task is a work item.
+    """
+    result = normalize_task_fields(dict(context))
+    legacy_type = result.get("type")
+    if isinstance(legacy_type, str) and (
+        legacy_type in TASK_VALUES or legacy_type in TASK_ALIASES
+    ):
+        old_task = normalize_task(legacy_type)
+        if result.get("task") is not None and result["task"] != old_task:
+            raise ValueError(
+                "context.task and legacy context.type describe different tasks"
+            )
+        result["task"] = old_task
+        result.pop("type", None)
+    prompt = result.pop("prompt_type", None)
+    if prompt is not None:
+        if result.get("type") not in {None, prompt}:
+            raise ValueError("context.type and prompt_type describe different prompts")
+        result["type"] = prompt
+    if model_task is not None:
+        expected = normalize_task(model_task)
+        if result.get("task") is not None and result["task"] != expected:
+            raise ValueError("context.task does not match the selected model task")
+        result["task"] = expected
+    return result

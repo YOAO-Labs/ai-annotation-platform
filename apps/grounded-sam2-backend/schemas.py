@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+from aap_task_contract import Task as VisualTaskName, normalize_task
+from aap_protocol_v2.predict import normalize_context_task
+from pydantic import field_validator
+
 import math
 from typing import Any, Literal
 
@@ -40,6 +44,13 @@ __all__ = [
 
 
 class Context(BaseModel):
+    task: VisualTaskName | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_task_fields(cls, value):
+        return normalize_context_task(value) if isinstance(value, dict) else value
+
     # "interactive_box" = 单框单 mask, 双 backend 同名; "bbox" 已退出交互 prompt
     # 命名空间 (仅作纯几何形状).
     type: Literal[
@@ -162,10 +173,13 @@ class WarmupRequest(BaseModel):
     实际加载逻辑用 ModelPool, 缺失字段回退 backend env 默认.
     """
 
-    task: Literal["detection", "segmentation", "interactive_seg", "tracker"] | None = (
-        None
-    )
+    task: Literal["detect", "segment", "interactive_seg", "tracker"] | None = None
     variants: dict[str, str] = {}
+
+    @field_validator("task", mode="before")
+    @classmethod
+    def canonical_task(cls, value):
+        return normalize_task(value) if value is not None else None
 
 
 class AnnotationValue(BaseModel):

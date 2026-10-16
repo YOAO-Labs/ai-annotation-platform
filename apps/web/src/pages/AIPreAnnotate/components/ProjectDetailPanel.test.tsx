@@ -659,7 +659,7 @@ describe("ProjectDetailPanel v0.9.12", () => {
       expect(arg).toMatchObject({
         ml_backend_id: "bk1",
         model_id: "m-ocr",
-        task_type: "ocr",
+        task: "ocr",
         batch_id: "b1",
       });
       expect(arg).not.toHaveProperty("prompt");

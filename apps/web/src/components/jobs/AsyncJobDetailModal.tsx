@@ -5,7 +5,10 @@ import { ApiError } from "@/api/client";
 import { asyncJobsApi } from "@/api/asyncJobs";
 import { datasetsApi } from "@/api/datasets";
 import { projectsApi } from "@/api/projects";
+import { sampleEvaluationsApi } from "@/api/sampleEvaluations";
+import { activeLearningApi } from "@/api/activeLearning";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -39,17 +42,19 @@ function formatDate(iso: string | null) {
 interface AuthOwner {
   userId: string | null;
   token: string | null;
+  revision: number;
 }
 
 function captureAuthOwner(): AuthOwner {
   const auth = useAuthStore.getState();
-  return { userId: auth.user?.id ?? null, token: auth.token };
+  return { userId: auth.user?.id ?? null, token: auth.token, revision: getAuthSessionRevision() };
 }
 
 function isCurrentOwner(owner: AuthOwner): boolean {
   return (
     !!owner.userId &&
     !!owner.token &&
+    getAuthSessionRevision() === owner.revision &&
     isCurrentAuthOwner(owner.userId) &&
     useAuthStore.getState().token === owner.token
   );
@@ -114,6 +119,13 @@ export function AsyncJobDetailModal({
     failedIds.some((id) => typeof id === "string" && id);
   const datasetId = job ? jobString(job.payload, "dataset_id") : null;
   const datasetName = job ? jobString(job.payload, "dataset_name") : null;
+  const evaluationId =
+    job?.kind === "sample_evaluation" ? jobString(job.payload, "evaluation_id") : null;
+  const evaluationAttemptId =
+    job?.kind === "sample_evaluation" ? jobString(job.payload, "attempt_id") : null;
+  const roundId = job?.kind === "active_learning_round" ? jobString(job.payload, "round_id") : null;
+  const roundAttemptId =
+    job?.kind === "active_learning_round" ? jobString(job.payload, "attempt_id") : null;
   const summary = job ? jobResultSummary(job) : null;
   const fileErrors = Array.isArray(job?.result.errors)
     ? job.result.errors.filter(
@@ -123,7 +135,9 @@ export function AsyncJobDetailModal({
   const download =
     job?.kind === "export" && job.status === "completed" ? exportDownloadState(job.result) : null;
 
-  const openTarget = async (kind: "dataset" | "project" | "dashboard") => {
+  const openTarget = async (
+    kind: "dataset" | "project" | "dashboard" | "evaluation" | "active-learning",
+  ) => {
     if (!job) return;
     const request = ++navigationRequest.current;
     const owner = captureAuthOwner();
@@ -132,7 +146,27 @@ export function AsyncJobDetailModal({
     setTargetError(null);
     try {
       let url: string;
-      if (kind === "dataset" && datasetId) {
+      if (kind === "active-learning" && roundId && roundAttemptId && job.project_id) {
+        const round = await activeLearningApi.get(job.project_id, roundId);
+        if (!current()) return;
+        if (
+          round.id !== roundId ||
+          round.project_id !== job.project_id ||
+          !round.attempts.some((attempt) => attempt.id === roundAttemptId)
+        )
+          throw new Error("选样执行已不可用");
+        url = `/projects/${job.project_id}/learning/active-learning/${roundId}?attempt=${roundAttemptId}`;
+      } else if (kind === "evaluation" && evaluationId && evaluationAttemptId && job.project_id) {
+        const evaluation = await sampleEvaluationsApi.get(job.project_id, evaluationId);
+        if (!current()) return;
+        if (
+          evaluation.id !== evaluationId ||
+          evaluation.project_id !== job.project_id ||
+          !evaluation.attempts.some((attempt) => attempt.id === evaluationAttemptId)
+        )
+          throw new Error("评估执行已不可用");
+        url = `/projects/${job.project_id}/learning/evaluations/${evaluationId}?attempt=${evaluationAttemptId}`;
+      } else if (kind === "dataset" && datasetId) {
         await datasetsApi.get(datasetId);
         if (!current()) return;
         url = `/datasets?dataset=${encodeURIComponent(datasetId)}`;
@@ -292,6 +326,24 @@ export function AsyncJobDetailModal({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
+            {roundId && roundAttemptId && job.project_id && (
+              <Button
+                size="sm"
+                disabled={openingTarget}
+                onClick={() => void openTarget("active-learning")}
+              >
+                查看选样尝试
+              </Button>
+            )}
+            {evaluationId && evaluationAttemptId && job.project_id && (
+              <Button
+                size="sm"
+                disabled={openingTarget}
+                onClick={() => void openTarget("evaluation")}
+              >
+                查看评估尝试
+              </Button>
+            )}
             {datasetId && (
               <Button size="sm" disabled={openingTarget} onClick={() => void openTarget("dataset")}>
                 查看数据集

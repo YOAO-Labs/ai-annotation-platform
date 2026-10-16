@@ -19,11 +19,12 @@
 from __future__ import annotations
 
 from typing import Final
+from aap_task_contract import normalize_task
 
 # 协议 v2 task id (与 capability_registry / aap_protocol_v2.vocab.TASK_VALUES 对齐).
-TASK_DETECTION: Final[str] = "detection"
-TASK_SEGMENTATION: Final[str] = "segmentation"
-TASK_KEYPOINT: Final[str] = "keypoint"
+TASK_DETECTION: Final[str] = "detect"
+TASK_SEGMENTATION: Final[str] = "segment"
+TASK_KEYPOINT: Final[str] = "pose"
 TASK_OBB: Final[str] = "obb"
 # 检测式视频追踪: 不是独立权重, 而是 detection 权重的 video 推理模式 (ultralytics
 # 原生 ByteTrack/BoT-SORT)。故权重矩阵别名到 detection (见 MODEL_MATRIX 下方), 文件名后缀空。
@@ -112,7 +113,9 @@ class UnsupportedVariantError(ValueError):
 
 
 def is_supported(task: str, series: str, size: str) -> bool:
-    return size in MODEL_MATRIX.get(task, {}).get(series, ())
+    return size in MODEL_MATRIX.get(normalize_task(task, allow_unknown=True), {}).get(
+        series, ()
+    )
 
 
 def resolve_weight_filename(task: str, series: str, size: str) -> str:
@@ -122,6 +125,7 @@ def resolve_weight_filename(task: str, series: str, size: str) -> str:
     - rtdetr 系列特殊: `rtdetr-{l,x}.pt`, 不带后缀 (RT-DETR 只有 detection)
     - 其它: `{series}{size}{task_suffix}.pt`, e.g. yolov8s.pt / yolo11l-pose.pt
     """
+    task = normalize_task(task, allow_unknown=True)
     if not is_supported(task, series, size):
         raise UnsupportedVariantError(
             f"task={task} series={series} size={size} not in MODEL_MATRIX"
@@ -144,12 +148,14 @@ def iter_supported_combinations() -> list[tuple[str, str, str]]:
 
 def series_options_for_task(task: str) -> list[str]:
     """该 task 下有预训练的全部 series, 顺序与 MODEL_MATRIX 一致 (= 协议 /setup 输出顺序)."""
-    return list(MODEL_MATRIX.get(task, {}).keys())
+    return list(MODEL_MATRIX.get(normalize_task(task, allow_unknown=True), {}).keys())
 
 
 def sizes_for(task: str, series: str) -> list[str]:
     """该 (task, series) 下有预训练的全部 size."""
-    return list(MODEL_MATRIX.get(task, {}).get(series, ()))
+    return list(
+        MODEL_MATRIX.get(normalize_task(task, allow_unknown=True), {}).get(series, ())
+    )
 
 
 # ── 开集 (open-vocabulary) 文本提示模型 ─────────────────────────────────────

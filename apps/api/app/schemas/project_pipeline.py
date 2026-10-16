@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from aap_task_contract import normalize_task_fields
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from pydantic import field_validator
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -68,6 +71,16 @@ class ProjectPipelineOut(BaseModel):
     organization_id: UUID | None = None
     name: str
     stages: list[dict]
+
+    @field_validator("stages", mode="before")
+    @classmethod
+    def canonical_pipeline_tasks(cls, value):
+        return (
+            [normalize_task_fields(stage) for stage in value]
+            if value is not None
+            else None
+        )
+
     is_default: bool = False
     created_by: UUID
     created_by_name: str | None = None

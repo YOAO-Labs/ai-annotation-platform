@@ -32,6 +32,7 @@ last_reviewed: 2026-07-29
 - 标注提交 → API 写 `annotations` 表 → 触发 Celery 异步任务（IoU 计算 / 通知）
 - AI 预标注 → API 入队 Celery → Worker 调外部 ML 服务 → 写回 `annotations`（source=ai）
 - 数据导出 → API 入队 Celery → Worker 拼装 → 写 MinIO → 通知前端下载链接
+- 在线学习闭环 → 审核标注冻结为规范任务数据版本（export worker 物化至 MinIO `training` 桶） → 独立执行器拉取训练实验或参数搜索（GPU 独占锁保护） → 产物校验发布与最佳权重提取 → 候选模型注册与样本试用 → 发布回流为当前预标注模型（详见[在线学习与训练体系](./training-datasets)）
 
 详见 [数据流](./data-flow)。
 
@@ -97,3 +98,4 @@ src/
 - [前端分层](./frontend-layers)：页面、组件、API wrapper 与状态管理
 - [工作台 Shell 架构](./workbench-shell)：工作台外壳与模式切换
 - [部署拓扑](./deployment-topology)：进程、容器和外部依赖的部署关系
+- [在线学习与训练体系](./training-datasets)：训练数据版本、独立执行器、模型谱系与回流闭环

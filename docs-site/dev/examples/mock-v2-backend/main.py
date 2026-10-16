@@ -1,10 +1,10 @@
 """Mock 协议 v2.1 ML backend — 多模型目录 + variants + warmup + 错误形态演示 (无真实推理).
 
 用途: 平台「能力声明协议 v2.1」端到端冒烟与接入参考。
-- `/setup` 暴露 YOLO 风格多任务 models[] (detection / segmentation / keypoint / obb /
-  classification) + PaddleOCR / DocLayout + 交互分割 / 视频追踪条目;
+- `/setup` 暴露 YOLO 风格多任务 models[] (detect / segment / pose / obb /
+  classify) + PaddleOCR / DocLayout + 交互分割 / 视频追踪条目;
   yolo 条目演示 default_variants 与 variant_combinations (非全笛卡尔积)。
-- `/predict` 按 `context.type` (task_type) 返回固定 demo 结果; OCR 条目在 result shape
+- `/predict` 按 `context.task` 与仅用于提示模式的 `context.type` 返回固定 demo 结果; OCR 条目在 result shape
   顶层带 `attributes.text`, 供平台 OCR adapter 提取 → annotation.attributes。
 - `/warmup` 演示统一 WarmupResponse 形态 (ok / cache_hit / model_load_ms)。
 - 非法 variant → 422 `variant_not_supported`; `size=x` 约定为「权重未下载」→
@@ -125,12 +125,12 @@ MODELS = [
     _yolo_model(
         "yolo-detect",
         "YOLO 目标检测",
-        "detection",
+        "detect",
         "bbox",
         default_thresholds={"conf": 0.25, "iou": 0.7},
     ),
-    _yolo_model("yolo-segment", "YOLO 实例分割", "segmentation", "polygon"),
-    _yolo_model("yolo-pose", "YOLO 姿态 / 关键点", "keypoint", "keypoint"),
+    _yolo_model("yolo-segment", "YOLO 实例分割", "segment", "polygon"),
+    _yolo_model("yolo-pose", "YOLO 姿态 / 关键点", "pose", "keypoint"),
     _yolo_model("yolo-obb", "YOLO 旋转框", "obb", "rotated_bbox"),
     _yolo_model(
         "yolo-classify",
@@ -230,6 +230,7 @@ def setup() -> dict:
         "name": "mock-v2-backend",
         "version": "0.1.0",
         "protocol_version": "2.1",
+        "task_contract_revision": 1,
         "compat_protocol_versions": ["2.0"],
         "model_version": "mock-v2",
         "is_interactive": True,
@@ -310,9 +311,9 @@ class PredictRequest(BaseModel):
 
 
 def _demo_shapes(context: dict) -> list[dict]:
-    """按 task_type 返回固定 demo result (LabelStudio 风格 + OCR attributes)。"""
-    task_type = context.get("type")
-    if task_type == "video_tracker":
+    """按 task 返回固定 demo result (LabelStudio 风格 + OCR attributes)。"""
+    task = context.get("task") or context.get("type")
+    if task in {"tracker", "video_tracker"}:
         geometry = context.get("source_geometry") or {
             "type": "bbox",
             "x": 0.2,
@@ -332,7 +333,7 @@ def _demo_shapes(context: dict) -> list[dict]:
                 int(context.get("to_frame", 0)) + 1,
             )
         ]
-    if task_type == "ocr":
+    if task == "ocr":
         return [
             {
                 "type": "rectanglelabels",
@@ -359,7 +360,7 @@ def _demo_shapes(context: dict) -> list[dict]:
                 "attributes": {"text": "金额 ¥ 1,280.00", "language": "zh"},
             },
         ]
-    if task_type == "doc_layout":
+    if task == "doc_layout":
         return [
             {
                 "type": "rectanglelabels",

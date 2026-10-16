@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
+from aap_task_contract import normalize_task
+from pydantic import field_validator
 
 
 class SuggestedBackendItem(BaseModel):
@@ -93,6 +95,12 @@ class InstanceModelItem(BaseModel):
     id: str
     display_name: str
     task: str = "unknown"
+
+    @field_validator("task", mode="before")
+    @classmethod
+    def canonical_task(cls, value):
+        return normalize_task(value, allow_unknown=True)
+
     model_family: str | None = None
     infra: str | None = None
     is_interactive: bool = False
@@ -168,6 +176,7 @@ class ProtocolCapabilitiesResponse(BaseModel):
     """
 
     version: str
+    task_aliases: dict[str, str] = Field(default_factory=dict)
     tasks: list[ProtocolTaskItem]
     infras: list[ProtocolInfraItem]
     modalities: list[ProtocolModalityItem]

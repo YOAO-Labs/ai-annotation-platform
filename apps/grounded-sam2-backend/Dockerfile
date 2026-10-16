@@ -82,10 +82,11 @@ RUN pip install --no-build-isolation -e /app/mask_utils
 
 # v0.14.12 · 共享协议 v2 schema + 受控词表常量 (apps/_shared/protocol_v2),
 # 与 sam3-backend / yolo-backend 共用, 避免协议字段在 backend 之间漂移.
+COPY _shared/task_contract/ /app/task_contract/
 COPY _shared/protocol_v2/ /app/protocol_v2/
 # Base image pins pyOpenSSL 24.0 against cryptography<43. Resolve both together
 # now that the shared lifecycle protocol requires a newer cryptography release.
-RUN pip install --no-build-isolation -e /app/protocol_v2 "pyOpenSSL>=24.2.1"
+RUN pip install --no-build-isolation -e /app/task_contract -e /app/protocol_v2 "pyOpenSSL>=24.2.1"
 
 # 共享 backend_runtime 包 (apps/_shared/backend_runtime). 五 backend 共用的无状态叶子函数
 # (图片下载 / 显存释放 / /versions 载荷). setuptools 已在装 protocol_v2 前处理, 复用.

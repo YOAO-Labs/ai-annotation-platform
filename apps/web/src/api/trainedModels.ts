@@ -1,0 +1,101 @@
+import { apiClient } from "./client";
+import type {
+  ModelDeploymentOut,
+  ModelReleaseCreate,
+  ModelReleaseOut,
+  TrainedModelCreate,
+  TrainedModelOut,
+} from "./generated/types.gen";
+
+export type {
+  ModelDeploymentOut,
+  ModelReleaseCreate,
+  ModelReleaseOut,
+  TrainedModelCreate,
+  TrainedModelOut,
+};
+const base = (projectId: string) => `/projects/${projectId}`;
+export const trainedModelsApi = {
+  list: (
+    projectId: string,
+    offset = 0,
+    options?: RequestInit,
+    archive: "exclude" | "include" | "only" = "exclude",
+  ) =>
+    apiClient.get<{ items: TrainedModelOut[]; total: number }>(
+      `${base(projectId)}/trained-models?limit=20&offset=${offset}&archive=${archive}`,
+      options,
+    ),
+  get: (projectId: string, versionId: string, options?: RequestInit) =>
+    apiClient.get<{ model: TrainedModelOut; deployments: ModelDeploymentOut[] }>(
+      `${base(projectId)}/trained-models/${versionId}`,
+      options,
+    ),
+  register: (projectId: string, body: TrainedModelCreate) =>
+    apiClient.post<TrainedModelOut>(`${base(projectId)}/trained-models`, body),
+  deploy: (projectId: string, versionId: string, registryId: string) =>
+    apiClient.post<ModelDeploymentOut>(`${base(projectId)}/trained-models/${versionId}/deploy`, {
+      registry_id: registryId,
+    }),
+  download: (projectId: string, versionId: string) =>
+    apiClient.get<{ url: string; sha256: string; size_bytes: number }>(
+      `${base(projectId)}/trained-models/${versionId}/download`,
+    ),
+  releases: (projectId: string, offset = 0) =>
+    apiClient.get<{
+      items: ModelReleaseOut[];
+      total: number;
+      generation: number;
+      current_release_id: string | null;
+      current: ModelReleaseOut | null;
+    }>(`${base(projectId)}/model-releases?limit=20&offset=${offset}`),
+  publish: (projectId: string, body: ModelReleaseCreate) =>
+    apiClient.post<ModelReleaseOut>(`${base(projectId)}/model-releases`, body),
+};
+
+export function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+export function modelMetrics(model: TrainedModelOut): Record<string, number> {
+  const summary = record(model.evaluation.summary);
+  const values = Object.keys(summary).length ? summary : model.evaluation;
+  return Object.fromEntries(
+    Object.entries(values).filter(
+      (pair): pair is [string, number] => typeof pair[1] === "number" && Number.isFinite(pair[1]),
+    ),
+  );
+}
+
+export function comparisonIdentity(model: TrainedModelOut): string | null {
+  if (model.framework === "libreyolo") {
+    const digest = model.evaluation.comparison_compatibility_digest;
+    return model.evaluation.comparison_identity_status === "verified" &&
+      typeof digest === "string" &&
+      digest.length === 64
+      ? JSON.stringify([digest, model.framework, model.framework_version, model.binding_digest])
+      : null;
+  }
+  const config = record(model.evaluation.evaluation);
+  const validation = model.provenance.validation_digest;
+  if (
+    !Object.keys(config).length ||
+    !validation ||
+    model.evaluation.validation_digest !== validation
+  )
+    return null;
+  const observed = Array.isArray(model.evaluation.per_class)
+    ? model.evaluation.per_class.map((item) => record(item).index).sort()
+    : [];
+  return JSON.stringify([
+    validation,
+    model.framework,
+    model.framework_version,
+    model.binding_digest,
+    model.classes,
+    Object.entries(config).sort(([a], [b]) => a.localeCompare(b)),
+    observed,
+  ]);
+}

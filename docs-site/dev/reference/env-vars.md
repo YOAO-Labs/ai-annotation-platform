@@ -61,6 +61,23 @@ last_reviewed: 2026-10-16
 | `MINIO_IMPORT_BUCKET` | `import` | 导入预标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_EXPORT_BUCKET` | `export` | 导出标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_AVATARS_BUCKET` | `avatars` | 用户头像桶（永久保留，不可重生，纳入备份；不挂 lifecycle） |
+| `MINIO_TRAINING_BUCKET` | `training` | Immutable training datasets and model artifacts; no automatic expiration. |
+
+## 项目受控训练，默认关闭。API 与独立 executor 使用同一随机凭据（至少 32 字符）。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `TRAINING_ENABLED` | `false` | — |
+| `TRAINING_EXECUTOR_TOKEN` | `—` | — |
+| `TRAINING_NODE_ID` | `local` | — |
+| `TRAINING_GPU_UUID` | `—` | — |
+| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Qualified adapters: ultralytics 8.4.177 / libreyolo 1.6.0; entries share the same shape. Ultralytics additionally qualifies yolo11n-seg simple-polygon instance training; configure its verified weight entry explicitly. Revision-2 detection image upgrades require a qualified source-image -> complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
+| `TRAINING_HEARTBEAT_TIMEOUT_SECONDS` | `60` | — |
+| `TRAINING_IMAGE` | `—` | 仅供 docker-compose.training.yml：先准备已发布镜像，Compose 不构建镜像。 TRAINING_IMAGE 为仓库名（可带标签），不得包含 @digest；凭据文件不进入镜像。 TRAINING_IMAGE_DIGEST 必须为 registry manifest digest（RepoDigests），不能用镜像 .Id。 Compose 用同一 repository@sha256 引用选择镜像并生成 TRAINING_IMAGE_REFERENCE。 |
+| `TRAINING_IMAGE_DIGEST` | `—` | — |
+| `TRAINING_API_URL` | `http://host.docker.internal:8000/api/v1/internal/training` | — |
+| `TRAINING_EXECUTOR_TOKEN_PATH` | `—` | — |
+| `TRAINING_MODELS_PATH` | `./training/models` | — |
 
 ## 超大图 Image Pyramid
 
@@ -135,6 +152,7 @@ last_reviewed: 2026-10-16
 |---|---|---|
 | `YOLO_DEVICE` | `cuda:0` | profile gpu-yolo · 与 grounded-sam2 / sam3 三 backend 独立启停 |
 | `YOLO_MODEL_POOL_CAP` | `2` | — |
+| `YOLO_MANAGED_MODELS_TOKEN` | `—` | Controlled model installation/prediction credential; at least 32 random characters. Configure the same token on the platform's YOLO inference registry. Empty disables this path. |
 | `YOLO_BUILD_TIMEOUT` | `30` | — |
 | `YOLO_IDLE_UNLOAD_SECONDS` | `600` | — |
 | `YOLO_IDLE_CHECK_INTERVAL` | `60` | — |
