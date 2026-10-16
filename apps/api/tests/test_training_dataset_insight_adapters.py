@@ -2,10 +2,16 @@
 
 from copy import deepcopy
 from dataclasses import replace
+import hashlib
+import uuid
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
-from training_contract.dataset import DETECTION_CONTRACT, SEGMENTATION_CONTRACT
+from training_contract.dataset import (
+    DETECTION_CONTRACT,
+    SEGMENTATION_CONTRACT,
+    segmentation_labels,
+)
 
 from app.schemas.training_dataset_analysis import TrainingDatasetTaskStatistics
 from app.services import training_dataset_analysis as analysis
@@ -14,8 +20,38 @@ from app.services.training_dataset_bridge import TrainingDatasetError, content_d
 from tests.test_training_dataset_analysis import inputs, sha
 
 
-def derive(specs, **kwargs):
+def derive(specs, *, task="detect", **kwargs):
     snapshot, manifest = inputs(specs, **kwargs)
+    if task == "segment":
+        snapshot.update(SEGMENTATION_CONTRACT)
+        manifest.update(SEGMENTATION_CONTRACT)
+        for source, member in zip(
+            snapshot["samples"], manifest["samples"], strict=True
+        ):
+            annotations = [
+                {
+                    "id": str(uuid.uuid5(uuid.UUID(source["task_id"]), str(index))),
+                    "version": 1,
+                    "class_name": annotation["class_name"],
+                    "tool_unit_id": "region",
+                    "geometry": {
+                        "type": "polygon",
+                        "points": [
+                            [0.1, 0.2],
+                            [0.1 + annotation["geometry"]["w"], 0.2],
+                            [0.1 + annotation["geometry"]["w"], 0.6],
+                            [0.1, 0.6],
+                        ],
+                    },
+                }
+                for index, annotation in enumerate(source["annotations"])
+            ]
+            source["annotations"] = annotations
+            text, instances = segmentation_labels(annotations, snapshot["classes"])
+            member.update(
+                label_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                instances=instances,
+            )
     return analysis.derive(snapshot, manifest, None, content_digest(snapshot))
 
 
@@ -166,7 +202,7 @@ def test_native_rounding_collapse_is_geometry_unknown_without_changing_frozen_la
 
 def test_detection_legacy_and_canonical_comparison_is_semantic_and_directional():
     snapshot, manifest = inputs(
-        [{"content": "same", "labels": ["truck", "car", "car"]}]
+        [{"content": "same", "labels": ["truck", "car", "car"], "split": "val"}]
     )
     baseline = analysis.derive(snapshot, manifest, None, content_digest(snapshot))
     snapshot.update(DETECTION_CONTRACT)
@@ -179,8 +215,92 @@ def test_detection_legacy_and_canonical_comparison_is_semantic_and_directional()
     assert result["baseline_members"] == result["target_members"] == 1
     assert result["overlapping_changes"] is True
     assert result["semantic_unchanged_label"] == "训练语义未变化"
-    changed = derive([{"content": "same", "labels": ["truck", "car"]}])
+    assert result["semantic_validation_changed"] is False
+    assert result["evaluation_benchmark_changed"] is False
+    assert result["raw_contract_changed"] is True
+    before_validation = baseline["overview"]["validation"]
+    after_validation = target["overview"]["validation"]
+    assert before_validation["semantic_digest"] != after_validation["semantic_digest"]
+    assert (
+        before_validation["raw_contract_digest"]
+        != after_validation["raw_contract_digest"]
+    )
+    assert (
+        before_validation["comparison_identity"]
+        == after_validation["comparison_identity"]
+    )
+    changed = derive([{"content": "same", "labels": ["truck", "car"], "split": "val"}])
     assert analysis.compare(baseline, changed)["counts"]["labels_changed"] == 1
+
+
+@pytest.mark.parametrize(
+    "replacement, classes, semantic_changed, evaluation_changed",
+    [
+        ([{"content": "changed", "split": "val"}], None, True, True),
+        ([{"content": "validation", "w": 0.5, "split": "val"}], None, True, True),
+        ([{"content": "validation", "split": "train"}], None, True, True),
+        (
+            [
+                {"content": "validation", "split": "val"},
+                {
+                    "content": "validation",
+                    "task": "duplicate-validation",
+                    "split": "val",
+                },
+            ],
+            None,
+            False,
+            True,
+        ),
+        ([{"content": "validation", "split": "val"}], ["truck", "car"], True, True),
+        (
+            [{"content": "validation", "task": "new-work-item", "split": "val"}],
+            None,
+            False,
+            False,
+        ),
+    ],
+)
+@pytest.mark.parametrize("task", ["detect", "segment"])
+def test_normalized_validation_keeps_member_label_split_encoding_and_multiplicity_changes(
+    replacement, classes, semantic_changed, evaluation_changed, task
+):
+    baseline = derive(
+        [{"content": "train"}, {"content": "validation", "split": "val"}], task=task
+    )
+    target = derive(
+        [{"content": "train"}, *replacement],
+        task=task,
+        **({"classes": classes} if classes else {}),
+    )
+    compared = analysis.compare(baseline, target)
+    assert compared["semantic_validation_changed"] is semantic_changed
+    assert compared["evaluation_benchmark_changed"] is evaluation_changed
+    assert compared["raw_contract_changed"] is False
+
+
+def test_normalized_validation_reports_missing_identity_as_unknown():
+    snapshot, manifest = inputs(
+        [{"content": "missing", "split": "val", "sha256": None}]
+    )
+    value = analysis.derive(snapshot, manifest, None, content_digest(snapshot))
+    identity = value["overview"]["validation"]["comparison_identity"]
+    assert identity["semantic_digest"] is None
+    assert identity["evaluation_multiset_digest"] is None
+    compared = analysis.compare(value, value)
+    assert compared["semantic_validation_changed"] is None
+    assert compared["evaluation_benchmark_changed"] is None
+
+
+def test_comparison_identity_schema_revision_invalidates_old_derived_cache(monkeypatch):
+    snapshot, manifest = inputs([{"content": "a"}])
+    before = analysis.analysis_input_digest(
+        content_digest(snapshot), manifest, sha("package")
+    )
+    monkeypatch.setattr(analysis, "ANALYSIS_SCHEMA", 3)
+    assert before != analysis.analysis_input_digest(
+        content_digest(snapshot), manifest, sha("package")
+    )
 
 
 def test_adapter_revision_invalidates_only_derived_identity(monkeypatch):

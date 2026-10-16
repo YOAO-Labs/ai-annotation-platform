@@ -100,11 +100,21 @@ class TrainingDatasetDistributionBin(BaseModel):
     val: int
 
 
+class TrainingDatasetComparisonValidationIdentity(BaseModel):
+    schema_version: Literal[1] = 1
+    contract_profile_digest: str
+    semantic_digest: str | None
+    evaluation_multiset_digest: str | None
+    ordered_classes_digest: str
+
+
 class TrainingDatasetValidationIdentity(BaseModel):
     manifest_digest: str | None
     semantic_digest: str | None
     evaluation_multiset_digest: str | None
     ordered_classes_digest: str
+    raw_contract_digest: str | None = None
+    comparison_identity: TrainingDatasetComparisonValidationIdentity | None = None
 
 
 class TrainingDatasetPreparationSummary(BaseModel):
@@ -236,5 +246,7 @@ class TrainingDatasetInsightComparison(BaseModel):
     class_encoding_changed: bool
     semantic_validation_changed: bool | None
     evaluation_benchmark_changed: bool | None
+    validation_comparison_basis: Literal["canonical-profile-validation-1"]
+    raw_contract_changed: bool | None
     baseline_validation: TrainingDatasetValidationIdentity
     target_validation: TrainingDatasetValidationIdentity

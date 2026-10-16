@@ -38,7 +38,7 @@ from app.services.training_dataset_insight_adapters import (
     unsupported_capabilities,
 )
 
-ANALYSIS_SCHEMA = 3
+ANALYSIS_SCHEMA = 4
 HASH = re.compile(r"^[a-f0-9]{64}$")
 CHANGES = {
     "added",
@@ -81,6 +81,35 @@ def empty_sample(task_id, *, included):
         "labels": [],
         "media_state": "unchecked",
         "media_checked_at": None,
+    }
+
+
+def comparison_validation_identity(classes, profile, partitions, multiset):
+    """Normalize only derived comparison identity, never frozen training digests."""
+    if profile is None:
+        return None
+    known = partitions is not None and all(
+        valid_hash(sha) and valid_hash(label) for sha, label in multiset
+    )
+    basis = {"contract_profile": profile, "classes": classes}
+    return {
+        "schema_version": 1,
+        "contract_profile_digest": content_digest(profile),
+        "semantic_digest": content_digest({**basis, "samples": partitions["val"]})
+        if known
+        else None,
+        "evaluation_multiset_digest": content_digest(
+            {
+                **basis,
+                "samples": [
+                    [sha, label, count]
+                    for (sha, label), count in sorted(multiset.items())
+                ],
+            }
+        )
+        if known
+        else None,
+        "ordered_classes_digest": content_digest(classes),
     }
 
 
@@ -297,8 +326,10 @@ def derive(
         samples.append(row)
         unpackaged += 1
     try:
-        semantic = semantic_partitions(manifest)["validation_digest"]
+        partitions = semantic_partitions(manifest)
+        semantic = partitions["validation_digest"]
     except (TrainingDatasetError, KeyError, ValueError, TypeError):
+        partitions = None
         semantic = None
     validation_members = [m for m in members if m.get("split") == "val"]
     multiset = Counter(
@@ -418,6 +449,10 @@ def derive(
             "semantic_digest": semantic,
             "evaluation_multiset_digest": multiset_digest,
             "ordered_classes_digest": content_digest(classes),
+            "raw_contract_digest": content_digest(contract) if contract else None,
+            "comparison_identity": comparison_validation_identity(
+                classes, profile, partitions, multiset
+            ),
         },
     }
     return {
@@ -479,10 +514,19 @@ def compare(baseline: dict, target: dict) -> dict:
     )
     av, bv = baseline["overview"]["validation"], target["overview"]["validation"]
 
-    def differs(key):
+    def differs(left, right, key):
         return (
-            av[key] != bv[key] if av[key] is not None and bv[key] is not None else None
+            left[key] != right[key]
+            if left
+            and right
+            and left.get(key) is not None
+            and right.get(key) is not None
+            else None
         )
+
+    normalized_before, normalized_after = (
+        value.get("comparison_identity") for value in (av, bv)
+    )
 
     return {
         "status": "unavailable"
@@ -503,8 +547,14 @@ def compare(baseline: dict, target: dict) -> dict:
         "classes_removed": len(set(a) - set(b)),
         "class_order_changed": set(a) == set(b) and a != b,
         "class_encoding_changed": a != b,
-        "semantic_validation_changed": differs("semantic_digest"),
-        "evaluation_benchmark_changed": differs("evaluation_multiset_digest"),
+        "semantic_validation_changed": differs(
+            normalized_before, normalized_after, "semantic_digest"
+        ),
+        "evaluation_benchmark_changed": differs(
+            normalized_before, normalized_after, "evaluation_multiset_digest"
+        ),
+        "validation_comparison_basis": "canonical-profile-validation-1",
+        "raw_contract_changed": differs(av, bv, "raw_contract_digest"),
         "baseline_validation": av,
         "target_validation": bv,
         "changes": changes,

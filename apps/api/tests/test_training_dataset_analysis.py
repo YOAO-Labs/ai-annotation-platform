@@ -135,7 +135,23 @@ def test_polygon_insights_use_instance_area_and_keep_source_identity():
         record.pop("format")
         record.update(LEGACY_SEGMENTATION_CONTRACT)
     legacy = service.derive(snapshot, manifest, None, content_digest(snapshot))
-    assert service.compare(legacy, result)["counts"]["labels_changed"] == 0
+    compared = service.compare(legacy, result)
+    assert compared["counts"]["labels_changed"] == 0
+    assert compared["semantic_validation_changed"] is False
+    assert compared["evaluation_benchmark_changed"] is False
+    assert compared["raw_contract_changed"] is True
+    assert compared["validation_comparison_basis"] == "canonical-profile-validation-1"
+    before_validation = legacy["overview"]["validation"]
+    after_validation = result["overview"]["validation"]
+    assert before_validation["semantic_digest"] != after_validation["semantic_digest"]
+    assert (
+        before_validation["evaluation_multiset_digest"]
+        != after_validation["evaluation_multiset_digest"]
+    )
+    assert (
+        before_validation["comparison_identity"]
+        == after_validation["comparison_identity"]
+    )
     detection = derived([{"content": "polygon", "split": "val"}])
     with pytest.raises(ValueError, match="不同训练任务"):
         service.compare(detection, result)
