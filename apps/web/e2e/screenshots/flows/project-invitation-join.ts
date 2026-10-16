@@ -14,7 +14,7 @@
  *   4. 展示真实项目成员结果与「等待分派」的诚实空态（不自动产生激活批次）。
  *
  * 返回 { drawStartMs, drawEndMs, evidence }；finally 撤销本流程拥有的邀请，
- * 已接受的邀请则移除本次新增的项目成员关系。
+ * 已接受的邀请则移除本次新增的项目成员关系并停用本流程创建的账号。
  */
 import { expect, type Page } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
@@ -166,6 +166,63 @@ async function removeMembership(
   return owned.length > 0;
 }
 
+interface InvitedUserRecord {
+  id: string;
+  email: string;
+  is_active: boolean;
+}
+
+async function readUsers(page: Page, accessToken: string): Promise<InvitedUserRecord[]> {
+  const response = await page.request.get("/api/v1/users", {
+    headers: auth(accessToken),
+    params: { status: "all" },
+  });
+  if (!response.ok()) {
+    throw new Error(`[project-invitation-join] 读取账号失败: HTTP ${response.status()}`);
+  }
+  return (await response.json()) as InvitedUserRecord[];
+}
+
+async function retireOwnedInvitedAccount(
+  page: Page,
+  adminToken: string,
+  projectId: string,
+  invitedEmail: string,
+  baselineUserIds: Set<string>,
+  acceptedUserId: string,
+  cleanupErrors: string[],
+): Promise<void> {
+  // Recover a committed registration even if its response/readback was lost.
+  const baseline = baselineUserIds;
+  const ownedUsers = (await readUsers(page, adminToken)).filter(
+    (user) => user.email === invitedEmail && !baseline.has(user.id),
+  );
+  if (ownedUsers.length > 1) throw new Error("本流程邮箱对应多个账号，拒绝清理");
+  if (acceptedUserId && ownedUsers[0]?.id !== acceptedUserId) {
+    throw new Error("注册账号所有权不一致，拒绝清理");
+  }
+  for (const user of ownedUsers) {
+    try {
+      await removeMembership(page, adminToken, projectId, user.id);
+    } catch (error) {
+      cleanupErrors.push(String(error));
+    }
+    // Account retirement must still run if removing membership failed.
+    const response = await page.request.post(`/api/v1/users/${user.id}/deactivate`, {
+      headers: auth(adminToken),
+    });
+    if (!response.ok()) throw new Error(`停用账号失败: HTTP ${response.status()}`);
+    const retired = (await response.json()) as InvitedUserRecord;
+    if (retired.id !== user.id || retired.email !== invitedEmail || retired.is_active !== false) {
+      throw new Error("停用账号回读不一致");
+    }
+    const remaining = (await readUsers(page, adminToken)).find((item) => item.id === user.id);
+    if (!remaining || remaining.email !== invitedEmail || remaining.is_active !== false) {
+      throw new Error("残留活动受邀账号");
+    }
+  }
+}
+
 async function logoutFromTopBar(page: Page): Promise<void> {
   await page.getByTitle("退出登录").click();
   const offlinePrompt = page.getByTestId("logout-offline-prompt");
@@ -195,6 +252,8 @@ export async function runProjectInvitationJoin(
   let acceptedUserId = "";
   let adminToken = "";
   let accepted = false;
+  let registrationAttempted = false;
+  let baselineUserIds: Set<string> | undefined;
   const cleanupErrors: string[] = [];
   let result:
     | { drawStartMs: number; drawEndMs: number; evidence: Record<string, unknown> }
@@ -202,6 +261,11 @@ export async function runProjectInvitationJoin(
   let actionError: unknown;
 
   try {
+    const baselineUsers = await readUsers(page, accessToken);
+    if (baselineUsers.some((user) => user.email === invitedEmail)) {
+      throw new Error("[project-invitation-join] 邀请邮箱已存在，拒绝修改非本流程账号");
+    }
+    baselineUserIds = new Set(baselineUsers.map((user) => user.id));
     // 窗口外准备：清掉上次中断留下的待接受邀请；新邮箱账号不复用，无需清成员。
     const revokedResiduals = await revokeOwnedPendingInvitations(page, accessToken, invitedEmail);
     const removedResidualMembership = false;
@@ -311,6 +375,7 @@ export async function runProjectInvitationJoin(
         new URL(response.url()).pathname === "/api/v1/auth/register",
       { timeout: 20_000 },
     );
+    registrationAttempted = true;
     await page.getByRole("button", { name: "完成注册并登录", exact: true }).click();
     const acceptedResponse = await acceptResponse;
     expect(acceptedResponse.ok(), await acceptedResponse.text()).toBe(true);
@@ -393,10 +458,18 @@ export async function runProjectInvitationJoin(
         cleanupErrors.push(String(error));
       }
     }
-    if (accepted && acceptedUserId) {
+    if (registrationAttempted && baselineUserIds) {
       try {
         if (!adminToken) adminToken = await seedAdminAccessToken(page);
-        await removeMembership(page, adminToken, project.id, acceptedUserId);
+        await retireOwnedInvitedAccount(
+          page,
+          adminToken,
+          project.id,
+          invitedEmail,
+          baselineUserIds,
+          acceptedUserId,
+          cleanupErrors,
+        );
       } catch (error) {
         cleanupErrors.push(String(error));
       }
@@ -411,6 +484,11 @@ export async function runProjectInvitationJoin(
         cleanupErrors.push(String(error));
       }
     }
+  }
+  if (actionError && cleanupErrors.length > 0) {
+    throw new Error(
+      `[project-invitation-join] 录制失败: ${String(actionError)}; 清理失败: ${cleanupErrors.join("; ")}`,
+    );
   }
   if (actionError) throw actionError;
   if (cleanupErrors.length > 0) {
