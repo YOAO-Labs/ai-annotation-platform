@@ -136,6 +136,13 @@ DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed.
 `prepare_e2e_db.py` 可重复执行，且会拒绝库名不以 `_e2e` 或 `_test` 结尾的目标。显式
 `none` 不连接 ML backend；不带 `--backend-requirements` 仍按全量 profile 检查所有 backend。
 
+截图 seed 在夹具提交后同步初始化真实 DuckDB 分析视图，不依赖定时任务或 `cleanup` 队列。
+连接 PostgreSQL `_test` / `_e2e` 库且未显式配置 `DUCKDB_PATH` 时，seed 与 API 按当前 checkout、
+数据库主机、端口和库名派生同一个 `.artifacts/analytics/<hash>.duckdb` 私有文件。
+请从同一 checkout 使用同一数据库启动两者；若显式配置 `DUCKDB_PATH`，则所有相关进程必须使用
+同一个专属绝对路径。截图 seed 会在写入前拒绝开发默认分析文件。完整矩阵与非 ML 矩阵均检查
+四个真实面板的健康状态；测试结束后仅移除本次私有 DuckDB 文件及其日志，不删除共享分析数据。
+
 ### 2. 启动专用 API、Worker 和 Web
 
 在三个窗口分别运行。API 与 Worker 必须连接同一个截图数据库和独立 Redis DB；
@@ -414,6 +421,8 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
 需要创建持久化示例时，在 `prepare(page, catalog, registerCleanup)` 中通过正式 API 创建受管夹具，
 并在后续界面断言前注册清理函数。截图与视觉回归驱动均在 `finally` 中执行清理；数据组示例恢复原成员分组，
 模板示例只删除本次创建且未被应用的记录。不要从历史审计日志推测待恢复状态，也不要删除同名但不属于本次采集的记录。
+
+邀请加入录制会核对本次唯一邮箱与用户基线，结束或失败时移除新成员关系并停用本次注册的账号，随后回读停用状态；已有用户不受影响。讨论草稿录制在获得新建反馈 ID 后即登记 `finally` 清理，后续保存读回或界面断言失败也会删除该条反馈。
 
 ### 2. 定向验证场景
 
