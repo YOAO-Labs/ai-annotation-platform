@@ -90,6 +90,7 @@ test("one archive derives every format, preserves unrelated entries, and never u
       quality: "standard",
       assets: ["bbox-draw"],
       clip: parseClip("0.2:1"),
+      posterAt: 0.6,
       outputs: () => [
         { target: "docs-site/public/media/test.mp4", kind: "mp4", role: "docs-video" },
         { target: "docs-site/public/home/test.webm", kind: "webm", role: "home-video" },
@@ -105,9 +106,19 @@ test("one archive derives every format, preserves unrelated entries, and never u
         },
       ],
     };
+    for (const posterAt of [-1, Infinity, 1])
+      assert.throws(() => deriveMedia({ ...options, posterAt }), /--poster-at/);
+    assert.throws(
+      () => deriveMedia({ ...options, assets: ["bbox-draw", "other"] }),
+      /--poster-at|--clip/,
+    );
     deriveMedia(options);
     const manifestPath = path.join(root, "apps/web/e2e/screenshots/outputs/flow-manifest.json");
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    assert.equal(
+      manifest.entries["docs-site/public/media/test-poster.webp"].source_asset.poster_time_seconds,
+      0.8,
+    );
     const video = manifest.entries["docs-site/public/media/test.mp4"];
     assert.equal(video.media.width, 320);
     assert.equal(video.media.fps, "25/1");
