@@ -96,7 +96,7 @@ async def seed_video(
     """把开源行车视频灌入当前栈,建 video-track 项目 + 1 个 Task,owner 为传入用户。
 
     幂等:项目 P-VIDEO-DEV 已存在则直接返回 None(不重复造)。
-    调用方负责最终 commit(build_tasks_for_link 内部只 flush,不 commit)。
+    调用方负责最终 commit(task creation workflow 内部已分块 commit)。
     返回 {"project","frames","tasks","video_meta"} 或 None(已存在)。
     """
     from sqlalchemy import select
@@ -108,7 +108,7 @@ async def seed_video(
         VideoFrameIndex,
     )
     from app.db.models.project import Project
-    from app.services.dataset import build_tasks_for_link
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
     from app.workers.media import probe_video_file, probe_video_frame_timetable
 
@@ -195,9 +195,9 @@ async def seed_video(
     await db.flush()
 
     # 每个视频一个 Task(video 走普通路径,非 lidar 分支)。
-    tasks_result = await build_tasks_for_link(
-        db, dataset_id=ds.id, project_id=project_id
-    )
+    tasks_result = await DatasetTaskCreationWorkflow(
+        db
+    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project_id)
 
     return {
         "project": PROJECT_DISPLAY_ID,

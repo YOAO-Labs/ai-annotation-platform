@@ -34,7 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.dataset import Dataset, DatasetItem
 from app.schemas.scene import InferenceResult
 from app.services import scene as scene_svc
-from app.services.pointcloud_import import group_frames
+from app.services.dataset_frame_grouping import group_frames
+from app.services.dataset_task_facts import PreparedDatasetItem
 from app.services.role_patterns import (
     DEFAULT_ROLE_PATTERNS,
     matches_any_role_dir,
@@ -43,8 +44,8 @@ from app.services.role_patterns import (
 
 logger = logging.getLogger(__name__)
 
-# 与 pointcloud_import.group_frames 共用 role pattern:这些顶层目录名说明
-# "整 dataset 就是单 scene 的角色子目录布局";否则就是 per_subdirectory 的 scene key。
+# This asset grouping is shared with pointcloud_import and task creation:
+# scene inference assigns frame indices but does not construct labeling tasks.
 _EXTRA_ROLE_DIR_PATTERNS = ("video", "images", "videos")
 ROLE_DIR_NAMES = role_dir_names(DEFAULT_ROLE_PATTERNS, extra=_EXTRA_ROLE_DIR_PATTERNS)
 
@@ -112,41 +113,49 @@ def _is_pointcloud_like(items: list[DatasetItem]) -> bool:
 def _assign_frame_indices_pointcloud(
     scene_id: uuid.UUID, items: list[DatasetItem]
 ) -> tuple[int, list[str]]:
-    """点云/多模态布局赋值:用 group_frames + 自然排序。
-
-    返回 (assigned_count, notes)。
-    """
+    """Point-cloud layouts use shared frame grouping and natural frame order."""
     notes: list[str] = []
-    frames, calib_items = group_frames(items)
+    items_by_id = {item.id: item for item in items}
+    item_facts = tuple(
+        PreparedDatasetItem(
+            id=item.id,
+            file_name=item.file_name,
+            file_path=item.file_path,
+            file_type=item.file_type,
+            scene_id=item.scene_id,
+        )
+        for item in items
+    )
+    frames, calib_items = group_frames(item_facts)
 
-    # 已分组的 item id 集合,用于计算"未参与分组"的 items(纯 metadata 等)
     grouped_ids: set[uuid.UUID] = set()
-
-    sorted_stems = sorted(frames.keys(), key=_natural_sort_key)
+    sorted_stems = sorted(frames, key=_natural_sort_key)
     assigned = 0
     lidar_missing_stems: list[str] = []
 
-    for fi, stem in enumerate(sorted_stems):
+    for frame_index, stem in enumerate(sorted_stems):
         frame = frames[stem]
-        lidar = frame.get("lidar")
-        cams = frame.get("cameras") or {}
+        lidar = frame.lidar
         if lidar is None:
             lidar_missing_stems.append(stem)
         else:
-            lidar.scene_id = scene_id
-            lidar.frame_index = fi
-            grouped_ids.add(lidar.id)
+            item = items_by_id[lidar.id]
+            item.scene_id = scene_id
+            item.frame_index = frame_index
+            grouped_ids.add(item.id)
             assigned += 1
-        for cam_item in cams.values():
-            cam_item.scene_id = scene_id
-            cam_item.frame_index = fi
-            grouped_ids.add(cam_item.id)
+        for _camera, camera_fact in frame.cameras:
+            item = items_by_id[camera_fact.id]
+            item.scene_id = scene_id
+            item.frame_index = frame_index
+            grouped_ids.add(item.id)
             assigned += 1
 
-    for cam_item in calib_items.values():
-        cam_item.scene_id = scene_id
-        cam_item.frame_index = None
-        grouped_ids.add(cam_item.id)
+    for calib_fact in calib_items.values():
+        item = items_by_id[calib_fact.id]
+        item.scene_id = scene_id
+        item.frame_index = None
+        grouped_ids.add(item.id)
         assigned += 1
 
     if lidar_missing_stems:
@@ -155,12 +164,11 @@ def _assign_frame_indices_pointcloud(
         )
     if calib_items:
         notes.append(f"{len(calib_items)} calib items left frame_index=NULL")
-    leftover = [it for it in items if it.id not in grouped_ids]
+    leftover = [item for item in items if item.id not in grouped_ids]
     if leftover:
         notes.append(
             f"{len(leftover)} items not matched by group_frames, left untouched"
         )
-
     return assigned, notes
 
 

@@ -2,7 +2,7 @@
 
 大 dataset link（item 数 > TASK_CREATE_SYNC_THRESHOLD）的建 task 从同步 HTTP
 单事务搬到 Celery：分块 INSERT + 每块 commit + 进度上报，避免超时与长事务锁。
-核心分块逻辑在 app.services.dataset.build_tasks_for_link（worker 与同步快路径共用）。
+任务写入由 DatasetTaskCreationWorkflow 调用 labeling task owner。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
-from app.services.dataset import build_tasks_for_link
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -62,9 +62,10 @@ async def _run_create_tasks(
                 dataset_id = uuid.UUID(str(payload["dataset_id"]))
                 project_id = uuid.UUID(str(payload["project_id"]))
 
-                # build_tasks_for_link 内部分块 commit + 上报进度；这里只需收尾。
-                result = await build_tasks_for_link(
-                    db,
+                # The workflow retains the link branch and commits each task chunk.
+                result = await DatasetTaskCreationWorkflow(
+                    db
+                ).create_tasks_for_linked_dataset(
                     dataset_id=dataset_id,
                     project_id=project_id,
                     job_id=job_uuid,

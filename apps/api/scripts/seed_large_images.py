@@ -41,7 +41,7 @@ from app.db.models.image_pyramid import (
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.dataset import build_tasks_for_link
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.image_pyramid import pyramid_eligible, pyramid_required
 from app.services.storage import storage_service
 from app.workers.image_pyramid import enqueue_image_pyramid
@@ -523,9 +523,9 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         item_rows.append((fixture, item, uploaded))
 
     async with async_session() as db:
-        task_result = await build_tasks_for_link(
-            db, dataset_id=dataset.id, project_id=project.id
-        )
+        task_result = await DatasetTaskCreationWorkflow(
+            db
+        ).create_tasks_for_linked_dataset(dataset_id=dataset.id, project_id=project.id)
     tasks = await _task_map(project.id, [item.id for _, item, _ in item_rows])
 
     queued_item_ids = []

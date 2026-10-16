@@ -84,7 +84,7 @@ async def seed_ocr(
 
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.db.models.project import Project
-    from app.services.dataset import build_tasks_for_link
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
 
     existing = await db.scalar(
@@ -146,7 +146,9 @@ async def seed_ocr(
     db.add(ProjectDataset(project_id=project.id, dataset_id=ds.id))
     await db.flush()
 
-    await build_tasks_for_link(db, dataset_id=ds.id, project_id=project.id)
+    await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id
+    )
     return {"project": PROJECT_DISPLAY_ID, "project_id": str(project.id)}
 
 

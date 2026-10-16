@@ -203,7 +203,7 @@ async def seed_coco8(
     """把 coco8 灌入当前栈,owner 为传入用户。
 
     幂等:项目 P-COCO8 已存在则直接返回 None(不重复造)。
-    调用方负责最终 commit(build_tasks_for_link / import_yolo 内部只 flush,不 commit)。
+    调用方负责最终 commit；task creation 内部分块提交，import_yolo 只 flush。
     返回 {"project","images","tasks","predictions","pred_skipped"} 或 None(已存在)。
     """
     from PIL import Image
@@ -211,7 +211,7 @@ async def seed_coco8(
 
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.db.models.project import Project
-    from app.services.dataset import build_tasks_for_link
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.predictions_import import import_yolo
     from app.services.storage import storage_service
 
@@ -300,9 +300,9 @@ async def seed_coco8(
     await db.flush()
 
     # 每图一个 Task(内部分块 commit)。
-    tasks_result = await build_tasks_for_link(
-        db, dataset_id=ds.id, project_id=project_id
-    )
+    tasks_result = await DatasetTaskCreationWorkflow(
+        db
+    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project_id)
 
     # 预标注导入:coco8 YOLO 框 → predictions(每图一条,含该图全部框),source=external_import。
     # 走平台现成 import_yolo,按文件名 stem 匹配 task;task 仍 pending,待人工采纳。

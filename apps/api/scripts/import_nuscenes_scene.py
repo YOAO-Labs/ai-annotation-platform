@@ -1,8 +1,8 @@
 """v0.14.2 · nuScenes-mini → 本平台原生目录结构 + 入库(MinIO + DB)一次性转换脚本。
 
 把 nuScenes 数据集的一个或多个 scene 转成本平台点云原生目录结构,并 **显式调用
-v0.14.0 的 scene service** 建 scene + 给 items 赋 frame_index(不依赖
-build_pointcloud_tasks_for_link 的目录启发式 single-scene inference)。
+v0.14.0 的 scene service** 建 scene + 给 items 赋 frame_index;dataset task-creation
+workflow 再使用这些资产事实创建 labeling tasks。
 
 不引入 nuscenes-devkit 依赖——自己读 JSON。只依赖 numpy + Pillow(均已是项目依赖)。
 
@@ -28,8 +28,7 @@ build_pointcloud_tasks_for_link 的目录启发式 single-scene inference)。
 注意 `--scene-tokens` 实际匹配 scene.json 的 `name` 字段(如 scene-0061),不是 token。
 
 平台原生目录约定(storage key);<storage_root> 由 Dataset UUID 派生，
-帧 stem 用 <scene_name>_<idx 6位> 保证跨 scene 全局唯一
-(group_frames 以文件名 stem 作帧键,多 scene 同号帧会撞键):
+帧 stem 用 <scene_name>_<idx 6位> 保证跨 scene 的 storage key/file name 全局唯一:
     <storage_root>/<scene_name>/lidar/<scene_name>_<idx 6位>.pcd            file_type=point_cloud
     <storage_root>/<scene_name>/camera/<CHANNEL>/<scene_name>_<idx 6位>.jpg  file_type=image
     <storage_root>/<scene_name>/calib/camera/<CHANNEL>.json                 file_type=other
@@ -39,7 +38,7 @@ timestamp_delta_us 备查;前端不消费;逐帧真补偿留 v0.15+)。
 
 幂等:dataset 按派生 display_id 复用(短名为 DS-NU-<name>,超长名加 hash 截断到
 DB display_id 长度限制内);scene 按 (dataset_id, name) 已存在则跳过该 scene;
-build_tasks_for_link 本身幂等。
+task creation workflow 本身幂等。
 
 ================================ 手动测试 checklist ================================
 跑真实 nuScenes-mini 后人工验证(浏览器 + curl,token 自备):
@@ -422,10 +421,10 @@ async def import_nuscenes(
       2. 逐 scene:沿 sample.next 链取有序 sample;每帧转 lidar PCD + 各 CAM jpg +
          (首帧)算 calib;建 DatasetItem;create_scene + assign(lidar 有序、cam 同帧、
          calib scene-level)。已存在同名 scene 则跳过(幂等)。
-      3. 建/复用 lidar Project + ProjectDataset,build_tasks_for_link(route 到点云路径,
-         此时 dataset 已有 scene → inference hook 幂等跳过)+ attach_calibration。
+      3. 建/复用 lidar Project + ProjectDataset,由 dataset task-creation workflow
+         读取已存在 scene/frame 事实、写 calibration 并创建 labeling tasks。
 
-    调用方负责最终 commit(build_tasks_for_link 内部会 commit;参考 seed_pointcloud)。
+    调用方负责最终 commit(task creation workflow 内部会 commit;参考 seed_pointcloud)。
     返回 {"dataset_id", "scenes": [{"name", "frames"}...], "total_items"}。
     """
     from sqlalchemy import func, select
@@ -435,7 +434,7 @@ async def import_nuscenes(
     from app.schemas.scene_pose import FramePose
     from app.services import scene as scene_svc
     from app.services import scene_pose as scene_pose_svc
-    from app.services.dataset import build_tasks_for_link
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.pointcloud_import import attach_calibration
     from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 
@@ -942,11 +941,9 @@ async def import_nuscenes(
 
         for frame_idx, sample in enumerate(samples):
             idx6 = f"{frame_idx:06d}"
-            # group_frames 以"文件名 stem"作帧键,而每个 scene 的 idx6 都从 0 起会重号;
-            # 多 scene 共用一个 dataset 时,不同 scene 的同号帧 stem 冲突,
-            # build_pointcloud_tasks_for_link 会把它们并成一个 task(漏建)。用 scene_name
-            # 前缀让 stem 全局唯一即可绕开(不动 group_frames)。scene 内 frame_index 仍由
-            # assign_items_to_scene 按 lidar_items 顺序赋 0..N-1,与文件名解耦。
+            # 多 scene 共用 dataset 时保留带 scene 前缀的全局唯一 storage key/file name。
+            # Task preparation 按 scene 分组,允许各 scene 内自然使用重复的 frame stem;
+            # 这里仍保留前缀以兼容既有 nuScenes 导入路径与输出名称。
             frame_stem = f"{scene_name}_{idx6}"
             by_channel = _key_sample_data_by_channel(
                 sample["token"], sample_data, cs_by_token, sensor_by_token
@@ -1156,7 +1153,7 @@ async def import_nuscenes(
         )
         report_scenes.append({"name": scene_name, "frames": len(samples)})
 
-    # 3. 建/复用 lidar Project + ProjectDataset → build_tasks_for_link + attach_calibration
+    # 3. 建/复用 lidar Project + ProjectDataset，再交由 dataset task workflow 创建 labeling tasks
     project_display_id = project_display_id or _derived_display_id(
         "P-NU-", dataset_name
     )
@@ -1190,9 +1187,11 @@ async def import_nuscenes(
         db.add(ProjectDataset(project_id=project.id, dataset_id=ds.id))
         await db.flush()
 
-    # dataset 已有 scene → build_pointcloud_tasks_for_link 的 inference hook 幂等跳过,
-    # task 通过 dataset_item_id → scene_id 反查到 frame_index。
-    await build_tasks_for_link(db, dataset_id=ds.id, project_id=project.id)
+    # dataset 已有 scene，point-cloud preparation 会复用这些 scene。
+    # Task 通过 dataset_item_id → scene_id 反查到 frame_index。
+    await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id
+    )
     await attach_calibration(db, dataset_id=ds.id)
     from app.schemas._jsonb_types import SensorCalibration
     from app.services.sensor_calibration import calibration_digest

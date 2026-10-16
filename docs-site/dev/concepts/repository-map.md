@@ -78,6 +78,10 @@ last_reviewed: 2026-10-16
    `state/useTrackerSeedCollection.ts`（种子分组纯模块 `state/trackerSeedPrompts.ts`），
    批量线后端选择在 `state/useBatchBackendSelection.ts`；后端 Mask 写入经
    `app/services/mask_mutation.py`（版本冲突与幂等键在此收口）。
+   素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
+   `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
+   素材/帧传递使用 `services/dataset_task_facts`，共享分组在 `services/dataset_frame_grouping`。
+   分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务；解绑/删除尚未迁移。
 5. 领域执行派发：
    - 质量：`app/services/quality_job_dispatch.py::QualityJobDispatcher` →
      `app/deps.py::get_quality_job_dispatcher` 装配

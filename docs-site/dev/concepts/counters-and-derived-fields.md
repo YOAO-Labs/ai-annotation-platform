@@ -184,13 +184,13 @@ last_reviewed: 2026-07-29
 
 这类最容易漏，因为它们不是核心工作流，但会大规模改底层 task 集合。
 
-当前已有重算路径：
+建题增量与删除重算分开：
 
-- `DatasetService.link_to_project()`
-- `DatasetService.unlink_project()`
-- `projects.cleanup_orphans`
+- `DatasetTaskCreationWorkflow` 调用 `LabelingTaskService` 建题并增量维护 `Project.total_tasks`；初始任务保留分块提交，追加任务仅 flush，不在每次入库时增加全量扫描。
+- `DatasetService.unlink_project()` 保留解绑删除后的 project / batch 重算。
+- `projects.cleanup_orphans` 保留清理后的计数同步。
 
-它们会直接重算 project / batch counters，而不是等用户下一次操作被动纠正。
+后两条尚未迁出原资产/API 所有者；建题写入下沉不等于所有任务删除和计数写入都已解耦。
 
 ## Dashboard 为什么依赖这些字段
 

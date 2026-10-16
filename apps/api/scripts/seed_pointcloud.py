@@ -103,14 +103,14 @@ async def seed_pointcloud(
     """把点云夹具灌入当前栈,owner 为传入用户。
 
     幂等:指定 display_id 的项目已存在则直接返回 None(不重复造)。
-    调用方负责最终 commit(build_tasks_for_link 内部已 commit 一次)。
+    调用方负责最终 commit(task creation workflow 已完成 calibration/task commits)。
     返回 {"project": display_id, "files": n, "tasks": result} 或 None(已存在)。
     """
     from sqlalchemy import select
 
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.db.models.project import Project
-    from app.services.dataset import build_tasks_for_link
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
 
     existing = await db.scalar(
@@ -190,7 +190,9 @@ async def seed_pointcloud(
     db.add(ProjectDataset(project_id=project.id, dataset_id=ds.id))
     await db.flush()
 
-    result = await build_tasks_for_link(db, dataset_id=ds.id, project_id=project.id)
+    result = await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id
+    )
     return {"project": project_display_id, "files": n, "tasks": result}
 
 
@@ -282,7 +284,7 @@ async def seed_nuscenes_scene(
 
     幂等:dataset/scene/project 均按派生 display_id 复用,同名 scene 已存在则跳过;重跑时
     无未分包任务 → by_scene split 抛 400,捕获后视作已建包(batches=0)。
-    调用方负责最终 commit(import_nuscenes 内部 build_tasks_for_link 会 commit)。
+    调用方负责最终 commit(import_nuscenes 的 task-creation workflow 内部会 commit)。
     返回 import_nuscenes 报告 + {"batches": 本次新建包数}。
     """
     from fastapi import HTTPException

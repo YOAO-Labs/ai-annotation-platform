@@ -1,8 +1,7 @@
 """v0.13.1 · 点云 scene 端到端导入测试。
 
-用真实夹具 third-party/SUSTechPOINTS/data/example 的帧/相机/标定结构, 走完整的
-build_tasks_for_link → (data_type=="lidar" 分流) → attach_calibration +
-build_pointcloud_tasks_for_link 路径, 校验:
+用真实夹具 third-party/SUSTechPOINTS/data/example 的帧/相机/标定结构，走完整的
+dataset task-creation workflow，校验:
   - 每个 lidar 帧建一个 Task (dataset_item_id 指向该帧 lidar item, file_type=point_cloud)
   - link 含 1 primary_lidar + 该帧实际存在的各 camera_<cam>
   - 缺相机的帧 (000950) 只 link primary_lidar, 不报错
@@ -20,7 +19,7 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem
-from app.services.dataset import build_tasks_for_link
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.storage import storage_service
 from app.services.task_dataset_link import get_linked_items
 from tests.factory import create_project, create_user
@@ -103,9 +102,9 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
 
     ds = await _seed_scene_dataset(db_session, "scene-a", owner.id)
 
-    result = await build_tasks_for_link(
-        db_session, dataset_id=ds.id, project_id=project.id
-    )
+    result = await DatasetTaskCreationWorkflow(
+        db_session
+    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
 
     # 每个 lidar 帧一个 Task
     assert result == {"created": len(lidar_frames), "total": len(lidar_frames)}

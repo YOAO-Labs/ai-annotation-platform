@@ -23,6 +23,7 @@ from app.db.models.storage_connection import StorageConnection
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset import DatasetService, IngestOutcome
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.sources import build_adapter
 from app.services.sources.base import SourceObject
 from app.services.system_settings_service import SystemSettingsService
@@ -259,6 +260,7 @@ async def _run_dataset_import(
                 await db.commit()
 
                 svc = DatasetService(db)
+                task_workflow = DatasetTaskCreationWorkflow(db)
                 dispatcher = CeleryMediaJobDispatcher()
                 added = 0
                 skipped = 0
@@ -309,8 +311,11 @@ async def _run_dataset_import(
                         finally:
                             _close_stream(stream)
                         if outcome.status == "added":
+                            if outcome.item_id is not None:
+                                linked_tasks += await task_workflow.append_items(
+                                    dataset_id, [outcome.item_id]
+                                )
                             added += 1
-                            linked_tasks += outcome.linked_tasks
                             await db.commit()
                             if outcome.item_id is not None:
                                 try:

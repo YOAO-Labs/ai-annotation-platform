@@ -99,15 +99,21 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 数据集从连接器导入由 `POST /datasets/{id}/import-from-connection` 触发，返回 `202` 并投递 Celery 任务 `app.workers.dataset_import.run_dataset_import`，进度走 [AsyncJob](/api/guides/async-jobs)。
 
-```text
-import-from-connection (202)
-  └─ AsyncJob(payload: connection_id, source_path, recursive, include_globs, …)
-       └─ run_dataset_import  (Celery)
-            ├─ build_adapter()           # 解密 secret + 白名单门禁 + path 沙箱
-            ├─ adapter.list(source_path, recursive, include_globs)
-            ├─ 采样上限校验             # max_files / max_total_bytes，超限直接失败
-            └─ 逐文件 svc.ingest_one(...) # 支持中途取消
+```mermaid
+flowchart TD
+    Request["import-from-connection：冻结预算并提交作业"] --> Worker["run_dataset_import"]
+    Worker --> Adapter["build_adapter：解密 / 白名单 / 路径沙箱"]
+    Adapter --> Enumerate["按受理时 max_files / max_total_bytes 枚举"]
+    Enumerate --> Asset["DatasetService.ingest_one：入库与去重"]
+    Asset --> Added{"新增素材？"}
+    Added -->|是| Tasks["DatasetTaskCreationWorkflow.append_items"]
+    Tasks --> Labeling["LabelingTaskService：建题与项目计数"]
+    Labeling --> Commit["当前文件提交"]
+    Commit --> Media["提交后尽力派发媒体"]
+    Added -->|重复或失败| Outcome["沿用原跳过 / 错误 / 回滚处理"]
 ```
+
+原逐文件提交和取消检查不变。资产服务不再在 `ingest_one` 内代建 Task；素材行、追加任务和项目任务数仍绑定同一本地事务。连接器 worker 不自动推断 scene，时序数据集仍在原收尾位置校验；已提交文件不会因为后续校验失败自动回滚。
 
 请求参数：
 

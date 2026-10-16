@@ -174,6 +174,18 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="cross_frame_job", legacy_facades=()),
     DomainSpec(package="sample_evaluations", legacy_facades=()),
     DomainSpec(package="prediction_retry", legacy_facades=(), allowed_app_imports=()),
+    DomainSpec(package="labeling_tasks", legacy_facades=()),
+    DomainSpec(package="dataset_task_facts", legacy_facades=(), allowed_app_imports=()),
+    DomainSpec(
+        package="dataset_frame_grouping",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.services.dataset_task_facts",
+            "app.services.role_patterns",
+        ),
+    ),
+    DomainSpec(package="pointcloud_import", legacy_facades=()),
+    DomainSpec(package="scene_inference", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -638,6 +650,11 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.prediction",
         "app.services.cross_frame_job",
         "app.services.prediction_retry",
+        "app.services.labeling_tasks",
+        "app.services.dataset_task_facts",
+        "app.services.dataset_frame_grouping",
+        "app.services.pointcloud_import",
+        "app.services.scene_inference",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

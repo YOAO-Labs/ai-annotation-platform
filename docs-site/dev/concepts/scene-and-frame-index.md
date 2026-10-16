@@ -141,7 +141,7 @@ scene 元数据 CRUD;create 由 importer / backfill 自动发起,API 不暴露�
 
 ### frame_index 赋值(点云 / 多模态)
 
-1. 调 `pointcloud_import.group_frames(items)` 拿 `{frame_stem: {lidar, cameras}} + {cam: calib}`。
+1. 将素材转换为不可变 `PreparedDatasetItem`，调用 `dataset_frame_grouping.group_frames(items)`，取得 `{frame_stem: GroupedFrame}` 与相机标定事实；场景推断不再导入点云建题模块。
 2. frame_stem 自然排序("000001" < "000010")后 lidar 取 0..N-1。
 3. 同帧 cam item 共享 lidar 的 frame_index。
 4. calib_items 仅写 scene_id,frame_index=NULL。
@@ -169,10 +169,10 @@ scene 元数据 CRUD;create 由 importer / backfill 自动发起,API 不暴露�
 
 两处自动挂上:
 
-1. **`pointcloud_import.build_pointcloud_tasks_for_link`**:函数顶部跑 `single`-mode inference(SUSTechPOINTS / wizard 上传点云项目)。
+1. **`pointcloud_import.prepare_pointcloud_frames`**：应用建题工作流在标定提交后调用；缺少场景时先跑 `single`-mode inference，再按 scene/stem 准备帧事实，交给标注所有者建题。
 2. **`POST /datasets/{id}/items/upload-zip`**:上传完跑 `auto`-mode inference;notes 透回响应字段 `scene_inference_notes`。
 
-`nuScenes` 转换脚本走显式 `scene_svc.create_scene` + `assign_items_to_scene` 路径(留 v0.14.2),不依赖启发式。
+`nuScenes` 转换脚本走显式 `scene_svc.create_scene` + `assign_items_to_scene` 路径，不依赖启发式；建题统一调用应用工作流。
 
 ## Backfill 历史数据
 

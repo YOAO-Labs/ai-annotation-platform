@@ -80,26 +80,25 @@ GET 返回当前 revision/digest 及降序完整快照。如果历史表尚无�
 
 工作台管理面板始终读写未经 ISO 轴约定变换的原始标定；投影渲染仍在独立派生链中对 extrinsic 做坐标归一化，不得把渲染矩阵回写为数据集真值。从旧快照“恢复”时也通过同一 PATCH 追加新 revision，不存在原地回滚端点。
 
-## scene 导入数据流（v0.13.1）
+## scene 导入与任务创建数据流
 
-复用既有「文件入库 → 关联项目 → 建任务」管线,只在 `build_tasks_for_link` 内按 `project.data_type == "lidar"` 分流到 `services/pointcloud_import.py`:
+素材入库仍由资产服务持有；`application/dataset_task_creation.py` 按 `project.data_type == "lidar"` 分流，标注所有者只消费不可变帧事实。
 
+```mermaid
+flowchart TD
+    Entry["关联项目 / CREATE_TASKS worker"] --> Workflow["DatasetTaskCreationWorkflow"]
+    Workflow --> Calibration["pointcloud_import.attach_calibration"]
+    Calibration --> Commit["标定独立提交"]
+    Commit --> Prepare["prepare_pointcloud_frames：缺场景时推断 single"]
+    Prepare --> Group["dataset_frame_grouping：按 scene / stem 分组"]
+    Group --> Labeling["LabelingTaskService.create_initial_pointcloud"]
+    Labeling --> Writes["Task / 主点云与相机关联 / 项目任务数"]
+    Writes --> Chunk["按原块大小提交与上报进度"]
 ```
-scene 目录入库(upload-zip / import-from-connection):
-  <ds>/lidar/<frame>.pcd            → DatasetItem(file_type=point_cloud)
-  <ds>/camera/<cam>/<frame>.jpg     → DatasetItem(file_type=image)
-  <ds>/calib/camera/<cam>.json      → DatasetItem(file_type=other)
 
-POST /datasets/{id}/link  (project.data_type=="lidar"):
-  build_tasks_for_link 分流 →
-    attach_calibration         : 读 calib JSON → 经 SensorCalibration 归一化(剥未建模杂键 + 全字段校验)→ 写各相机帧 DatasetItem.metadata_["calibration"]
-    build_pointcloud_tasks_for_link:
-      group_frames             : 按 file_path 段名(lidar/camera/calib)分组,取最后一次出现
-      每个 lidar 帧 → 1 Task(dataset_item_id=lidar item, file_type=point_cloud)
-      link_items               : primary_lidar + 各 camera_<cam>
-      缺相机的帧 → 只 link primary_lidar(warning,不报错)
-      帧级 NOT EXISTS 去重 / 分块 commit / job 进度上报
-```
+角色匹配仍取路径中最后一次命中的 lidar/camera/calib 段；每个主点云帧建一个 Task，并关联实际存在的 `primary_lidar` 和 `camera_<cam>`。缺相机可只关联主点云；缺主点云的分组才跳过并警告。按已有主点云任务跳过已建帧，不新增并发唯一性约束或残缺关联补建。
+
+入库后的追加仍按 DatasetItem 建题，不改成初始帧聚合。标定修改后重放即使没有新任务也会先提交标定；解绑/删除的跨域写入尚未迁移，不能把当前边界视为可直接拆成远程事务。
 
 - **`task.dataset_item_id` 指向主点云 item**:让假设单 item 的现存消费方(导出 / 列表 / 缩略图)不炸,link-aware 消费方走 link 表取全部。
 - **标定降级**:无 calib 文件 → 跳过写入,scene 退化为 3D-only,不阻断。

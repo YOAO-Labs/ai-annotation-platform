@@ -6,19 +6,18 @@ import logging
 import mimetypes
 import os
 import uuid
-from typing import BinaryIO, Literal
+from typing import AsyncIterator, BinaryIO, Literal
 
 from fastapi import HTTPException
-from sqlalchemy import select, func, delete, insert, text
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.async_job import AsyncJobKind
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.services import async_job as async_job_svc
 from app.services.display_id import next_display_id
+from app.services.dataset_task_facts import PreparedDatasetItem
 from app.services.project_kind import (
     dataset_has_scenes,
     dataset_kind,
@@ -28,7 +27,6 @@ from app.services.project_kind import (
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
-from app.services.system_settings_service import SystemSettingsService
 
 _STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _IMAGE_HEAD_BYTES = 256 * 1024
@@ -56,132 +54,20 @@ class IngestOutcome:
     file_type: str | None = None
     file_size: int | None = None
     content_hash: str | None = None
-    linked_tasks: int = 0
     reason: str | None = None
     error: str | None = None
 
 
 @dataclass(frozen=True)
-class LinkProjectResult:
-    """v0.12.0 · link_project 返回结构：让 endpoint 拿到是否需要异步建 task。
-
-    async_job_id 非 None 时表示大 dataset 走 Celery 异步，endpoint 须在
-    db.commit() 之后再 enqueue（确保 link 行对 worker 可见）；created_tasks
-    仅在同步路径有意义。
-    """
-
+class DatasetProjectAssociation:
     link: ProjectDataset
-    async_job_id: uuid.UUID | None = None
-    created_tasks: int = 0
+    existing: bool
+    item_count: int
 
 
 @dataclass(frozen=True)
 class DatasetDeleteCleanup:
     pyramid_asset_ids: tuple[uuid.UUID, ...]
-
-
-async def build_tasks_for_link(
-    db: AsyncSession,
-    *,
-    dataset_id: uuid.UUID,
-    project_id: uuid.UUID,
-    job_id: uuid.UUID | None = None,
-    chunk_size: int = 5000,
-) -> dict:
-    """v0.12.0 · 为 dataset link 分块建 task（worker / 同步快路径共用）。
-
-    幂等：用 NOT EXISTS 过滤掉该 project 下已有 task 的 dataset_item，重复跑不双建。
-    每块独立 commit（增量累加 project.total_tasks），传 job_id 时每块按 5% 粒度
-    update_progress，供前端轮询看到进度。返回 {"created": N, "total": M}。
-
-    v0.13.1 · 点云项目（project.data_type == "lidar"）分流到 scene 感知建任务器：
-    先写各相机标定，再按帧建 Task + 多文件 link（见 services/pointcloud_import.py）。
-    """
-    project = await db.get(Project, project_id)
-    if project and project.data_type == "lidar":
-        from app.services.pointcloud_import import (
-            attach_calibration,
-            build_pointcloud_tasks_for_link,
-        )
-
-        await attach_calibration(db, dataset_id=dataset_id)
-        # 标定独立落库：build_pointcloud 在「帧全已建过 task」时 total==0 早退且不 commit，
-        # 若不在此 commit，attach_calibration 的 flush 会在 session 关闭时回滚 —— 重导入
-        # （如修正 calib 文件后重跑）将刷不掉旧标定。commit 在这让标定持久化与建任务解耦。
-        await db.commit()
-        return await build_pointcloud_tasks_for_link(
-            db,
-            dataset_id=dataset_id,
-            project_id=project_id,
-            job_id=job_id,
-            chunk_size=chunk_size,
-        )
-
-    item_q = (
-        select(
-            DatasetItem.id,
-            DatasetItem.file_name,
-            DatasetItem.file_path,
-            DatasetItem.file_type,
-        )
-        .where(DatasetItem.dataset_id == dataset_id)
-        .where(
-            ~select(Task.id)
-            .where(
-                Task.project_id == project_id,
-                Task.dataset_item_id == DatasetItem.id,
-            )
-            .exists()
-        )
-        .order_by(DatasetItem.id)
-    )
-    items = (await db.execute(item_q)).all()
-    total = len(items)
-    if total == 0:
-        return {"created": 0, "total": 0}
-
-    created = 0
-    last_pct = 0
-    for start in range(0, total, chunk_size):
-        chunk = items[start : start + chunk_size]
-        seq_result = await db.execute(
-            text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),
-            {"n": len(chunk)},
-        )
-        display_nums = [row[0] for row in seq_result.all()]
-        rows = [
-            {
-                "id": uuid.uuid4(),
-                "project_id": project_id,
-                "dataset_item_id": item.id,
-                "batch_id": None,
-                "display_id": f"T-{display_nums[i]}",
-                "file_name": item.file_name,
-                "file_path": item.file_path,
-                "file_type": item.file_type,
-                "status": "pending",
-                # A2 · known-empty annotation-phase accumulator for a task created
-                # after every producer records.
-                "annotation_contributor_ids": [],
-            }
-            for i, item in enumerate(chunk)
-        ]
-        await db.execute(insert(Task), rows)
-        created += len(chunk)
-
-        project = await db.get(Project, project_id)
-        if project:
-            project.total_tasks = (project.total_tasks or 0) + len(chunk)
-
-        if job_id is not None:
-            pct = int(created / total * 100)
-            if pct >= last_pct + 5 or created == total:
-                await async_job_svc.update_progress(db, job_id, pct)
-                last_pct = pct
-
-        await db.commit()
-
-    return {"created": created, "total": total}
 
 
 class DatasetService:
@@ -638,7 +524,6 @@ class DatasetService:
             width=width,
             height=height,
         )
-        linked_tasks = await self.create_tasks_for_items(dataset_id, [item.id])
         return IngestOutcome(
             status="added",
             relpath=relpath,
@@ -646,7 +531,6 @@ class DatasetService:
             file_type=file_type,
             file_size=file_size,
             content_hash=content_hash,
-            linked_tasks=linked_tasks,
         )
 
     async def enqueue_media_for_items(
@@ -772,47 +656,38 @@ class DatasetService:
 
     # ── Scan & import from bucket ─────────────────────────────────────────
 
-    async def scan_and_import(self, dataset_id: uuid.UUID) -> list[IngestOutcome]:
+    async def iter_scan_and_import(
+        self, dataset_id: uuid.UUID
+    ) -> AsyncIterator[IngestOutcome]:
         ds = await self.db.get(Dataset, dataset_id)
-        if not ds:
-            return []
+        if ds is None:
+            return
         ensure_dataset_storage_name_is_writable(ds.name)
 
         prefix = f"{ds.name}/"
         objects = storage_service.list_objects(
             prefix, bucket=storage_service.datasets_bucket
         )
-        outcomes: list[IngestOutcome] = []
         for obj in objects:
             key: str = obj["key"]
             if key.endswith("/"):
                 continue
             etag = obj.get("etag") or ""
-            # 保留数据集前缀下的子目录层级作为 file_name（如 a/img.jpg）
             rel_under_ds = key[len(prefix) :] if key.startswith(prefix) else key
-            outcomes.append(
-                await self.ingest_one(
-                    dataset_id,
-                    key,
-                    size=obj.get("size"),
-                    storage_key=key,
-                    content_hash_hint=etag if _is_md5(etag) else None,
-                    dest_relpath=rel_under_ds,
-                )
+            yield await self.ingest_one(
+                dataset_id,
+                key,
+                size=obj.get("size"),
+                storage_key=key,
+                content_hash_hint=etag if _is_md5(etag) else None,
+                dest_relpath=rel_under_ds,
             )
-        return outcomes
 
     # ── Project linking ─────────────────────────────────────────────────────
 
-    async def link_project(
+    async def associate_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID
-    ) -> LinkProjectResult:
-        """v0.12.0 · 建 ProjectDataset link，并按 item 数决定同步 / 异步建 task。
-
-        item 数 ≤ task_create_sync_threshold：同步分块建 task（沿用旧体验）。
-        > 阈值：不在本请求里建 task，改为创建 CREATE_TASKS async_job 并由 endpoint
-        在 db.commit() 之后 enqueue。返回 LinkProjectResult 让 endpoint 决策。
-        """
+    ) -> DatasetProjectAssociation:
         existing = (
             await self.db.execute(
                 select(ProjectDataset).where(
@@ -821,8 +696,8 @@ class DatasetService:
                 )
             )
         ).scalar_one_or_none()
-        if existing:
-            return LinkProjectResult(link=existing)
+        if existing is not None:
+            return DatasetProjectAssociation(link=existing, existing=True, item_count=0)
 
         dataset = await self.db.get(Dataset, dataset_id)
         project = await self.db.get(Project, project_id)
@@ -839,7 +714,6 @@ class DatasetService:
         link = ProjectDataset(dataset_id=dataset_id, project_id=project_id)
         self.db.add(link)
         await self.db.flush()
-
         item_count = (
             await self.db.execute(
                 select(func.count())
@@ -847,33 +721,44 @@ class DatasetService:
                 .where(DatasetItem.dataset_id == dataset_id)
             )
         ).scalar() or 0
-
-        # v0.7.3：不再为新接入的 dataset 自建「默认包」batch。task 直接 batch_id=NULL，
-        # 走「未归类任务」语义；BatchesSection 顶部横带提示，用户主动 split 才入 batch。
-        # Resolve this decision at link-request time.  A queued CREATE_TASKS
-        # job already has its branch chosen and must not change when an admin
-        # later adjusts the threshold.
-        task_create_sync_threshold = await SystemSettingsService.get(
-            self.db, "task_create_sync_threshold"
+        return DatasetProjectAssociation(
+            link=link, existing=False, item_count=item_count
         )
-        if item_count > task_create_sync_threshold:
-            job = await async_job_svc.create_job(
-                self.db,
-                kind=AsyncJobKind.CREATE_TASKS.value,
-                project_id=project_id,
-                payload={
-                    "dataset_id": str(dataset_id),
-                    "project_id": str(project_id),
-                    "mode": "link",
-                },
+
+    async def linked_project_ids(self, dataset_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
+        rows = await self.db.execute(
+            select(ProjectDataset.project_id).where(
+                ProjectDataset.dataset_id == dataset_id
             )
-            return LinkProjectResult(link=link, async_job_id=job.id)
-
-        # 同步快路径：build_tasks_for_link 内部分块 commit（job_id=None 不上报进度）。
-        result = await build_tasks_for_link(
-            self.db, dataset_id=dataset_id, project_id=project_id
         )
-        return LinkProjectResult(link=link, created_tasks=result["created"])
+        return tuple(row[0] for row in rows.all())
+
+    async def prepare_task_items(
+        self,
+        dataset_id: uuid.UUID,
+        item_ids: tuple[uuid.UUID, ...],
+    ) -> tuple[PreparedDatasetItem, ...]:
+        if not item_ids:
+            return ()
+        query = select(
+            DatasetItem.id,
+            DatasetItem.file_name,
+            DatasetItem.file_path,
+            DatasetItem.file_type,
+        ).where(
+            DatasetItem.dataset_id == dataset_id,
+            DatasetItem.id.in_(item_ids),
+        )
+        rows = (await self.db.execute(query)).all()
+        return tuple(
+            PreparedDatasetItem(
+                id=row.id,
+                file_name=row.file_name,
+                file_path=row.file_path,
+                file_type=row.file_type,
+            )
+            for row in rows
+        )
 
     async def assert_temporal_dataset_has_scenes(self, dataset_id: uuid.UUID) -> None:
         ds = await self.db.get(Dataset, dataset_id)
@@ -881,107 +766,6 @@ class DatasetService:
             return
         if not await dataset_has_scenes(self.db, dataset_id):
             raise ValueError("声明为时序数据集但未识别出任何 scene,请检查目录结构")
-
-    async def create_tasks_for_items(
-        self, dataset_id: uuid.UUID, item_ids: list[uuid.UUID]
-    ) -> int:
-        """Create tasks for newly added dataset items in already linked projects.
-
-        `link_project` handles the initial backfill. This method covers the append path:
-        upload / zip / scan can add new DatasetItem rows after a dataset is already linked.
-        """
-        unique_item_ids = list(dict.fromkeys(item_ids))
-        if not unique_item_ids:
-            return 0
-
-        project_rows = await self.db.execute(
-            select(ProjectDataset.project_id).where(
-                ProjectDataset.dataset_id == dataset_id
-            )
-        )
-        project_ids = [row[0] for row in project_rows.all()]
-        if not project_ids:
-            return 0
-
-        items_result = await self.db.execute(
-            select(
-                DatasetItem.id,
-                DatasetItem.file_name,
-                DatasetItem.file_path,
-                DatasetItem.file_type,
-            ).where(
-                DatasetItem.dataset_id == dataset_id,
-                DatasetItem.id.in_(unique_item_ids),
-            )
-        )
-        items = items_result.all()
-        if not items:
-            return 0
-
-        existing_rows = await self.db.execute(
-            select(Task.project_id, Task.dataset_item_id).where(
-                Task.project_id.in_(project_ids),
-                Task.dataset_item_id.in_([item.id for item in items]),
-            )
-        )
-        existing_pairs = {(row[0], row[1]) for row in existing_rows.all()}
-
-        pending = []
-        for project_id in project_ids:
-            for item in items:
-                if (project_id, item.id) in existing_pairs:
-                    continue
-                pending.append((project_id, item))
-
-        if not pending:
-            return 0
-
-        # v0.12.0：按 5000 分块 INSERT，避免一条巨 INSERT；本路径仍同步（上游
-        # upload/zip/scan 语义不变）。
-        chunk_size = 5000
-        total_created = 0
-        for start in range(0, len(pending), chunk_size):
-            chunk = pending[start : start + chunk_size]
-            seq_result = await self.db.execute(
-                text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),
-                {"n": len(chunk)},
-            )
-            display_nums = [row[0] for row in seq_result.all()]
-
-            rows = [
-                {
-                    "id": uuid.uuid4(),
-                    "project_id": project_id,
-                    "dataset_item_id": item.id,
-                    "batch_id": None,
-                    "display_id": f"T-{display_nums[i]}",
-                    "file_name": item.file_name,
-                    "file_path": item.file_path,
-                    "file_type": item.file_type,
-                    "status": "pending",
-                    "annotation_contributor_ids": [],
-                }
-                for i, (project_id, item) in enumerate(chunk)
-            ]
-            await self.db.execute(insert(Task), rows)
-            total_created += len(chunk)
-
-        created_by_project: dict[uuid.UUID, int] = {}
-        for project_id, _item in pending:
-            created_by_project[project_id] = created_by_project.get(project_id, 0) + 1
-
-        projects = (
-            (await self.db.execute(select(Project).where(Project.id.in_(project_ids))))
-            .scalars()
-            .all()
-        )
-        for project in projects:
-            project.total_tasks = (project.total_tasks or 0) + created_by_project.get(
-                project.id, 0
-            )
-
-        await self.db.flush()
-        return total_created
 
     async def unlink_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID

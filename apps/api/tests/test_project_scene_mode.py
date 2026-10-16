@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset
 from app.db.models.task import Task
-from app.services.dataset import DatasetService
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from tests.factory import create_project
 
 
@@ -159,7 +159,7 @@ async def test_patch_scene_mode_rejected_when_linked_dataset_mismatches(
     await db_session.commit()
 
     # 普通项目 link 普通数据集:匹配,放行。
-    await DatasetService(db_session).link_project(plain_ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(plain_ds.id, project.id)
     await db_session.commit()
 
     # 翻 scene_mode=True 后,已 link 的非 scene 数据集 kind 不再匹配 → 422 要求解绑。

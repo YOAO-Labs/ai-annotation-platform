@@ -12,7 +12,7 @@ from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.schemas.batch import BatchSplitRequest
 from app.services.batch import BatchService
-from app.services.dataset import DatasetService
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 
 
 @pytest.mark.asyncio
@@ -70,7 +70,7 @@ async def test_split_by_scene_creates_one_batch_per_scene_in_frame_order(
     db_session.add(project)
     await db_session.flush()
 
-    await DatasetService(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
     batches = await BatchService(db_session).split(
         project.id,
         BatchSplitRequest(strategy="by_scene", name_prefix="Scene"),
@@ -260,7 +260,7 @@ async def test_split_by_scene_groups_scene_less_tasks_into_own_batch(
     db_session.add(project)
     await db_session.flush()
 
-    await DatasetService(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
     batches = await BatchService(db_session).split(
         project.id,
         BatchSplitRequest(strategy="by_scene", name_prefix="Scene"),

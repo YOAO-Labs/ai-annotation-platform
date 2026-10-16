@@ -41,6 +41,7 @@ from app.services.dataset import (
     DatasetService,
     ensure_dataset_storage_name_is_writable,
 )
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.mask_formats.safe_archive import (
     ArchiveLimits,
@@ -400,7 +401,9 @@ async def upload_complete(
         if dims:
             item.width, item.height = dims
 
-    linked_tasks = await svc.create_tasks_for_items(dataset_id, [item.id])
+    linked_tasks = await DatasetTaskCreationWorkflow(db).append_items(
+        dataset_id, [item.id]
+    )
     await db.commit()
 
     if item.file_type == "image":
@@ -625,7 +628,9 @@ async def upload_zip(
             new_video_item_ids.append(item.id)
 
     archive.close()
-    linked_tasks = await svc.create_tasks_for_items(dataset_id, new_item_ids)
+    linked_tasks = await DatasetTaskCreationWorkflow(db).append_items(
+        dataset_id, new_item_ids
+    )
 
     # v0.14.0 · 上传完跑 scene_inference(mode="auto"):
     # - SUSTechPOINTS 单 scene zip(顶层 lidar/ camera/ calib/)→ 1 scene
@@ -703,13 +708,18 @@ async def scan_items(
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    outcomes = await svc.scan_and_import(dataset_id)
+    workflow = DatasetTaskCreationWorkflow(db)
+    outcomes = []
+    linked_tasks = 0
+    async for outcome in svc.iter_scan_and_import(dataset_id):
+        outcomes.append(outcome)
+        if outcome.status == "added" and outcome.item_id is not None:
+            linked_tasks += await workflow.append_items(dataset_id, [outcome.item_id])
     new_ids = [
         outcome.item_id
         for outcome in outcomes
         if outcome.status == "added" and outcome.item_id is not None
     ]
-    linked_tasks = sum(outcome.linked_tasks for outcome in outcomes)
     await db.commit()
 
     if new_ids:
@@ -859,7 +869,9 @@ async def link_project(
         raise HTTPException(
             status_code=403, detail="仅项目负责人或超级管理员可关联数据集"
         )
-    link_result = await svc.link_project(dataset_id, data.project_id)
+    link_result = await DatasetTaskCreationWorkflow(db).link_project(
+        dataset_id, data.project_id
+    )
     await AuditService.log(
         db,
         actor=current_user,

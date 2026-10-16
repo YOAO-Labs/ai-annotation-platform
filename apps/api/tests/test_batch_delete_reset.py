@@ -18,7 +18,7 @@ from app.db.models.task import Task
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.schemas.batch import BatchSplitRequest
-from app.services.dataset import DatasetService
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.batch import BatchService
 
 
@@ -56,7 +56,7 @@ async def _seed_linked(db: AsyncSession, owner_id: uuid.UUID, n_items: int) -> P
     )
     db.add(project)
     await db.flush()
-    await DatasetService(db).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db).link_project(ds.id, project.id)
     return project
 
 

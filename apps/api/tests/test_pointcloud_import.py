@@ -14,6 +14,9 @@ import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.services import pointcloud_import
+from app.services.dataset_frame_grouping import group_frames
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+from app.services.dataset_task_facts import PreparedDatasetItem
 from app.services.storage import storage_service
 from app.services.task_dataset_link import get_linked_items
 from tests.factory import create_project
@@ -33,6 +36,25 @@ async def _seed_dataset(db_session, owner_id: uuid.UUID) -> Dataset:
     db_session.add(ds)
     await db_session.flush()
     return ds
+
+
+async def _seed_lidar_project(db_session, owner_id: uuid.UUID):
+    project = await create_project(
+        db_session, owner_id=owner_id, type_key="lidar", type_label="点云检测"
+    )
+    project.data_type = "lidar"
+    await db_session.flush()
+    return project
+
+
+def _fact(item: DatasetItem) -> PreparedDatasetItem:
+    return PreparedDatasetItem(
+        id=item.id,
+        file_name=item.file_name,
+        file_path=item.file_path,
+        file_type=item.file_type,
+        scene_id=item.scene_id,
+    )
 
 
 def _add_item(db_session, dataset_id, file_path, file_type):
@@ -90,11 +112,11 @@ async def test_group_frames_accepts_role_alias_directories():
         file_type="other",
     )
 
-    frames, calib_items = pointcloud_import.group_frames([lidar, cam, calib])
+    frames, calib_items = group_frames([_fact(lidar), _fact(cam), _fact(calib)])
 
-    assert frames["000001"]["lidar"] == lidar
-    assert frames["000001"]["cameras"]["camera_image_0"] == cam
-    assert calib_items["camera_image_0"] == calib
+    assert frames["000001"].lidar.id == lidar.id
+    assert dict(frames["000001"].cameras)["camera_image_0"].id == cam.id
+    assert calib_items["camera_image_0"].id == calib.id
 
 
 async def test_group_frames_channel_less_camera_uses_default_channel():
@@ -117,22 +139,22 @@ async def test_group_frames_channel_less_camera_uses_default_channel():
         file_type="image",
     )
 
-    frames, _ = pointcloud_import.group_frames([cam_flat, cam_under_scene])
+    frames, _ = group_frames([_fact(cam_flat), _fact(cam_under_scene)])
 
-    assert frames["000"]["cameras"]["default"] == cam_flat
-    assert frames["001"]["cameras"]["default"] == cam_under_scene
-    assert "camera" not in frames["000"]["cameras"]
+    assert dict(frames["000"].cameras)["default"].id == cam_flat.id
+    assert dict(frames["001"].cameras)["default"].id == cam_under_scene.id
+    assert "camera" not in dict(frames["000"].cameras)
 
 
 async def test_build_tasks_groups_frames_and_links(db_session, super_admin):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await create_project(db_session, owner_id=user.id)
+    project = await _seed_lidar_project(db_session, user.id)
     seeded = await _seed_scene(db_session, ds, ["000970", "000971"], ["front", "left"])
 
-    result = await pointcloud_import.build_pointcloud_tasks_for_link(
-        db_session, dataset_id=ds.id, project_id=project.id
-    )
+    result = await DatasetTaskCreationWorkflow(
+        db_session
+    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
     assert result == {"created": 2, "total": 2}
 
     from sqlalchemy import select
@@ -168,24 +190,70 @@ async def test_build_tasks_groups_frames_and_links(db_session, super_admin):
 async def test_build_tasks_idempotent(db_session, super_admin):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await create_project(db_session, owner_id=user.id)
+    project = await _seed_lidar_project(db_session, user.id)
     await _seed_scene(db_session, ds, ["000970", "000971"], ["front"])
 
-    first = await pointcloud_import.build_pointcloud_tasks_for_link(
-        db_session, dataset_id=ds.id, project_id=project.id
+    workflow = DatasetTaskCreationWorkflow(db_session)
+    first = await workflow.create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id
     )
     assert first["created"] == 2
 
-    second = await pointcloud_import.build_pointcloud_tasks_for_link(
-        db_session, dataset_id=ds.id, project_id=project.id
+    second = await workflow.create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id
     )
     assert second == {"created": 0, "total": 0}
+
+
+async def test_lidar_replay_commits_calibration_without_new_tasks(
+    db_session, super_admin, monkeypatch
+):
+    from sqlalchemy import select
+
+    user, _ = super_admin
+    ds = await _seed_dataset(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id)
+    seeded = await _seed_scene(db_session, ds, ["000970"], ["front"])
+    _add_item(db_session, ds.id, f"{ds.name}/calib/camera/front.json", "other")
+    await db_session.flush()
+    cam_item_id = seeded["000970"]["cameras"]["front"].id
+
+    first_calibration = {
+        "extrinsic": list(range(16)),
+        "intrinsic": list(range(9)),
+    }
+    updated_calibration = {
+        "extrinsic": [value + 1 for value in range(16)],
+        "intrinsic": [value + 1 for value in range(9)],
+    }
+    monkeypatch.setattr(
+        pointcloud_import, "_read_calibration", lambda _key: first_calibration
+    )
+    workflow = DatasetTaskCreationWorkflow(db_session)
+    first = await workflow.create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id
+    )
+    assert first == {"created": 1, "total": 1}
+
+    monkeypatch.setattr(
+        pointcloud_import, "_read_calibration", lambda _key: updated_calibration
+    )
+    replay = await workflow.create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id
+    )
+    assert replay == {"created": 0, "total": 0}
+
+    await db_session.rollback()
+    persisted = await db_session.scalar(
+        select(DatasetItem.metadata_).where(DatasetItem.id == cam_item_id)
+    )
+    assert persisted["calibration"] == updated_calibration
 
 
 async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await create_project(db_session, owner_id=user.id)
+    project = await _seed_lidar_project(db_session, user.id)
 
     # 帧 000970 完整 (front+left)，帧 000971 只有 lidar+front。
     name = ds.name
@@ -196,9 +264,9 @@ async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
     _add_item(db_session, ds.id, f"{name}/camera/front/000971.jpg", "image")
     await db_session.flush()
 
-    result = await pointcloud_import.build_pointcloud_tasks_for_link(
-        db_session, dataset_id=ds.id, project_id=project.id
-    )
+    result = await DatasetTaskCreationWorkflow(
+        db_session
+    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
     assert result == {"created": 2, "total": 2}
 
     from sqlalchemy import select
@@ -225,7 +293,7 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
 
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await create_project(db_session, owner_id=user.id)
+    project = await _seed_lidar_project(db_session, user.id)
 
     # 两个 scene，各自 2 帧，帧 stem 跨 scene 重复（000 / 001）。
     scenes: dict[str, dict] = {}
@@ -255,9 +323,9 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
         scenes[sname] = {"scene": scene, "frames": frames}
     await db_session.flush()
 
-    result = await pointcloud_import.build_pointcloud_tasks_for_link(
-        db_session, dataset_id=ds.id, project_id=project.id
-    )
+    result = await DatasetTaskCreationWorkflow(
+        db_session
+    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
     # 2 scene × 2 帧 = 4 个 task（修复前会因同号帧覆盖只建 2 个）。
     assert result == {"created": 4, "total": 4}
 
