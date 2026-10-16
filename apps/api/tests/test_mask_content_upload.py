@@ -274,6 +274,6 @@ async def test_upload_task_mask_content_keeps_video_at_4k(
 
 # Note (D3): the per-annotation ``is_locked`` check does NOT apply at upload
 # time because the endpoint returns an anonymous reference not yet linked to
-# any annotation. ``_assert_task_editable`` still runs (task-level review /
+# any annotation. ``task_access.assert_task_editable`` still runs (task-level review /
 # completed lock), but annotation-level locks are enforced on the POST/PATCH
 # that links the reference, not on the content upload.

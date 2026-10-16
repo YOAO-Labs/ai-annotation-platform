@@ -7,9 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _assert_task_editable,
-    _assert_task_visible,
     _load_task_or_404,
     require_task_annotation_write,
     require_task_annotation_write_strict,
@@ -80,7 +79,7 @@ async def get_camera_members(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     try:
         items, track_revision, projected_bbox = await list_camera_members(
             db,
@@ -113,8 +112,8 @@ async def post_camera_member(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     try:
         member = await create_camera_member(
             db,
@@ -164,8 +163,8 @@ async def patch_camera_member(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     try:
         member = await update_camera_member(
             db,
@@ -211,8 +210,8 @@ async def remove_camera_member(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     try:
         member = await delete_camera_member(
             db,
@@ -254,8 +253,8 @@ async def restore_deleted_camera_member(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     try:
         member = await restore_camera_member(
             db,
@@ -299,7 +298,7 @@ async def get_camera_calibration_history(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     try:
         item = await load_linked_camera_item(db, task=task, camera_role=camera_role)
         revisions = await list_calibration_revisions(db, item)
@@ -337,7 +336,7 @@ async def patch_camera_calibration(
     access: ProjectAccess = Depends(require_task_annotation_write_strict),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
     project = await db.get(Project, task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")

@@ -366,7 +366,7 @@ async def test_create_route_rejects_invisible_task_before_writing(
     )
     create_feedback = AsyncMock()
     monkeypatch.setattr(routes, "assert_project_visible", AsyncMock())
-    monkeypatch.setattr(routes, "_assert_task_visible", visible)
+    monkeypatch.setattr(routes.task_access, "assert_task_visible", visible)
     monkeypatch.setattr(FeedbackService, "create", create_feedback)
     with pytest.raises(HTTPException) as error:
         await routes.create_feedback(

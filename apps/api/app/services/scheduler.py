@@ -30,7 +30,7 @@ _NEXT_TASK_CANDIDATE_WINDOW = 20
 def visible_batch_statuses_for_project_role(project_role: str | None) -> list[str]:
     """Batch statuses visible to a project role (project-scoped authority).
 
-    Viewer scope aligns with ``_assert_task_visible``.  Missing/unknown roles
+    Viewer scope aligns with ``task_access.assert_task_visible``. Missing/unknown roles
     fail closed (empty), never the legacy global role.
     """
     if project_role == ProjectRole.REVIEWER.value:
@@ -193,7 +193,7 @@ def task_visibility_clause(user: User, *, project_role: str | None = None):
     """Return the canonical visibility scope for a ``Task`` query.
 
     Branches on the resolved ``project_role`` (missing/unknown fails closed).
-    Viewer shares the annotator scope, aligning with ``_assert_task_visible``.
+    Viewer shares the annotator scope, aligning with ``task_access.assert_task_visible``.
     This is deliberately separate from ``batch_visibility_clause``: the
     latter is also used by reviewer dashboard queries that select only
     ``TaskBatch``.  Task queries must let an explicit task assignment narrow a

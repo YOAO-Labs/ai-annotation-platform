@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-09-21
+last_reviewed: 2026-10-16
 ---
 
 # 仓库地图：模块归属与调用链
@@ -13,20 +13,20 @@ last_reviewed: 2026-09-21
 
 ## 1. 顶层结构与依赖方向
 
-| 区域            | 位置                                                                                        | 允许依赖                                                         |
-| --------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| 前端页面 / 装配 | `apps/web/src/pages/**`                                                                     | 领域 hooks → API client → 生成类型                               |
-| 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                   |
-| 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                           |
-| API 路由        | `apps/api/app/api/v1/**`                                                                    | 服务层；不做业务规则推导                                         |
-| 服务层          | `apps/api/app/services/**`                                                                  | 授权真值在 `project_access`，聚合 SQL 在 `project_aggregates`    |
-| Worker          | `apps/api/app/workers/**`                                                                   | 复用服务层；作业终态走 `async_job_terminal`                      |
-| ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                         |
-| ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                            |
-| 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射 |
-| 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约     |
-| 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志   |
-| ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                   |
+| 区域            | 位置                                                                                        | 允许依赖                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 前端页面 / 装配 | `apps/web/src/pages/**`                                                                     | 领域 hooks → API client → 生成类型                                                               |
+| 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                                                   |
+| 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                                                           |
+| API 路由        | `apps/api/app/api/v1/**`                                                                    | 服务层；不做业务规则推导                                                                         |
+| 服务层          | `apps/api/app/services/**`                                                                  | 项目授权在 `project_access`，任务访问/写入准入在 `task_access`，聚合 SQL 在 `project_aggregates` |
+| Worker          | `apps/api/app/workers/**`                                                                   | 复用服务层；作业终态走 `async_job_terminal`                                                      |
+| ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                                                         |
+| ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                                            |
+| 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                 |
+| 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
+| 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
+| ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                   |
 
 ## 2. 授权真值（唯一来源）
 
@@ -35,6 +35,14 @@ last_reviewed: 2026-09-21
     每次重读账号与项目，未知的平台/项目角色 fail closed。
   - `is_privileged_for_project()`：纯函数，管理型访问 = 活跃超管，或项目负责人且平台角色为管理型。
   - `membership_role_compatible()`：账号平台角色与项目职责的合法组合。
+- 任务资源访问与标注写入准入：`app/services/task_access.py`
+  - `assert_task_visible()` / `visible_task_ids()`：单题与批量资源可见性。
+  - `assert_task_editable()` / `assert_annotation_write_allowed()`：阶段锁与项目写能力。
+  - `resolve_effective_task_assignee_id()` / `assert_effective_task_assignee()`：有效分派人。
+  - `assert_review_adjustment_evidence()`：审核调整前的冻结非本人证据。
+  - API 依赖、WebSocket 与写入所有者直接调用，不通过路由私有函数重新导出。
+- 异步最终写入组合：`app/services/project_write_guard.py::assert_phase_write_allowed`；
+  复用上述服务与当前项目授权，保留调用方的锁顺序与事务归属。
 - 聚合 SQL 的同一契约：`app/services/project_aggregates.py`
   - `valid_membership_conditions()`：成员行只在账号活跃、平台/项目角色均为现行值、
     且观察者只持观察者职责时生效。
@@ -63,10 +71,11 @@ last_reviewed: 2026-09-21
    领域终态差异（`partial` / `rollback_failed` / `cancelled`）由
    `app/services/async_job_terminal.py::DOMAIN_TERMINAL_RECONCILERS` 封闭分派，
    信号兜底不重塑这些值。
-6. 通知：`app/services/notification.py::notify_job_terminal` 在调用方 `commit()`
-   之前发布；列表/投递两条路径分别用 `_scope_conditions()` 与
-   `_allowed_delivery_indices()` 复用同一成员契约
-   （`valid_membership_conditions()`），投递路径额外要求账号活跃。
+6. 通知：审核入口保存持久通知并 `commit()` 后调用
+   `NotificationService.publish_committed()`；通用作业终态仍按
+   `app/services/async_job_notify.py::notify_job_terminal` 的既有合同在调用方提交前写入和发布。
+   列表/投递分别用 `_scope_conditions()` 与 `_allowed_delivery_indices()` 复用
+   `valid_membership_conditions()`，投递路径额外要求账号活跃；不要混淆两种提交时序。
 
 ## 4. ML backend 调用链
 

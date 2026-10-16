@@ -217,7 +217,7 @@ JWT query param，且 `role` 必须是 `super_admin` 或 `project_admin`，否�
 
 ### 6.1 鉴权
 
-JWT query param，并按 task 可见性二次校验：服务端用 `decode_access_token` 拿 `user_id`，再用 `_assert_task_visible(task, user)` 检查角色 + 可见域；任一失败 close `1008`。
+JWT query param，并按 task 可见性二次校验：服务端用 `decode_access_token` 拿 `user_id`，再用 `task_access.assert_task_visible(db, task, user)` 检查角色 + 可见域；任一失败 close `1008`。
 
 ### 6.2 事件序列
 

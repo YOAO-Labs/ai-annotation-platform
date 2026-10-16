@@ -7,7 +7,7 @@ was enqueued.  This module composes the existing canonical helpers:
 * current project access (locked membership) from
   :mod:`app.services.project_access`;
 * task editability and effective-assignee rules from
-  ``app.api.v1.tasks._shared``;
+  :mod:`app.services.task_access`;
 * frozen review contributor evidence from
   :mod:`app.services.annotation_evidence`.
 
@@ -137,11 +137,7 @@ async def assert_phase_write_allowed(
     their worker's terminal failure state.
     """
 
-    from app.api.v1.tasks._shared import (
-        _assert_effective_task_assignee,
-        _assert_task_editable,
-        _effective_task_assignee_id,
-    )
+    from app.services import task_access
     from app.db.models.project import Project
     from app.services.annotation_evidence import assert_review_evidence_current
     from app.services.project_access import resolve_project_access
@@ -156,14 +152,16 @@ async def assert_phase_write_allowed(
     except HTTPException as exc:
         raise HTTPException(status_code=403, detail="permission_changed") from exc
 
-    _assert_task_editable(task, actor, access=access)
-    effective_annotator_id = await _effective_task_assignee_id(db, task)
+    task_access.assert_task_editable(task, actor, access=access)
+    effective_annotator_id = await task_access.resolve_effective_task_assignee_id(
+        db, task
+    )
     if task.status == "review":
         assert_review_evidence_current(
             task, actor.id, effective_annotator_id=effective_annotator_id
         )
         return
-    _assert_effective_task_assignee(
+    task_access.assert_effective_task_assignee(
         actor,
         effective_annotator_id,
         action=action,

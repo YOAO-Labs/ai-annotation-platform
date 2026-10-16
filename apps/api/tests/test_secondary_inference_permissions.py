@@ -1,8 +1,8 @@
 """The real project-access guard must reject before any inference runs.
 
 The test stubs only the database/resource lookup and the resolved access
-context; the production ``require_task_annotation_write_strict`` dependency and
-its ``_task_write_allowed`` predicate decide whether the request is admitted.
+context; the production ``require_task_annotation_write_strict`` dependency
+uses the canonical service-layer annotation-write guard.
 """
 
 from types import SimpleNamespace
@@ -18,6 +18,7 @@ from app.api.v1.tasks import _shared as tasks_shared
 from app.api.v1.tasks import annotations
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services import task_access
 from app.services.project_access import (
     ACCESS_KIND_MEMBER,
     MANAGER_CAPABILITIES,
@@ -107,7 +108,7 @@ async def test_secondary_inference_capability_gate_precedes_inference(
     # resolved context; separate the endpoint body's lookup so a successful
     # gate is still observable as a 404 without running inference.
     monkeypatch.setattr(tasks_shared, "_load_task_or_404", _load_task)
-    monkeypatch.setattr(tasks_shared, "resolve_project_access", _resolve)
+    monkeypatch.setattr(task_access, "resolve_project_access", _resolve)
     load_task = AsyncMock(side_effect=HTTPException(404, "task not found"))
     infer = AsyncMock()
     monkeypatch.setattr(annotations, "_load_task_or_404", load_task)

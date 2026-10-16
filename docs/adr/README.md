@@ -131,3 +131,4 @@
 
 - [0086](0086-canonical-task-data-contracts.md) — 任务名称共享并与格式、媒体及冻结身份分离
 - [0087](archive/0087-project-task-dataset-streams.md) — 项目按任务派生版本流，管理关联与冻结身份分离
+- [0088](archive/0088-service-owned-task-admission.md) — 任务可见性与写入准入由服务层统一持有

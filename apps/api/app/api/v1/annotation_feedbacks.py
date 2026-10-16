@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _assert_task_visible, _visible_task_ids
+from app.services import task_access
 from app.api.v1.annotation_comments import _validate_project_members
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.annotation import Annotation
@@ -165,7 +165,7 @@ async def _assert_feedback_scope(
         # project before applying batch visibility so a forged/malformed row
         # cannot borrow the caller's access to another project.
         await assert_project_visible(task.project_id, db, user)
-        await _assert_task_visible(db, task, user)
+        await task_access.assert_task_visible(db, task, user)
     if root.annotation_id is not None:
         annotation = await db.get(Annotation, root.annotation_id)
         if (
@@ -189,7 +189,7 @@ async def _assert_create_scope(
         if task is None or task.project_id != payload.project_id:
             raise HTTPException(status_code=404, detail="Task not found")
         await assert_project_visible(task.project_id, db, user)
-        await _assert_task_visible(db, task, user)
+        await task_access.assert_task_visible(db, task, user)
     if payload.annotation_id is not None:
         annotation = await db.get(Annotation, payload.annotation_id)
         if annotation is None:
@@ -341,7 +341,7 @@ async def list_feedbacks(
         if task is None or task.project_id != project_id:
             raise HTTPException(status_code=404, detail="Task not found")
         await assert_project_visible(task.project_id, db, user)
-        await _assert_task_visible(db, task, user)
+        await task_access.assert_task_visible(db, task, user)
     if annotation_id is not None:
         annotation = await db.get(Annotation, annotation_id)
         if (
@@ -355,7 +355,7 @@ async def list_feedbacks(
             if task is None or task.project_id != project_id:
                 raise HTTPException(status_code=404, detail="Annotation not found")
             await assert_project_visible(task.project_id, db, user)
-            await _assert_task_visible(db, task, user)
+            await task_access.assert_task_visible(db, task, user)
     allowed_task_ids: set[uuid.UUID] | None = None
     if not access.is_manager:
         project_task_ids = list(
@@ -363,7 +363,9 @@ async def list_feedbacks(
                 await db.execute(select(Task.id).where(Task.project_id == project_id))
             ).scalars()
         )
-        allowed_task_ids = await _visible_task_ids(db, project, user, project_task_ids)
+        allowed_task_ids = await task_access.visible_task_ids(
+            db, project, user, project_task_ids
+        )
     svc = FeedbackService(db)
     rows, next_cursor = await svc.list_paged(
         project_id=project_id,
@@ -602,7 +604,7 @@ async def create_feedback(
         issue_task = await db.get(Task, issue.task_id)
         if issue_task is None:
             raise HTTPException(status_code=404, detail="3D Quality issue not found")
-        await _assert_task_visible(db, issue_task, user)
+        await task_access.assert_task_visible(db, issue_task, user)
         locator = issue.locator or {}
         if (
             issue.project_id != payload.project_id
@@ -911,7 +913,7 @@ async def reply_feedback(
                 status_code=409,
                 detail={"reason": "point_cloud_quality_issue_stale"},
             )
-        await _assert_task_visible(db, issue_task, user)
+        await task_access.assert_task_visible(db, issue_task, user)
         if await refresh_issue_staleness(db, issue):
             raise HTTPException(
                 status_code=409,

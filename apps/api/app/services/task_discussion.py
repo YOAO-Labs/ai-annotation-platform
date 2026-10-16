@@ -22,7 +22,7 @@ from sqlalchemy import and_, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.api.v1.tasks._shared import _assert_task_visible
+from app.services import task_access
 from app.deps import assert_project_visible
 from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
@@ -183,11 +183,11 @@ async def require_visible_task(
     task = await db.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    # `_assert_task_visible` applies batch/status and assignment rules, but it is
+    # Task visibility applies batch/status and assignment rules, but it is
     # intentionally usable by a few cross-project task flows and does not establish
     # project membership.  Discussion routes must require both checks.
     await assert_project_visible(task.project_id, db, user)
-    await _assert_task_visible(db, task, user)
+    await task_access.assert_task_visible(db, task, user)
     return task
 
 

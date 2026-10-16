@@ -19,12 +19,9 @@ from app.services.project_access import ProjectAccess
 from app.services.task_lock import TaskLockService
 
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
-    _assert_task_visible,
-    _assert_effective_task_assignee,
-    _effective_task_assignee_id,
-    _assert_task_editable,
     _start_review_round,
     _ensure_review_round,
     _capture_first_review_contributor_snapshot,
@@ -57,10 +54,10 @@ async def submit_task(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_effective_task_assignee(
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_effective_task_assignee(
         current_user,
-        await _effective_task_assignee_id(db, task),
+        await task_access.resolve_effective_task_assignee_id(db, task),
         action="submit",
         project_id=task.project_id,
         allow_open_pool=True,
@@ -72,7 +69,7 @@ async def submit_task(
             detail={"reason": "task_not_submittable", "status": task.status},
         )
 
-    _assert_task_editable(task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
 
     now = datetime.now(timezone.utc)
     result = await perform_task_submit(db, task, actor=current_user, now=now)
@@ -182,10 +179,10 @@ async def skip_task(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_effective_task_assignee(
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_effective_task_assignee(
         current_user,
-        await _effective_task_assignee_id(db, task),
+        await task_access.resolve_effective_task_assignee_id(db, task),
         action="skip",
         project_id=task.project_id,
         allow_open_pool=True,
@@ -197,13 +194,15 @@ async def skip_task(
             detail={"reason": "task_not_skippable", "status": task.status},
         )
 
-    _assert_task_editable(task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
 
     now = datetime.now(timezone.utc)
     # A2 · capture the inherited batch assignee before the legacy path replaces
     # an empty assignee with the actual actor; the frozen evidence must include
     # both the effective assignee and the submitter.
-    inherited_assignee_id = await _effective_task_assignee_id(db, task)
+    inherited_assignee_id = await task_access.resolve_effective_task_assignee_id(
+        db, task
+    )
     if task.assignee_id is None:
         task.assignee_id = current_user.id
         task.assigned_at = await _submission_assignment_start(
@@ -291,9 +290,9 @@ async def withdraw_task(
     project = await db.get(Project, task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    _assert_effective_task_assignee(
+    task_access.assert_effective_task_assignee(
         current_user,
-        await _effective_task_assignee_id(db, task),
+        await task_access.resolve_effective_task_assignee_id(db, task),
         action="withdraw",
         project_id=task.project_id,
         access=access,
@@ -364,9 +363,9 @@ async def reopen_task(
     project = await db.get(Project, task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    _assert_effective_task_assignee(
+    task_access.assert_effective_task_assignee(
         current_user,
-        await _effective_task_assignee_id(db, task),
+        await task_access.resolve_effective_task_assignee_id(db, task),
         action="reopen",
         project_id=task.project_id,
         access=access,
@@ -465,9 +464,9 @@ async def accept_rejection(
     project = await db.get(Project, task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    _assert_effective_task_assignee(
+    task_access.assert_effective_task_assignee(
         current_user,
-        await _effective_task_assignee_id(db, task),
+        await task_access.resolve_effective_task_assignee_id(db, task),
         action="accept rejection",
         project_id=task.project_id,
         access=access,

@@ -79992,7 +79992,7 @@
     },
     "/api/v1/tasks/{task_id}/neighbor-annotations": {
       "get": {
-        "description": "v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。\n\n替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」。\nv0.21.2 · ADR-0045 · 跨帧链按 track_id(原 group_id)过滤。\n非 scene / 历史未 backfill 的 task → 200 + frames=[](与 neighbors 端点一致,不报错)。\n\nv0.15.26 · 可见性:与被替代的旧链路一致,邻帧逐 task 复核 batch 可见性 / 分派状态\n(`_visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)\n仍返回 frame 占位但 `annotations=[]`,不外泄他人 batch 的框几何。",
+        "description": "v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。\n\n替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」。\nv0.21.2 · ADR-0045 · 跨帧链按 track_id(原 group_id)过滤。\n非 scene / 历史未 backfill 的 task → 200 + frames=[](与 neighbors 端点一致,不报错)。\n\nv0.15.26 · 可见性:与被替代的旧链路一致,邻帧逐 task 复核 batch 可见性 / 分派状态\n(`task_access.visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)\n仍返回 frame 占位但 `annotations=[]`,不外泄他人 batch 的框几何。",
         "operationId": "get_neighbor_annotations_api_v1_tasks__task_id__neighbor_annotations_get",
         "parameters": [
           {

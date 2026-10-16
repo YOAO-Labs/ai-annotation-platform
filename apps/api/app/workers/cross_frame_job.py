@@ -18,6 +18,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services import task_access
 from app.services import async_job as async_job_svc
 from app.services.annotation import AnnotationService
 from app.services.async_job_notify import notify_job_terminal
@@ -293,10 +294,8 @@ async def execute_cross_frame_job(
             if source_task is None or target_task is None:
                 raise RuntimeError("task_missing")
             try:
-                from app.api.v1.tasks._shared import _assert_task_visible
-
-                await _assert_task_visible(db, source_task, actor)
-                await _assert_task_visible(db, target_task, actor)
+                await task_access.assert_task_visible(db, source_task, actor)
+                await task_access.assert_task_visible(db, target_task, actor)
             except HTTPException as exc:
                 raise RuntimeError("permission_changed") from exc
             if source_task.status == "completed":

@@ -78,12 +78,7 @@ from app.services.audit import AuditService
 from app.services.ai_mask_receipt import issue_ai_mask_receipt
 from app.services.ai_mask_prompt import resolve_authorized_mask_prompt
 from app.services.ai_mask_session import issue_ai_mask_session
-from app.api.v1.tasks._shared import (
-    _assert_review_adjustment_evidence,
-    _assert_task_visible,
-    _resolve_task_access,
-    assert_annotation_write_allowed,
-)
+from app.services import task_access
 from app.observability.metrics import (
     mask_ai_operation,
     mask_ai_prompt_family,
@@ -120,9 +115,9 @@ async def _assert_annotation_write_access(
     evidence; plain annotation-phase work denies reviewers.
     """
 
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
-    assert_annotation_write_allowed(task, access)
-    await _assert_review_adjustment_evidence(db, task, user, access)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    task_access.assert_annotation_write_allowed(task, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user, access)
     return access
 
 
@@ -150,10 +145,10 @@ async def _reacquire_write_boundary(
     task = await db.get(Task, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
     task = await _lock_task_nowait(db, task_id)
-    assert_annotation_write_allowed(task, access)
-    await _assert_review_adjustment_evidence(db, task, user, access)
+    task_access.assert_annotation_write_allowed(task, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user, access)
     return task, access
 
 
@@ -1262,7 +1257,7 @@ async def interactive_annotating(
     await _require_ai_interactive_enabled(db, project_id)
     task = await _get_task_in_project(db, body.task_id, project_id)
     access = await _assert_annotation_write_access(db, task, current_user)
-    await _assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
     if (body.context or {}).get("mask_prompt_source") is not None:
         assert_request_scopes(request, "annotations:read")
 
@@ -1419,7 +1414,7 @@ async def predict_frame(
     await _require_ai_interactive_enabled(db, project_id)
     task = await _get_task_in_project(db, task_id, project_id)
     access = await _assert_annotation_write_access(db, task, current_user)
-    await _assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
 
     try:
         cfg = json.loads(config) if config else {}
@@ -1569,7 +1564,7 @@ async def interactive_annotating_frame(
     await _require_ai_interactive_enabled(db, project_id)
     task = await _get_task_in_project(db, task_id, project_id)
     access = await _assert_annotation_write_access(db, task, current_user)
-    await _assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
 
     if len(context.encode()) > MAX_INTERACTIVE_CONTEXT_BODY_BYTES:
         raise HTTPException(

@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks import _assert_task_visible
+from app.services import task_access
 from app.db.models.dataset import VideoChunk, VideoFrameIndex
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -93,7 +93,7 @@ async def _visible_video_task_for_item(
     ).scalars()
     for task in tasks:
         try:
-            await _assert_task_visible(db, task, user)
+            await task_access.assert_task_visible(db, task, user)
             return task
         except HTTPException:
             continue

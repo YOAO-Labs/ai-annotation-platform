@@ -1,20 +1,20 @@
-"""Focused negative coverage for supplied project-access context binding.
+"""Negative coverage for project-access binding and task-state lock precedence.
 
-``_assert_task_visible`` / ``_visible_task_ids`` / ``_assert_review_owner``
-accept an already-resolved :class:`ProjectAccess` and must reject a context that
-does not belong to the same account and resource project *before* any manager
-privileged return.  These are pure checks: no database is required.
+Canonical service guards must reject a foreign account/project context before
+a manager bypass, while completed tasks remain locked even for their manager.
+These checks do not require a database.
 """
 
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
-from app.api.v1.tasks._shared import _assert_access_binding
+from app.services import task_access
 from app.services.project_access import ProjectAccess
 
 
@@ -31,22 +31,12 @@ def _access(*, user_id: uuid.UUID, project_id: uuid.UUID) -> ProjectAccess:
     )
 
 
-def test_access_binding_accepts_matching_context():
-    user_id = uuid.uuid4()
-    project_id = uuid.uuid4()
-    access = _access(user_id=user_id, project_id=project_id)
-
-    _assert_access_binding(
-        access, user=SimpleNamespace(id=user_id), project_id=project_id
-    )
-
-
 def test_access_binding_rejects_other_project():
     user_id = uuid.uuid4()
     access = _access(user_id=user_id, project_id=uuid.uuid4())
 
     with pytest.raises(HTTPException) as exc:
-        _assert_access_binding(
+        task_access.assert_access_binding(
             access,
             user=SimpleNamespace(id=user_id),
             project_id=uuid.uuid4(),
@@ -58,9 +48,43 @@ def test_access_binding_rejects_other_user():
     access = _access(user_id=uuid.uuid4(), project_id=uuid.uuid4())
 
     with pytest.raises(HTTPException) as exc:
-        _assert_access_binding(
+        task_access.assert_access_binding(
             access,
             user=SimpleNamespace(id=uuid.uuid4()),
             project_id=access.project_id,
         )
     assert exc.value.status_code == 409
+
+
+def test_task_editability_rejects_foreign_manager_context():
+    actor = SimpleNamespace(id=uuid.uuid4())
+    task = SimpleNamespace(project_id=uuid.uuid4(), status="review")
+    access = replace(
+        _access(user_id=actor.id, project_id=uuid.uuid4()),
+        project_role=None,
+        access_kind="owner",
+        is_manager=True,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        task_access.assert_task_editable(task, actor, access=access)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"reason": "access_context_mismatch"}
+
+
+def test_completed_task_remains_locked_for_its_manager():
+    actor = SimpleNamespace(id=uuid.uuid4())
+    task = SimpleNamespace(project_id=uuid.uuid4(), status="completed")
+    access = replace(
+        _access(user_id=actor.id, project_id=task.project_id),
+        project_role=None,
+        access_kind="owner",
+        is_manager=True,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        task_access.assert_task_editable(task, actor, access=access)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"reason": "task_locked", "status": "completed"}

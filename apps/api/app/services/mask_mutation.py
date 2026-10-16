@@ -1227,28 +1227,24 @@ class MaskMutationService:
         digest = request_digest(payload)
         task = await self._lock_task(task_id)
 
-        from app.api.v1.tasks._shared import (
-            _assert_review_adjustment_evidence,
-            _assert_task_editable,
-            _assert_task_visible,
-            _resolve_task_access,
-            assert_annotation_write_allowed,
-        )
+        from app.services import task_access
 
         if access is None:
-            access = await _resolve_task_access(
+            access = await task_access.resolve_task_access(
                 self.db, task, actor, lock_membership=True
             )
-        await _assert_task_visible(self.db, task, actor, access=access)
-        assert_annotation_write_allowed(task, access)
+        await task_access.assert_task_visible(self.db, task, actor, access=access)
+        task_access.assert_annotation_write_allowed(task, access)
         # The FastAPI dependency precheck is not authoritative: re-read the
         # freshly locked task and revalidate the round's frozen non-self
         # evidence before an idempotent replay or any mutation.
-        await _assert_review_adjustment_evidence(self.db, task, actor, access)
+        await task_access.assert_review_adjustment_evidence(
+            self.db, task, actor, access
+        )
         replay = await self._idempotent_replay(task_id, actor.id, payload, digest)
         if replay is not None:
             return replay
-        _assert_task_editable(task, actor, access=access)
+        task_access.assert_task_editable(task, actor, access=access)
 
         if payload.operation == "slice_mask" and task.file_type != "image":
             raise MaskMutationError(

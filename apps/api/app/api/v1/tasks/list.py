@@ -29,9 +29,9 @@ from app.services.user_brief import resolve_briefs
 from app.db.models.task_batch import TaskBatch
 
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
-    _assert_task_visible,
     _encode_task_cursor,
     _decode_task_cursor,
     _task_with_url,
@@ -224,7 +224,7 @@ async def get_task(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
     dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     pyramids = await _attach_image_pyramids_batch(db, [task], dimensions)
@@ -262,7 +262,7 @@ async def get_task_neighbors(
     )
 
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
 
     try:
         result = await get_neighbors_for_task(db, task_id=task_id, k=k)

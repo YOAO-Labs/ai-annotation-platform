@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _assert_task_visible,
     _load_task_or_404,
 )
 from app.config import settings
@@ -135,7 +135,7 @@ async def get_image_pyramid(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     owner, asset, generation = await get_active_generation_for_task(db, task)
     required = pyramid_required(owner.width, owner.height)
     response.headers["Cache-Control"] = "private, no-store"
@@ -302,7 +302,7 @@ async def create_image_pyramid_asset_urls(
             },
         )
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     owner, asset, generation = await get_active_generation_for_task(db, task)
     if asset is None or generation is None or generation.status != "ready":
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
@@ -424,7 +424,7 @@ async def retry_image_pyramid(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     owner, asset, generation = await get_active_generation_for_task(db, task)
     if owner.file_type != "image":
         raise HTTPException(status_code=409, detail={"reason": "not_image"})

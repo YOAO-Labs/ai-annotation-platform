@@ -75,13 +75,10 @@ from app.services.video_collaboration import (
 )
 
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _assert_task_editable,
     _load_task_or_404,
-    _assert_task_visible,
-    _visible_task_ids,
     _video_frame_count,
-    _resolve_task_access,
     require_task_annotation_write,
     require_task_annotation_write_strict,
 )
@@ -108,8 +105,8 @@ async def dry_run_annotation_conversion(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     try:
         result = await AnnotationConversionService(db).dry_run(
             task=task,
@@ -139,8 +136,8 @@ async def execute_annotation_conversion(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     try:
         result = await AnnotationConversionService(db).execute(
             task_id=task_id,
@@ -179,7 +176,7 @@ async def get_neighbor_annotations(
     非 scene / 历史未 backfill 的 task → 200 + frames=[](与 neighbors 端点一致,不报错)。
 
     v0.15.26 · 可见性:与被替代的旧链路一致,邻帧逐 task 复核 batch 可见性 / 分派状态
-    (`_visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)
+    (`task_access.visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)
     仍返回 frame 占位但 `annotations=[]`,不外泄他人 batch 的框几何。
     """
     from app.services.scene import (
@@ -188,7 +185,7 @@ async def get_neighbor_annotations(
     )
 
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
 
     try:
         neighbors = await get_neighbors_for_task(db, task_id=task_id, k=k)
@@ -212,7 +209,7 @@ async def get_neighbor_annotations(
     from app.db.models.project import Project
 
     project = await db.get(Project, task.project_id)
-    visible_ids = await _visible_task_ids(
+    visible_ids = await task_access.visible_task_ids(
         db, project, current_user, list(frame_by_task.keys())
     )
 
@@ -256,7 +253,7 @@ async def get_annotations(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     project = await db.get(Project, task.project_id)
     if collaboration_enabled(project) and video_segment_id is None:
         raise HTTPException(
@@ -286,7 +283,7 @@ async def get_annotations_paged(
     from uuid import UUID as _UUID
 
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     project = await db.get(Project, task.project_id)
     if collaboration_enabled(project) and video_segment_id is None:
         raise HTTPException(
@@ -356,8 +353,8 @@ async def create_annotation(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     await assert_video_annotation_write_scope(
         db,
         task=task,
@@ -487,8 +484,8 @@ async def secondary_inference(
     审核员调用返回 403; 人工审核修改仍使用普通标注接口。
     """
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
 
     annotation = await db.get(Annotation, annotation_id)
     if annotation is None or annotation.task_id != task_id or not annotation.is_active:
@@ -610,7 +607,7 @@ async def propagate_annotation_to_task(
     取目标 dataset 的 axis_convention(详 service.propagate)。
     """
     source_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, source_task, current_user, access=access)
+    await task_access.assert_task_visible(db, source_task, current_user, access=access)
 
     # 归属校验: annotation 必须属于 URL 里的源 task, 否则越权(借可见 task_id
     # 复制同 project 内不可见 batch 的他人草稿)。
@@ -619,9 +616,11 @@ async def propagate_annotation_to_task(
         raise HTTPException(status_code=404, detail="source annotation not found")
 
     target_task = await _load_task_or_404(db, data.target_task_id)
-    target_access = await _resolve_task_access(db, target_task, current_user)
-    await _assert_task_visible(db, target_task, current_user, access=target_access)
-    _assert_task_editable(target_task, current_user, access=target_access)
+    target_access = await task_access.resolve_task_access(db, target_task, current_user)
+    await task_access.assert_task_visible(
+        db, target_task, current_user, access=target_access
+    )
+    task_access.assert_task_editable(target_task, current_user, access=target_access)
 
     svc = AnnotationService(db)
     new_annotation, motion_compensated = await svc.propagate(
@@ -674,12 +673,14 @@ async def propagate_annotations_batch(
     运动补偿 propagate 到目标 task。整批一个事务,任一失败全部回滚。
     """
     source_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, source_task, current_user, access=access)
+    await task_access.assert_task_visible(db, source_task, current_user, access=access)
 
     target_task = await _load_task_or_404(db, data.target_task_id)
-    target_access = await _resolve_task_access(db, target_task, current_user)
-    await _assert_task_visible(db, target_task, current_user, access=target_access)
-    _assert_task_editable(target_task, current_user, access=target_access)
+    target_access = await task_access.resolve_task_access(db, target_task, current_user)
+    await task_access.assert_task_visible(
+        db, target_task, current_user, access=target_access
+    )
+    task_access.assert_task_editable(target_task, current_user, access=target_access)
 
     svc = AnnotationService(db)
     results, motion_compensated = await svc.propagate_batch(
@@ -739,11 +740,11 @@ async def interpolate_annotations_range(
     v0.21.2 · ADR-0045 · 按 track_id 标识跨帧链。
     """
     from_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, from_task, current_user, access=access)
+    await task_access.assert_task_visible(db, from_task, current_user, access=access)
 
     to_task = await _load_task_or_404(db, data.to_task_id)
-    to_access = await _resolve_task_access(db, to_task, current_user)
-    await _assert_task_visible(db, to_task, current_user, access=to_access)
+    to_access = await task_access.resolve_task_access(db, to_task, current_user)
+    await task_access.assert_task_visible(db, to_task, current_user, access=to_access)
 
     svc = AnnotationService(db)
     created, motion_compensated, skipped_frames = await svc.interpolate_range(
@@ -751,10 +752,10 @@ async def interpolate_annotations_range(
         from_task_id=task_id,
         to_task_id=data.to_task_id,
         user_id=current_user.id,
-        assert_task_editable=lambda t: _assert_task_editable(
+        assert_task_editable=lambda t: task_access.assert_task_editable(
             t, current_user, access=access
         ),
-        assert_task_visible=lambda t: _assert_task_visible(
+        assert_task_visible=lambda t: task_access.assert_task_visible(
             db, t, current_user, access=access
         ),
     )
@@ -813,8 +814,8 @@ async def update_annotation(
     ).scalar_one_or_none()
     if _task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, _task, current_user, access=access)
-    _assert_task_editable(_task, current_user, access=access)
+    await task_access.assert_task_visible(db, _task, current_user, access=access)
+    task_access.assert_task_editable(_task, current_user, access=access)
     svc = AnnotationService(db)
     fields = data.model_dump(exclude_unset=True)
     if not fields:
@@ -1012,8 +1013,8 @@ async def compose_video_tracks(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     if not data.annotation_ids:
         raise HTTPException(status_code=400, detail="annotation_ids is required")
     if len(set(data.annotation_ids)) != len(data.annotation_ids):
@@ -1100,8 +1101,8 @@ async def convert_video_track_to_bboxes(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     annotation = await db.get(Annotation, annotation_id)
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
@@ -1206,8 +1207,8 @@ async def delete_annotation(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     # 先取一份 detail 供 audit 用（soft delete 之后字段仍能读，但安全起见提前）
     pre = await db.get(Annotation, annotation_id)
     if pre is None or pre.task_id != task_id or not pre.is_active:

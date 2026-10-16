@@ -24,10 +24,8 @@ from app.services.annotation_evidence import (
 from app.services.audit import AuditAction, AuditService
 
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _assert_access_binding,
-    _assert_task_visible,
-    _effective_task_assignee_id,
     _ensure_review_round,
     _record_first_review_fact,
     _review_round_contributor_snapshot,
@@ -75,7 +73,7 @@ async def _lock_review_task(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, task, user, access=access)
+    await task_access.assert_task_visible(db, task, user, access=access)
     return task
 
 
@@ -90,7 +88,9 @@ async def _assert_review_evidence_allowed(
     attribution keeps using ``_review_round_contributor_snapshot``.
     """
 
-    effective_annotator_id = await _effective_task_assignee_id(db, task)
+    effective_annotator_id = await task_access.resolve_effective_task_assignee_id(
+        db, task
+    )
     assert_review_evidence_current(
         task, user.id, effective_annotator_id=effective_annotator_id
     )
@@ -102,7 +102,7 @@ async def _assert_review_owner(
     project = await db.get(Project, task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    _assert_access_binding(access, user=user, project_id=task.project_id)
+    task_access.assert_access_binding(access, user=user, project_id=task.project_id)
     if access.is_manager:
         return project
     batch = await db.get(TaskBatch, task.batch_id) if task.batch_id else None

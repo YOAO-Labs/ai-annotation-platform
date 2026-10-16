@@ -24,6 +24,7 @@ from app.schemas.annotation_slice import (
     AnnotationSliceRestoreRequest,
     PolygonSliceCommitRequest,
 )
+from app.services import task_access
 from app.services.annotation import AnnotationService
 from app.services.annotation_evidence import record_annotation_actor
 from app.services.audit import AuditAction, AuditService
@@ -63,9 +64,8 @@ class AnnotationSliceService:
     async def _assert_task_writable(
         self, task: Task, actor: User, *, access: Any = None
     ) -> None:
-        from app.api.v1.tasks._shared import _assert_task_editable
 
-        _assert_task_editable(task, actor, access=access)
+        task_access.assert_task_editable(task, actor, access=access)
         if task.file_type != "image":
             raise AnnotationSliceError(422, "unsupported_media", "切割仅支持图片任务")
         try:
@@ -78,12 +78,6 @@ class AnnotationSliceService:
     async def _lock_task(
         self, task_id: uuid.UUID, actor: User, *, access: Any = None
     ) -> tuple[Task, Any]:
-        from app.api.v1.tasks._shared import (
-            _assert_review_adjustment_evidence,
-            _assert_task_visible,
-            _resolve_task_access,
-            assert_annotation_write_allowed,
-        )
 
         task = await self.db.scalar(
             select(Task)
@@ -94,12 +88,14 @@ class AnnotationSliceService:
         if task is None:
             raise AnnotationSliceError(404, "task_not_found", "任务不存在")
         if access is None:
-            access = await _resolve_task_access(
+            access = await task_access.resolve_task_access(
                 self.db, task, actor, lock_membership=True
             )
-        await _assert_task_visible(self.db, task, actor, access=access)
-        assert_annotation_write_allowed(task, access)
-        await _assert_review_adjustment_evidence(self.db, task, actor, access)
+        await task_access.assert_task_visible(self.db, task, actor, access=access)
+        task_access.assert_annotation_write_allowed(task, access)
+        await task_access.assert_review_adjustment_evidence(
+            self.db, task, actor, access
+        )
         return task, access
 
     async def _replay(

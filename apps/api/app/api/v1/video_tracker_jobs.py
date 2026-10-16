@@ -14,12 +14,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks import _assert_task_visible
-from app.api.v1.tasks._shared import (
-    _assert_review_adjustment_evidence,
-    _resolve_task_access,
-    assert_annotation_write_allowed,
-)
+from app.services import task_access
 from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -167,7 +162,7 @@ async def _load_visible_job_task_row(
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    await _assert_task_visible(db, task, user)
+    await task_access.assert_task_visible(db, task, user)
     return task, row
 
 
@@ -203,12 +198,12 @@ async def _lock_visible_job_task_row(
     task = await db.get(Task, row.task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
     task = await _lock_task_nowait(db, row.task_id)
     if require_annotation_write:
-        assert_annotation_write_allowed(task, access)
-        await _assert_review_adjustment_evidence(db, task, user, access)
-    await _assert_task_visible(db, task, user, access=access)
+        task_access.assert_annotation_write_allowed(task, access)
+        await task_access.assert_review_adjustment_evidence(db, task, user, access)
+    await task_access.assert_task_visible(db, task, user, access=access)
     return task, row, access
 
 
@@ -698,7 +693,7 @@ async def get_video_tracker_job_preview(
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     return VideoTrackerJobPreview.model_validate(await tracker_job_preview(db, row))
 
 
@@ -716,7 +711,7 @@ async def get_video_tracker_mask_content(
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     reference = next(
         (
             (result.get("geometry") or {}).get("mask")

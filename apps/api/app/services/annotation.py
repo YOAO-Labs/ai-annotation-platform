@@ -698,7 +698,7 @@ class AnnotationService:
     ) -> list[Annotation]:
         """I12 · 批量 patch N 个标注. 任一标注被锁/已软删则整体 422.
 
-        调用方负责在外层加 _assert_task_editable + assert_project_visible.
+        调用方负责在外层加 task_access.assert_task_editable + assert_project_visible.
         """
         from fastapi import HTTPException
 

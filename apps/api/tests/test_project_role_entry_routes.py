@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.mask_qc import _resolve_task_review_access
 from app.api.v1.ml_backends import _reacquire_write_boundary
-from app.api.v1.tasks._shared import assert_annotation_write_allowed
+from app.services import task_access
 from app.api.v1.video_tracker_jobs import _lock_visible_job_task_row
 from app.core.security import create_access_token
 from app.db.models.dataset import Dataset, DatasetItem
@@ -566,7 +566,7 @@ async def test_canonical_annotation_write_predicate_denies_reviewer_annotation_p
     )
 
     with pytest.raises(HTTPException) as exc:
-        assert_annotation_write_allowed(task, access)
+        task_access.assert_annotation_write_allowed(task, access)
     assert exc.value.status_code == 403
 
 

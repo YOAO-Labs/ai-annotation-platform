@@ -185,7 +185,7 @@ async def _revalidate_project_access(project_id: uuid.UUID, user_id: str) -> boo
 
 
 async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
-    from app.api.v1.tasks._shared import _assert_task_visible
+    from app.services import task_access
     from app.db.base import async_session
     from app.db.models.task import Task
 
@@ -197,7 +197,7 @@ async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
         if task is None:
             return False
         try:
-            await _assert_task_visible(db, task, user)
+            await task_access.assert_task_visible(db, task, user)
         except Exception:
             return False
         return True
@@ -479,7 +479,7 @@ async def video_tracker_job_socket(
         if not user_id:
             raise ValueError("missing sub")
         user_uuid = uuid.UUID(user_id)
-        from app.api.v1.tasks import _assert_task_visible
+        from app.services import task_access
         from app.db.base import async_session
         from app.db.models.task import Task
         from app.db.models.user import User
@@ -491,7 +491,7 @@ async def video_tracker_job_socket(
             task = await db.get(Task, job.task_id) if job is not None else None
             if user is None or not user.is_active or job is None or task is None:
                 raise ValueError("tracker job not visible")
-            await _assert_task_visible(db, task, user)
+            await task_access.assert_task_visible(db, task, user)
             task_id_for_revalidate = task.id
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

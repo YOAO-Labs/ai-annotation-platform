@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _assert_task_visible, _visible_task_ids
+from app.services import task_access
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
@@ -231,7 +231,7 @@ async def _assert_run_scope_visible(
     if {task.id for task in rows} != task_ids:
         raise HTTPException(status_code=404, detail="Task not found")
     for task in rows:
-        await _assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user, access=access)
 
 
 @router.post(
@@ -300,14 +300,14 @@ async def get_project_issues(
         task = await db.get(Task, task_id)
         if task is None or task.project_id != project.id:
             raise HTTPException(status_code=404, detail="Task not found")
-        await _assert_task_visible(db, task, current_user, access=access)
+        await task_access.assert_task_visible(db, task, current_user, access=access)
     elif not access.is_manager:
         all_task_ids = list(
             (
                 await db.execute(select(Task.id).where(Task.project_id == project.id))
             ).scalars()
         )
-        allowed_task_ids = await _visible_task_ids(
+        allowed_task_ids = await task_access.visible_task_ids(
             db, project, current_user, all_task_ids, access=access
         )
 
@@ -356,7 +356,7 @@ async def get_task_summary(
     project, access = await _resolve_task_review_access(
         db, task=task, user=current_user
     )
-    await _assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
     return TaskMaskQCSummary.model_validate(
         await task_qc_summary(db, task=task, project=project)
     )
@@ -499,7 +499,7 @@ async def get_issue(
     _project, access = await _resolve_task_review_access(
         db, task=task, user=current_user
     )
-    await _assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
     return await _issue_out(db, issue)
 
 
@@ -537,7 +537,7 @@ async def patch_issue(
                 status_code=409, detail={"reason": "mask_qc_issue_busy"}
             ) from exc
         raise
-    await _assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
     if await effective_issue_status(db, issue) == "stale":
         raise HTTPException(
             status_code=409,
@@ -578,7 +578,7 @@ async def _assert_repair_issues_visible(
         (await db.execute(select(Task).where(Task.id.in_(task_ids)))).scalars()
     )
     for task in tasks:
-        await _assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user, access=access)
 
 
 async def _load_visible_repair_batch(
@@ -609,7 +609,7 @@ async def _load_visible_repair_batch(
     if len(tasks) != len(task_ids):
         raise HTTPException(status_code=404, detail="Mask repair task not found")
     for task in tasks:
-        await _assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user, access=access)
     return batch
 
 

@@ -29,13 +29,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import (
-    _assert_review_adjustment_evidence,
-    _assert_task_editable,
-    _assert_task_visible,
-    _resolve_task_access,
-    assert_annotation_write_allowed,
-)
+from app.services import task_access
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
@@ -137,7 +131,7 @@ async def _load_visible_mask_annotation(
     task = await db.get(Task, annotation.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    await _assert_task_visible(db, task, user)
+    await task_access.assert_task_visible(db, task, user)
     geometry = annotation.geometry or {}
     if geometry.get("type") == "raster_mask" and not settings.raster_mask_read_enabled:
         raise HTTPException(
@@ -294,11 +288,11 @@ async def upload_task_mask_content(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
-    assert_annotation_write_allowed(task, access)
-    await _assert_review_adjustment_evidence(db, task, user, access)
-    await _assert_task_visible(db, task, user, access=access)
-    _assert_task_editable(task, user, access=access)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    task_access.assert_annotation_write_allowed(task, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user, access)
+    await task_access.assert_task_visible(db, task, user, access=access)
+    task_access.assert_task_editable(task, user, access=access)
     if (
         access.project_role == "annotator"
         and task.assignee_id is not None
@@ -436,7 +430,7 @@ async def _load_single_task_for_ids(
     ids: list[uuid.UUID],
 ) -> Task:
     """所有 ids 必须属于同一 task; 否则 422.
-    返回该 task (供 _assert_task_editable 与 project_visible 校验)."""
+    返回该 task (供 task_access.assert_task_editable 与 project_visible 校验)."""
     if not ids:
         raise HTTPException(status_code=422, detail="ids must not be empty")
     rows = (
@@ -491,11 +485,11 @@ async def bulk_update_annotations(
     - 不允许 bulk 改 tool_unit_id (会破坏 class_name 校验链)
     """
     task = await _load_single_task_for_ids(db, payload.ids)
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
-    assert_annotation_write_allowed(task, access)
-    await _assert_review_adjustment_evidence(db, task, user, access)
-    await _assert_task_visible(db, task, user, access=access)
-    _assert_task_editable(task, user, access=access)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    task_access.assert_annotation_write_allowed(task, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user, access)
+    await task_access.assert_task_visible(db, task, user, access=access)
+    task_access.assert_task_editable(task, user, access=access)
 
     from app.services.annotation_evidence import record_annotation_actor
 

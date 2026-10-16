@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _assert_task_visible, _visible_task_ids
+from app.services import task_access
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
@@ -47,7 +47,7 @@ async def _sql_visible(
 
 async def _object_visible(db: AsyncSession, task: Task, viewer: User) -> bool:
     try:
-        await _assert_task_visible(db, task, viewer)
+        await task_access.assert_task_visible(db, task, viewer)
         return True
     except HTTPException:
         return False
@@ -88,7 +88,10 @@ async def test_viewer_unbatched_assignment_is_denied_in_sql_and_object(
         is False
     )
     assert await _object_visible(db_session, task, viewer) is False
-    assert await _visible_task_ids(db_session, project, viewer, [task.id]) == set()
+    assert (
+        await task_access.visible_task_ids(db_session, project, viewer, [task.id])
+        == set()
+    )
 
 
 async def test_viewer_reviewing_rework_is_denied_in_sql_and_object(

@@ -1,11 +1,11 @@
-"""Architecture guards for the v0.23.0 service-domain modularization.
+"""Architecture guards for service-domain ownership and dependency direction.
 
-These tests enforce the dependency-direction and cycle rules declared in
-`docs/plans/2026-07-15-v0.23.0-api-services-domain-modularization.md` §4.4 for every
-new domain package. They run on source via AST, so they apply as soon as a package is
-created; a package that does not exist yet is skipped.
+The rules in docs-site/dev/concepts/backend-layers.md apply to each declared
+domain package or single-file service. Source is checked through AST, including
+function-local and relative imports.
 
-Rules enforced per domain package ``app.services.<pkg>``:
+Rules enforced per declared ``app.services.<domain>``:
+
 
 1. No module in the package may import ``app.api`` or ``app.workers`` (service → API /
    worker reverse dependency is forbidden).
@@ -15,7 +15,7 @@ Rules enforced per domain package ``app.services.<pkg>``:
    another module *within the same package* (function-local import masking a cycle).
    Top-level imports within the package are the only allowed intra-package wiring.
 
-Domains are declared in ``DOMAIN_PACKAGES``. Add an entry when a new package lands.
+Domains are declared in ``DOMAIN_PACKAGES``. Add an entry when an owner lands.
 """
 
 from __future__ import annotations
@@ -132,6 +132,8 @@ DOMAIN_PACKAGES = (
             "app.services.task_views",
         ),
     ),
+    DomainSpec(package="task_access", legacy_facades=()),
+    DomainSpec(package="project_write_guard", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -258,8 +260,11 @@ def _repo_module_context(path: Path) -> str:
 
 
 def _iter_domain_files(pkg: str) -> list[tuple[Path, str]]:
-    """Yield (abs_path, module_dotted) for every .py under ``app/services/<pkg>``."""
+    """Yield source modules for a declared service file or domain package."""
     root = _SERVICES_DIR / pkg
+    module_file = root.with_suffix(".py")
+    if module_file.is_file():
+        return [(module_file, _module_path(module_file.relative_to(_SERVICES_DIR)))]
     if not root.is_dir():
         return []
     files = []
@@ -543,24 +548,26 @@ def test_scc_detector_finds_two_and_three_node_cycles() -> None:
     assert ("acyclic.b",) in components
 
 
-def test_services_graph_has_no_gpu_related_cycle() -> None:
-    """No SCC may cross the GPU domain, its clients, or legacy GPU modules."""
+def test_services_graph_has_no_guarded_domain_cycle() -> None:
+    """No SCC may cross the GPU or canonical task-admission boundaries."""
     graph = _service_import_graph()
-    gpu_related = {
+    guarded_modules = {
         "app.services.ml_client",
         "app.services.ml_backend",
+        "app.services.task_access",
+        "app.services.project_write_guard",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 
-    def is_gpu_related(module: str) -> bool:
+    def is_guarded(module: str) -> bool:
         return module.startswith("app.services.gpu_arbitration") or (
-            module in gpu_related
+            module in guarded_modules
         )
 
     offenders = [
         component
         for component in _strongly_connected_components(graph)
-        if len(component) > 1 and any(is_gpu_related(node) for node in component)
+        if len(component) > 1 and any(is_guarded(node) for node in component)
     ]
     details = []
     for component in offenders:

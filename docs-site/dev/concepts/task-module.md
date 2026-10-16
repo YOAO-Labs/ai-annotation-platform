@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-16
 ---
 
 # 任务模块
@@ -120,7 +119,7 @@ review
 
 非特权用户在 `GET /tasks` 和 `GET /tasks/{id}` 上受 batch 可见性限制。
 
-规则在 `scheduler.batch_visibility_clause()` 与 `tasks._assert_task_visible()`：
+规则在 `scheduler.batch_visibility_clause()` 与 `task_access.assert_task_visible()`：
 
 - reviewer：可见 `active / annotating / reviewing` 批次中的任务
 - annotator：可见
@@ -238,7 +237,7 @@ scene 模式把一段时序录像切成多个 task，每个 task 通过其关联
 - 复制 geometry / class / attributes，并共享 `track_id`（跨帧同一对象的通用标识；源无则 `_new_track_id()` 分配，见 [标注模块 · 跨帧链](./annotation-module)）<!-- since v0.21.2 · ADR-0045 -->
 - `box_3d` 的 `convention_at_create` 取**目标** dataset 的 `axis_convention`（3D 场景，详 service `propagate`）
 - `override_psr`（可空）为扩展位：给定时按 key 覆盖 box_3d 的 center/size/rotation，前端本期总传 `None` = 完全复制源几何
-- 权限：源 task 需对当前用户可见；目标 task 需可见且可写（未进 `review` / `completed` 锁态，走 `_assert_task_editable`）
+- 权限：源 task 需对当前用户可见；目标 task 需通过 `task_access.assert_task_visible()` 与 `task_access.assert_task_editable()`。标注员不能直接编辑 `review` / `completed`；审核态调整还必须满足项目审核能力和冻结非本人证据。
 - 返回 `201` + `PropagateResponse{ annotation }`（新建的目标 annotation）
 
 > 与 `POST /tasks/{task_id}/video/tracks/{annotation_id}:propagate` 区分：后者是**视频轨迹传播**（提交一个异步 tracker job，沿帧序自动追踪同一目标），`propagate-to-task` 则是**单条标注一次性复制到指定相邻 task**，同步返回结果，二者用途不同，不要混淆。

@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _assert_task_visible
+from app.services import task_access
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.notification import Notification
@@ -89,7 +89,7 @@ async def _accessible_active_user_ids(
             continue
         try:
             await assert_project_visible(task.project_id, db, candidate)
-            await _assert_task_visible(db, task, candidate)
+            await task_access.assert_task_visible(db, task, candidate)
         except HTTPException:
             # A transferred/hidden task is not a notification destination.  Keep
             # the same 404-hiding behavior as the regular discussion read routes.

@@ -17,7 +17,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _assert_task_visible
+from app.services import task_access
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_event import TaskEvent
@@ -181,7 +181,7 @@ async def assert_task_event_access(
         raise _reject("work_type_not_allowed", status_code=403)
 
     try:
-        await _assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user, access=access)
     except HTTPException as exc:
         can_close_submitted = (
             kind == "annotate"

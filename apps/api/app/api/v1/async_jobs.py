@@ -170,9 +170,11 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
         return False
     if not task_ids:
         return False
-    from app.api.v1.tasks._shared import _visible_task_ids
+    from app.services import task_access
 
-    return await _visible_task_ids(db, project, user, task_ids) == set(task_ids)
+    return await task_access.visible_task_ids(db, project, user, task_ids) == set(
+        task_ids
+    )
 
 
 async def _to_async_job_out(

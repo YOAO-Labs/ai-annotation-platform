@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import _assert_task_visible, _visible_task_ids
+from app.services import task_access
 from app.db.models.annotation import Annotation
 from app.db.models.point_cloud_quality import (
     PointCloudQualityEvaluation,
@@ -120,7 +120,7 @@ async def _assert_request_visible(
     if {row.id for row in tasks} != task_ids:
         raise HTTPException(status_code=404, detail="Task not found")
     for task in tasks:
-        await _assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user, access=access)
 
 
 async def _assert_issue_visible(
@@ -139,7 +139,7 @@ async def _assert_issue_visible(
     task = await db.get(Task, issue.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _assert_task_visible(db, task, user, access=access)
+    await task_access.assert_task_visible(db, task, user, access=access)
     return project, access
 
 
@@ -228,7 +228,7 @@ async def get_run(
         raise HTTPException(status_code=404, detail="Point cloud quality run not found")
     if not access.is_manager:
         task_ids = [uuid.UUID(value) for value in run.scope_json.get("task_ids", [])]
-        if await _visible_task_ids(
+        if await task_access.visible_task_ids(
             db, project, current_user, task_ids, access=access
         ) != set(task_ids):
             raise HTTPException(status_code=403, detail="Quality run not visible")
@@ -268,7 +268,7 @@ async def get_issues(
                 await db.execute(select(Task.id).where(Task.project_id == project.id))
             ).scalars()
         )
-        allowed_task_ids = await _visible_task_ids(
+        allowed_task_ids = await task_access.visible_task_ids(
             db, project, current_user, all_task_ids, access=access
         )
     rows, total = await list_issues(

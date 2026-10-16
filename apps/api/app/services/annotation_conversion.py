@@ -1092,18 +1092,16 @@ class AnnotationConversionService:
             raise AnnotationConversionError(
                 status_code=404, reason="task_not_found", message="Task not found"
             )
-        from app.api.v1.tasks._shared import (
-            _assert_review_adjustment_evidence,
-            _resolve_task_access,
-            assert_annotation_write_allowed,
-        )
+        from app.services import task_access
 
         if access is None:
-            access = await _resolve_task_access(
+            access = await task_access.resolve_task_access(
                 self.db, task, actor, lock_membership=True
             )
-        assert_annotation_write_allowed(task, access)
-        await _assert_review_adjustment_evidence(self.db, task, actor, access)
+        task_access.assert_annotation_write_allowed(task, access)
+        await task_access.assert_review_adjustment_evidence(
+            self.db, task, actor, access
+        )
         is_review_adjuster = bool(
             access is not None
             and (access.is_manager or access.project_role == "reviewer")

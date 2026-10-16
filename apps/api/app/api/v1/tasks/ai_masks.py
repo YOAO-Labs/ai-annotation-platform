@@ -4,9 +4,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _assert_task_editable,
-    _assert_task_visible,
     _load_task_or_404,
     require_task_annotation_write,
 )
@@ -64,8 +63,8 @@ async def accept_native_ai_mask_candidate(
     """
 
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user, access=access)
-    _assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user, access=access)
+    task_access.assert_task_editable(task, current_user, access=access)
     await assert_video_annotation_write_scope(
         db,
         task=task,

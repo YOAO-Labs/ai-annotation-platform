@@ -8,12 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _assert_task_editable,
-    _assert_task_visible,
     _load_task_or_404,
-    _resolve_task_access,
-    _visible_task_ids,
     require_task_annotation_write,
 )
 from app.db.models.async_job import AsyncJob
@@ -120,7 +117,7 @@ async def _create_job(
     tasks_by_id = {
         row.id: row for row in task_rows if row.project_id == source_task.project_id
     }
-    visible_ids = await _visible_task_ids(
+    visible_ids = await task_access.visible_task_ids(
         db, project, current_user, list(tasks_by_id), access=access
     )
 
@@ -147,7 +144,7 @@ async def _create_job(
             )
             continue
         try:
-            _assert_task_editable(target, current_user, access=access)
+            task_access.assert_task_editable(target, current_user, access=access)
         except HTTPException:
             targets.append(
                 {
@@ -245,8 +242,8 @@ async def create_cross_frame_job(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     source_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, source_task, current_user, access=access)
-    _assert_task_editable(source_task, current_user, access=access)
+    await task_access.assert_task_visible(db, source_task, current_user, access=access)
+    task_access.assert_task_editable(source_task, current_user, access=access)
     job, created = await _create_job(
         db,
         source_task=source_task,
@@ -270,7 +267,7 @@ async def list_cross_frame_jobs(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     scene_frame = (await resolve_task_scene_frames(db, [task.id]))[task.id]
     if scene_frame.scene_id is None:
         return CrossFrameJobListResponse(items=[], total=0)
@@ -309,7 +306,7 @@ async def retry_cross_frame_job(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, anchor_task, current_user, access=access)
+    await task_access.assert_task_visible(db, anchor_task, current_user, access=access)
     job = await db.get(AsyncJob, job_id)
     if job is None or job.kind != JOB_KIND:
         raise HTTPException(status_code=404, detail="cross-frame job not found")
@@ -349,9 +346,11 @@ async def retry_cross_frame_job(
             status_code=409, detail="job snapshot is not retryable"
         ) from exc
     source_task = await _load_task_or_404(db, source_task_id)
-    source_access = await _resolve_task_access(db, source_task, current_user)
-    await _assert_task_visible(db, source_task, current_user, access=source_access)
-    _assert_task_editable(source_task, current_user, access=source_access)
+    source_access = await task_access.resolve_task_access(db, source_task, current_user)
+    await task_access.assert_task_visible(
+        db, source_task, current_user, access=source_access
+    )
+    task_access.assert_task_editable(source_task, current_user, access=source_access)
     retry_job, created = await _create_job(
         db,
         source_task=source_task,

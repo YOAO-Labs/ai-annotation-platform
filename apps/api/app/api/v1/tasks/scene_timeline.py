@@ -4,10 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _assert_task_visible,
     _load_task_or_404,
-    _visible_task_ids,
 )
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
@@ -53,7 +52,7 @@ async def get_task_scene_timeline(
         )
 
     task = await _load_task_or_404(db, task_id)
-    await _assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user)
     window = await get_scene_timeline_window(
         db, task=task, start_frame=start_frame, end_frame=end_frame
     )
@@ -64,7 +63,7 @@ async def get_task_scene_timeline(
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     all_task_ids = {entry.task_id for entry in window.frame_tasks.values()}
-    visible_task_ids = await _visible_task_ids(
+    visible_task_ids = await task_access.visible_task_ids(
         db, project, current_user, list(all_task_ids)
     )
     annotation_summaries = await get_scene_timeline_annotation_summaries(

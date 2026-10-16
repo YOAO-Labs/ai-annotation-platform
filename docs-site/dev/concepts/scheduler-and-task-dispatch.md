@@ -181,12 +181,12 @@ last_reviewed: 2026-09-14
 
 ## 常见修改落点
 
-| 你想改什么             | 先看哪里                                                        |
-| ---------------------- | --------------------------------------------------------------- |
-| 派题顺序               | `services/scheduler.py` + `db/models/project.py`                |
-| 角色可见性             | `scheduler.py` + `api/v1/tasks/_shared.py:_assert_task_visible` |
-| 锁题优先返回           | `scheduler.py` + `services/task_lock.py`                        |
-| `/tasks/next` 结果结构 | `api/v1/tasks/list.py` + `schemas/task.py`                      |
+| 你想改什么             | 先看哪里                                                       |
+| ---------------------- | -------------------------------------------------------------- |
+| 派题顺序               | `services/scheduler.py` + `db/models/project.py`               |
+| 角色可见性             | `scheduler.py` + `services/task_access.py:assert_task_visible` |
+| 锁题优先返回           | `scheduler.py` + `services/task_lock.py`                       |
+| `/tasks/next` 结果结构 | `api/v1/tasks/list.py` + `schemas/task.py`                     |
 
 ## 相关文档
 

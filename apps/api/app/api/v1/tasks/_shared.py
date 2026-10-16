@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import ProjectRole, UserRole
+from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.models.task import Task
 from app.db.models.annotation import Annotation
@@ -19,18 +19,13 @@ from app.schemas.task import (
 )
 from app.schemas.image_pyramid import ImagePyramidSummary
 from app.deps import get_current_user, get_db
+from app.services import task_access
 from app.services.project_access import (
     ProjectAccess,
     ProjectCapability,
     resolve_project_access,
 )
-from app.services.scheduler import (
-    effective_task_assignee_id,
-    visible_batch_statuses_for_project_role,
-    annotator_can_rework_task,
-)
 from app.services.storage import storage_service
-from app.db.models.task_batch import TaskBatch
 from app.db.models.project_member import ProjectMember
 from app.services.annotation_evidence import freeze_review_contributor_evidence
 
@@ -44,7 +39,6 @@ _ANNOTATORS = (
     UserRole.ANNOTATOR,
 )
 _REVIEWERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN, UserRole.REVIEWER)
-_LOCKED_STATUSES = {"review", "completed"}
 
 
 def _start_review_round(task: Task) -> uuid.UUID:
@@ -159,61 +153,6 @@ def _record_first_review_fact(
     return True
 
 
-def _assert_access_binding(
-    access: ProjectAccess, *, user: User, project_id: uuid.UUID
-) -> None:
-    """Fail closed when the resolved access does not match user and resource."""
-
-    if access.user_id != user.id or access.project_id != project_id:
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "access_context_mismatch"},
-        )
-
-
-def _assert_task_editable(
-    task: Task,
-    user: User | None = None,
-    *,
-    access: ProjectAccess | None = None,
-) -> None:
-    """v0.6.5: 已提交质检 / 已通过审核的任务对所有 annotation 写动作锁死。
-    标注员要继续编辑必须先 withdraw（review 态）或 reopen（completed 态）。
-    M2: 审核员可在 status=review 时直接微调标注（审计记 TASK_REVIEWER_EDIT）。
-
-    ``access`` is the verified project access (B2 routes pass it).  Only
-    ``access.is_manager`` is management: a foreign-project administrator
-    membership must not bypass task assignment or review checks.  A non-manager
-    without a matching access fails closed; the global role is never a fallback.
-    """
-    if user is not None and access is not None:
-        _assert_access_binding(access, user=user, project_id=task.project_id)
-
-    is_manager = bool(access is not None and access.is_manager)
-    if user is not None and not is_manager:
-        if access is None:
-            raise HTTPException(status_code=403, detail="缺少项目权限上下文")
-        if (
-            access.project_role == ProjectRole.ANNOTATOR.value
-            and task.assignee_id is not None
-            and task.assignee_id != user.id
-        ):
-            raise HTTPException(
-                status_code=403, detail="Task belongs to another annotator"
-            )
-    if task.status not in _LOCKED_STATUSES:
-        return
-    if task.status == "review" and user is not None:
-        if is_manager or (
-            access is not None and access.project_role == ProjectRole.REVIEWER.value
-        ):
-            return
-    raise HTTPException(
-        status_code=409,
-        detail={"reason": "task_locked", "status": task.status},
-    )
-
-
 async def _load_task_or_404(db: AsyncSession, task_id: uuid.UUID) -> Task:
     task = await db.get(Task, task_id)
     if not task:
@@ -293,137 +232,6 @@ async def _assert_current_project_member(db: AsyncSession, project, user: User) 
     await resolve_project_access(db, user=user, project=project, lock_membership=True)
 
 
-async def _effective_task_assignee_id(db: AsyncSession, task: Task) -> uuid.UUID | None:
-    batch = await db.get(TaskBatch, task.batch_id) if task.batch_id else None
-    return effective_task_assignee_id(task, batch)
-
-
-def _assert_effective_task_assignee(
-    user: User,
-    effective_assignee_id: uuid.UUID | None,
-    *,
-    action: str,
-    project_id: uuid.UUID,
-    allow_open_pool: bool = False,
-    access: ProjectAccess | None = None,
-) -> None:
-    """Only the effective annotator may act.
-
-    ``project_id`` is the actual resource project and is required: the binding
-    is checked explicitly instead of comparing the access with itself.
-    ``access`` is the verified project access (B2 routes pass it).  Only
-    ``access.is_manager`` is management; a foreign-project administrator
-    membership cannot act as the effective assignee.  A non-manager without a
-    matching access fails closed.
-    """
-
-    if access is not None:
-        _assert_access_binding(access, user=user, project_id=project_id)
-        if access.is_manager:
-            return
-        if access.project_role == ProjectRole.ANNOTATOR.value and (
-            effective_assignee_id == user.id
-            or (allow_open_pool and effective_assignee_id is None)
-        ):
-            return
-    raise HTTPException(status_code=403, detail=f"only effective assignee can {action}")
-
-
-def _task_write_allowed(
-    task: Task,
-    access: ProjectAccess,
-    *,
-    allow_review_adjustment: bool,
-) -> bool:
-    """Whether ``access`` may write annotation-phase content on ``task``.
-
-    A manager keeps the existing management path.  An annotator needs
-    ``annotation.write``.  A reviewer is admitted only for a *review
-    adjustment* (``task.status == "review"``) and only with ``review.write``;
-    every other combination fails closed.  No global account role is consulted.
-    """
-
-    if access.is_manager:
-        return True
-    if access.project_role == ProjectRole.ANNOTATOR.value and access.has(
-        ProjectCapability.ANNOTATION_WRITE.value
-    ):
-        return True
-    if (
-        allow_review_adjustment
-        and access.project_role == ProjectRole.REVIEWER.value
-        and task.status == "review"
-        and access.has(ProjectCapability.REVIEW_WRITE.value)
-    ):
-        return True
-    return False
-
-
-async def _resolve_task_access(
-    db: AsyncSession,
-    task: Task,
-    user: User,
-    *,
-    lock_membership: bool = False,
-) -> ProjectAccess:
-    """Resolve the current project access for the task's actual project."""
-
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return await resolve_project_access(
-        db, user=user, project=project, lock_membership=lock_membership
-    )
-
-
-def assert_annotation_write_allowed(
-    task: Task,
-    access: ProjectAccess,
-    *,
-    allow_review_adjustment: bool = True,
-) -> None:
-    """Fail closed unless ``access`` may write annotation-phase content.
-
-    Reuses the same predicate as the FastAPI write dependency so a mutation
-    owner reached outside a task-id dependency (for example a bulk endpoint that
-    derives its single task from the payload) enforces the annotation-phase
-    capability instead of only task-state editability.
-    """
-
-    if not _task_write_allowed(
-        task, access, allow_review_adjustment=allow_review_adjustment
-    ):
-        raise HTTPException(status_code=403, detail="缺少项目权限: annotation.write")
-
-
-async def _assert_review_adjustment_evidence(
-    db: AsyncSession,
-    task: Task,
-    user: User,
-    access: ProjectAccess,
-) -> None:
-    """Enforce frozen non-self evidence before a review-phase annotation edit.
-
-    An annotator is blocked from a task in ``review`` by ``_assert_task_editable``
-    (``task_locked``); a manager or project reviewer reaching this state is a
-    *review adjustment* and must not be a contributor, the round submitter or the
-    effective annotator.  Unknown legacy evidence fails closed (409).
-    """
-
-    if task.status != "review":
-        return
-    if not (access.is_manager or access.project_role == ProjectRole.REVIEWER.value):
-        return
-    from app.services.annotation_evidence import assert_review_evidence_current
-
-    effective_annotator_id = await _effective_task_assignee_id(db, task)
-    assert_review_evidence_current(
-        task, user.id, effective_annotator_id=effective_annotator_id
-    )
-
-
 async def require_task_annotation_write(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -433,15 +241,14 @@ async def require_task_annotation_write(
 
     The membership is acquired ``FOR SHARE`` so a concurrent member role change
     (``FOR UPDATE``) cannot commit while this authorized mutation is in flight.
-    Reviewers are admitted only for a review adjustment; annotators, managers
-    and unknown roles are handled by :func:`_task_write_allowed`.
+    Reviewers are admitted only for a review adjustment; the service-layer
+    annotation-write guard handles all other capability combinations.
     """
 
     task = await _load_task_or_404(db, task_id)
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
-    if not _task_write_allowed(task, access, allow_review_adjustment=True):
-        raise HTTPException(status_code=403, detail="缺少项目权限: annotation.write")
-    await _assert_review_adjustment_evidence(db, task, user, access)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    task_access.assert_annotation_write_allowed(task, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user, access)
     return access
 
 
@@ -453,10 +260,11 @@ async def require_task_annotation_write_strict(
     """Annotation write authority without the reviewer review-adjustment path."""
 
     task = await _load_task_or_404(db, task_id)
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
-    if not _task_write_allowed(task, access, allow_review_adjustment=False):
-        raise HTTPException(status_code=403, detail="缺少项目权限: annotation.write")
-    await _assert_review_adjustment_evidence(db, task, user, access)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    task_access.assert_annotation_write_allowed(
+        task, access, allow_review_adjustment=False
+    )
+    await task_access.assert_review_adjustment_evidence(db, task, user, access)
     return access
 
 
@@ -474,9 +282,8 @@ async def require_task_annotation_write_lifecycle(
     """
 
     task = await _load_task_or_404(db, task_id)
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
-    if not _task_write_allowed(task, access, allow_review_adjustment=True):
-        raise HTTPException(status_code=403, detail="缺少项目权限: annotation.write")
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    task_access.assert_annotation_write_allowed(task, access)
     return access
 
 
@@ -488,164 +295,12 @@ async def require_task_review_write(
     """FastAPI dependency: review write authority for ``task_id``."""
 
     task = await _load_task_or_404(db, task_id)
-    access = await _resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
     if not (
         access.is_manager or ProjectCapability.REVIEW_WRITE.value in access.capabilities
     ):
         raise HTTPException(status_code=403, detail="缺少项目权限: review.write")
     return access
-
-
-async def _assert_task_visible(
-    db: AsyncSession,
-    task: Task,
-    user: User,
-    *,
-    access: ProjectAccess | None = None,
-) -> None:
-    """B-16 + v0.7.0：服务端强制 batch 可见性，按角色分支。
-    super_admin / 项目 owner 越权放行；reviewer 见 active/annotating/reviewing；
-    annotator 见 active/annotating（assigned）+ rejected（assigned 特例）。
-    无 batch 的任务仅对显式分派的标注员可见；批次任务优先使用 task
-    级 assignee_id，NULL 时回退到 batch.annotator_id。
-    """
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if access is None:
-        access = await resolve_project_access(db, user=user, project=project)
-    _assert_access_binding(access, user=user, project_id=task.project_id)
-    if access.is_manager:
-        return
-    project_role = access.project_role
-    if task.file_type == "video" and bool(
-        (project.video_collaboration or {}).get("enabled")
-    ):
-        return
-    if task.batch_id is None:
-        if (
-            project_role == ProjectRole.ANNOTATOR.value and task.assignee_id == user.id
-        ) or (
-            project_role == ProjectRole.REVIEWER.value and task.reviewer_id == user.id
-        ):
-            return
-        raise HTTPException(status_code=404, detail="Task not found")
-    batch = await db.get(TaskBatch, task.batch_id)
-    if batch is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    visible_statuses = visible_batch_statuses_for_project_role(project_role)
-    if batch.status not in visible_statuses and not annotator_can_rework_task(
-        user, batch, task.status, task.assignee_id, project_role=project_role
-    ):
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    # reviewer 不受 annotator 约束（跨批次审核）
-    if project_role == ProjectRole.REVIEWER.value:
-        return
-
-    # Task-level assignment takes precedence over the legacy batch assignment.
-    is_task_assigned = task.assignee_id is not None and task.assignee_id == user.id
-    is_batch_assigned = task.assignee_id is None and batch.annotator_id == user.id
-    is_assigned = is_task_assigned or is_batch_assigned
-    # rejected 状态特例：仅对被分派的标注员放行
-    if batch.status == "rejected" and not is_assigned:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if task.assignee_id is not None and not is_task_assigned:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if batch.annotator_id is not None and not is_assigned:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-
-async def _visible_task_ids(
-    db: AsyncSession,
-    project,
-    user: User,
-    task_ids: list[uuid.UUID],
-    *,
-    access: ProjectAccess | None = None,
-) -> set[uuid.UUID]:
-    """v0.15.26 · `_assert_task_visible` 的批量非抛错版,返回 task_ids 中可见的子集。
-
-    邻帧标注批量端点用它逐邻帧 task 复核 batch 可见性 / 分派状态:该端点替代的
-    旧链路(前端对每个邻帧各发一条 getAnnotations)会逐 task 触发 _assert_task_visible,
-    所以批量化后必须补回同口径过滤,否则 annotator 凭中心 task 可见即可拿到「分派给
-    别人 / 状态不可见」的邻帧框几何(权限漂移)。口径与 _assert_task_visible 完全一致:
-    特权放行;否则按 batch 状态白名单 + annotator 单值分派校验。
-    """
-    if not task_ids:
-        return set()
-    try:
-        if access is None:
-            access = await resolve_project_access(db, user=user, project=project)
-    except HTTPException:
-        return set()
-    _assert_access_binding(access, user=user, project_id=project.id)
-    if access.is_manager:
-        result = await db.execute(
-            select(Task.id).where(
-                Task.project_id == project.id,
-                Task.id.in_(task_ids),
-            )
-        )
-        return set(result.scalars().all())
-    project_role = access.project_role
-
-    rows = (
-        await db.execute(
-            select(
-                Task.id,
-                Task.batch_id,
-                Task.status,
-                Task.assignee_id,
-                Task.reviewer_id,
-            ).where(Task.project_id == project.id, Task.id.in_(task_ids))
-        )
-    ).all()
-    batch_ids = {bid for _, bid, _, _, _ in rows if bid is not None}
-    batches: dict[uuid.UUID, TaskBatch] = {}
-    if batch_ids:
-        result = await db.execute(select(TaskBatch).where(TaskBatch.id.in_(batch_ids)))
-        batches = {b.id: b for b in result.scalars()}
-
-    visible_statuses = visible_batch_statuses_for_project_role(project_role)
-    is_reviewer = project_role == ProjectRole.REVIEWER.value
-    visible: set[uuid.UUID] = set()
-    for tid, bid, task_status, task_assignee_id, task_reviewer_id in rows:
-        if bid is None:
-            if (
-                project_role == ProjectRole.ANNOTATOR.value
-                and task_assignee_id == user.id
-            ) or (
-                project_role == ProjectRole.REVIEWER.value
-                and task_reviewer_id == user.id
-            ):
-                visible.add(tid)
-            continue
-        batch = batches.get(bid)
-        if batch is None or (
-            batch.status not in visible_statuses
-            and not annotator_can_rework_task(
-                user, batch, task_status, task_assignee_id, project_role=project_role
-            )
-        ):
-            continue
-        if is_reviewer:
-            visible.add(tid)
-            continue
-        is_task_assigned = task_assignee_id is not None and task_assignee_id == user.id
-        is_batch_assigned = task_assignee_id is None and batch.annotator_id == user.id
-        is_assigned = is_task_assigned or is_batch_assigned
-        if batch.status == "rejected" and not is_assigned:
-            continue
-        if task_assignee_id is not None and not is_task_assigned:
-            continue
-        if batch.annotator_id is not None and not is_assigned:
-            continue
-        visible.add(tid)
-    return visible
 
 
 # sequence_order 为 NULL 的非序列任务(图像标注等)用该哨兵参与排序,稳定排在
@@ -869,7 +524,9 @@ async def perform_task_submit(
         # Preserve the effective assignee (task-level, else the batch annotator)
         # instead of overwriting it with an owner/admin actor; fall back to the
         # actor only for genuinely unassigned open-pool tasks.
-        assignee_id = await _effective_task_assignee_id(db, task) or actor.id
+        assignee_id = (
+            await task_access.resolve_effective_task_assignee_id(db, task) or actor.id
+        )
         task.assignee_id = assignee_id
         task.assigned_at = await _submission_assignment_start(
             db, task.id, assignee_id, now

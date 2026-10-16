@@ -21,7 +21,6 @@ from app.api.v1.tasks import (
 )
 from app.api.v1.tasks import list as task_list
 from app.api.v1.tasks._shared import (
-    _assert_task_visible,
     _attach_dimensions_batch,
     _attach_image_pyramids_batch,
     _task_with_url,
@@ -51,7 +50,6 @@ router.include_router(locks.router, prefix="/tasks")
 
 __all__ = [
     "router",
-    "_assert_task_visible",
     "_attach_dimensions_batch",
     "_attach_image_pyramids_batch",
     "_task_with_url",
