@@ -2546,7 +2546,8 @@ async def trigger_preannotation(
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
-    from app.workers.tasks import _build_predict_context, _retryable_request_context
+    from app.workers.tasks import _build_predict_context
+    from app.services.prediction_retry import retryable_request_context
     from app.services import trained_models
 
     uses_controlled_model = trained_models.is_controlled(body.model_id) or any(
@@ -2611,7 +2612,7 @@ async def trigger_preannotation(
         box_threshold=float(project.box_threshold),
         text_threshold=float(project.text_threshold),
     )
-    if retry_context is not None and _retryable_request_context(retry_context) is None:
+    if retry_context is not None and retryable_request_context(retry_context) is None:
         raise HTTPException(status_code=422, detail="预标注模型上下文不能超过 8 KiB")
 
     # v0.19.2 WS2 · 源阶段 (单模型预标 / 流水线源) batchable 闸门: 交互/有状态模型不可批量。
@@ -2848,7 +2849,7 @@ async def trigger_preannotation(
             class_filter=body.class_filter,
             frozen_model_ref=ref,
         )
-        if checked is not None and _retryable_request_context(checked) is None:
+        if checked is not None and retryable_request_context(checked) is None:
             raise HTTPException(
                 status_code=422, detail="模型类别与来源上下文超过 8 KiB 限制"
             )

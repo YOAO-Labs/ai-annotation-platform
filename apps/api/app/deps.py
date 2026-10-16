@@ -15,6 +15,7 @@ from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.job_execution_control import JobExecutionControl
+from app.services.prediction_retry import PredictionRetryDispatcher
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -67,6 +68,13 @@ def get_job_execution_control() -> JobExecutionControl:
     from app.workers.job_execution_control import CeleryJobExecutionControl
 
     return CeleryJobExecutionControl()
+
+
+def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:
+    """Bind retry execution without importing worker tasks into use cases."""
+    from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
+
+    return CeleryPredictionRetryDispatcher()
 
 
 async def get_current_user(

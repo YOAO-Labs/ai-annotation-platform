@@ -479,6 +479,61 @@ class TestAsyncJobsAPI:
         assert repeated.status_code == 409
         assert queued == [(str(retryable.id), str(user.id))]
 
+    @pytest.mark.parametrize("fail_at", [0, 1])
+    async def test_retry_publish_failure_releases_only_unpublished_claims(
+        self, db_session, project_admin, monkeypatch, fail_at
+    ):
+        from app.application.prediction_retry import retry_job_items
+        from app.workers.prediction_retry_dispatch import (
+            CeleryPredictionRetryDispatcher,
+        )
+        from app.workers import predictions_retry
+
+        user, _ = project_admin
+        project = await create_project(db_session, owner_id=user.id)
+        context = {"type": "text", "text": "car"}
+        failures = [
+            FailedPrediction(
+                project_id=project.id,
+                error_type="TimeoutError",
+                message="timeout",
+                extra={"request_context": context},
+            )
+            for _ in range(3)
+        ]
+        db_session.add_all(failures)
+        await db_session.flush()
+        job = await async_job_svc.create_job(
+            db_session,
+            kind="batch_predict",
+            user_id=user.id,
+            project_id=project.id,
+        )
+        await async_job_svc.mark_complete(
+            db_session,
+            job.id,
+            result={"failed_prediction_ids": [str(row.id) for row in failures]},
+        )
+        await db_session.flush()
+
+        def publish(failed_id, user_id):
+            if failed_id == str(failures[fail_at].id):
+                raise RuntimeError("publication interrupted")
+
+        monkeypatch.setattr(predictions_retry.retry_failed_prediction, "delay", publish)
+        with pytest.raises(RuntimeError, match="publication interrupted"):
+            await retry_job_items(
+                db_session,
+                job.id,
+                user,
+                dispatcher=CeleryPredictionRetryDispatcher(),
+            )
+
+        for index, row in enumerate(failures):
+            await db_session.refresh(row)
+            assert bool(row.extra.get("retry_pending")) is (index < fail_at)
+            assert row.extra["request_context"] == context
+
     async def test_retry_failed_batch_predict_items_requires_recorded_ids(
         self, httpx_client, db_session, project_admin
     ):

@@ -196,6 +196,41 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     mock_apply.assert_called_once()
 
 
+async def test_retry_dispatch_failure_releases_claim_without_spending_attempt(
+    db_session, super_admin, monkeypatch
+):
+    from app.application.prediction_retry import retry_prediction
+    from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
+    from app.workers import predictions_retry
+
+    user, _ = super_admin
+    project = await _seed_project(db_session, user.id)
+    task = await _seed_task(db_session, project.id)
+    backend = await _seed_backend(db_session, project.id)
+    fp = await _seed_failed(
+        db_session, project_id=project.id, task_id=task.id, backend_id=backend.id
+    )
+    context = {"type": "text", "text": "car"}
+    fp.extra = {"request_context": context}
+    await db_session.commit()
+
+    def publish(**kwargs):
+        raise RuntimeError("publication interrupted")
+
+    monkeypatch.setattr(
+        predictions_retry.retry_failed_prediction, "apply_async", publish
+    )
+    with pytest.raises(RuntimeError, match="publication interrupted"):
+        await retry_prediction(
+            db_session, fp.id, user, dispatcher=CeleryPredictionRetryDispatcher()
+        )
+
+    await db_session.refresh(fp)
+    assert not fp.extra.get("retry_pending")
+    assert fp.extra["request_context"] == context
+    assert fp.retry_count == 0
+
+
 async def test_retry_blocked_when_max_exceeded(httpx_client, super_admin, db_session):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)

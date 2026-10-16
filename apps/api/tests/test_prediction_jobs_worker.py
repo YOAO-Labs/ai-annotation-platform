@@ -28,11 +28,14 @@ from app.db.models.project import Project
 
 
 def test_retryable_request_context_has_hard_size_limit():
-    from app.workers.tasks import _retryable_request_context
+    from app.services.prediction_retry import retryable_request_context
 
     small = {"type": "text", "text": "car"}
-    assert _retryable_request_context(small) == small
-    assert _retryable_request_context({"text": "x" * (8 * 1024)}) is None
+    assert retryable_request_context(small) == small
+    assert retryable_request_context({"text": "x" * (8 * 1024)}) is None
+    utf8_limit = {"text": "中" * 2727}
+    assert retryable_request_context(utf8_limit) == utf8_limit
+    assert retryable_request_context({"text": utf8_limit["text"] + "x"}) is None
 
 
 async def _seed_project_and_backend(

@@ -47,9 +47,9 @@ last_reviewed: 2026-06-10
 
 ### 重试单条
 
-在失败列表中点击「重试」，后端投递 `prediction_retry` Celery 任务（HTTP 202），前端通过 WebSocket 接收进度事件 `failed_prediction.retry.{started,succeeded,failed}`。
+在失败列表中点击「重试」，后端投递 `prediction_retry` Celery 任务（HTTP 202）。启动通知类型为 `failed_prediction.retry.started`；终态记录在统一作业 `async_jobs`，并沿用 `job.completed` / `job.failed` 通知。
 
-**重试上限**：每条 `failed_prediction` 最多重试 **3 次**（`MAX_RETRY_COUNT=3`，`apps/api/app/api/v1/predictions.py:54`）。超限后调用返回 `HTTP 409`，需先放弃再处理。
+**重试上限**：每条 `failed_prediction` 最多重试 **3 次**，由 `apps/api/app/services/prediction_retry.py` 的 `MAX_RETRY_COUNT` 定义。超限后调用返回 `HTTP 409`；放弃和恢复不会重置已用次数。
 
 ### 批量重跑
 
@@ -61,7 +61,7 @@ last_reviewed: 2026-06-10
 <!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/superadmin/failed-predictions/dismiss-restore.png — 显示已放弃后含「已放弃」badge + 恢复按钮 [manual] -->
 
 - **放弃**：在列表点「放弃」→ `POST /admin/failed-predictions/{id}/dismiss`，软删除（写 `dismissed_at` 时间戳）。放弃后该行从默认列表消失；前端「显示已放弃」开关可重新显示。
-- **恢复**：在已放弃行点「恢复」→ `POST /admin/failed-predictions/{id}/restore`，清空 `dismissed_at`，该行重回默认列表，可再次重试。
+- **恢复**：在已放弃行点「恢复」→ `POST /admin/failed-predictions/{id}/restore`，清空 `dismissed_at`，该行重回默认列表；未达到次数上限且未在排队时可再次重试。
 - 重复 dismiss 幂等（不更新 `dismissed_at`）；重复 restore 也幂等。
 - 审计事件：`failed_prediction.dismissed` / `failed_prediction.restored`。
 

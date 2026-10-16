@@ -9,10 +9,10 @@ import uuid
 import redis
 
 from app.config import settings
+from app.services import prediction_retry
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
-_MAX_FAILED_PREDICTION_CONTEXT_BYTES = 8 * 1024
 
 
 async def _preannotation_actor_revoked(db, actor, project_uuid) -> bool:
@@ -50,13 +50,6 @@ async def _hold_preannotation_authority(db, actor, project_uuid) -> bool:
     except HTTPException:
         return False
     return not await _preannotation_actor_revoked(db, actor, project_uuid)
-
-
-def _retryable_request_context(context: dict | None) -> dict | None:
-    if context is None:
-        return None
-    payload = json.dumps(context, ensure_ascii=False, separators=(",", ":")).encode()
-    return context if len(payload) <= _MAX_FAILED_PREDICTION_CONTEXT_BYTES else None
 
 
 def _stage_totals_snapshot(totals: dict[int, dict]) -> list[dict]:
@@ -1188,11 +1181,13 @@ async def _run_batch(
 
             crop_uploader = _make_crop_uploader(StorageService(), str(async_job_id))
 
-        retry_request_context = _retryable_request_context(stage_contexts[0])
+        retry_request_context = prediction_retry.retryable_request_context(
+            stage_contexts[0]
+        )
         if stage_contexts[0] is not None and retry_request_context is None:
             logger.warning(
                 "batch_predict retry context exceeds %d bytes; omitting from failures job=%s",
-                _MAX_FAILED_PREDICTION_CONTEXT_BYTES,
+                prediction_retry.MAX_REQUEST_CONTEXT_BYTES,
                 async_job_id,
             )
 

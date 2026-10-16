@@ -173,6 +173,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="prediction", legacy_facades=()),
     DomainSpec(package="cross_frame_job", legacy_facades=()),
     DomainSpec(package="sample_evaluations", legacy_facades=()),
+    DomainSpec(package="prediction_retry", legacy_facades=(), allowed_app_imports=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -636,6 +637,7 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.job_execution_control",
         "app.services.prediction",
         "app.services.cross_frame_job",
+        "app.services.prediction_retry",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

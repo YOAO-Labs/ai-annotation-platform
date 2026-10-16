@@ -19,7 +19,7 @@ last_reviewed: 2026-10-16
 | 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                                                   |
 | 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                                                           |
 | API 路由        | `apps/api/app/api/v1/**`                                                                    | 应用工作流或服务层；不做业务规则推导                                                             |
-| 应用工作流      | `apps/api/app/application/**`                                                               | 显式装配领域服务并在调用方事务内协调；不持有领域状态机                                           |
+| 应用工作流      | `apps/api/app/application/**`                                                               | 显式装配领域服务、协调用例事务与派发顺序；不持有领域状态机                                       |
 | 服务层          | `apps/api/app/services/**`                                                                  | 项目授权在 `project_access`，任务访问/写入准入在 `task_access`，聚合 SQL 在 `project_aggregates` |
 | Worker          | `apps/api/app/workers/**`                                                                   | 复用工作流与服务；终态信号仅适配事件、连接及调用方提交                                           |
 | ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                                                         |
@@ -48,6 +48,8 @@ last_reviewed: 2026-10-16
   保留账号→项目共享锁和当前管理能力复核，训练/模型/评估不再依赖训练数据集路由辅助函数。
 - 作业结果可见性：`app/services/async_job_access.py::can_access_job`；
   明细与取消重查当前项目、导出能力及审核任务范围，不把历史作业归属当作当前授权。
+- 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
+  单项重试、放弃和恢复共享当前项目管理准入，不从 API 路由导入规则。
 - 贡献与审核事实：`app/services/annotation_evidence.py` 持有轮次、贡献者快照、
   当前轮冻结证据与首次审核事实；提交审计缺失时只按既有规则回退保留行。
   API 和片段服务直接消费，不再经路由私有快照函数。
@@ -91,6 +93,9 @@ last_reviewed: 2026-10-16
    - 执行取消：`app/services/job_execution_control.py::JobExecutionControl` →
      `app/deps.py::get_job_execution_control` 装配 `app/workers/job_execution_control.py`；
      只请求非强制撤销，不把请求回执当作已停止证明。
+   - 失败预测重试：`app/services/prediction_retry.py::PredictionRetryDispatcher` →
+     `app/deps.py::get_prediction_retry_dispatcher` 装配 `app/workers/prediction_retry_dispatch.py`；
+     单项接收预选执行队列，批量失败项保留原默认路由，不用任务注册名充当接口。
 6. 异步处理：`app/workers/signals.py` 将 `task_failure` / `task_revoked` 交给
    `app/application/job_terminal.py`，由工作流组合通用状态、领域回填及通知，
    信号适配器仍控制连接和提交。六类领域回填由各自服务的 `reconcile_job_terminal` 持有，
@@ -99,6 +104,8 @@ last_reviewed: 2026-10-16
    HTTP 取消经 `app/application/job_cancellation.py` 组合准入和领域 `request_job_cancel`，
    保留 pending 立即取消、running 协作取消、评估取消意图与数据版本当前尝试隔离；
    事务仍由路由提交，列表/明细/取消的外部协议未变。
+   失败项重试经 `app/application/prediction_retry.py`，先提交占用再派发；
+   发布异常仅释放派发调用尚未返回成功的项，保留已返回成功项的排队标记。该多阶段事务不与取消用例混为一谈。
 7. 通知：审核入口保存持久通知并 `commit()` 后调用
    `NotificationService.publish_committed()`；通用作业终态仍按
    `app/services/async_job_notify.py::notify_job_terminal` 的既有合同在调用方提交前写入和发布。

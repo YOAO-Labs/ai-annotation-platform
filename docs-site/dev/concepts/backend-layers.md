@@ -37,6 +37,10 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 `application/job_cancellation.py` 持有取消用例的准入、kind/状态分支与组合，不直接写修复、格式导入、数据版本或评估模型。各领域的 `request_job_cancel` 保留行锁及 pending/running 差异；批量预测和跨帧的取消结果由各自所有者构建，HTTP 入口只调用用例并提交。执行停止请求经纯类型 `JobExecutionControl` 注入，由 `deps.get_job_execution_control()` 装配 Celery 适配器，仍使用非强制撤销；请求取消不等于确认执行已停止，撤销发布失败后的原落库策略不变。
 
+`application/prediction_retry.py` 持有失败预测的单项及按作业重试用例。保留原管理准入、单项队列选择在占用提交前完成、批量先提交全部可占用项再按原默认路由投递的差异；异常仅释放派发调用尚未返回成功的项，已返回成功项继续占用。该工作流持有提交和补偿边界，不能套用取消/终态的调用方单事务。
+
+失败预测管理权限和占用写入由 `services/prediction.py` 持有，放弃/恢复消费同一准入；重试上限和 UTF-8 JSON 的 8 KiB 上下文预算归 `services/prediction_retry.py`。该纯模块的 `PredictionRetryDispatcher` 定义具体重试操作，由 `deps.get_prediction_retry_dispatcher()` 装配 `workers/prediction_retry_dispatch.py`；只传 UUID 和单项预选的执行队列，不暴露 Celery 任务对象或注册名。它仍是本地同步派发接口，没有增加远程协议、自动重试或数据库与 broker 的原子提交；回执丢失等不确定发布仍沿用原语义，补偿不证明任务未入队。
+
 ## 服务（services）
 
 - 业务逻辑核心：状态机、规则、跨表事务
@@ -119,4 +123,4 @@ services/
 | 模型    | 不单独测，由路由 / 服务测试覆盖              |
 | Workers | `tests/test_<task>.py`，用 eager mode        |
 
-领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环，支持 package 内单文件所有者。声明的服务禁止反向导入 API、worker 或应用工作流；通用 `async_job` 的应用内依赖限定为自身模型，终态事实模块不依赖其他应用模块。环检查保护已收敛的数据集、任务准入、执行端口、视频、训练及通用作业边界。原视频三模块和训练六模块环已消除；其他服务仍需逐域核查，不把局部门禁视为全服务无环。已删除实现路径另由 `tests/test_compat_facades.py` 等既有守卫防止回流，不保留兼容 facade。
+领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环，支持 package 内单文件所有者。声明的服务禁止反向导入 API、worker 或应用工作流；通用 `async_job` 的应用内依赖限定为自身模型，终态事实与重试策略/端口模块不依赖其他应用模块。环检查保护已收敛的数据集、任务准入、执行端口、视频、训练及通用作业边界。原视频三模块和训练六模块环已消除；其他服务仍需逐域核查，不把局部门禁视为全服务无环。已删除实现路径另由 `tests/test_compat_facades.py` 等既有守卫防止回流，不保留兼容 facade。

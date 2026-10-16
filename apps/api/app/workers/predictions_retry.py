@@ -7,7 +7,7 @@
 4. 成功 → 写 predictions + 删 failed_predictions + async_jobs `job.completed`
 5. 失败 → retry_count += 1 + last_retry_at + async_jobs `job.failed`
 
-软上限 max=3 由路由层判断（HTTP 409）；本 task 信任传入。
+软上限由重试用例判断（HTTP 409）；本 task 保留既有执行与计数语义。
 """
 
 from __future__ import annotations

@@ -6,13 +6,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.enums import UserRole
+from app.db.models.project import Project
+from app.db.models.user import User
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.task import Task
 from app.schemas._jsonb_types import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 from app.services.annotation_propagation import _new_track_id
+from app.services.project_access import resolve_project_access
 from app.services.raster_mask_storage import prepare_mask_payload_for_write
 
 logger = logging.getLogger("app.services.prediction")
@@ -21,6 +26,23 @@ logger = logging.getLogger("app.services.prediction")
 # point_mask_3d 而漂移)。'ai_interactive' 已退役: result item 若显式带该值, 不在白名单内,
 # derive_tool_unit_from_result 会绕过它、改按几何类型派生并记 warning。
 TOOL_UNIT_IDS = frozenset(_SCHEMA_TOOL_UNIT_IDS)
+
+
+async def assert_can_manage_failed_prediction(
+    db: AsyncSession, fp: FailedPrediction, user: User
+) -> None:
+    """Authorize retry, dismissal and restoration against current project management."""
+    if user.role == UserRole.SUPER_ADMIN.value:
+        return
+    project = await db.get(Project, fp.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    access = await resolve_project_access(db, user=user, project=project)
+    if access.is_manager:
+        return
+    raise HTTPException(
+        status_code=403, detail="仅项目负责人或超级管理员可管理失败预测"
+    )
 
 
 async def claim_failed_prediction_retry(

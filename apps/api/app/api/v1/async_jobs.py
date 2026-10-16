@@ -18,10 +18,16 @@ from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, get_job_execution_control
-from app.application import job_cancellation
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_job_execution_control,
+    get_prediction_retry_dispatcher,
+)
+from app.application import job_cancellation, prediction_retry
 from app.services import async_job_access
 from app.services.job_execution_control import JobExecutionControl
+from app.services.prediction_retry import PredictionRetryDispatcher
 from app.services.project_aggregates import project_scope_clause
 from app.schemas.async_job import (
     AsyncJobListResponse,
@@ -31,7 +37,6 @@ from app.schemas.async_job import (
 
 router = APIRouter()
 
-RETRY_FAILED_KINDS = {"batch_predict"}
 
 AsyncJobStatusParam = Literal["pending", "running", "completed", "failed", "cancelled"]
 
@@ -216,92 +221,8 @@ async def retry_failed_async_job_items(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    dispatcher: PredictionRetryDispatcher = Depends(get_prediction_retry_dispatcher),
 ) -> AsyncJobRetryFailedResponse:
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="async_job not found")
-    # Retrying re-enters project work, so require current management capability
-    # (owner / super-admin) rather than a platform role or job ownership alone.
-    if job.project_id is not None:
-        project = await db.get(Project, job.project_id)
-        if project is None:
-            raise HTTPException(status_code=404, detail="async_job not found")
-        from app.services.project_access import resolve_project_access
-
-        try:
-            access = await resolve_project_access(
-                db, user=current_user, project=project
-            )
-        except HTTPException:
-            raise HTTPException(status_code=403, detail="not your job")
-        if not access.is_manager:
-            raise HTTPException(status_code=403, detail="requires project admin")
-    elif (
-        current_user.role != PlatformRole.SUPER_ADMIN.value
-        and job.user_id != current_user.id
-    ):
-        raise HTTPException(status_code=403, detail="not your job")
-    if job.kind not in RETRY_FAILED_KINDS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"kind={job.kind} does not support failed item retry",
-        )
-
-    failed_ids = _payload_uuid_list(job.result or {}, "failed_prediction_ids")
-    if not failed_ids:
-        raise HTTPException(
-            status_code=409,
-            detail="no retryable failed prediction ids recorded for this job",
-        )
-
-    from app.api.v1.predictions import MAX_RETRY_COUNT
-    from app.services.prediction import (
-        claim_failed_prediction_retry,
-        release_failed_prediction_retry_claim,
+    return await prediction_retry.retry_job_items(
+        db, job_id, current_user, dispatcher=dispatcher
     )
-    from app.workers.predictions_retry import retry_failed_prediction as task_fn
-
-    claimed_ids: list[uuid.UUID] = []
-    for failed_id in failed_ids:
-        if await claim_failed_prediction_retry(db, failed_id, MAX_RETRY_COUNT):
-            claimed_ids.append(failed_id)
-
-    if not claimed_ids:
-        raise HTTPException(
-            status_code=409,
-            detail="no retryable failed predictions remain for this job",
-        )
-    await db.commit()
-
-    queued = 0
-    try:
-        for failed_id in claimed_ids:
-            task_fn.delay(str(failed_id), str(current_user.id))
-            queued += 1
-    except Exception:
-        for failed_id in claimed_ids[queued:]:
-            await release_failed_prediction_retry_claim(db, failed_id)
-        await db.commit()
-        raise
-
-    return AsyncJobRetryFailedResponse(
-        status="queued",
-        job_id=job_id,
-        queued=queued,
-        skipped=len(failed_ids) - queued,
-    )
-
-
-def _payload_uuid_list(payload: dict, key: str) -> list[uuid.UUID]:
-    value = payload.get(key)
-    if not isinstance(value, list):
-        return []
-    out: list[uuid.UUID] = []
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        try:
-            out.append(uuid.UUID(item))
-        except ValueError:
-            continue
-    return out

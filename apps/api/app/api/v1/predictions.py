@@ -1,16 +1,6 @@
-"""v0.8.6 F6 · 失败预测管理与重试。
+"""失败预测管理与重试入口。
 
-仅 super_admin / project_admin 可访问。
-
-端点：
-- ``GET /admin/failed-predictions?page&page_size&include_dismissed`` 列表（分页）
-- ``POST /admin/failed-predictions/{id}/retry`` 异步重试，返回 202 Accepted；
-  WebSocket 推 ``failed_prediction.retry.{started,succeeded,failed}`` 进度事件。
-- ``POST /admin/failed-predictions/{id}/dismiss`` v0.8.8 · 永久放弃（soft-delete）。
-- ``POST /admin/failed-predictions/{id}/restore`` v0.8.8 · 误操作恢复。
-
-软上限 max=3 由本路由层判断（HTTP 409）。dismiss 后即使 retry_count < max 也不再
-出现在默认列表（前端 toggle "显示已放弃" 才出）。
+角色入口由路由校验；项目管理权限、重试限额、占用提交和派发补偿由领域与工作流负责。
 """
 
 from __future__ import annotations
@@ -36,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import (
     get_current_user,
     get_db,
+    get_prediction_retry_dispatcher,
     require_project_owner,
     require_roles,
     require_scopes,
@@ -46,49 +37,21 @@ from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.project_access import resolve_project_access
 from app.schemas.aap_json import AAPImportErrorEntry, AAPImportResult
 from app.schemas.prediction import (
     PredictionPurgeCounts,
     PredictionPurgeRequest,
     PredictionPurgeResponse,
 )
-from app.config import settings
 from app.services.audit import AuditAction, AuditService
-from app.services.pipeline_validation import resolve_preannotate_queue
-from app.services.prediction import (
-    claim_failed_prediction_retry,
-    release_failed_prediction_retry_claim,
-)
+from app.application import prediction_retry
+from app.services.prediction import assert_can_manage_failed_prediction
+from app.services.prediction_retry import PredictionRetryDispatcher
 
 
 router = APIRouter()
 
-MAX_RETRY_COUNT = 3
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-
-
-async def _assert_can_manage_failed_prediction(
-    db: AsyncSession, fp: FailedPrediction, user: User
-) -> None:
-    """Failed-prediction retry/dismiss/restore management is project-bound.
-
-    A platform project administrator retains management only over projects they
-    own; a super administrator manages every project.  A membership in another
-    owner's project grants no management.
-    """
-
-    if user.role == UserRole.SUPER_ADMIN.value:
-        return
-    project = await db.get(Project, fp.project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    access = await resolve_project_access(db, user=user, project=project)
-    if access.is_manager:
-        return
-    raise HTTPException(
-        status_code=403, detail="仅项目负责人或超级管理员可管理失败预测"
-    )
 
 
 class FailedPredictionItem(BaseModel):
@@ -197,57 +160,11 @@ async def retry_failed_prediction(
     failed_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    dispatcher: PredictionRetryDispatcher = Depends(get_prediction_retry_dispatcher),
 ) -> Any:
-    fp = await db.get(FailedPrediction, failed_id)
-    if not fp:
-        raise HTTPException(status_code=404, detail="Failed prediction not found")
-    await _assert_can_manage_failed_prediction(db, fp, current_user)
-    if fp.dismissed_at is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="Failed prediction is dismissed; restore it before retry",
-        )
-    if (fp.retry_count or 0) >= MAX_RETRY_COUNT:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Max retries ({MAX_RETRY_COUNT}) exceeded",
-        )
-    fp = await claim_failed_prediction_retry(db, failed_id, MAX_RETRY_COUNT)
-    if fp is None:
-        raise HTTPException(status_code=409, detail="Retry already queued")
-
-    # 投递 Celery task，前端通过 ws 推送获得进度
-    from app.workers.predictions_retry import retry_failed_prediction as task_fn
-
-    # v0.19.5 · 设备感知路由对齐: 原始失败的 backend 自报 device=cpu 时, 重试也落 ml.cpu 队列,
-    # 而不是按 task_routes 静态路由到 ml(gpu) 占 GPU 并发槽。无自报 → 保守落 gpu(与现状等价)。
-    device: str | None = None
-    if fp.ml_backend_id is not None:
-        backend = await db.get(MLBackend, fp.ml_backend_id)
-        if backend and isinstance(backend.health_meta, dict):
-            rp = (backend.health_meta.get("capabilities") or {}).get(
-                "resource_profile"
-            ) or {}
-            device = rp.get("device")
-            context = (fp.extra or {}).get("request_context") or {}
-            from app.services.trained_models import controlled_device, is_controlled
-
-            if is_controlled(context.get("model_id")) or context.get(
-                "frozen_model_ref"
-            ):
-                device = controlled_device(backend)
-    queue = resolve_preannotate_queue(
-        [device],
-        gpu_queue=settings.preannotate_gpu_queue,
-        cpu_queue=settings.preannotate_cpu_queue,
+    await prediction_retry.retry_prediction(
+        db, failed_id, current_user, dispatcher=dispatcher
     )
-    await db.commit()
-    try:
-        task_fn.apply_async(args=[str(failed_id), str(current_user.id)], queue=queue)
-    except Exception:
-        await release_failed_prediction_retry_claim(db, failed_id)
-        await db.commit()
-        raise
     return RetryResponse(status="queued", failed_id=failed_id)
 
 
@@ -275,7 +192,7 @@ async def dismiss_failed_prediction(
     fp = await db.get(FailedPrediction, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
-    await _assert_can_manage_failed_prediction(db, fp, current_user)
+    await assert_can_manage_failed_prediction(db, fp, current_user)
     if fp.dismissed_at is None:
         fp.dismissed_at = datetime.now(timezone.utc)
         await AuditService.log(
@@ -313,7 +230,7 @@ async def restore_failed_prediction(
     fp = await db.get(FailedPrediction, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
-    await _assert_can_manage_failed_prediction(db, fp, current_user)
+    await assert_can_manage_failed_prediction(db, fp, current_user)
     if fp.dismissed_at is not None:
         fp.dismissed_at = None
         await AuditService.log(
