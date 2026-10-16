@@ -45,8 +45,8 @@ def _worst_loss(classes: list[str]) -> str:
 
 
 def _plan(payload: dict[str, Any]) -> MaskFormatPlan:
-    payload = {**payload, "plan_digest": ""}
-    payload["plan_digest"] = canonical_digest(
-        {key: value for key, value in payload.items() if key != "plan_digest"}
+    plan = MaskFormatPlan.model_validate({**payload, "plan_digest": ""})
+    plan.plan_digest = canonical_digest(
+        plan.model_dump(mode="json", exclude={"plan_digest"})
     )
-    return MaskFormatPlan.model_validate(payload)
+    return plan

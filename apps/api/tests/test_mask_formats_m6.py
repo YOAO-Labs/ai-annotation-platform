@@ -21,7 +21,7 @@ from app.schemas.mask_format import MaskFormatPlan
 from app.services.exporting.cache import compute_cache_key
 from app.services.mask_formats import registry
 from app.services.mask_formats.adapters import _ALLOWED_GEOMETRY
-from app.services.mask_formats.contracts import StagedObject
+from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.safe_archive import (
     ArchiveLimits,
     ArchiveSafetyError,
@@ -338,6 +338,9 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
     preflight = response.json()
     assert preflight["plan"]["loss_class"] == "lossless"
     assert preflight["plan"]["items"][0]["task_id"] == str(task.id)
+    assert preflight["plan"]["plan_digest"] == canonical_digest(
+        {key: value for key, value in preflight["plan"].items() if key != "plan_digest"}
+    )
 
     dispatches: list[uuid.UUID] = []
 
