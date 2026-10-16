@@ -182,10 +182,13 @@ export function deriveMedia({
   assets,
   outputs,
   clip,
+  posterAt,
 }) {
   if (!["standard", "marketing"].includes(quality)) throw new Error("Unknown source quality");
   if (!assets.length || (clip && assets.length !== 1))
     throw new Error("--clip requires exactly one selected asset");
+  if (posterAt !== undefined && (assets.length !== 1 || !Number.isFinite(posterAt) || posterAt < 0))
+    throw new Error("--poster-at requires one selected asset and finite nonnegative seconds");
   const archive = readArchive(runDirectory);
   const jobs = [];
   const targets = new Set();
@@ -266,13 +269,18 @@ export function deriveMedia({
       }
       const window = clipFor(source.media, clip ?? recipe.clip);
       const geometry = outputGeometry(source.media, recipe.width, recipe.height, recipe.fps);
-      const posterAt = recipe.posterAt ?? window.duration * 0.72;
-      if (!Number.isFinite(posterAt) || posterAt < 0) throw new Error("Invalid poster timestamp");
+      const imageOutput = ["webp", "png"].includes(recipe.kind);
+      if (imageOutput && posterAt !== undefined && posterAt >= window.duration)
+        throw new Error("--poster-at must fall inside the selected clip");
+      const selectedPosterAt =
+        (imageOutput ? posterAt : undefined) ?? recipe.posterAt ?? window.duration * 0.72;
+      if (!Number.isFinite(selectedPosterAt) || selectedPosterAt < 0)
+        throw new Error("Invalid poster timestamp");
       const colors = recipe.colors ?? 256;
       if (!Number.isInteger(colors) || colors < 4 || colors > 256)
         throw new Error("Invalid GIF palette size");
       const absolutePosterAt =
-        window.start + Math.min(posterAt, Math.max(0, window.duration - 0.1));
+        window.start + Math.min(selectedPosterAt, Math.max(0, window.duration - 0.1));
       const privacyFilter = privacyMaskFilter(
         recipe.privacyMasks,
         ["webp", "png"].includes(recipe.kind) ? absolutePosterAt : window.start,
@@ -416,6 +424,9 @@ export function deriveMedia({
           sha256: job.source.sha256,
           quality,
           clip: job.window,
+          ...(["webp", "png"].includes(job.recipe.kind)
+            ? { poster_time_seconds: job.posterAt }
+            : {}),
           ...(job.recipe.kind === "gif"
             ? {
                 gif_encoding: {

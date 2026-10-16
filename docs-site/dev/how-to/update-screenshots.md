@@ -635,3 +635,5 @@ DEV 远程页面应连当前 `:3000` 同源的 `/ws`，由 Vite 升级并转发�
 **Q: 视觉回归误报（字体渲染差异）**
 先确认 CI 与本机都使用 Playwright Chromium、固定时区/语言/DPR 和 protocol stub。
 确有平台级渲染差异时，再在 `regression.spec.ts` 里对单个场景调整阈值，避免放宽全部基线。
+
+正式录制中的推理耗时可能变化；逐项检查封面，不使用仍在等待的画面。可对单个资产传入 `pnpm docs:media:derive -- --run <run-id> --asset <asset-id> --format video --poster-at <seconds>` 选择已检查的画面。时间相对所选片段，必须位于片段内部，清单保存源视频中的实际取帧时间。

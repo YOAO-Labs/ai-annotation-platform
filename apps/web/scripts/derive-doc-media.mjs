@@ -195,6 +195,7 @@ const { values } = parseArgs({
     quality: { type: "string", default: "marketing" },
     format: { type: "string", default: "all" },
     clip: { type: "string" },
+    "poster-at": { type: "string" },
     "gif-target": { type: "string" },
     article: { type: "string" },
   },
@@ -221,7 +222,7 @@ const run =
 if (!run) throw new Error("No source archive; capture first or pass --run");
 const runDirectory = path.resolve(archiveRoot, run);
 if (values.article) {
-  if (values.format !== "all" || values["gif-target"]) {
+  if (values.format !== "all" || values["gif-target"] || values["poster-at"] !== undefined) {
     throw new Error(
       "Article presets generate paired GIF/cover outputs; omit --format and --gif-target",
     );
@@ -240,6 +241,11 @@ if (values.article) {
   process.stdout.write(output);
   process.exit(0);
 }
+if (
+  values["poster-at"] !== undefined &&
+  (values.asset?.length !== 1 || values.format === "gif" || !values["poster-at"].trim())
+)
+  throw new Error("--poster-at requires one --asset and video/poster outputs");
 const archive = readArchive(runDirectory);
 if (values["gif-target"] && (values.format !== "gif" || values.asset?.length !== 1)) {
   throw new Error("--gif-target requires --format gif and one --asset");
@@ -256,6 +262,7 @@ deriveMedia({
   quality: values.quality,
   assets,
   clip: parseClip(values.clip),
+  posterAt: values["poster-at"] === undefined ? undefined : Number(values["poster-at"]),
   outputs(assetId, item) {
     const outputs = [];
     const privacyMasks = NORMALIZED_PRIVACY_MASKS.get(assetId);

@@ -31,6 +31,7 @@ export interface FlowArtifactProvenance {
     sha256: string;
     quality?: "standard" | "marketing";
     clip?: { start: number; duration: number };
+    poster_time_seconds?: number;
   };
 }
 
