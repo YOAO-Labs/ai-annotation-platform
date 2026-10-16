@@ -89,6 +89,10 @@ from app.services.video_tracking.jobs import (
     save_video_mask_keyframe,
 )
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
+from app.services.annotation_evidence import (
+    capture_first_review_contributor_snapshot,
+    task_contributor_snapshot,
+)
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
 
@@ -97,8 +101,6 @@ from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
     _attach_dimensions,
-    _capture_first_review_contributor_snapshot,
-    _task_contributor_snapshot,
     require_task_annotation_write,
     require_task_review_write,
     VIDEO_MANIFEST_URL_EXPIRES_IN,
@@ -697,7 +699,7 @@ async def submit_video_segment(
             dispatches.append((run.id, job.id))
     if task.status == "review":
         if not was_in_review:
-            contributor_ids = await _task_contributor_snapshot(
+            contributor_ids = await task_contributor_snapshot(
                 # Segments belong to dataset items shared by projects.
                 # Only this task's authors and actual submitter establish
                 # project contribution; global segment assignees do not.
@@ -705,7 +707,7 @@ async def submit_video_segment(
                 task,
                 extra_user_ids=(current_user.id,),
             )
-            _capture_first_review_contributor_snapshot(task, contributor_ids)
+            capture_first_review_contributor_snapshot(task, contributor_ids)
             await AuditService.log(
                 db,
                 actor=current_user,

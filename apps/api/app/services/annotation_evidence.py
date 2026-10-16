@@ -1,9 +1,8 @@
-"""Increment A2 · durable annotation-phase contributor evidence.
+"""Task contributor evidence, review-round snapshots and first-review facts.
 
-The project-scoped employee roles plan needs a trustworthy record of *who*
-contributed annotation-phase work to a task before any project-role model can
-use that record for self-review.  This module owns the only writer of the
-additive task fields introduced by the A1 schema revision:
+Task workflows need durable records of who contributed annotation-phase work,
+who is frozen into the current review round, and who receives first-review
+attribution. The authorization evidence uses these task fields:
 
 * ``Task.annotation_contributor_ids`` — accumulated annotation-phase actors.
   ``None`` means completeness is **unknown** (legacy rows created before the
@@ -14,8 +13,8 @@ additive task fields introduced by the A1 schema revision:
   ``review_round_id`` at submit/skip/batch-send/video completion.
 * ``Task.review_submitter_id`` — the actor who actually submitted that round.
 
-Recording is strictly additive in this increment: it never grants or denies
-authorization, and it never changes first-review performance facts.
+Workflow snapshots and first-review facts retain audit/fallback attribution.
+Authorization uses current-round evidence, not historical performance facts.
 
 Unknown is sticky.  A later edit on a legacy task whose accumulator is ``NULL``
 must not narrow it to a known set containing only the new actor, because the
@@ -47,17 +46,132 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.annotation import Annotation
+from app.db.models.audit_log import AuditLog
 from app.db.models.task import Task
 
 # Retryable PostgreSQL lock/transaction conflicts: lock_not_available (NOWAIT),
 # deadlock_detected, serialization_failure.
 _BUSY_SQLSTATES = {"55P03", "40P01", "40001"}
+
+
+def start_review_round(task: Task) -> uuid.UUID:
+    """Create the stable identifier shared by one submit and its review."""
+    task.review_round_id = uuid.uuid4()
+    return task.review_round_id
+
+
+def ensure_review_round(task: Task) -> uuid.UUID:
+    """Return a round id, assigning one for legacy tasks when needed."""
+    if task.review_round_id is None:
+        task.review_round_id = uuid.uuid4()
+    return task.review_round_id
+
+
+async def task_contributor_snapshot(
+    db: AsyncSession,
+    task: Task,
+    extra_user_ids: Iterable[uuid.UUID | None] = (),
+) -> list[str]:
+    """Return stable annotator contributors for workflow audit evidence.
+
+    The task assignee is retained even when no annotation remains.  Active
+    annotation authors cover collaborative video/scene tasks and imported
+    histories where the task's mutable assignee is no longer sufficient.
+    """
+    ids = {value for value in extra_user_ids if value is not None}
+    if task.assignee_id is not None:
+        ids.add(task.assignee_id)
+    rows = await db.execute(
+        select(Annotation.user_id)
+        .where(
+            Annotation.task_id == task.id,
+            Annotation.user_id.is_not(None),
+            Annotation.is_active.is_(True),
+            Annotation.was_cancelled.is_(False),
+        )
+        .distinct()
+    )
+    ids.update(value for (value,) in rows if value is not None)
+    return sorted(str(value) for value in ids)
+
+
+def capture_first_review_contributor_snapshot(
+    task: Task,
+    contributor_ids: Iterable[str],
+) -> None:
+    """Persist the first-round contributors before audit retention can run."""
+
+    if task.first_review_eligible is not True or task.first_reviewed_at is not None:
+        return
+    task.first_review_contributor_ids = sorted(
+        {str(value) for value in contributor_ids if value}
+    )
+
+
+async def review_round_contributor_snapshot(db: AsyncSession, task: Task) -> list[str]:
+    """Load the contributor snapshot captured by this task's submit audit or row.
+
+    Approval happens in a later request, after annotations or assignment may
+    have changed.  Re-reading those mutable rows would credit the wrong
+    people, so a round without a matching submit snapshot stays unknown.
+    """
+    if task.review_round_id is None:
+        return []
+    row = (
+        await db.execute(
+            select(AuditLog.detail_json)
+            .where(
+                AuditLog.action.in_(("task.submit", "task.skip")),
+                AuditLog.target_id == str(task.id),
+                AuditLog.status_code == 200,
+                AuditLog.detail_json["project_id"].astext == str(task.project_id),
+                AuditLog.detail_json["review_round_id"].astext
+                == str(task.review_round_id),
+            )
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    values = row.get("contributor_ids") if isinstance(row, dict) else None
+    if not isinstance(values, list):
+        # The submit audit is intentionally retained as an audit trail, but it
+        # may already have been archived when a long-running review reaches a
+        # decision. New tasks carry the same snapshot on the task row so the
+        # first-review fact remains attributable after that retention boundary.
+        values = (
+            task.first_review_contributor_ids
+            if task.first_reviewed_at is None
+            else None
+        )
+    if not isinstance(values, list):
+        return []
+    return sorted({str(value) for value in values if value})
+
+
+def record_first_review_fact(
+    task: Task,
+    *,
+    reviewed_at: datetime,
+    result: str,
+    contributor_ids: Iterable[str],
+) -> bool:
+    """Write the first completed review fact once for eligible new tasks."""
+    if task.first_review_eligible is not True or task.first_reviewed_at is not None:
+        return False
+    task.first_reviewed_at = reviewed_at
+    task.first_review_result = result
+    task.first_review_contributor_ids = sorted(
+        {str(value) for value in contributor_ids if value}
+    )
+    return True
 
 
 def canonical_actor_id(value: object) -> str | None:
@@ -333,7 +447,7 @@ def assert_review_evidence_current(
     cannot review work they contributed to.  Unknown or incomplete evidence is
     a 409; a frozen contributor, the round submitter or the effective annotator
     is a 403.  Historical performance attribution must keep using
-    ``_review_round_contributor_snapshot``; this guard only authorizes.
+    ``review_round_contributor_snapshot``; this guard only authorizes.
     """
 
     evidence = current_review_evidence(task)

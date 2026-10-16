@@ -50,7 +50,7 @@ from app.services.raster_mask_storage import (
 )
 from app.services.mask_qc.topology import rle_and, rle_replace_region, rle_xor
 from app.services.storage import resolve_task_url
-from app.services.video_frame_service import derive_step
+from app.services.video_context import derive_step
 from app.services.video_collaboration import segment_work_bounds_for_task
 from app.services.video_tracking.adapters import (
     TrackerContext,

@@ -43,6 +43,9 @@ last_reviewed: 2026-10-16
   - API 依赖、WebSocket 与写入所有者直接调用，不通过路由私有函数重新导出。
 - 异步最终写入组合：`app/services/project_write_guard.py::assert_phase_write_allowed`；
   复用上述服务与当前项目授权，保留调用方的锁顺序与事务归属。
+- 贡献与审核事实：`app/services/annotation_evidence.py` 持有轮次、贡献者快照、
+  当前轮冻结证据与首次审核事实；提交审计缺失时只按既有规则回退保留行。
+  API 和片段服务直接消费，不再经路由私有快照函数。
 - 聚合 SQL 的同一契约：`app/services/project_aggregates.py`
   - `valid_membership_conditions()`：成员行只在账号活跃、平台/项目角色均为现行值、
     且观察者只持观察者职责时生效。
@@ -57,6 +60,8 @@ last_reviewed: 2026-10-16
 2. 后端鉴权：`app/deps.py::get_current_user`（停用账号 401）→
    路由内 `resolve_project_access()` 建立不可变 `ProjectAccess`。
 3. 取任务：`app/services/scheduler.py` 派题；任务锁语义在 `app/services/task_lock.py`。
+   视频共享上下文和采样在 `app/services/video_context.py`；帧服务负责构建，
+   片段、协作、导出、追踪与质检单向依赖该下层所有者。
 4. 编辑与提交：Workbench 装配在
    `apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx` +
    `state/useWorkbenchShellModel.tsx`；任务切换准入在 `state/taskNavigation.ts`

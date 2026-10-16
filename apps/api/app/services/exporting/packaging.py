@@ -103,7 +103,7 @@ from app.services.raster_mask_storage import load_coco_rle
 from app.services.point_cloud_quality import parse_pcd_positions
 from app.config import settings
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
-from app.services.video_frame_service import derive_sampled_frames, derive_step
+from app.services.video_context import derive_sampled_frames, derive_step
 from app.services.video_tracks import derive_track_number
 
 VIDEO_EXPORT_FORMATS = {

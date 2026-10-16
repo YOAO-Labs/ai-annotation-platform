@@ -15,7 +15,7 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.schemas.project import VideoCollaborationConfig
-from app.services.video_frame_service import derive_step
+from app.services.video_context import derive_step
 
 
 VIDEO_GEOMETRY_TYPES = frozenset(

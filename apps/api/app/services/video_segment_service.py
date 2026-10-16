@@ -12,10 +12,16 @@ from app.config import settings
 from app.db.models.dataset import VideoSegment
 from app.db.models.user import User
 from app.schemas.video_frame_service import VideoSegmentOut, VideoSegmentsResponse
-from app.services.video_frame_service import VideoContext
+from app.services.video_context import VideoContext
 from app.services.video_collaboration import (
     collaboration_config,
     segment_work_bounds,
+)
+from app.services.annotation_evidence import (
+    clear_review_contributor_evidence,
+    freeze_review_contributor_evidence,
+    refresh_task_evidence,
+    task_contributor_snapshot,
 )
 
 
@@ -374,12 +380,7 @@ async def submit_segment(
             ctx.task.reviewer_claimed_at = None
             ctx.task.reviewed_at = None
             # A2 · freeze the round evidence when the video task enters review.
-            from app.api.v1.tasks._shared import _task_contributor_snapshot
-            from app.services.annotation_evidence import (
-                freeze_review_contributor_evidence,
-            )
-
-            contributor_ids = await _task_contributor_snapshot(db, ctx.task)
+            contributor_ids = await task_contributor_snapshot(db, ctx.task)
             freeze_review_contributor_evidence(
                 ctx.task, submitter_id=user.id, contributor_ids=contributor_ids
             )
@@ -393,8 +394,6 @@ async def reopen_segment(
     segment_id: uuid.UUID,
 ) -> VideoSegmentOut:
     if ctx.task is not None:
-        from app.services.annotation_evidence import refresh_task_evidence
-
         await refresh_task_evidence(db, ctx.task)
     row = await _load_segment_for_update(db, ctx, segment_id)
     row.status = "assigned" if row.assignee_id else "open"
@@ -405,10 +404,6 @@ async def reopen_segment(
         ctx.task.status = "in_progress"
         ctx.task.submitted_at = None
         ctx.task.reviewed_at = None
-        from app.services.annotation_evidence import (
-            clear_review_contributor_evidence,
-        )
-
         clear_review_contributor_evidence(ctx.task)
     await db.flush()
     return await _segment_out_for_context(db, ctx, row)

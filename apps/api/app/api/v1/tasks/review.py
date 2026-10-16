@@ -20,16 +20,16 @@ from app.schemas.task import (
 from app.services.annotation_evidence import (
     assert_review_evidence_current,
     clear_review_contributor_evidence,
+    ensure_review_round,
+    record_first_review_fact,
+    review_round_contributor_snapshot,
+    task_contributor_snapshot,
 )
 from app.services.audit import AuditAction, AuditService
 
 
 from app.services import task_access
 from app.api.v1.tasks._shared import (
-    _ensure_review_round,
-    _record_first_review_fact,
-    _review_round_contributor_snapshot,
-    _task_contributor_snapshot,
     require_task_review_write,
 )
 from app.services.project_access import ProjectAccess
@@ -85,7 +85,7 @@ async def _assert_review_evidence_allowed(
     Called for every review claim/decision so a manager cannot review work they
     contributed to, a revoked round cannot be completed, and legacy tasks whose
     contributor evidence is unknown stay blocked (409).  Historical performance
-    attribution keeps using ``_review_round_contributor_snapshot``.
+    attribution keeps using ``review_round_contributor_snapshot``.
     """
 
     effective_annotator_id = await task_access.resolve_effective_task_assignee_id(
@@ -167,9 +167,9 @@ async def claim_review(
             status_code=200,
             detail={
                 "project_id": str(task.project_id),
-                "review_round_id": str(_ensure_review_round(task)),
+                "review_round_id": str(ensure_review_round(task)),
                 "assignee_id": str(task.assignee_id) if task.assignee_id else None,
-                "contributor_ids": await _task_contributor_snapshot(db, task),
+                "contributor_ids": await task_contributor_snapshot(db, task),
             },
         )
         await db.commit()
@@ -278,9 +278,9 @@ async def approve_task(
     if task.reviewer_claimed_at is None:
         task.reviewer_claimed_at = now
 
-    review_round_id = _ensure_review_round(task)
-    contributor_ids = await _review_round_contributor_snapshot(db, task)
-    _record_first_review_fact(
+    review_round_id = ensure_review_round(task)
+    contributor_ids = await review_round_contributor_snapshot(db, task)
+    record_first_review_fact(
         task,
         reviewed_at=now,
         result="approved",
@@ -378,9 +378,9 @@ async def reject_task(
         task.reviewer_id = current_user.id
     if task.reviewer_claimed_at is None:
         task.reviewer_claimed_at = now
-    review_round_id = _ensure_review_round(task)
-    contributor_ids = await _review_round_contributor_snapshot(db, task)
-    _record_first_review_fact(
+    review_round_id = ensure_review_round(task)
+    contributor_ids = await review_round_contributor_snapshot(db, task)
+    record_first_review_fact(
         task,
         reviewed_at=now,
         result="rejected",

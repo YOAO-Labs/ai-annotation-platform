@@ -31,7 +31,8 @@ from app.services.video_collaboration import (
     collaboration_config,
     segment_work_bounds_for_task,
 )
-from app.services.video_frame_service import build_context_from_task, derive_step
+from app.services.video_context import derive_step
+from app.services.video_frame_service import build_context_from_task
 from app.services.video_tracks import resolve_track_at_frame
 from app.vendor.trackeval_metrics import evaluate_sequence
 

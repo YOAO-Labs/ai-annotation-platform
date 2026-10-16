@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 
 from app.services.mask_formats.image_codecs import compress_coco_rle
-from app.services.video_frame_service import derive_sampled_frames
+from app.services.video_context import derive_sampled_frames
 from app.services.video_tracks import resolve_track_at_frame
 
 logger = logging.getLogger("app.services.exporting.video")

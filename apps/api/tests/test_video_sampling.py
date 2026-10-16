@@ -15,10 +15,7 @@ from app.schemas.project import (
     VideoSamplingConfig,
 )
 from app.services.video_collaboration import geometry_frame_bounds, segment_work_bounds
-from app.services.video_frame_service import (
-    derive_sampled_frames,
-    derive_step,
-)
+from app.services.video_context import derive_sampled_frames, derive_step
 
 
 # ── VideoSamplingConfig 校验 ─────────────────────────────────────────

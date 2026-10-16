@@ -5,7 +5,6 @@ import logging
 import uuid
 from collections import OrderedDict
 from contextlib import suppress
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -38,23 +37,13 @@ from app.schemas.video_frame_service import (
 from app.services.media_job_dispatch import MediaJobDispatcher, VideoFrameRequest
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
+from app.services import video_context
 
 
 FrameFormat = Literal["webp", "jpeg"]
 _FRAME_ARRAY_CACHE: OrderedDict[tuple[uuid.UUID, int, int, str], Any] = OrderedDict()
 PENDING_FRAME_REQUEUE_AFTER = timedelta(seconds=30)
 log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class VideoContext:
-    item: DatasetItem
-    metadata: VideoMetadata
-    task: Task | None = None
-
-    @property
-    def task_id(self) -> uuid.UUID | None:
-        return self.task.id if self.task else None
 
 
 def _now() -> datetime:
@@ -131,18 +120,20 @@ def _asset_url(key: str) -> str:
         ) from exc
 
 
-async def build_context_from_task(db: AsyncSession, task: Task) -> VideoContext:
+async def build_context_from_task(
+    db: AsyncSession, task: Task
+) -> video_context.VideoContext:
     if task.file_type != "video" or not task.dataset_item_id:
         raise HTTPException(status_code=400, detail="Task is not a video task")
     item = _ensure_video_item(await db.get(DatasetItem, task.dataset_item_id))
-    return VideoContext(item=item, metadata=_video_meta(item), task=task)
+    return video_context.VideoContext(item=item, metadata=_video_meta(item), task=task)
 
 
 async def build_context_from_dataset_item(
     db: AsyncSession, dataset_item_id: uuid.UUID, task: Task | None = None
-) -> VideoContext:
+) -> video_context.VideoContext:
     item = _ensure_video_item(await db.get(DatasetItem, dataset_item_id))
-    return VideoContext(item=item, metadata=_video_meta(item), task=task)
+    return video_context.VideoContext(item=item, metadata=_video_meta(item), task=task)
 
 
 async def pts_ms_for_frame(
@@ -165,7 +156,7 @@ async def pts_ms_for_frame(
 
 
 async def _ensure_chunk_rows(
-    db: AsyncSession, ctx: VideoContext, chunk_ids: list[int]
+    db: AsyncSession, ctx: video_context.VideoContext, chunk_ids: list[int]
 ) -> tuple[list[VideoChunk], set[int]]:
     """Return rows and IDs inserted here, excluding concurrent insert winners."""
     existing = {
@@ -245,7 +236,7 @@ def _chunk_out(row: VideoChunk) -> VideoChunkOut:
 
 async def _warmup_neighbor_chunks(
     db: AsyncSession,
-    ctx: VideoContext,
+    ctx: video_context.VideoContext,
     requested_chunk_ids: list[int],
     *,
     dispatcher: MediaJobDispatcher,
@@ -285,7 +276,7 @@ async def _warmup_neighbor_chunks(
 
 async def list_chunks(
     db: AsyncSession,
-    ctx: VideoContext,
+    ctx: video_context.VideoContext,
     from_frame: int | None,
     to_frame: int | None,
     *,
@@ -318,7 +309,7 @@ async def list_chunks(
 
 async def get_chunk(
     db: AsyncSession,
-    ctx: VideoContext,
+    ctx: video_context.VideoContext,
     chunk_id: int,
     *,
     dispatcher: MediaJobDispatcher,
@@ -346,7 +337,7 @@ async def get_chunk(
 
 async def _ensure_frame_row(
     db: AsyncSession,
-    ctx: VideoContext,
+    ctx: video_context.VideoContext,
     frame_index: int,
     width: int,
     format_: FrameFormat,
@@ -411,7 +402,7 @@ def _frame_out(row: VideoFrameCache) -> VideoFrameOut:
 
 async def get_frame(
     db: AsyncSession,
-    ctx: VideoContext,
+    ctx: video_context.VideoContext,
     frame_index: int,
     width: int,
     format_: FrameFormat,
@@ -433,7 +424,7 @@ async def get_frame(
 
 async def prefetch_frames(
     db: AsyncSession,
-    ctx: VideoContext,
+    ctx: video_context.VideoContext,
     frame_indices: list[int],
     width: int,
     format_: FrameFormat,
@@ -462,7 +453,7 @@ async def prefetch_frames(
 
 async def retry_frames(
     db: AsyncSession,
-    ctx: VideoContext,
+    ctx: video_context.VideoContext,
     frame_indices: list[int],
     width: int,
     format_: FrameFormat,
@@ -539,7 +530,7 @@ async def retry_frames(
 
 
 async def manifest_v2(
-    db: AsyncSession, ctx: VideoContext, base_url: str
+    db: AsyncSession, ctx: video_context.VideoContext, base_url: str
 ) -> VideoManifestV2Response:
     _metadata_ready(ctx.metadata)
     from app.services.video_segment_service import ensure_segments, segment_out
@@ -640,43 +631,6 @@ def image_bytes_to_array(data: bytes) -> Any:
 
     with Image.open(io.BytesIO(data)) as img:
         return np.asarray(img.convert("RGB"))
-
-
-# ── v0.10.29 · 视频帧逻辑采样网格 helper (纯函数, 供导出 / 前端共用) ──────
-#
-# 采样只是项目级导航/打点网格的视图层 (决策 D1/D2): frame_index 永远是源视频
-# 帧号, 这里只从配置派生「步长 step」与「采样帧列表」。算法见计划 §1。
-
-
-def derive_step(source_fps: float | None, sampling: dict) -> int:
-    """从采样配置派生网格步长 step (源帧空间), 最小为 1。
-
-    - mode="step" → frame_step
-    - mode="fps"  → max(1, round(source_fps / target_fps))
-    - mode="none" / 缺省 / 配置不全 → 1 (退化为不采样, 所有帧都是网格点)
-    """
-    if not sampling:
-        return 1
-    mode = sampling.get("mode", "none")
-    if mode == "step":
-        frame_step = sampling.get("frame_step")
-        if frame_step is None:
-            return 1
-        return max(1, int(frame_step))
-    if mode == "fps":
-        target_fps = sampling.get("target_fps")
-        if not source_fps or not target_fps:
-            return 1
-        return max(1, round(source_fps / target_fps))
-    return 1
-
-
-def derive_sampled_frames(frame_count: int, step: int) -> list[int]:
-    """绝对网格 (锚定 0) 上的采样帧列表: [0, step, 2*step, ...] 且 < frame_count。"""
-    if frame_count <= 0:
-        return []
-    step = max(1, int(step))
-    return list(range(0, frame_count, step))
 
 
 # ── v0.10.29 · 长视频 sparse timetable helper (计划 §1.2, 纯函数) ─────────

@@ -4,6 +4,8 @@ from copy import deepcopy
 
 from aap_task_contract import TASK_VALUES
 
+from app.services.video_context import derive_sampled_frames, derive_step
+
 EXPORT_CONTRACT_REVISION = 1
 TOOL_TASKS = {
     "bbox": "detect",
@@ -114,11 +116,7 @@ def export_contracts(project, targets):
 
 def video_source_contract(project, task, item, metadata, scope=None):
     """Freeze the absolute source grid shared by JSON and archive exports."""
-    from app.services.video_frame_service import (
-        derive_sampled_frames,
-        derive_step,
-        source_key_for_item,
-    )
+    from app.services.video_frame_service import source_key_for_item
 
     source = source_contract(project)
     step = derive_step(metadata.get("fps"), source["video_sampling"])

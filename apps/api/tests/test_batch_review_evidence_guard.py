@@ -153,13 +153,23 @@ async def test_bulk_approve_preserves_per_batch_summary(
     assert bad_batch.status == "reviewing"
 
 
-async def test_batch_decision_busy_returns_conflict(test_engine, app_module):
+async def test_batch_decision_busy_returns_conflict(
+    test_engine, app_module, monkeypatch
+):
     """An independently committed row lock makes the decision return 409.
 
     The dataset is created and truly committed in its own session so two
     independent connections (the writer and the HTTP request) observe it.
     """
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    from app.deps import get_db
+
+    async def request_db():
+        async with maker() as session:
+            yield session
+
+    monkeypatch.setitem(app_module.dependency_overrides, get_db, request_db)
+
     async with maker() as setup:
         owner = await create_user(
             setup, "super_admin", f"busy-owner-{uuid.uuid4()}@test.local", "Owner"

@@ -13,10 +13,10 @@ from app.services.project_performance import (
     ResolvedScope,
     resolve_scope,
 )
-from app.api.v1.tasks._shared import (
-    _capture_first_review_contributor_snapshot,
-    _record_first_review_fact,
-    _review_round_contributor_snapshot,
+from app.services.annotation_evidence import (
+    capture_first_review_contributor_snapshot,
+    record_first_review_fact,
+    review_round_contributor_snapshot,
 )
 
 
@@ -95,13 +95,13 @@ def test_first_review_fact_is_write_once_and_legacy_rows_stay_unknown():
         first_review_contributor_ids=None,
     )
 
-    assert _record_first_review_fact(
+    assert record_first_review_fact(
         task,
         reviewed_at=first_at,
         result="rejected",
         contributor_ids=["u1"],
     )
-    assert not _record_first_review_fact(
+    assert not record_first_review_fact(
         task,
         reviewed_at=first_at.replace(day=14),
         result="approved",
@@ -116,7 +116,7 @@ def test_first_review_fact_is_write_once_and_legacy_rows_stay_unknown():
         first_review_result=None,
         first_review_contributor_ids=None,
     )
-    assert not _record_first_review_fact(
+    assert not record_first_review_fact(
         legacy,
         reviewed_at=first_at,
         result="approved",
@@ -137,18 +137,18 @@ async def test_first_review_contributors_survive_missing_online_submit_audit():
     )
     contributors = [str(uuid4()), str(uuid4())]
 
-    _capture_first_review_contributor_snapshot(task, contributors)
+    capture_first_review_contributor_snapshot(task, contributors)
 
     class MissingAudit:
         async def execute(self, _statement):
             return SimpleNamespace(scalar_one_or_none=lambda: None)
 
-    assert await _review_round_contributor_snapshot(MissingAudit(), task) == sorted(
+    assert await review_round_contributor_snapshot(MissingAudit(), task) == sorted(
         contributors
     )
     task.first_reviewed_at = datetime.now(timezone.utc)
     task.review_round_id = uuid4()
-    assert await _review_round_contributor_snapshot(MissingAudit(), task) == []
+    assert await review_round_contributor_snapshot(MissingAudit(), task) == []
 
 
 def test_qualified_time_clips_crossing_sessions_and_unions_overlaps():

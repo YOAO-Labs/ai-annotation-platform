@@ -46,7 +46,7 @@ from app.services.raster_mask_storage import (
     lock_raster_mask_references,
     validate_mask_geometry_for_task,
 )
-from app.services.video_frame_service import VideoContext
+from app.services.video_context import VideoContext
 from app.services.video_segment_service import ensure_segments
 from app.services.video_tracking.adapters import registered_tracker_models
 from app.services.video_tracking import runner as _runner

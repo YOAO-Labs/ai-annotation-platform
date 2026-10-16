@@ -13,8 +13,12 @@ from app.deps import (
 )
 from app.db.models.user import User
 from app.services.annotation_evidence import (
+    capture_first_review_contributor_snapshot,
     clear_review_contributor_evidence,
+    ensure_review_round,
     freeze_review_contributor_evidence,
+    start_review_round,
+    task_contributor_snapshot,
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.project_access import ProjectAccess
@@ -24,10 +28,6 @@ from app.services.task_lock import TaskLockService
 from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
-    _start_review_round,
-    _ensure_review_round,
-    _capture_first_review_contributor_snapshot,
-    _task_contributor_snapshot,
     _submission_assignment_start,
     perform_task_submit,
     require_task_annotation_write_lifecycle,
@@ -213,7 +213,7 @@ async def skip_task(
             db, task_id, current_user.id, now
         )
 
-    review_round_id = _start_review_round(task)
+    review_round_id = start_review_round(task)
     task.status = "review"
     task.skip_reason = body.reason
     task.skipped_at = now
@@ -236,8 +236,8 @@ async def skip_task(
     if task.batch_id:
         await batch_svc.recalculate_counters(task.batch_id)
 
-    contributor_ids = await _task_contributor_snapshot(db, task)
-    _capture_first_review_contributor_snapshot(task, contributor_ids)
+    contributor_ids = await task_contributor_snapshot(db, task)
+    capture_first_review_contributor_snapshot(task, contributor_ids)
     freeze_contributor_ids = list(contributor_ids)
     if (
         inherited_assignee_id is not None
@@ -415,8 +415,8 @@ async def reopen_task(
             "original_reviewer_id": str(original_reviewer_id)
             if original_reviewer_id
             else None,
-            "contributor_ids": await _task_contributor_snapshot(db, task),
-            "review_round_id": str(_ensure_review_round(task)),
+            "contributor_ids": await task_contributor_snapshot(db, task),
+            "review_round_id": str(ensure_review_round(task)),
             "reopened_count": task.reopened_count,
         },
     )
@@ -501,8 +501,8 @@ async def accept_rejection(
         detail={
             "project_id": str(task.project_id),
             "reject_reason": task.reject_reason,
-            "review_round_id": str(_ensure_review_round(task)),
-            "contributor_ids": await _task_contributor_snapshot(db, task),
+            "review_round_id": str(ensure_review_round(task)),
+            "contributor_ids": await task_contributor_snapshot(db, task),
         },
     )
 
