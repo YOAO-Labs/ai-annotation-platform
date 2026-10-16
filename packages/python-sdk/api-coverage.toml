@@ -228,6 +228,8 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "PUT /api/v1/tasks/{task_id}/video/tracks/{annotation_id}/mask-keyframes/{frame_index}" = { status = "excluded", reason = "workbench-internal" }
 
 # Project learning is currently exposed through the web UI and raw API.
+"GET /api/v1/projects/{project_id}/task-datasets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/task-datasets/unrecognized-versions" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-datasets:preflight" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-datasets" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-datasets" = { status = "excluded", reason = "web-only" }

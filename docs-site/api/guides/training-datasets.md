@@ -20,22 +20,60 @@ last_reviewed: 2026-10-16
 | GET    | `/{version_id}/download` | 就绪且对象可用时，返回 10 分钟 `url` 和包的 `sha256` |
 | DELETE | `/{version_id}`          | 删除无后代引用的终态版本及其存储，返回 `204`         |
 
+### 项目任务数据集与版本筛选
+
+项目派生的任务数据集基路径为 `/api/v1/projects/{project_id}/task-datasets`，复用上述管理权限及读取 scope：
+
+| 方法 | 路径后缀                 | 行为                                                                 |
+| ---- | ------------------------ | -------------------------------------------------------------------- |
+| GET  | 空                       | 项目工具绑定及认可冻结版本中的任务、状态计数、最新就绪版本与逐项能力 |
+| GET  | `/unrecognized-versions` | 无法识别冻结契约的只读诊断；`limit=20`（1–100）、`offset=0`          |
+
+任务列表返回 `items`，每项包括可空流 UUID `id`、`project_id`、规范 `task`、`status_counts`、`version_count`、`pending_membership_count`、可空 `latest_ready_version` 和 `capabilities`。项目级 `pending_membership_count` 与 `unrecognized_version_count` 单独返回。已支持但还没有版本的任务可以有 `id=null`；只读查询不会创建版本流。
+
+版本流身份仅由项目与规范任务决定，类别集、标注范围、批次及格式是版本属性。此管理扩展不增加导出格式或媒体物化资格，当前训练包仍使用已资格的 Ultralytics YOLO 图片路径。
+
+`capabilities` 分别包含 `create_version`、`qualified_training`、`overview_statistics`、`task_statistics`、`sample_preview`、`semantic_comparison`，每项有 `supported` 与可空 `reason`。这些是数据资格边界，不能替代具体训练器／权重、执行器在线或媒体当前可读检查。检测及已有简单多边形分割保持支持；分类、关键点、旋转框及其他媒体仍须独立资格验证。
+
+原版本列表新增可选 `task` 和 `task_dataset_id`。服务端先验证项目归属与过滤一致性，再按任务、状态过滤及计数分页；同时提供两项时必须匹配。不存在或其他项目的流返回 `404`，同项目但与 `task` 不一致返回 `422`。不传新参数保留原列表行为。父版本及比较基线应使用任务筛选后的 ready 分页，不能截取一个混合任务页面后在客户端筛选。
+
+版本摘要／详情增加可空 `task_dataset_id`、`version_ordinal` 和 `contract_profile`。profile 包括原 schema、规范任务、输出／来源媒体、格式、几何与桥接；不加载完整 manifest。序号只在该任务流内唯一，与 `parent_id`、请求 UUID、包名及 release 版本无关。失败／取消版本保留序号，重试／重放沿用原序号，删除不复用。旧写入者的有效但未关联版本仍会出现在任务过滤列表，管理字段为空；不会伪造序号。
+
+任务识别依据完整认可的冻结契约。无法识别行不归入任一任务流；诊断页只返回 `id`、`name`、`status`、`created_at`、可空 `raw_task`、`error_code` 和 `reason`。历史无任务字段只有符合完整检测旧契约时才识别为检测。原无过滤列表／详情仍采用严格版本模型，不是任意损坏 JSON 的诊断接口。新增两个管理 GET 暂列为 Python SDK 的 `web-only` 排除项，没有新增 SDK 方法。
+
 ### 冻结数据洞察
 
 就绪版本提供以下 GET 接口，与原版本读取使用相同项目管理权限和 API Key scope：
 
-| 路径后缀                                         | 返回与参数                                                                  |
-| ------------------------------------------------ | --------------------------------------------------------------------------- |
-| `/{version_id}/insights`                         | 静态统计、已知／未知计数、准备记录、验证身份和媒体读取时间                  |
-| `/{version_id}/insights/classes`                 | 类别图片／实例频次；`search`、`limit`、`offset`                             |
-| `/{version_id}/insights/compare`                 | `baseline_id` 指定同项目就绪版本，返回基线到当前版本的方向性变化            |
-| `/{version_id}/insights/samples`                 | 先筛选后分页；`class_index`、`split`、`kind`、`baseline_id`、`change`       |
-| `/{version_id}/insights/samples/{task_id}`       | 冻结归一化框；`limit=500`（最多 1,000）、`offset`                           |
-| `/{version_id}/insights/samples/{task_id}/media` | 认证二进制读取；默认原始冻结图片，`preview=true` 返回最大边 1,600 px 的 PNG |
+| 路径后缀                                         | 返回与参数                                                                              |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `/{version_id}/insights`                         | 静态统计、已知／未知计数、准备记录、验证身份和媒体读取时间                              |
+| `/{version_id}/insights/classes`                 | 类别图片／实例频次；`search`、`limit`、`offset`、`order_by`、`split`                    |
+| `/{version_id}/insights/compare`                 | `baseline_id` 指定同项目就绪版本，返回基线到当前版本的方向性变化                        |
+| `/{version_id}/insights/samples`                 | 先筛选后分页；`class_index`、`split`、`kind`、`baseline_id`、`change`、`content_sha256` |
+| `/{version_id}/insights/samples/{task_id}`       | 冻结归一化框；`limit=500`（最多 1,000）、`offset`                                       |
+| `/{version_id}/insights/samples/{task_id}/media` | 认证二进制读取；默认原始冻结图片，`preview=true` 返回最大边 1,600 px 的 PNG             |
 
 类别和样本页默认 25、最多 100 项，返回 `items`、过滤后 `total`、`limit` 和 `offset`。`kind` 为 `all`、`positive`、`negative`、`excluded` 或 `unavailable`；`change` 为 `all`、`added`、`removed`、`labels_changed`、`split_changed`、`multiplicity_changed`、`task_ids_changed`、`reintroduced`、`unchanged` 或 `unknown`。非 `all` 变化必须提供基线。移除项返回基线 `source_version_id` 和成员 `version_id`，预览应使用该身份。
 
+类别 `order_by=index|instances|images` 默认 `index`，频次排序在分页前完成，以类别索引稳定打破并列；可选 `split=train|val` 确定排序使用的分区频次，返回同名参数。类别索引属于各自冻结版本。样本 `content_sha256` 必须是 64 位小写十六进制，可与现有条件和分页组合；没有成员命中返回空页。使用该过滤分别读取当前／基线可找出相同内容的全部重复成员，不能以工作项 UUID 或标签行序配对。
+
 统计按实际包内图片项计算，比较按唯一内容 SHA 计算，变化类别可重叠。`status` 区分 `complete`、`partial`、`unavailable`；标注缺失时详情 `total=null`，不能解释为无目标。`preparation.recorded=false` 表示历史准备记录未保留。比较同时返回既有清单摘要、去重语义摘要和保留重复次数／有序类别的评估摘要，不替换运行或自动策略的原摘要。
+
+概览附加 `contract_profile`、`adapter={id, revision}`、逐项 `capabilities`、`evidence` 和类型化 `task_statistics`。`evidence` 包含 `analyzed_members`、`unknown_label_members`、`known_instances`、`geometry_unknown_members`；未知标注不能作为零实例或负样本，存在相关未知成员时类别分布与缺类结论是部分证据。
+
+`task_statistics.task=detect` 的统计 schema 为 1：
+
+| 字段                 | 形状与分母                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| `image_dimensions`   | 宽／高各六档：<256、256–511、512–1023、1024–2047、2048–4095、≥4096 像素；可测图片成员 |
+| `box_centers`        | 归一化中心 x／y 各 20 档；已知有效检测实例                                            |
+| `box_dimensions`     | 归一化框宽／高各 20 档；已知有效检测实例                                              |
+| `objects_per_member` | `bins` 为 0、1、2–5、6–10、11–20、21+；另含已分析成员与未知标注成员数                 |
+
+三个二维聚合均返回 `x_bins`、`y_bins`、`counts[y][x]`、`unit=member_images|instances`、`population` 和 `unknown_members`。归一化值等于 1 时进入最后一档；unknown 是无法计量的成员数，不能当成未知实例数。每图目标数不包含未知标注成员，也不表示物理面积密度。分割 payload 使用 `task=segment`、`schema_version=1`、`geometry=normalized-simple-polygon`、`known_instances` 和 `polygon_area_sum`，不包装成检测热力图。适配器修订仅改变派生分析缓存，不改原版本或训练摘要。
+
+比较增加 `count_unit=unique_contents`、`baseline_members`、`target_members`、`overlapping_changes` 与 `semantic_unchanged_label`，不能把重叠计数相加成总变化量。`raw_contract_changed` 单独表达原始契约变化；`validation_comparison_basis=canonical-profile-validation-1` 及双方 `validation.comparison_identity` 用认可的规范 profile 表达历史／现行等价契约的比较身份，原 `manifest_digest` 等训练身份不回写。相同任务之外还须媒体／几何／桥接兼容；跨任务返回 `422 task_mismatch`，不兼容 profile 返回 `422 data_contract_mismatch`，未资格契约给出明确原因。来源任务 ID 变化、类别重排与真实训练标签变化分开报告，不能据此推断类别重命名、框移动或对象追踪。
 
 媒体仅读取训练桶该版本的冻结成员；验证保留身份、大小及实际字节 SHA 后才响应，不回退可变源。缺失或损坏返回明确错误；`media` 记录 `verified`、`unavailable`、`unchecked` 与最近检查时间，静态报告不保证当前对象仍可读。未就绪版本返回 `409`，跨项目版本或非成员返回 `404`；洞察失败不改变训练包状态。
 
@@ -57,7 +95,7 @@ last_reviewed: 2026-10-16
 
 正式创建请求使用相同选择，增加 `name`、UUID `request_id` 和 `preflight_digest`。相同请求标识与内容重复提交返回原版本；相同标识用于不同请求返回 `409`。正式创建重新读取一致快照，摘要与预检不符时返回 `409`，要求重新预检。
 
-`task` 使用 `detect`（默认）或 `segment`。旧名称 `image-detection`、`image-instance-segmentation` 等作为输入别名兼容；输出统一为规范名称。新快照与清单使用 schema 3，显式包含 `task`、`media_type=image`、`format=ultralytics-yolo`、几何类型和桥接修订。历史 schema 1/2、包内容和摘要保持原样，读取时仅派生规范任务。父版本任务不一致返回 `422`。
+`task` 使用 `detect`（默认）或 `segment`。旧名称 `image-detection`、`image-instance-segmentation` 等作为输入别名兼容；输出统一为规范名称。新快照与清单使用 schema 3，显式包含 `task`、`media_type=image`、`format=ultralytics-yolo`、几何类型和桥接修订。历史 schema 1/2、包内容和摘要保持原样，读取时仅派生规范任务。父版本任务不一致返回 `422`；父版本还须有兼容的输出契约、来源媒体及累计 task/content/scene 分组证据，不因属于同一个任务流放宽继承限制。
 
 一个项目可启用多种标注工具，但一个数据版本固定一个任务。`annotation_scope` 记录所选工具与有序类别；检测取 `bbox`，分割取 `region`。其他工具标注排除并计入 `summary.excluded_annotations`，不会使当前任务的合格图片失效。只有其他任务标注的图片不会自动成为当前任务的负样本；须有适用的已审核无目标证据或显式 `confirmed_negative_ids`。所选工具内的非法几何仍阻止构建。
 

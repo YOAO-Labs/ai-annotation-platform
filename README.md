@@ -30,7 +30,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 工作台支持按账号保存图片、视频和通用命令的自定义快捷键；类别直选使用 `1–9` 和 `0`，更多类别可搜索。使用方式见[工作台快捷键](./docs-site/user-guide/workbench/index.md#完整快捷键)，偏好读写契约见[认证与账号 API](./docs-site/api/guides/auth.md)。
 
-项目负责人可通过[在线学习数据版本](./docs-site/user-guide/projects/online-learning.md)冻结图片检测标注，下载包含原图、类别映射和独立训练/验证划分的 Ultralytics 数据包；就绪版本可查看类别与尺寸分布、分页预览冻结图片和框，并比较内容、标注与验证基准变化；接口见[训练数据版本 API](./docs-site/api/guides/training-datasets.md)。
+项目负责人可通过[在线学习数据版本](./docs-site/user-guide/projects/online-learning.md)按检测或分割任务浏览项目派生的冻结版本，下载包含原图、类别映射和独立训练/验证划分的 Ultralytics 数据包。检测版本提供图片／类别／划分摘要、类别频次、尺寸与框分布热力图、每图目标数及版本差异，可对照前后冻结样本，或明确采用该版本新建实验；历史数据包和训练引用保持不变。接口见[训练数据版本 API](./docs-site/api/guides/training-datasets.md)。
 
 训练和推理统一使用 `task=detect|segment|classify|pose|obb`；AAP/COCO/YOLO 由 `format` 区分。混合标注项目可按任务分别抽取训练数据版本，保留工具、类别和媒体来源，参见[训练数据接口](docs-site/api/guides/training-datasets.md)。
 

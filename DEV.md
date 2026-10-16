@@ -143,6 +143,28 @@ MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配�
 
 在线学习使用 `MINIO_TRAINING_BUCKET`（默认 `training`）持久保存冻结原图和训练包，不设置自动过期。旧八桶工作树在显式 `init/up` 时核验归属并扩展为九桶；原资源与数据保留，`doctor/stop/destroy` 兼容旧清单。升级中断留下未标记新桶时，按 `.worktree/<mode>/training-bucket-upgrade.json` 核对空桶后处理，不能跳过归属检查。运行环境更新需应用迁移并刷新 export worker，核验 `app.workers.training_dataset.run_training_dataset` 已注册。
 
+### 任务数据集管理关联与回填
+
+任务版本流的增量迁移只增加 `project_task_datasets` 与 `task_dataset_version_memberships`，不重写历史冻结记录。先核对实际 API／worker 的 checkout、挂载、数据库与迁移图，再应用迁移，刷新手动创建的 API 和执行自动学习策略的 worker／scheduler。Celery 不会因 Python 文件更新自动重载；仅本次管理与分析代码变化不要求重建未改变的 GPU 训练／推理镜像。
+
+历史关联使用 `apps/api/scripts/backfill_task_datasets.py`。目标必选其一：`--project-id UUID` 或 `--all-projects`；模式必选其一：`--dry-run`、`--apply`、`--verify`。以下以已核对的当前工作树 `dev` 模式为例；先停止同模式运行进程再执行，避免与启动器模式锁竞争。生产环境使用部署中明确选定的应用环境和现有虚拟环境，不能沿用不明来源的共享 `.env`。
+
+```bash
+pnpm dev:worktree -- doctor --mode dev
+pnpm dev:worktree -- stop --mode dev
+pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python scripts/backfill_task_datasets.py --all-projects --dry-run'
+pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python scripts/backfill_task_datasets.py --all-projects --apply'
+pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python scripts/backfill_task_datasets.py --all-projects --verify'
+```
+
+只处理一个项目时，将每条命令的 `--all-projects` 换为 `--project-id` 和目标 UUID。预演／校验使用数据库只读事务，不分配序号；只有 apply 写入，每批默认 25、可用 `--batch-size 1..100` 控制。JSON Lines 报告包含扫描、已关联、本次关联、待关联、无法识别及异常数量和版本 ID／原因，不输出标注或存储凭据。校验发现待关联、关联不一致或高水位异常返回非零；无法识别记录保留原样并单独报告，需核对诊断而非自动修复。
+
+中断后直接重跑 apply；已完成批次不重复分配，不重排旧序号。首次关联稳定按创建时间与 UUID 排序，后发现的旧版本追加高水位。滚动升级时有效未关联版本继续显示空管理字段；替换旧创建者后再次 apply／verify 完成尾部关联。回填不是测试夹具，测试与浏览器种子仍应使用已验证的一次性 test／e2e 环境。结束后按原需要重新启动当前 checkout 的服务。
+
+回退使用面时停止新关联与回填，回退兼容的 API/UI 代码并保留两个管理表、membership 及 `next_ordinal`。旧代码仍使用原冻结版本；不以降级迁移删表、重排序号、重建包或回写摘要作为常规回退。分析缓存可随兼容修订重新派生。无需新增服务、依赖或永久环境变量。
+
+### 训练执行器配置
+
 受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
 
 已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0；两者支持图片检测，Ultralytics 还支持受控 `yolo11n-seg` 简单多边形实例分割。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。

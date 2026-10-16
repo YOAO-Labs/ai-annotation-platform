@@ -130,3 +130,4 @@
 - [0085](0085-qualified-polygon-instance-training.md) — 简单多边形实例训练复用原生执行器并独立冻结任务身份
 
 - [0086](0086-canonical-task-data-contracts.md) — 任务名称共享并与格式、媒体及冻结身份分离
+- [0087](archive/0087-project-task-dataset-streams.md) — 项目按任务派生版本流，管理关联与冻结身份分离
