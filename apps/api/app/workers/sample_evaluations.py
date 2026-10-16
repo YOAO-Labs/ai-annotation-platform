@@ -481,6 +481,9 @@ async def dispatch(db, run):
 
 
 async def maintain(factory):
+    from app.services import training_storage_cleanup
+
+    await training_storage_cleanup.maintain(factory)
     cutoff = service.now()
     async with factory() as db:
         ids = list(

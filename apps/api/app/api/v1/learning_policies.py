@@ -1,7 +1,5 @@
 """Manager-owned automatic training policy and paginated trigger history."""
 
-from aap_task_contract import normalize_task
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import delete, func, select
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
@@ -74,13 +72,14 @@ async def save_policy(
         raise HTTPException(
             status_code=422, detail="请选择当前项目已就绪的数据作为初始划分"
         )
-    from app.services.training_dataset_bridge import contract_of, TrainingDatasetError
+    from app.services.training_dataset_bridge import TrainingDatasetError
+    from app.services.training_dataset_insight_adapters import adapter_for
 
     try:
-        parent_task = contract_of(parent.manifest)["task"]
+        parent_task = adapter_for(parent.manifest).task
     except TrainingDatasetError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if normalize_task(parent_task) != "detect":
+    if parent_task != "detect":
         raise HTTPException(status_code=422, detail="自动学习策略仅接受检测父数据版本")
     pin = await initialization.resolve(
         db,

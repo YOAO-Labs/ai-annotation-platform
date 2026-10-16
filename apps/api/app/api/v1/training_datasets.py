@@ -25,6 +25,7 @@ from app.schemas.training_dataset import (
 )
 from app.services import training_datasets as service
 from app.services import project_task_dataset as task_datasets
+from app.services import training_storage_cleanup as cleanup
 from aap_task_contract import VisualTask
 from app.services.project_write_guard import lock_actor_project_authority
 from app.services.project_access import resolve_project_access_by_id
@@ -373,10 +374,6 @@ async def delete_version(
             status_code=409,
             detail="运行中或被后续版本、训练实验、未清理增强预览引用的数据版本不能删除",
         )
-    await asyncio.to_thread(
-        storage_service.delete_prefix,
-        f"projects/{project.id}/datasets/{version.id}/",
-        bucket=storage_service.training_bucket,
+    await cleanup.delete_record(
+        db, version, f"projects/{project.id}/datasets/{version.id}/"
     )
-    await db.delete(version)
-    await db.commit()

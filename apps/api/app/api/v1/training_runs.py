@@ -550,13 +550,9 @@ async def delete_run(
         raise HTTPException(
             status_code=409, detail="训练产物已被模型版本引用，不能删除"
         )
-    await asyncio.to_thread(
-        storage.delete_prefix,
-        f"projects/{project.id}/runs/{run.id}/",
-        bucket=storage.training_bucket,
-    )
-    await db.delete(run)
-    await db.commit()
+    from app.services import training_storage_cleanup as cleanup
+
+    await cleanup.delete_record(db, run, f"projects/{project.id}/runs/{run.id}/")
 
 
 @executor_router.post("/claim")

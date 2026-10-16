@@ -450,6 +450,27 @@ async def test_current_authority_status_and_fixed_catalog_stop_future_runs(
 
 
 @pytest.mark.parametrize("media_type", ["video", None])
+async def test_save_rejects_unqualified_legacy_parent_without_mutating_policy(
+    db_session, super_admin, httpx_client, frozen_source, media_type
+):
+    owner, token = super_admin
+    _, parent, policy, path, body = await setup_policy(
+        db_session, httpx_client, owner, token
+    )
+    parent.manifest = {**parent.manifest, "media_type": media_type}
+    await db_session.flush()
+    original_config = copy.deepcopy(policy.config)
+    response = await httpx_client.put(
+        path,
+        json={**body, "expected_revision": policy.revision},
+        headers={"Authorization": "Bearer " + token},
+    )
+    assert response.status_code == 422, response.text
+    await db_session.refresh(policy)
+    assert policy.revision == 1 and policy.config == original_config
+
+
+@pytest.mark.parametrize("media_type", ["video", None])
 async def test_legacy_parent_with_unqualified_output_media_suspends_before_freezing(
     db_session, super_admin, httpx_client, frozen_source, monkeypatch, media_type
 ):

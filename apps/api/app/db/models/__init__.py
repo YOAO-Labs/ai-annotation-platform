@@ -85,6 +85,7 @@ from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.training_dataset import TrainingDatasetVersion
+from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.db.models.project_task_dataset import (
     ProjectTaskDataset,
     TaskDatasetVersionMembership,
@@ -215,6 +216,7 @@ __all__ = [
     "AsyncJobStatus",
     "ExportArtifact",
     "TrainingDatasetVersion",
+    "TrainingStorageDeletion",
     "ProjectTaskDataset",
     "TaskDatasetVersionMembership",
     "TrainingDatasetAnalysis",

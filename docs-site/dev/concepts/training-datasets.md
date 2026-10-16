@@ -178,7 +178,11 @@ export 队列执行 `workers/training_dataset.py`。它以条件读取验证源�
 
 `MINIO_TRAINING_BUCKET` 默认 `training`，不设置自动过期。版本对象保存在 `projects/{project_id}/datasets/{version_id}/media/` 和 `attempts/{attempt_id}/dataset.zip`。备份需同时覆盖数据库和训练桶。
 
+版本和终态实验删除在同一事务中删除业务记录，并写入独立的 `training_storage_deletions` 清理意图。数据库引用检查及提交先于任何对象删除；意图保存确切 bucket/prefix，不依附项目外键。提交后先尝试清理，故障时由已有 `maintain_evaluations` 周期任务分批重试，只有对象清理及确认提交均成功才移除意图。重复清理同一不可变前缀可恢复存储故障、进程中断和确认提交失败；业务删除成功仍返回 `204`。
+
 升级部署需应用新增迁移、创建独立训练桶并授予对象读写权限、刷新 export worker，再核验注册任务 `app.workers.training_dataset.run_training_dataset`。局域网生产还需同步受限 MinIO 策略与 Caddy 下载路径。
+
+存储清理意图需应用 `0189` 迁移并刷新消费 `default` 队列的 worker，保持 Celery beat 运行；沿用每分钟的 `app.workers.sample_evaluations.maintain_evaluations`，无需新增任务或调度器。此处的「维护」是该业务任务，消费数据库运维 `maintenance` 队列的专用 worker 不负责此路径。
 
 ## 模型身份与回流
 
