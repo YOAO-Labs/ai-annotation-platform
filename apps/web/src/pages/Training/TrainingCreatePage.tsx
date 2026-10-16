@@ -24,6 +24,7 @@ import { useProject } from "@/hooks/useProjects";
 import { useAuthStore } from "@/stores/authStore";
 import { cn } from "@/lib/utils";
 import type { ProjectLearningOutletContext } from "../Projects/ProjectLearningPage";
+import { datasetParentReason } from "../Projects/datasetCompatibility";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
@@ -481,6 +482,8 @@ function TrainingCreateContent({
       throw new Error("此冻结版本尚未就绪，不能用于训练");
     if (!["detect", "segment"].includes(value.task ?? "detect"))
       throw new Error("此数据任务尚未获得训练资格");
+    const reason = datasetParentReason(value, value.task ?? "detect");
+    if (reason) throw new Error(`此冻结版本尚未获得训练资格：${reason}`);
   };
   const ownsDatasetIntent = (owner: object, snapshot: TrainingDraft) =>
     datasetIntentOwnerRef.current === owner && state.matches(snapshot);

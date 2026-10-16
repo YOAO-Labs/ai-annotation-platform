@@ -94,6 +94,16 @@ const dataset = {
   id: "dataset-1",
   project_id: "project-1",
   name: "审核数据",
+  task: "detect" as const,
+  contract_profile: {
+    schema: 3,
+    task: "detect" as const,
+    media_type: "image",
+    source_media_type: "image",
+    format: "ultralytics-yolo",
+    geometry: "normalized-bbox",
+    bridge: "ultralytics-bbox-1",
+  },
   status: "ready",
   package_sha256: "d".repeat(64),
   manifest: {},
@@ -544,7 +554,16 @@ describe("exact frozen-version experiment handoff", () => {
   });
 
   it("shows the task-specific model and explicit reset before adopting segmentation", async () => {
-    const segmented = { ...target, task: "segment" };
+    const segmented = {
+      ...target,
+      task: "segment",
+      contract_profile: {
+        ...target.contract_profile,
+        task: "segment",
+        geometry: "normalized-simple-polygon",
+        bridge: "ultralytics-simple-polygon-1",
+      },
+    };
     vi.mocked(trainingDatasetsApi.get).mockImplementation(
       async (_project, id) => (id === targetId ? segmented : dataset) as never,
     );
@@ -655,6 +674,70 @@ describe("exact frozen-version experiment handoff", () => {
     await waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).datasetId).toBe(targetId));
   });
 
+  const unqualifiedProfiles = [
+    {
+      name: "image output from video",
+      profile: { ...target.contract_profile, source_media_type: "video" },
+      reason: "当前继承仅资格验证图片来源与图片输出",
+    },
+    {
+      name: "unknown source media",
+      profile: { ...target.contract_profile, source_media_type: null },
+      reason: "当前继承仅资格验证图片来源与图片输出",
+    },
+    {
+      name: "missing contract profile",
+      profile: null,
+      reason: "冻结契约资料不完整",
+    },
+    {
+      name: "unqualified bridge",
+      profile: { ...target.contract_profile, bridge: "unqualified-bbox-bridge" },
+      reason: "该几何或桥接契约尚未资格验证",
+    },
+  ];
+
+  it.each(unqualifiedProfiles)(
+    "rejects a direct dataset intent with $name without changing an edited draft",
+    async ({ profile, reason }) => {
+      const { user } = await prepare(false);
+      await user.clear(screen.getByLabelText("批大小"));
+      await user.type(screen.getByLabelText("批大小"), "4");
+      const before = localStorage.getItem(key);
+      vi.mocked(trainingDatasetsApi.get).mockResolvedValue({
+        ...target,
+        contract_profile: profile,
+      } as never);
+      act(() => navigate(entry));
+      expect(await screen.findByText(`此冻结版本尚未获得训练资格：${reason}`)).toBeVisible();
+      expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument();
+      expect(localStorage.getItem(key)).toBe(before);
+      expect(trainingRunsApi.create).not.toHaveBeenCalled();
+      expect(screen.getByTestId("location")).toHaveTextContent(`dataset=${targetId}`);
+    },
+  );
+
+  it.each(unqualifiedProfiles)(
+    "rejects adoption when qualification changes to $name after review",
+    async ({ profile, reason }) => {
+      readTarget();
+      const { user } = await prepare(false);
+      const before = localStorage.getItem(key);
+      act(() => navigate(entry));
+      const review = await screen.findByRole("dialog", { name: "核对训练数据版本" });
+      vi.mocked(trainingDatasetsApi.get).mockResolvedValue({
+        ...target,
+        contract_profile: profile,
+      } as never);
+      await user.click(within(review).getByRole("button", { name: "确认采用数据版本" }));
+      expect(await screen.findByText(`此冻结版本尚未获得训练资格：${reason}`)).toBeVisible();
+      expect(screen.getByRole("dialog", { name: "核对训练数据版本" })).toBeVisible();
+      expect(localStorage.getItem(key)).toBe(before);
+      expect(trainingRunsApi.create).not.toHaveBeenCalled();
+      expect(screen.getByTestId("location")).toHaveTextContent(`dataset=${targetId}`);
+    },
+  );
+
   it("revalidates ready state before adoption", async () => {
     readTarget();
     const user = userEvent.setup();
@@ -715,7 +798,16 @@ describe("exact frozen-version experiment handoff", () => {
 
 it("filters segmentation weights by dataset task and preserves an incompatible selection until explicitly replaced", async () => {
   const task = "segment" as const;
-  const segmented = { ...dataset, task };
+  const segmented = {
+    ...dataset,
+    task,
+    contract_profile: {
+      ...dataset.contract_profile,
+      task,
+      geometry: "normalized-simple-polygon",
+      bridge: "ultralytics-simple-polygon-1",
+    },
+  };
   vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [segmented], total: 1 } as never);
   vi.mocked(trainingDatasetsApi.get).mockResolvedValue(segmented as never);
   vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
