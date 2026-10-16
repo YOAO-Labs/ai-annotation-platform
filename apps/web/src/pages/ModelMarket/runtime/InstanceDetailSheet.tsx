@@ -13,9 +13,7 @@ import { useMemo, type ReactNode } from "react";
 
 import type { GlobalBackendItem, ObserveTarget } from "@/api/adminMlIntegrations";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
-import { useToastStore } from "@/components/ui/Toast";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import {
   Sheet,
   SheetContent,
@@ -23,12 +21,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/shadcn/ui/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/shadcn/ui/tooltip";
 import { ScrollArea } from "@/components/shadcn/ui/scroll-area";
 import { isCpuFallback } from "@/utils/mlBackendCompute";
 import { VariantPanel, type VariantWarmTarget } from "../VariantPanel";
@@ -70,8 +62,6 @@ export function InstanceDetailSheet({
   onWarm,
   isWarming = false,
 }: InstanceDetailSheetProps): ReactNode {
-  const pushToast = useToastStore((s) => s.push);
-
   const residency = useMemo(() => {
     const raw = observe?.residency ?? backend?.health_meta?.residency ?? null;
     return parseResidency(raw);
@@ -88,15 +78,6 @@ export function InstanceDetailSheet({
   const compute = observe?.compute ?? backend?.health_meta?.compute ?? null;
   const cacheHitRate = observe?.cache?.hit_rate ?? backend?.health_meta?.cache?.hit_rate;
 
-  const onCopyId = async () => {
-    try {
-      await navigator.clipboard.writeText(member.registry_id);
-      pushToast({ msg: "已复制实例 ID", kind: "success" });
-    } catch {
-      pushToast({ msg: "复制失败：浏览器拒绝访问剪贴板", kind: "error" });
-    }
-  };
-
   const rt = member.runtime;
 
   return (
@@ -108,17 +89,7 @@ export function InstanceDetailSheet({
             <Badge variant="outline" className="mono">
               {member.traffic_state}
             </Badge>
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button size="xs" onClick={onCopyId} title="复制实例 ID">
-                    <Icon name="copy" size={10} />
-                    复制 ID
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">registry_id: {member.registry_id}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <CopyValueButton value={member.registry_id} kind="id" label="复制实例 ID" />
           </div>
           <SheetDescription className="mono break-all text-2xs">
             {backend?.url ?? observe?.url ?? "—"}
@@ -361,8 +332,13 @@ function RuntimeMetricsBlock({
         </span>
       )}
       {(gpuInfo?.physical_device_token || gpuInfo?.mig_uuid || gpuInfo?.device_uuid) && (
-        <span className="mono" title="backend 上报的物理设备身份">
-          {gpuInfo.physical_device_token ?? gpuInfo.mig_uuid ?? gpuInfo.device_uuid}
+        <span className="inline-flex items-center gap-1">
+          设备
+          <CopyValueButton
+            value={gpuInfo.physical_device_token || gpuInfo.mig_uuid || gpuInfo.device_uuid}
+            kind="id"
+            label="复制物理设备 ID"
+          />
         </span>
       )}
       {cacheHitRate != null && <span>cache {(cacheHitRate * 100).toFixed(1)}%</span>}

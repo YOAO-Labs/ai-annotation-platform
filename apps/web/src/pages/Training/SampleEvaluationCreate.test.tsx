@@ -101,7 +101,9 @@ async function choose() {
   fireEvent.change(await screen.findByRole("combobox", { name: /已注册模型/ }), {
     target: { value: model },
   });
-  await waitFor(() => expect(screen.getByRole("option", { name: /后端/ })).toBeInTheDocument());
+  await waitFor(() =>
+    expect(screen.getByRole("option", { name: /部署 1 · 就绪/ })).toBeInTheDocument(),
+  );
   fireEvent.change(screen.getByRole("combobox", { name: /已安装部署/ }), {
     target: { value: deployment },
   });
@@ -112,7 +114,7 @@ async function choose() {
   fireEvent.change(screen.getByRole("textbox", { name: "评估名称" }), {
     target: { value: "路口误差" },
   });
-  await screen.findByRole("checkbox", { name: /000000000100/ });
+  await screen.findByRole("checkbox", { name: /^选择验证成员 1（/ });
 }
 describe("explicit frozen evaluation creation", () => {
   it("keeps explicit members across pages and reuses the request after a lost create response", async () => {
@@ -129,9 +131,9 @@ describe("explicit frozen evaluation creation", () => {
       );
     mount();
     await choose();
-    fireEvent.click(screen.getByRole("checkbox", { name: /000000000100/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /^选择验证成员 1（/ }));
     fireEvent.click(screen.getByRole("button", { name: "成员下一页" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: /000000000112/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /选择验证成员 13/ }));
     const submit = screen.getByRole("button", { name: "开始逐样本评估" });
     await waitFor(() => expect(submit).toBeEnabled());
     fireEvent.click(submit);
@@ -159,7 +161,7 @@ describe("explicit frozen evaluation creation", () => {
     vi.mocked(sampleEvaluationsApi.qualify).mockRejectedValue(new Error("运行环境不受支持"));
     mount();
     await choose();
-    fireEvent.click(screen.getByRole("checkbox", { name: /000000000100/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /^选择验证成员 1（/ }));
     fireEvent.change(screen.getByRole("combobox", { name: /数据用途/ }), {
       target: { value: "held_out_test" },
     });

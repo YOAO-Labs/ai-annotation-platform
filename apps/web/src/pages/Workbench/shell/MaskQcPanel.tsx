@@ -1,6 +1,7 @@
 import { FilterGroup, FilterSelect, FilterToggle } from "@/components/filters/FilterControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { Icon } from "@/components/ui/Icon";
 import type {
@@ -627,22 +628,37 @@ export function MaskQcPanel({
             <option value="neighbor_keyframe">邻近关键帧</option>
           </select>
           {baseline === "tracker_candidate" && trackerCandidates.length > 0 && (
-            <select
-              aria-label="Tracker 候选"
-              value={trackerCandidateKey ?? trackerCandidates[0].key}
-              disabled={busy}
-              onChange={(event) => {
-                const candidate = trackerCandidates.find((item) => item.key === event.target.value);
-                if (candidate) onSetTrackerCandidate(candidate);
-              }}
-              className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
-            >
-              {trackerCandidates.map((candidate) => (
-                <option key={candidate.key} value={candidate.key}>
-                  {candidate.label} · F{candidate.frameIndex} · {candidate.digest.slice(0, 8)}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-1">
+              <select
+                aria-label="Tracker 候选"
+                value={trackerCandidateKey ?? trackerCandidates[0].key}
+                disabled={busy}
+                onChange={(event) => {
+                  const candidate = trackerCandidates.find(
+                    (item) => item.key === event.target.value,
+                  );
+                  if (candidate) onSetTrackerCandidate(candidate);
+                }}
+                className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
+              >
+                {trackerCandidates.map((candidate, index) => (
+                  <option key={candidate.key} value={candidate.key}>
+                    候选 {index + 1} · {candidate.label} · F{candidate.frameIndex}
+                  </option>
+                ))}
+              </select>
+              <CopyValueButton
+                value={selectedTrackerCandidate?.digest}
+                label="复制 Tracker 候选哈希"
+              />
+              {selectedTrackerCandidate?.instanceId && (
+                <CopyValueButton
+                  value={selectedTrackerCandidate.instanceId}
+                  kind="id"
+                  label="复制 Tracker 实例 ID"
+                />
+              )}
+            </div>
           )}
           {compare && (
             <>
@@ -802,6 +818,18 @@ export function MaskQcPanel({
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <span>{feedback.author_name ?? "未知用户"}</span>
                   {feedback.anchor_position?.boundary_digest && <span>· 边界</span>}
+                  {feedback.anchor_position?.boundary_digest ||
+                  feedback.anchor_position?.region_digest ? (
+                    <CopyValueButton
+                      value={
+                        feedback.anchor_position.boundary_digest ||
+                        feedback.anchor_position.region_digest
+                      }
+                      label="复制反馈区域哈希"
+                    />
+                  ) : (
+                    <span>· 无摘要</span>
+                  )}
                   <button
                     type="button"
                     className="ml-auto cursor-pointer border-0 bg-transparent text-brand"
@@ -815,13 +843,6 @@ export function MaskQcPanel({
                   </button>
                 </div>
                 <div className="mt-0.5 whitespace-pre-wrap text-foreground">{feedback.body}</div>
-                <div className="mt-0.5 font-mono text-muted-foreground">
-                  {(
-                    feedback.anchor_position?.boundary_digest ??
-                    feedback.anchor_position?.region_digest ??
-                    "无摘要"
-                  ).slice(0, 12)}
-                </div>
               </div>
             ))}
             {feedbackQuery.hasNextPage && (

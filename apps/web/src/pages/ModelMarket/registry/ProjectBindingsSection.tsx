@@ -31,8 +31,9 @@ import {
 } from "@/components/shadcn/ui/table";
 import { Input } from "@/components/shadcn/ui/input";
 import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
-import { EmptyState, LoadingState, NullCell, ShortCopyableId, UrlIssueChips } from "./registryUi";
+import { EmptyState, LoadingState, NullCell, UrlIssueChips } from "./registryUi";
 import type { RegistrySectionProps } from "./registryTypes";
 import type { PoolViewModel } from "../runtimeTopology";
 import { urlIssuesForView } from "../marketUrlState";
@@ -298,9 +299,9 @@ function ProjectBindingRow({ binding }: { binding: ProjectBinding }): ReactNode 
   return (
     <TableRow>
       <TableCell>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-1">
           <span className="font-medium">{binding.project_name}</span>
-          <ShortCopyableId value={binding.project_id} label="项目 ID" />
+          <CopyValueButton value={binding.project_id} kind="id" label="复制项目 ID" />
         </div>
       </TableCell>
       <TableCell>
@@ -350,9 +351,9 @@ function PoolBindingRow({ binding }: { binding: PoolBinding }): ReactNode {
   return (
     <TableRow>
       <TableCell>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-1">
           <span className="font-medium">{binding.pool.name}</span>
-          <ShortCopyableId value={binding.pool.id} label="服务池 ID" />
+          <CopyValueButton value={binding.pool.id} kind="id" label="复制服务池 ID" />
         </div>
       </TableCell>
       <TableCell>

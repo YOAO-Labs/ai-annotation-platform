@@ -7,6 +7,7 @@ import {
 } from "@/api/trainingStudies";
 import type { TrainingParameterSchema } from "@/api/generated/types.gen";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { trainingInputClass } from "./TrainingParameterField";
 import { useTrainingViewOwner } from "./trainingViewOwner";
 
@@ -265,14 +266,14 @@ export function TrainingStudyCreate({
                 <p className="break-words">
                   {trial.ordinal}. {JSON.stringify(trial.values)}
                 </p>
-                <p className="mt-1 break-all font-mono text-2xs text-muted-foreground">
-                  配置 SHA256 {trial.config_digest}
+                <p className="mt-1 flex items-center gap-1 text-2xs text-muted-foreground">
+                  配置摘要 <CopyValueButton value={trial.config_digest} label="复制试验配置摘要" />
                 </p>
               </li>
             ))}
           </ol>
-          <p className="mt-2 break-all font-mono text-2xs text-muted-foreground">
-            计划 SHA256 {reviewed.preview_digest}
+          <p className="mt-2 flex items-center gap-1 text-2xs text-muted-foreground">
+            计划摘要 <CopyValueButton value={reviewed.preview_digest} label="复制搜索计划摘要" />
           </p>
         </div>
       )}

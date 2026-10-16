@@ -7,6 +7,7 @@ import { trainedModelsApi } from "@/api/trainedModels";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { useAuthStore } from "@/stores/authStore";
 import { trainingInputClass } from "./TrainingParameterField";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
@@ -173,6 +174,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     numericValid &&
     (role !== "held_out_test" || confirmed);
   const error = models.error ?? model.error ?? datasets.error ?? dataset.error ?? samples.error;
+  const readyDeployments = model.data?.deployments.filter((item) => item.status === "ready") ?? [];
+  const selectedDeployment = model.data?.deployments.find((item) => item.id === deploymentId);
   return (
     <PageContainer>
       <Link
@@ -201,32 +204,40 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               <h2 id="evaluation-candidate" className="mb-4 text-sm font-semibold">
                 1. 候选与运行环境
               </h2>
-              <label className="block space-y-1 text-xs">
-                已注册模型
-                <select
-                  className={trainingInputClass}
-                  value={modelId}
-                  onChange={(e) => {
-                    setModelId(e.target.value);
-                    setDeploymentId("");
-                  }}
-                >
-                  <option value="">选择候选模型</option>
-                  {modelId && !models.data?.items.some((item) => item.id === modelId) && (
-                    <option value={modelId}>{model.data?.model.name ?? modelId}</option>
+              <div className="space-y-1 text-xs">
+                <label htmlFor="evaluation-model">已注册模型</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    id="evaluation-model"
+                    className={`${trainingInputClass} min-w-0 flex-1`}
+                    value={modelId}
+                    onChange={(e) => {
+                      setModelId(e.target.value);
+                      setDeploymentId("");
+                    }}
+                  >
+                    <option value="">选择候选模型</option>
+                    {modelId && !models.data?.items.some((item) => item.id === modelId) && (
+                      <option value={modelId}>
+                        {model.data?.model.name ?? "已选候选模型（暂不可用）"}
+                      </option>
+                    )}
+                    {models.data?.items.map((item) => (
+                      <option
+                        key={item.id}
+                        value={item.id}
+                        disabled={item.framework !== "ultralytics"}
+                      >
+                        {item.name} · {item.framework}
+                        {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {modelId && (
+                    <CopyValueButton value={modelId} kind="id" label="复制候选模型版本 ID" />
                   )}
-                  {models.data?.items.map((item) => (
-                    <option
-                      key={item.id}
-                      value={item.id}
-                      disabled={item.framework !== "ultralytics"}
-                    >
-                      {item.name} · {item.framework}
-                      {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                </div>
+              </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 共享样本评估当前仅支持 Ultralytics。LibreYOLO 可在模型面板试用、人工发布与回滚。
               </p>
@@ -236,29 +247,40 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                 onChange={setModelPage}
                 label="模型"
               />
-              <label className="mt-4 block space-y-1 text-xs">
-                已安装部署
-                <select
-                  className={trainingInputClass}
-                  value={deploymentId}
-                  onChange={(e) => setDeploymentId(e.target.value)}
-                  disabled={
-                    !model.data ||
-                    model.data.model.framework !== "ultralytics" ||
-                    !!model.error ||
-                    create.isPending
-                  }
-                >
-                  <option value="">选择就绪部署</option>
-                  {model.data?.deployments
-                    .filter((item) => item.status === "ready")
-                    .map((item) => (
+              <div className="mt-4 space-y-1 text-xs">
+                <label htmlFor="evaluation-deployment">已安装部署</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    id="evaluation-deployment"
+                    className={`${trainingInputClass} min-w-0 flex-1`}
+                    value={deploymentId}
+                    onChange={(e) => setDeploymentId(e.target.value)}
+                    disabled={
+                      !model.data ||
+                      model.data.model.framework !== "ultralytics" ||
+                      !!model.error ||
+                      create.isPending
+                    }
+                  >
+                    <option value="">选择就绪部署</option>
+                    {readyDeployments.map((item, index) => (
                       <option key={item.id} value={item.id}>
-                        {item.id.slice(0, 8)} · 后端 {item.registry_id.slice(0, 8)}
+                        部署 {index + 1} · 就绪
                       </option>
                     ))}
-                </select>
-              </label>
+                  </select>
+                  {deploymentId && (
+                    <CopyValueButton value={deploymentId} kind="id" label="复制已选部署 ID" />
+                  )}
+                  {selectedDeployment?.registry_id && (
+                    <CopyValueButton
+                      value={selectedDeployment.registry_id}
+                      kind="id"
+                      label="复制推理后端 ID"
+                    />
+                  )}
+                </div>
+              </div>
               {model.data && !model.data.deployments.some((item) => item.status === "ready") && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   请先在项目模型面板安装并试用这个候选。
@@ -368,30 +390,38 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                 已选 {selected.length} / 32
               </span>
             </div>
-            <label className="block max-w-xl space-y-1 text-xs">
-              就绪数据版本
-              <select
-                className={trainingInputClass}
-                value={datasetId}
-                onChange={(e) => {
-                  setDatasetId(e.target.value);
-                  setSelected([]);
-                  setSamplePage(0);
-                }}
-              >
-                <option value="">选择冻结数据版本</option>
-                {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
-                  <option value={datasetId}>{dataset.data?.name ?? datasetId}</option>
-                )}
-                {datasets.data?.items
-                  .filter((item) => (item.task ?? "detect") === "detect")
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
+            <div className="max-w-xl space-y-1 text-xs">
+              <label htmlFor="evaluation-dataset">就绪数据版本</label>
+              <div className="flex items-center gap-2">
+                <select
+                  id="evaluation-dataset"
+                  className={`${trainingInputClass} min-w-0 flex-1`}
+                  value={datasetId}
+                  onChange={(e) => {
+                    setDatasetId(e.target.value);
+                    setSelected([]);
+                    setSamplePage(0);
+                  }}
+                >
+                  <option value="">选择冻结数据版本</option>
+                  {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
+                    <option value={datasetId}>
+                      {dataset.data?.name ?? "已选数据版本（暂不可用）"}
                     </option>
-                  ))}
-              </select>
-            </label>
+                  )}
+                  {datasets.data?.items
+                    .filter((item) => (item.task ?? "detect") === "detect")
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                </select>
+                {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
+                  <CopyValueButton value={datasetId} kind="id" label="复制已选数据版本 ID" />
+                )}
+              </div>
+            </div>
             <PickerPage
               page={datasetPage}
               total={datasets.data?.total ?? 0}
@@ -406,7 +436,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
             {samples.data && !samples.error && (
               <>
                 <div className="mt-4 divide-y divide-border">
-                  {samples.data.items.map((item) => {
+                  {samples.data.items.map((item, index) => {
                     const checked = selected.includes(item.task_id);
                     const unsupported =
                       !item.included ||
@@ -419,33 +449,43 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                       (item.size_bytes ?? Infinity) > 16 * 1024 * 1024 ||
                       (item.width ?? Infinity) * (item.height ?? Infinity) > 16000000;
                     return (
-                      <label key={item.task_id} className="flex items-start gap-3 py-3 text-xs">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5"
-                          checked={checked}
-                          disabled={
-                            unsupported || (!checked && selected.length >= 32) || create.isPending
-                          }
-                          onChange={() =>
-                            setSelected((old) =>
-                              checked
-                                ? old.filter((id) => id !== item.task_id)
-                                : [...old, item.task_id],
-                            )
-                          }
-                        />
-                        <span className="min-w-0">
-                          <span className="block break-all font-mono">{item.task_id}</span>
-                          <span className="mt-1 block text-muted-foreground">
-                            {item.width ?? "?"} × {item.height ?? "?"} · {item.instances ?? "?"}{" "}
-                            个真值{item.is_negative ? " · 冻结负样本" : ""}
-                            {unsupported
-                              ? ` · 不支持：${item.issue ?? "成员或预算不符合要求"}`
-                              : ""}
+                      <div key={item.task_id} className="flex items-start gap-3 py-3 text-xs">
+                        <label className="flex min-w-0 flex-1 items-start gap-3">
+                          <input
+                            aria-label={`选择验证成员 ${samplePage * 12 + index + 1}（${item.width ?? "?"} × ${item.height ?? "?"}）`}
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={checked}
+                            disabled={
+                              unsupported || (!checked && selected.length >= 32) || create.isPending
+                            }
+                            onChange={() =>
+                              setSelected((old) =>
+                                checked
+                                  ? old.filter((id) => id !== item.task_id)
+                                  : [...old, item.task_id],
+                              )
+                            }
+                          />
+                          <span className="min-w-0">
+                            <span className="block font-medium">
+                              样本 {samplePage * 12 + index + 1}
+                            </span>
+                            <span className="block text-muted-foreground">
+                              {item.width ?? "?"} × {item.height ?? "?"} · {item.instances ?? "?"}{" "}
+                              个真值{item.is_negative ? " · 冻结负样本" : ""}
+                              {unsupported
+                                ? ` · 不支持：${item.issue ?? "成员或预算不符合要求"}`
+                                : ""}
+                            </span>
                           </span>
-                        </span>
-                      </label>
+                        </label>
+                        <CopyValueButton
+                          value={item.task_id}
+                          kind="id"
+                          label="复制验证成员任务 ID"
+                        />
+                      </div>
                     );
                   })}
                 </div>

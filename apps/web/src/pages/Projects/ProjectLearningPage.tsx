@@ -15,6 +15,7 @@ import {
 import { useProject } from "@/hooks/useProjects";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectTrainingDataVersions } from "./ProjectTrainingDataVersions";
@@ -826,9 +827,12 @@ function ProjectLearningContent({
                   )}
                   {diagnostics.data?.items.map((item) => (
                     <div key={item.id} className="rounded-md bg-muted p-3">
-                      <p className="font-medium">{item.name}</p>
+                      <p className="flex min-w-0 items-center gap-1 font-medium">
+                        <span>{item.name}</span>
+                        <CopyValueButton value={item.id} kind="id" label="复制历史数据版本 ID" />
+                      </p>
                       <p className="mt-1 break-all text-muted-foreground">
-                        {item.id} · {item.raw_task ?? "任务缺失或非字符串"} · {item.reason}
+                        {item.raw_task ?? "任务缺失或非字符串"} · {item.reason}
                       </p>
                     </div>
                   ))}
@@ -1272,7 +1276,16 @@ function ProjectLearningContent({
                   {report.issues.map((issue, index) => (
                     <p className="mt-2 text-status-danger" key={index}>
                       {String(issue.message ?? issue.code)}
-                      {issue.task_id ? `（${issue.task_id}）` : ""}
+                      {typeof issue.task_id === "string" && issue.task_id && (
+                        <span className="ml-1 inline-flex items-center gap-1">
+                          任务
+                          <CopyValueButton
+                            value={issue.task_id}
+                            kind="id"
+                            label="复制问题任务 ID"
+                          />
+                        </span>
+                      )}
                     </p>
                   ))}
                   {report.excluded.length > 0 && (
@@ -1281,8 +1294,13 @@ function ProjectLearningContent({
                       <ul className="mt-2 space-y-1">
                         {report.excluded.map((item, index) => (
                           <li key={index}>
-                            任务 {String(item.task_id).slice(0, 8)}：
-                            {exclusionReasons[String(item.code)] ?? "不符合当前数据条件"}
+                            任务 {index + 1}
+                            <CopyValueButton
+                              value={String(item.task_id)}
+                              kind="id"
+                              label="复制排除样本任务 ID"
+                            />
+                            ：{exclusionReasons[String(item.code)] ?? "不符合当前数据条件"}
                           </li>
                         ))}
                       </ul>

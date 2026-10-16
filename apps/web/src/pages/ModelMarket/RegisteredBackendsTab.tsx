@@ -252,7 +252,7 @@ export function RegisteredBackendsTab(): ReactNode {
   );
 
   return (
-    // TooltipProvider: several descendants (CopyableId, FreshnessIndicator,
+    // TooltipProvider: several descendants (CopyValueButton, FreshnessIndicator,
     // SourceErrorBadge) use Radix Tooltip, which requires a provider ancestor.
     <TooltipProvider>
       <div className="flex flex-col gap-3">

@@ -60,16 +60,11 @@ import {
 } from "@/components/shadcn/ui/select";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { useToastStore } from "@/components/ui/Toast";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
 import { NO_LIMIT, NO_METRICS } from "./registryShared";
 import { CapabilityDriftReviewDialog } from "./CapabilityDriftReviewDialog";
-import {
-  AffectedCountChip,
-  EmptyState,
-  NullCell,
-  ShortCopyableId,
-  UrlIssueChips,
-} from "./registryUi";
+import { AffectedCountChip, EmptyState, NullCell, UrlIssueChips } from "./registryUi";
 import type { RegistryScope, RegistrySectionProps } from "./registryTypes";
 import type { PoolViewModel } from "../runtimeTopology";
 import { derivePoolEffectiveRouting, sortPoolsBySeverity } from "../runtimeTopology";
@@ -456,6 +451,7 @@ function PoolRow({
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <span className="font-medium">{pool.name}</span>
+              <CopyValueButton value={pool.id} kind="id" label="复制服务池 ID" />
               {pool.enabled ? null : (
                 <Badge variant="outline" className="text-2xs">
                   已停用
@@ -464,7 +460,6 @@ function PoolRow({
               {affectedCount > 0 && <AffectedCountChip count={affectedCount} />}
             </div>
             <div className="flex items-center gap-2">
-              <ShortCopyableId value={pool.id} label="服务池 ID" />
               {/* routing_policy: Super Admin only; Project Admin server-projection is "unknown". */}
               {isSuperAdmin && (
                 <span className="text-2xs text-muted-foreground">
@@ -593,14 +588,16 @@ function PoolMembersSubRows({
           <TableCell />
           <TableCell colSpan={scope.isSuperAdmin ? 7 : 5}>
             <div className="flex flex-wrap items-center gap-3 py-1 text-xs">
-              <span className="font-medium">{m.name}</span>
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <span className="font-medium">{m.name}</span>
+                <CopyValueButton value={m.registry_id} kind="id" label="复制实例 ID" />
+              </span>
               <Badge variant="outline" className="text-2xs">
                 {trafficStateLabel(m.traffic_state)}
               </Badge>
               <span className="text-muted-foreground">
                 权重 {scope.isSuperAdmin && m.weight != null ? m.weight : "—"}
               </span>
-              <ShortCopyableId value={m.registry_id} label="实例 ID" />
               {m.gpu_resource_id && scope.isSuperAdmin && (
                 <span className="mono text-2xs text-muted-foreground" title={m.gpu_resource_id}>
                   GPU · {m.gpu_resource_id}

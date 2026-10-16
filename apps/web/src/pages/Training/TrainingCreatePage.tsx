@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import type { ProjectLearningOutletContext } from "../Projects/ProjectLearningPage";
 import { datasetParentReason } from "../Projects/datasetCompatibility";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
@@ -1323,8 +1324,9 @@ function TrainingCreateContent({
             {!sameValues(collected.values, draft.source.userValues) ? " · 已修改参数" : ""}
           </p>
           <TrainingRecipeStatus projectId={projectId} origin={draft.source.reference} />
-          <p className="mt-2 break-all text-muted-foreground">
-            原始基础权重 SHA256：{draft.source.baseSha256}
+          <p className="mt-2 flex items-center gap-1 text-muted-foreground">
+            原始基础权重摘要{" "}
+            <CopyValueButton value={draft.source.baseSha256} label="复制原始基础权重哈希" />
           </p>
           {!sourceCurrent && (
             <p role="alert" className="mt-2 text-status-danger">
@@ -1750,9 +1752,7 @@ function TrainingCreateContent({
               [
                 "初始化",
                 draft.initialization?.kind === "trained_model"
-                  ? (initialization.source.data?.pin?.model_name ??
-                    draft.initialization.model_version_id ??
-                    "来源待核验")
+                  ? (initialization.source.data?.pin?.model_name ?? "所选候选模型")
                   : "受控目录基础权重",
               ],
               ["参数覆盖", `${Object.keys(draft.fields).length} 项`],
@@ -1760,7 +1760,16 @@ function TrainingCreateContent({
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-muted-foreground">{label}</dt>
-                <dd className="mt-1 break-words font-medium">{value}</dd>
+                <dd className="mt-1 flex min-w-0 items-center gap-1 font-medium">
+                  <span className="min-w-0 break-words">{value}</span>
+                  {label === "初始化" && draft.initialization?.kind === "trained_model" && (
+                    <CopyValueButton
+                      value={draft.initialization.model_version_id}
+                      kind="id"
+                      label="复制初始化模型版本 ID"
+                    />
+                  )}
+                </dd>
               </div>
             ))}
           </dl>
@@ -1826,16 +1835,27 @@ function TrainingCreateContent({
         {datasetHandoff && (
           <>
             <p className="text-sm font-medium">{datasetHandoff.dataset.name}</p>
-            <p className="mt-2 break-all text-xs text-muted-foreground">
-              冻结版本 {datasetHandoff.dataset.id} ·{" "}
-              {trainingTaskLabel(datasetHandoff.dataset.task)}
+            <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+              冻结数据版本{" "}
+              <CopyValueButton
+                value={datasetHandoff.dataset.id}
+                kind="id"
+                label="复制冻结数据版本 ID"
+              />{" "}
+              · {trainingTaskLabel(datasetHandoff.dataset.task)}
             </p>
             <p className="mt-3 text-xs">
               训练器：{datasetHandoff.schema.framework} / {datasetHandoff.baseModel}
             </p>
             {datasetHandoff.snapshot.datasetId && (
-              <p className="mt-2 break-all text-xs text-muted-foreground">
-                将替换当前草稿的数据版本 {datasetHandoff.snapshot.datasetId}。
+              <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                将替换当前草稿的数据版本{" "}
+                <CopyValueButton
+                  value={datasetHandoff.snapshot.datasetId}
+                  kind="id"
+                  label="复制当前草稿数据版本 ID"
+                />
+                。
               </p>
             )}
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
@@ -1946,9 +1966,19 @@ function TrainingCreateContent({
               </p>
             ))}
             {importPreview.initialization && (
-              <p className="mt-3 break-all text-xs text-status-caution">
-                文件将初始化来源改为项目候选 {importPreview.initialization.model_version_id}，摘要{" "}
-                {importPreview.initialization.source_digest}。应用后须重新核验当前项目的来源资格。
+              <p className="mt-3 flex flex-wrap items-center gap-1 text-xs text-status-caution">
+                文件将初始化来源改为项目候选{" "}
+                <CopyValueButton
+                  value={importPreview.initialization.model_version_id}
+                  kind="id"
+                  label="复制导入候选模型版本 ID"
+                />
+                ，摘要
+                <CopyValueButton
+                  value={importPreview.initialization.source_digest}
+                  label="复制导入初始化摘要"
+                />
+                。应用后须重新核验当前项目的来源资格。
               </p>
             )}
             <div className="mt-4 divide-y divide-border">

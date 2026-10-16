@@ -9,6 +9,7 @@ import {
 } from "@/api/sampleEvaluations";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { lineageReturn } from "@/api/modelLineage";
@@ -403,39 +404,60 @@ function EvaluationContent({
                       {run.spec.nms_iou}
                     </dd>
                   </div>
-                  <div>
+                  <div className="flex items-center gap-1">
                     <dt className="text-muted-foreground">候选版本</dt>
-                    <dd className="mt-1 break-all font-mono">{run.model_version_id}</dd>
+                    <dd>
+                      <CopyValueButton
+                        value={run.model_version_id}
+                        kind="id"
+                        label="复制候选模型版本 ID"
+                      />
+                    </dd>
                   </div>
-                  <div>
+                  <div className="flex items-center gap-1">
                     <dt className="text-muted-foreground">冻结数据版本</dt>
-                    <dd className="mt-1 break-all font-mono">{run.dataset_id}</dd>
+                    <dd>
+                      <CopyValueButton
+                        value={run.dataset_id}
+                        kind="id"
+                        label="复制冻结数据版本 ID"
+                      />
+                    </dd>
                   </div>
                 </dl>
-                <label className="mt-4 block max-w-xl space-y-1 text-xs">
-                  查看执行尝试
-                  <select
-                    className={trainingInputClass}
-                    value={state.attemptId ?? ""}
-                    onChange={(e) =>
-                      update({ attempt: e.target.value, sample: undefined, page: undefined })
-                    }
-                  >
-                    <option value="" disabled>
-                      选择执行尝试
-                    </option>
-                    {state.attemptId && !attempt && (
-                      <option value={state.attemptId}>链接中的尝试不存在</option>
-                    )}
-                    {run.attempts.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        第 {item.ordinal} 次 · {evaluationStatus[item.status]} ·{" "}
-                        {item.id.slice(0, 8)}
-                        {item.id === run.current_attempt_id ? " · 当前" : ""}
+                <div className="mt-4 max-w-xl space-y-1 text-xs">
+                  <label htmlFor="evaluation-attempt">查看执行尝试</label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      id="evaluation-attempt"
+                      className={`${trainingInputClass} min-w-0 flex-1`}
+                      value={state.attemptId ?? ""}
+                      onChange={(e) =>
+                        update({ attempt: e.target.value, sample: undefined, page: undefined })
+                      }
+                    >
+                      <option value="" disabled>
+                        选择执行尝试
                       </option>
-                    ))}
-                  </select>
-                </label>
+                      {state.attemptId && !attempt && (
+                        <option value={state.attemptId}>链接中的尝试不存在</option>
+                      )}
+                      {run.attempts.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          第 {item.ordinal} 次 · {evaluationStatus[item.status]}
+                          {item.id === run.current_attempt_id ? " · 当前" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {state.attemptId && (
+                      <CopyValueButton
+                        value={state.attemptId}
+                        kind="id"
+                        label="复制所选执行尝试 ID"
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
               {mutation.error && mutation.error.name !== "AbortError" && (
                 <p role="alert" className="mt-3 text-sm text-status-danger">
@@ -586,13 +608,22 @@ function EvaluationContent({
               </section>
               <details className="mt-5 rounded-lg border border-border p-4 text-xs">
                 <summary className="cursor-pointer font-medium">冻结基准与评估身份</summary>
-                <dl className="mt-3 space-y-2 break-all text-muted-foreground">
+                <dl className="mt-3 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-muted-foreground">
                   <dt>权重 SHA256</dt>
-                  <dd>{String(run.spec.model_ref.sha256)}</dd>
+                  <dd>
+                    <CopyValueButton
+                      value={String(run.spec.model_ref.sha256 ?? "")}
+                      label="复制评估权重哈希"
+                    />
+                  </dd>
                   <dt>基准摘要</dt>
-                  <dd>{run.benchmark_digest}</dd>
+                  <dd>
+                    <CopyValueButton value={run.benchmark_digest} label="复制评估基准摘要" />
+                  </dd>
                   <dt>评估设置摘要</dt>
-                  <dd>{run.spec_digest}</dd>
+                  <dd>
+                    <CopyValueButton value={run.spec_digest} label="复制评估设置摘要" />
+                  </dd>
                   <dt>推理环境</dt>
                   <dd>
                     Ultralytics {run.spec.profile.ultralytics_version} ·{" "}

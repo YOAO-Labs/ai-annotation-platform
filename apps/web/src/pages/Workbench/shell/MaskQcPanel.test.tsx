@@ -4,6 +4,9 @@ import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import type { MaskQcIssue } from "@/api/maskQc";
 import type { MaskQcTrackerCandidate } from "../state/useMaskQcReview";
 import type { FeedbackAnchorPosition } from "@/api/feedbacks";
+import { copyToClipboard } from "@/lib/clipboard";
+
+vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn().mockResolvedValue(true) }));
 
 /** 结算当前排队的 decisionDialog,模拟用户点下某个按钮。 */
 function settleDecisionDialog(value: boolean | string | null) {
@@ -97,7 +100,7 @@ const trackerCandidate: MaskQcTrackerCandidate = {
   frameIndex: 3,
   annotationId: "annotation-1",
   instanceId: "a",
-  label: "SAM2 · r4 · 实例 a",
+  label: "SAM2 · r4",
 };
 
 function props(overrides: Partial<MaskQcPanelProps> = {}): MaskQcPanelProps {
@@ -253,7 +256,26 @@ describe("MaskQcPanel", () => {
     expect(onSetTrackerCandidate).toHaveBeenCalledWith(trackerCandidate);
   });
 
-  it("刷新后展示 digest 匹配的区域评论，并让 stale 问题保持只读", () => {
+  it("候选保留序号和帧号，复制完整哈希不会改变选择", async () => {
+    const onSetTrackerCandidate = vi.fn();
+    const digest = "a".repeat(64);
+    render(
+      <MaskQcPanel
+        {...props({
+          baseline: "tracker_candidate",
+          trackerCandidates: [{ ...trackerCandidate, digest }],
+          onSetTrackerCandidate,
+        })}
+      />,
+    );
+    expect(screen.getByRole("option", { name: "候选 1 · SAM2 · r4 · F3" })).toBeInTheDocument();
+    expect(screen.queryByText(digest)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制 Tracker 候选哈希" }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(digest));
+    expect(onSetTrackerCandidate).not.toHaveBeenCalled();
+  });
+
+  it("刷新后可复制完整区域哈希，并让 stale 问题保持只读", async () => {
     render(
       <MaskQcPanel
         {...props({
@@ -262,7 +284,9 @@ describe("MaskQcPanel", () => {
       />,
     );
     expect(screen.getByText("边界需要复核")).toBeTruthy();
-    expect(screen.getByText("boundary-dig")).toBeTruthy();
+    expect(screen.queryByText("boundary-dig")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制反馈区域哈希" }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith("boundary-digest"));
     expect(screen.getByPlaceholderText("旧版本问题仅可查看")).toBeDisabled();
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
   });

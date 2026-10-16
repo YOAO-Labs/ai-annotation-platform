@@ -9,6 +9,7 @@ import {
   type SampleEvaluationOut,
 } from "@/api/sampleEvaluations";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { trainingInputClass } from "./TrainingParameterField";
 import {
@@ -185,8 +186,8 @@ export function SampleEvaluationGallery({
                           ? "失败"
                           : "未完成"}
                     </span>
-                    <span className="mt-1 block break-all font-mono text-muted-foreground">
-                      {sample.task_id.slice(0, 8)} · {sample.width} × {sample.height}
+                    <span className="mt-1 block tabular-nums text-muted-foreground">
+                      {sample.width} × {sample.height}
                     </span>
                   </button>
                 ))}
@@ -213,11 +214,9 @@ export function SampleEvaluationGallery({
           {selected && (
             <>
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-1">
                   <h3 className="text-sm font-semibold">样本 {selected.ordinal + 1}</h3>
-                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                    {selected.task_id}
-                  </p>
+                  <CopyValueButton value={selected.task_id} kind="id" label="复制样本任务 ID" />
                 </div>
                 <Button ref={sourceTrigger} size="sm" onClick={() => setSourceOpen(true)}>
                   <ExternalLink className="size-3.5" />
@@ -244,15 +243,35 @@ export function SampleEvaluationGallery({
               )}
               <details className="mt-4 text-xs text-muted-foreground">
                 <summary className="cursor-pointer">冻结成员身份与执行来源</summary>
-                <dl className="mt-2 space-y-2 break-all">
+                <dl className="mt-2 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-2 gap-y-2">
                   <dt>原图 SHA256</dt>
-                  <dd>{selected.sha256}</dd>
+                  <dd>
+                    <CopyValueButton value={selected.sha256} label="复制原图哈希" />
+                  </dd>
                   <dt>标签 SHA256</dt>
-                  <dd>{selected.label_sha256}</dd>
+                  <dd>
+                    <CopyValueButton value={selected.label_sha256} label="复制标签哈希" />
+                  </dd>
                   <dt>归一化图片 SHA256</dt>
-                  <dd>{selected.derived_sha256 ?? "尚未生成"}</dd>
+                  <dd>
+                    {selected.derived_sha256 ? (
+                      <CopyValueButton value={selected.derived_sha256} label="复制归一化图片哈希" />
+                    ) : (
+                      "尚未生成"
+                    )}
+                  </dd>
                   <dt>证据产生于尝试</dt>
-                  <dd>{selected.produced_attempt_id ?? "尚无证据"}</dd>
+                  <dd>
+                    {selected.produced_attempt_id ? (
+                      <CopyValueButton
+                        value={selected.produced_attempt_id}
+                        kind="id"
+                        label="复制证据执行尝试 ID"
+                      />
+                    ) : (
+                      "尚无证据"
+                    )}
+                  </dd>
                 </dl>
               </details>
               {sourceOpen && (

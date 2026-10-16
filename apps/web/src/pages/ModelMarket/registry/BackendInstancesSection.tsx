@@ -55,10 +55,11 @@ import { ScrollArea } from "@/components/shadcn/ui/scroll-area";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
 import { Input } from "@/components/shadcn/ui/input";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
 import type { GlobalBackendItem } from "@/api/adminMlIntegrations";
 import { formatDateTime, gpuClaimOf, NO_LIMIT, registryStateToHealthAxis } from "./registryShared";
-import { EmptyState, LoadingState, NullCell, ShortCopyableId, UrlIssueChips } from "./registryUi";
+import { EmptyState, LoadingState, NullCell, UrlIssueChips } from "./registryUi";
 import { CapabilityDriftReviewDialog } from "./CapabilityDriftReviewDialog";
 import type { RegistryScope, RegistrySectionProps } from "./registryTypes";
 import type { MemberViewModel } from "../runtimeTopology";
@@ -344,6 +345,7 @@ function InstanceRow({
             <span className="truncate font-medium" title={backend.name}>
               {backend.name}
             </span>
+            <CopyValueButton value={backend.id} kind="id" label="复制实例 ID" />
             <Badge variant="outline" className="shrink-0 text-2xs text-muted-foreground">
               {backend.source_project_name || "env"}
             </Badge>
@@ -354,14 +356,13 @@ function InstanceRow({
           >
             {backend.url}
           </span>
-          <ShortCopyableId value={backend.id} label="实例 ID" />
         </div>
       </TableCell>
       <TableCell>
         {poolInfo?.poolId ? (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1">
             <span className="text-sm">{poolInfo.poolName}</span>
-            <ShortCopyableId value={poolInfo.poolId} label="服务池 ID" />
+            <CopyValueButton value={poolInfo.poolId} kind="id" label="复制服务池 ID" />
           </div>
         ) : (
           <NullCell>未纳管</NullCell>
@@ -790,7 +791,7 @@ function DetailBody({
       <div className="flex flex-col gap-4 px-4 pb-8 text-sm">
         <DetailSection title="基本">
           <DetailRow label="实例 ID">
-            <span className="mono text-xs">{backend.id}</span>
+            <CopyValueButton value={backend.id} kind="id" label="复制实例 ID" />
           </DetailRow>
           <DetailRow label="URL">
             <span className="mono text-xs">{backend.url}</span>
@@ -805,9 +806,7 @@ function DetailBody({
             {poolInfo ? (
               <span className="text-xs">
                 {poolInfo.poolName}
-                <span className="mono ml-1.5 text-2xs text-muted-foreground">
-                  {poolInfo.poolId}
-                </span>
+                <CopyValueButton value={poolInfo.poolId} kind="id" label="复制服务池 ID" />
               </span>
             ) : (
               <span className="text-xs text-muted-foreground">未纳管</span>

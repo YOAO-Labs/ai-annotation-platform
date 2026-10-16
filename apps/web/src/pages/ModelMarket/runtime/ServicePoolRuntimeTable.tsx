@@ -15,6 +15,7 @@ import { ChevronDown, ChevronRight, Server } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import {
   Empty,
   EmptyDescription,
@@ -23,7 +24,6 @@ import {
   EmptyTitle,
 } from "@/components/shadcn/ui/empty";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/shadcn/ui/tooltip";
 import type { GlobalBackendItem, ObserveTarget } from "@/api/adminMlIntegrations";
 import {
   NO_METRICS_LABEL,
@@ -42,7 +42,6 @@ import {
   parseResidency,
   residencyStateToAxis,
 } from "./parseResidency";
-import { formatShortId } from "../registry/registryShared";
 
 /** Per-member lookups the orchestrator pre-computes from /all + /observe. */
 export interface MemberLookups {
@@ -234,16 +233,9 @@ function PoolRuntimeCard({
           />
           <div className="flex min-w-0 items-center gap-1.5">
             <h4 className="truncate text-sm font-semibold tracking-tight">{pool.name}</h4>
+            <CopyValueButton value={pool.id} kind="id" label="复制服务池 ID" />
             {!pool.enabled && <Badge variant="outline">已停用</Badge>}
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="mono cursor-pointer text-2xs text-muted-foreground hover:text-foreground">
-                {formatShortId(pool.id)}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{pool.id}</TooltipContent>
-          </Tooltip>
           <span className="text-2xs text-muted-foreground">{pool.routing_policy}</span>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             <RuntimeStatusBadge axis="health" value={pool.status} />

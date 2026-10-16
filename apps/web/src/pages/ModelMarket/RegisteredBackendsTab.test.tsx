@@ -424,9 +424,15 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(screen.getByRole("tab", { name: /问题中心/ })).toBeInTheDocument();
     });
 
-    it("服务池行展示策略、ID、可路由/总实例、操作菜单", async () => {
+    it("服务池行隐藏 ID 文本并可复制完整值，不展开成员", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       renderUI();
       await screen.findByText("grounded-sam2-pool");
+      expect(screen.queryByText("pool-1", { exact: true })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "复制服务池 ID" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("pool-1"));
+      expect(screen.queryByText("grounded-sam2", { exact: true })).not.toBeInTheDocument();
       // routing_policy 超管可见
       expect(screen.getByText(/平滑加权轮询/)).toBeInTheDocument();
       // 操作按钮
@@ -434,6 +440,8 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
     });
 
     it("实例 tab 渲染实例行 + 详情/操作按钮，GPU claim 收敛进摘要列（plan §4.3）", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       mockListAll.mockResolvedValue({ items: [makeBackend()] });
       renderUI();
       // 切到实例 tab（Radix Tabs 用 pointerdown 切换）
@@ -441,6 +449,10 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       await screen.findByText("grounded-sam2");
       // URL 收进名称副行，完整值仍可通过 title 查看
       expect(screen.getByTitle("http://172.17.0.1:8001")).toBeInTheDocument();
+      expect(screen.queryByText("bk-1", { exact: true })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "复制实例 ID" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("bk-1"));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       // GPU claim 摘要列显示完整资源 ID（带 GPU 前缀），title 带预算
       expect(screen.getByText("GPU node-a/index:0")).toBeInTheDocument();
       expect(screen.getByTitle(/node-a\/index:0 · 8192 MiB/)).toBeInTheDocument();
@@ -462,6 +474,8 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
     });
 
     it("GPU 资源 tab 渲染资源行 + 两根独立 Progress 条（静态 vs 运行时）", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       mockGpuResources.mockResolvedValue(makeGpuResources([makeGpuResource()]));
       renderUI();
       await switchTab(/GPU 资源/);
@@ -470,11 +484,14 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(within(summary).getByText("全局期望模式")).toBeInTheDocument();
       expect(within(summary).getByText("Observe 就绪")).toBeInTheDocument();
       expect(within(summary).getByText("Enforce 未就绪")).toBeInTheDocument();
-      // 身份列显示设备序号 + 节点，完整资源 ID 折叠为短 ID（tooltip/复制保留全值）
+      // 身份列保留设备序号 + 节点；资源 ID 通过复制按钮提供完整值。
       expect(await screen.findByText("index:0")).toBeInTheDocument();
       expect(screen.getByText("节点 · node-a")).toBeInTheDocument();
       expect(screen.getByText("配置 · observe")).toBeInTheDocument();
-      expect(screen.getByTitle("node-a/index:0")).toBeInTheDocument();
+      expect(screen.queryByText("node-a/index:0", { exact: true })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "复制 GPU 资源 ID" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("node-a/index:0"));
+      expect(screen.getByRole("button", { name: /展开受影响实例/ })).toBeInTheDocument();
       expect(screen.getByText(/1 个 backend/)).toBeInTheDocument();
       // committed 运行时占用的数值
       expect(screen.getByText(/4,096 MiB/)).toBeInTheDocument();
@@ -655,6 +672,8 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
     });
 
     it("disabled 实例审核能力变更 → 预览差异并提交候选指纹", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       mockTopology.mockResolvedValue(
         makeTopology({
           pools: [
@@ -687,6 +706,10 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(await screen.findByText(/审核「grounded-sam2」能力变更/)).toBeInTheDocument();
       expect(screen.getByText("models")).toBeInTheDocument();
       expect(screen.getByText("supported_prompts")).toBeInTheDocument();
+      expect(screen.queryByText("b".repeat(64))).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "复制实例当前值哈希" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("b".repeat(64)));
+      expect(mockAcceptCapabilityMutate).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: /接受新能力并恢复接流/ }));
 
       expect(mockAcceptCapabilityMutate).toHaveBeenCalledWith(

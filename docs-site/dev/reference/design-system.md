@@ -102,6 +102,16 @@ Use semantic z utilities instead of raw numeric z-index classes:
 - Use shadcn/ui primitives from `apps/web/src/components/shadcn/ui/` for low-level behavior where possible.
 - Keep existing `@/components/ui/*` adapters only when they preserve the current app API; they should delegate to shadcn/Radix behavior or Tailwind classes internally.
 
+## Copy actions for technical identities
+
+Use `@/components/ui/CopyValueButton` for opaque hashes and internal IDs. Pass the original `value`, `kind="id"` for IDs (hash is the default), and a field-specific accessible `label`, such as `复制权重哈希`. The visible control is a compact copy icon; the Tooltip reads `复制哈希` or `复制 ID` on hover and keyboard focus. Touch pointers receive a larger target.
+
+The shared clipboard helper preserves the full value, including prefixes, and retains the legacy fallback with DOM cleanup and focus restoration. Success and failure use the existing toast adapter. Missing values render `—`; callers retain more specific empty-state wording when needed.
+
+Keep each copy action on the same row as its field label or object name, including narrow layouts. Pair definition-list labels and values with flex/grid, and group names with their actions before allowing a containing header to wrap.
+
+Keep names, business display IDs, versions, filenames and selection context visible. Copy actions are siblings of links, download buttons and checkbox labels; never put them inside another interactive control or a native option. The copy control stops activation events from reaching containing rows and never submits a form. Raw configuration, logs, exports and editable identity inputs keep their original values.
+
 ## Decision dialogs
 
 Blocking decisions — confirms, destructive actions, multi-choice steps, and required-reason input — use one shared capability: `@/components/ui/decisionDialog` (`confirmDialog` / `choiceDialog` / `inputDialog` / `alertDialog`), rendered by a single `<DecisionDialogHost />`. The host mounts next to both `ToastRack` sites in `App.tsx` so the full-screen Workbench routes are covered without `AppShell`. Content dialogs (forms, previews, multi-section panels) remain `components/ui/Modal`. `beforeunload` stays native because the browser requires that dialog to be synchronous.

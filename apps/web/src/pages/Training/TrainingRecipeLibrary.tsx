@@ -9,6 +9,7 @@ import {
   type TrainingReuseCandidate,
 } from "@/api/trainingRecipes";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { trainingInputClass } from "./TrainingParameterField";
@@ -81,10 +82,15 @@ export function TrainingRecipeStatus({
   });
   if (origin.kind === "clone")
     return (
-      <div className="mt-2 space-y-1 break-all text-xs text-muted-foreground">
-        <p>
-          来源实验：{origin.run_id}
-          {origin.attempt_id ? ` · 执行尝试：${origin.attempt_id}` : ""}
+      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-1">
+          来源实验 <CopyValueButton value={origin.run_id} kind="id" label="复制来源训练实验 ID" />
+          {origin.attempt_id && (
+            <>
+              · 执行尝试{" "}
+              <CopyValueButton value={origin.attempt_id} kind="id" label="复制来源执行尝试 ID" />
+            </>
+          )}
         </p>
         {clone.error && (
           <p role="alert" className="text-status-caution">

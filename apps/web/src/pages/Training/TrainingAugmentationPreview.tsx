@@ -10,6 +10,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { trainingInputClass } from "./TrainingParameterField";
 import {
   TrainingPreviewImage,
@@ -382,7 +383,7 @@ function PreviewContent({
           )}
           {report && output && result && (
             <div className="mt-4 space-y-4">
-              <div className="flex flex-wrap gap-3 text-xs">
+              <div className="flex flex-wrap items-end gap-3 text-xs">
                 <label>
                   输出图片
                   <select
@@ -401,22 +402,32 @@ function PreviewContent({
                     ))}
                   </select>
                 </label>
-                <label>
-                  原生使用的来源
-                  <select
-                    aria-label="查看原始来源"
-                    className={`${trainingInputClass} mt-1`}
-                    value={source?.task_id ?? ""}
-                    onChange={(event) => setSourceId(event.target.value)}
-                  >
-                    {usedSources.map((item) => (
-                      <option key={item.task_id} value={item.task_id}>
-                        {item.task_id.slice(0, 8)} · 取用{" "}
-                        {output.source_draws.filter((id) => id === item.task_id).length} 次
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div>
+                  <label htmlFor="augmentation-source">原生使用的来源</label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <select
+                      id="augmentation-source"
+                      aria-label="查看原始来源"
+                      className={`${trainingInputClass} min-w-0 flex-1`}
+                      value={source?.task_id ?? ""}
+                      onChange={(event) => setSourceId(event.target.value)}
+                    >
+                      {usedSources.map((item, index) => (
+                        <option key={item.task_id} value={item.task_id}>
+                          来源 {index + 1} · 取用{" "}
+                          {output.source_draws.filter((id) => id === item.task_id).length} 次
+                        </option>
+                      ))}
+                    </select>
+                    {source && (
+                      <CopyValueButton
+                        value={source.task_id}
+                        kind="id"
+                        label="复制原始来源任务 ID"
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="grid min-w-0 gap-3 lg:grid-cols-2">
                 {source && (
@@ -427,7 +438,7 @@ function PreviewContent({
                     datasetId={input.dataset_id}
                     previewId={result.id}
                     sourceId={source.task_id}
-                    title={`原始来源 ${source.task_id.slice(0, 8)}`}
+                    title={`原始来源 ${usedSources.findIndex((item) => item.task_id === source.task_id) + 1}`}
                     boxes={sourceBoxes}
                     classes={classes}
                   />
