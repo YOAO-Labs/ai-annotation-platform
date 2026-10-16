@@ -71,23 +71,31 @@ export async function runVideoTrackerRange(
   await dialog.getByTestId("tracker-direction-forward").click();
   await dialog.locator("#tracker-range-preset").selectOption("30");
   await dialog.getByTestId("tracker-output-geometry").selectOption("bbox");
-  const anchor = recordingAnchor(catalog, "video_demo", "tracking", "left_bus_f0", 0);
+  const anchors = [
+    recordingAnchor(catalog, "video_demo", "tracking", "left_bus_f0", 0),
+    recordingAnchor(catalog, "video_demo", "tracking", "right_bus_f0", 0),
+  ];
+  const anchor = anchors[0]!;
+  expect(anchors.every((target) => target.label === anchor.label)).toBe(true);
   await dialog.getByTestId("tracker-target-class").selectOption(anchor.label);
   await parkVideoPointer(page);
   await assertVideoTimelineVisible(page);
   await page.waitForTimeout(900);
 
   await page.getByTestId("tracker-seed-mode-box").click();
-  await dialog.getByTestId("tracker-seed-toggle").click();
   const media = await renderedMediaBounds(stage);
-  const targetBox = mediaBbox(media, anchor.bbox);
-  await page.mouse.move(targetBox.start.x, targetBox.start.y);
-  await page.mouse.down();
-  await movePointerAtRefreshRate(page, targetBox.start, targetBox.end, 700);
-  await page.mouse.up();
-  await page.waitForTimeout(650);
-  await expect(dialog.getByTestId("tracker-seed-target-1")).toContainText("1 框");
-  await dialog.getByTestId("tracker-seed-toggle").click();
+  for (const [index, target] of anchors.entries()) {
+    if (index > 0) await dialog.getByTestId("tracker-seed-new-target").click();
+    await dialog.getByTestId("tracker-seed-toggle").click();
+    const targetBox = mediaBbox(media, target.bbox);
+    await page.mouse.move(targetBox.start.x, targetBox.start.y);
+    await page.mouse.down();
+    await movePointerAtRefreshRate(page, targetBox.start, targetBox.end, 700);
+    await page.mouse.up();
+    await page.waitForTimeout(650);
+    await expect(dialog.getByTestId(`tracker-seed-target-${index + 1}`)).toContainText("1 框");
+    await dialog.getByTestId("tracker-seed-toggle").click();
+  }
   await parkVideoPointer(page);
   await page.waitForTimeout(700);
 
@@ -142,18 +150,26 @@ export async function runVideoTrackerRange(
     output_geometry: "bbox",
     target_class_name: anchor.label,
   });
-  expect(request.prompt.seeds).toHaveLength(1);
-  expect(request.prompt.seeds[0].prompts).toHaveLength(1);
-  expect(request.prompt.seeds[0].prompts[0]).toMatchObject({ frame_index: 0 });
-  const submittedSeed = request.prompt.seeds[0].prompts[0];
-  expect(submittedSeed.points ?? []).toEqual([]);
-  const expectedBox = {
-    x: anchor.bbox[0],
-    y: anchor.bbox[1],
-    w: anchor.bbox[2] - anchor.bbox[0],
-    h: anchor.bbox[3] - anchor.bbox[1],
-  };
-  expect(normalizedBboxIoU(submittedSeed.bbox, expectedBox)).toBeGreaterThan(0.95);
+  expect(request.prompt.seeds).toHaveLength(anchors.length);
+  const expectedBoxes = anchors.map((target) => ({
+    x: target.bbox[0],
+    y: target.bbox[1],
+    w: target.bbox[2] - target.bbox[0],
+    h: target.bbox[3] - target.bbox[1],
+  }));
+  for (const [index, target] of anchors.entries()) {
+    const submitted = request.prompt.seeds.find(
+      (seed: { obj_id: number }) => seed.obj_id === index + 1,
+    );
+    expect(submitted).toBeTruthy();
+    expect(submitted.prompts).toHaveLength(1);
+    expect(submitted.prompts[0]).toMatchObject({ frame_index: 0 });
+    expect(submitted.prompts[0].points ?? []).toEqual([]);
+    expect(normalizedBboxIoU(submitted.prompts[0].bbox, expectedBoxes[index]!)).toBeGreaterThan(
+      0.95,
+    );
+    expect(target.label).toBe(anchor.label);
+  }
   const preview = (await (await previewResponse).json()) as VideoTrackerJobPreview;
   expect(preview).toMatchObject({
     job_id: job.id,
@@ -161,7 +177,8 @@ export async function runVideoTrackerRange(
     to_frame: endFrame,
     output_geometry: "bbox",
   });
-  expect(preview.results.length).toBeGreaterThanOrEqual(endFrame + 1);
+  expect(preview.results.length).toBeGreaterThanOrEqual((endFrame + 1) * anchors.length);
+  expect(new Set(preview.results.map((result) => result.instance_id)).size).toBe(anchors.length);
   expect(
     preview.results.every((result) => result.frame_index >= 0 && result.frame_index <= endFrame),
   ).toBe(true);
@@ -207,26 +224,37 @@ export async function runVideoTrackerRange(
     from_frame: 0,
     to_frame: endFrame,
   });
-  expect(saved).toHaveLength(1);
-  const track = saved[0]!;
-  expect(track).toMatchObject({
-    task_id: taskId,
-    class_name: anchor.label,
-    geometry: { type: "video_track_bbox" },
+  expect(saved).toHaveLength(anchors.length);
+  for (const track of saved) {
+    expect(track).toMatchObject({
+      task_id: taskId,
+      class_name: anchor.label,
+      geometry: { type: "video_track_bbox" },
+    });
+    expect(track.geometry.track_id).toBeTruthy();
+    expect(track.version).toBeGreaterThan(0);
+    expect(track.geometry.keyframes.map((frame) => frame.frame_index)).toEqual(
+      Array.from({ length: endFrame + 1 }, (_, i) => i),
+    );
+  }
+  const matched = expectedBoxes.map((expectedBox) => {
+    const track = saved.find(
+      (item) => normalizedBboxIoU(item.geometry.keyframes[0]!.bbox, expectedBox) >= 0.6,
+    );
+    expect(
+      track,
+      "Each saved track must cover its seeded bus rather than a local part",
+    ).toBeTruthy();
+    return {
+      track: track!,
+      overlap: normalizedBboxIoU(track!.geometry.keyframes[0]!.bbox, expectedBox),
+    };
   });
-  expect(track.geometry.track_id).toBeTruthy();
-  expect(track.version).toBeGreaterThan(0);
-  expect(track.geometry.keyframes.map((frame) => frame.frame_index)).toEqual(
-    Array.from({ length: endFrame + 1 }, (_, i) => i),
-  );
-  const overlap = normalizedBboxIoU(track.geometry.keyframes[0]!.bbox, expectedBox);
-  expect(
-    overlap,
-    "Saved track must cover the seeded bus rather than a local part",
-  ).toBeGreaterThanOrEqual(0.6);
+  expect(new Set(matched.map(({ track }) => track.id)).size).toBe(anchors.length);
+  expect(new Set(saved.map((track) => track.geometry.track_id)).size).toBe(anchors.length);
   await expect(review).toBeHidden();
   await expect(page.getByTestId("video-track-row").filter({ hasText: anchor.label })).toHaveCount(
-    1,
+    anchors.length,
   );
   await parkVideoPointer(page);
   await assertVideoTimelineVisible(page);
@@ -234,14 +262,14 @@ export async function runVideoTrackerRange(
   const drawEndMs = Date.now();
   const reloadedResponse = annotationsResponse();
   await page.reload();
-  const reloaded = ((await (await reloadedResponse).json()) as SavedTrack[]).find(
-    (item) => item.id === track.id,
-  );
-  expect(reloaded).toMatchObject({
-    id: track.id,
-    version: track.version,
-    geometry: track.geometry,
-  });
+  const reloaded = (await (await reloadedResponse).json()) as SavedTrack[];
+  for (const track of saved) {
+    expect(reloaded.find((item) => item.id === track.id)).toMatchObject({
+      id: track.id,
+      version: track.version,
+      geometry: track.geometry,
+    });
+  }
   return {
     drawStartMs,
     drawEndMs,
@@ -251,10 +279,13 @@ export async function runVideoTrackerRange(
       request,
       preview,
       acceptedJob,
-      acceptedAnnotationIds: [track.id],
+      acceptedAnnotationIds: saved.map((track) => track.id),
       acceptedTracks: saved,
-      seedAnchorIoU: overlap,
-      reload: { verified: true, track: reloaded },
+      seedAnchorIoU: matched.map(({ track, overlap }) => ({ annotationId: track.id, overlap })),
+      reload: {
+        verified: true,
+        tracks: reloaded.filter((item) => saved.some((track) => track.id === item.id)),
+      },
     },
   };
 }

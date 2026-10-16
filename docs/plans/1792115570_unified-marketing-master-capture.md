@@ -40,3 +40,16 @@ Retain the existing output contract of 3840×2160 at 60fps, hardware compositing
 - Validation: skill validator PASS; recording suite 43/43 PASS, followed by updated recording-plan regression suite 8/8 PASS; marketing archive suite 25/25 PASS; targeted ESLint, TypeScript, Markdown formatting and diff check PASS. Test fixtures were cleaned by their finally blocks.
 - Independent review found and verified fixes for legacy rejection occurring after catalog initialization and hardware checks occurring after seed.
 - The host is headless. An isolated current-user, non-seat0 NVIDIA Xorg display was started without modifying gdm, system ACLs or existing desktop sessions. Actual Chromium GPU compositing reports RTX 3090 enabled. The full existing calibration pilot is diagnosing the installed FFmpeg window-grab compatibility; no new qualified ML master has been produced yet.
+
+## Video range prompt qualification
+
+A bounded real-API diagnostic in the owned video capture runtime compared the same left-bus box with one or two targets and the two end frames. Only one factor changed between successive requests; every job was removed through the maintained scoped cleanup. The task returned to pending with zero annotations and zero tracker jobs.
+
+| Targets | End frame | Left-bus F0 IoU | Right-bus F0 IoU |
+| ------- | --------- | --------------- | ---------------- |
+| One     | F20       | 0               | —                |
+| One     | F30       | 0               | —                |
+| Two     | F30       | 0.94497         | 0.85036          |
+| Two     | F20       | 0.94497         | 0.85036          |
+
+These observations apply to this video and these requests in this runtime, not to all single-target tracking. The backend product path was not changed. The range recording now uses actual left/right bus box prompts and a Shift-brushed F0→F20 range, preserving both candidate sets, each original IoU ≥0.6 gate, and both saved/reloaded tracks. No model output or class was substituted. Bounded input/output evidence is retained in the private capture handoff (`range-factor-diagnostic.json`); credentials and temporary decoded media are excluded.
