@@ -147,7 +147,7 @@ export const MAC_MARKETING_FLOWS = [
   "storage-connector-create-test",
 ];
 
-export function recordingPlan(flows, profile = "docs") {
+export function recordingPlan(flows, profile = "marketing") {
   if (!["docs", "marketing"].includes(profile)) throw new Error(`Unknown profile: ${profile}`);
   if (!flows.length)
     throw new Error("Select at least one --flow; use --list to see supported flows.");
@@ -192,4 +192,13 @@ export function screenshotCatalogPath(scope = process.env.SCREENSHOT_BACKEND_REQ
     "/api/v1/__test/seed/catalog?profile=screenshots" +
     (scope === undefined ? "" : `&backend_requirements=${encodeURIComponent(scope)}`)
   );
+}
+
+// Standard capture is rehearsal only; production sources must pass marketing gates.
+export function assertRecordingMode(profile, validateOnly) {
+  if (profile === "docs" && !validateOnly) {
+    throw new Error(
+      "The docs profile is rehearsal only; use --validate-only or capture a marketing master.",
+    );
+  }
 }

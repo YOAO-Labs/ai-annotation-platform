@@ -4,7 +4,7 @@ description: 如何新增场景、更新现有截图、维护视觉回归基线
 audience: [developer]
 type: how-to
 status: stable
-last_reviewed: 2026-10-14
+last_reviewed: 2026-10-16
 ---
 
 # 更新文档截图
@@ -19,30 +19,36 @@ last_reviewed: 2026-10-14
 pnpm --filter @anno/web exec playwright test --config=playwright.screenshot-canvas.config.ts
 ```
 
-## Mac / Linux 分工录制
+## 高清母版统一采集与衍生
 
-录制机器不必也是 AI 推理机器。新增入口将场景所需的模型能力与采集规格分开：
+正式视频素材统一先采集合格的高清营销母版，再从同一母版衍生文档视频、GIF、首页视频和封面。
+ML 与非 ML 流程遵循相同规则，不再单独录制低规格文档源。静态截图仍按截图矩阵独立采集。
+
+录制机器不必也是 AI 推理机器。入口将场景所需的模型能力与采集规格分开：
 
 ```bash
 # 仓库根目录：查看已登记场景、只预览依赖（不连接服务或写库）
 pnpm --filter @anno/web screenshots:record -- --list
 pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --plan
 
-# 准备好下文的隔离环境和素材缓存后运行
+# 准备好下文的隔离环境和素材缓存后采集高清母版（默认 marketing）
 pnpm --filter @anno/web screenshots:record -- --flow bbox-draw
 pnpm --filter @anno/web screenshots:record -- --flow ocr-inference
 pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point
 
-# 高清母版：Mac 自动选择原生驱动；Linux 沿用 X11/NVIDIA
-pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile marketing
-pnpm --filter @anno/web screenshots:record -- --flow project-onboarding --profile marketing
+# 流程预演：不生成视频或正式源归档
+pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile docs --validate-only
 ```
 
-默认 `docs` 规格在 Mac / Linux 使用 Playwright 与 CPU H.264 编码，生成
-`.artifacts/recordings/<run-id>/<asset-id>.mp4`、WebM 源文件及私有 `manifest.json`。
-它是**未裁剪的标准源素材**，不承诺真实 60fps；录制本身不会替换已发布视频、公开清单或人工审核记录。
-清单逐项保留资产 ID、哈希、实际媒体参数、来源提交、脏工作树状态、浏览器和后端证据。
-`docs:media:derive` 现在同时接受标准源与营销母版清单，必须显式选择标准源等级，不能自动降级替换高清来源。
+默认 `marketing` 规格在 Mac 选择原生 ScreenCaptureKit，在 Linux 使用 X11/NVIDIA。
+母版归档在 `.artifacts/marketing/<run-id>/`，保留来源提交、实际采集尺寸、4K60 输出参数、
+重采样方式、帧率校准和哈希。4K60 是输出规格；现有 Linux / Mac 采集内容区分别为
+2592×1458 / 2880×1620，按既有质量契约重采样，不能声称原生像素 4K。
+录制不会自动替换已发布素材；后续统一使用 `pnpm docs:media:derive` 的默认 `marketing` 等级。
+
+`docs` 只用于显式 `--validate-only` 预演，不生成正式录像；旧 `screenshots:flows` 命令也只预演。
+历史 `.artifacts/recordings/` 标准源及其来源记录继续保留，只有明确要求复用旧素材时才使用
+`--quality standard`，不得将其改标为高清母版。硬件或模型不可用时应解决阻碍，不自动降级采集。
 
 Mac 的 `marketing` 规格仅接受**不依赖 ML 能力且不执行推理**的已注册流程；即使后端能力范围为空，
 执行真实推理的 `ai-preannotate`、`pipeline-apply-project` 也会被拒绝。`--plan` 会显示选中的
@@ -73,7 +79,7 @@ caffeinate -dimsu pnpm --filter @anno/web screenshots:record -- --flow bbox-draw
 
 视频范围刷选、跨帧多正点、正负点、框种子和文本发现录制使用 `video_tracker` 能力组，分别对应 `video-tracker-range`、`video-tracker-cross-frame-points`、`video-tracker-positive-negative`、`video-tracker-box-seed`、`video-tracker-text-discovery`。这些流程运行真实追踪作业，并保存请求、候选、采纳及重载验证证据；文本发现按返回几何匹配目标，不依赖固定实例编号。失败时也会按已登记 ID 清理作业和新建标注。
 
-使用 `docs` 标准规格的 Mac 可连接已注册的远程 Linux 模型服务：API / Worker 必须能访问模型，模型也必须能访问截图存储的签名媒体 URL。
+Mac 可用 `--profile docs --validate-only` 预演已注册的远程 Linux 模型服务；正式 ML 母版目前使用 Linux 采集：API / Worker 必须能访问模型，模型也必须能访问截图存储的签名媒体 URL。
 `--ml-backend-url` 是 stub 配置，不是远程 live 后端地址。仅改 API URL 不会把本地 seed / 清理脚本搬到远端。
 
 本次拆分的是 **AI 后端依赖**，完整截图素材缓存、MinIO、固定项目及 nuScenes 数据仍须准备；入口使用 offline seed。
@@ -176,7 +182,7 @@ pnpm screenshots                  # desktop-light 全量（最常用）
 pnpm screenshots:dark             # desktop-dark 变体
 pnpm screenshots:matrix           # desktop-light / dark / mobile
 SCREENSHOT_STATIC_PROFILE=non-ml pnpm screenshots:matrix # desktop-light / dark / mobile，无 ML 服务
-pnpm screenshots:flows            # 流程录制 → 标准源录像及 GIF 配置归档（需 ffmpeg）
+pnpm screenshots:flows            # 流程预演，不生成正式录像
 pnpm screenshots:marketing        # Linux 原有全量母版入口；Mac 使用 screenshots:record 选择流程
 pnpm screenshots:regression       # 比较高价值视觉回归基线
 pnpm screenshots:regression:update # 有意改变 UI 后更新基线
@@ -491,15 +497,15 @@ pnpm docs:media:audit -- --release
 pnpm docs:media:derive
 # 指定高清批次和单个资产（支持只含部分资产的批次）
 pnpm docs:media:derive -- --run <run-id> --asset video-chapter
-# 标准源发布视频：必须先审阅录像，再指定起点:时长（秒）
+# 兼容历史标准源：仅在明确要求复用时使用，先审阅并指定起点:时长（秒）
 pnpm docs:media:derive -- --quality standard --run <run-id> --asset video-track --format video --clip 2:8
-# 仅派生归档中记录的 GIF 子片段
-pnpm docs:media:derive -- --quality standard --run <run-id> --asset bbox-draw --format gif --clip 2:4
+# 从高清母版派生已记录的 GIF 子片段
+pnpm docs:media:derive -- --run <run-id> --asset bbox-draw --format gif
 # 宣传文章复用相同的源校验、编码和来源记录
 pnpm docs:media:derive -- --run /absolute/path/to/run --article 06-video-track --asset video-draw
 ```
 
-`--quality` 默认 `marketing`，仍要求 4K60 文件参数与硬件采集／独立帧证据；标准源必须显式使用 `standard`。
+`--quality` 默认 `marketing`，仍要求 4K60 文件参数与硬件采集／独立帧证据；历史标准源兼容必须显式使用 `standard`；新录制的正式素材统一使用高清母版。
 `--run` 可以是所选等级下的批次名，也可以是包含 `manifest.json` 的绝对目录。
 默认只处理该批次中实际存在、且支持所选格式的已登记资产，不要求整套资产齐全；GIF 批处理跳过没有 GIF 配置的条目。`--asset` 可重复指定，显式指定不支持的资产仍报错，未选文件和清单条目保留。
 

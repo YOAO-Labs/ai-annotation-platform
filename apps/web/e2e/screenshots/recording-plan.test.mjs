@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -9,6 +11,7 @@ import {
   recordingPlan,
   marketingCaptureDriver,
   screenshotCatalogPath,
+  assertRecordingMode,
 } from "./recording-plan.mjs";
 
 test("selection scopes AI without changing capture quality or legacy catalog defaults", () => {
@@ -25,6 +28,12 @@ test("selection scopes AI without changing capture quality or legacy catalog def
     { encoding: "utf8" },
   );
   assert.equal(JSON.parse(output).backendRequirements, "none");
+  assert.equal(JSON.parse(output).profile, "marketing");
+  assert.equal(
+    JSON.parse(output).captureDriver,
+    process.platform === "darwin" ? "screencapturekit" : "x11grab",
+  );
+  assert.equal(recordingPlan(["bbox-draw"]).profile, "marketing");
   assert.equal(recordingPlan(["ocr-inference", "bbox-draw"]).backendRequirements, "ocr");
   assert.equal(
     recordingPlan(["sam-interactive"], "marketing").backendRequirements,
@@ -36,7 +45,7 @@ test("selection scopes AI without changing capture quality or legacy catalog def
   );
   assert.throws(() => recordingPlan(["typo"]), /Unregistered/);
   assert.throws(
-    () => recordingPlan(["pointcloud-billboard-label"]),
+    () => recordingPlan(["pointcloud-billboard-label"], "docs"),
     /requires --profile marketing/,
   );
   assert.equal(
@@ -44,7 +53,7 @@ test("selection scopes AI without changing capture quality or legacy catalog def
     "none",
   );
   for (const id of ["pointcloud-controls", "pointcloud-view", "pointcloud-panel-layout"]) {
-    assert.throws(() => recordingPlan([id]), /requires --profile marketing/);
+    assert.throws(() => recordingPlan([id], "docs"), /requires --profile marketing/);
     assert.equal(recordingPlan([id], "marketing").backendRequirements, "none");
   }
   assert.throws(() => recordingPlan([]), /Select/);
@@ -114,12 +123,15 @@ test("capture list distinguishes flow-owned live inference from manual flows", (
     [fileURLToPath(new URL("../../scripts/run-recording-capture.mjs", import.meta.url)), "--list"],
     { encoding: "utf8" },
   );
-  assert.match(output, /^ai-preannotate\tlive inference \(flow setup\)\tdocs \/ marketing$/m);
   assert.match(
     output,
-    /^pipeline-apply-project\tlive inference \(flow setup\)\tdocs \/ marketing$/m,
+    /^ai-preannotate\tlive inference \(flow setup\)\tmarketing \/ docs rehearsal$/m,
   );
-  assert.match(output, /^bbox-draw\tmanual \(no ML backend\)\tdocs \/ marketing$/m);
+  assert.match(
+    output,
+    /^pipeline-apply-project\tlive inference \(flow setup\)\tmarketing \/ docs rehearsal$/m,
+  );
+  assert.match(output, /^bbox-draw\tmanual \(no ML backend\)\tmarketing \/ docs rehearsal$/m);
 });
 
 test("mixed selection combines capability requirements without widening individual inference", () => {
@@ -196,4 +208,77 @@ test("Mac marketing selects only registered non-ML operations before runtime set
     marketingCaptureDriver("linux", "gpu-screen-recorder", ["ocr-inference"]),
     "gpu-screen-recorder",
   );
+});
+
+test("standard rehearsal cannot record production sources, including legacy flow entry", () => {
+  assert.throws(() => assertRecordingMode("docs", false), /rehearsal only/);
+  assert.doesNotThrow(() => assertRecordingMode("docs", true));
+  assert.doesNotThrow(() => assertRecordingMode("marketing", false));
+  const launcher = fileURLToPath(
+    new URL("../../scripts/run-recording-capture.mjs", import.meta.url),
+  );
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, [launcher, "--flow", "bbox-draw", "--profile", "docs"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      }),
+    /rehearsal only/,
+  );
+  const preview = JSON.parse(
+    execFileSync(process.execPath, [launcher, "--flow", "bbox-draw", "--validate-only", "--plan"], {
+      encoding: "utf8",
+    }),
+  );
+  assert.equal(preview.profile, "docs");
+  assert.equal(preview.captureDriver, undefined);
+});
+
+test("direct legacy Playwright recording refuses before catalog or database setup", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-rehearsal-guard-"));
+  try {
+    const config = path.join(root, "playwright.config.mjs");
+    fs.writeFileSync(
+      config,
+      `export default ${JSON.stringify({
+        testDir: fileURLToPath(new URL(".", import.meta.url)),
+        testMatch: "**/flows/flows.spec.ts",
+        workers: 1,
+        projects: [{ name: "flows" }],
+        reporter: "list",
+        outputDir: path.join(root, "results"),
+      })}`,
+    );
+    const env = { ...process.env, SCREENSHOT_VALIDATE_ONLY: "0" };
+    for (const key of [
+      "SCREENSHOT_DATABASE_URL",
+      "SCREENSHOT_CATALOG_JSON",
+      "SCREENSHOT_BACKEND_REQUIREMENTS",
+      "SCREENSHOT_RECORDING_FLOWS",
+      "SCREENSHOT_RECORDING_PROFILE",
+    ])
+      delete env[key];
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [
+            fileURLToPath(new URL("../../node_modules/@playwright/test/cli.js", import.meta.url)),
+            "test",
+            "--config",
+            config,
+            "--grep",
+            "bbox-draw —",
+          ],
+          { env, encoding: "utf8", stdio: "pipe" },
+        ),
+      (error) => {
+        assert.match(error.stdout, /rehearsal only/);
+        assert.doesNotMatch(error.stdout, /缺少 SCREENSHOT_DATABASE_URL|catalog.*初始化/);
+        return true;
+      },
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

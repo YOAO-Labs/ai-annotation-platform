@@ -5,10 +5,10 @@ import {
 /**
  * M3 · 流程录制 spec。
  *
- * 执行：`pnpm screenshots:flows`（归档标准源录像与 GIF 配置）
+ * 执行：`pnpm screenshots:flows`（流程预演，不产正式素材）
  *
  * 前置条件同 screenshots.spec.ts。
- * Both profiles archive sources only. Publish derivatives with docs:media:derive.
+ * Marketing captures archive qualified sources; docs only rehearses. Publish with docs:media:derive.
  */
 import { test } from "../../fixtures/seed";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
@@ -112,8 +112,7 @@ import { recordingAnchor } from "./_canvas";
 import { PROJECT_ONBOARDING_RECORDING_NAME, runProjectOnboarding } from "./project-onboarding";
 import { installRecordingWorkbenchLayout } from "./_workbench-layout";
 import type { SourceGifVariant } from "../_helpers/flow-manifest";
-import { archivePortableRecording } from "../_helpers/portable-recorder";
-import { recordingPlan, recordingInference } from "../recording-plan.mjs";
+import { recordingPlan, recordingInference, assertRecordingMode } from "../recording-plan.mjs";
 import {
   archiveMarketingMaster,
   clipFromEpochWindow,
@@ -167,15 +166,6 @@ const VIDEO_ML_CAPTURE_FLOWS = new Set([
   "ai-tracker-panel",
   "video-tracker-job-states",
 ]);
-const FLOW_CAPTURE_COMMIT = execFileSync("git", ["rev-parse", "HEAD"], {
-  cwd: REPO_ROOT,
-  encoding: "utf8",
-}).trim();
-const FLOW_SOURCE_WORKTREE_DIRTY =
-  execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  }).trim().length > 0;
 
 let cached: ScreenshotSeedCatalog | null = null;
 const flowInferenceEvidence: Record<string, unknown> = {};
@@ -321,7 +311,11 @@ function flowWatchPaths(assetId: string): string[] {
   return paths.filter((candidate, index, all) => all.indexOf(candidate) === index);
 }
 
-test.beforeAll(() => {
+test.beforeAll(({ browserName: _browserName }, testInfo) => {
+  assertRecordingMode(
+    testInfo.project.name === MARKETING_PROJECT_NAME ? "marketing" : "docs",
+    VALIDATE_ONLY,
+  );
   screenshotDatabaseEnv();
   cached = loadScreenshotCatalog();
 });
@@ -823,6 +817,15 @@ async function archiveMarketingRecording(
       browser,
       universalClip: resolvedClip,
       gifVariants: gifRecipes(variants, capture.startedAtEpochMs),
+      evidence: {
+        clock: SELECTED_CAPTURE ? "live" : "unverified",
+        backend_requirements: SELECTED_CAPTURE
+          ? recordingPlan([info.title.split(" —")[0]]).backendRequirements
+          : null,
+        inference: SELECTED_CAPTURE ? recordingInference(info.title.split(" —")[0]) : "unverified",
+        inference_evidence: flowInferenceEvidence[assetId],
+        behavior_evidence: flowBehaviorEvidence[assetId],
+      },
     });
     console.log(`[marketing] ✓ 4K60 采集源：${archived.capturePath}`);
     console.log(`[marketing] ✓ 4K60 MP4 母版：${archived.masterPath}`);
@@ -871,7 +874,9 @@ async function finalizeVariants(
       variants,
     );
   } else {
-    await archivePortable(page, assetId, gifRecipes(variants));
+    throw new Error(
+      "Production media requires a qualified marketing master; rehearse with SCREENSHOT_VALIDATE_ONLY=1.",
+    );
   }
 }
 
@@ -904,52 +909,6 @@ async function finalizeMarketingBackedHomepageAsset(
     ...trim,
     fps: docsGifOptions?.fps ?? 8,
     maxWidth: docsGifOptions?.maxWidth ?? 860,
-  });
-}
-
-async function archivePortable(
-  page: Page,
-  assetId: string,
-  gifs: SourceGifVariant[],
-): Promise<void> {
-  const info = test.info();
-  const requirements = SELECTED_CAPTURE
-    ? recordingPlan([info.title.split(" —")[0]]).backendRequirements
-    : null;
-  await archivePortableRecording(page, {
-    repoRoot: REPO_ROOT,
-    runId: process.env.SCREENSHOT_RECORDING_RUN ?? "",
-    assetId,
-    source: path.relative(REPO_ROOT, info.file),
-    testTitle: info.title,
-    seedRevision: cached?.seed_revision ?? null,
-    capturedCommit: FLOW_CAPTURE_COMMIT,
-    sourceWorktreeDirty: FLOW_SOURCE_WORKTREE_DIRTY,
-    watchPaths: [
-      ...flowWatchPaths(assetId),
-      "apps/web/e2e/screenshots/recording-plan.mjs",
-      "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
-    ],
-    capture: {
-      gif_variants: gifs,
-      clock: SELECTED_CAPTURE ? "live" : "unverified",
-      inference_evidence: flowInferenceEvidence[assetId],
-      behavior_evidence: flowBehaviorEvidence[assetId],
-      backend_requirements: requirements,
-      // Legacy flows may intercept inference even with live backend bindings.
-      inference:
-        requirements === null ? "unverified" : recordingInference(info.title.split(" —")[0]),
-      backends: Object.fromEntries(
-        Object.entries(cached?.projects ?? {})
-          .filter(
-            ([, project]) =>
-              project.ml_backend &&
-              (requirements === null ||
-                requirements.split(",").includes(project.ml_backend.requirement)),
-          )
-          .map(([key, project]) => [key, project.ml_backend]),
-      ),
-    },
   });
 }
 

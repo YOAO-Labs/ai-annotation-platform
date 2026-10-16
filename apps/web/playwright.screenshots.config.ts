@@ -5,7 +5,7 @@
  *   pnpm screenshots                  # desktop-light 全量（默认）
  *   pnpm screenshots:dark             # desktop-dark 单跑
  *   pnpm screenshots:matrix           # 三个截图 project 全跑
- *   pnpm screenshots:flows            # 流程录制 → 标准源归档（video:on）
+ *   pnpm screenshots:flows            # 流程预演，不产正式素材
  *   pnpm screenshots:marketing        # 流程录制 → 4K60 MKV 采集源 + MP4 通用母版
  *   pnpm screenshots:regression       # 视觉回归子集（M4）
  *
@@ -21,7 +21,6 @@ import { SCREENSHOT_MATRIX_PROJECTS } from "./e2e/screenshots/matrix";
 
 const MAC_CAPTURE = process.platform === "darwin";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
-const VALIDATE_ONLY = process.env.SCREENSHOT_VALIDATE_ONLY === "1";
 // One source archive identity must survive Playwright worker restarts.
 process.env.SCREENSHOT_RECORDING_RUN ??= `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
 const BROWSER_ENV: Record<string, string> = {};
@@ -102,7 +101,7 @@ const config = defineConfig({
         deviceScaleFactor: 1,
       },
     },
-    // ── 流程录制（video:on 全程）────────────────────────────────
+    // ── 流程预演（正式素材统一从营销母版衍生）────────────────────────────────
     {
       name: "flows",
       testMatch: ["**/flows/flows.spec.ts"],
@@ -110,7 +109,7 @@ const config = defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 810 },
         deviceScaleFactor: 1,
-        video: VALIDATE_ONLY ? "off" : { mode: "on", size: { width: 1440, height: 810 } },
+        video: "off",
         trace: "on",
       },
     },

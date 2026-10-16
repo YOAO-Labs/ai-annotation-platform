@@ -8,9 +8,10 @@ import { ensureMacCaptureHelper } from "./mac-marketing-capture.mjs";
 // Chromium 的 2592×1458 内容区之外还需容纳左右边框与顶部工具栏。
 const TARGET = { width: 2700, height: 1750 };
 const resizeDisplay = process.argv.includes("--resize-display");
+const preflightOnly = process.argv.includes("--preflight-only");
 const playwrightArgs = process.argv
   .slice(2)
-  .filter((arg) => arg !== "--" && arg !== "--resize-display");
+  .filter((arg) => !["--", "--resize-display", "--preflight-only"].includes(arg));
 const display = process.env.MARKETING_CAPTURE_DISPLAY;
 const captureDriver = marketingCaptureDriver(
   process.platform,
@@ -170,6 +171,20 @@ if (needsResize && !resizeDisplay) {
     `[marketing] 当前显示为 ${original.width}×${original.height}，4K60 营销录制至少需要 ` +
       `${TARGET.width}×${TARGET.height}；确认桌面会暂时调整后追加 --resize-display`,
   );
+}
+
+if (preflightOnly) {
+  if (needsResize) {
+    checked("xrandr", [
+      "--display",
+      display,
+      "--dryrun",
+      "--fb",
+      `${TARGET.width}x${TARGET.height}`,
+    ]);
+  }
+  console.log("[marketing] 基础采集预检通过；未调整显示或录制。");
+  process.exit(0);
 }
 
 let resized = false;

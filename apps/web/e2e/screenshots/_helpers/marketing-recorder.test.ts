@@ -217,6 +217,17 @@ test("archives an immutable video and writes a verifiable manifest", async () =>
       source: "apps/web/e2e/screenshots/flows/flows.spec.ts",
       watchPaths: ["apps/web/e2e/screenshots/flows/project-onboarding.ts"],
       testTitle: "flow recordings › sam-tool-smart-point",
+      evidence: {
+        clock: "live",
+        backend_requirements: "image_interactive",
+        inference: "live",
+        inference_evidence: {
+          model_family: "sam3",
+          job_id: "owned-job",
+          saved_annotation_ids: ["owned-annotation"],
+        },
+        behavior_evidence: { saved_and_reloaded: true },
+      },
       projectName: "marketing-master",
       seedRevision: "screenshots-test",
       viewport: { width: 1920, height: 1080 },
@@ -297,6 +308,17 @@ test("archives an immutable video and writes a verifiable manifest", async () =>
       "apps/web/e2e/screenshots/flows/project-onboarding.ts",
     ]);
     const entry = manifest.entries["sam-tools/smart-point"];
+    assert.deepEqual(entry.evidence, {
+      clock: "live",
+      backend_requirements: "image_interactive",
+      inference: "live",
+      inference_evidence: {
+        model_family: "sam3",
+        job_id: "owned-job",
+        saved_annotation_ids: ["owned-annotation"],
+      },
+      behavior_evidence: { saved_and_reloaded: true },
+    });
     assert.deepEqual(
       entry.gif_variants
         .slice(0, 2)
