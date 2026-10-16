@@ -338,7 +338,7 @@ function InsightsContent({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="break-words text-sm font-semibold">{version.name}</h2>
+          <h2 className="break-words text-lg font-semibold tracking-tight">{version.name}</h2>
           <p className="mt-1 text-2xs text-muted-foreground">
             {version.version_ordinal != null
               ? `任务版本 #${version.version_ordinal}`
@@ -394,9 +394,9 @@ function InsightsContent({
               data.counts.unique_contents,
             ],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-lg bg-muted p-3">
+            <div key={label} className="rounded-lg border border-border bg-muted/30 p-3">
               <dt className="text-xs text-muted-foreground">{label}</dt>
-              <dd className="mt-1 text-xl font-semibold tabular-nums">{value}</dd>
+              <dd className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{value}</dd>
             </div>
           ))}
         </dl>
@@ -431,7 +431,12 @@ function InsightsContent({
           <Button
             key={value}
             size="sm"
-            variant={view === value ? "primary" : "ghost"}
+            variant="ghost"
+            className={
+              view === value
+                ? "bg-chart-1/10 text-chart-1 hover:bg-chart-1/15"
+                : "text-muted-foreground"
+            }
             aria-pressed={view === value}
             onClick={() => update({ data_view: value })}
           >
@@ -476,212 +481,205 @@ function InsightsContent({
         </p>
       )}
       {ready && view === "overview" && data && (
-        <div className="mt-4 space-y-5">
-          <p className="text-xs text-muted-foreground">
-            图片数与实例数按实际训练包计数，包含重复图片项。明确负样本{" "}
-            {data.counts.explicit_negatives} 张；确认历史未知的空标注{" "}
-            {data.counts.negative_confirmation_unknown} 张。可确认标注{" "}
-            {data.counts.known_label_images} / {data.counts.images} 张。 冻结定义{" "}
-            {data.classes_total} 个类别；已观察类别与未出现类别以可确认标注为依据。 内容身份未知{" "}
-            {data.observations.unknown_contents ?? 0} 张，划分未知{" "}
-            {data.observations.unknown_split ?? 0} 张。
-          </p>
-          <TrainingDatasetSplitChart
-            splits={data.splits}
-            totalMembers={data.counts.images}
-            unknownMembers={data.observations.unknown_split ?? 0}
-            onSelect={(split) => showSamples({ data_split: split, data_change: "all" })}
-          />
-          <div className="grid gap-3 md:grid-cols-2">
-            {(
-              [
-                ["train", "训练集"],
-                ["val", "验证集"],
-              ] as const
-            ).map(([split, label]) => (
-              <section key={split} className="rounded-lg border border-border p-4">
-                <h3 className="text-xs font-semibold">{label}</h3>
-                <p className="mt-2 text-sm tabular-nums">
-                  {data.splits[split].images} 张图片 · {data.splits[split].instances} 个实例
+        <div className="mt-5 space-y-5">
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
+            <TrainingDatasetSplitChart
+              splits={data.splits}
+              totalMembers={data.counts.images}
+              unknownMembers={data.observations.unknown_split ?? 0}
+              onSelect={(split) => showSamples({ data_split: split, data_change: "all" })}
+            />
+            <section
+              aria-label="冻结类别分布"
+              className="min-w-0 rounded-xl border border-border bg-card p-4"
+            >
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">类别分布</h3>
+                <label className="text-xs text-muted-foreground">
+                  搜索类别
+                  <input
+                    className={`${inputClass} mt-1`}
+                    value={classSearch}
+                    onChange={(event) => {
+                      setClassSearch(event.target.value);
+                      setClassPage(0);
+                    }}
+                    placeholder="按冻结类别名称查找"
+                  />
+                </label>
+              </div>
+              <p className="mb-2 text-xs text-muted-foreground">
+                “图片”表示出现该类的图片项数；一张图片可能包含多个实例。
+                {data.status !== "complete"
+                  ? "以下未出现类别仅依据已知标注，不能断言整个版本缺少该类别。"
+                  : ""}
+                验证集中已知标注未出现{" "}
+                {data.observations.classes_with_no_known_validation_instances ??
+                  data.observations.classes_absent_from_validation ??
+                  "未知"}{" "}
+                个类别，训练集中未出现{" "}
+                {data.observations.classes_with_no_known_train_instances ??
+                  data.observations.classes_absent_from_train ??
+                  "未知"}{" "}
+                个类别。
+              </p>
+              <TrainingDatasetClassChart
+                rows={classes.data?.items ?? []}
+                partial={data.status !== "complete"}
+                onSelect={(index, split) =>
+                  showSamples({
+                    data_class: String(index),
+                    data_split: split ?? "",
+                    data_change: "all",
+                  })
+                }
+              />
+              {classes.isLoading && (
+                <p role="status" className="py-4 text-xs text-muted-foreground">
+                  正在加载类别分布…
                 </p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="mt-2"
-                  onClick={() => showSamples({ data_split: split, data_change: "all" })}
-                >
-                  查看{label}样本
-                </Button>
-              </section>
-            ))}
+              )}
+              <details className="mt-3 text-xs">
+                <summary className="cursor-pointer text-muted-foreground">完整类别明细</summary>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-md text-left text-xs">
+                    <thead className="text-muted-foreground">
+                      <tr>
+                        <th className="py-2 font-medium">冻结类别</th>
+                        <th className="py-2 text-right font-medium">训练图片</th>
+                        <th className="py-2 text-right font-medium">验证图片</th>
+                        <th className="py-2 text-right font-medium">训练实例</th>
+                        <th className="py-2 text-right font-medium">验证实例</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {classes.data?.items.map((row) => (
+                        <tr key={row.index} className="border-t border-border">
+                          <td className="py-3 pr-3">
+                            <button
+                              className="cursor-pointer text-left hover:underline"
+                              onClick={() =>
+                                showSamples({ data_class: String(row.index), data_change: "all" })
+                              }
+                            >
+                              {row.name}
+                            </button>
+                          </td>
+                          <td className="py-3 text-right tabular-nums">
+                            <button
+                              className="cursor-pointer hover:underline disabled:cursor-default"
+                              aria-label={`查看 ${row.name} 训练图片`}
+                              disabled={!row.train_images}
+                              onClick={() =>
+                                showSamples({
+                                  data_class: String(row.index),
+                                  data_split: "train",
+                                  data_change: "all",
+                                })
+                              }
+                            >
+                              {row.train_images}
+                            </button>
+                          </td>
+                          <td className="py-3 text-right tabular-nums">
+                            <button
+                              className="cursor-pointer hover:underline disabled:cursor-default"
+                              aria-label={`查看 ${row.name} 验证图片`}
+                              disabled={!row.val_images}
+                              onClick={() =>
+                                showSamples({
+                                  data_class: String(row.index),
+                                  data_split: "val",
+                                  data_change: "all",
+                                })
+                              }
+                            >
+                              {row.val_images}
+                            </button>
+                          </td>
+                          <td className="py-3 text-right tabular-nums">{row.train_instances}</td>
+                          <td className="py-3 text-right tabular-nums">{row.val_instances}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+              {classes.data?.items.length === 0 && (
+                <p className="py-4 text-xs text-muted-foreground">没有匹配的冻结类别。</p>
+              )}
+              <Pages
+                label="类别"
+                page={classPage}
+                total={classes.data?.total ?? 0}
+                loading={classes.isFetching}
+                onChange={setClassPage}
+              />
+            </section>
           </div>
-          <div className="rounded-lg bg-muted p-3 text-xs text-foreground">
-            {data.preparation.recorded ? (
-              <p>
-                冻结准备记录：选中 {data.preparation.summary?.selected ?? 0} · 合格{" "}
-                {data.preparation.summary?.eligible ?? 0} · 当时排除{" "}
-                {data.preparation.summary?.excluded ?? 0}。
-                {data.counts.frozen_unpacked_images > 0 &&
-                  `另有 ${data.counts.frozen_unpacked_images} 个冻结任务未作为独立成员入包。`}
-                <button
-                  className="ml-2 cursor-pointer text-foreground underline"
-                  onClick={() => showSamples({ data_kind: "excluded", data_change: "all" })}
-                >
-                  查看冻结排除记录
-                </button>
-              </p>
-            ) : (
-              <p>历史排除记录未保留，不能用当前任务状态补算当时的排除原因。</p>
-            )}
-          </div>
-          <section aria-label="冻结类别分布">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">类别分布</h3>
-              <label className="text-xs text-muted-foreground">
-                搜索类别
-                <input
-                  className={`${inputClass} mt-1`}
-                  value={classSearch}
-                  onChange={(event) => {
-                    setClassSearch(event.target.value);
-                    setClassPage(0);
-                  }}
-                  placeholder="按冻结类别名称查找"
-                />
-              </label>
-            </div>
-            <p className="mb-2 text-xs text-muted-foreground">
-              “图片”表示出现该类的图片项数；一张图片可能包含多个实例。
-              {data.status !== "complete"
-                ? "以下未出现类别仅依据已知标注，不能断言整个版本缺少该类别。"
-                : ""}
-              验证集中已知标注未出现{" "}
-              {data.observations.classes_with_no_known_validation_instances ??
-                data.observations.classes_absent_from_validation ??
-                "未知"}{" "}
-              个类别，训练集中未出现{" "}
-              {data.observations.classes_with_no_known_train_instances ??
-                data.observations.classes_absent_from_train ??
-                "未知"}{" "}
-              个类别。
-            </p>
-            <TrainingDatasetClassChart
-              rows={classes.data?.items ?? []}
-              partial={data.status !== "complete"}
-              onSelect={(index, split) =>
-                showSamples({
-                  data_class: String(index),
-                  data_split: split ?? "",
-                  data_change: "all",
-                })
-              }
-            />
-            {classes.isLoading && (
-              <p role="status" className="py-4 text-xs text-muted-foreground">
-                正在加载类别分布…
-              </p>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-md text-left text-xs">
-                <thead className="text-muted-foreground">
-                  <tr>
-                    <th className="py-2 font-medium">冻结类别</th>
-                    <th className="py-2 text-right font-medium">训练图片</th>
-                    <th className="py-2 text-right font-medium">验证图片</th>
-                    <th className="py-2 text-right font-medium">训练实例</th>
-                    <th className="py-2 text-right font-medium">验证实例</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {classes.data?.items.map((row) => (
-                    <tr key={row.index} className="border-t border-border">
-                      <td className="py-3 pr-3">
-                        <button
-                          className="cursor-pointer text-left hover:underline"
-                          onClick={() =>
-                            showSamples({ data_class: String(row.index), data_change: "all" })
-                          }
-                        >
-                          {row.name}
-                        </button>
-                      </td>
-                      <td className="py-3 text-right tabular-nums">
-                        <button
-                          className="cursor-pointer hover:underline disabled:cursor-default"
-                          aria-label={`查看 ${row.name} 训练图片`}
-                          disabled={!row.train_images}
-                          onClick={() =>
-                            showSamples({
-                              data_class: String(row.index),
-                              data_split: "train",
-                              data_change: "all",
-                            })
-                          }
-                        >
-                          {row.train_images}
-                        </button>
-                      </td>
-                      <td className="py-3 text-right tabular-nums">
-                        <button
-                          className="cursor-pointer hover:underline disabled:cursor-default"
-                          aria-label={`查看 ${row.name} 验证图片`}
-                          disabled={!row.val_images}
-                          onClick={() =>
-                            showSamples({
-                              data_class: String(row.index),
-                              data_split: "val",
-                              data_change: "all",
-                            })
-                          }
-                        >
-                          {row.val_images}
-                        </button>
-                      </td>
-                      <td className="py-3 text-right tabular-nums">{row.train_instances}</td>
-                      <td className="py-3 text-right tabular-nums">{row.val_instances}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {classes.data?.items.length === 0 && (
-              <p className="py-4 text-xs text-muted-foreground">没有匹配的冻结类别。</p>
-            )}
-            <Pages
-              label="类别"
-              page={classPage}
-              total={classes.data?.total ?? 0}
-              loading={classes.isFetching}
-              onChange={setClassPage}
-            />
-          </section>
           {data.task_statistics?.task === "detect" && (
             <TrainingDatasetDetectionCharts data={data.task_statistics} />
           )}
-          <div className="grid gap-3 lg:grid-cols-2">
-            <Distribution title="图片逻辑尺寸分布（张）" rows={data.dimension_bins} />
-            <Distribution
-              title={
-                version.task === segmentationTask
-                  ? "归一化多边形面积分布（实例）"
-                  : "归一化矩形框面积分布（实例）"
-              }
-              rows={data.box_area_bins}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            尺寸和面积仅用于描述分布，不构成通用质量评分。已知尺寸{" "}
-            {data.dimensions.min_width ?? "未知"}–{data.dimensions.max_width ?? "未知"} px 宽、
-            {data.dimensions.min_height ?? "未知"}–{data.dimensions.max_height ?? "未知"} px 高。
-          </p>
-          <p className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-            最近媒体读取记录：字节已校验 {data.media.verified} · 不可用 {data.media.unavailable} ·
-            尚未读取 {data.media.unchecked}。
-            {data.media.last_checked_at
-              ? `最近检查 ${new Date(data.media.last_checked_at).toLocaleString("zh-CN")}。`
-              : "尚未检查图片存储。"}
-            记录只反映读取时刻，每次预览会重新检查。
-          </p>
+          <details className="rounded-xl border border-border p-4 text-xs">
+            <summary className="cursor-pointer font-medium">统计口径与冻结证据</summary>
+            <div className="mt-3 space-y-3 leading-relaxed text-muted-foreground">
+              <p>
+                图片数与实例数按实际训练包计数，包含重复图片项。明确负样本{" "}
+                {data.counts.explicit_negatives} 张；确认历史未知的空标注{" "}
+                {data.counts.negative_confirmation_unknown} 张。 可确认标注{" "}
+                {data.counts.known_label_images} / {data.counts.images} 张。 冻结定义{" "}
+                {data.classes_total} 个类别；已观察类别与未出现类别以可确认标注为依据。 内容身份未知{" "}
+                {data.observations.unknown_contents ?? 0} 张，划分未知{" "}
+                {data.observations.unknown_split ?? 0} 张。
+              </p>
+              <div className="rounded-lg bg-muted p-3 text-xs text-foreground">
+                {data.preparation.recorded ? (
+                  <p>
+                    冻结准备记录：选中 {data.preparation.summary?.selected ?? 0} · 合格{" "}
+                    {data.preparation.summary?.eligible ?? 0} · 当时排除{" "}
+                    {data.preparation.summary?.excluded ?? 0}。
+                    {data.counts.frozen_unpacked_images > 0 &&
+                      `另有 ${data.counts.frozen_unpacked_images} 个冻结任务未作为独立成员入包。`}
+                    <button
+                      className="ml-2 cursor-pointer text-foreground underline"
+                      onClick={() => showSamples({ data_kind: "excluded", data_change: "all" })}
+                    >
+                      查看冻结排除记录
+                    </button>
+                  </p>
+                ) : (
+                  <p>历史排除记录未保留，不能用当前任务状态补算当时的排除原因。</p>
+                )}
+              </div>
+              <p>
+                最近媒体读取记录：字节已校验 {data.media.verified} · 不可用 {data.media.unavailable}{" "}
+                · 尚未读取 {data.media.unchecked}。
+                {data.media.last_checked_at
+                  ? `最近检查 ${new Date(data.media.last_checked_at).toLocaleString("zh-CN")}。`
+                  : "尚未检查图片存储。"}
+                记录只反映读取时刻，每次预览会重新检查。
+              </p>
+            </div>
+          </details>
+          <details className="rounded-xl border border-border p-4 text-xs">
+            <summary className="cursor-pointer font-medium">尺寸与面积分布明细</summary>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <Distribution title="图片逻辑尺寸分布（张）" rows={data.dimension_bins} />
+              <Distribution
+                title={
+                  version.task === segmentationTask
+                    ? "归一化多边形面积分布（实例）"
+                    : "归一化矩形框面积分布（实例）"
+                }
+                rows={data.box_area_bins}
+              />
+            </div>
+            <p className="mt-3 text-2xs text-muted-foreground">
+              尺寸和面积仅用于描述分布，不构成通用质量评分。已知尺寸{" "}
+              {data.dimensions.min_width ?? "未知"}–{data.dimensions.max_width ?? "未知"} px 宽、
+              {data.dimensions.min_height ?? "未知"}–{data.dimensions.max_height ?? "未知"} px 高。
+            </p>
+          </details>
         </div>
       )}
       {ready && view === "compare" && (

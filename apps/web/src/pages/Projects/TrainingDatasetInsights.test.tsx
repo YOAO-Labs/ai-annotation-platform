@@ -122,12 +122,15 @@ describe("frozen training data insights", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
   it("distinguishes images and instances, keeps missing historical evidence explicit, and loads manifests lazily", async () => {
+    const user = userEvent.setup();
     mount();
     expect(await screen.findByText("类别分布")).toBeVisible();
+    await user.click(screen.getByText("统计口径与冻结证据"));
     expect(
       screen.getByText("历史排除记录未保留，不能用当前任务状态补算当时的排除原因。"),
     ).toBeVisible();
     const distribution = screen.getByRole("region", { name: "冻结类别分布" });
+    await user.click(within(distribution).getByText("完整类别明细"));
     expect(within(distribution).getByRole("columnheader", { name: "训练图片" })).toBeVisible();
     expect(within(distribution).getByRole("columnheader", { name: "训练实例" })).toBeVisible();
     expect(trainingDatasetsApi.get).not.toHaveBeenCalled();
@@ -136,6 +139,7 @@ describe("frozen training data insights", () => {
   it("drills into class/split filters before server pagination and preserves URL history", async () => {
     const user = userEvent.setup();
     mount();
+    await user.click(await screen.findByText("完整类别明细"));
     await user.click(await screen.findByRole("button", { name: "查看 冻结车辆 训练图片" }));
     await screen.findByRole("button", { name: "预览冻结样本" });
     expect(trainingDatasetsApi.samples).toHaveBeenLastCalledWith(

@@ -12,10 +12,22 @@ import { useAuthStore } from "@/stores/authStore";
 import type { MeResponse } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useProject } from "@/hooks/useProjects";
+import { confirmDialog } from "@/components/ui/decisionDialog";
+
+vi.mock("@/components/ui/decisionDialog", () => ({ confirmDialog: vi.fn() }));
 
 vi.mock("./TrainingDatasetInsights", () => ({
-  TrainingDatasetInsights: ({ version }: { version: { name: string } }) => (
-    <p>冻结详情 {version.name}</p>
+  TrainingDatasetInsights: ({
+    version,
+    onClose,
+  }: {
+    version: { name: string };
+    onClose: () => void;
+  }) => (
+    <>
+      <p>冻结详情 {version.name}</p>
+      <button onClick={onClose}>收起数据详情</button>
+    </>
   ),
 }));
 
@@ -539,6 +551,86 @@ describe("project learning data versions", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(trainingDatasetsApi.get).not.toHaveBeenCalled();
+  });
+
+  it("opens the exact version from its visible details action on the first visit", async () => {
+    const older = { ...version, id: "dataset-older", name: "旧版" };
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+      items: [version as never, older as never],
+      total: 2,
+    });
+    vi.mocked(trainingDatasetsApi.getSummary).mockImplementation(
+      async (_project, id) => (id === older.id ? older : version) as never,
+    );
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "浏览版本 · 2" }));
+    await user.click(await screen.findByRole("button", { name: "查看详情：旧版" }));
+    expect(await screen.findByText("冻结详情 旧版")).toBeVisible();
+    expect(trainingDatasetsApi.getSummary).toHaveBeenCalledWith(
+      "project-1",
+      "dataset-older",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(screen.getByText(/tab=data&dataset=dataset-older/)).toBeVisible();
+    expect(trainingDatasetsApi.download).not.toHaveBeenCalled();
+  });
+
+  it("automatically opens the newest version and respects explicitly closing its details", async () => {
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [version as never], total: 1 });
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByText("冻结详情 第一轮")).toBeVisible();
+    expect(screen.getByText(/tab=data&dataset=dataset-1/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "收起数据详情" }));
+    await user.click(await screen.findByRole("button", { name: "查看最新版本" }));
+    expect(await screen.findByText("冻结详情 第一轮")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "查看最新版本" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer a details shortcut when the task has no versions", async () => {
+    mount();
+    expect(await screen.findByText("尚无训练数据版本")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "查看最新版本" })).not.toBeInTheDocument();
+    expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
+  });
+
+  it("does not restore a deleted deep-linked version from a stale list response", async () => {
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [version as never], total: 1 });
+    vi.mocked(confirmDialog).mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=data&dataset=dataset-1");
+    await screen.findByText("冻结详情 第一轮");
+    await user.click(await screen.findByRole("button", { name: "删除" }));
+    await waitFor(() =>
+      expect(trainingDatasetsApi.remove).toHaveBeenCalledWith("project-1", "dataset-1"),
+    );
+    expect(await screen.findByRole("heading", { name: "选择一个冻结版本" })).toBeVisible();
+    expect(screen.getByText("/projects/project-1/learning?tab=data")).toBeVisible();
+    expect(screen.queryByText("冻结详情 第一轮")).not.toBeInTheDocument();
+  });
+
+  it("automatically selects the latest version of the actual project task", async () => {
+    const segment = { ...version, id: "segment-latest", task: "segment", name: "分割最新版本" };
+    vi.mocked(useProject).mockReturnValue({
+      data: {
+        data_type: "image",
+        tool_bindings: { region: { enabled: true, classes: ["shape"] } },
+      },
+    } as never);
+    vi.mocked(trainingDatasetsApi.list).mockImplementation(
+      async (_project, _offset, _status, _options, filters) => ({
+        items: [(filters?.task === "segment" ? segment : version) as never],
+        total: 1,
+      }),
+    );
+    vi.mocked(trainingDatasetsApi.getSummary).mockResolvedValue(segment as never);
+    mount();
+    expect(await screen.findByText("冻结详情 分割最新版本")).toBeVisible();
+    expect(screen.getByLabelText("数据集任务")).toHaveValue("segment");
+    expect(
+      vi.mocked(trainingDatasetsApi.getSummary).mock.calls.every((call) => call[1] === segment.id),
+    ).toBe(true);
   });
 
   it("downloads through the authorized version endpoint", async () => {

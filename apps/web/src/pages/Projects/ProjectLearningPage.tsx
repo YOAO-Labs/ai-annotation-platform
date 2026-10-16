@@ -124,6 +124,7 @@ function ProjectLearningContent({
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnosticsPage, setDiagnosticsPage] = useState(0);
   const taskChosen = useRef(params.has("data_task") || params.has("dataset"));
+  const autoSelectPending = useRef(!params.has("dataset"));
   const [mode, setMode] = useState<"reviewed" | "manager_confirmed">("reviewed");
   const [seed, setSeed] = useState("42");
   const [fraction, setFraction] = useState("20");
@@ -142,6 +143,7 @@ function ProjectLearningContent({
   }, []);
   const setDetailId = (value: string) => {
     if (!owns()) return;
+    autoSelectPending.current = false;
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       if (value) next.set("dataset", value);
@@ -363,6 +365,7 @@ function ProjectLearningContent({
         if (!owns()) return;
         await trainingDatasetsApi.remove(projectId, version.id);
         if (!owns()) return;
+        autoSelectPending.current = false;
         setParams((previous) => {
           if (previous.get("dataset") !== version.id) return previous;
           const next = new URLSearchParams(previous);
@@ -418,6 +421,7 @@ function ProjectLearningContent({
   }, []);
   const chooseTask = (task: DatasetTask) => {
     taskChosen.current = true;
+    autoSelectPending.current = true;
     setBrowseTask(task);
     setPage(0);
     if (task === "detect" || task === "segment") activateTask(task);
@@ -488,6 +492,51 @@ function ProjectLearningContent({
       setCreateOpen(false);
     }
   }, [detail.data?.task, detailId, params, browseTask, activateTask]);
+  useEffect(() => {
+    const expectedTask =
+      params.get("data_task") ??
+      (detectionEnabled
+        ? "detect"
+        : segmentationEnabled
+          ? "segment"
+          : taskDatasets.data?.items[0]?.task);
+    if (
+      !autoSelectPending.current ||
+      tab !== "data" ||
+      detailId ||
+      !project.data ||
+      browseTask !== expectedTask ||
+      !versions.isSuccess ||
+      !versions.data.items[0] ||
+      !alive.current ||
+      getAuthSessionRevision() !== revision
+    )
+      return;
+    autoSelectPending.current = false;
+    const versionId = versions.data.items[0].id;
+    setParams(
+      (previous) => {
+        if (previous.has("dataset")) return previous;
+        const next = new URLSearchParams(previous);
+        next.set("dataset", versionId);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [
+    tab,
+    detailId,
+    params,
+    browseTask,
+    detectionEnabled,
+    segmentationEnabled,
+    taskDatasets.data,
+    project.data,
+    versions.isSuccess,
+    versions.data,
+    revision,
+    setParams,
+  ]);
 
   return (
     <PageContainer>
@@ -574,15 +623,15 @@ function ProjectLearningContent({
               {error}
             </p>
           )}
-          <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold">项目衍生数据集</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                每个训练任务独立管理冻结版本；统计与差异始终来自所选版本。
+                按任务管理冻结版本，检查数据分布与迭代变化。
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
-              <label className="grid gap-1.5 text-xs font-medium">
+              <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs font-medium">
                 数据集任务
                 <select
                   className={inputClass}
@@ -608,6 +657,7 @@ function ProjectLearningContent({
               </label>
               <Button
                 ref={prepareButtonRef}
+                variant="primary"
                 disabled={
                   !qualifiedTask ||
                   (!pendingCreate &&
@@ -628,14 +678,14 @@ function ProjectLearningContent({
             />
           )}
           {taskDataset && (
-            <div className="mb-4 text-xs text-muted-foreground">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-2xs text-muted-foreground">
               <p>
                 本任务 {taskDataset.version_count} 个版本 · 已就绪{" "}
                 {taskDataset.status_counts.ready ?? 0} 个
                 {taskDataset.pending_membership_count > 0 &&
                   ` · ${taskDataset.pending_membership_count} 个历史版本待关联序号`}
               </p>
-              <details className="mt-2">
+              <details>
                 <summary className="cursor-pointer">查看任务能力</summary>
                 <dl className="mt-2 grid gap-2 sm:grid-cols-2">
                   {(
@@ -725,13 +775,14 @@ function ProjectLearningContent({
               当前支持图片矩形框检测和单多边形实例分割数据，请切换到图片项目。
             </p>
           )}
-          <div className="grid items-start gap-5 xl:grid-cols-[minmax(18rem,21rem)_minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-4">
             <ProjectTrainingDataVersions
               data={versions.data}
               loading={versions.isLoading}
               error={versions.error?.message}
               pending={action.isPending}
               selectedId={detailId}
+              selectedVersion={detail.data}
               page={page}
               onPage={setPage}
               onRetry={() => void versions.refetch()}
@@ -768,8 +819,17 @@ function ProjectLearningContent({
                   />
                   <h3 className="text-sm font-medium">选择一个冻结版本</h3>
                   <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
-                    在左侧选择版本，查看本轮图片、类别、划分与变化。准备新版本时会冻结当前项目标注。
+                    在上方选择数据版本，或展开“浏览版本”查看摘要、图表与版本变化。
                   </p>
+                  {versions.isSuccess && versions.data.items[0] && (
+                    <Button
+                      variant="primary"
+                      className="mt-5"
+                      onClick={() => setDetailId(versions.data.items[0].id)}
+                    >
+                      {page === 0 ? "查看最新版本" : "查看本页首个版本"}
+                    </Button>
+                  )}
                 </section>
               )}
             </div>

@@ -142,6 +142,7 @@ describe("managed project training", () => {
     );
     const user = userEvent.setup();
     mount();
+    await user.click(await screen.findByRole("button", { name: "浏览实验 · 2" }));
     await user.type(await screen.findByRole("textbox", { name: "搜索本页实验" }), "分割");
     const list = screen.getByRole("complementary", { name: "实验列表" });
     expect(within(list).queryByRole("button", { name: "车辆训练" })).not.toBeInTheDocument();
@@ -203,7 +204,8 @@ describe("managed project training", () => {
     });
     const user = userEvent.setup();
     mount();
-    await user.click(await screen.findByRole("button", { name: "车辆训练" }));
+    await screen.findByRole("option", { name: /车辆训练/ });
+    await user.selectOptions(await screen.findByRole("combobox", { name: "选择训练实验" }), "run");
     await user.click(await screen.findByRole("button", { name: "从检查点续训" }));
     await waitFor(() => expect(trainingRunsApi.resume).toHaveBeenCalledWith("project", "run"));
   });
