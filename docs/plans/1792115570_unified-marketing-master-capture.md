@@ -69,3 +69,10 @@ A bounded real-API diagnostic in the owned video capture runtime compared the sa
 | Two     | F20       | 0.94497         | 0.85036          |
 
 These observations apply to this video and these requests in this runtime, not to all single-target tracking. The backend product path was not changed. The range recording now uses actual left/right bus box prompts and a Shift-brushed F0→F20 range, preserving both candidate sets, each original IoU ≥0.6 gate, and both saved/reloaded tracks. No model output or class was substituted. Bounded input/output evidence is retained in the private capture handoff (`range-factor-diagnostic.json`); credentials and temporary decoded media are excluded.
+
+## Integration and runtime handoff
+
+- All 11 image/inference masters and their 37 existing public derivatives passed source/hash, actual video/poster and scope checks. Their runtime, disposable database, Redis, eight owned buckets and intermediate images/traces were cleaned; the two integrated worktrees were removed without changing primary/shared environment files.
+- All 12 currently qualified video masters and their 24 existing public derivatives were reviewed and integrated. The main branch now has 71 of the 83 selected public files derived from qualified masters. Thirty-one accepted masters, 62 media source files and 15 original source manifests have byte/checksum-verified Drive backups; the consolidated current index remains unpublished until all 34 are ready.
+- GPU0 received recurring external computation during image/management capture and caused honest cadence rejections despite passing product behavior. The remaining flows now use strictly alternating GPU1 sessions. No external computation or shared model service was stopped.
+- A management retry passed real candidate decisions but its reload encountered 27 local ESM requests failing with ERR_NETWORK_CHANGED within one six-millisecond interval. This occurred in the same runtime-cleanup window, without sufficient evidence to assign a precise cause. Container/network changes are deferred until all capture is terminal; the existing reload assertion remains unchanged and only that asset is retried.
