@@ -688,8 +688,69 @@ backend `/health` 返回新增 `gpu_info` / `cache` 子对象，便于运维一�
 
 > 这套 Prometheus/Grafana 与超管「模型市场」的实时 PerfHud 是**两套通道、同一数据源**（`/metrics` vs `/health` 共用同一次采样）：PerfHud 管"实时一眼看"，Prometheus 管"历史趋势 + 告警"。详见 [可观测性](/ops/observability/)。
 
+### 8.5 受控训练执行器 (Training Executor)
+
+模型训练是长耗时、高算力占用的批处理任务，平台通过独立的拉取式执行器（`apps/training-executor`）与独立 Compose 覆盖文件 `docker-compose.training.yml` 运行，不占用普通 Celery worker。
+
+#### 1. 准备配置与 Token 密钥
+
+执行器与平台 API 通过共享密钥进行内部认证。生成一个至少 32 字符的安全随机 Token 并写入受限权限的文件：
+
+```bash
+# 生成私有 Token 文件（权限 600）
+openssl rand -hex 32 > ./secrets/training_executor_token
+chmod 600 ./secrets/training_executor_token
+```
+
+在平台的 `.env` 中配置相同的 Token 及启用开关：
+
+```bash
+TRAINING_ENABLED=true
+TRAINING_EXECUTOR_TOKEN=<secrets/training_executor_token 中的内容>
+```
+
+#### 2. 配置执行器环境变量
+
+获取宿主机物理 GPU 的真实 UUID：
+
+```bash
+nvidia-smi -L
+# 输出示例：GPU 0: NVIDIA GeForce RTX 4090 (UUID: GPU-12345678-abcd-ef01-2345-6789abcdef01)
+```
+
+在执行器环境或 `.env` 中指定：
+
+```bash
+TRAINING_GPU_UUID="GPU-12345678-abcd-ef01-2345-6789abcdef01"
+TRAINING_EXECUTOR_TOKEN_PATH="./secrets/training_executor_token"
+TRAINING_MODELS_PATH="./training/models"
+TRAINING_IMAGE="ai-annotation-platform-training-executor:latest"
+TRAINING_IMAGE_DIGEST="sha256:..."
+```
+
+#### 3. 构建镜像并启动执行器
+
+```bash
+# 1. 使用仓库根目录上下文构建执行器镜像
+docker build -f apps/training-executor/Dockerfile -t ai-annotation-platform-training-executor:latest .
+
+# 2. 获取镜像 digest
+IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ai-annotation-platform-training-executor:latest | cut -d'@' -f2)
+export TRAINING_IMAGE_DIGEST=$IMAGE_DIGEST
+
+# 3. 启动执行器容器
+docker compose -f docker-compose.yml -f docker-compose.training.yml --profile training up -d training-executor
+```
+
+#### 4. 训练参数契约与镜像升级
+
+训练镜像使用仓库根目录构建上下文：`docker build -f apps/training-executor/Dockerfile .`。专用 `Dockerfile.dockerignore` 仅包含执行器及共享参数包，避免将工作树运行数据或凭据发送到构建上下文。API 镜像也安装同一 `aap-training-contract` 包；更改定义后需要重建执行器、刷新对应 API/worker，并检查 runtime 的精确 `supported_configs` 与目录状态。
+
+保留历史冻结配置和旧镜像。仅在完成原生及恢复资格后，可为当前受控框架目录增加 `legacy_images: ["sha256:旧镜像身份"]`；它只允许新镜像执行已冻结的修订 1 实验，不能扩展参数或跨版本、跨资源领取。未配置时仍要求精确镜像。镜像目录改变后自动策略暂停，负责人重新保存后才采用新环境；不要改写历史配置摘要或强行释放 GPU 租约。
+
 ### 进一步阅读
 
+- [在线学习与训练体系](/dev/concepts/training-datasets) — 架构、状态机、参数契约与数据版本
 - [ADR-0012](/dev/adr/archive/0012-sam-backend-as-independent-gpu-service) — 为什么 SAM backend 独立 GPU 服务化
 - [ADR-0013](/dev/adr/archive/0013-mask-to-polygon-server-side) — mask→polygon 后端化决策
 
@@ -704,9 +765,3 @@ backend `/health` 返回新增 `gpu_info` / `cache` 子对象，便于运维一�
 - 真正的 K8s helm chart / terraform module — 暂未维护，进 P3
 
 如团队需要，请先开 issue 讨论需求边界。
-
-### 训练参数契约与镜像升级
-
-训练镜像使用仓库根目录构建上下文：`docker build -f apps/training-executor/Dockerfile .`。专用 `Dockerfile.dockerignore` 仅包含执行器及共享参数包，避免将工作树运行数据或凭据发送到构建上下文。API 镜像也安装同一 `aap-training-contract` 包；更改定义后需要重建执行器、刷新对应 API/worker，并检查 runtime 的精确 `supported_configs` 与目录状态。
-
-保留历史冻结配置和旧镜像。仅在完成原生及恢复资格后，可为当前受控框架目录增加 `legacy_images: ["sha256:旧镜像身份"]`；它只允许新镜像执行已冻结的修订 1 实验，不能扩展参数或跨版本、跨资源领取。未配置时仍要求精确镜像。镜像目录改变后自动策略暂停，负责人重新保存后才采用新环境；不要改写历史配置摘要或强行释放 GPU 租约。

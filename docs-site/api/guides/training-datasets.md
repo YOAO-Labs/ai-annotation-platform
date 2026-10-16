@@ -1,12 +1,12 @@
 ---
-title: 训练数据版本 API
+title: 在线学习与模型训练 API
 audience: [dev]
 type: reference
 status: stable
 last_reviewed: 2026-10-16
 ---
 
-# 训练数据版本 API
+# 在线学习与模型训练 API
 
 基路径为 `/api/v1/projects/{project_id}/training-datasets`。所有操作要求项目负责人或超级管理员；API Key 还需 `annotations:read` 与 `datasets:read`，删除另需 `datasets:write`。
 

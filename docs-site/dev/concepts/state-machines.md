@@ -83,6 +83,51 @@ last_reviewed: 2026-07-29
 - batch 状态会反过来影响 task 可见性和派题
 - project 配置决定 scheduler 如何在 task 间做选择，但 Project.status 本身不参与当前候选查询
 
+## 在线学习与训练状态机
+
+除了标注与质检业务的 Project / Batch / Task，在线学习与模型闭环引入了受控的数据版本与训练执行状态机：
+
+### 训练数据版本（TrainingDatasetVersion）
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: 校验参数并创建快照
+    pending --> running: Export worker 领取消耗并物化图片
+    running --> ready: 素材校验通过、ZIP 发布至 MinIO training 桶
+    running --> failed: 素材损坏或校验失败
+    pending --> cancelled: 取消排队
+    running --> cancelled: 取消构建（图片边界安全退出）
+    failed --> running: 重试构建（复用已复制原图）
+    cancelled --> running: 重试构建
+```
+
+- 失败或取消版本可以重试同一快照，沿用既有序号与请求身份；
+- 终态且无子版本引用的数据版本可以物理删除。
+
+### 训练实验与执行尝试（TrainingRun & Attempt）
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: 提交配置并排队
+    queued --> preparing: 独立执行器 Claim 实验
+    preparing --> training: 拉取训练包、启动原生子进程
+    training --> evaluating: 训练完成、开始最终评估
+    evaluating --> uploading: 上传权重与产物清单
+    uploading --> succeeded: 产物 SHA 校验通过、发布完成
+    training --> cancelling: 用户请求停止
+    cancelling --> cancelled: 确认进程组退出并释放锁
+    preparing --> failed: 准备失败或 OOM 退出
+    training --> failed: 原生异常退出
+    training --> lost: 执行器心跳超时（保留 GPU 租约）
+    lost --> preparing: 恢复执行
+    failed --> queued: 从不可变检查点续训（新增 Attempt）
+    cancelled --> queued: 从不可变检查点续训（新增 Attempt）
+```
+
+- 训练运行在独立拉取式执行器上，利用 OS 文件锁独占物理 GPU，不占普通 Celery 队列；
+- 心跳超时只标记 `lost`，不立刻释放 GPU 租约，等待确认子进程退出；
+- 续训产生新的 `TrainingAttempt`，沿用原配置与验证基准，新执行不会改写历史曲线或覆盖前次产物。
+
 ## 为什么需要单独一页
 
 最常见的误解是：
@@ -98,4 +143,5 @@ last_reviewed: 2026-07-29
 - [项目模块](./project-module)
 - [批次模块](./batch-module)
 - [任务模块](./task-module)
+- [在线学习与训练体系](./training-datasets)
 - [Scheduler 与派题](./scheduler-and-task-dispatch)

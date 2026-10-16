@@ -1825,3 +1825,52 @@ ACK + fresh health 提交 Resident 或保守 Unknown。冻结 marker 不随 owne
 派发只认逐卡 effective mode，不能被全局 desired mode 提前短路：demotion 握手完成前，即使 desired 已回到 off/observe，旧 effective=enforce 的卡仍发送受管请求。多卡部分灰度时，已知卡 B 的 off/observe 不受卡 A enforce 影响；但缺失或未知 resource 的注册项无法安全归属，只要任一卡真正 effective enforce 就在 backend HTTP 前返回 `gpu_config_invalid`。仅带新鲜 connected health 且明确 `configured_device=cpu`、没有任何 GPU 正证据的 null-claim backend 可豁免。未注册 URL 的 smoke-test 始终可做只读 health；任一卡进入 effective enforce 后，raw reload 同样在 backend HTTP 前拒绝。
 
 ---
+
+## 12. 受控自训模型部署协议 (/managed-models)
+
+YOLO backend（[`apps/yolo-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/yolo-backend)）支持通过受控端点动态部署平台在线学习产出的自训模型（`TrainedModelVersion`）。支持 Ultralytics YOLO 原生权重与 LibreYOLO YOLO9 原生权重（经 CPU 适配器运行），实现训练权重到预标注实例的安全回流。
+
+### 鉴权机制
+
+- 请求头：`Authorization: Bearer <YOLO_MANAGED_MODELS_TOKEN>`
+- 凭据配置：backend 容器设置环境变量 `YOLO_MANAGED_MODELS_TOKEN`（至少 32 字符随机串），平台端在超管「模型市场」对应的 YOLO registry 实例中配置相同 token；为空时禁用该受控安装路径。
+
+### 端点规范
+
+#### 1. 安装自训模型：`POST /managed-models`
+
+平台向已认证的 YOLO backend 下发自训模型安装指令：
+
+```json
+{
+  "version_id": "4b6a8276-8f2b-4d45-9ec2-6718d7ef2882",
+  "name": "yolo11n-defect-v1",
+  "framework": "ultralytics",
+  "model_family": "yolo11",
+  "model_size": "n",
+  "task": "detect",
+  "classes": ["scratch", "dent", "bubble"],
+  "weights_url": "http://minio:9000/training/projects/.../best.pt?X-Amz-Signature=...",
+  "weights_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "weights_size_bytes": 5242880
+}
+```
+
+- backend 下载权重，校验实际字节大小、SHA-256 摘要与原生架构元数据；
+- 校验通过后原子写入 managed storage 目录并生成安装收据（receipt）；
+- 安装失败返回 422 及明确的错误原因（如 `weights_corrupted`、`classes_mismatch`、`framework_incompatible`）。
+
+#### 2. 查询与试用：`GET /managed-models/{version_id}`
+
+平台查询模型部署健康状态，并在固定验证样本上执行推理试用：
+
+- 返回已固定的安装收据：`installed`、`model_family`、`model_size`、`artifact_format`、`runtime_qualification` 等；
+- 包含在验证图上的实际试用预测框、置信度与推理耗时；
+- 平台负责人核验试用结果无误后，方可完成项目级模型发布（`ModelRelease`）。
+
+### 回流资格（Model Return Qualification）
+
+- **Ultralytics YOLO11**：支持图片目标检测（`detect`）与简单多边形实例分割（`segment`）；
+- **LibreYOLO YOLO9**：支持 t/s/m/c 规格的原生目标检测最佳权重，使用经过验证的原生 CPU 推理适配器借用池运行；原生指标缺口（缺失常规 precision/recall）在平台内明确保留。
+
+详见[在线学习与训练体系](/dev/concepts/training-datasets#模型身份与回流)。

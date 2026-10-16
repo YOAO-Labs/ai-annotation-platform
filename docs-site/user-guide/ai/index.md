@@ -23,25 +23,29 @@ last_reviewed: 2026-08-16
 
 ## 按角色开始
 
-| 角色       | 常用 AI 任务                                               | 从哪里开始                                                                                                                                                                          |
-| ---------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 标注员     | 在当前图片生成辅助结果、审阅候选、追踪视频目标             | [图片交互式 AI](../workbench/sam-tool) · [审阅 AI 候选](./candidate-review) · [视频 AI 追踪](../workbench/video-propagate)                                                          |
-| 项目管理员 | 启用模型、批量预标、复用编排、导入外部预测、重试失败项     | [项目 ML 模型](../projects/ml-backends) · [AI 预标](../projects/ai-preannotate) · [全局编排库](../projects/pipeline-library) · [外部预测导入](../datasets/prediction-import-export) |
-| 超级管理员 | 管理全局 backend、查看模型能力与运行状态、协助恢复失败任务 | [模型市场](../superadmin/model-market) · [失败预测排查](../superadmin/failed-predictions)                                                                                           |
+| 角色       | 常用 AI 任务                                                               | 从哪里开始                                                                                                                                                                                                                              |
+| ---------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 标注员     | 在当前图片生成辅助结果、审阅候选、追踪视频目标                             | [图片交互式 AI](../workbench/sam-tool) · [审阅 AI 候选](./candidate-review) · [视频 AI 追踪](../workbench/video-propagate)                                                                                                              |
+| 项目管理员 | 启用模型、批量预标、在线学习与模型训练、复用编排、导入外部预测、重试失败项 | [项目 ML 模型](../projects/ml-backends) · [AI 预标](../projects/ai-preannotate) · [在线学习与模型训练](../projects/online-learning) · [全局编排库](../projects/pipeline-library) · [外部预测导入](../datasets/prediction-import-export) |
+| 超级管理员 | 管理全局 backend、查看模型能力与运行状态、协助恢复失败任务                 | [模型市场](../superadmin/model-market) · [失败预测排查](../superadmin/failed-predictions)                                                                                                                                               |
 
 ## 按任务进入
 
-| 我想做的事                                       | 详页                                                         |
-| ------------------------------------------------ | ------------------------------------------------------------ |
-| 用点、框、示例或文本辅助完成当前图片             | [图片交互式 AI](../workbench/sam-tool)                       |
-| 对当前整图运行模型，或对已确认标注补属性 / 子框  | [当前题 AI 与二次推理](./current-task-inference)             |
-| 接受、拒绝或继续编辑图片候选                     | [审阅 AI 候选](./candidate-review)                           |
-| 为多个图片任务运行模型，或配置多阶段预标         | [AI 预标](../projects/ai-preannotate)                        |
-| 对视频轨迹发起模型追踪、补种子并审阅整批结果     | [视频关键帧传播与 AI 追踪](../workbench/video-propagate)     |
-| 导入外部模型的预测、替换或清理候选               | [外部预测导入 / 导出](../datasets/prediction-import-export)  |
-| 让项目可用某个 backend，并处理模型置灰或路由问题 | [项目 ML 模型](../projects/ml-backends)                      |
-| 保存、共享或套用一套多阶段预标编排               | [全局编排库](../projects/pipeline-library)                   |
-| 查看任务历史、取消批量预标或重试可恢复项         | [AI 任务与失败恢复](../workflows/failed-prediction-recovery) |
+| 我想做的事                                          | 详页                                                                     |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| 用点、框、示例或文本辅助完成当前图片                | [图片交互式 AI](../workbench/sam-tool)                                   |
+| 对当前整图运行模型，或对已确认标注补属性 / 子框     | [当前题 AI 与二次推理](./current-task-inference)                         |
+| 接受、拒绝或继续编辑图片候选                        | [审阅 AI 候选](./candidate-review)                                       |
+| 为多个图片任务运行模型，或配置多阶段预标            | [AI 预标](../projects/ai-preannotate)                                    |
+| 冻结已审核标注、训练自定义检测 / 分割模型并发布回流 | [在线学习与模型训练](../projects/online-learning)                        |
+| 用模型不确定性启发式算法从待标池人工选样建批次      | [主动学习人工选样](../projects/online-learning#主动学习人工选样)         |
+| 在冻结验证集上进行真值与预测逐样本复查及双模型对比  | [逐样本评估与误差复查](../projects/online-learning#逐样本评估与误差复查) |
+| 配置样本增量变化门槛与冷却，自动触发周期训练        | [自动训练策略](../projects/online-learning#自动训练策略)                 |
+| 对视频轨迹发起模型追踪、补种子并审阅整批结果        | [视频关键帧传播与 AI 追踪](../workbench/video-propagate)                 |
+| 导入外部模型的预测、替换或清理候选                  | [外部预测导入 / 导出](../datasets/prediction-import-export)              |
+| 让项目可用某个 backend，并处理模型置灰或路由问题    | [项目 ML 模型](../projects/ml-backends)                                  |
+| 保存、共享或套用一套多阶段预标编排                  | [全局编排库](../projects/pipeline-library)                               |
+| 查看任务历史、取消批量预标或重试可恢复项            | [AI 任务与失败恢复](../workflows/failed-prediction-recovery)             |
 
 ## 结果会去哪里
 

@@ -13,17 +13,20 @@ last_reviewed: 2026-09-21
 
 ## 1. 顶层结构与依赖方向
 
-| 区域            | 位置                                                                                        | 允许依赖                                                      |
-| --------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| 前端页面 / 装配 | `apps/web/src/pages/**`                                                                     | 领域 hooks → API client → 生成类型                            |
-| 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                |
-| 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                        |
-| API 路由        | `apps/api/app/api/v1/**`                                                                    | 服务层；不做业务规则推导                                      |
-| 服务层          | `apps/api/app/services/**`                                                                  | 授权真值在 `project_access`，聚合 SQL 在 `project_aggregates` |
-| Worker          | `apps/api/app/workers/**`                                                                   | 复用服务层；作业终态走 `async_job_terminal`                   |
-| ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                      |
-| ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                         |
-| ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                |
+| 区域            | 位置                                                                                        | 允许依赖                                                         |
+| --------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 前端页面 / 装配 | `apps/web/src/pages/**`                                                                     | 领域 hooks → API client → 生成类型                               |
+| 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                   |
+| 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                           |
+| API 路由        | `apps/api/app/api/v1/**`                                                                    | 服务层；不做业务规则推导                                         |
+| 服务层          | `apps/api/app/services/**`                                                                  | 授权真值在 `project_access`，聚合 SQL 在 `project_aggregates`    |
+| Worker          | `apps/api/app/workers/**`                                                                   | 复用服务层；作业终态走 `async_job_terminal`                      |
+| ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                         |
+| ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                            |
+| 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射 |
+| 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约     |
+| 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志   |
+| ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                   |
 
 ## 2. 授权真值（唯一来源）
 
@@ -78,20 +81,25 @@ last_reviewed: 2026-09-21
 4. 平台侧消费：`apps/api/app/services/ml_client.py` 与
    `app/api/v1/ml_backends.py` 调 backend 的 HTTP 协议端点。
 
-## 5. 测试层级与运行入口
+## 5. 在线学习与模型训练调用链
+
+1. 数据版本化：`apps/api/app/services/training_datasets.py` 快照项目已审核标注；Celery export worker (`app/workers/training_dataset.py`) 下载校验原图素材并物化为 Ultralytics YOLO 格式数据包，上传至 MinIO `training` 存储桶。
+2. 执行调度与排队：`app/services/training_runs.py` / `training_studies.py` 管理训练实验与参数搜索计划，通过数据库资源锁和租约在多框架、多实验间排队。
+3. 执行器通信：`apps/training-executor` 通过 `/api/v1/internal/training` 拉取实验与任务凭据，以 OS flock 独占 GPU 文件锁，拉取不可变训练包并守护训练子进程；阶段耗时、资源采样与脱敏日志通过 `/observations` 上报。
+4. 产物与模型回流：训练完成后由执行器上传不可变权重与完整检查点；负责人核验最终评估后注册为 `TrainedModelVersion`；在已认证的 YOLO backend (`/managed-models`) 完成 CPU 加载与样本试用后发布（`ModelRelease`），最终接入 Workbench 与预标注流水线 (`model_id="project-release"`)。
+5. 谱系与决策：`app/services/model_lineage.py` 提供单跳追溯，`model_decisions` 记录负责人处置（发布、归档、说明追加）。详见[在线学习与训练体系](./training-datasets)。
+
+## 6. 测试层级与运行入口
 
 分层口径、运行命令与接线状态见[测试指南](/dev/testing)。速记：
 
 - 后端纯规则测试不落库；事务/锁/通知顺序测试用独立连接。
 - 前端页面测试优先在 MSW API 边界描述响应（`src/test/` 提供最小 fixture）；
   纯 URL/几何规则下沉到 `*UrlState.test.ts` / 几何单测。
-- ML backend 与 `apps/_shared` 三个共享包（`backend_runtime` / `mask_utils` / `protocol_v2`）
-  的 `tests/` 执行入口是可复用工作流 `.github/workflows/ml-cpu-test.yml`（`workflow_call` /
-  `workflow_dispatch`）与 `scripts/run-ml-cpu-tests.sh`（8 套件、每套件独立 venv；gs2/sam3
-  装 CPU torch，yolo 不用 ultralytics/torch）。这些文件全部 CPU 可运行，不存在“硬件专属”
-  测试；阶段接线状态见仓库优化台账。
+- ML backend 与 `apps/_shared` 五个共享包（`backend_runtime` / `mask_utils` / `protocol_v2` / `task_contract` / `training_contract`）
+  的 `tests/` 执行入口是可复用工作流 `.github/workflows/ml-cpu-test.yml` 与 `scripts/run-ml-cpu-tests.sh`。这些测试全部 CPU 可运行，不存在“硬件专属”测试。
 
-## 6. 改动时的对齐参考
+## 7. 改动时的对齐参考
 
 以下是现行实现的归属约定，不是新增门禁：
 

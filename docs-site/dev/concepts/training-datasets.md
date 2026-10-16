@@ -1,12 +1,12 @@
 ---
-title: 在线学习数据版本
+title: 在线学习与训练体系
 audience: [developer, ops]
 type: explanation
 status: stable
 last_reviewed: 2026-10-16
 ---
 
-# 在线学习数据版本
+# 在线学习与训练体系
 
 ## 任务、格式与来源
 

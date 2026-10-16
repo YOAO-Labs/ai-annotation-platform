@@ -56,7 +56,7 @@ export function createDevSidebar(
             { text: "批次模块", link: "/dev/concepts/batch-module" },
             { text: "任务模块", link: "/dev/concepts/task-module" },
             { text: "标注模块", link: "/dev/concepts/annotation-module" },
-            { text: "在线学习数据版本", link: "/dev/concepts/training-datasets" },
+            { text: "在线学习与训练体系", link: "/dev/concepts/training-datasets" },
             { text: "视频标注工作台", link: "/dev/concepts/video-annotation-workbench" },
             { text: "Scene 与帧索引", link: "/dev/concepts/scene-and-frame-index" },
             { text: "审核模块", link: "/dev/concepts/review-module" },
