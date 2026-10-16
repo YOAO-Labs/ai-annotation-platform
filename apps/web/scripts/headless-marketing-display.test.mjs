@@ -118,7 +118,7 @@ test("NVENC selection verifies encoding and falls back without replacing the res
   const tools = resolveHeadlessTools(env, run, find);
   assert.equal(tools.ffmpeg, "/usr/bin/ffmpeg");
   assert.equal(tools.ffprobe, "/usr/bin/ffprobe");
-  assert.ok(probes.some(({ args }) => args.includes("color=size=64x64:rate=60")));
+  assert.ok(probes.some(({ args }) => args.includes("color=size=256x256:rate=60")));
   assert.equal(env.PATH, "/node/bin:/portable/bin:/usr/bin");
   assert.throws(
     () => resolveHeadlessTools({ ...env, MARKETING_HEADLESS_GPU: "unlisted" }, run, find),

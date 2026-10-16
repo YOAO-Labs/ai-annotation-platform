@@ -150,7 +150,7 @@ export function resolveHeadlessTools(env, run = checked, find = executable) {
           "-f",
           "lavfi",
           "-i",
-          "color=size=64x64:rate=60",
+          "color=size=256x256:rate=60",
           "-frames:v",
           "1",
           "-c:v",
