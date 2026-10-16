@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-16T03:44:32.074Z",
+  "updated_at": "2026-10-16T05:28:33.160165Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -137,9 +137,9 @@
     "docs-site/public/home/ai-assisted-annotation-poster.webp": {
       "asset_id": "ai-assisted-annotation",
       "role": "home-poster",
-      "generated_at": "2026-10-15T11:41:29.389Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:28:15.351Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › ai-assisted-annotation",
@@ -147,19 +147,17 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "48f060e41736a60e43ed0a3187a6800a06a2afcd2d4017bc03ce3982ec22ab1f",
-      "bytes": 59746,
+      "sha256": "6429c7e59cd337df5b1a33774cc42a19f289f8ef974359a62fba9e7c1fe73c88",
+      "bytes": 63286,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -169,26 +167,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "ai-assisted-annotation",
-        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
-        "quality": "standard",
+        "sha256": "62ae11ebd0feb680012ed5feb593f20f42ee7a7a1dab24930997bbd5b414eb2b",
+        "quality": "marketing",
         "clip": {
-          "start": 131,
-          "duration": 10.4
-        }
+          "start": 0,
+          "duration": 13.817
+        },
+        "poster_time_seconds": 13.3
       }
     },
     "docs-site/public/home/ai-assisted-annotation.mp4": {
       "asset_id": "ai-assisted-annotation",
       "role": "home-video",
-      "generated_at": "2026-10-15T11:41:29.360Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:28:15.197Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › ai-assisted-annotation",
@@ -196,48 +195,46 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "745471afbdff8fcfc15bac5a9c983fccc0d87a872656f9a0e17e0dc62835085a",
-      "bytes": 528391,
+      "sha256": "876a2cb139dc5eea127c941ba260164d59645c2688ab46151eb4d1393d7d5976",
+      "bytes": 340910,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 10.4
+        "fps": "30/1",
+        "duration_seconds": 13.834
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "ai-assisted-annotation",
-        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
-        "quality": "standard",
+        "sha256": "62ae11ebd0feb680012ed5feb593f20f42ee7a7a1dab24930997bbd5b414eb2b",
+        "quality": "marketing",
         "clip": {
-          "start": 131,
-          "duration": 10.4
+          "start": 0,
+          "duration": 13.817
         }
       }
     },
     "docs-site/public/home/ai-assisted-annotation.webm": {
       "asset_id": "ai-assisted-annotation",
       "role": "home-video",
-      "generated_at": "2026-10-15T11:41:29.376Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:28:15.270Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webm › ai-assisted-annotation",
@@ -245,47 +242,45 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "d0d7330a48a4d4ac0f9057f5ca223859f8c261900efbca34dc5ca4da258032fd",
-      "bytes": 440900,
+      "sha256": "ea6da915b6a9953bc20f394ed2d876e546053374cfa4b00002a7ca50fa1787a2",
+      "bytes": 497654,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 10.4
+        "fps": "30/1",
+        "duration_seconds": 13.833
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "ai-assisted-annotation",
-        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
-        "quality": "standard",
+        "sha256": "62ae11ebd0feb680012ed5feb593f20f42ee7a7a1dab24930997bbd5b414eb2b",
+        "quality": "marketing",
         "clip": {
-          "start": 131,
-          "duration": 10.4
+          "start": 0,
+          "duration": 13.817
         }
       }
     },
     "docs-site/public/home/ocr-real-scene-poster.webp": {
       "asset_id": "ocr-real-scene",
       "role": "home-poster",
-      "generated_at": "2026-10-15T12:57:48.792Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T05:20:59.948Z",
+      "captured_commit": "2bc981d4d6aa65496256542553c44f65ff0fb1c5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -294,18 +289,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/ocr-inference.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "87fe526e3f9aa94cc91805fc15492ddf013f2da59468d1854359affaf666aa2b",
-      "bytes": 88838,
+      "sha256": "adfe9b86e4af0d91faccd7e09a45479088d0b58dad9b85c37e43a630e5934bb1",
+      "bytes": 84344,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -315,25 +308,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T051654Z-2bc981d4d6aa",
         "assetId": "ocr-real-scene",
-        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
-        "quality": "standard",
+        "sha256": "b33cbaac19674360ed5bda8982a25d650f757c4d385be30a2ac4c8c5a29d4cda",
+        "quality": "marketing",
         "clip": {
-          "start": 208.6,
-          "duration": 13
-        }
+          "start": 0,
+          "duration": 12.084
+        },
+        "poster_time_seconds": 11.93
       }
     },
     "docs-site/public/home/ocr-real-scene.mp4": {
       "asset_id": "ocr-real-scene",
       "role": "home-video",
-      "generated_at": "2026-10-15T12:57:48.744Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T05:20:59.787Z",
+      "captured_commit": "2bc981d4d6aa65496256542553c44f65ff0fb1c5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -342,46 +336,44 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/ocr-inference.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "ed57a131c9ba327b17c8270bb7807339ea61de04276dd72c8d3ca30d4c624a1f",
-      "bytes": 588519,
+      "sha256": "f7de4226662ef7dee6e92217a619a80a52d4326d1767eeb6731389bb2300c4e9",
+      "bytes": 399782,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 13
+        "fps": "30/1",
+        "duration_seconds": 12.1
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T051654Z-2bc981d4d6aa",
         "assetId": "ocr-real-scene",
-        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
-        "quality": "standard",
+        "sha256": "b33cbaac19674360ed5bda8982a25d650f757c4d385be30a2ac4c8c5a29d4cda",
+        "quality": "marketing",
         "clip": {
-          "start": 208.6,
-          "duration": 13
+          "start": 0,
+          "duration": 12.084
         }
       }
     },
     "docs-site/public/home/ocr-real-scene.webm": {
       "asset_id": "ocr-real-scene",
       "role": "home-video",
-      "generated_at": "2026-10-15T12:57:48.768Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T05:20:59.866Z",
+      "captured_commit": "2bc981d4d6aa65496256542553c44f65ff0fb1c5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -390,47 +382,45 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/ocr-inference.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "e4240381eaa99e1a127dee5e2d5c625d49619cdb861a19f470bc6d0bf7e21f24",
-      "bytes": 498115,
+      "sha256": "e180b813aa5b2c1ff8b2799e3608d32dd98dd25b2e8ca8b282c8b142ac311a7f",
+      "bytes": 472592,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 13
+        "fps": "30/1",
+        "duration_seconds": 12.1
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T051654Z-2bc981d4d6aa",
         "assetId": "ocr-real-scene",
-        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
-        "quality": "standard",
+        "sha256": "b33cbaac19674360ed5bda8982a25d650f757c4d385be30a2ac4c8c5a29d4cda",
+        "quality": "marketing",
         "clip": {
-          "start": 208.6,
-          "duration": 13
+          "start": 0,
+          "duration": 12.084
         }
       }
     },
     "docs-site/public/home/sam-tools/exemplar-poster.webp": {
       "asset_id": "sam-tools/exemplar",
       "role": "home-poster",
-      "generated_at": "2026-10-15T12:00:24.358Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:27:29.055Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › sam-tools/exemplar",
@@ -438,19 +428,17 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "2e5285536b925b2180f8f3e27ec8e5856f80904805a36816a1a9959592394088",
-      "bytes": 57828,
+      "sha256": "961048f45ce267368ace4ca535d80ac869463f504a8cb910366ab6a67ae92b97",
+      "bytes": 65050,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -460,26 +448,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T031535Z-6933cc55039f",
         "assetId": "sam-tools/exemplar",
-        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
-        "quality": "standard",
+        "sha256": "aa2c81faac30e705a664bed88bd437ccbe41136f7cd84abf7d8020d17f696885",
+        "quality": "marketing",
         "clip": {
-          "start": 2.8,
-          "duration": 12.2
-        }
+          "start": 0,
+          "duration": 11.617
+        },
+        "poster_time_seconds": 8.1
       }
     },
     "docs-site/public/home/sam-tools/exemplar.mp4": {
       "asset_id": "sam-tools/exemplar",
       "role": "home-video",
-      "generated_at": "2026-10-15T12:00:24.310Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:27:28.892Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › sam-tools/exemplar",
@@ -487,48 +476,46 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "6a264e3ce6dfdde23525f2b4f427bb9b2a863f9776cc2c9ede2f076339a48cb1",
-      "bytes": 1019226,
+      "sha256": "c064a0b51867dbe07c6ba3c7b7801bbaca06f7c0c428a246115d3cef596f61b8",
+      "bytes": 501860,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 12.2
+        "fps": "30/1",
+        "duration_seconds": 11.634
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T031535Z-6933cc55039f",
         "assetId": "sam-tools/exemplar",
-        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
-        "quality": "standard",
+        "sha256": "aa2c81faac30e705a664bed88bd437ccbe41136f7cd84abf7d8020d17f696885",
+        "quality": "marketing",
         "clip": {
-          "start": 2.8,
-          "duration": 12.2
+          "start": 0,
+          "duration": 11.617
         }
       }
     },
     "docs-site/public/home/sam-tools/exemplar.webm": {
       "asset_id": "sam-tools/exemplar",
       "role": "home-video",
-      "generated_at": "2026-10-15T12:00:24.331Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:27:28.973Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webm › sam-tools/exemplar",
@@ -536,48 +523,46 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "450ef0793a2bae1350111e6f4b818d24efabd1e8c8b8af645a1edef6cb199757",
-      "bytes": 858878,
+      "sha256": "d1394884ea9c12d94ddaebb2a01f10c29d9ab54fa2d20c8fe702a60ff5b9c931",
+      "bytes": 467305,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 12.2
+        "fps": "30/1",
+        "duration_seconds": 11.633
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T031535Z-6933cc55039f",
         "assetId": "sam-tools/exemplar",
-        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
-        "quality": "standard",
+        "sha256": "aa2c81faac30e705a664bed88bd437ccbe41136f7cd84abf7d8020d17f696885",
+        "quality": "marketing",
         "clip": {
-          "start": 2.8,
-          "duration": 12.2
+          "start": 0,
+          "duration": 11.617
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-box-poster.webp": {
       "asset_id": "sam-tools/smart-box",
       "role": "home-poster",
-      "generated_at": "2026-10-15T11:20:47.511Z",
-      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:57.788Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › sam-tools/smart-box",
@@ -585,19 +570,17 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "63dbfdbcfefe512f98f7081a2f2a35ceca86fdbb674f26c93fc8406124b643f9",
-      "bytes": 57164,
+      "sha256": "9229f6c3e58330751d905a7f737b842b67d4e0f1eda9d978dcfe61a2d432de9d",
+      "bytes": 58044,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -607,26 +590,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "sam-tools/smart-box",
-        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
-        "quality": "standard",
+        "sha256": "1639573653cf6cdf7eeb8356f35f6f919aa083d7d7d603354adcc299ede768f0",
+        "quality": "marketing",
         "clip": {
-          "start": 81,
-          "duration": 8.7
-        }
+          "start": 0,
+          "duration": 7.8
+        },
+        "poster_time_seconds": 7.5
       }
     },
     "docs-site/public/home/sam-tools/smart-box.mp4": {
       "asset_id": "sam-tools/smart-box",
       "role": "home-video",
-      "generated_at": "2026-10-15T11:20:47.466Z",
-      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:57.624Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › sam-tools/smart-box",
@@ -634,48 +618,46 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "b42bfd7a956c6ee190ba790b641a8c7c7af9316be32060c04ec08911a3c89c0c",
-      "bytes": 315463,
+      "sha256": "2c83423cec54d95150ab10c13643e5e479478cb2075b3939751171183ab2a2cb",
+      "bytes": 188634,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 8.72
+        "fps": "30/1",
+        "duration_seconds": 7.8
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "sam-tools/smart-box",
-        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
-        "quality": "standard",
+        "sha256": "1639573653cf6cdf7eeb8356f35f6f919aa083d7d7d603354adcc299ede768f0",
+        "quality": "marketing",
         "clip": {
-          "start": 81,
-          "duration": 8.7
+          "start": 0,
+          "duration": 7.8
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-box.webm": {
       "asset_id": "sam-tools/smart-box",
       "role": "home-video",
-      "generated_at": "2026-10-15T11:20:47.488Z",
-      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:57.704Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webm › sam-tools/smart-box",
@@ -683,48 +665,46 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "713f2c50a16f811fa930041af4cd3c919418e1076d05a4d9b5efac5bbbe7b090",
-      "bytes": 279392,
+      "sha256": "d9065734e24c71056f1a93c2602687c181dd332f89bdd0c27ab7a627baa295d4",
+      "bytes": 271748,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 8.72
+        "fps": "30/1",
+        "duration_seconds": 7.8
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "sam-tools/smart-box",
-        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
-        "quality": "standard",
+        "sha256": "1639573653cf6cdf7eeb8356f35f6f919aa083d7d7d603354adcc299ede768f0",
+        "quality": "marketing",
         "clip": {
-          "start": 81,
-          "duration": 8.7
+          "start": 0,
+          "duration": 7.8
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-point-poster.webp": {
       "asset_id": "sam-tools/smart-point",
       "role": "home-poster",
-      "generated_at": "2026-10-15T12:00:38.607Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:35.700Z",
+      "captured_commit": "12136e94b53a002553e05456909c962efd82e30e",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › sam-tools/smart-point",
@@ -732,7 +712,6 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
@@ -740,12 +719,11 @@
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "939d7ecff526c58197e81304e9617d01de6a6d9067ac7ced36de922622785ba4",
-      "bytes": 56156,
+      "sha256": "d4a6ca0821295e2191234be2767dd8910a89972da860e7c3162f6f50aee23053",
+      "bytes": 58428,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -755,26 +733,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T021321Z-12136e94b53a",
         "assetId": "sam-tools/smart-point",
-        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
-        "quality": "standard",
+        "sha256": "9ab025d6db41add1123d32632bf0a3be48989ef0818d49c7a4408e8e7f42dfd5",
+        "quality": "marketing",
         "clip": {
-          "start": 177.5,
-          "duration": 11.8
-        }
+          "start": 0,
+          "duration": 16.017
+        },
+        "poster_time_seconds": 15.3
       }
     },
     "docs-site/public/home/sam-tools/smart-point.mp4": {
       "asset_id": "sam-tools/smart-point",
       "role": "home-video",
-      "generated_at": "2026-10-15T12:00:38.554Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:35.552Z",
+      "captured_commit": "12136e94b53a002553e05456909c962efd82e30e",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › sam-tools/smart-point",
@@ -782,7 +761,6 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
@@ -790,41 +768,40 @@
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "8cff70b3d7c496915208fdd27f64483ee9f3642b7f379776cb221c1b4c27c2ad",
-      "bytes": 449105,
+      "sha256": "039f91072e5da090358ed7c3b09f004086f43db311f2bf2119aa41bba6003f1c",
+      "bytes": 322870,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 11.8
+        "fps": "30/1",
+        "duration_seconds": 16.034
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T021321Z-12136e94b53a",
         "assetId": "sam-tools/smart-point",
-        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
-        "quality": "standard",
+        "sha256": "9ab025d6db41add1123d32632bf0a3be48989ef0818d49c7a4408e8e7f42dfd5",
+        "quality": "marketing",
         "clip": {
-          "start": 177.5,
-          "duration": 11.8
+          "start": 0,
+          "duration": 16.017
         }
       }
     },
     "docs-site/public/home/sam-tools/smart-point.webm": {
       "asset_id": "sam-tools/smart-point",
       "role": "home-video",
-      "generated_at": "2026-10-15T12:00:38.583Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:35.628Z",
+      "captured_commit": "12136e94b53a002553e05456909c962efd82e30e",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webm › sam-tools/smart-point",
@@ -832,7 +809,6 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
@@ -840,41 +816,40 @@
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "b7e0309ce78e98970dd8c6e9ef930faf4d8999284759f74357795c3fc9b1c7f7",
-      "bytes": 380742,
+      "sha256": "6e88f2b294a27694ac7f384874dce395595570a58b90b255a4fb607be36bc671",
+      "bytes": 462097,
       "media": {
         "container": "matroska,webm",
         "codec": "vp9",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 11.84
+        "fps": "30/1",
+        "duration_seconds": 16.033
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T021321Z-12136e94b53a",
         "assetId": "sam-tools/smart-point",
-        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
-        "quality": "standard",
+        "sha256": "9ab025d6db41add1123d32632bf0a3be48989ef0818d49c7a4408e8e7f42dfd5",
+        "quality": "marketing",
         "clip": {
-          "start": 177.5,
-          "duration": 11.8
+          "start": 0,
+          "duration": 16.017
         }
       }
     },
     "docs-site/public/media/ai/assisted-annotation-poster.webp": {
       "asset_id": "ai-assisted-annotation",
       "role": "poster",
-      "generated_at": "2026-10-15T11:41:29.340Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:28:15.127Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › ai-assisted-annotation",
@@ -882,19 +857,17 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "48f060e41736a60e43ed0a3187a6800a06a2afcd2d4017bc03ce3982ec22ab1f",
-      "bytes": 59746,
+      "sha256": "6429c7e59cd337df5b1a33774cc42a19f289f8ef974359a62fba9e7c1fe73c88",
+      "bytes": 63286,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -904,26 +877,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "ai-assisted-annotation",
-        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
-        "quality": "standard",
+        "sha256": "62ae11ebd0feb680012ed5feb593f20f42ee7a7a1dab24930997bbd5b414eb2b",
+        "quality": "marketing",
         "clip": {
-          "start": 131,
-          "duration": 10.4
-        }
+          "start": 0,
+          "duration": 13.817
+        },
+        "poster_time_seconds": 13.3
       }
     },
     "docs-site/public/media/ai/assisted-annotation.mp4": {
       "asset_id": "ai-assisted-annotation",
       "role": "docs-video",
-      "generated_at": "2026-10-15T11:41:29.311Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:28:15.029Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › ai-assisted-annotation",
@@ -931,47 +905,45 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "745471afbdff8fcfc15bac5a9c983fccc0d87a872656f9a0e17e0dc62835085a",
-      "bytes": 528391,
+      "sha256": "876a2cb139dc5eea127c941ba260164d59645c2688ab46151eb4d1393d7d5976",
+      "bytes": 340910,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 10.4
+        "fps": "30/1",
+        "duration_seconds": 13.834
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "ai-assisted-annotation",
-        "sha256": "df2b007f2afc90d3b51dc936192a800d58b54549e30e03a3bc471cd4c9e4f580",
-        "quality": "standard",
+        "sha256": "62ae11ebd0feb680012ed5feb593f20f42ee7a7a1dab24930997bbd5b414eb2b",
+        "quality": "marketing",
         "clip": {
-          "start": 131,
-          "duration": 10.4
+          "start": 0,
+          "duration": 13.817
         }
       }
     },
     "docs-site/public/media/ai/candidate-keyboard-review-poster.webp": {
       "asset_id": "candidate-keyboard-review",
       "role": "poster",
-      "generated_at": "2026-10-15T13:33:38.365Z",
-      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
+      "generated_at": "2026-10-16T04:44:50.103Z",
+      "captured_commit": "bab91cf9dd423bdc13791bd6db334bd3ac67a4a3",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -980,18 +952,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/candidate-keyboard-review.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "67bdbc7cbd3e032b211bf0cf8d5258813a3bba60e585c292340898fbf51b35f6",
-      "bytes": 68988,
+      "sha256": "e4fa3bcc3635797bb6fb51de56c3f767dc31cc12c03eda15d0f60f3c8cbf50b1",
+      "bytes": 70232,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1001,25 +971,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T13-25-21-741Z-1740919",
+        "runId": "20261016T043448Z-bab91cf9dd42",
         "assetId": "candidate-keyboard-review",
-        "sha256": "53d0c61dc4805e8599d5e40abe0d3119b575c46dd9ae7ac5d36b18a95cdb7813",
-        "quality": "standard",
+        "sha256": "8e54dbfb62353c4176efa732b00e3a892282c12733a116d78279574ba19ebe7c",
+        "quality": "marketing",
         "clip": {
-          "start": 148,
-          "duration": 9.4
-        }
+          "start": 0,
+          "duration": 14.267
+        },
+        "poster_time_seconds": 14.12
       }
     },
     "docs-site/public/media/ai/candidate-keyboard-review.mp4": {
       "asset_id": "candidate-keyboard-review",
       "role": "docs-video",
-      "generated_at": "2026-10-15T13:33:38.326Z",
-      "captured_commit": "c1f9b5bc9e7a9ad4f1c9114f4e21d34b7beabc1c",
+      "generated_at": "2026-10-16T04:44:50.017Z",
+      "captured_commit": "bab91cf9dd423bdc13791bd6db334bd3ac67a4a3",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1028,38 +999,36 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/candidate-keyboard-review.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "a11e75c61402adcd65f7d51ee2dc3fa6c92eaa03e8f9a4a9e29edfad5c955735",
-      "bytes": 299796,
+      "sha256": "0ea7de92367924568eed08b7869c16b80dc6127f16602ec32b717965c4b7d36b",
+      "bytes": 531521,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 9.4
+        "fps": "30/1",
+        "duration_seconds": 14.267
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T13-25-21-741Z-1740919",
+        "runId": "20261016T043448Z-bab91cf9dd42",
         "assetId": "candidate-keyboard-review",
-        "sha256": "53d0c61dc4805e8599d5e40abe0d3119b575c46dd9ae7ac5d36b18a95cdb7813",
-        "quality": "standard",
+        "sha256": "8e54dbfb62353c4176efa732b00e3a892282c12733a116d78279574ba19ebe7c",
+        "quality": "marketing",
         "clip": {
-          "start": 148,
-          "duration": 9.4
+          "start": 0,
+          "duration": 14.267
         }
       }
     },
@@ -1260,8 +1229,8 @@
     "docs-site/public/media/ai/current-task-image-inference-poster.webp": {
       "asset_id": "current-task-image-inference",
       "role": "poster",
-      "generated_at": "2026-10-15T13:05:06.328Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T05:24:29.208Z",
+      "captured_commit": "2bc981d4d6aa65496256542553c44f65ff0fb1c5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1270,18 +1239,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/current-task-image-inference.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "7b715384aacf72c99fc5591138fedc8cb2575575afc5f85373a38e19d64f04ed",
-      "bytes": 80316,
+      "sha256": "43a19f344368e415e95dfd267a67524415c06b4878b33657966f00d4e7309fdf",
+      "bytes": 81070,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1291,25 +1258,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T051654Z-2bc981d4d6aa",
         "assetId": "current-task-image-inference",
-        "sha256": "9c6b5d01a702678aa65e5843c93ee22e84db87355f2deb4c009acd4638931660",
-        "quality": "standard",
+        "sha256": "9acc4524617b286ef92d10dc0dc0799383613b9b994b975d51fe819eef150a07",
+        "quality": "marketing",
         "clip": {
-          "start": 376,
-          "duration": 18.4
-        }
+          "start": 0,
+          "duration": 18.167
+        },
+        "poster_time_seconds": 18.02
       }
     },
     "docs-site/public/media/ai/current-task-image-inference.mp4": {
       "asset_id": "current-task-image-inference",
       "role": "docs-video",
-      "generated_at": "2026-10-15T13:05:06.289Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T05:24:29.123Z",
+      "captured_commit": "2bc981d4d6aa65496256542553c44f65ff0fb1c5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1318,46 +1286,44 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/current-task-image-inference.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "5ed134b1481f9952b689159a786dc4e8ada03943a546cf7e6d871e9cd8dbdc45",
-      "bytes": 606590,
+      "sha256": "2a01695038aefd816078c453853675dc9357fc6f37503af19358ab87976163bf",
+      "bytes": 577380,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 18.4
+        "fps": "30/1",
+        "duration_seconds": 18.167
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T051654Z-2bc981d4d6aa",
         "assetId": "current-task-image-inference",
-        "sha256": "9c6b5d01a702678aa65e5843c93ee22e84db87355f2deb4c009acd4638931660",
-        "quality": "standard",
+        "sha256": "9acc4524617b286ef92d10dc0dc0799383613b9b994b975d51fe819eef150a07",
+        "quality": "marketing",
         "clip": {
-          "start": 376,
-          "duration": 18.4
+          "start": 0,
+          "duration": 18.167
         }
       }
     },
     "docs-site/public/media/ai/ocr-current-task-poster.webp": {
       "asset_id": "ocr-real-scene",
       "role": "poster",
-      "generated_at": "2026-10-15T12:57:48.726Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T05:20:59.697Z",
+      "captured_commit": "2bc981d4d6aa65496256542553c44f65ff0fb1c5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1366,18 +1332,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/ocr-inference.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "87fe526e3f9aa94cc91805fc15492ddf013f2da59468d1854359affaf666aa2b",
-      "bytes": 88838,
+      "sha256": "adfe9b86e4af0d91faccd7e09a45479088d0b58dad9b85c37e43a630e5934bb1",
+      "bytes": 84344,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1387,25 +1351,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T051654Z-2bc981d4d6aa",
         "assetId": "ocr-real-scene",
-        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
-        "quality": "standard",
+        "sha256": "b33cbaac19674360ed5bda8982a25d650f757c4d385be30a2ac4c8c5a29d4cda",
+        "quality": "marketing",
         "clip": {
-          "start": 208.6,
-          "duration": 13
-        }
+          "start": 0,
+          "duration": 12.084
+        },
+        "poster_time_seconds": 11.93
       }
     },
     "docs-site/public/media/ai/ocr-current-task.mp4": {
       "asset_id": "ocr-real-scene",
       "role": "docs-video",
-      "generated_at": "2026-10-15T12:57:48.685Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T05:20:59.578Z",
+      "captured_commit": "2bc981d4d6aa65496256542553c44f65ff0fb1c5",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1414,46 +1379,44 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/ocr-inference.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "ed57a131c9ba327b17c8270bb7807339ea61de04276dd72c8d3ca30d4c624a1f",
-      "bytes": 588519,
+      "sha256": "f7de4226662ef7dee6e92217a619a80a52d4326d1767eeb6731389bb2300c4e9",
+      "bytes": 399782,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 13
+        "fps": "30/1",
+        "duration_seconds": 12.1
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T051654Z-2bc981d4d6aa",
         "assetId": "ocr-real-scene",
-        "sha256": "cff38c054533e6f3ae150441e49045abbec07217148cf6adcdbb74cc47b05748",
-        "quality": "standard",
+        "sha256": "b33cbaac19674360ed5bda8982a25d650f757c4d385be30a2ac4c8c5a29d4cda",
+        "quality": "marketing",
         "clip": {
-          "start": 208.6,
-          "duration": 13
+          "start": 0,
+          "duration": 12.084
         }
       }
     },
     "docs-site/public/media/ai/preannotate-poster.webp": {
       "asset_id": "ai-preannotate",
       "role": "poster",
-      "generated_at": "2026-10-15T12:38:49.029Z",
-      "captured_commit": "9eed9a12a37085fe8b769fcfe8e147713a4e4ac5",
+      "generated_at": "2026-10-16T04:28:27.250Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1462,18 +1425,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/ai-preannotate.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "1afb01cc7f1c94035c54aae25724016d09452cbb6922f690e6a28f160759b9f7",
-      "bytes": 89516,
+      "sha256": "dd04bc1ba4220a9119b8599ccd1a1e3e81a2d313387bc3e4dbae32faa22fe42e",
+      "bytes": 97336,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1483,25 +1444,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-14-23-799Z-1492310",
+        "runId": "20261016T035501Z-6933cc55039f",
         "assetId": "ai-preannotate",
-        "sha256": "4fa9e935cf8487ea5ab8a728a3c98a2113f3e3a799e1c4c0c9ee74489342c61d",
-        "quality": "standard",
+        "sha256": "409460f38f0018f617915b355e1428bf777d9eb8390356f8ea487e52c339e5cd",
+        "quality": "marketing",
         "clip": {
-          "start": 268.6,
-          "duration": 16.4
-        }
+          "start": 0,
+          "duration": 13.117
+        },
+        "poster_time_seconds": 12.97
       }
     },
     "docs-site/public/media/ai/preannotate.mp4": {
       "asset_id": "ai-preannotate",
       "role": "docs-video",
-      "generated_at": "2026-10-15T12:38:48.995Z",
-      "captured_commit": "9eed9a12a37085fe8b769fcfe8e147713a4e4ac5",
+      "generated_at": "2026-10-16T04:28:27.165Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1510,46 +1472,44 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/ai-preannotate.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "7ec4afbf314f88cecb68778f0d94acc7e1df0ed3bd2392c2be392e43cf29fdd0",
-      "bytes": 536948,
+      "sha256": "6f08fb2d82f931399561623aded408f57694fe8deeb233c2732597e5a1fb2dda",
+      "bytes": 446458,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 16.4
+        "fps": "30/1",
+        "duration_seconds": 13.134
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-14-23-799Z-1492310",
+        "runId": "20261016T035501Z-6933cc55039f",
         "assetId": "ai-preannotate",
-        "sha256": "4fa9e935cf8487ea5ab8a728a3c98a2113f3e3a799e1c4c0c9ee74489342c61d",
-        "quality": "standard",
+        "sha256": "409460f38f0018f617915b355e1428bf777d9eb8390356f8ea487e52c339e5cd",
+        "quality": "marketing",
         "clip": {
-          "start": 268.6,
-          "duration": 16.4
+          "start": 0,
+          "duration": 13.117
         }
       }
     },
     "docs-site/public/media/ai/prediction-import-poster.webp": {
       "asset_id": "ai-prediction-import",
       "role": "poster",
-      "generated_at": "2026-10-15T12:32:41.951Z",
-      "captured_commit": "9eed9a12a37085fe8b769fcfe8e147713a4e4ac5",
+      "generated_at": "2026-10-16T04:28:37.337Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1558,18 +1518,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/ai-prediction-import.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "3c4dc4e1da817b7e4e9182f65f60abfbf6cc4da65cc5c6581bda7758c681dbc4",
-      "bytes": 88630,
+      "sha256": "26a7fed3bc1ea88fa730c4a63aa34d31c09b33b9a0402eb00e8f1bf380cb0f52",
+      "bytes": 92978,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1579,25 +1537,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-14-23-799Z-1492310",
+        "runId": "20261016T035501Z-6933cc55039f",
         "assetId": "ai-prediction-import",
-        "sha256": "b212d3e20aa797a2242f6426941a1e3e11d615ab582971fce71bba5f2325baba",
-        "quality": "standard",
+        "sha256": "a02d64a86bc4c273ee9c23411a076571b21f24570f7868df5739c6eb30e3164f",
+        "quality": "marketing",
         "clip": {
-          "start": 257.4,
-          "duration": 5.9
-        }
+          "start": 0,
+          "duration": 8.7
+        },
+        "poster_time_seconds": 8.55
       }
     },
     "docs-site/public/media/ai/prediction-import.mp4": {
       "asset_id": "ai-prediction-import",
       "role": "docs-video",
-      "generated_at": "2026-10-15T12:32:41.905Z",
-      "captured_commit": "9eed9a12a37085fe8b769fcfe8e147713a4e4ac5",
+      "generated_at": "2026-10-16T04:28:37.234Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1606,46 +1565,44 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/ai-prediction-import.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "051645090bac961d9956414e7da6d188f5404a60f5fc877fe62a214ded9c01c0",
-      "bytes": 249933,
+      "sha256": "074f081be7f462c6b9538ed48876031d66a5d59c0d88bcdcdbecc35fccf08551",
+      "bytes": 326696,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 5.92
+        "fps": "30/1",
+        "duration_seconds": 8.7
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "none"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-14-23-799Z-1492310",
+        "runId": "20261016T035501Z-6933cc55039f",
         "assetId": "ai-prediction-import",
-        "sha256": "b212d3e20aa797a2242f6426941a1e3e11d615ab582971fce71bba5f2325baba",
-        "quality": "standard",
+        "sha256": "a02d64a86bc4c273ee9c23411a076571b21f24570f7868df5739c6eb30e3164f",
+        "quality": "marketing",
         "clip": {
-          "start": 257.4,
-          "duration": 5.9
+          "start": 0,
+          "duration": 8.7
         }
       }
     },
     "docs-site/public/media/ai/secondary-inference-attribute-poster.webp": {
       "asset_id": "secondary-inference-attribute",
       "role": "poster",
-      "generated_at": "2026-10-15T13:09:23.670Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T04:30:03.643Z",
+      "captured_commit": "271cb6f4943b81f0ecd67f3d38f0fa6acdc3ca88",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1654,18 +1611,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/secondary-inference-attribute.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "81e59ad64cdedeeff1b249be2550a449b21ba8d4610f3f1f8c7e347311644c2c",
-      "bytes": 64178,
+      "sha256": "145e3ccb1a5ce2d11632fd3e40010ed0d59f1342a6a59527a54bbc3cf506476e",
+      "bytes": 64182,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -1675,25 +1630,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T041157Z-271cb6f4943b",
         "assetId": "secondary-inference-attribute",
-        "sha256": "5b107cfd3b6d109171f1418e83b63232d8a7cbb5740c43cb01db6c0063efeb3f",
-        "quality": "standard",
+        "sha256": "c376735cfee21e9fa21828fa9165d8d0877b7856620ec0ed7bc3ad0117fe7f61",
+        "quality": "marketing",
         "clip": {
-          "start": 237,
-          "duration": 14.9
-        }
+          "start": 0,
+          "duration": 17.134
+        },
+        "poster_time_seconds": 16.98
       }
     },
     "docs-site/public/media/ai/secondary-inference-attribute.mp4": {
       "asset_id": "secondary-inference-attribute",
       "role": "docs-video",
-      "generated_at": "2026-10-15T13:09:23.627Z",
-      "captured_commit": "38f951c314edf8884b63f2e2b79b62848b71d5f7",
+      "generated_at": "2026-10-16T04:30:03.549Z",
+      "captured_commit": "271cb6f4943b81f0ecd67f3d38f0fa6acdc3ca88",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -1702,38 +1658,36 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/secondary-inference-attribute.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "b2ea1753c6bbcb039aa2841dca6c1200cebc22272e95ae585c60541a782b7acb",
-      "bytes": 464521,
+      "sha256": "b77aebd712fb2bbb11f6751ce593d3fd91cde944450e9aa624f212db2dfb2193",
+      "bytes": 411057,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 14.92
+        "fps": "30/1",
+        "duration_seconds": 17.134
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-48-18-947Z-1619367",
+        "runId": "20261016T041157Z-271cb6f4943b",
         "assetId": "secondary-inference-attribute",
-        "sha256": "5b107cfd3b6d109171f1418e83b63232d8a7cbb5740c43cb01db6c0063efeb3f",
-        "quality": "standard",
+        "sha256": "c376735cfee21e9fa21828fa9165d8d0877b7856620ec0ed7bc3ad0117fe7f61",
+        "quality": "marketing",
         "clip": {
-          "start": 237,
-          "duration": 14.9
+          "start": 0,
+          "duration": 17.134
         }
       }
     },
@@ -4918,9 +4872,9 @@
     "docs-site/public/media/sam/exemplar-poster.webp": {
       "asset_id": "sam-tools/exemplar",
       "role": "poster",
-      "generated_at": "2026-10-15T12:00:24.289Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:27:28.815Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › sam-tools/exemplar",
@@ -4928,19 +4882,17 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "2e5285536b925b2180f8f3e27ec8e5856f80904805a36816a1a9959592394088",
-      "bytes": 57828,
+      "sha256": "961048f45ce267368ace4ca535d80ac869463f504a8cb910366ab6a67ae92b97",
+      "bytes": 65050,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -4950,26 +4902,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T031535Z-6933cc55039f",
         "assetId": "sam-tools/exemplar",
-        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
-        "quality": "standard",
+        "sha256": "aa2c81faac30e705a664bed88bd437ccbe41136f7cd84abf7d8020d17f696885",
+        "quality": "marketing",
         "clip": {
-          "start": 2.8,
-          "duration": 12.2
-        }
+          "start": 0,
+          "duration": 11.617
+        },
+        "poster_time_seconds": 8.1
       }
     },
     "docs-site/public/media/sam/exemplar.mp4": {
       "asset_id": "sam-tools/exemplar",
       "role": "docs-video",
-      "generated_at": "2026-10-15T12:00:24.254Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:27:28.724Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › sam-tools/exemplar",
@@ -4977,48 +4930,46 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "6a264e3ce6dfdde23525f2b4f427bb9b2a863f9776cc2c9ede2f076339a48cb1",
-      "bytes": 1019226,
+      "sha256": "c064a0b51867dbe07c6ba3c7b7801bbaca06f7c0c428a246115d3cef596f61b8",
+      "bytes": 501860,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 12.2
+        "fps": "30/1",
+        "duration_seconds": 11.634
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T031535Z-6933cc55039f",
         "assetId": "sam-tools/exemplar",
-        "sha256": "6acdf0b2699485e50a6e0c9364539a63cd249ebb1ee2af181983ed077b1f55d7",
-        "quality": "standard",
+        "sha256": "aa2c81faac30e705a664bed88bd437ccbe41136f7cd84abf7d8020d17f696885",
+        "quality": "marketing",
         "clip": {
-          "start": 2.8,
-          "duration": 12.2
+          "start": 0,
+          "duration": 11.617
         }
       }
     },
     "docs-site/public/media/sam/smart-box-poster.webp": {
       "asset_id": "sam-tools/smart-box",
       "role": "poster",
-      "generated_at": "2026-10-15T11:20:47.446Z",
-      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:57.546Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › sam-tools/smart-box",
@@ -5026,19 +4977,17 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "63dbfdbcfefe512f98f7081a2f2a35ceca86fdbb674f26c93fc8406124b643f9",
-      "bytes": 57164,
+      "sha256": "9229f6c3e58330751d905a7f737b842b67d4e0f1eda9d978dcfe61a2d432de9d",
+      "bytes": 58044,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -5048,26 +4997,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "sam-tools/smart-box",
-        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
-        "quality": "standard",
+        "sha256": "1639573653cf6cdf7eeb8356f35f6f919aa083d7d7d603354adcc299ede768f0",
+        "quality": "marketing",
         "clip": {
-          "start": 81,
-          "duration": 8.7
-        }
+          "start": 0,
+          "duration": 7.8
+        },
+        "poster_time_seconds": 7.5
       }
     },
     "docs-site/public/media/sam/smart-box.mp4": {
       "asset_id": "sam-tools/smart-box",
       "role": "docs-video",
-      "generated_at": "2026-10-15T11:20:47.403Z",
-      "captured_commit": "dd3ed86b4c1c0edd5f922c3cb6c0540fc5607acb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:57.447Z",
+      "captured_commit": "3ebd2e20a171ee72eeedc84d6be66aea4edc6c41",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › sam-tools/smart-box",
@@ -5075,48 +5025,46 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "b42bfd7a956c6ee190ba790b641a8c7c7af9316be32060c04ec08911a3c89c0c",
-      "bytes": 315463,
+      "sha256": "2c83423cec54d95150ab10c13643e5e479478cb2075b3939751171183ab2a2cb",
+      "bytes": 188634,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 8.72
+        "fps": "30/1",
+        "duration_seconds": 7.8
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-14-56-515Z-1246313",
+        "runId": "20261016T022431Z-3ebd2e20a171",
         "assetId": "sam-tools/smart-box",
-        "sha256": "10a623fcb0d80517ee2a2b5d1c547b32be7501deb7df29d0c35b9d36577e59e9",
-        "quality": "standard",
+        "sha256": "1639573653cf6cdf7eeb8356f35f6f919aa083d7d7d603354adcc299ede768f0",
+        "quality": "marketing",
         "clip": {
-          "start": 81,
-          "duration": 8.7
+          "start": 0,
+          "duration": 7.8
         }
       }
     },
     "docs-site/public/media/sam/smart-point-poster.webp": {
       "asset_id": "sam-tools/smart-point",
       "role": "poster",
-      "generated_at": "2026-10-15T12:00:38.531Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:35.487Z",
+      "captured_commit": "12136e94b53a002553e05456909c962efd82e30e",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › sam-tools/smart-point",
@@ -5124,7 +5072,6 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
@@ -5132,12 +5079,11 @@
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "939d7ecff526c58197e81304e9617d01de6a6d9067ac7ced36de922622785ba4",
-      "bytes": 56156,
+      "sha256": "d4a6ca0821295e2191234be2767dd8910a89972da860e7c3162f6f50aee23053",
+      "bytes": 58428,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -5147,26 +5093,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T021321Z-12136e94b53a",
         "assetId": "sam-tools/smart-point",
-        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
-        "quality": "standard",
+        "sha256": "9ab025d6db41add1123d32632bf0a3be48989ef0818d49c7a4408e8e7f42dfd5",
+        "quality": "marketing",
         "clip": {
-          "start": 177.5,
-          "duration": 11.8
-        }
+          "start": 0,
+          "duration": 16.017
+        },
+        "poster_time_seconds": 15.3
       }
     },
     "docs-site/public/media/sam/smart-point.mp4": {
       "asset_id": "sam-tools/smart-point",
       "role": "docs-video",
-      "generated_at": "2026-10-15T12:00:38.493Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:26:35.400Z",
+      "captured_commit": "12136e94b53a002553e05456909c962efd82e30e",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › sam-tools/smart-point",
@@ -5174,7 +5121,6 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_image-drawing.ts",
@@ -5182,41 +5128,40 @@
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/sam-interactive.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "8cff70b3d7c496915208fdd27f64483ee9f3642b7f379776cb221c1b4c27c2ad",
-      "bytes": 449105,
+      "sha256": "039f91072e5da090358ed7c3b09f004086f43db311f2bf2119aa41bba6003f1c",
+      "bytes": 322870,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 11.8
+        "fps": "30/1",
+        "duration_seconds": 16.034
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T021321Z-12136e94b53a",
         "assetId": "sam-tools/smart-point",
-        "sha256": "5379cac40a7443e1370a3a4caad60e061faf8fb54e1bac12387b6586d0f48789",
-        "quality": "standard",
+        "sha256": "9ab025d6db41add1123d32632bf0a3be48989ef0818d49c7a4408e8e7f42dfd5",
+        "quality": "marketing",
         "clip": {
-          "start": 177.5,
-          "duration": 11.8
+          "start": 0,
+          "duration": 16.017
         }
       }
     },
     "docs-site/public/media/sam/smart-scribble-poster.webp": {
       "asset_id": "smart-scribble",
       "role": "poster",
-      "generated_at": "2026-10-15T12:04:33.791Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:27:41.999Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive webp › smart-scribble",
@@ -5224,7 +5169,6 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_sam-recording-candidates.ts",
@@ -5232,12 +5176,11 @@
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/smart-scribble.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "d895af8477ce564ce5f186810bbb6832f6eb774c28f78ee64b5c3fcbae08a725",
-      "bytes": 57730,
+      "sha256": "5519886d1d72cbf8ed5b09a98835d06e7ddeff07c24d80c463806a1d15ce1dcd",
+      "bytes": 59376,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -5247,26 +5190,27 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T031535Z-6933cc55039f",
         "assetId": "smart-scribble",
-        "sha256": "f9a4febf639053da586a2b37ec4c8c76dc602c3fd7729a7f93e99b188c114ffd",
-        "quality": "standard",
+        "sha256": "288ad96d3ef2c4775f36b2580532f744faba73ea2b9fbcd250836a31cb6046a8",
+        "quality": "marketing",
         "clip": {
-          "start": 219,
-          "duration": 16.4
-        }
+          "start": 0,
+          "duration": 13.317
+        },
+        "poster_time_seconds": 13
       }
     },
     "docs-site/public/media/sam/smart-scribble.mp4": {
       "asset_id": "smart-scribble",
       "role": "docs-video",
-      "generated_at": "2026-10-15T12:04:33.755Z",
-      "captured_commit": "5566857c8d212fa6b0c57793c89872795e025feb",
-      "source_worktree_dirty": true,
+      "generated_at": "2026-10-16T04:27:41.873Z",
+      "captured_commit": "6933cc55039f3ba5b7cf51e5b6dde8466434ede7",
+      "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
       "test_title": "derive mp4 › smart-scribble",
@@ -5274,7 +5218,6 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_sam-recording-candidates.ts",
@@ -5282,32 +5225,31 @@
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/smart-scribble.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "40f2b69103edd9bca9a32f331d4b7e2c33dc38cabc31b7f3cccc520f37fbf126",
-      "bytes": 818166,
+      "sha256": "7658e9f3cf4796fcd6fc6eade69c5505a81239d00e22f1e86893ec6ad6f6546d",
+      "bytes": 393926,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 16.4
+        "fps": "30/1",
+        "duration_seconds": 13.334
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T11-44-46-767Z-1352209",
+        "runId": "20261016T031535Z-6933cc55039f",
         "assetId": "smart-scribble",
-        "sha256": "f9a4febf639053da586a2b37ec4c8c76dc602c3fd7729a7f93e99b188c114ffd",
-        "quality": "standard",
+        "sha256": "288ad96d3ef2c4775f36b2580532f744faba73ea2b9fbcd250836a31cb6046a8",
+        "quality": "marketing",
         "clip": {
-          "start": 219,
-          "duration": 16.4
+          "start": 0,
+          "duration": 13.317
         }
       }
     },
