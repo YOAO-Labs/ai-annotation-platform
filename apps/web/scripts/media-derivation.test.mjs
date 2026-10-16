@@ -179,7 +179,7 @@ test("one archive derives every format, preserves unrelated entries, and never u
   }
 });
 
-test("legacy schema-4 masters retain their quality gate and derive through the same encoder", () => {
+test("schema-4 masters preserve inference provenance and the existing quality gate", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-master-derive-test-"));
   try {
     const run = path.join(root, "master");
@@ -241,9 +241,28 @@ test("legacy schema-4 masters retain their quality gate and derive through the s
       result.entries["docs-site/public/media/master.mp4"].source_asset.quality,
       "marketing",
     );
+    assert.equal(
+      result.entries["docs-site/public/media/master.mp4"].capture.source_inference,
+      "unverified",
+    );
+    manifest.entries["bbox-draw"].evidence = {
+      inference: "live",
+      backend_requirements: "image_interactive",
+      clock: "live",
+    };
     manifest.entries["bbox-draw"].capture.driver = "screencapturekit";
     fs.writeFileSync(path.join(run, "manifest.json"), JSON.stringify(manifest));
     deriveMedia(options);
+    const updated = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "apps/web/e2e/screenshots/outputs/flow-manifest.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      updated.entries["docs-site/public/media/master.mp4"].capture.source_inference,
+      "live",
+    );
     manifest.entries["bbox-draw"].capture.cadence.unique_frame_ratio = 0.1;
     fs.writeFileSync(path.join(run, "manifest.json"), JSON.stringify(manifest));
     assert.throws(() => deriveMedia(options), /qualified 4K60/);
