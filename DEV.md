@@ -588,10 +588,11 @@ Worker 与上述命令必须使用同一 `SCREENSHOT_DATABASE_URL`；开发库 W
 ### 触发
 
 Mac / Linux 分工录制优先使用 `pnpm --filter @anno/web screenshots:record -- --list`，
-再用 `--flow bbox-draw --plan` 预览依赖。默认 `docs` 规格归档未裁剪标准源视频，
-`--profile marketing` 保留 Linux X11/NVIDIA 母版检查；手工场景无需模型，SAM / OCR 可使用远程注册后端。
+再用 `--flow bbox-draw --plan` 预览依赖。正式录制默认采集 `marketing` 高清母版，
+再同源衍生项目需要的视频、GIF 与封面；`--profile docs --validate-only` 只预演，不生成正式源。
+手工场景无需模型，真实 ML 母版目前使用 Linux X11/NVIDIA，模型服务可独立部署。
 入口会修复隔离夹具，运行前须核对数据库和 Redis，并准备完整离线素材缓存。
-详见 [跨平台录制与隔离要求](docs-site/dev/how-to/update-screenshots.md#mac-linux-分工录制)。
+详见 [跨平台录制与隔离要求](docs-site/dev/how-to/update-screenshots.md#高清母版统一采集与衍生)。
 
 ```bash
 export PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001
@@ -601,7 +602,7 @@ SCREENSHOT_VALIDATE_ONLY=1 pnpm --filter web screenshots  # 只验证场景，�
 pnpm --filter web screenshots                              # 生成 desktop-light 正式图
 pnpm --filter web screenshots:dark                         # 显式声明的深色场景
 pnpm --filter web screenshots:matrix                       # desktop-light/dark/mobile
-pnpm --filter web screenshots:flows                        # 标准源录像及 GIF 配置归档，需 ffmpeg
+pnpm --filter web screenshots:flows                        # 流程预演，不生成正式素材
 pnpm --filter web screenshots:marketing                    # 4K60 MKV + MP4/H.264，需本机 X11/NVIDIA/ffmpeg
 pnpm docs:media:derive                                      # 从最新营销批次统一派生视频 / GIF / 封面
 pnpm docs:media:audit                                       # 检查引用、来源与人工复核版本
