@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from training_contract.dataset import DETECTION
 from aap_task_contract import (
+    VisualTask,
     legacy_training_task,
     normalize_task,
     normalize_task_fields,
@@ -80,11 +81,24 @@ class TrainingDatasetPreflight(BaseModel):
     source: dict = Field(default_factory=dict)
 
 
+class TrainingDatasetContractProfile(BaseModel):
+    schema: int
+    task: VisualTask
+    media_type: str
+    source_media_type: str
+    format: str
+    geometry: str
+    bridge: str
+
+
 class TrainingDatasetSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: uuid.UUID
     name: str
+    task_dataset_id: uuid.UUID | None = None
+    version_ordinal: int | None = None
+    contract_profile: TrainingDatasetContractProfile | None = None
     task: Literal["detect", "segment"] = DETECTION
     media_type: str = "image"
     format: str = "ultralytics-yolo"

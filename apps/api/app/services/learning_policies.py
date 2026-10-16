@@ -24,6 +24,7 @@ from app.services.training_dataset_bridge import (
     semantic_partition_aliases,
 )
 from app.services import training_initialization as initialization
+from app.services import project_task_dataset as task_datasets
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
 CHECK_BATCH_SIZE = 100
@@ -386,6 +387,9 @@ async def check_policy(db, policy_id, *, force=False):
         policy.state, policy.message = "suspended", authorization_error
         return
     if trigger:
+        version = await db.get(TrainingDatasetVersion, trigger.dataset_id)
+        if version is not None:
+            await task_datasets.ensure_membership(db, version, project_locked=True)
         await reconcile(db, policy, trigger)
         return
     if not policy.enabled or (
@@ -472,6 +476,7 @@ async def check_policy(db, policy_id, *, force=False):
     )
     db.add(version)
     await db.flush()
+    await task_datasets.ensure_membership(db, version, project_locked=True)
     await datasets.enqueue_dataset(db, version)
     db.add(
         LearningTrigger(

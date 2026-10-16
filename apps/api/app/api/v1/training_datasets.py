@@ -12,6 +12,7 @@ from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.db.models.training_preview import TrainingPreview
+from app.db.models.project_task_dataset import ProjectTaskDataset
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_dataset import (
@@ -23,6 +24,8 @@ from app.schemas.training_dataset import (
     TrainingDatasetSummary,
 )
 from app.services import training_datasets as service
+from app.services import project_task_dataset as task_datasets
+from aap_task_contract import VisualTask
 from app.services.project_write_guard import lock_actor_project_authority
 from app.services.project_access import resolve_project_access_by_id
 from app.services.storage import storage_service
@@ -108,7 +111,12 @@ async def create_version(
             raise HTTPException(
                 status_code=409, detail="同一请求标识不能用于不同数据版本"
             )
-        return existing
+        try:
+            await task_datasets.ensure_membership(db, existing, project_locked=True)
+        except TrainingDatasetError as exc:
+            fail(exc)
+        await db.commit()
+        return await task_datasets.attach_read_metadata(db, existing)
     try:
         snapshot, report = await service.freeze_selection(
             db,
@@ -136,11 +144,12 @@ async def create_version(
         )
         db.add(version)
         await db.flush()
+        await task_datasets.ensure_membership(db, version, project_locked=True)
         await service.enqueue_dataset(db, version)
         await db.commit()
         await service.dispatch_dataset(db, version)
         await db.refresh(version)
-        return version
+        return await task_datasets.attach_read_metadata(db, version)
     except TrainingDatasetError as exc:
         fail(exc)
 
@@ -154,9 +163,26 @@ async def list_versions(
     status: str | None = Query(
         None, pattern="^(pending|running|ready|failed|cancelled)$"
     ),
+    task: VisualTask | None = None,
+    task_dataset_id: uuid.UUID | None = None,
 ):
+    if task_dataset_id is not None:
+        stream = await db.scalar(
+            select(ProjectTaskDataset).where(
+                ProjectTaskDataset.id == task_dataset_id,
+                ProjectTaskDataset.project_id == project.id,
+            )
+        )
+        if stream is None:
+            raise HTTPException(status_code=404, detail="任务数据集不存在")
+        if task is not None and task != stream.task:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "task_mismatch", "message": "任务与任务数据集不一致"},
+            )
+        task = stream.task
     stmt = (
-        select(TrainingDatasetVersion)
+        task_datasets.version_metadata_statement()
         .options(
             defer(TrainingDatasetVersion.snapshot),
             defer(TrainingDatasetVersion.manifest),
@@ -166,21 +192,21 @@ async def list_versions(
     )
     if status is not None:
         stmt = stmt.where(TrainingDatasetVersion.status == status)
+    if task is not None:
+        # Frozen contract, not membership, is authoritative during rolling deploy.
+        stmt = stmt.where(task_datasets.recognized_task_expression() == task)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    items = (
-        (
-            await db.execute(
-                stmt.order_by(
-                    TrainingDatasetVersion.created_at.desc(),
-                    TrainingDatasetVersion.id.desc(),
-                )
-                .limit(limit)
-                .offset(offset)
+    rows = (
+        await db.execute(
+            stmt.order_by(
+                TrainingDatasetVersion.created_at.desc(),
+                TrainingDatasetVersion.id.desc(),
             )
+            .limit(limit)
+            .offset(offset)
         )
-        .scalars()
-        .all()
-    )
+    ).all()
+    items = [task_datasets.summary_metadata(row) for row in rows]
     return {"items": items, "total": total}
 
 
@@ -192,25 +218,29 @@ async def get_version(
     include_manifest: bool = True,
 ):
     if not include_manifest:
-        version = await db.scalar(
-            select(TrainingDatasetVersion)
-            .options(
-                defer(TrainingDatasetVersion.snapshot),
-                defer(TrainingDatasetVersion.manifest),
-                defer(TrainingDatasetVersion.preparation_report),
+        row = (
+            await db.execute(
+                task_datasets.version_metadata_statement()
+                .options(
+                    defer(TrainingDatasetVersion.snapshot),
+                    defer(TrainingDatasetVersion.manifest),
+                    defer(TrainingDatasetVersion.preparation_report),
+                )
+                .where(
+                    TrainingDatasetVersion.id == version_id,
+                    TrainingDatasetVersion.project_id == project.id,
+                )
             )
-            .where(
-                TrainingDatasetVersion.id == version_id,
-                TrainingDatasetVersion.project_id == project.id,
-            )
-        )
-        if version is None:
+        ).one_or_none()
+        if row is None:
             raise HTTPException(status_code=404, detail="训练数据版本不存在")
+        version = task_datasets.summary_metadata(row)
         return {
             **TrainingDatasetSummary.model_validate(version).model_dump(),
             "manifest": {},
         }
-    return await load_version(db, project, version_id)
+    version = await load_version(db, project, version_id)
+    return await task_datasets.attach_read_metadata(db, version)
 
 
 @router.post("/{version_id}/retry", response_model=TrainingDatasetOut, status_code=202)
@@ -236,7 +266,7 @@ async def retry_version(
     await db.commit()
     await service.dispatch_dataset(db, version)
     await db.refresh(version)
-    return version
+    return await task_datasets.attach_read_metadata(db, version)
 
 
 @router.get("/{version_id}/download")

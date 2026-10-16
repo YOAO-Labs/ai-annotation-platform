@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
+from app.db.models.project_task_dataset import ProjectTaskDataset
 
 
 async def delete_project_records(db: AsyncSession, project: Project) -> None:
     """Delete one project and its non-cascading children without committing."""
+    from app.services.project_task_dataset import lock_project
+
+    # Keep creation, metadata backfill, and project deletion in one lock order.
+    await lock_project(db, project.id)
     # Serialize with snapshot creators' project SHARE lock before deleting children.
     await db.execute(
         select(Project.id).where(Project.id == project.id).with_for_update()
@@ -66,6 +71,11 @@ async def delete_project_records(db: AsyncSession, project: Project) -> None:
         raise HTTPException(
             status_code=409, detail="项目包含训练数据版本，请先删除无引用的数据版本"
         )
+    # Empty management streams have no retained training evidence. They must not
+    # prevent deletion after every frozen version was explicitly removed.
+    await db.execute(
+        delete(ProjectTaskDataset).where(ProjectTaskDataset.project_id == project.id)
+    )
     params = {"pid": str(project.id)}
     await db.execute(
         text("DELETE FROM annotation_comments WHERE project_id = :pid"), params
