@@ -1,6 +1,6 @@
 # Project-derived task datasets and detection version management
 
-> Status: draft for review. This document authorizes no implementation, migration, runtime change, or release.
+> Status: implemented. All four phases are delivered; local verification and browser evidence are recorded below. No release milestone is assigned.
 >
 > Scope: one project can derive multiple task datasets; complete the new version-management and insight experience for image detection first, retain existing qualified segmentation, and define concrete extension seams for other tasks.
 
@@ -293,10 +293,25 @@ pnpm docs:build
 git diff --check
 ```
 
-Add tests/test_project_task_datasets.py and tests/test_task_dataset_backfill.py to the API invocation for Phase 2, and run the SDK OpenAPI contract suite according to its skill after updating the snapshot/coverage manifest. These are future implementation checks; this draft does not claim they have run for proposed behavior.
+Add tests/test_project_task_datasets.py and tests/test_task_dataset_backfill.py to the API invocation for Phase 2, and run the SDK OpenAPI contract suite according to its skill after updating the snapshot/coverage manifest. The completed local checks are recorded in the Outcome rather than inferred from this command list.
 
 Browser acceptance uses the project's agent-browser workflow against a disposable/seeded development context: mixed-task project; more than one version page; complete detection version; changed baseline; no data; missing preview; partial analysis; preserved segmentation; direct deep link; narrow desktop/mobile; light/dark; keyboard and nested-dialog focus/Escape. No external Ultralytics mutation is needed.
 
 Before each implementation commit, update [training dataset architecture](../../docs-site/dev/concepts/training-datasets.md), [API guide](../../docs-site/api/guides/training-datasets.md), [online-learning user guide](../../docs-site/user-guide/projects/online-learning.md), relevant README/API artifacts, and the Unreleased changelog as affected. Record migration/rollback commands in the existing developer/runtime documentation. Review the final diff, clean all test-generated intermediate artifacts, and distinguish local tests, actual browser verification, and remote CI in the handoff.
 
-Current handoff boundary: review this draft before implementation. Existing uncommitted experiment/model UI refinements are separate work and must be preserved.
+## Outcome
+
+- Delivered all four phases: task-first version browsing and accurate server pagination; persistent project/task streams and monotonic membership ordinals; typed detection/segmentation insight adapters; detection distributions, paired frozen-member inspection, centered creation, and explicit exact-version experiment adoption.
+- Landed foundation commits: `8f3adca02`, `c2effd518`, `7c9648ca7`, `44f1a192b`, `197423f2a`, `383e3a315`, `bd176e2a3`, `c7100e6e5`, `b6e52c54e`, and `adb460a2d`. Final API contracts landed in `2cf3da1f0`, and presentation integration landed in `1bb9f9604`.
+- Release milestone: Not yet determined. No application or SDK version was bumped.
+- User documentation: `docs-site/user-guide/projects/online-learning.md`.
+- Developer documentation: `docs-site/dev/concepts/training-datasets.md`, `DEV.md`, and `README.md`.
+- API documentation/artifacts: `docs-site/api/guides/training-datasets.md`, `apps/api/openapi.snapshot.json`, regenerated local web types, and the Python SDK API-coverage manifest. The two new management GET resources remain explicitly web-only.
+- ADR: `docs/adr/archive/0087-project-task-dataset-streams.md`, indexed from `docs/adr/README.md`.
+- CHANGELOG: Unreleased entries describe task streams, detection insights, comparison boundaries, exact-version adoption, and pending-request recovery.
+- Local regressions passed for stream creation/replay/concurrency/backfill, frozen datasets and automatic policies, detection/segmentation adapters and comparison, Alembic drift, and SDK OpenAPI contracts. The final focused web suites cover 121 cases, including late/ABA responses, duplicate members, history navigation, unknown identities/splits, pending request replay after tool disablement, exact-version adoption, and modal focus/nesting. Typecheck, lint/token checks, Python lint/format, API export/codegen checks, documentation build, and whitespace checks passed; pre-existing lint/build advisories remain unrelated to this change. Remote CI was not run.
+- Actual browser checks used a separately owned disposable e2e database, buckets, Redis, API, web server, and refreshed ordinary/maintenance workers. A mixed-task project exposed 24 detection versions and one segmentation version, plus an independent empty project and an unrecognized-contract diagnostic. Verified second-page browsing and parent candidates; precise deep links; real native box and polygon previews; independent duplicate-member selection; removed-content baseline preview; complete/partial/empty/missing-preview states; 390px stacked layout without horizontal overflow; light/dark screenshots; centered creation; initial/return focus and Escape; exact-version experiment entry and catalog-unavailable guidance. Browser creation went through the real API and worker to a ready version and ZIP. Recent affected API requests returned 200, and no uncaught console error was observed; the intentionally missing retained image produced its expected explicit failure.
+- Historical evidence checks imported a new independent legacy fixture without rewriting existing versions. It returned one unknown label member, one unknown content identity, and one unknown split; charts retained all seven members in their denominator and comparison marked known-set removal as unconfirmed. Backfill dry-run and verify reported 25 valid associations, no pending/invalid/high-water errors, and one untouched diagnostic row.
+- Validation limits: the disposable runtime has no configured controlled training catalog, so live browser adoption could only verify the explicit unavailable state; full confirmation/cancellation, pending protection, and nested-dialog behavior passed component regressions. No GPU training run, external Ultralytics mutation, release, push, or remote CI was performed.
+- Cleanup and runtime: the owned test/e2e databases, nine buckets per mode, Redis instances, browser session/private state, fixture scripts, test caches, documentation build output, and three integrated temporary worktrees/branches were removed. The user's development API/web and both refreshed workers remain healthy at migration head `0188`.
+- Remaining qualification: classification, pose, OBB, sampled-video/point-cloud materialization, instance-level matching, and new training backends retain their explicit extension boundaries. They are not implemented or implied by this detection plan.
