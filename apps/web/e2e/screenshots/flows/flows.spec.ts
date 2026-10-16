@@ -1613,16 +1613,21 @@ test.describe("flow recordings", () => {
     await applyScreenshotTheme(page, "dark");
     await installRecordingWorkbenchLayout(page, "both");
     const win = await runCandidateKeyboardReview(page, cached, live.candidateIds, cleanup);
-    await finalizeVariants(page, "candidate-keyboard-review", [
-      {
-        target: path.join(DOCS_IMAGES, "workbench/review-auto-advance.gif"),
-        options: {
-          fps: 8,
-          maxWidth: 860,
-          ...drawTrim({ drawStartMs: win.autoAdvanceStartMs, drawEndMs: win.drawEndMs }, t0),
+    await finalizeVariants(
+      page,
+      "candidate-keyboard-review",
+      [
+        {
+          target: path.join(DOCS_IMAGES, "workbench/review-auto-advance.gif"),
+          options: {
+            fps: 8,
+            maxWidth: 860,
+            ...drawTrim({ drawStartMs: win.autoAdvanceStartMs, drawEndMs: win.drawEndMs }, t0),
+          },
         },
-      },
-    ]);
+      ],
+      { startEpochMs: win.drawStartMs, endEpochMs: win.drawEndMs },
+    );
   });
 
   test("candidate-review-lifecycle — 跳过、采纳、驳回与最终计数", async ({ page, seed }) => {

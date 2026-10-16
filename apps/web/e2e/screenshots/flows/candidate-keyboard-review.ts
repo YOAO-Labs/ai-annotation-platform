@@ -219,10 +219,12 @@ export async function runCandidateKeyboardReview(
   await expect(stage).toHaveAttribute("data-user-box-count", "2");
   await expect(stage).toHaveAttribute("data-ai-box-count", String(candidateIds.length - 3));
   await page.waitForTimeout(3_200);
-  const drawEndMs = Date.now();
   await page.reload();
   await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 15_000 });
   await expect(stage).toHaveAttribute("data-user-box-count", "2");
   await expect(stage).toHaveAttribute("data-ai-box-count", String(candidateIds.length - 3));
+  // Keep the verified saved review state readable after the real reload.
+  await page.waitForTimeout(1_200);
+  const drawEndMs = Date.now();
   return { drawStartMs, autoAdvanceStartMs, drawEndMs };
 }
