@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Download, FileUp, FlaskConical } from "lucide-react";
+import { Check, Download, FileUp, FlaskConical } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRunsApi, type TrainingRunCreate } from "@/api/trainingRuns";
@@ -15,7 +22,8 @@ import {
 import type { TrainingParameterSchema } from "@/api/generated/types.gen";
 import { useProject } from "@/hooks/useProjects";
 import { useAuthStore } from "@/stores/authStore";
-import { PageContainer } from "@/components/layout/PageContainer";
+import { cn } from "@/lib/utils";
+import type { ProjectLearningOutletContext } from "../Projects/ProjectLearningPage";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
@@ -126,6 +134,10 @@ function TrainingCreateContent({
 }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const outlet = useOutletContext<ProjectLearningOutletContext | undefined>();
+  const openerRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const cloneRun = params.get("clone_run") ?? "";
   const cloneAttempt = params.get("clone_attempt") ?? "";
   const intentOwner = useMemo(
@@ -918,20 +930,16 @@ function TrainingCreateContent({
     : [];
 
   return (
-    <PageContainer className="pb-24 max-[900px]:pb-24">
-      <Link
-        to={back}
-        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" />
-        返回训练实验
-      </Link>
+    <Modal
+      open
+      onClose={() => navigate(back, { replace: true })}
+      title="新建训练实验"
+      width={1120}
+      returnFocusRef={outlet?.createButtonRef ?? openerRef}
+    >
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="mb-1 text-xs text-muted-foreground">
-            {project.data?.name ?? "项目"} / 训练实验
-          </p>
-          <h1 className="text-lg font-semibold">新建训练实验</h1>
+          <p className="text-sm font-medium">{project.data?.name ?? "项目"}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             选择冻结数据，配置训练参数，核对后加入队列。
           </p>
@@ -1102,11 +1110,17 @@ function TrainingCreateContent({
                   训练数据
                   <select
                     aria-label="训练数据"
-                    className={`${trainingInputClass} mt-1.5`}
+                    className={cn(
+                      trainingInputClass,
+                      "mt-1.5 [&>option]:text-foreground",
+                      !draft.datasetId && "text-muted-foreground",
+                    )}
                     value={draft.datasetId}
                     onChange={(event) => update({ datasetId: event.target.value })}
                   >
-                    <option value="">选择已就绪的数据版本</option>
+                    <option value="" disabled hidden>
+                      选择已就绪的数据版本
+                    </option>
                     {draft.datasetId && !choices.some((item) => item.id === draft.datasetId) && (
                       <option value={draft.datasetId}>正在核验原数据版本…</option>
                     )}
@@ -1477,7 +1491,7 @@ function TrainingCreateContent({
           </p>
         </aside>
       </div>
-      <div className="sticky bottom-0 z-popover -mx-4 mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-background/95 py-3 pl-4 pr-16 backdrop-blur-overlay sm:mx-0 sm:rounded-lg sm:border">
+      <div className="sticky bottom-0 z-popover -mx-4 -mb-4 mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card/95 px-4 py-3 backdrop-blur-overlay">
         <span className="text-xs text-muted-foreground">
           第 {step + 1} / 3 步{checking ? " · 正在检查" : ""}
         </span>
@@ -1671,6 +1685,6 @@ function TrainingCreateContent({
           onAccept={() => void acceptReuse()}
         />
       )}
-    </PageContainer>
+    </Modal>
   );
 }

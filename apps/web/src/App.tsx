@@ -591,21 +591,15 @@ export function App() {
             }
           />
           <Route
-            path="/projects/:id/learning/new"
-            element={
-              <RequireProjectAccess capability="project.manage">
-                <TrainingCreatePage />
-              </RequireProjectAccess>
-            }
-          />
-          <Route
             path="/projects/:id/learning"
             element={
               <RequireProjectAccess capability="project.manage">
                 <ProjectLearningPage />
               </RequireProjectAccess>
             }
-          />
+          >
+            <Route path="new" element={<TrainingCreatePage />} />
+          </Route>
           <Route
             path="/project-templates"
             element={

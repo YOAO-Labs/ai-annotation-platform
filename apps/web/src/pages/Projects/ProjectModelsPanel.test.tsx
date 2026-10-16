@@ -138,6 +138,21 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
+  it("starts with the source experiment and preserves edits to the timestamp name", async () => {
+    const user = userEvent.setup();
+    mount();
+    const source = screen.getByLabelText("来源训练实验");
+    const name = screen.getByLabelText("模型名称") as HTMLInputElement;
+    expect(source.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(name.value).toMatch(/^\d{4}-\d{4}-\d{4} $/);
+    await user.clear(name);
+    await screen.findByRole("option", { name: "成功训练" });
+    await user.selectOptions(source, "run-1");
+    await screen.findByLabelText(/原生类别 0/);
+    expect(name).toHaveValue("");
+    expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+  });
   it("keeps loading release and candidate states distinct from an empty model library", async () => {
     vi.mocked(trainedModelsApi.list).mockReturnValue(new Promise(() => {}));
     vi.mocked(trainedModelsApi.releases).mockReturnValue(new Promise(() => {}));
@@ -147,12 +162,12 @@ describe("ProjectModelsPanel", () => {
     expect(screen.queryByText("尚未注册模型版本")).not.toBeInTheDocument();
     expect(screen.queryByText("尚未发布受控模型")).not.toBeInTheDocument();
   });
-  it("takes the empty candidate entry to the registration name without creating a model", async () => {
+  it("takes the empty candidate entry to the source experiment without creating a model", async () => {
     vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 0, items: [] });
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByRole("button", { name: "填写候选信息" }));
-    expect(screen.getByLabelText("模型名称")).toHaveFocus();
+    expect(screen.getByLabelText("来源训练实验")).toHaveFocus();
     expect(trainedModelsApi.register).not.toHaveBeenCalled();
   });
   it.each(["ultralytics", "libreyolo"])(

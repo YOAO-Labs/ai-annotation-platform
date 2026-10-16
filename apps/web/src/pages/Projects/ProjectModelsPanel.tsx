@@ -26,6 +26,8 @@ import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/trainingViewOwner";
 import { confirmDialog } from "@/components/ui/decisionDialog";
+import { cn } from "@/lib/utils";
+import { newTrainingVersionName } from "../Training/trainingNames";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -246,7 +248,7 @@ function ModelsContent({
   const lineageHref = (id: string) =>
     `/projects/${projectId}/learning/lineage/model/${id}?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
   const registrationForm = useRef<HTMLFormElement>(null);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(newTrainingVersionName);
   const [runId, setRunId] = useState("");
   const [attemptId, setAttemptId] = useState("");
   const [bindings, setBindings] = useState<Record<number, string>>({});
@@ -367,7 +369,7 @@ function ModelsContent({
     onSuccess: (model, view) => {
       if (!ownsView(view)) return;
       showDetail(model.id);
-      setName("");
+      setName(newTrainingVersionName());
       registrationId.current = crypto.randomUUID();
       refresh();
     },
@@ -662,7 +664,7 @@ function ModelsContent({
                   variant="ghost"
                   className="mt-3"
                   onClick={() =>
-                    registrationForm.current?.querySelector<HTMLInputElement>("input")?.focus()
+                    registrationForm.current?.querySelector<HTMLSelectElement>("select")?.focus()
                   }
                 >
                   填写候选信息
@@ -883,19 +885,13 @@ function ModelsContent({
               </p>
             </div>
             <label className="space-y-1 text-xs">
-              模型名称
-              <input
-                className={inputClass}
-                value={name}
-                maxLength={120}
-                disabled={register.isPending}
-                onChange={(event) => changeRegistration(() => setName(event.target.value))}
-              />
-            </label>
-            <label className="space-y-1 text-xs">
               来源训练实验
               <select
-                className={inputClass}
+                className={cn(
+                  inputClass,
+                  "[&>option]:text-foreground",
+                  !runId && "text-muted-foreground",
+                )}
                 value={runId}
                 disabled={register.isPending}
                 onChange={(event) =>
@@ -906,7 +902,9 @@ function ModelsContent({
                   })
                 }
               >
-                <option value="">选择成功实验</option>
+                <option value="" disabled hidden>
+                  选择成功实验
+                </option>
                 {runs.data?.items
                   .filter((run) => run.status === "succeeded")
                   .map((run) => (
@@ -949,6 +947,16 @@ function ModelsContent({
                 </Button>
               </div>
             )}
+            <label className="space-y-1 text-xs">
+              模型名称
+              <input
+                className={inputClass}
+                value={name}
+                maxLength={120}
+                disabled={register.isPending}
+                onChange={(event) => changeRegistration(() => setName(event.target.value))}
+              />
+            </label>
             {runId && (
               <label className="space-y-1 text-xs">
                 成功执行尝试

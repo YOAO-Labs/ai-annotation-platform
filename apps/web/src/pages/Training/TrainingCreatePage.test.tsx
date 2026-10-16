@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -140,23 +140,15 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+let navigate: ReturnType<typeof useNavigate>;
 function Context() {
   const location = useLocation();
-  const navigate = useNavigate();
+  navigate = useNavigate();
   return (
-    <>
-      <p data-testid="location">
-        {location.pathname}
-        {location.search}
-      </p>
-      <button onClick={() => navigate("/projects/project-2/learning/new")}>切换项目</button>
-      <button onClick={() => navigate("/projects/project-1/learning/new?clone_run=second")}>
-        切换克隆来源
-      </button>
-      <button onClick={() => navigate("/projects/project-1/learning/new?clone_run=first")}>
-        返回原克隆来源
-      </button>
-    </>
+    <p data-testid="location">
+      {location.pathname}
+      {location.search}
+    </p>
   );
 }
 function mount(entry = "/projects/project-1/learning/new") {
@@ -269,7 +261,9 @@ describe("immutable recipe and clone reuse", () => {
     expect(localStorage.getItem(key)).toBe(before);
     await user.click(screen.getByRole("button", { name: "核对修订 1" }));
     await user.click(await screen.findByRole("button", { name: "确认采用配置" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument(),
+    );
     const after = JSON.parse(localStorage.getItem(key)!);
     expect(after.name).toBe("车辆实验");
     expect(after.datasetId).toBe("dataset-1");
@@ -311,10 +305,9 @@ describe("immutable recipe and clone reuse", () => {
     vi.mocked(trainingRecipesApi.clone).mockImplementation((_project, run) =>
       run === "first" ? late.promise : Promise.reject(new Error("第二来源不存在")),
     );
-    const user = userEvent.setup();
     mount("/projects/project-1/learning/new?clone_run=first");
     await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalled());
-    await user.click(screen.getByRole("button", { name: "切换克隆来源" }));
+    act(() => navigate("/projects/project-1/learning/new?clone_run=second"));
     await screen.findByText("第二来源不存在");
     await act(async () =>
       late.resolve({
@@ -326,7 +319,7 @@ describe("immutable recipe and clone reuse", () => {
         incompatibility: null,
       }),
     );
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("基础权重")).toHaveValue("");
   });
   it("loads the current URL clone after an obsolete in-flight preview releases its lock", async () => {
@@ -344,16 +337,15 @@ describe("immutable recipe and clone reuse", () => {
       if (run === recipeId) return late.promise;
       return Promise.reject(new Error("第二来源不存在"));
     });
-    const user = userEvent.setup();
     mount("/projects/project-1/learning/new?clone_run=first");
     await waitFor(() =>
       expect(trainingRecipesApi.clone).toHaveBeenCalledWith("project-1", recipeId, undefined),
     );
-    await user.click(screen.getByRole("button", { name: "切换克隆来源" }));
+    act(() => navigate("/projects/project-1/learning/new?clone_run=second"));
     expect(trainingRecipesApi.clone).not.toHaveBeenCalledWith("project-1", "second", undefined);
     await act(async () => late.resolve(candidate));
     await screen.findByText("第二来源不存在");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("基础权重")).toHaveValue("");
   });
   it("allows explicit clone retry after editing invalidates a pending source response", async () => {
@@ -374,11 +366,13 @@ describe("immutable recipe and clone reuse", () => {
     await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalledTimes(1));
     await user.type(screen.getByLabelText("实验名称"), "保留我的名称");
     await act(async () => late.resolve(candidate));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "重新核对克隆来源" }));
     await screen.findByRole("dialog", { name: "核对复用配置" });
     await user.click(screen.getByRole("button", { name: "确认采用配置" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument(),
+    );
     expect(screen.getByLabelText("实验名称")).toHaveValue("保留我的名称");
     expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
   });
@@ -387,12 +381,11 @@ describe("immutable recipe and clone reuse", () => {
     vi.mocked(trainingRecipesApi.clone)
       .mockRejectedValue(new Error("当前来源不可用"))
       .mockReturnValueOnce(late.promise);
-    const user = userEvent.setup();
     mount("/projects/project-1/learning/new?clone_run=first");
     await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalledTimes(1));
-    await user.click(screen.getByRole("button", { name: "切换克隆来源" }));
+    act(() => navigate("/projects/project-1/learning/new?clone_run=second"));
     await screen.findByText("当前来源不可用");
-    await user.click(screen.getByRole("button", { name: "返回原克隆来源" }));
+    act(() => navigate("/projects/project-1/learning/new?clone_run=first"));
     await waitFor(() => expect(trainingRecipesApi.clone).toHaveBeenCalledTimes(3));
     await act(async () =>
       late.resolve({
@@ -404,7 +397,7 @@ describe("immutable recipe and clone reuse", () => {
         incompatibility: null,
       }),
     );
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("基础权重")).toHaveValue("");
   });
 });
@@ -431,6 +424,58 @@ async function check() {
   await userEvent.click(screen.getByRole("button", { name: "检查训练配置" }));
   await screen.findByText("训练检查通过 · 请核对最终配置");
 }
+
+describe("training creation modal", () => {
+  it("distinguishes the dataset prompt from selectable ready versions", async () => {
+    const user = userEvent.setup();
+    mount();
+    const select = (await screen.findByLabelText("训练数据")) as HTMLSelectElement;
+    expect(select).toHaveClass("text-muted-foreground");
+    expect(select.options[0]).toBeDisabled();
+    expect(select.options[0].hidden).toBe(true);
+    await screen.findByRole("option", { name: /^审核数据/ });
+    await user.selectOptions(select, "dataset-1");
+    expect(select).not.toHaveClass("text-muted-foreground");
+  });
+
+  it.each(["close button", "Escape"])(
+    "restores the draft after dismissal by %s",
+    async (method) => {
+      const user = userEvent.setup();
+      mount("/projects/project-1/learning/new?return_run=previous-run");
+      const dialog = await screen.findByRole("dialog", { name: "新建训练实验" });
+      expect(dialog).toBeVisible();
+      await user.type(screen.getByLabelText("实验名称"), "保留草稿");
+      if (method === "Escape") await user.keyboard("{Escape}");
+      else await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+      await screen.findByText("实验列表");
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/projects/project-1/learning?tab=training&run=previous-run",
+      );
+      expect(trainingRunsApi.create).not.toHaveBeenCalled();
+      act(() => navigate("/projects/project-1/learning/new?return_run=previous-run"));
+      await screen.findByRole("dialog", { name: "新建训练实验" });
+      expect(screen.getByLabelText("实验名称")).toHaveValue("保留草稿");
+    },
+  );
+
+  it("dismisses a nested YAML preview with Escape while retaining the experiment draft", async () => {
+    const { user } = await prepare(false);
+    await user.clear(screen.getByLabelText("批大小"));
+    await user.type(screen.getByLabelText("批大小"), "4");
+    const source = "lr0: 1e-6";
+    const file = new File([source], "config.yaml");
+    Object.defineProperty(file, "text", { value: () => Promise.resolve(source) });
+    fireEvent.change(screen.getByLabelText("导入 YAML 文件"), { target: { files: [file] } });
+    await screen.findByRole("dialog", { name: "核对 YAML 导入" });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "核对 YAML 导入" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "新建训练实验" })).toBeVisible();
+    expect(screen.getByLabelText("批大小")).toHaveValue("4");
+    await user.click(screen.getByRole("button", { name: /数据与模型/ }));
+    expect(screen.getByLabelText("实验名称")).toHaveValue("车辆实验");
+  });
+});
 
 it("filters segmentation weights by dataset task and preserves an incompatible selection until explicitly replaced", async () => {
   const task = "segment" as const;
@@ -642,7 +687,7 @@ describe("training creation ownership", () => {
       await check();
       await user.click(screen.getByRole("button", { name: "开始训练" }));
       await waitFor(() => expect(trainingRunsApi.create).toHaveBeenCalledTimes(1));
-      if (context === "project") await user.click(screen.getByRole("button", { name: "切换项目" }));
+      if (context === "project") act(() => navigate("/projects/project-2/learning/new"));
       else act(() => useAuthStore.getState().setAuth("session-2", { id: "user-1" } as never));
       const owner = trainingDraftOwner("user-1", context === "project" ? "project-2" : "project-1");
       const newer = emptyTrainingDraft(owner);
@@ -757,7 +802,7 @@ describe("configuration import and recovery", () => {
     await user.selectOptions(screen.getByLabelText("训练器"), "libreyolo");
     expect(screen.getByLabelText("基础权重")).toHaveValue("");
     await user.selectOptions(screen.getByLabelText("基础权重"), "LibreYOLO9t");
-    await screen.findByRole("dialog");
+    await screen.findByRole("dialog", { name: "核对参数切换" });
     expect(screen.getByText("移除 1 项：optimizer")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "接受切换" }));
     expect(screen.getByLabelText("实验名称")).toHaveValue("车辆实验");
@@ -776,12 +821,12 @@ describe("configuration import and recovery", () => {
       fireEvent.change(screen.getByLabelText("导入 YAML 文件"), { target: { files: [file] } });
     };
     upload("lr0: 1e-6\nepochs: 0");
-    await screen.findByRole("dialog");
+    await screen.findByRole("dialog", { name: "核对 YAML 导入" });
     expect(screen.getByRole("button", { name: "应用导入" })).toBeDisabled();
     expect(screen.getByLabelText("批大小")).toHaveValue("4");
     await user.click(screen.getByRole("button", { name: "取消" }));
     upload("lr0: 1e-6");
-    await screen.findByRole("dialog");
+    await screen.findByRole("dialog", { name: "核对 YAML 导入" });
     expect(screen.getByText(/4 → 8/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "应用导入" }));
     expect(screen.getByLabelText("批大小")).toHaveValue("8");
@@ -796,7 +841,7 @@ describe("configuration import and recovery", () => {
     await user.clear(screen.getByLabelText("批大小"));
     await user.type(screen.getByLabelText("批大小"), "4");
     await act(async () => late.resolve("lr0: 0.02"));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "核对 YAML 导入" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("批大小")).toHaveValue("4");
   });
   it("blocks an import preview when the current schema changes after validation", async () => {
@@ -805,7 +850,7 @@ describe("configuration import and recovery", () => {
     const file = new File([source], "config.yaml");
     Object.defineProperty(file, "text", { value: () => Promise.resolve(source) });
     fireEvent.change(screen.getByLabelText("导入 YAML 文件"), { target: { files: [file] } });
-    await screen.findByRole("dialog");
+    await screen.findByRole("dialog", { name: "核对 YAML 导入" });
     const key = trainingDraftKey(trainingDraftOwner("user-1", "project-1"));
     const original = localStorage.getItem(key);
     act(() =>
@@ -852,7 +897,7 @@ describe("configuration import and recovery", () => {
     mount();
     expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
     await user.click(await screen.findByRole("button", { name: "核对并迁移草稿" }));
-    await screen.findByRole("dialog");
+    await screen.findByRole("dialog", { name: "核对参数切换" });
     expect(screen.getByText("移除 1 项：removed")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "接受切换" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());

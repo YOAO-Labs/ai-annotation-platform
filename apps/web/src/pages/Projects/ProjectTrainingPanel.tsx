@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
 import { useNavigate } from "react-router-dom";
@@ -31,6 +31,7 @@ export function ProjectTrainingPanel({
   onRunSelect,
   onAttemptSelect,
   scope = "",
+  createButtonRef,
 }: {
   projectId: string;
   initialRunId?: string;
@@ -39,6 +40,7 @@ export function ProjectTrainingPanel({
   onRunSelect?: (id: string) => void;
   onAttemptSelect?: (id: string, runId: string) => void;
   scope?: string;
+  createButtonRef?: RefObject<HTMLButtonElement>;
 }) {
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -225,6 +227,7 @@ export function ProjectTrainingPanel({
             比较实验
           </Button>
           <Button
+            ref={createButtonRef}
             size="sm"
             variant="primary"
             disabled={!catalog.data?.enabled}

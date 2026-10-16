@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Link, Navigate, Outlet, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, FlaskConical, GitBranch, Layers, Settings2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,6 +25,11 @@ import { ProjectLearningPolicyPanel } from "./ProjectLearningPolicyPanel";
 import { TrainingDatasetInsights } from "./TrainingDatasetInsights";
 import { useAuthStore } from "@/stores/authStore";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
+import { newTrainingVersionName } from "../Training/trainingNames";
+
+export type ProjectLearningOutletContext = {
+  createButtonRef: RefObject<HTMLButtonElement>;
+};
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -37,6 +42,7 @@ const exclusionReasons: Record<string, string> = {
 
 export function ProjectLearningPage() {
   const { id = "" } = useParams();
+  const createButtonRef = useRef<HTMLButtonElement>(null);
   const [params] = useSearchParams();
   const userId = useAuthStore((state) => state.user?.id);
   const token = useAuthStore((state) => state.token);
@@ -51,10 +57,28 @@ export function ProjectLearningPage() {
     if (params.get("run")) next.set("return_run", params.get("run")!);
     return <Navigate replace to={`/projects/${id}/learning/new${next.size ? `?${next}` : ""}`} />;
   }
-  return <ProjectLearningContent key={owner.key} projectId={id} scope={owner.key} />;
+  return (
+    <>
+      <ProjectLearningContent
+        key={owner.key}
+        projectId={id}
+        scope={owner.key}
+        createButtonRef={createButtonRef}
+      />
+      <Outlet context={{ createButtonRef } satisfies ProjectLearningOutletContext} />
+    </>
+  );
 }
 
-function ProjectLearningContent({ projectId, scope }: { projectId: string; scope: string }) {
+function ProjectLearningContent({
+  projectId,
+  scope,
+  createButtonRef,
+}: {
+  projectId: string;
+  scope: string;
+  createButtonRef: RefObject<HTMLButtonElement>;
+}) {
   const [params, setParams] = useSearchParams();
   const tab = ["training", "data", "models", "automation"].includes(params.get("tab") ?? "")
     ? params.get("tab")!
@@ -69,7 +93,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
   const client = useQueryClient();
   const project = useProject(projectId);
   const datasetForm = useRef<HTMLElement>(null);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(newTrainingVersionName);
   const [batchId, setBatchId] = useState("");
   const [parentId, setParentId] = useState("");
   const [trainingTask, setTrainingTask] =
@@ -182,7 +206,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
       }),
     onSuccess: (value) => {
       setDetailId(value.id);
-      setName("");
+      setName(newTrainingVersionName());
       setReport(null);
       requestId.current = crypto.randomUUID();
       checkedDigest.current = null;
@@ -701,7 +725,8 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
             <ProjectTrainingPanel
               projectId={projectId}
               scope={scope}
-              initialRunId={params.get("run") ?? ""}
+              createButtonRef={createButtonRef}
+              initialRunId={params.get("run") ?? params.get("return_run") ?? ""}
               initialAttemptId={params.get("attempt") ?? ""}
               onAttemptSelect={(attemptId, runId) =>
                 setParams((previous) => {

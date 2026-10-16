@@ -132,6 +132,18 @@ afterEach(() => {
 });
 
 describe("project learning data versions", () => {
+  it("prefills a timestamp and preserves an explicitly cleared name when scope changes", async () => {
+    vi.mocked(batchesApi.list).mockResolvedValue([{ id: "batch-1", name: "批次一" }] as never);
+    const user = userEvent.setup();
+    mount();
+    const name = screen.getByLabelText("版本名称") as HTMLInputElement;
+    expect(name.value).toMatch(/^\d{4}-\d{4}-\d{4} $/);
+    await user.clear(name);
+    await screen.findByRole("option", { name: "批次一" });
+    await user.selectOptions(screen.getByLabelText("数据范围"), "batch-1");
+    expect(name).toHaveValue("");
+    expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+  });
   it("focuses the version name from the data list preparation entry", async () => {
     const user = userEvent.setup();
     mount();
@@ -161,6 +173,7 @@ describe("project learning data versions", () => {
     vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(new Error("连接中断"));
     const user = userEvent.setup();
     mount();
+    await user.clear(screen.getByLabelText("版本名称"));
     await user.type(screen.getByLabelText("版本名称"), "车辆首轮");
     await user.click(screen.getByRole("button", { name: "检查训练数据" }));
     await screen.findByText("数据检查通过");
@@ -177,6 +190,7 @@ describe("project learning data versions", () => {
     const user = userEvent.setup();
     mount();
     expect(screen.getByRole("button", { name: "创建数据版本" })).toBeDisabled();
+    await user.clear(screen.getByLabelText("版本名称"));
     await user.type(screen.getByLabelText("版本名称"), "车辆首轮");
     await user.click(screen.getByRole("button", { name: "检查训练数据" }));
     await screen.findByText("数据检查通过");
@@ -193,7 +207,11 @@ describe("project learning data versions", () => {
         }),
       ),
     );
-    await waitFor(() => expect(screen.getByLabelText("版本名称")).toHaveValue(""));
+    await waitFor(() =>
+      expect((screen.getByLabelText("版本名称") as HTMLInputElement).value).toMatch(
+        /^\d{4}-\d{4}-\d{4} $/,
+      ),
+    );
   });
 
   it("invalidates the previous preflight when split settings change", async () => {
