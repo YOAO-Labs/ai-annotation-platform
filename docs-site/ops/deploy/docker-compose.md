@@ -724,23 +724,30 @@ nvidia-smi -L
 TRAINING_GPU_UUID="GPU-12345678-abcd-ef01-2345-6789abcdef01"
 TRAINING_EXECUTOR_TOKEN_PATH="./secrets/training_executor_token"
 TRAINING_MODELS_PATH="./training/models"
-TRAINING_IMAGE="ai-annotation-platform-training-executor:latest"
+TRAINING_IMAGE="registry.example.com/team/annotation-training:controlled"
 TRAINING_IMAGE_DIGEST="sha256:..."
 ```
+
+将示例仓库替换为部署主机可访问的实际 registry，先完成登录。`TRAINING_IMAGE` 可带标签但不得包含 `@digest`；`TRAINING_IMAGE_DIGEST` 必须是该仓库已发布镜像的 manifest 摘要，不能使用 `docker image inspect` 的 `.Id`。Compose 将二者组成同一个不可变引用用于运行镜像及执行器上报身份，单独改变标签不会绕过摘要固定。
 
 #### 3. 构建镜像并启动执行器
 
 ```bash
-# 1. 使用仓库根目录上下文构建执行器镜像
-docker build -f apps/training-executor/Dockerfile -t ai-annotation-platform-training-executor:latest .
+# 1. 使用仓库根目录上下文构建并发布（也可采用已发布、已核验的镜像）
+export TRAINING_IMAGE="registry.example.com/team/annotation-training:controlled"
+TRAINING_BUILD_METADATA=$(mktemp)
+docker buildx build -f apps/training-executor/Dockerfile \
+  -t "$TRAINING_IMAGE" --push --metadata-file "$TRAINING_BUILD_METADATA" .
 
-# 2. 获取镜像 digest
-IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ai-annotation-platform-training-executor:latest | cut -d'@' -f2)
-export TRAINING_IMAGE_DIGEST=$IMAGE_DIGEST
+# 2. 从本次发布元数据获取确切 manifest digest（需要 jq）
+export TRAINING_IMAGE_DIGEST=$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "$TRAINING_BUILD_METADATA")
+rm -f "$TRAINING_BUILD_METADATA"
 
-# 3. 启动执行器容器
-docker compose -f docker-compose.yml -f docker-compose.training.yml --profile training up -d training-executor
+# 3. 将相同 digest 同步到平台训练目录后，按固定摘要启动
+docker compose -f docker-compose.training.yml --profile training up -d training-executor
 ```
+
+将镜像仓库和摘要保存在部署配置中；Compose 不再包含 `build`，启动时只选择已发布镜像。仅修改 API/Web 业务代码无需重新构建训练镜像。
 
 #### 4. 训练参数契约与镜像升级
 

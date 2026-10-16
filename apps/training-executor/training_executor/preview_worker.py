@@ -18,7 +18,14 @@ import psutil
 from training_contract.preview import LIMITS
 
 from .files import atomic_json, digest_file
-from .worker import RetiredAttempt, StopTraining, Supervisor, live_group, stop_process
+from .worker import (
+    RetiredAttempt,
+    StopTraining,
+    Supervisor,
+    live_group,
+    retryable_publication_response,
+    stop_process,
+)
 
 
 class PreviewSupervisor:
@@ -47,6 +54,7 @@ class PreviewSupervisor:
         # flock across a same-boot retry does not prove the child has exited.
         self.process = None
         self.process_exited = True
+        self.publication_blocked = False
 
     def api(self, endpoint, payload):
         response = self.client.post("previews/" + endpoint, json=payload)
@@ -139,53 +147,72 @@ class PreviewSupervisor:
             )
         return artifacts
 
+    def finish_body(self, journal):
+        return {
+            **self.fence(journal),
+            "status": journal["outcome"],
+            "process_exited": True,
+            "error_message": journal.get("error"),
+        }
+
+    def reject_publication(self, journal, stage, status=None):
+        journal["outcome"] = "failed"
+        journal["error"] = f"原生预览产物发布失败：{stage}" + (
+            f" 返回 HTTP {status}" if status is not None else " 产物校验未通过"
+        )
+        journal["publication_rejection"] = {"stage": stage, "status_code": status}
+        journal["finish_body"] = self.finish_body(journal)
+        journal["phase"] = "finishing"
+        self.save(journal)
+
     def publish(self, journal, directory):
-        while not self.shutdown.is_set():
+        while not self.shutdown.is_set() and not self.publication_blocked:
+            stage = "finish" if "finish_body" in journal else "inventory"
             try:
-                if "finish_body" not in journal:
-                    if (
-                        self.stop_training.is_set()
-                        and journal["outcome"] == "succeeded"
-                    ):
-                        journal["outcome"], journal["error"] = (
-                            "cancelled",
-                            self.stop_reason,
-                        )
-                    if journal["outcome"] == "succeeded":
-                        if "artifacts" not in journal:
-                            journal["artifacts"] = self.inventory(journal, directory)
-                            self.save(journal)
-                        urls = self.api(
-                            self.endpoint(journal, "uploads"),
-                            {**self.fence(journal), "artifacts": journal["artifacts"]},
-                        )
-                        for artifact in journal["artifacts"]:
-                            if self.stop_training.is_set() or self.shutdown.is_set():
-                                raise StopTraining()
-                            path = directory / artifact["name"]
-                            if digest_file(path) != artifact["sha256"]:
-                                raise ValueError("Local preview output changed")
-                            target = urls[artifact["name"]]
-                            with path.open("rb") as source:
-                                response = httpx.put(
-                                    target["url"],
-                                    content=source,
-                                    headers={
-                                        **target["headers"],
-                                        "Content-Length": str(artifact["size_bytes"]),
-                                    },
-                                    timeout=15,
-                                    trust_env=False,
-                                )
-                            response.raise_for_status()
-                    journal["finish_body"] = {
-                        **self.fence(journal),
-                        "status": journal["outcome"],
-                        "process_exited": True,
-                        "error_message": journal.get("error"),
-                    }
-                    # Exact receipt survives a lost finish response.
+                if "finish_body" in journal:
+                    # A previous save may have failed after freezing the receipt.
+                    # Persist again before every replay, without authorizing uploads.
                     self.save(journal)
+                    self.api(self.endpoint(journal, "finish"), journal["finish_body"])
+                    return True
+                if self.stop_training.is_set() and journal["outcome"] == "succeeded":
+                    journal["outcome"], journal["error"] = (
+                        "cancelled",
+                        self.stop_reason,
+                    )
+                if journal["outcome"] == "succeeded":
+                    if "artifacts" not in journal:
+                        journal["artifacts"] = self.inventory(journal, directory)
+                        self.save(journal)
+                    stage = "uploads"
+                    urls = self.api(
+                        self.endpoint(journal, "uploads"),
+                        {**self.fence(journal), "artifacts": journal["artifacts"]},
+                    )
+                    for artifact in journal["artifacts"]:
+                        if self.stop_training.is_set() or self.shutdown.is_set():
+                            raise StopTraining()
+                        stage = "artifact"
+                        path = directory / artifact["name"]
+                        if digest_file(path) != artifact["sha256"]:
+                            raise ValueError("Local preview output changed")
+                        target = urls[artifact["name"]]
+                        with path.open("rb") as source:
+                            stage = "storage"
+                            response = httpx.put(
+                                target["url"],
+                                content=source,
+                                headers={
+                                    **target["headers"],
+                                    "Content-Length": str(artifact["size_bytes"]),
+                                },
+                                timeout=15,
+                                trust_env=False,
+                            )
+                        response.raise_for_status()
+                journal["finish_body"] = self.finish_body(journal)
+                self.save(journal)
+                stage = "finish"
                 self.api(self.endpoint(journal, "finish"), journal["finish_body"])
                 return True
             except RetiredAttempt:
@@ -196,34 +223,34 @@ class PreviewSupervisor:
                     self.stop_reason or "已取消原生预览",
                 )
                 self.save(journal)
+                continue
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code in {403, 422} and "finish_body" in journal:
-                    # These explicit rejections occur before accepting a terminal
-                    # receipt. A stopped, invalid result can acknowledge failure.
-                    journal.pop("finish_body")
-                    journal["outcome"], journal["error"] = (
-                        "failed",
-                        "原生预览产物或当前权限未通过平台校验",
-                    )
-                    self.save(journal)
-                elif exc.response.status_code in {403, 409, 422}:
-                    journal["outcome"], journal["error"] = (
-                        "cancelled",
-                        self.stop_reason or "原生预览上传授权已失效",
-                    )
-                    self.save(journal)
-                self.shutdown.wait(2)
-            except ValueError:
-                if "finish_body" not in journal:
-                    journal["outcome"], journal["error"] = (
-                        "failed",
-                        "原生预览产物缺失或超过上限",
-                    )
-                    self.save(journal)
-                self.shutdown.wait(2)
+                status = exc.response.status_code
+                transient = retryable_publication_response(
+                    exc.response, storage=stage == "storage"
+                )
+                if 400 <= status < 500 and not transient:
+                    if stage == "finish" and "publication_rejection" in journal:
+                        # This CPU slot cannot release an unacknowledged lease.
+                        # Halt only preview processing; GPU training is independent.
+                        print(
+                            f"Failed CPU preview terminal publication rejected (HTTP {status}); "
+                            "stopping CPU preview supervisor and retaining its journal "
+                            "and lease for operator repair.",
+                            flush=True,
+                        )
+                        self.publication_blocked = True
+                        return False
+                    self.reject_publication(journal, stage, status)
+                    continue
+            except (ValueError, FileNotFoundError):
+                if stage in {"inventory", "artifact"}:
+                    self.reject_publication(journal, stage)
+                    continue
             except Exception:
                 # Keep the CPU lease and receipt through transport outages.
-                self.shutdown.wait(2)
+                pass
+            self.shutdown.wait(2)
         return False
 
     def confirm_exit(self):
@@ -413,7 +440,7 @@ class PreviewSupervisor:
                     break
                 except BlockingIOError:
                     self.shutdown.wait(2)
-            while not self.shutdown.is_set():
+            while not self.shutdown.is_set() and not self.publication_blocked:
                 if self.journal_path.exists():
                     journal = json.loads(self.journal_path.read_text())
                     try:

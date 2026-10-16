@@ -1,16 +1,13 @@
 services:
   training-executor:
     profiles: [training]
-    image: ${TRAINING_IMAGE:?Set an immutable training image reference}
-    build:
-      context: .
-      dockerfile: apps/training-executor/Dockerfile
+    image: ${TRAINING_IMAGE:?Set the training image repository}@${TRAINING_IMAGE_DIGEST:?Set the immutable image manifest digest}
     environment:
       TRAINING_API_URL: ${TRAINING_API_URL:-http://host.docker.internal:8000/api/v1/internal/training}
       TRAINING_EXECUTOR_TOKEN_FILE: /run/secrets/training_executor_token
       TRAINING_NODE_ID: ${TRAINING_NODE_ID:-local}
       TRAINING_GPU_UUID: ${TRAINING_GPU_UUID:?Set exactly one physical GPU UUID}
-      TRAINING_IMAGE_DIGEST: ${TRAINING_IMAGE_DIGEST:?Set the inspected immutable image identity}
+      TRAINING_IMAGE_REFERENCE: ${TRAINING_IMAGE:?Set the training image repository}@${TRAINING_IMAGE_DIGEST:?Set the immutable image manifest digest}
     secrets:
       - training_executor_token
     volumes:

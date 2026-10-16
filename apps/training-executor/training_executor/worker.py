@@ -7,6 +7,7 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -35,6 +36,26 @@ class StopTraining(Exception):
     pass
 
 
+def retryable_publication_response(response, *, storage=False):
+    """Classify transient HTTP failures without relaxing immutable API conflicts."""
+    status = response.status_code
+    if status >= 500 or status in {408, 425, 429}:
+        return True
+    if storage:
+        return status in {403, 404, 409}
+    if status != 409:
+        return False
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(detail, dict) and detail.get("reason") in {
+        "account_busy",
+        "membership_busy",
+        "project_busy",
+    }
+
+
 def runtime_identity():
     import torch
     from training_contract.catalog import supported_identities
@@ -58,9 +79,13 @@ def runtime_identity():
         or torch.cuda.device_count() != 1
     ):
         raise RuntimeError("Executor must expose exactly the configured physical GPU")
-    image = os.environ["TRAINING_IMAGE_DIGEST"]
-    if not image.startswith("sha256:") or len(image) != 71:
-        raise ValueError("An immutable executor image identity is required")
+    selected_image = re.fullmatch(
+        r"[^@\s]+@(sha256:[0-9a-f]{64})",
+        os.environ.get("TRAINING_IMAGE_REFERENCE", ""),
+    )
+    if selected_image is None:
+        raise ValueError("An immutable executor image reference is required")
+    image = selected_image[1]
     frameworks = {"ultralytics": importlib.metadata.version("ultralytics")}
     try:
         frameworks["libreyolo"] = importlib.metadata.version("libreyolo")
@@ -314,17 +339,60 @@ class Supervisor:
         )
         return artifacts
 
+    def finish_body(self, journal):
+        body = {
+            **self.fence(journal),
+            "status": journal["outcome"],
+            "process_exited": True,
+            "error_message": journal.get("error"),
+        }
+        for key in ("failure", "native_accounting"):
+            if journal.get(key) is not None:
+                body[key] = journal[key]
+        return body
+
+    def reject_publication(self, journal, stage, status=None):
+        # A definitive rejection proves this receipt was not accepted. The API
+        # permits failed completion without complete/valid uploaded artifacts.
+        # Preserve any frozen accounting while replacing the rejected receipt.
+        previous = journal.get("finish_body", {})
+        journal["outcome"] = "failed"
+        journal["error"] = f"训练产物发布失败：{stage}" + (
+            f" 返回 HTTP {status}" if status is not None else " 产物校验未通过"
+        )
+        journal["failure"] = failure_receipt(
+            "upload_failed",
+            "uploading",
+            journal["assignment"]["config_digest"],
+            journal["error"],
+        )
+        journal["publication_rejection"] = {"stage": stage, "status_code": status}
+        journal["finish_body"] = self.finish_body(journal)
+        if "native_accounting" in previous:
+            journal["finish_body"]["native_accounting"] = previous["native_accounting"]
+        journal["phase"] = "finishing"
+        self.save(journal)
+
     def upload_and_finish(self, journal, directory):
-        if "artifacts" not in journal:
-            journal["artifacts"] = self.inventory(journal, directory)
-            journal["phase"] = "uploading"
-            self.save(journal)
         while not self.shutdown.is_set():
+            stage = "finish" if "finish_body" in journal else "inventory"
             try:
+                if "finish_body" in journal:
+                    # Replays never repeat authorization or modify a receipt:
+                    # the platform may have accepted it before a lost response.
+                    self.save(journal)
+                    self.api(self.endpoint(journal, "finish"), journal["finish_body"])
+                    return True
+                if "artifacts" not in journal:
+                    journal["artifacts"] = self.inventory(journal, directory)
+                    journal["phase"] = "uploading"
+                    self.save(journal)
                 # The child has exited. Flush every durable event before final
                 # publication, including the last epoch inside a heartbeat gap.
+                stage = "events"
                 events = self.events(directory)
                 for offset in range(0, len(events), 100):
+                    stage = "heartbeat"
                     self.api(
                         self.endpoint(journal, "heartbeat"),
                         {
@@ -332,16 +400,21 @@ class Supervisor:
                             "events": events[offset : offset + 100],
                         },
                     )
+                stage = "uploads"
                 urls = self.api(
                     self.endpoint(journal, "uploads"),
                     {**self.fence(journal), "artifacts": journal["artifacts"]},
                 )
                 for spec in journal["artifacts"]:
+                    if self.shutdown.is_set():
+                        return False
+                    stage = "artifact"
                     path = directory / spec["name"]
                     if digest_file(path) != spec["sha256"]:
                         raise ValueError("Local immutable artifact changed")
                     target = urls[spec["name"]]
                     with path.open("rb") as source:
+                        stage = "storage"
                         response = httpx.put(
                             target["url"],
                             content=source,
@@ -353,32 +426,46 @@ class Supervisor:
                             trust_env=False,
                         )
                     response.raise_for_status()
-                if "finish_body" not in journal:
-                    journal["finish_body"] = {
-                        **self.fence(journal),
-                        "status": journal["outcome"],
-                        "process_exited": True,
-                        "error_message": journal.get("error"),
-                    }
-                    if journal.get("failure") is not None:
-                        journal["finish_body"]["failure"] = journal["failure"]
-                    if journal.get("native_accounting") is not None:
-                        journal["finish_body"]["native_accounting"] = journal[
-                            "native_accounting"
-                        ]
+                journal["finish_body"] = self.finish_body(journal)
                 # Persist on every retry: a previous save may have failed after
                 # finish_body was assigned in memory but before atomic durability.
                 self.save(journal)
+                stage = "finish"
                 self.api(self.endpoint(journal, "finish"), journal["finish_body"])
                 return True
             except RetiredAttempt:
                 return True
-            except Exception:
-                print(
-                    "Artifact publication pending; retaining local files for upload retry.",
-                    flush=True,
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                transient = retryable_publication_response(
+                    exc.response, storage=stage == "storage"
                 )
-                self.shutdown.wait(5)
+                if 400 <= status < 500 and not transient:
+                    if stage == "finish" and "publication_rejection" in journal:
+                        # No acknowledgement means no lease release or cleanup.
+                        # Stop retrying an invalid terminal request; repair the
+                        # configuration before restarting this retained journal.
+                        print(
+                            f"Failed terminal publication rejected (HTTP {status}); "
+                            "stopping executor "
+                            "and retaining the journal and lease for operator repair.",
+                            flush=True,
+                        )
+                        self.shutdown.set()
+                        return False
+                    self.reject_publication(journal, stage, status)
+                    continue
+            except (ValueError, FileNotFoundError):
+                if stage in {"inventory", "events", "artifact"}:
+                    self.reject_publication(journal, stage)
+                    continue
+            except Exception:
+                pass
+            print(
+                "Artifact publication pending; retaining local files for upload retry.",
+                flush=True,
+            )
+            self.shutdown.wait(5)
         return False
 
     def retire_observation(self, observation):

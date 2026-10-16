@@ -602,3 +602,41 @@ def test_optional_observation_stop_failure_cannot_override_acknowledged_publicat
     assert supervisor.retiring_observation is observation
     supervisor.reap_observation()
     assert supervisor.retiring_observation is None and len(stopped) == 2
+
+
+@pytest.mark.parametrize("reject_terminal", [False, True])
+def test_permanent_publication_rejection_never_leaves_native_child_running(
+    controlled_child, reject_terminal
+):
+    supervisor, journal, children = controlled_child
+    supervisor.upload_and_finish = Supervisor.upload_and_finish.__get__(supervisor)
+    finishes = []
+
+    def api(endpoint, body):
+        assert all(
+            child.poll() is not None and not live_group(child.pid) for child in children
+        )
+        if (
+            endpoint.endswith("uploads")
+            or reject_terminal
+            and endpoint.endswith("finish")
+        ):
+            httpx.Response(
+                422, request=httpx.Request("POST", "https://api.test/rejected")
+            ).raise_for_status()
+        if endpoint.endswith("finish"):
+            finishes.append(copy.deepcopy(body))
+        return {}
+
+    supervisor.api = api
+    supervisor.execute(journal)
+    assert len(children) == 1 and not live_group(children[0].pid)
+    assert (
+        journal["outcome"] == "failed" and journal["failure"]["code"] == "upload_failed"
+    )
+    if reject_terminal:
+        assert not finishes and supervisor.shutdown.is_set()
+        assert supervisor.journal_path.is_file()
+    else:
+        assert finishes == [journal["finish_body"]]
+        assert not supervisor.journal_path.exists()

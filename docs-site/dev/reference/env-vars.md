@@ -73,7 +73,7 @@ last_reviewed: 2026-10-16
 | `TRAINING_GPU_UUID` | `—` | — |
 | `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Qualified adapters: ultralytics 8.4.177 / libreyolo 1.6.0; entries share the same shape. Ultralytics additionally qualifies yolo11n-seg simple-polygon instance training; configure its verified weight entry explicitly. Revision-2 detection image upgrades require a qualified source-image -> complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
 | `TRAINING_HEARTBEAT_TIMEOUT_SECONDS` | `60` | — |
-| `TRAINING_IMAGE` | `—` | 仅供 docker-compose.training.yml：镜像必须按 digest 固定，凭据文件不进入镜像。 |
+| `TRAINING_IMAGE` | `—` | 仅供 docker-compose.training.yml：先准备已发布镜像，Compose 不构建镜像。 TRAINING_IMAGE 为仓库名（可带标签），不得包含 @digest；凭据文件不进入镜像。 TRAINING_IMAGE_DIGEST 必须为 registry manifest digest（RepoDigests），不能用镜像 .Id。 Compose 用同一 repository@sha256 引用选择镜像并生成 TRAINING_IMAGE_REFERENCE。 |
 | `TRAINING_IMAGE_DIGEST` | `—` | — |
 | `TRAINING_API_URL` | `http://host.docker.internal:8000/api/v1/internal/training` | — |
 | `TRAINING_EXECUTOR_TOKEN_PATH` | `—` | — |
