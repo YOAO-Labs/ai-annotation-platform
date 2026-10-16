@@ -268,6 +268,67 @@ def test_partial_metadata_is_explicit_and_never_reads_mutable_sources():
     assert result["samples"][0]["issue"] == "frozen_labels_unavailable"
 
 
+@pytest.mark.parametrize(
+    "before, after, unknown, split_changed, unchanged",
+    [
+        (None, "val", 1, 0, 0),
+        ("val", None, 1, 0, 0),
+        (None, None, 1, 0, 0),
+        ("train", "val", 0, 1, 0),
+        ("val", "val", 0, 0, 1),
+    ],
+)
+def test_unknown_split_evidence_never_proves_changed_or_unchanged(
+    before, after, unknown, split_changed, unchanged
+):
+    baseline = derived([{"content": "same", "split": before}])
+    target = derived([{"content": "same", "split": after}])
+    assert baseline["contents"][sha("same")]["unknown_split_members"] == int(
+        before is None
+    )
+    assert target["contents"][sha("same")]["unknown_split_members"] == int(
+        after is None
+    )
+    compared = service.compare(baseline, target)
+    assert compared["counts"]["unknown"] == unknown
+    assert compared["counts"]["split_changed"] == split_changed
+    assert compared["counts"]["unchanged"] == unchanged
+    if unknown:
+        assert compared["changes"]["unknown"] == {sha("same")}
+        assert compared["semantic_validation_changed"] is None
+        assert compared["evaluation_benchmark_changed"] is None
+
+
+@pytest.mark.parametrize("width, labels_changed", [(0.3, 0), (0.5, 1)])
+def test_mixed_known_unknown_split_members_keep_independent_confirmed_changes(
+    width, labels_changed
+):
+    baseline = derived(
+        [
+            {"content": "same", "task": "known", "split": "train"},
+            {"content": "same", "task": "unknown", "split": None},
+        ]
+    )
+    target = derived([{"content": "same", "task": "known", "split": "val", "w": width}])
+    assert baseline["contents"][sha("same")]["splits"] == ["train"]
+    assert baseline["contents"][sha("same")]["unknown_split_members"] == 1
+    compared = service.compare(baseline, target)
+    assert compared["counts"]["unknown"] == 1
+    assert compared["counts"]["split_changed"] == 0
+    assert compared["counts"]["unchanged"] == 0
+    assert compared["counts"]["labels_changed"] == labels_changed
+    assert compared["counts"]["multiplicity_changed"] == 1
+
+
+def test_missing_derived_split_evidence_is_unknown_until_cache_rebuild():
+    baseline = derived([{"content": "same", "split": "val"}])
+    target = derived([{"content": "same", "split": "val"}])
+    baseline["contents"][sha("same")].pop("unknown_split_members")
+    compared = service.compare(baseline, target)
+    assert compared["counts"]["unknown"] == 1
+    assert compared["counts"]["unchanged"] == 0
+
+
 async def version(
     db, owner, *, project=None, specs=None, classes=None, preparation=False
 ):
@@ -431,6 +492,64 @@ async def test_class_ranking_and_content_matching_filter_before_pagination(
         path + "/samples?content_sha256=not-a-content-hash", headers=headers
     )
     assert invalid.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "before, after, mixed_side, width, expected",
+    [
+        (None, "val", None, 0.3, (1, 0, 0, 0, 0)),
+        (None, None, None, 0.3, (1, 0, 0, 0, 0)),
+        ("train", "val", None, 0.3, (0, 1, 0, 0, 0)),
+        ("val", "val", None, 0.3, (0, 0, 1, 0, 0)),
+        ("train", "val", "baseline", 0.3, (1, 0, 0, 0, 1)),
+        ("train", "val", "target", 0.3, (1, 0, 0, 0, 1)),
+        ("train", "val", "target", 0.5, (1, 0, 0, 1, 1)),
+    ],
+)
+async def test_split_evidence_comparison_filters_select_contents_without_inventing_changes(
+    db_session, super_admin, httpx_client, before, after, mixed_side, width, expected
+):
+    owner, token = super_admin
+    before_specs = [{"content": "same", "split": before}]
+    after_specs = [{"content": "same", "split": after, "w": width}]
+    if mixed_side == "baseline":
+        before_specs.append(
+            {"content": "same", "task": "unknown-baseline", "split": None}
+        )
+    if mixed_side == "target":
+        after_specs.append(
+            {"content": "same", "task": "unknown-target", "split": None, "w": width}
+        )
+    project, baseline = await version(db_session, owner, specs=before_specs)
+    _, target = await version(db_session, owner, project=project, specs=after_specs)
+    path = f"/api/v1/projects/{project.id}/training-datasets/{target.id}/insights"
+    headers = {"Authorization": "Bearer " + token}
+    response = await httpx_client.get(
+        path + f"/compare?baseline_id={baseline.id}", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    for change, count in zip(
+        (
+            "unknown",
+            "split_changed",
+            "unchanged",
+            "labels_changed",
+            "multiplicity_changed",
+        ),
+        expected,
+        strict=True,
+    ):
+        assert response.json()["counts"][change] == count
+        selected = await httpx_client.get(
+            path + f"/samples?baseline_id={baseline.id}&change={change}",
+            headers=headers,
+        )
+        assert selected.status_code == 200, selected.text
+        assert selected.json()["source_version_id"] == str(target.id)
+        assert selected.json()["total"] == (len(after_specs) if count else 0)
+        assert all(
+            sample["sha256"] == sha("same") for sample in selected.json()["items"]
+        )
 
 
 async def test_comparison_scope_removed_rows_and_cache_rebuild_then_cascade(

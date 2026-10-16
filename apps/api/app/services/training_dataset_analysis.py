@@ -38,7 +38,7 @@ from app.services.training_dataset_insight_adapters import (
     unsupported_capabilities,
 )
 
-ANALYSIS_SCHEMA = 4
+ANALYSIS_SCHEMA = 5
 HASH = re.compile(r"^[a-f0-9]{64}$")
 CHANGES = {
     "added",
@@ -287,6 +287,7 @@ def derive(
                     "semantic_label_digest": row["semantic_label_digest"],
                     "label_sha256": row["label_sha256"],
                     "splits": [],
+                    "unknown_split_members": 0,
                     "task_ids": [],
                     "multiplicity": 0,
                 },
@@ -299,6 +300,8 @@ def derive(
                 observations["conflicting_content_labels"] += 1
             content["task_ids"].append(task_id)
             content["multiplicity"] += 1
+            if split is None:
+                content["unknown_split_members"] += 1
             if split and split not in content["splits"]:
                 content["splits"].append(split)
         else:
@@ -495,7 +498,11 @@ def compare(baseline: dict, target: dict) -> dict:
             changes["unknown"].add(sha)
         elif a["semantic_label_digest"] != b["semantic_label_digest"]:
             changes["labels_changed"].add(sha)
-        if set(a["splits"]) != set(b["splits"]):
+        # Partial split sets cannot establish either a change or sameness. An
+        # older derived record without this evidence is unknown, never zero.
+        if a.get("unknown_split_members") != 0 or b.get("unknown_split_members") != 0:
+            changes["unknown"].add(sha)
+        elif set(a["splits"]) != set(b["splits"]):
             changes["split_changed"].add(sha)
         if a["multiplicity"] != b["multiplicity"]:
             changes["multiplicity_changed"].add(sha)
