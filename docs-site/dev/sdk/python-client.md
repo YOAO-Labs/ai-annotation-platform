@@ -3,14 +3,14 @@ title: Python SDK 参考
 audience: [dev]
 type: reference
 status: beta
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # Python SDK 参考
 
 包名 `ai-annotation-sdk`,导入名 `ai_annotation`。同步 Client,底层 httpx + pydantic v2。
 
-> **兼容承诺范围**:公开 API 仅限本页所列(`Client` + 资源命名空间方法 + `ai_annotation` 顶层导出的模型与异常)。内部传输层 `ai_annotation._http` 不在兼容承诺内,外部代码不要直接依赖。
+> **兼容承诺范围**:公开 API 仅限本页所列(`Client` + 资源命名空间方法 + 顶层导出的模型、异常与能力发现函数)。内部传输层 `ai_annotation._http` 不在兼容承诺内,外部代码不要直接依赖。
 
 ## 版本与 AAP target
 
@@ -63,6 +63,8 @@ with Client() as client:
 - 预签名 URL(上传 PUT、绝对地址下载)走无 auth 的裸 client。
 
 ## 资源命名空间
+
+离线发现可用 `list_capabilities(tag=None, status=None, limit=20, offset=0)` 与 `describe_operation(name)`，它们不创建 Client，也不需要凭据。描述接受规范 SDK 方法名和可解析的 CLI 点分路径，给出关联 API、参数、请求模型及操作约束。多步骤 CLI 不能被误当成单个 SDK 方法；完整用法见 [Agent 接入与操作](./agents)。
 
 ### client.projects
 
@@ -167,14 +169,18 @@ with Client() as client:
 
 ### client.exports
 
-| 方法       | 签名                                                                                        | 返回          |
-| ---------- | ------------------------------------------------------------------------------------------- | ------------- |
-| `create`   | `create(project_id, targets: list[str], include_attributes: bool \| None = None, **kwargs)` | `str`(job_id) |
-| `wait`     | 同 `jobs.wait`(纯转发)                                                                      | `Job`         |
-| `download` | `download(job_or_id: Job \| IdLike, dest_path: str \| Path)`                                | `Path`        |
+| 方法           | 签名                                                                                                                   | 返回          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `create`       | `create(project_id, targets: list[str], include_attributes=None, *, body: ExportRequestBody \| None = None, **kwargs)` | `str`(job_id) |
+| `wait`         | 同 `jobs.wait`(纯转发)                                                                                                 | `Job`         |
+| `download`     | `download(job_or_id: Job \| IdLike, dest_path: str \| Path)`                                                           | `Path`        |
+| `download_voc` | `download_voc(project_id, dest_path, include_attributes=True)`                                                         | `Path`        |
 
-- `create`:发起异步导出(HTTP 202),返回 job_id;参数走 query string(与后端端点一致)。导出格式清单见[导出格式参考](/user-guide/reference/export-formats)。
+- `create`:发起异步导出(HTTP 202),返回 job_id；格式、属性与坐标等选项走 query，视频 `scope` 与点云 `lidar` 选项通过 `ExportRequestBody` 的 JSON body 发送。将它们误放入 query kwargs 会在发送前拒绝。导出格式清单见[导出格式参考](/user-guide/reference/export-formats)。
 - `download`:从 `job.result["download_url"]` 流式下载导出包;传 job_id 时会先 GET 一次 job。job 无 `result.download_url`(如尚未完成)时抛 `AAPError`。
+- `download_voc`：服务器同步返回 ZIP，使用认证 POST 流式落盘并原子替换目标，不自动重试。异步 `create` 不能用于 VOC，混选 VOC 与其他目标同样拒绝。`client.batches.export(..., body=...)` 与 `client.batches.download_voc(project_id, batch_id, dest_path, include_attributes=True)` 提供对应批次入口。
+
+导出请求模型包括 `VideoExportFrameSelection`、`VideoExportSegmentSelection`、`VideoExportScopeRequest`、`LidarExportOptions` 和 `ExportRequestBody`。源帧范围为闭区间；片段和任务归属、相机资格与导出能力由服务端核对。完整示例见 [范围导出与 VOC](./cookbook#_9-范围导出与同步-voc)。
 
 ### client.ml_backends
 
@@ -313,6 +319,8 @@ AAPError                      # 所有 SDK 异常的基类
 ```
 
 其他状态码(如 500)抛 `APIStatusError` 本身。`.detail` 取自后端错误体 `{"detail": str | dict}`,解析失败时回落原始响应文本。
+
+HTTP 异常在响应包含相关上下文时还可读取 `.request_id` 与 `.retry_after` 信息；这些信息不代表写操作可以自动重试。Python 调用方仍负责保存幂等请求和区分服务器冲突、验证失败及网络结果不确定。
 
 ```python
 from ai_annotation import Client, NotFoundError, JobFailedError

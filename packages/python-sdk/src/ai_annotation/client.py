@@ -11,6 +11,7 @@ from uuid import UUID
 from ai_annotation._http import HttpTransport, _drop_none
 from ai_annotation.config import load_config
 from ai_annotation.errors import AAPError, JobFailedError, JobTimeoutError
+from ai_annotation.export_models import ExportRequestBody
 from ai_annotation.learning_automation import ActiveLearning, TrainingStudies
 from ai_annotation.model_management import (
     LearningPolicies,
@@ -82,6 +83,16 @@ from ai_annotation.models import (
 IdLike = str | UUID
 
 _JOB_TERMINAL = frozenset({"completed", "failed", "cancelled"})
+
+
+def _export_body(body: ExportRequestBody | None) -> dict[str, Any] | None:
+    if body is None:
+        return None
+    payload = body.model_dump(mode="json", by_alias=True, exclude_unset=True)
+    if body.scope is not None:
+        # The server discriminates this union by kind; keep its model default explicit.
+        payload["scope"]["selection"]["kind"] = body.scope.selection.kind
+    return payload
 
 
 class Projects:
@@ -647,17 +658,43 @@ class Exports:
         project_id: IdLike,
         targets: list[str],
         include_attributes: bool | None = None,
+        *,
+        body: ExportRequestBody | None = None,
         **kwargs: Any,
     ) -> str:
-        """发起异步导出 (202), 返回 job_id; 参数走 query (与后端端点一致)。"""
+        """发起异步导出 (202), 返回 job_id。"""
+        if "voc" in targets:
+            raise AAPError(
+                "VOC export returns ZIP bytes synchronously; use "
+                "client.exports.download_voc(project_id, dest_path)."
+            )
+        if {"scope", "lidar"}.intersection(kwargs):
+            raise AAPError("scope and lidar belong in body=ExportRequestBody(...)")
         params: dict[str, Any] = {"targets": targets}
         if include_attributes is not None:
             params["include_attributes"] = include_attributes
         params.update(_drop_none(kwargs))
         resp = self._http.request(
-            "POST", f"/projects/{project_id}/export", params=params
+            "POST",
+            f"/projects/{project_id}/export",
+            params=params,
+            json=_export_body(body),
         )
         return resp.json()["job_id"]
+
+    def download_voc(
+        self,
+        project_id: IdLike,
+        dest_path: str | Path,
+        include_attributes: bool = True,
+    ) -> Path:
+        """Stream synchronous VOC ZIP bytes for one project to ``dest_path``."""
+        return self._http.stream_download(
+            f"/api/v1/projects/{project_id}/export",
+            Path(dest_path),
+            method="POST",
+            params={"targets": ["voc"], "include_attributes": include_attributes},
+        )
 
     def wait(
         self,
@@ -1018,19 +1055,40 @@ class Batches:
         project_id: IdLike,
         batch_id: IdLike,
         targets: Sequence[str] | None = None,
+        *,
+        body: ExportRequestBody | None = None,
         **options: Any,
     ) -> str:
         selected_targets = list(targets or ["coco"])
         if "voc" in selected_targets:
-            raise ValueError(
-                "VOC batch export returns ZIP bytes synchronously and is not supported by this job helper"
+            raise AAPError(
+                "VOC export returns ZIP bytes synchronously; use "
+                "client.batches.download_voc(project_id, batch_id, dest_path)."
             )
+        if {"scope", "lidar"}.intersection(options):
+            raise AAPError("scope and lidar belong in body=ExportRequestBody(...)")
         resp = self._http.request(
             "POST",
             f"/projects/{project_id}/batches/{batch_id}/export",
             params={"targets": selected_targets, **options},
+            json=_export_body(body),
         )
         return resp.json()["job_id"]
+
+    def download_voc(
+        self,
+        project_id: IdLike,
+        batch_id: IdLike,
+        dest_path: str | Path,
+        include_attributes: bool = True,
+    ) -> Path:
+        """Stream synchronous VOC ZIP bytes for one batch to ``dest_path``."""
+        return self._http.stream_download(
+            f"/api/v1/projects/{project_id}/batches/{batch_id}/export",
+            Path(dest_path),
+            method="POST",
+            params={"targets": ["voc"], "include_attributes": include_attributes},
+        )
 
 
 class Members:

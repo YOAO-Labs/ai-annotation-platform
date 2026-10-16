@@ -42,7 +42,10 @@ ProjectAccessKind = Literal["super_admin", "owner", "member"]
 
 
 class _AAPModel(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    # Older Pydantic reserves every model_ name, including legitimate API fields.
+    model_config = ConfigDict(
+        extra="allow", protected_namespaces=("model_validate", "model_dump")
+    )
 
 
 class Page(_AAPModel, Generic[T]):

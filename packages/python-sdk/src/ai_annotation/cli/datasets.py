@@ -13,6 +13,7 @@ from ai_annotation.cli._output import (
     confirm_destructive,
     console,
     get_client,
+    get_error_format,
     print_error,
     print_json,
     progress_console,
@@ -265,7 +266,11 @@ def upload(
     """上传文件到数据集: 目录逐文件上传, --zip 则整包上传。"""
     if zip_:
         if not path.is_file():
-            print_error(f"--zip 需要 ZIP 文件路径, 而不是目录: {path}", json_output)
+            print_error(
+                f"--zip 需要 ZIP 文件路径, 而不是目录: {path}",
+                json_output,
+                detail="--zip requires a ZIP file rather than a directory.",
+            )
             raise typer.Exit(code=1)
         with cli_errors(json_output):
             with get_client(json_output) as client:
@@ -284,7 +289,11 @@ def upload(
         [path] if path.is_file() else sorted(p for p in path.rglob("*") if p.is_file())
     )
     if not files:
-        print_error(f"目录中没有可上传的文件: {path}", json_output)
+        print_error(
+            f"目录中没有可上传的文件: {path}",
+            json_output,
+            detail="Directory contains no files to upload.",
+        )
         raise typer.Exit(code=1)
     with cli_errors(json_output):
         with get_client(json_output) as client:
@@ -296,6 +305,7 @@ def upload(
                     BarColumn(),
                     TaskProgressColumn(),
                     console=progress_console,
+                    disable=get_error_format() == "json",
                 ) as progress:
                     task = progress.add_task("上传", total=len(files))
                     items = client.datasets.upload_files(

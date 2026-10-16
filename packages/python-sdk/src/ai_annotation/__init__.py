@@ -1,10 +1,11 @@
 """AI 标注平台官方 Python SDK。
 
-公开 API 面: Client + pydantic 模型 + 异常。传输层 (_http) 是内部实现, 不要直接依赖。
+公开 API 面: Client、pydantic 模型、异常和能力发现函数。传输层 (_http) 是内部实现。
 """
 
 from ai_annotation.client import Client
 from ai_annotation._version import __aap_target_version__, __version__
+from ai_annotation.discovery import describe_operation, list_capabilities
 from ai_annotation.errors import (
     AAPError,
     APIStatusError,
@@ -83,6 +84,15 @@ from ai_annotation.models import (
     UploadedItem,
     UserBrief,
     ZipUploadResult,
+)
+
+from ai_annotation.export_models import (
+    ExportRequestBody,
+    LidarExportOptions,
+    VideoExportFrameSelection,
+    VideoExportScopeRequest,
+    VideoExportSegmentSelection,
+    VideoExportSelection,
 )
 
 from ai_annotation.training_models import (
@@ -224,6 +234,8 @@ __all__ = [
     "__version__",
     "__aap_target_version__",
     "Client",
+    "list_capabilities",
+    "describe_operation",
     # 异常
     "AAPError",
     "APIStatusError",
@@ -301,6 +313,12 @@ __all__ = [
     "UploadedItem",
     "UserBrief",
     "ZipUploadResult",
+    "ExportRequestBody",
+    "LidarExportOptions",
+    "VideoExportFrameSelection",
+    "VideoExportScopeRequest",
+    "VideoExportSegmentSelection",
+    "VideoExportSelection",
     "TrainingArtifactDownload",
     "TrainingAttemptOut",
     "TrainingBaseModel",

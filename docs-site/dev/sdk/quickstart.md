@@ -3,7 +3,7 @@ title: Python SDK / CLI 快速上手
 audience: [dev]
 type: tutorial
 status: beta
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # Python SDK / CLI 快速上手
@@ -104,9 +104,12 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 
 ## 下一步
 
+Agent 可先使用 `aap capabilities --status covered --json` 与 `aap describe learning.runs.create --json` 读取安装包内的能力和 schema，根选项 `--error-format json` 让失败写入结构化 stderr。详见 [Agent 接入与操作](./agents)。
+
 已有项目标注完成后，可通过 `client.task_datasets` 查看任务版本流，用 `client.training_datasets` 冻结数据，再用 `client.training_runs` 预检并提交实验。`dataset_id` 此时指冻结训练版本 UUID，和上传数据集 ID 不同。训练流程需要项目管理权限及对应读写 scope；全局训练目录另需平台管理角色。参考 [冻结数据并提交训练](./cookbook#_6-冻结数据并提交训练) 和 [学习命令](./cli#aap-learning)。
 
 - [Python SDK 参考](./python-client) — Client 构造、公开资源命名空间、模型与异常层级
 - [CLI 参考](./cli) — 全部命令、`--json` 可脚本化契约
+- [Agent 接入与操作](./agents) — 离线发现、请求约束、stdin 与结构化错误
 - [TUI 监控面板](./tui) — `aap tui` 项目、数据集、任务、模型与绩效监控
 - [Cookbook](./cookbook) — 可直接拷贝的完整脚本片段

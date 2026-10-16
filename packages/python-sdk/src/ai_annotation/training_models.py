@@ -12,7 +12,11 @@ from ai_annotation.models import _AAPModel
 
 
 class _RequestModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    model_config = ConfigDict(
+        extra="forbid",
+        allow_inf_nan=False,
+        protected_namespaces=("model_validate", "model_dump"),
+    )
 
 
 class TrainingDatasetSelection(_RequestModel):
@@ -25,7 +29,10 @@ class TrainingDatasetSelection(_RequestModel):
     )
     seed: int = Field(default=42, ge=0, le=2_147_483_647)
     validation_fraction: float = Field(default=0.2, ge=0.05, le=0.5)
-    parent_id: uuid.UUID | None = None
+    parent_id: uuid.UUID | None = Field(
+        default=None,
+        description="Parent frozen training-version UUID for split inheritance, not a task-stream ID or ordinal.",
+    )
 
     @model_validator(mode="after")
     def explicit_confirmation(self):
@@ -45,8 +52,13 @@ class TrainingDatasetSelection(_RequestModel):
 
 class TrainingDatasetCreate(TrainingDatasetSelection):
     name: str = Field(min_length=1, max_length=120)
-    request_id: uuid.UUID
-    preflight_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    request_id: uuid.UUID = Field(
+        description="Caller-generated idempotency UUID; preserve it and the exact payload on an uncertain retry."
+    )
+    preflight_digest: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="Digest returned by preflight for this exact selection; do not recompute it locally.",
+    )
 
     @model_validator(mode="after")
     def nonblank_name(self):
@@ -57,8 +69,15 @@ class TrainingDatasetCreate(TrainingDatasetSelection):
 
 
 class TrainingConfiguration(_RequestModel):
-    schema_id: str = Field(min_length=1, max_length=150)
-    schema_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    schema_id: str = Field(
+        min_length=1,
+        max_length=150,
+        description="Identity from the selected framework/base-model parameter schema.",
+    )
+    schema_digest: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="Unchanged digest paired with schema_id from the server parameter schema.",
+    )
     values: dict[str, JsonValue] = Field(default_factory=dict, max_length=150)
 
 
@@ -118,16 +137,23 @@ class TrainingInitialization(_RequestModel):
 class TrainingRunCreate(_RequestModel):
     name: str = Field(min_length=1, max_length=120)
     task: Literal["detect", "segment"] | None = None
-    # dataset_id is the immutable training-version UUID, not a storage dataset or task stream.
-    dataset_id: uuid.UUID
+    dataset_id: uuid.UUID = Field(
+        description="Frozen training-version UUID, not an uploaded storage dataset, task stream, or display ordinal."
+    )
     framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
     base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
     initialization: TrainingInitialization | None = None
     origin: TrainingOrigin | None = None
-    request_id: uuid.UUID
-    preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    request_id: uuid.UUID = Field(
+        description="Caller-generated idempotency UUID; keep the exact request for an uncertain replay."
+    )
+    preflight_digest: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Optional for preflight, required by create; copy the returned config_digest unchanged.",
+    )
 
     @model_validator(mode="after")
     def coherent_source(self):

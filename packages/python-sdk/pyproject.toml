@@ -36,6 +36,9 @@ aap = "ai_annotation.cli.entrypoint:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+ai_annotation = ["_operation_catalog.generated.json", "AGENT_GUIDE.md"]
+
 [tool.setuptools.dynamic]
 version = { attr = "ai_annotation._version.__version__" }
 

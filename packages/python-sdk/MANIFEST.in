@@ -1,2 +1,4 @@
 include CHANGELOG.md
 include api-coverage.toml
+include src/ai_annotation/_operation_catalog.generated.json
+include src/ai_annotation/AGENT_GUIDE.md

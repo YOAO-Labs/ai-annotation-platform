@@ -3,7 +3,7 @@ title: aap CLI 参考
 audience: [dev]
 type: reference
 status: beta
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # aap CLI 参考
@@ -29,7 +29,7 @@ CLI 凭据按以下优先级解析:
 
 ## 帮助系统
 
-所有命令都支持 `-h` / `--help`(二者等价)查看用法。顶层 `aap -h` 按用途把命令分四组展示:**配置与交互**(`login` / `me` / `tui`)、**资源管理**(`projects` / `datasets` / `batches` / `members`)、**标注流水线**(`predictions` / `jobs` / `export`)、**监控与 ML 运维**(`ml-backends` / `ml-registry` / `service-pools` / `stats` / `dashboard`);每个子命令的帮助末尾带可复制的示例(epilog)。
+所有命令都支持 `-h` / `--help`(二者等价)查看用法。顶层 `aap -h` 按用途分组展示：配置与发现(`login` / `me` / `tui` / `capabilities` / `describe`)、资源管理(`projects` / `datasets` / `batches` / `members`)、标注与学习流水线(`predictions` / `jobs` / `export` / `learning`)、监控与 ML 运维(`ml-backends` / `ml-registry` / `service-pools` / `stats` / `dashboard`)。
 
 ```bash
 aap -h                       # 顶层: 分组命令 + 快速上手 + env 说明
@@ -37,6 +37,18 @@ aap export -h                # 子命令: 用法 + 参数 + 示例
 ```
 
 ## 命令一览
+
+### aap capabilities 与 describe
+
+```bash
+aap capabilities --tag training-runs --status covered --limit 20 --offset 0 --json
+aap describe training_runs.create --json
+aap describe learning.runs.create --json
+```
+
+无需配置账号或运行 API。能力列表支持有界分页以及 tag / 状态筛选；`covered`、`excluded`、`uncovered` 分别表示已实现、主动排除和尚未接入。`describe` 展开一个操作的 SDK/CLI 关联、参数、schema、额外约束与示例。规范 SDK 名称和可解析的 CLI 点分路径均可使用；多步骤别名应按返回的关联或提示选择具体方法。
+
+目录随安装包分发，真实服务器的权限、预检新鲜度、资源归属及执行器能力继续由服务端决定。完整工作流见 [Agent 接入与操作](./agents)。
 
 ### aap learning
 
@@ -57,7 +69,7 @@ aap export -h                # 子命令: 用法 + 参数 + 示例
 | `studies`         | `preview`, `create`, `list`, `get`, `cancel`                                                                                                                                                             |
 | `active-learning` | `pool`, `preview`, `create`, `list`, `get`, `report`, `candidates`, `download-image`, `decisions`, `decide`, `feedback`, `create-feedback`, `cancel`, `retry`                                            |
 
-复杂写请求使用 `--body <UTF-8 JSON 文件>`，字段与 [SDK 请求对象](./python-client#请求对象与冻结身份)相同。无效文件、非对象 JSON 和模型校验失败会在发送前返回非零退出码；错误写到 stderr，不回显请求值。新建返回已受理资源，不自动等待训练，也不会生成或替换幂等 ID。
+复杂写请求使用 `--body <UTF-8 JSON 文件>` 或 `--body -` 从 stdin 读取，字段与 [SDK 请求对象](./python-client#请求对象与冻结身份)相同。无效文件、非对象 JSON 和模型校验失败会在发送前返回非零退出码；错误写到 stderr，不回显请求值。新建返回已受理资源，不自动等待训练，也不会生成或替换幂等 ID。
 
 ```bash
 aap learning training catalog --json
@@ -152,7 +164,8 @@ aap batches distribute <project-id> [--annotator-id ...] [--reviewer-id ...] [--
 aap batches bulk-activate|bulk-approve <project-id> --id <batch-id> [--id ...] [--json]
 aap batches bulk-reject <project-id> --id <batch-id> [--id ...] --feedback <text> [--json]
 aap batches bulk-reassign <project-id> --id <batch-id> [--id ...] [--annotator-id ...|--clear-annotator] [--reviewer-id ...|--clear-reviewer] [--json]
-aap batches export <project-id> <batch-id> [--target <format>] [--json]
+aap batches export <project-id> <batch-id> [--target <format>] [--body <file|->] [--json]
+aap batches download-voc <project-id> <batch-id> --out <path> [--json]
 ```
 
 列出和管理项目下的批次。`--status` 按批次状态过滤(如 `active` / `reviewing` / `approved`)。删除已有完成、审核或退回结果的批次必须同时显式传 `--force` 和 `--yes`;重置批次也必须交互确认或传 `--yes`。服务端仍会执行权限和 409 冲突校验。
@@ -349,7 +362,7 @@ aap dashboard me
 ### aap export
 
 ```text
-aap export project <project-id> --target <格式> [--target ...] --out <输出路径>
+aap export project <project-id> --target <格式> [--target ...] [--body <file|->] --out <输出路径>
     [--include-attributes/--no-include-attributes] [--video-frame-mode <m>]
     [--axis-frame <f>] [--wait/--no-wait] [--json]
 ```
@@ -363,6 +376,8 @@ aap export project 0199bb... --target coco --target yolo-det --out ./export.zip
 # 只创建, 异步跟进
 aap export project 0199bb... --target aap_json --no-wait
 ```
+
+视频 `scope` 与点云 `lidar` 选项通过 `--body` 的 JSON 请求体发送；普通格式、坐标和属性选项仍使用具名参数。VOC 使用同步下载路径，必须指定 `--out`，不能混选其他格式或使用 `--no-wait`；JSON 输出仅为 `{"out":"..."}`，没有 Job ID。批次 VOC 使用 `aap batches download-voc`。完整请求体见 [范围导出与 VOC](./cookbook#_9-范围导出与同步-voc)。
 
 ### aap tui
 
@@ -379,7 +394,7 @@ aap tui
 `--json` 模式下:
 
 - **stdout 只输出裸 JSON**(单行,无 rich 装饰、无进度条),可直接 `| jq` 处理;
-- **错误走 stderr 纯文本**(一行),不污染 stdout;
+- **错误默认走 stderr 文本**；根选项 `--error-format json` 选择结构化错误，不污染成功 stdout;
 - **退出码语义**:0 = 成功;1 = SDK / HTTP / 网络失败;2 = 命令用法错误(包括破坏性 JSON 命令缺少 `--yes`)。脚本判断成败看退出码,不要解析错误文本。
 
 各命令的 JSON 输出形状:
@@ -453,7 +468,7 @@ aap predictions import "$pid" preds.json --format aap_json --json
 
 ## 错误输出约定
 
-所有命令的错误统一为 **stderr 一行提示 + 退出码 1**,不向用户输出 traceback:
+SDK / HTTP / 网络失败默认写入 stderr 文本并使用退出码 1；命令用法错误使用退出码 2，不向用户输出 traceback：
 
 | 错误                        | 输出                                                                     |
 | --------------------------- | ------------------------------------------------------------------------ |
@@ -462,4 +477,14 @@ aap predictions import "$pid" preds.json --format aap_json --json
 | SDK 异常(如 job 失败、超时) | 异常消息原文                                                             |
 | 网络错误(连接失败、超时)    | `网络错误: <原因>`                                                       |
 
-非 `--json` 模式下错误以红色渲染;`--json` 模式下为纯文本。
+非 `--json` 模式下默认文本错误以红色渲染；`--json` 模式下默认仍为文本。需要机器处理时，在根命令使用 `--error-format json`：
+
+```bash
+aap --error-format json learning runs create --project "$PROJECT_ID" --body request.json --json
+```
+
+该模式把一次失败写成一个 JSON 错误对象，保留 HTTP 状态、已有服务端错误码/detail 与经过处理的字段位置，并覆盖文件、网络、确认拒绝和命令用法错误。缺少服务端错误码时保持未知；不会回显原请求输入、凭据或 traceback。成功 stdout 与既有退出码语义不变，同一进程多次调用不会沿用上一次的错误模式。
+
+对象使用 `kind` 区分错误，按实际上下文提供 `status`、`code`、`detail`、`fields`、`request_id`、`retry_after`。Job 失败或等待超时保留 `job_id`，失败时还提供 `job_status`，便于继续查询；不附带 Job 的原始 payload 或失败消息。
+
+结构化错误模式会关闭 stderr 上的等待和上传进度条；成功 stdout 的文本或 JSON 格式仍由各命令的 `--json` 决定。

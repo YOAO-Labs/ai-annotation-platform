@@ -24,13 +24,19 @@ class StudyBudgets(BaseModel):
 
     max_trials: int = Field(ge=1, le=20)
     max_planned_epochs: int = Field(ge=1, le=20_000)
-    max_native_seconds: float = Field(gt=0, le=604_800)
+    max_native_seconds: float = Field(
+        gt=0,
+        le=604_800,
+        description="Explicit cumulative native execution budget in seconds; includes failed/resumed attempts.",
+    )
 
 
 class TrainingStudyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    base: TrainingRunCreate
+    base: TrainingRunCreate = Field(
+        description="Complete base training request; base.request_id is the study idempotency UUID."
+    )
     grid: dict[str, list[JsonValue]] = Field(min_length=1, max_length=10)
     objective: Literal[
         "metrics/mAP50-95",
@@ -42,7 +48,11 @@ class TrainingStudyCreate(BaseModel):
     ]
     direction: Literal["maximize"]
     budgets: StudyBudgets
-    preview_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    preview_digest: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Optional when previewing, required by create; preserve the reviewed plan digest.",
+    )
 
     @field_validator("grid")
     @classmethod
@@ -71,11 +81,19 @@ class TrainingStudyCreate(BaseModel):
 
 
 class ActiveLearningSelection(BaseModel):
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    model_config = ConfigDict(
+        extra="forbid",
+        allow_inf_nan=False,
+        protected_namespaces=("model_validate", "model_dump"),
+    )
 
     model_version_id: UUID
     deployment_id: UUID
-    sample_task_ids: list[UUID] = Field(min_length=2, max_length=32)
+    sample_task_ids: list[UUID] = Field(
+        min_length=2,
+        max_length=32,
+        description="Explicit distinct candidate task UUIDs from this project's eligible pool.",
+    )
     seed: int = Field(ge=0, le=2_147_483_647, strict=True)
     batch_size: int = Field(ge=1, le=16, strict=True)
     max_inference_dispatches: int = Field(ge=1, le=96, strict=True)
@@ -108,7 +126,9 @@ class ActiveLearningDecisionCreate(BaseModel):
     request_id: UUID
     action: Literal["accept", "reject"]
     ordinals: list[Annotated[int, Field(ge=0, lt=32, strict=True)]] = Field(
-        min_length=1, max_length=32
+        min_length=1,
+        max_length=32,
+        description="Distinct zero-based candidate ordinals from the frozen round, not task UUIDs.",
     )
     batch_name: str = Field(default="主动学习人工复核", min_length=1, max_length=120)
 

@@ -6,8 +6,15 @@ from pathlib import Path
 
 import typer
 
-from ai_annotation.cli._output import cli_errors, console, get_client, print_json
+from ai_annotation.cli._output import (
+    cli_errors,
+    console,
+    get_client,
+    print_json,
+    read_json_body,
+)
 from ai_annotation.cli.jobs import wait_job
+from ai_annotation.export_models import ExportRequestBody
 
 app = typer.Typer(
     help="标注导出: 创建导出 job → 等待完成 → 下载到本地。",
@@ -27,6 +34,9 @@ def project(
     ),
     out: Path | None = typer.Option(
         None, "--out", help="导出包输出路径 (--wait 时必填; --no-wait 时忽略)"
+    ),
+    body_path: Path | None = typer.Option(
+        None, "--body", help="视频 scope 或 lidar 选项的 UTF-8 JSON 文件"
     ),
     include_attributes: bool = typer.Option(
         True,
@@ -53,6 +63,27 @@ def project(
     if axis_frame is not None:
         extra["axis_frame"] = axis_frame
     with cli_errors(json_output):
+        body = read_json_body(body_path, ExportRequestBody) if body_path else None
+        if "voc" in target and target != ["voc"]:
+            raise typer.BadParameter("voc must be the only --target")
+        if target == ["voc"]:
+            if not wait:
+                raise typer.BadParameter(
+                    "VOC export is synchronous and does not support --no-wait"
+                )
+            if out is None:
+                raise typer.BadParameter("VOC export requires --out")
+            if body is not None:
+                raise typer.BadParameter("--body applies to asynchronous exports only")
+            with get_client(json_output) as client:
+                dest = client.exports.download_voc(
+                    project_id, out, include_attributes=include_attributes
+                )
+            if json_output:
+                print_json({"out": str(dest)})
+            else:
+                console.print(f"[green]VOC 导出完成[/green] → {dest}")
+            return
         if wait and out is None:
             raise typer.BadParameter("--wait 模式需要 --out 指定下载路径")
         with get_client(json_output) as client:
@@ -60,6 +91,7 @@ def project(
                 project_id,
                 targets=target,
                 include_attributes=include_attributes,
+                body=body,
                 **extra,
             )
             if not wait:

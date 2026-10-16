@@ -18,6 +18,7 @@ from ai_annotation.cli._output import (
     confirm_destructive,
     console,
     get_client,
+    get_error_format,
     print_json,
     progress_console,
 )
@@ -44,6 +45,7 @@ def wait_job(client: Client, job_id: str, json_mode: bool = False) -> Job:
         TaskProgressColumn(),
         TimeElapsedColumn(),
         console=progress_console,
+        disable=get_error_format() == "json",
     ) as progress:
         task = progress.add_task(f"等待 job {job_id}", total=100)
 

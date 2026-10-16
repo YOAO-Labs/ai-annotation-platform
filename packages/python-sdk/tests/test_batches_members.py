@@ -6,7 +6,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.errors import ConflictError, PermissionDeniedError
+from ai_annotation.errors import AAPError, ConflictError, PermissionDeniedError
+from ai_annotation.export_models import ExportRequestBody
 from ai_annotation.models import (
     Batch,
     BatchDistributeResult,
@@ -240,13 +241,66 @@ def test_export_batch(client, respx_mock):
     assert params["axis_frame"] == "iso"
 
 
+def test_export_batch_sends_typed_json_body_separately_from_query(client, respx_mock):
+    job_id = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{PID}/batches/{BID}/export").mock(
+        return_value=httpx.Response(202, json={"job_id": job_id})
+    )
+    body = ExportRequestBody.model_validate(
+        {
+            "scope": {
+                "task_id": str(uuid4()),
+                "selection": {
+                    "kind": "segments",
+                    "start_segment_id": str(uuid4()),
+                    "end_segment_id": str(uuid4()),
+                },
+            }
+        }
+    )
+
+    assert client.batches.export(PID, BID, targets=["video_json"], body=body) == job_id
+
+    request = route.calls.last.request
+    assert request.url.params.get_list("targets") == ["video_json"]
+    assert "scope" not in request.url.params and "lidar" not in request.url.params
+    assert json.loads(request.content)["scope"]["selection"]["kind"] == "segments"
+
+
+@pytest.mark.parametrize("field", ["scope", "lidar"])
+def test_export_batch_rejects_body_fields_as_query_options(client, respx_mock, field):
+    route = respx_mock.post(f"{API}/projects/{PID}/batches/{BID}/export")
+
+    with pytest.raises(AAPError, match="belong in body"):
+        client.batches.export(PID, BID, **{field: None})
+
+    assert not route.called
+
+
 def test_export_batch_rejects_synchronous_voc(client, respx_mock):
     route = respx_mock.post(f"{API}/projects/{PID}/batches/{BID}/export")
 
-    with pytest.raises(ValueError, match="VOC batch export returns ZIP bytes"):
+    with pytest.raises(AAPError, match="batches.download_voc"):
         client.batches.export(PID, BID, targets=["voc"])
 
     assert not route.called
+
+
+def test_download_batch_voc_posts_authenticated_query_and_streams(
+    client, respx_mock, tmp_path
+):
+    route = respx_mock.post(f"{API}/projects/{PID}/batches/{BID}/export").mock(
+        return_value=httpx.Response(200, content=b"batch voc zip")
+    )
+    dest = tmp_path / "batch-voc.zip"
+
+    assert client.batches.download_voc(PID, BID, dest) == dest
+
+    request = route.calls.last.request
+    assert request.headers["Authorization"] == "Bearer ak_test"
+    assert request.url.params.get_list("targets") == ["voc"]
+    assert request.url.params["include_attributes"] == "true"
+    assert dest.read_bytes() == b"batch voc zip"
 
 
 @pytest.mark.parametrize(

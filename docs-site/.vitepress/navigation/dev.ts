@@ -122,6 +122,7 @@ export function createDevSidebar(
       items: [
         { text: "快速上手", link: "/dev/sdk/quickstart" },
         { text: "Python SDK 参考", link: "/dev/sdk/python-client" },
+        { text: "Agent 接入与操作", link: "/dev/sdk/agents" },
         { text: "CLI 参考", link: "/dev/sdk/cli" },
         { text: "TUI 监控面板", link: "/dev/sdk/tui" },
         { text: "Cookbook", link: "/dev/sdk/cookbook" },

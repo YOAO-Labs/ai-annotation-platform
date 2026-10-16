@@ -178,7 +178,7 @@ aap service-pools topology --json                  # 路由拓扑的机器可读
 aap tui        # 按需加载的终端监控与轻运维台；需要 [tui] extras
 ```
 
-所有命令支持 `--json`:输出裸 JSON、无 rich 装饰/进度条,退出码非 0 表示失败,供 CI/脚本使用。破坏性命令的 JSON 模式必须显式传 `--yes`；本地确认不会绕过服务端权限。错误统一一行 stderr 提示(401 时提示先 `aap login`)。
+所有命令支持 `--json`:输出裸 JSON、无 rich 装饰/进度条,退出码非 0 表示失败,供 CI/脚本使用。破坏性命令的 JSON 模式必须显式传 `--yes`；本地确认不会绕过服务端权限。错误默认写到 stderr 文本提示；根选项 `--error-format json` 可选择结构化错误，成功输出与退出码约定不变。
 
 `ml-backends list` 只返回本项目已启用的 backend；`MLBackend.id` 是全局物理 registry ID，同一实例
 在不同项目中保持同一 ID。service pool 是独立的逻辑路由身份，使用 `service-pools` 命令管理，不与
@@ -201,9 +201,21 @@ aap learning runs get "$RUN_ID" --project "$PROJECT_ID" --json
 aap learning runs logs "$RUN_ID" "$ATTEMPT_ID" --project "$PROJECT_ID" --after 0 --json
 ```
 
-`--body` 必须是 UTF-8 JSON 对象，包含接口要求的幂等 ID、预检摘要、修订或显式预算。删除、取消、重试、恢复、部署、发布、策略变更、参数搜索与人工决策需要交互确认；JSON 模式需传 `--yes`。下载使用 `--out`，校验可用的 SHA-256／大小后原子替换目标文件，中断和校验失败不会覆盖已有文件。
+`--body` 必须是 UTF-8 JSON 对象，包含接口要求的幂等 ID、预检摘要、修订或显式预算；`--body -` 从 stdin 读取，应用相同校验。删除、取消、重试、恢复、部署、发布、策略变更、参数搜索与人工决策需要交互确认；JSON 模式需传 `--yes`。下载使用 `--out`，校验可用的 SHA-256／大小后原子替换目标文件，中断和校验失败不会覆盖已有文件。
 
 方法、分页和完整示例见 `docs-site/dev/sdk/python-client.md`、`cli.md` 与 `cookbook.md`。执行器 claim、heartbeat、uploads 等内部协议不属于用户 SDK。
+
+## Agent 能力发现与导出
+
+```bash
+aap capabilities --status covered --limit 20 --json
+aap describe learning.runs.create --json
+aap --error-format json learning runs create --project "$PROJECT_ID" --body - --json < run-request.json
+```
+
+核心 Python 包提供 `list_capabilities()` 和 `describe_operation()`，无需连接 API 或安装 CLI/TUI extras。目录随 wheel 分发，全量记录 API 的已覆盖、主动排除和尚未接入状态；描述包含参数、请求 schema 与操作级要求。覆盖路由不等于每个业务分支都完整实现，具体限制和服务器资格仍需核对。
+
+项目与批次异步导出使用 `body=ExportRequestBody(...)` 传视频范围和点云选项，不能将 `scope` / `lidar` 塞入 query kwargs。同步 VOC 使用 `exports.download_voc()` / `batches.download_voc()` 或对应 CLI 下载命令，没有异步 Job ID。完整操作说明见 `docs-site/dev/sdk/agents.md`；安装包还附带英文 `ai_annotation/AGENT_GUIDE.md`。
 
 ## 测试
 
@@ -212,8 +224,8 @@ pip install -e '.[test]'
 pytest
 ```
 
-其中 `tests/test_openapi_contract.py` 会从 `client.py` 的真实 HTTP 调用点提取 method/path，与
-`apps/api/openapi.snapshot.json` 对账，并检查 `api-coverage.toml` 中 SDK 关注领域的端点分类
+其中 `tests/test_openapi_contract.py` 会从 SDK 资源模块的真实 HTTP/流式调用点提取 method/path，与
+`apps/api/openapi.snapshot.json` 对账，并检查 `api-coverage.toml` 中全量 API 的端点分类
 (仅 monorepo 内生效)。
 
 ## 更多文档

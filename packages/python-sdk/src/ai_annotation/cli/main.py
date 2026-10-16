@@ -5,7 +5,17 @@
 
 from __future__ import annotations
 
+import re
+import sys
+from collections.abc import Sequence
+from typing import Any
+
 import typer
+
+try:
+    from typer._click.exceptions import ClickException, MissingParameter
+except ImportError:  # Typer < 0.24 uses the installed Click package.
+    from click.exceptions import ClickException, MissingParameter
 
 from ai_annotation import __aap_target_version__, __version__
 from ai_annotation.cli import (
@@ -13,6 +23,7 @@ from ai_annotation.cli import (
     batches,
     dashboard,
     datasets,
+    discovery,
     export,
     jobs,
     learning,
@@ -28,13 +39,102 @@ from ai_annotation.cli import (
 from ai_annotation.cli._output import (
     cli_errors,
     console,
+    error_format_context,
     get_client,
+    get_error_format,
     print_json,
+    print_structured_error,
     sparkline,
 )
 
 # 让 -h 等价 --help (root 设置经 Click context 继承到所有子命令)
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+
+def _requested_error_format(args: Sequence[str]) -> str:
+    error_format = "text"
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--error-format" and index + 1 < len(args):
+            error_format = "json" if args[index + 1] == "json" else "text"
+            index += 2
+            continue
+        if arg.startswith("--error-format="):
+            error_format = "json" if arg.partition("=")[2] == "json" else "text"
+            index += 1
+            continue
+        if arg in {"-h", "--help", "--version"}:
+            index += 1
+            continue
+        break
+    return error_format
+
+
+class _ErrorReportingGroup(typer.core.TyperGroup):
+    def main(
+        self,
+        args: Sequence[str] | None = None,
+        prog_name: str | None = None,
+        complete_var: str | None = None,
+        standalone_mode: bool = True,
+        **extra: Any,
+    ) -> Any:
+        argv = tuple(sys.argv[1:]) if args is None else tuple(args)
+        with error_format_context(_requested_error_format(argv)):
+            return super().main(
+                args=argv,
+                prog_name=prog_name,
+                complete_var=complete_var,
+                standalone_mode=standalone_mode,
+                **extra,
+            )
+
+    def _report_usage_error(self, error: ClickException) -> None:
+        if get_error_format() == "json":
+            param = getattr(error, "param", None)
+            fields = None
+            if param is not None:
+                options = getattr(param, "opts", ()) or ()
+                name = next(
+                    (option[2:] for option in options if option.startswith("--")),
+                    getattr(param, "name", None),
+                )
+                error_type = (
+                    "missing"
+                    if isinstance(error, MissingParameter)
+                    else getattr(getattr(param, "type", None), "name", None)
+                )
+                if isinstance(error_type, str):
+                    error_type = (
+                        re.sub(r"[^A-Za-z0-9_]+", "_", error_type).strip("_").lower()
+                    )
+                if (
+                    isinstance(name, str)
+                    and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", name)
+                    and isinstance(error_type, str)
+                    and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", error_type)
+                ):
+                    fields = [{"loc": [name], "type": error_type}]
+            print_structured_error(
+                "usage_error", detail="Invalid command usage.", fields=fields
+            )
+            raise typer.Exit(code=2) from None
+
+    def parse_args(self, ctx: Any, args: list[str]) -> list[str]:
+        try:
+            return super().parse_args(ctx, args)
+        except ClickException as error:
+            self._report_usage_error(error)
+            raise
+
+    def invoke(self, ctx: Any) -> Any:
+        try:
+            return super().invoke(ctx)
+        except ClickException as error:
+            self._report_usage_error(error)
+            raise
+
 
 # 顶层命令分组 (rich_help_panel), 顺序即面板展示顺序
 PANEL_CONFIG = "配置与交互"
@@ -44,8 +144,9 @@ PANEL_MONITOR = "监控"
 
 app = typer.Typer(
     name="aap",
+    cls=_ErrorReportingGroup,
     help=(
-        "AI 标注平台命令行工具 —— 项目 / 数据集 / 预测 / 导出 / 异步任务的脚本化入口。\n\n"
+        "AI 标注平台命令行工具 —— 项目 / 数据集 / 预测 / 导出 / 训练与在线学习的脚本化入口。\n\n"
         "凭据二选一: 运行 [bold cyan]aap login[/] 写入配置, "
         "或设环境变量 [bold]AAP_BASE_URL[/] / [bold]AAP_API_KEY[/]。\n"
         "脚本 / CI 场景给任意命令加 [bold]--json[/] 输出裸 JSON (无装饰, 错误走 stderr)。"
@@ -59,6 +160,8 @@ app = typer.Typer(
         "每个子命令都支持 [bold]-h[/] / [bold]--help[/] 查看用法与可复制示例。"
     ),
 )
+app.command(name="capabilities", rich_help_panel=PANEL_CONFIG)(discovery.capabilities)
+app.command(name="describe", rich_help_panel=PANEL_CONFIG)(discovery.describe)
 app.command(
     name="login",
     rich_help_panel=PANEL_CONFIG,
@@ -135,13 +238,18 @@ def _main(
         is_eager=True,
         help="显示版本号并退出",
     ),
+    error_format: str = typer.Option(
+        "text", "--error-format", help="错误输出格式: text 或 json"
+    ),
 ) -> None:
     """AI 标注平台 CLI。"""
+    if error_format not in {"text", "json"}:
+        raise typer.BadParameter("--error-format must be text or json")
 
 
 @app.command(rich_help_panel=PANEL_CONFIG)
 def tui() -> None:
-    """启动终端监控面板 (Projects / Datasets / Jobs / ML Backends; 需要 tui extras)。
+    """启动终端监控面板 (Projects / Datasets / Jobs / ML Backends / Training)。
 
     安装: [bold]pip install 'ai-annotation-sdk\\[tui]'[/]
     """

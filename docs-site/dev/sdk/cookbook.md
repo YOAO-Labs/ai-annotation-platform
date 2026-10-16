@@ -3,7 +3,7 @@ title: SDK Cookbook
 audience: [dev]
 type: how-to
 status: beta
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # SDK Cookbook
@@ -325,3 +325,48 @@ aap learning active-learning create --project "$PROJECT_ID" --body round-request
 aap learning active-learning candidates "$ROUND_ID" --project "$PROJECT_ID" --json
 aap learning active-learning decide "$ROUND_ID" --project "$PROJECT_ID" --body decision.json --yes --json
 ```
+
+## 9. 范围导出与同步 VOC
+
+视频范围与点云选项属于 JSON 请求体。以下示例选定一个视频任务的闭区间源帧范围；服务器继续核对任务归属、边界与格式资格。异步导出返回 Job ID，等待后再下载。
+
+```python
+from ai_annotation import (
+    Client, ExportRequestBody, VideoExportScopeRequest, VideoExportFrameSelection,
+)
+
+PROJECT_ID = "<video-project-id>"
+TASK_ID = "<video-task-id>"
+
+with Client() as client:
+    body = ExportRequestBody(scope=VideoExportScopeRequest(
+        task_id=TASK_ID,
+        selection=VideoExportFrameSelection(from_frame=120, to_frame=240),
+    ))
+    job_id = client.exports.create(PROJECT_ID, targets=["video_json"], body=body)
+    job = client.exports.wait(job_id, timeout=600)
+    client.exports.download(job, "./video-range.zip")
+```
+
+片段范围用 `VideoExportSegmentSelection(start_segment_id=..., end_segment_id=...)`；点云用 `ExportRequestBody(lidar=LidarExportOptions(kitti_camera_role="camera_front"))`。不要将 `scope` / `lidar` 当成普通 query kwargs。按批次导出时，将相同请求体传给 `client.batches.export(project_id, batch_id, body=body)`。
+
+VOC 为同步 ZIP，使用专用方法；以下 ID 应属于服务器支持 VOC 的图片项目与批次。
+
+```python
+from ai_annotation import Client
+
+PROJECT_ID = "<image-project-id>"
+BATCH_ID = "<image-batch-id>"
+
+with Client() as client:
+    client.exports.download_voc(PROJECT_ID, "./project-voc.zip")
+    client.batches.download_voc(PROJECT_ID, BATCH_ID, "./batch-voc.zip")
+```
+
+```bash
+aap export project "$VIDEO_PROJECT_ID" --target video_json --body export-scope.json --out ./video-range.zip --json
+aap export project "$IMAGE_PROJECT_ID" --target voc --out ./project-voc.zip --json
+aap batches download-voc "$IMAGE_PROJECT_ID" "$BATCH_ID" --out ./batch-voc.zip --json
+```
+
+同步 VOC JSON 输出为 `{"out":"..."}`，没有 Job ID；不能混选 VOC 与其他格式或使用 `--no-wait`。下载采用带认证的 POST 流式请求，不自动重试；中断、HTTP 错误或落盘失败保留旧目标。CLI 请求文件同样支持 `--body -` 从 stdin 读取。

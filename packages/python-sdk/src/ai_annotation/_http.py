@@ -48,7 +48,12 @@ def map_status_error(resp: httpx.Response) -> APIStatusError:
     except Exception:
         detail = resp.text
     cls = _STATUS_ERROR_MAP.get(resp.status_code, APIStatusError)
-    return cls(resp.status_code, detail)
+    return cls(
+        resp.status_code,
+        detail,
+        request_id=resp.headers.get("x-request-id") or resp.headers.get("request-id"),
+        retry_after=resp.headers.get("retry-after"),
+    )
 
 
 class HttpTransport:
@@ -107,6 +112,7 @@ class HttpTransport:
         url: str,
         dest: Path,
         *,
+        method: str = "GET",
         params: dict[str, Any] | None = None,
         expected_sha256: str | None = None,
         expected_size: int | None = None,
@@ -141,7 +147,7 @@ class HttpTransport:
         size = 0
         try:
             with temp:
-                with client.stream("GET", target, params=params) as resp:
+                with client.stream(method, target, params=params) as resp:
                     if resp.status_code >= 400:
                         resp.read()
                         raise map_status_error(resp)

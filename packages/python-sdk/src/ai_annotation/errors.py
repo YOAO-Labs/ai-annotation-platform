@@ -15,9 +15,18 @@ class AAPError(Exception):
 class APIStatusError(AAPError):
     """HTTP 4xx / 5xx 统一异常。"""
 
-    def __init__(self, status_code: int, detail: Any):
+    def __init__(
+        self,
+        status_code: int,
+        detail: Any,
+        *,
+        request_id: str | None = None,
+        retry_after: str | None = None,
+    ):
         self.status_code = status_code
         self.detail = detail
+        self.request_id = request_id
+        self.retry_after = retry_after
         super().__init__(f"HTTP {status_code}: {detail}")
 
 

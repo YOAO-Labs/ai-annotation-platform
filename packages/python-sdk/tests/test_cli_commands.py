@@ -753,6 +753,143 @@ def test_export_project_wait_requires_out(respx_mock):
     assert result.exit_code != 0
 
 
+def test_export_project_body_option_sends_typed_json_body(respx_mock, tmp_path):
+    pid = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/export").mock(
+        return_value=httpx.Response(202, json={"job_id": JOB_ID})
+    )
+    body_path = tmp_path / "body.json"
+    body_path.write_text(
+        json.dumps(
+            {
+                "scope": {
+                    "task_id": str(uuid4()),
+                    "selection": {"kind": "frames", "from_frame": 1, "to_frame": 2},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "project",
+            pid,
+            "--target",
+            "aap_json",
+            "--body",
+            str(body_path),
+            "--no-wait",
+            "--json",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    request = route.calls.last.request
+    assert "scope" not in request.url.params and "lidar" not in request.url.params
+    assert json.loads(request.content)["scope"]["selection"]["kind"] == "frames"
+
+
+def test_export_project_voc_download_has_no_fake_job_id(respx_mock, tmp_path):
+    pid = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/export").mock(
+        return_value=httpx.Response(200, content=b"voc zip")
+    )
+    out = tmp_path / "voc.zip"
+
+    result = runner.invoke(
+        app,
+        ["export", "project", pid, "--target", "voc", "--out", str(out), "--json"],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {"out": str(out)}
+    assert out.read_bytes() == b"voc zip"
+    request = route.calls.last.request
+    assert request.headers["Authorization"] == "Bearer ak_test"
+    assert request.url.params.get_list("targets") == ["voc"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--target", "voc", "--no-wait"],
+        ["--target", "voc"],
+    ],
+)
+def test_export_project_voc_rejects_async_or_missing_out_options(
+    respx_mock, tmp_path, args
+):
+    pid = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/export")
+    result = runner.invoke(app, ["export", "project", pid, *args], env=ENV)
+    assert result.exit_code != 0
+    assert not route.called
+
+
+def test_batch_export_body_option_sends_typed_json_body(respx_mock, tmp_path):
+    pid, batch_id = str(uuid4()), str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/batches/{batch_id}/export").mock(
+        return_value=httpx.Response(202, json={"job_id": JOB_ID})
+    )
+    body_path = tmp_path / "body.json"
+    body_path.write_text(json.dumps({"lidar": {"kitti_camera_role": "camera_front"}}))
+
+    result = runner.invoke(
+        app,
+        [
+            "batches",
+            "export",
+            pid,
+            batch_id,
+            "--target",
+            "kitti",
+            "--body",
+            str(body_path),
+            "--json",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    request = route.calls.last.request
+    assert "lidar" not in request.url.params
+    assert json.loads(request.content) == {
+        "lidar": {"kitti_camera_role": "camera_front"}
+    }
+
+
+def test_batch_download_voc_command_streams_binary_json_result(respx_mock, tmp_path):
+    pid, batch_id = str(uuid4()), str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/batches/{batch_id}/export").mock(
+        return_value=httpx.Response(200, content=b"batch voc zip")
+    )
+    out = tmp_path / "batch-voc.zip"
+
+    result = runner.invoke(
+        app,
+        [
+            "batches",
+            "download-voc",
+            pid,
+            batch_id,
+            "--out",
+            str(out),
+            "--json",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {"out": str(out)}
+    assert out.read_bytes() == b"batch voc zip"
+    assert route.calls.last.request.url.params.get_list("targets") == ["voc"]
+
+
 # ---------- batches / members / me ----------
 
 

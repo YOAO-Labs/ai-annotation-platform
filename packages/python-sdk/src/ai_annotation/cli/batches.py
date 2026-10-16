@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 from rich.table import Table
 
@@ -11,7 +13,9 @@ from ai_annotation.cli._output import (
     console,
     get_client,
     print_json,
+    read_json_body,
 )
+from ai_annotation.export_models import ExportRequestBody
 
 app = typer.Typer(
     help="批次: 列出、创建、更新或删除项目批次。",
@@ -350,6 +354,9 @@ def export_batch(
     project_id: str = typer.Argument(..., help="项目 ID"),
     batch_id: str = typer.Argument(..., help="批次 ID"),
     targets: list[str] | None = typer.Option(None, "--target", help="导出格式，可重复"),
+    body_path: Path | None = typer.Option(
+        None, "--body", help="视频 scope 或 lidar 选项的 UTF-8 JSON 文件"
+    ),
     include_attributes: bool = typer.Option(
         True, "--include-attributes/--no-include-attributes", help="导出属性"
     ),
@@ -358,6 +365,7 @@ def export_batch(
 ) -> None:
     """创建批次导出 job。"""
     with cli_errors(json_output):
+        body = read_json_body(body_path, ExportRequestBody) if body_path else None
         with get_client(json_output) as client:
             job_id = client.batches.export(
                 project_id,
@@ -365,8 +373,31 @@ def export_batch(
                 targets=targets,
                 include_attributes=include_attributes,
                 axis_frame=axis_frame,
+                body=body,
             )
     if json_output:
         print_json({"job_id": job_id})
     else:
         console.print(f"[green]批次导出 job 已创建[/green] {job_id}")
+
+
+@app.command("download-voc")
+def download_batch_voc(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    out: Path = typer.Option(..., "--out", help="VOC ZIP 输出路径"),
+    include_attributes: bool = typer.Option(
+        True, "--include-attributes/--no-include-attributes", help="导出属性"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """下载批次 VOC ZIP。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            dest = client.batches.download_voc(
+                project_id, batch_id, out, include_attributes=include_attributes
+            )
+    if json_output:
+        print_json({"out": str(dest)})
+    else:
+        console.print(f"[green]批次 VOC 导出完成[/green] → {dest}")

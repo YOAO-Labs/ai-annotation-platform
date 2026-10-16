@@ -25,7 +25,7 @@ SNAPSHOT = (
 
 _HTTP_METHODS = {"DELETE", "GET", "PATCH", "POST", "PUT"}
 _OPENAPI_METHODS = {method.lower() for method in _HTTP_METHODS}
-_COVERAGE_STATUSES = {"covered", "excluded", "planned"}
+_COVERAGE_STATUSES = {"covered", "excluded", "planned", "uncovered"}
 _EXCLUSION_REASONS = {
     "maintenance-risk",
     "no-external-demand",
@@ -127,6 +127,21 @@ def extract_client_operations(source: str) -> list[tuple[str, str, int]]:
             full_path = path if path.startswith(f"{API_PREFIX}/") else API_PREFIX + path
             operations.append((method, full_path, node.lineno))
         elif _is_http_call(node, "stream_download"):
+            method_node = next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "method"),
+                None,
+            )
+            method = (
+                "GET"
+                if method_node is None
+                else _literal_string(
+                    method_node, label="stream method", line=node.lineno
+                ).upper()
+            )
+            if method not in _HTTP_METHODS:
+                raise AssertionError(
+                    f"line {node.lineno}: unsupported stream HTTP method {method}"
+                )
             path_node = (
                 node.args[0]
                 if node.args
@@ -152,7 +167,7 @@ def extract_client_operations(source: str) -> list[tuple[str, str, int]]:
                 raise AssertionError(
                     f"line {node.lineno}: SDK stream download path must start with {API_PREFIX}/"
                 )
-            operations.append(("GET", path, node.lineno))
+            operations.append((method, path, node.lineno))
     return sorted(operations, key=lambda item: item[2])
 
 
@@ -177,7 +192,9 @@ def _watched_operations(spec: dict, watched_tags: set[str]) -> set[str]:
         for method, operation in path_item.items():
             if method not in _OPENAPI_METHODS:
                 continue
-            if watched_tags.intersection(operation.get("tags", [])):
+            if "*" in watched_tags or watched_tags.intersection(
+                operation.get("tags", [])
+            ):
                 operations.add(f"{method.upper()} {path}")
     return operations
 
@@ -217,11 +234,15 @@ class Example:
         self._http.stream_download(
             f"/api/v1/projects/{item_id}/items/media", dest
         )
+        self._http.stream_download(
+            f"/api/v1/projects/{item_id}/items/export", dest, method="POST"
+        )
         self._http.stream_download(download_url, dest)
 """
     operations = extract_client_operations(source)
     assert [(method, path) for method, path, _line in operations] == [
-        ("GET", "/api/v1/projects/{item_id}/items/media")
+        ("GET", "/api/v1/projects/{item_id}/items/media"),
+        ("POST", "/api/v1/projects/{item_id}/items/export"),
     ]
 
 
@@ -232,6 +253,16 @@ class Example:
         self._http.stream_download(path, dest)
 """
     with pytest.raises(AssertionError, match="literal or simple f-string"):
+        extract_client_operations(source)
+
+
+def test_extract_client_operations_rejects_dynamic_stream_methods():
+    source = """
+class Example:
+    def load(self, method, dest):
+        self._http.stream_download("/api/v1/files/export", dest, method=method)
+"""
+    with pytest.raises(AssertionError, match="stream method must be a string literal"):
         extract_client_operations(source)
 
 
@@ -286,6 +317,7 @@ def test_api_coverage_manifest_classifies_watched_operations():
     assert manifest["snapshot"] == __aap_target_version__
 
     watched_tags = set(manifest["watched_tags"])
+    assert watched_tags == {"*"}, "all OpenAPI tags must remain covered by drift checks"
     actual = _watched_operations(spec, watched_tags)
     declared = manifest["operations"]
     declared_keys = set(declared)
@@ -305,6 +337,21 @@ def test_api_coverage_manifest_classifies_watched_operations():
             assert entry.get("reason") in _EXCLUSION_REASONS, (
                 f"{operation}: excluded operation needs a known reason"
             )
+        elif status == "uncovered":
+            assert entry.get("reason") == "not-implemented", (
+                f"{operation}: uncovered operation needs the not-implemented reason"
+            )
+
+    counts = {
+        status: sum(entry["status"] == status for entry in declared.values())
+        for status in _COVERAGE_STATUSES
+    }
+    assert counts == {
+        "covered": 196,
+        "excluded": 167,
+        "planned": 0,
+        "uncovered": 205,
+    }
 
     covered = {
         operation
