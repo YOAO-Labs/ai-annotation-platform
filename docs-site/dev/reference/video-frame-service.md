@@ -48,7 +48,13 @@ GET /api/v1/tasks/{task_id}/video/chunks/{chunk_id}
 GET /api/v1/videos/{dataset_item_id}/chunks/{chunk_id}
 ```
 
-首次请求缺失 chunk 时，API 创建 `VideoChunk(status="pending")` 并投递 `ensure_video_chunks` Celery 任务。单 chunk 未 ready 时返回 HTTP 202 和 `Retry-After`；ready 后返回 signed URL。
+首次请求缺失 chunk 时，API 创建 `VideoChunk(status="pending")`，提交后通过注入的 `MediaJobDispatcher` 投递生成请求；Celery 适配器仍使用原 `ensure_video_chunks` task。单 chunk 未 ready 时返回 HTTP 202 和 `Retry-After`；ready 后返回 signed URL。
+
+### 相邻块预热
+
+`video_chunk_warmup_lookahead` 控制主请求范围之后的预热块数，0 关闭额外预热。`_ensure_chunk_rows` 返回行及本事务实际插入的 chunk ID；预热在提交后派发本次新建行和可重试的失败行，跳过已有的 ready/pending 行。
+
+新行虽然也是 pending，但不能被误判为此前已入队。并发 INSERT 的失败方通过 SAVEPOINT 回读现有行，不把其他事务创建的 pending 行标为本次新建，避免多个预热请求把同一次创建重复投递。主请求仍保留原有按需派发策略；此规则不提供数据库与 broker 的原子提交，也不自动恢复此前遗留的孤立 pending 行。
 
 ### Chunk 状态机
 
@@ -64,7 +70,7 @@ GET /api/v1/videos/{dataset_item_id}/chunks/{chunk_id}
 | `ready`   | worker 完成 chunk 生成（含 ffprobe 写 `diagnostics.samples`），返回 signed URL      |
 | `failed`  | ffmpeg 失败 / 超时；行携带 `error` 字段；客户端可触发 retry                         |
 
-> 实现：`apps/api/app/services/video_frame_service.py` 第 200、217、344 行。chunk 状态白名单见 `{"pending", "ready", "failed"}`；越界值视为 `pending`。
+> 实现：`apps/api/app/services/video_frame_service.py` 的 `_ensure_chunk_rows` / `_chunk_out`。chunk 状态白名单见 `{"pending", "ready", "failed"}`；越界值视为 `pending`。
 
 media worker 会在源 codec 为 H.264 / H.265 且 chunk 起始帧 keyframe 对齐时优先尝试 ffmpeg stream copy；不满足条件或 smart-copy 失败时，自动 fallback 到既有 H.264 baseline fragmented MP4 重编码。API 行为保持兼容，只额外返回诊断字段：
 

@@ -584,6 +584,42 @@ async def test_video_warmup_zero_skips_neighbor_enqueue(
     assert [row.chunk_id for row in rows] == [0]
 
 
+@pytest.mark.parametrize("neighbor_status", [None, "pending", "ready", "failed"])
+async def test_video_warmup_dispatches_new_or_failed_neighbors_only(
+    db_session, super_admin, media_dispatcher, monkeypatch, neighbor_status
+):
+    user, _ = super_admin
+    _, item = await _make_video_task(db_session, user.id)
+    monkeypatch.setattr(
+        "app.services.video_frame_service.settings.video_chunk_size_frames", 30
+    )
+    await SystemSettingsService.set_many(
+        db_session, {"video_chunk_warmup_lookahead": 1}, actor_id=user.id
+    )
+    if neighbor_status is not None:
+        db_session.add(
+            VideoChunk(
+                dataset_item_id=item.id,
+                chunk_id=1,
+                start_frame=30,
+                end_frame=59,
+                status=neighbor_status,
+                storage_key="cached/neighbor.mp4"
+                if neighbor_status == "ready"
+                else None,
+            )
+        )
+    await db_session.flush()
+    ctx = await build_context_from_dataset_item(db_session, item.id)
+
+    await list_chunks(db_session, ctx, 0, 0, dispatcher=media_dispatcher)
+
+    expected = [(item.id, [0])]
+    if neighbor_status in {None, "failed"}:
+        expected.append((item.id, [1]))
+    assert media_dispatcher.video_chunks == expected
+
+
 @pytest.mark.parametrize("path", ["chunks?from_frame=0&to_frame=0", "chunks/0"])
 async def test_warmup_setting_failure_does_not_expire_the_primary_response(
     db_session, httpx_client, super_admin, monkeypatch, media_dispatcher, path
@@ -1614,13 +1650,14 @@ async def test_ensure_chunk_rows_concurrent_insert_does_not_raise(test_engine):
             async with maker() as s:
                 ctx = await build_context_from_dataset_item(s, item_id)
                 await barrier.wait()
-                rows = await _ensure_chunk_rows(s, ctx, [0])
+                rows, created_chunk_ids = await _ensure_chunk_rows(s, ctx, [0])
                 await s.commit()
-                return rows[0].chunk_id
+                return rows[0].chunk_id, created_chunk_ids
 
         results = await asyncio.gather(*[worker() for _ in range(4)])
 
-        assert results == [0, 0, 0, 0]
+        assert [chunk_id for chunk_id, _ in results] == [0, 0, 0, 0]
+        assert sum(0 in created_chunk_ids for _, created_chunk_ids in results) == 1
         async with maker() as s:
             rows = (
                 (

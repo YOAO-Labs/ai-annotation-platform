@@ -166,7 +166,8 @@ async def pts_ms_for_frame(
 
 async def _ensure_chunk_rows(
     db: AsyncSession, ctx: VideoContext, chunk_ids: list[int]
-) -> list[VideoChunk]:
+) -> tuple[list[VideoChunk], set[int]]:
+    """Return rows and IDs inserted here, excluding concurrent insert winners."""
     existing = {
         row.chunk_id: row
         for row in (
@@ -181,6 +182,7 @@ async def _ensure_chunk_rows(
         .all()
     }
     rows: list[VideoChunk] = []
+    created_chunk_ids: set[int] = set()
     for chunk_id in chunk_ids:
         row = existing.get(chunk_id)
         if row is None:
@@ -203,6 +205,7 @@ async def _ensure_chunk_rows(
                     )
                     db.add(row)
                     await db.flush()
+                created_chunk_ids.add(chunk_id)
             except IntegrityError:
                 row = (
                     await db.execute(
@@ -214,7 +217,7 @@ async def _ensure_chunk_rows(
                 ).scalar_one()
         rows.append(row)
     await db.flush()
-    return rows
+    return rows, created_chunk_ids
 
 
 def _chunk_out(row: VideoChunk) -> VideoChunkOut:
@@ -269,8 +272,12 @@ async def _warmup_neighbor_chunks(
     )
     if not candidates:
         return
-    rows = await _ensure_chunk_rows(db, ctx, candidates)
-    to_warm = [r.chunk_id for r in rows if r.status not in {"ready", "pending"}]
+    rows, created_chunk_ids = await _ensure_chunk_rows(db, ctx, candidates)
+    to_warm = [
+        row.chunk_id
+        for row in rows
+        if row.chunk_id in created_chunk_ids or row.status not in {"ready", "pending"}
+    ]
     await db.commit()
     if to_warm:
         dispatcher.dispatch_video_chunks(ctx.item.id, to_warm)
@@ -286,7 +293,7 @@ async def list_chunks(
 ) -> VideoChunksResponse:
     start, end = _safe_frame_range(ctx.metadata, from_frame, to_frame)
     requested_ids = _chunk_ids_for_range(start, end)
-    rows = await _ensure_chunk_rows(db, ctx, requested_ids)
+    rows, _ = await _ensure_chunk_rows(db, ctx, requested_ids)
     missing = [r.chunk_id for r in rows if r.status != "ready"]
     now = _now()
     for row in rows:
@@ -326,7 +333,7 @@ async def get_chunk(
         )
     ).scalar_one_or_none()
     if row is None:
-        rows = await _ensure_chunk_rows(db, ctx, [chunk_id])
+        rows, _ = await _ensure_chunk_rows(db, ctx, [chunk_id])
         row = rows[0]
     row.last_accessed_at = _now()
     await db.commit()
