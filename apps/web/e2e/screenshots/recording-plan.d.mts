@@ -14,3 +14,7 @@ export function recordingPlan(
 };
 
 export function screenshotCatalogPath(scope?: string): string;
+
+export function assertRecordingMode(profile: "docs" | "marketing", validateOnly?: boolean): void;
+
+export function recordingTimeout(requested: number, current: number, selected: boolean): number;
