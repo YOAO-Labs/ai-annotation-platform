@@ -62,7 +62,12 @@ import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { useToastStore } from "@/components/ui/Toast";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
-import { NO_LIMIT, NO_METRICS } from "./registryShared";
+import {
+  duplicateNameOrdinals,
+  NO_LIMIT,
+  NO_METRICS,
+  type DuplicateNameOrdinal,
+} from "./registryShared";
 import { CapabilityDriftReviewDialog } from "./CapabilityDriftReviewDialog";
 import { AffectedCountChip, EmptyState, NullCell, UrlIssueChips } from "./registryUi";
 import type { RegistryScope, RegistrySectionProps } from "./registryTypes";
@@ -101,6 +106,10 @@ function policyLabel(policy: string): string {
 }
 
 type GpuSeverity = "ok" | "info" | "warning" | "critical" | "blocker";
+
+function identityName(name: string, noun: string, ordinal?: DuplicateNameOrdinal): string {
+  return ordinal ? `${name}（同名${noun} ${ordinal.index}/${ordinal.total}）` : name;
+}
 
 /** Find the highest GPU diagnostic severity touching this pool's members. */
 function poolMaxGpuSeverity(pool: PoolViewModel, scope: RegistryScope): GpuSeverity | null {
@@ -158,6 +167,24 @@ export function ServicePoolsSection({
   const [poolName, setPoolName] = useState("");
   const createPool = useCreateServicePool();
   const pushToast = useToastStore((s) => s.push);
+  const poolOrdinals = useMemo(
+    () =>
+      duplicateNameOrdinals(
+        vm.pools,
+        (pool) => pool.id,
+        (pool) => pool.name,
+      ),
+    [vm.pools],
+  );
+  const memberOrdinals = useMemo(
+    () =>
+      duplicateNameOrdinals(
+        vm.pools.flatMap((pool) => pool.members),
+        (member) => member.registry_id,
+        (member) => member.name,
+      ),
+    [vm.pools],
+  );
 
   // pool_id 定位键（plan §5）：池存在 → 展开成员并滚动到该行；对象不存在或
   // 当前不可访问 → 明确提示，不静默清掉条件。
@@ -326,6 +353,8 @@ export function ServicePoolsSection({
               pool={pool}
               scope={scope}
               patchUrl={patchUrl}
+              poolOrdinal={poolOrdinals.get(pool.id)}
+              memberOrdinals={memberOrdinals}
               expanded={expanded.has(pool.id)}
               focused={pool.id === focusPoolId}
               onToggle={() => togglePool(pool.id)}
@@ -404,6 +433,8 @@ function PoolRow({
   pool,
   scope,
   patchUrl,
+  poolOrdinal,
+  memberOrdinals,
   expanded,
   focused,
   onToggle,
@@ -411,11 +442,14 @@ function PoolRow({
   pool: PoolViewModel;
   scope: RegistryScope;
   patchUrl: RegistrySectionProps["patchUrl"];
+  poolOrdinal?: DuplicateNameOrdinal;
+  memberOrdinals: ReadonlyMap<string, DuplicateNameOrdinal>;
   expanded: boolean;
   focused: boolean;
   onToggle: () => void;
 }): ReactNode {
   const { isSuperAdmin, vm } = scope;
+  const poolIdentity = identityName(pool.name, "服务池", poolOrdinal);
   const projectCount = countProjectsForPool(pool.id, scope);
   const affectedCount = scope.diagnostics.filter(
     (d) => d.subject_type === "service_pool" && d.subject_id === pool.id,
@@ -451,7 +485,16 @@ function PoolRow({
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <span className="font-medium">{pool.name}</span>
-              <CopyValueButton value={pool.id} kind="id" label="复制服务池 ID" />
+              {poolOrdinal && (
+                <Badge variant="outline" className="text-2xs">
+                  同名服务池 {poolOrdinal.index}/{poolOrdinal.total}
+                </Badge>
+              )}
+              <CopyValueButton
+                value={pool.id}
+                kind="id"
+                label={poolOrdinal ? `复制服务池「${poolIdentity}」ID` : "复制服务池 ID"}
+              />
               {pool.enabled ? null : (
                 <Badge variant="outline" className="text-2xs">
                   已停用
@@ -519,11 +562,23 @@ function PoolRow({
         </TableCell>
         {isSuperAdmin && (
           <TableCell className="text-right">
-            <PoolActionsMenu pool={pool} scope={scope} patchUrl={patchUrl} />
+            <PoolActionsMenu
+              pool={pool}
+              poolIdentity={poolIdentity}
+              scope={scope}
+              patchUrl={patchUrl}
+            />
           </TableCell>
         )}
       </TableRow>
-      {expanded && <PoolMembersSubRows pool={pool} scope={scope} />}
+      {expanded && (
+        <PoolMembersSubRows
+          pool={pool}
+          poolIdentity={poolIdentity}
+          memberOrdinals={memberOrdinals}
+          scope={scope}
+        />
+      )}
     </>
   );
 }
@@ -566,9 +621,13 @@ function PoolStatusCell({
 
 function PoolMembersSubRows({
   pool,
+  poolIdentity,
+  memberOrdinals,
   scope,
 }: {
   pool: PoolViewModel;
+  poolIdentity: string;
+  memberOrdinals: ReadonlyMap<string, DuplicateNameOrdinal>;
   scope: RegistryScope;
 }): ReactNode {
   if (pool.members.length === 0) {
@@ -583,31 +642,52 @@ function PoolMembersSubRows({
   }
   return (
     <>
-      {pool.members.map((m) => (
-        <TableRow key={m.registry_id} className="bg-muted/20">
-          <TableCell />
-          <TableCell colSpan={scope.isSuperAdmin ? 7 : 5}>
-            <div className="flex flex-wrap items-center gap-3 py-1 text-xs">
-              <span className="inline-flex min-w-0 items-center gap-1">
-                <span className="font-medium">{m.name}</span>
-                <CopyValueButton value={m.registry_id} kind="id" label="复制实例 ID" />
-              </span>
-              <Badge variant="outline" className="text-2xs">
-                {trafficStateLabel(m.traffic_state)}
-              </Badge>
-              <span className="text-muted-foreground">
-                权重 {scope.isSuperAdmin && m.weight != null ? m.weight : "—"}
-              </span>
-              {m.gpu_resource_id && scope.isSuperAdmin && (
-                <span className="mono text-2xs text-muted-foreground" title={m.gpu_resource_id}>
-                  GPU · {m.gpu_resource_id}
+      {pool.members.map((m) => {
+        const memberOrdinal = memberOrdinals.get(m.registry_id);
+        const memberIdentity = identityName(m.name, "实例", memberOrdinal);
+        return (
+          <TableRow key={m.registry_id} className="bg-muted/20">
+            <TableCell />
+            <TableCell colSpan={scope.isSuperAdmin ? 7 : 5}>
+              <div className="flex flex-wrap items-center gap-3 py-1 text-xs">
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <span className="font-medium">{m.name}</span>
+                  {memberOrdinal && (
+                    <Badge variant="outline" className="text-2xs">
+                      同名实例 {memberOrdinal.index}/{memberOrdinal.total}
+                    </Badge>
+                  )}
+                  <CopyValueButton
+                    value={m.registry_id}
+                    kind="id"
+                    label={memberOrdinal ? `复制实例「${memberIdentity}」ID` : "复制实例 ID"}
+                  />
                 </span>
-              )}
-              {scope.isSuperAdmin && <PoolMemberActions pool={pool} member={m} />}
-            </div>
-          </TableCell>
-        </TableRow>
-      ))}
+                <Badge variant="outline" className="text-2xs">
+                  {trafficStateLabel(m.traffic_state)}
+                </Badge>
+                <span className="text-muted-foreground">
+                  权重 {scope.isSuperAdmin && m.weight != null ? m.weight : "—"}
+                </span>
+                {m.gpu_resource_id && scope.isSuperAdmin && (
+                  <span className="mono text-2xs text-muted-foreground" title={m.gpu_resource_id}>
+                    GPU · {m.gpu_resource_id}
+                  </span>
+                )}
+                {scope.isSuperAdmin && (
+                  <PoolMemberActions
+                    pool={pool}
+                    poolIdentity={poolIdentity}
+                    member={m}
+                    memberIdentity={memberIdentity}
+                    memberOrdinal={memberOrdinal}
+                  />
+                )}
+              </div>
+            </TableCell>
+          </TableRow>
+        );
+      })}
     </>
   );
 }
@@ -627,10 +707,12 @@ function trafficStateLabel(state: string): string {
 
 function PoolActionsMenu({
   pool,
+  poolIdentity,
   scope,
   patchUrl,
 }: {
   pool: PoolViewModel;
+  poolIdentity: string;
   scope: RegistryScope;
   patchUrl: RegistrySectionProps["patchUrl"];
 }): ReactNode {
@@ -658,7 +740,10 @@ function PoolActionsMenu({
       targets.map((m) => drain.mutateAsync({ poolId: pool.id, registryId: m.registry_id })),
     )
       .then(() =>
-        pushToast({ msg: `已对「${pool.name}」${targets.length} 个成员发起停流`, kind: "success" }),
+        pushToast({
+          msg: `已对「${poolIdentity}」${targets.length} 个成员发起停流`,
+          kind: "success",
+        }),
       )
       .catch((e) => pushToast({ msg: "停流失败", sub: (e as Error).message, kind: "warning" }));
   };
@@ -669,7 +754,10 @@ function PoolActionsMenu({
       targets.map((m) => resume.mutateAsync({ poolId: pool.id, registryId: m.registry_id })),
     )
       .then(() =>
-        pushToast({ msg: `已恢复「${pool.name}」${targets.length} 个成员接流`, kind: "success" }),
+        pushToast({
+          msg: `已恢复「${poolIdentity}」${targets.length} 个成员接流`,
+          kind: "success",
+        }),
       )
       .catch((e) => pushToast({ msg: "恢复接流失败", sub: (e as Error).message, kind: "warning" }));
   };
@@ -680,7 +768,7 @@ function PoolActionsMenu({
       {
         onSuccess: () =>
           pushToast({
-            msg: pool.enabled ? `已停用「${pool.name}」` : `已启用「${pool.name}」`,
+            msg: pool.enabled ? `已停用「${poolIdentity}」` : `已启用「${poolIdentity}」`,
             kind: "success",
           }),
         onError: (e) => pushToast({ msg: "操作失败", sub: (e as Error).message, kind: "warning" }),
@@ -780,6 +868,7 @@ function PoolActionsMenu({
             }}
             aria-haspopup="menu"
             aria-expanded={open}
+            aria-label={poolIdentity !== pool.name ? `服务池操作：${poolIdentity}` : undefined}
             title="服务池操作"
           >
             <Icon name="more" size={11} />
@@ -790,7 +879,7 @@ function PoolActionsMenu({
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>向「{pool.name}」添加成员</DialogTitle>
+            <DialogTitle>向「{poolIdentity}」添加成员</DialogTitle>
             <DialogDescription>只能加入尚未归属其他服务池且能力指纹一致的实例。</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
@@ -836,7 +925,7 @@ function PoolActionsMenu({
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>重命名服务池</DialogTitle>
+            <DialogTitle>重命名服务池「{poolIdentity}」</DialogTitle>
             <DialogDescription>名称仅用于展示，不改变服务池 ID 或路由成员。</DialogDescription>
           </DialogHeader>
           <Input value={nextName} onChange={(event) => setNextName(event.target.value)} autoFocus />
@@ -852,7 +941,7 @@ function PoolActionsMenu({
                   {
                     onSuccess: () => {
                       setRenameOpen(false);
-                      pushToast({ msg: "服务池已重命名", kind: "success" });
+                      pushToast({ msg: `服务池「${poolIdentity}」已重命名`, kind: "success" });
                     },
                     onError: (error) =>
                       pushToast({
@@ -872,7 +961,7 @@ function PoolActionsMenu({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除服务池「{pool.name}」</AlertDialogTitle>
+            <AlertDialogTitle>删除服务池「{poolIdentity}」</AlertDialogTitle>
             <AlertDialogDescription>仅空服务池可删除，此操作不可撤销。</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -902,10 +991,16 @@ function PoolActionsMenu({
 
 function PoolMemberActions({
   pool,
+  poolIdentity,
   member,
+  memberIdentity,
+  memberOrdinal,
 }: {
   pool: PoolViewModel;
+  poolIdentity: string;
   member: PoolViewModel["members"][number];
+  memberIdentity: string;
+  memberOrdinal?: DuplicateNameOrdinal;
 }): ReactNode {
   const pushToast = useToastStore((s) => s.push);
   const put = usePutPoolMember();
@@ -916,30 +1011,46 @@ function PoolMemberActions({
   const [weight, setWeight] = useState(String(member.weight ?? 1));
   return (
     <>
-      <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={memberOrdinal ? `编辑实例「${memberIdentity}」权重` : undefined}
+        onClick={() => setEditOpen(true)}
+      >
         编辑权重
       </Button>
       {member.traffic_state === "disabled" && (
-        <Button size="sm" variant="ghost" onClick={() => setReviewOpen(true)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={memberOrdinal ? `审核实例「${memberIdentity}」能力变更` : undefined}
+          onClick={() => setReviewOpen(true)}
+        >
           审核能力变更
         </Button>
       )}
-      <Button size="sm" variant="ghost" onClick={() => setRemoveOpen(true)}>
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={memberOrdinal ? `移除实例「${memberIdentity}」` : undefined}
+        onClick={() => setRemoveOpen(true)}
+      >
         移除
       </Button>
       <CapabilityDriftReviewDialog
         open={reviewOpen}
         onOpenChange={setReviewOpen}
         poolId={pool.id}
-        poolName={pool.name}
+        poolName={poolIdentity}
         poolEnabled={pool.enabled}
         registryId={member.registry_id}
-        registryName={member.name}
+        registryName={memberIdentity}
       />
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>编辑「{member.name}」权重</DialogTitle>
+            <DialogTitle>编辑「{memberIdentity}」权重</DialogTitle>
+            <DialogDescription>服务池「{poolIdentity}」中的实例。</DialogDescription>
           </DialogHeader>
           <Input
             type="number"
@@ -980,7 +1091,9 @@ function PoolMemberActions({
       <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>移除成员「{member.name}」</AlertDialogTitle>
+            <AlertDialogTitle>
+              从服务池「{poolIdentity}」移除实例「{memberIdentity}」
+            </AlertDialogTitle>
             <AlertDialogDescription>
               成员必须已 drain，且路由账本能确认 inflight 为 0。
             </AlertDialogDescription>

@@ -185,6 +185,15 @@ function ProjectLearningContent({
   const requestId = useRef(initialBody?.request_id ?? crypto.randomUUID());
   const checkedDigest = useRef<string | null>(null);
   const selectionEpoch = useRef(0);
+  const issueTaskOrdinals = useMemo(() => {
+    const ordinals = new Map<string, number>();
+    report?.issues.forEach((issue) => {
+      const taskId = issue.task_id;
+      if (typeof taskId !== "string" || !taskId || ordinals.has(taskId)) return;
+      ordinals.set(taskId, ordinals.size + 1);
+    });
+    return ordinals;
+  }, [report?.issues]);
   const draftSnapshot = {
     name,
     batchId,
@@ -825,10 +834,15 @@ function ProjectLearningContent({
                       onRetry={() => void diagnostics.refetch()}
                     />
                   )}
-                  {diagnostics.data?.items.map((item) => (
+                  {diagnostics.data?.items.map((item, index) => (
                     <div key={item.id} className="rounded-md bg-muted p-3">
                       <p className="flex min-w-0 items-center gap-1 font-medium">
-                        <span>{item.name}</span>
+                        <span className="min-w-0 truncate" title={item.name}>
+                          {item.name}
+                        </span>
+                        <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                          记录 {diagnosticsPage * 20 + index + 1}
+                        </span>
                         <CopyValueButton value={item.id} kind="id" label="复制历史数据版本 ID" />
                       </p>
                       <p className="mt-1 break-all text-muted-foreground">
@@ -1273,21 +1287,21 @@ function ProjectLearningContent({
                     {report.summary.objects ?? 0} · 排除其他工具标注{" "}
                     {report.summary.excluded_annotations ?? 0} 条
                   </p>
-                  {report.issues.map((issue, index) => (
-                    <p className="mt-2 text-status-danger" key={index}>
-                      {String(issue.message ?? issue.code)}
-                      {typeof issue.task_id === "string" && issue.task_id && (
-                        <span className="ml-1 inline-flex items-center gap-1">
-                          任务
-                          <CopyValueButton
-                            value={issue.task_id}
-                            kind="id"
-                            label="复制问题任务 ID"
-                          />
-                        </span>
-                      )}
-                    </p>
-                  ))}
+                  {report.issues.map((issue, index) => {
+                    const taskId = typeof issue.task_id === "string" ? issue.task_id : "";
+                    const taskOrdinal = taskId ? issueTaskOrdinals.get(taskId) : undefined;
+                    return (
+                      <p className="mt-2 text-status-danger" key={index}>
+                        {String(issue.message ?? issue.code)}
+                        {taskId && taskOrdinal !== undefined && (
+                          <span className="ml-1 inline-flex items-center gap-1">
+                            任务 {taskOrdinal}
+                            <CopyValueButton value={taskId} kind="id" label="复制问题任务 ID" />
+                          </span>
+                        )}
+                      </p>
+                    );
+                  })}
                   {report.excluded.length > 0 && (
                     <details className="mt-2">
                       <summary className="cursor-pointer">查看排除原因</summary>

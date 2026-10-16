@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { activeLearningApi } from "@/api/activeLearning";
+import { mlBackendsApi } from "@/api/ml-backends";
 import { trainedModelsApi } from "@/api/trainedModels";
 import { useAuthStore } from "@/stores/authStore";
 import { ActiveLearningCreatePage } from "./ActiveLearningCreate";
@@ -10,6 +11,7 @@ import { ActiveLearningCreatePage } from "./ActiveLearningCreate";
 vi.mock("@/api/activeLearning", () => ({
   activeLearningApi: { pool: vi.fn(), preview: vi.fn(), create: vi.fn() },
 }));
+vi.mock("@/api/ml-backends", () => ({ mlBackendsApi: { list: vi.fn() } }));
 vi.mock("@/api/trainedModels", () => ({ trainedModelsApi: { list: vi.fn(), get: vi.fn() } }));
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const project = id(1),
@@ -60,8 +62,17 @@ beforeEach(() => {
   );
   vi.mocked(trainedModelsApi.get).mockResolvedValue({
     model: { id: model, project_id: project, framework: "ultralytics" },
-    deployments: [{ id: deployment, status: "ready" }],
+    deployments: [
+      {
+        id: deployment,
+        registry_id: id(4),
+        status: "ready",
+        created_at: "2025-01-02T03:04:00Z",
+        checked_at: "2025-01-03T03:04:00Z",
+      },
+    ],
   } as never);
+  vi.mocked(mlBackendsApi.list).mockResolvedValue([] as never);
   vi.mocked(activeLearningApi.pool).mockResolvedValue({
     total: 6,
     items: Array.from({ length: 6 }, (_, index) => ({
@@ -89,7 +100,7 @@ async function choose() {
   fireEvent.change(screen.getByRole("combobox", { name: "已注册模型" }), {
     target: { value: model },
   });
-  await screen.findByRole("option", { name: /就绪$/ });
+  await screen.findByRole("option", { name: /就绪/ });
   fireEvent.change(screen.getByRole("combobox", { name: "就绪部署" }), {
     target: { value: deployment },
   });
@@ -102,6 +113,83 @@ async function choose() {
   await screen.findByRole("heading", { name: "3. 已核验预览" });
 }
 describe("explicit active learning creation", () => {
+  it("keeps duplicate backend names and selected deployment identity stable across API reordering", async () => {
+    const namedRegistryA = id(10);
+    const namedRegistryB = id(11);
+    const unnamedRegistry = id(12);
+    const deploymentA = {
+      id: id(3),
+      registry_id: namedRegistryA,
+      status: "ready",
+      created_at: "2025-01-01T03:04:00Z",
+      checked_at: "2025-01-02T03:04:00Z",
+    };
+    const deploymentB = {
+      id: id(4),
+      registry_id: namedRegistryB,
+      status: "ready",
+      created_at: "2025-01-01T03:04:00Z",
+      checked_at: "2025-01-03T03:04:00Z",
+    };
+    const unnamedDeployment = {
+      id: id(5),
+      registry_id: unnamedRegistry,
+      status: "ready",
+      created_at: "2025-01-04T03:04:00Z",
+      checked_at: null,
+    };
+    const modelResponse = (deployments: unknown[]) => ({
+      model: { id: model, project_id: project, framework: "ultralytics" },
+      deployments,
+    });
+    vi.mocked(trainedModelsApi.get)
+      .mockResolvedValueOnce(modelResponse([unnamedDeployment, deploymentB, deploymentA]) as never)
+      .mockResolvedValue(modelResponse([deploymentA, unnamedDeployment, deploymentB]) as never);
+    vi.mocked(mlBackendsApi.list).mockResolvedValue([
+      { id: namedRegistryA, name: "共享推理后端" },
+      { id: namedRegistryB, name: "共享推理后端" },
+    ] as never);
+
+    mount();
+    await screen.findByRole("option", { name: "固定候选 · ultralytics" });
+    fireEvent.change(screen.getByRole("combobox", { name: "已注册模型" }), {
+      target: { value: model },
+    });
+    const deploymentSelect = await screen.findByRole("combobox", { name: "就绪部署" });
+    const labels = () =>
+      Array.from(deploymentSelect.querySelectorAll("option"))
+        .filter((option) => option.value)
+        .map((option) => option.textContent);
+    const expectedLabels = [
+      "部署 1 · 共享推理后端 · 就绪 · 检查于 2025-01-02",
+      "部署 2 · 共享推理后端 · 就绪 · 检查于 2025-01-03",
+      "部署 3 · 就绪 · 创建于 2025-01-04",
+    ];
+    await waitFor(() => expect(labels()).toEqual(expectedLabels));
+
+    fireEvent.change(deploymentSelect, { target: { value: deploymentB.id } });
+    expect(deploymentSelect).toHaveValue(deploymentB.id);
+    expect(screen.getByRole("button", { name: "复制已选部署 ID" })).toBeInTheDocument();
+
+    const client = clients[clients.length - 1]!;
+    await client.invalidateQueries({ queryKey: ["active-learning-model", project] });
+    await waitFor(() => expect(trainedModelsApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(labels()).toEqual(expectedLabels));
+    expect(deploymentSelect).toHaveValue(deploymentB.id);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "轮次名称" }), {
+      target: { value: "稳定部署选样" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "选择本页候选" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "选择本页候选" }));
+    fireEvent.click(screen.getByRole("button", { name: "核验并预览" }));
+    await screen.findByRole("heading", { name: "3. 已核验预览" });
+    expect(activeLearningApi.preview).toHaveBeenCalledWith(
+      project,
+      expect.objectContaining({ deployment_id: deploymentB.id }),
+    );
+  });
+
   it("invalidates preview when budgets change", async () => {
     mount();
     await choose();
@@ -154,7 +242,15 @@ it("blocks LibreYOLO ranking until shared evaluator qualification", async () => 
   } as never);
   vi.mocked(trainedModelsApi.get).mockResolvedValue({
     model: { id: model, project_id: project, framework: "libreyolo" },
-    deployments: [{ id: deployment, status: "ready" }],
+    deployments: [
+      {
+        id: deployment,
+        registry_id: id(4),
+        status: "ready",
+        created_at: "2025-01-02T03:04:00Z",
+        checked_at: "2025-01-03T03:04:00Z",
+      },
+    ],
   } as never);
   mount();
   expect(

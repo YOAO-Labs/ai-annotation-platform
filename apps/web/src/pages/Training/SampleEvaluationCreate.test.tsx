@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { mlBackendsApi } from "@/api/ml-backends";
 import { sampleEvaluationsApi } from "@/api/sampleEvaluations";
 import { trainedModelsApi } from "@/api/trainedModels";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
@@ -11,6 +12,7 @@ import { SampleEvaluationCreatePage } from "./SampleEvaluationCreate";
 vi.mock("@/api/sampleEvaluations", () => ({
   sampleEvaluationsApi: { qualify: vi.fn(), create: vi.fn() },
 }));
+vi.mock("@/api/ml-backends", () => ({ mlBackendsApi: { list: vi.fn() } }));
 vi.mock("@/api/trainedModels", () => ({ trainedModelsApi: { list: vi.fn(), get: vi.fn() } }));
 vi.mock("@/api/trainingDatasets", () => ({
   trainingDatasetsApi: { list: vi.fn(), getSummary: vi.fn(), samples: vi.fn() },
@@ -52,8 +54,18 @@ beforeEach(() => {
   } as never);
   vi.mocked(trainedModelsApi.get).mockResolvedValue({
     model: { id: model, name: "候选", project_id: project, framework: "ultralytics" },
-    deployments: [{ id: deployment, registry_id: id(5), model_version_id: model, status: "ready" }],
+    deployments: [
+      {
+        id: deployment,
+        registry_id: id(5),
+        model_version_id: model,
+        status: "ready",
+        created_at: "2025-01-02T03:04:00Z",
+        checked_at: "2025-01-03T03:04:00Z",
+      },
+    ],
   } as never);
+  vi.mocked(mlBackendsApi.list).mockResolvedValue([] as never);
   vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
     total: 1,
     items: [{ id: dataset, name: "冻结数据" }],
@@ -96,16 +108,19 @@ afterEach(() => {
   cleanup();
   clients.splice(0).forEach((c) => c.clear());
 });
-async function choose() {
+async function choose(selectedDeploymentId = deployment) {
   await screen.findByRole("option", { name: "候选 · ultralytics" });
   fireEvent.change(await screen.findByRole("combobox", { name: /已注册模型/ }), {
     target: { value: model },
   });
+  const deploymentSelect = screen.getByRole("combobox", {
+    name: /已安装部署/,
+  }) as HTMLSelectElement;
   await waitFor(() =>
-    expect(screen.getByRole("option", { name: /部署 1 · 就绪/ })).toBeInTheDocument(),
+    expect(Array.from(deploymentSelect.options).some((option) => option.value)).toBe(true),
   );
-  fireEvent.change(screen.getByRole("combobox", { name: /已安装部署/ }), {
-    target: { value: deployment },
+  fireEvent.change(deploymentSelect, {
+    target: { value: selectedDeploymentId },
   });
   await screen.findByRole("option", { name: "冻结数据" });
   fireEvent.change(screen.getByRole("combobox", { name: /就绪数据版本/ }), {
@@ -117,6 +132,102 @@ async function choose() {
   await screen.findByRole("checkbox", { name: /^选择验证成员 1（/ });
 }
 describe("explicit frozen evaluation creation", () => {
+  it("keeps duplicate backend deployment labels stable and submits the selected deployment after reordering", async () => {
+    const unnamedRegistry = id(20);
+    const registryA = id(21);
+    const registryB = id(22);
+    const deploymentA = {
+      id: id(3),
+      registry_id: registryA,
+      status: "ready",
+      created_at: "2025-01-01T03:04:00Z",
+      checked_at: "2025-01-02T03:04:00Z",
+    };
+    const deploymentB = {
+      id: id(6),
+      registry_id: registryB,
+      status: "ready",
+      created_at: "2025-01-01T03:04:00Z",
+      checked_at: "2025-01-03T03:04:00Z",
+    };
+    const unnamedDeployment = {
+      id: id(7),
+      registry_id: unnamedRegistry,
+      status: "ready",
+      created_at: "2025-01-04T03:04:00Z",
+      checked_at: null,
+    };
+    const modelResponse = (deployments: unknown[]) => ({
+      model: { id: model, name: "候选", project_id: project, framework: "ultralytics" },
+      deployments,
+    });
+    vi.mocked(trainedModelsApi.get)
+      .mockResolvedValueOnce(modelResponse([unnamedDeployment, deploymentB, deploymentA]) as never)
+      .mockResolvedValue(modelResponse([deploymentA, unnamedDeployment, deploymentB]) as never);
+    vi.mocked(mlBackendsApi.list).mockResolvedValue([
+      { id: registryA, name: "部署 1" },
+      { id: registryB, name: "部署 1" },
+    ] as never);
+    vi.mocked(sampleEvaluationsApi.qualify).mockImplementation(
+      async (_projectId, _modelId, selectedDeploymentId) =>
+        ({
+          model_ref: {
+            model_version_id: model,
+            deployment_id: selectedDeploymentId,
+            project_id: project,
+          },
+          profile: { ultralytics_version: "8.4.177", effective_device: "cpu" },
+        }) as never,
+    );
+    vi.mocked(sampleEvaluationsApi.create).mockImplementation(
+      async (_projectId, body) =>
+        ({
+          id: id(10),
+          project_id: project,
+          current_attempt_id: id(11),
+          request_id: body.request_id,
+        }) as never,
+    );
+
+    mount();
+    await choose(deploymentB.id);
+    const deploymentSelect = screen.getByRole("combobox", { name: /已安装部署/ });
+    const labels = () =>
+      Array.from(deploymentSelect.querySelectorAll("option"))
+        .filter((option) => option.value)
+        .map((option) => option.textContent);
+    const expectedLabels = [
+      "部署 1 · 就绪 · 创建于 2025-01-04",
+      "部署 2 · 部署 1 · 就绪 · 检查于 2025-01-02",
+      "部署 3 · 部署 1 · 就绪 · 检查于 2025-01-03",
+    ];
+    expect(labels()).toEqual(expectedLabels);
+    expect(deploymentSelect).toHaveValue(deploymentB.id);
+    expect(screen.getByRole("button", { name: "复制推理后端 ID" })).toBeInTheDocument();
+
+    const client = clients[clients.length - 1]!;
+    await client.invalidateQueries({ queryKey: ["evaluation-model", project] });
+    await waitFor(() => expect(trainedModelsApi.get).toHaveBeenCalledTimes(2));
+    expect(labels()).toEqual(expectedLabels);
+    expect(deploymentSelect).toHaveValue(deploymentB.id);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /^选择验证成员 1（/ }));
+    const submit = screen.getByRole("button", { name: "开始逐样本评估" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    await screen.findByText("已创建评估");
+    expect(sampleEvaluationsApi.qualify).toHaveBeenCalledWith(
+      project,
+      model,
+      deploymentB.id,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(sampleEvaluationsApi.create).toHaveBeenCalledWith(
+      project,
+      expect.objectContaining({ deployment_id: deploymentB.id }),
+    );
+  });
+
   it("keeps explicit members across pages and reuses the request after a lost create response", async () => {
     vi.mocked(sampleEvaluationsApi.create)
       .mockRejectedValueOnce(new Error("响应丢失"))
@@ -181,7 +292,15 @@ it("explains native model support and blocks LibreYOLO shared evaluation", async
   } as never);
   vi.mocked(trainedModelsApi.get).mockResolvedValue({
     model: { id: model, project_id: project, framework: "libreyolo" },
-    deployments: [{ id: deployment, status: "ready" }],
+    deployments: [
+      {
+        id: deployment,
+        registry_id: id(5),
+        status: "ready",
+        created_at: "2025-01-02T03:04:00Z",
+        checked_at: "2025-01-03T03:04:00Z",
+      },
+    ],
   } as never);
   mount();
   expect(

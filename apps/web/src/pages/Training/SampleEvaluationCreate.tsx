@@ -8,6 +8,7 @@ import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
+import { useMLBackends } from "@/hooks/useMLBackends";
 import { useAuthStore } from "@/stores/authStore";
 import { trainingInputClass } from "./TrainingParameterField";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
@@ -66,6 +67,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     enabled: !!modelId,
     retry: false,
   });
+  const backends = useMLBackends(projectId);
   const datasets = useQuery({
     queryKey: ["evaluation-datasets", projectId, scope, datasetPage],
     queryFn: ({ signal }) =>
@@ -174,7 +176,32 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     numericValid &&
     (role !== "held_out_test" || confirmed);
   const error = models.error ?? model.error ?? datasets.error ?? dataset.error ?? samples.error;
-  const readyDeployments = model.data?.deployments.filter((item) => item.status === "ready") ?? [];
+  const deploymentOptions = useMemo(() => {
+    const ready = (model.data?.deployments ?? [])
+      .filter((item) => item.status === "ready")
+      .sort(
+        (left, right) =>
+          left.registry_id.localeCompare(right.registry_id) || left.id.localeCompare(right.id),
+      );
+    const backendNames = new Map(
+      (backends.data ?? []).map(({ id: backendId, name }) => [backendId, name.trim()] as const),
+    );
+    return ready.map((item, index) => {
+      const name = backendNames.get(item.registry_id);
+      const checkedAt = item.checked_at ?? item.created_at;
+      return {
+        item,
+        label: [
+          `部署 ${index + 1}`,
+          name,
+          "就绪",
+          `${item.checked_at ? "检查于" : "创建于"} ${checkedAt.slice(0, 10)}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    });
+  }, [backends.data, model.data?.deployments]);
   const selectedDeployment = model.data?.deployments.find((item) => item.id === deploymentId);
   return (
     <PageContainer>
@@ -263,9 +290,9 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                     }
                   >
                     <option value="">选择就绪部署</option>
-                    {readyDeployments.map((item, index) => (
+                    {deploymentOptions.map(({ item, label }) => (
                       <option key={item.id} value={item.id}>
-                        部署 {index + 1} · 就绪
+                        {label}
                       </option>
                     ))}
                   </select>

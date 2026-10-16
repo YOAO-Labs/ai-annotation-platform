@@ -62,6 +62,9 @@ const mockUnloadMutate = vi.fn();
 const mockDrainMutate = vi.fn();
 const mockResumeMutate = vi.fn();
 const mockPatchPoolMutate = vi.fn();
+const mockDeleteServicePoolMutate = vi.fn();
+const mockPutPoolMemberMutate = vi.fn();
+const mockRemovePoolMemberMutate = vi.fn();
 const mockCapabilityPreview = vi.fn();
 const mockAcceptCapabilityMutate = vi.fn();
 
@@ -85,9 +88,9 @@ vi.mock("./useGlobalRegistry", () => ({
   }),
   usePatchServicePool: () => ({ mutate: mockPatchPoolMutate, isPending: false }),
   useCreateServicePool: () => ({ mutate: vi.fn(), isPending: false }),
-  useDeleteServicePool: () => ({ mutate: vi.fn(), isPending: false }),
-  usePutPoolMember: () => ({ mutate: vi.fn(), isPending: false }),
-  useRemovePoolMember: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteServicePool: () => ({ mutate: mockDeleteServicePoolMutate, isPending: false }),
+  usePutPoolMember: () => ({ mutate: mockPutPoolMemberMutate, isPending: false }),
+  useRemovePoolMember: () => ({ mutate: mockRemovePoolMemberMutate, isPending: false }),
   useCapabilityDriftPreview: (...args: unknown[]) => mockCapabilityPreview(...args),
   useAcceptCapabilityDrift: () => ({
     mutate: mockAcceptCapabilityMutate,
@@ -336,6 +339,9 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
     mockDrainMutate.mockReset();
     mockResumeMutate.mockReset();
     mockPatchPoolMutate.mockReset();
+    mockDeleteServicePoolMutate.mockReset();
+    mockPutPoolMemberMutate.mockReset();
+    mockRemovePoolMemberMutate.mockReset();
     mockCapabilityPreview.mockReset();
     mockAcceptCapabilityMutate.mockReset();
     mockTopology.mockReset();
@@ -439,6 +445,128 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(screen.getAllByTitle("服务池操作").length).toBeGreaterThan(0);
     });
 
+    it("同名服务池使用稳定序号，重命名和删除确认保留选中池身份", async () => {
+      const pools = [
+        makeTopologyPool({ id: "pool-a", name: "Shared Pool", members: [] }),
+        makeTopologyPool({ id: "pool-b", name: "Shared Pool", members: [] }),
+      ];
+      mockTopology.mockResolvedValue(makeTopology({ pools }));
+      mockRuntimeSnapshot.mockResolvedValue(makeSnapshot({ pools: [] }));
+      mockPatchPoolMutate.mockImplementation((_input, options: { onSuccess?: () => void }) => {
+        options.onSuccess?.();
+      });
+      renderUI();
+
+      expect(await screen.findAllByText("Shared Pool")).toHaveLength(2);
+      expect(screen.getByText("同名服务池 1/2")).toBeInTheDocument();
+      const poolSearch = screen.getByRole("textbox", { name: "搜索服务池或成员" });
+      await userEvent.type(poolSearch, "pool-b");
+      expect(await screen.findByText("同名服务池 2/2")).toBeInTheDocument();
+      expect(screen.queryByText("同名服务池 1/2")).not.toBeInTheDocument();
+      await userEvent.clear(poolSearch);
+      const secondRow = screen.getByText("同名服务池 2/2").closest("tr")!;
+      await userEvent.click(within(secondRow).getByRole("button", { name: /服务池操作.*2\/2/ }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "重命名" }));
+
+      const renameDialog = await screen.findByRole("dialog");
+      expect(renameDialog).toHaveTextContent("重命名服务池「Shared Pool（同名服务池 2/2）」");
+      await userEvent.clear(within(renameDialog).getByRole("textbox"));
+      await userEvent.type(within(renameDialog).getByRole("textbox"), "Renamed Pool");
+      await userEvent.click(within(renameDialog).getByRole("button", { name: "保存" }));
+      await waitFor(() =>
+        expect(mockPatchPoolMutate).toHaveBeenCalledWith(
+          { poolId: "pool-b", payload: { name: "Renamed Pool" } },
+          expect.anything(),
+        ),
+      );
+
+      const currentSecondRow = screen.getByText("同名服务池 2/2").closest("tr")!;
+      await userEvent.click(
+        within(currentSecondRow).getByRole("button", { name: /服务池操作.*2\/2/ }),
+      );
+      await userEvent.click(await screen.findByRole("menuitem", { name: "删除服务池" }));
+      const deleteDialog = await screen.findByRole("alertdialog");
+      expect(deleteDialog).toHaveTextContent("删除服务池「Shared Pool（同名服务池 2/2）」");
+      await userEvent.click(within(deleteDialog).getByRole("button", { name: "删除" }));
+      expect(mockDeleteServicePoolMutate).toHaveBeenCalledWith("pool-b", expect.anything());
+    });
+
+    it("同名成员在行、编辑、能力审核和移除确认中保持可区分且指向原实例", async () => {
+      const members = [
+        {
+          registry_id: "backend-a",
+          name: "CPU backend",
+          traffic_state: "disabled" as const,
+          weight: 1,
+          state: "connected",
+          last_checked_at: "2026-07-20T10:00:00Z",
+          gpu_resource_id: null,
+        },
+        {
+          registry_id: "backend-b",
+          name: "CPU backend",
+          traffic_state: "disabled" as const,
+          weight: 1,
+          state: "connected",
+          last_checked_at: "2026-07-20T10:00:00Z",
+          gpu_resource_id: null,
+        },
+      ];
+      mockTopology.mockResolvedValue(
+        makeTopology({
+          pools: [makeTopologyPool({ id: "cpu-pool", name: "CPU pool", members })],
+        }),
+      );
+      mockRuntimeSnapshot.mockResolvedValue(makeSnapshot({ pools: [] }));
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+      renderUI();
+
+      const poolRow = (await screen.findByText("CPU pool")).closest("tr")!;
+      await userEvent.click(within(poolRow).getByRole("button", { name: "展开成员" }));
+      const secondMemberRow = screen.getByText("同名实例 2/2").closest("tr")!;
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /复制实例.*同名实例 2\/2/ }),
+      );
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("backend-b"));
+      expect(screen.queryByText("backend-b", { exact: true })).not.toBeInTheDocument();
+
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /编辑.*同名实例 2\/2.*权重/ }),
+      );
+      const editDialog = await screen.findByRole("dialog");
+      expect(editDialog).toHaveTextContent("编辑「CPU backend（同名实例 2/2）」权重");
+      expect(editDialog).toHaveTextContent("服务池「CPU pool」");
+      await userEvent.click(within(editDialog).getByRole("button", { name: "保存" }));
+      expect(mockPutPoolMemberMutate).toHaveBeenCalledWith(
+        { poolId: "cpu-pool", registryId: "backend-b", payload: { weight: 1 } },
+        expect.anything(),
+      );
+      await userEvent.click(within(editDialog).getByRole("button", { name: "取消" }));
+
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /审核.*同名实例 2\/2.*能力变更/ }),
+      );
+      const reviewDialog = await screen.findByRole("dialog");
+      expect(reviewDialog).toHaveTextContent("审核「CPU backend（同名实例 2/2）」能力变更");
+      expect(reviewDialog).toHaveTextContent("服务池「CPU pool」");
+      expect(mockCapabilityPreview).toHaveBeenCalledWith("cpu-pool", "backend-b", true);
+      await userEvent.click(within(reviewDialog).getByRole("button", { name: "取消" }));
+
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /移除.*同名实例 2\/2/ }),
+      );
+      const removeDialog = await screen.findByRole("alertdialog");
+      expect(removeDialog).toHaveTextContent(
+        "从服务池「CPU pool」移除实例「CPU backend（同名实例 2/2）」",
+      );
+      await userEvent.click(within(removeDialog).getByRole("button", { name: "移除" }));
+      expect(mockRemovePoolMemberMutate).toHaveBeenCalledWith(
+        { poolId: "cpu-pool", registryId: "backend-b" },
+        expect.anything(),
+      );
+    });
+
     it("实例 tab 渲染实例行 + 详情/操作按钮，GPU claim 收敛进摘要列（plan §4.3）", async () => {
       const writeText = vi.fn(async () => undefined);
       Object.assign(navigator, { clipboard: { writeText } });
@@ -535,6 +663,58 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       // 切换到按服务池视图
       fireEvent.click(screen.getByRole("button", { name: "按服务池" }));
       expect(await screen.findByText("grounded-sam2-pool")).toBeInTheDocument();
+    });
+
+    it("同名项目绑定保持项目设置链接与服务池行的身份区分", async () => {
+      const projectIds = ["project-a", "project-b"];
+      const pools = [
+        makeTopologyPool({ id: "pool-a", name: "Shared Pool", members: [] }),
+        makeTopologyPool({ id: "pool-b", name: "Shared Pool", members: [] }),
+      ];
+      mockTopology.mockResolvedValue(makeTopology({ pools }));
+      mockRuntimeSnapshot.mockResolvedValue(makeSnapshot({ pools: [] }));
+      mockOverview.mockResolvedValue(
+        makeOverview({
+          projects: projectIds.map((project_id) => ({
+            project_id,
+            project_name: "Shared Project",
+            backends: [],
+          })),
+        }),
+      );
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+      renderUI();
+      await switchTab(/项目绑定/);
+
+      expect(await screen.findAllByText("Shared Project")).toHaveLength(2);
+      expect(screen.getByText("同名项目 1/2")).toBeInTheDocument();
+      expect(screen.getByText("同名项目 2/2")).toBeInTheDocument();
+      expect(screen.queryByText("project-a", { exact: true })).not.toBeInTheDocument();
+      const firstProjectLink = screen.getByRole("link", { name: /同名项目 1\/2/ });
+      const secondProjectLink = screen.getByRole("link", { name: /同名项目 2\/2/ });
+      expect(firstProjectLink).toHaveAttribute(
+        "href",
+        "/projects/project-a/settings?section=ml-backends",
+      );
+      expect(secondProjectLink).toHaveAttribute(
+        "href",
+        "/projects/project-b/settings?section=ml-backends",
+      );
+      const projectSearch = screen.getByRole("textbox", { name: "搜索项目" });
+      await userEvent.type(projectSearch, "project-b");
+      expect(await screen.findByText("同名项目 2/2")).toBeInTheDocument();
+      expect(screen.queryByText("同名项目 1/2")).not.toBeInTheDocument();
+      await userEvent.clear(projectSearch);
+      await userEvent.click(screen.getByRole("button", { name: /同名项目 2\/2/ }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("project-b"));
+
+      await userEvent.click(screen.getByRole("button", { name: "按服务池" }));
+      expect(await screen.findAllByText("Shared Pool")).toHaveLength(2);
+      expect(screen.getByText("同名服务池 1/2")).toBeInTheDocument();
+      expect(screen.getByText("同名服务池 2/2")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /同名服务池 2\/2/ }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("pool-b"));
     });
   });
 

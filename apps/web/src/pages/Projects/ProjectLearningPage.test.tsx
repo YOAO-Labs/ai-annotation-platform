@@ -242,10 +242,19 @@ describe("project learning data versions", () => {
       pending_membership_count: 0,
       unrecognized_version_count: 1,
     } as never);
-    vi.mocked(trainingDatasetsApi.unrecognizedVersions).mockResolvedValue({
+    vi.mocked(trainingDatasetsApi.unrecognizedVersions).mockResolvedValueOnce({
       items: [
         {
-          id: "unknown-version",
+          id: "unknown-version-1",
+          name: "未识别契约",
+          status: "ready",
+          created_at: "2026-10-16T00:00:00Z",
+          raw_task: "future-task",
+          error_code: "unknown_data_contract",
+          reason: "冻结任务契约未被识别",
+        },
+        {
+          id: "unknown-version-2",
           name: "未识别契约",
           status: "ready",
           created_at: "2026-10-16T00:00:00Z",
@@ -254,7 +263,21 @@ describe("project learning data versions", () => {
           reason: "冻结任务契约未被识别",
         },
       ],
-      total: 1,
+      total: 21,
+    });
+    vi.mocked(trainingDatasetsApi.unrecognizedVersions).mockResolvedValueOnce({
+      items: [
+        {
+          id: "unknown-version-21",
+          name: "未识别契约",
+          status: "ready",
+          created_at: "2026-10-16T00:00:00Z",
+          raw_task: "future-task",
+          error_code: "unknown_data_contract",
+          reason: "冻结任务契约未被识别",
+        },
+      ],
+      total: 21,
     });
     const user = userEvent.setup();
     mount("/projects/project-1/learning?tab=data&data_task=pose");
@@ -270,8 +293,48 @@ describe("project learning data versions", () => {
       ),
     );
     await user.click(screen.getByRole("button", { name: /未识别的历史版本/ }));
-    expect(await screen.findByText("未识别契约")).toBeVisible();
+    expect(await screen.findAllByText("未识别契约")).toHaveLength(2);
+    expect(screen.getByText("记录 1")).toBeVisible();
+    expect(screen.getByText("记录 2")).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "复制历史数据版本 ID" })).toHaveLength(2);
+    expect(document.body).not.toHaveTextContent("unknown-version-1");
+    expect(document.body).not.toHaveTextContent("unknown-version-2");
+    await user.click(screen.getByRole("button", { name: "下一页诊断" }));
+    expect(await screen.findByText("记录 21")).toBeVisible();
+    expect(trainingDatasetsApi.unrecognizedVersions).toHaveBeenCalledWith(
+      "project-1",
+      20,
+      expect.anything(),
+    );
     expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes repeated preflight task issues without showing task IDs", async () => {
+    const taskA = "task-uuid-a";
+    const taskB = "task-uuid-b";
+    vi.mocked(trainingDatasetsApi.preflight).mockResolvedValueOnce({
+      ...report,
+      ready: false,
+      issues: [
+        { code: "invalid", message: "相同预检失败", task_id: taskA },
+        { code: "invalid", message: "相同预检失败", task_id: taskB },
+        { code: "invalid", message: "相同预检失败", task_id: taskA },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+
+    const copyButtons = await screen.findAllByRole("button", { name: "复制问题任务 ID" });
+    expect(copyButtons).toHaveLength(3);
+    expect(copyButtons.map((button) => button.closest("p")?.textContent?.trim())).toEqual([
+      "相同预检失败任务 1",
+      "相同预检失败任务 2",
+      "相同预检失败任务 1",
+    ]);
+    expect(document.body).not.toHaveTextContent(taskA);
+    expect(document.body).not.toHaveTextContent(taskB);
   });
   it("filters task versions before pagination and preserves a separate draft for each task", async () => {
     const user = userEvent.setup();

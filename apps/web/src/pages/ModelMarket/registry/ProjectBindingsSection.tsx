@@ -33,6 +33,7 @@ import { Input } from "@/components/shadcn/ui/input";
 import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
+import { duplicateNameOrdinals, type DuplicateNameOrdinal } from "./registryShared";
 import { EmptyState, LoadingState, NullCell, UrlIssueChips } from "./registryUi";
 import type { RegistrySectionProps } from "./registryTypes";
 import type { PoolViewModel } from "../runtimeTopology";
@@ -91,6 +92,25 @@ export function ProjectBindingsSection({
       return { pool, projects };
     });
   }, [overview, vm.pools]);
+
+  const projectOrdinals = useMemo(
+    () =>
+      duplicateNameOrdinals(
+        projectBindings,
+        (binding) => binding.project_id,
+        (b) => b.project_name,
+      ),
+    [projectBindings],
+  );
+  const poolOrdinals = useMemo(
+    () =>
+      duplicateNameOrdinals(
+        vm.pools,
+        (pool) => pool.id,
+        (pool) => pool.name,
+      ),
+    [vm.pools],
+  );
 
   const isByProject = url.bindingView === "by-project";
   const focusPool = url.bindingPool
@@ -175,7 +195,11 @@ export function ProjectBindingsSection({
           </TableHeader>
           <TableBody>
             {filteredProjectBindings.map((b) => (
-              <ProjectBindingRow key={b.project_id} binding={b} />
+              <ProjectBindingRow
+                key={b.project_id}
+                binding={b}
+                ordinal={projectOrdinals.get(b.project_id)}
+              />
             ))}
             {filteredProjectBindings.length === 0 && (
               <TableRow>
@@ -200,7 +224,7 @@ export function ProjectBindingsSection({
           </TableHeader>
           <TableBody>
             {filteredPoolBindings.map((b) => (
-              <PoolBindingRow key={b.pool.id} binding={b} />
+              <PoolBindingRow key={b.pool.id} binding={b} ordinal={poolOrdinals.get(b.pool.id)} />
             ))}
             {filteredPoolBindings.length === 0 && (
               <TableRow>
@@ -292,7 +316,16 @@ function BindingToolbar({
   );
 }
 
-function ProjectBindingRow({ binding }: { binding: ProjectBinding }): ReactNode {
+function ProjectBindingRow({
+  binding,
+  ordinal,
+}: {
+  binding: ProjectBinding;
+  ordinal?: DuplicateNameOrdinal;
+}): ReactNode {
+  const projectIdentity = ordinal
+    ? `${binding.project_name}（同名项目 ${ordinal.index}/${ordinal.total}）`
+    : binding.project_name;
   const hasRisk =
     binding.hasEnabledBackend && binding.routableCount === 0 && binding.pools.length > 0;
   const noPoolButEnabled = binding.hasEnabledBackend && binding.pools.length === 0;
@@ -301,7 +334,16 @@ function ProjectBindingRow({ binding }: { binding: ProjectBinding }): ReactNode 
       <TableCell>
         <div className="flex min-w-0 items-center gap-1">
           <span className="font-medium">{binding.project_name}</span>
-          <CopyValueButton value={binding.project_id} kind="id" label="复制项目 ID" />
+          {ordinal && (
+            <Badge variant="outline" className="text-2xs">
+              同名项目 {ordinal.index}/{ordinal.total}
+            </Badge>
+          )}
+          <CopyValueButton
+            value={binding.project_id}
+            kind="id"
+            label={ordinal ? `复制项目「${projectIdentity}」ID` : "复制项目 ID"}
+          />
         </div>
       </TableCell>
       <TableCell>
@@ -338,6 +380,7 @@ function ProjectBindingRow({ binding }: { binding: ProjectBinding }): ReactNode 
       <TableCell className="text-right">
         <Link
           to={`/projects/${binding.project_id}/settings?section=ml-backends`}
+          aria-label={ordinal ? `打开「${projectIdentity}」设置` : undefined}
           className="whitespace-nowrap text-xs text-brand no-underline hover:underline"
         >
           打开项目设置 →
@@ -347,13 +390,31 @@ function ProjectBindingRow({ binding }: { binding: ProjectBinding }): ReactNode 
   );
 }
 
-function PoolBindingRow({ binding }: { binding: PoolBinding }): ReactNode {
+function PoolBindingRow({
+  binding,
+  ordinal,
+}: {
+  binding: PoolBinding;
+  ordinal?: DuplicateNameOrdinal;
+}): ReactNode {
+  const poolIdentity = ordinal
+    ? `${binding.pool.name}（同名服务池 ${ordinal.index}/${ordinal.total}）`
+    : binding.pool.name;
   return (
     <TableRow>
       <TableCell>
         <div className="flex min-w-0 items-center gap-1">
           <span className="font-medium">{binding.pool.name}</span>
-          <CopyValueButton value={binding.pool.id} kind="id" label="复制服务池 ID" />
+          {ordinal && (
+            <Badge variant="outline" className="text-2xs">
+              同名服务池 {ordinal.index}/{ordinal.total}
+            </Badge>
+          )}
+          <CopyValueButton
+            value={binding.pool.id}
+            kind="id"
+            label={ordinal ? `复制服务池「${poolIdentity}」ID` : "复制服务池 ID"}
+          />
         </div>
       </TableCell>
       <TableCell>

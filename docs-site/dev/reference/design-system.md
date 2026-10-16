@@ -114,6 +114,8 @@ Keep each copy action on the same row as its field label or object name, includi
 
 Keep names, business display IDs, versions, filenames and selection context visible. Copy actions are siblings of links, download buttons and checkbox labels; never put them inside another interactive control or a native option. The copy control stops activation events from reaching containing rows and never submits a form. Raw configuration, logs, exports and editable identity inputs keep their original values.
 
+Names are not necessarily unique. Keep a readable discriminator beside repeated names and carry it into target-specific dialogs and accessible action names. Compute ordinals before local filtering; selector labels must remain associated with the same IDs when API results are reordered.
+
 ## Decision dialogs
 
 Blocking decisions — confirms, destructive actions, multi-choice steps, and required-reason input — use one shared capability: `@/components/ui/decisionDialog` (`confirmDialog` / `choiceDialog` / `inputDialog` / `alertDialog`), rendered by a single `<DecisionDialogHost />`. The host mounts next to both `ToastRack` sites in `App.tsx` so the full-screen Workbench routes are covered without `AppShell`. Content dialogs (forms, previews, multi-section panels) remain `components/ui/Modal`. `beforeunload` stays native because the browser requires that dialog to be synchronous.
