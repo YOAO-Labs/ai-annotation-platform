@@ -10,7 +10,7 @@ from schemas import BatchPredictRequest, Context, PredictParams, Variants
 
 def test_context_minimal_detection() -> None:
     ctx = Context(type="detection", variants=Variants(series="yolo11", size="s"))
-    assert ctx.type == "detection"
+    assert ctx.task == "detect" and ctx.type is None
     assert ctx.params.conf == 0.25
     assert ctx.params.iou == 0.70
     assert ctx.params.max_det == 300
@@ -54,7 +54,7 @@ def test_batch_predict_request_round_trip() -> None:
         ),
     )
     assert req.tasks[0].id == "t1"
-    assert req.context.type == "segmentation"
+    assert req.context.task == "segment" and req.context.type is None
     assert req.context.variants.series == "yolo26"
     assert req.context.params.conf == 0.4
 
@@ -268,5 +268,12 @@ def test_context_closed_set_nested_params_unaffected() -> None:
             "params": {"conf": 0.4},
         }
     )
-    assert ctx.type == "detection"
+    assert ctx.task == "detect" and ctx.type is None
     assert ctx.params.conf == 0.4
+
+
+def test_tracker_model_derives_task_and_rejects_contradictory_task():
+    context = {"model_id": "track", "model_variants": {"series": "yolo11", "size": "n"}}
+    assert Context.model_validate(context).task == "tracker"
+    with pytest.raises(ValidationError, match="does not match"):
+        Context.model_validate({**context, "task": "detect"})

@@ -11,6 +11,7 @@ lines = [
 excluded = {
     "yolo-backend",
     "aap-training-contract",
+    "aap-task-contract",
     "clip",
     "torch",
     "torchvision",

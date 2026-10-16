@@ -11,15 +11,27 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "aap-task-contract"
+version = "0.1.0"
+source = { editable = "../_shared/task_contract" }
+
+[[package]]
 name = "aap-training-contract"
 version = "0.1.0"
 source = { editable = "../_shared/training_contract" }
+dependencies = [
+    { name = "aap-task-contract" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aap-task-contract", editable = "../_shared/task_contract" }]
 
 [[package]]
 name = "aap-training-executor"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aap-task-contract" },
     { name = "aap-training-contract" },
     { name = "httpx" },
     { name = "libreyolo" },
@@ -33,6 +45,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "aap-training-contract", editable = "../_shared/training_contract" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "libreyolo", specifier = "==1.6.0" },

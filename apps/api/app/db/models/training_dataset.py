@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    case,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    literal,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, column_property
@@ -60,11 +62,40 @@ class TrainingDatasetVersion(Base):
     )
     snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
     task = column_property(
-        func.coalesce(snapshot["task"].as_string(), "image-detection")
+        case(
+            (
+                snapshot["task"]
+                .as_string()
+                .in_(["image-instance-segmentation", "segment"]),
+                "segment",
+            ),
+            (snapshot["task"].as_string() == "image-detection", "detect"),
+            else_=func.coalesce(snapshot["task"].as_string(), "detect"),
+        )
+    )
+    media_type = column_property(
+        func.coalesce(snapshot["media_type"].as_string(), "image")
+    )
+    format = column_property(
+        func.coalesce(snapshot["format"].as_string(), "ultralytics-yolo")
+    )
+    source_media_type = column_property(
+        func.coalesce(snapshot["source"]["media_type"].as_string(), "image")
     )
     snapshot_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     manifest: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    class_count = column_property(
+        func.coalesce(func.jsonb_array_length(snapshot["classes"]), 0)
+    )
+    annotation_scope = column_property(
+        func.coalesce(snapshot["annotation_scope"], literal({}, type_=JSONB))
+    )
     preparation_report: Mapped[dict | None] = mapped_column(JSONB)
+    summary = column_property(
+        func.coalesce(
+            manifest["summary"], preparation_report["summary"], literal({}, type_=JSONB)
+        )
+    )
     progress_pct: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(80))
     error_message: Mapped[str | None] = mapped_column(String(1000))

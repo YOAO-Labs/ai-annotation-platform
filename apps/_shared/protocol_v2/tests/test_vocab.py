@@ -14,10 +14,10 @@ from aap_protocol_v2.vocab import TASK_DEFAULT_GEOMETRY
 
 def test_task_values_immutable_tuple() -> None:
     assert isinstance(TASK_VALUES, tuple)
-    assert "detection" in TASK_VALUES
+    assert "detect" in TASK_VALUES
     assert "obb" in TASK_VALUES
-    assert "segmentation" in TASK_VALUES
-    assert "keypoint" in TASK_VALUES
+    assert "segment" in TASK_VALUES
+    assert "pose" in TASK_VALUES
 
 
 def test_infra_values_immutable_tuple() -> None:

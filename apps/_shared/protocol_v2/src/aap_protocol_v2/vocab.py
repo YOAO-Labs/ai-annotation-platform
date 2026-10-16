@@ -10,18 +10,7 @@ protocol v2 词表稳定后改动概率低；若 capability_registry 扩展, 需
 
 from __future__ import annotations
 
-# `/setup.models[].task` 受控值. 与 capability_registry.TASKS 同源.
-TASK_VALUES: tuple[str, ...] = (
-    "detection",
-    "obb",
-    "segmentation",
-    "keypoint",
-    "classification",
-    "ocr",
-    "doc_layout",
-    "tracker",
-    "interactive_seg",
-)
+from aap_task_contract import TASK_VALUES as TASK_VALUES
 
 # `/setup.infra` / `/setup.models[].infra` 受控值. 与 capability_registry.INFRAS 同源.
 INFRA_VALUES: tuple[str, ...] = (
@@ -75,11 +64,11 @@ INPUT_VALUES: tuple[str, ...] = (
 # task → 默认几何输出 (capability_registry.TASK_DEFAULT_GEOMETRY 镜像).
 # backend 没显式声明 `supported_geometric_outputs` 时, apps/api 会合成此默认。
 TASK_DEFAULT_GEOMETRY: dict[str, tuple[str, ...]] = {
-    "detection": ("bbox",),
+    "detect": ("bbox",),
     "obb": ("rotated_bbox",),
-    "segmentation": ("polygon",),
-    "keypoint": ("keypoint",),
-    "classification": ("none",),
+    "segment": ("polygon",),
+    "pose": ("keypoint",),
+    "classify": ("none",),
     "ocr": ("bbox",),
     "doc_layout": ("bbox",),
     "tracker": (),

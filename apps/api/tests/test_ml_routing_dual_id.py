@@ -124,8 +124,9 @@ async def test_pool_id_for_registry_returns_none_for_unknown(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("config", [None, "{}"])
 async def test_predict_frame_route_records_dual_id(
-    httpx_client, db_session, super_admin
+    httpx_client, db_session, super_admin, config
 ) -> None:
     """The /predict-frame route records both pool + instance on the persisted Prediction.
 
@@ -179,7 +180,11 @@ async def test_predict_frame_route_records_dual_id(
                     "image/jpeg",
                 )
             },
-            data={"task_id": str(task.id), "frame_index": "0", "config": "{}"},
+            data={
+                "task_id": str(task.id),
+                "frame_index": "0",
+                **({"config": config} if config is not None else {}),
+            },
         )
     assert resp.status_code == 200, resp.text
 

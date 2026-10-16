@@ -62,6 +62,9 @@ const out = `// AUTO-GENERATED from apps/api/capability-registry.snapshot.json �
 // 受控词表 SSOT 在后端 capability_registry; 改后端后重导 snapshot 即同步 (pre-commit 自动)。
 
 ${idsBlock("TaskId", "TASK_IDS", tasks)}
+export const TASK_ALIASES: Readonly<Record<string, string>> = ${JSON.stringify(data.task_aliases ?? {}, null, 2)};
+export const normalizeTask = (value: string): string =>
+  Object.prototype.hasOwnProperty.call(TASK_ALIASES, value) ? TASK_ALIASES[value]! : value;
 export interface TaskMeta {
   label: string;
   summary: string;

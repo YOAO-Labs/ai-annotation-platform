@@ -6,11 +6,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from training_contract.dataset import DETECTION
+from aap_task_contract import (
+    legacy_training_task,
+    normalize_task,
+    normalize_task_fields,
+)
 
 
 class TrainingDatasetSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    task: Literal["image-detection", "image-instance-segmentation"] = DETECTION
+    task: Literal["detect", "segment"] = DETECTION
     batch_id: uuid.UUID | None = None
     task_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20000)
     mode: Literal["reviewed", "manager_confirmed"] = "reviewed"
@@ -21,10 +26,17 @@ class TrainingDatasetSelection(BaseModel):
     validation_fraction: float = Field(default=0.2, ge=0.05, le=0.5)
     parent_id: uuid.UUID | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def read_task_aliases(cls, value):
+        return normalize_task_fields(value)
+
     def canonical_payload(self):
         payload = self.model_dump(mode="json")
         if self.task == DETECTION:
             payload.pop("task")
+        else:
+            payload["task"] = legacy_training_task(self.task)
         return payload
 
     @model_validator(mode="after")
@@ -61,6 +73,11 @@ class TrainingDatasetPreflight(BaseModel):
     summary: dict[str, int]
     issues: list[dict]
     excluded: list[dict]
+    task: Literal["detect", "segment"] = DETECTION
+    media_type: Literal["image"] = "image"
+    format: str = "ultralytics-yolo"
+    annotation_scope: dict = Field(default_factory=dict)
+    source: dict = Field(default_factory=dict)
 
 
 class TrainingDatasetSummary(BaseModel):
@@ -68,7 +85,19 @@ class TrainingDatasetSummary(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     name: str
-    task: Literal["image-detection", "image-instance-segmentation"] = DETECTION
+    task: Literal["detect", "segment"] = DETECTION
+    media_type: str = "image"
+    format: str = "ultralytics-yolo"
+    source_media_type: str = "image"
+    summary: dict = Field(default_factory=dict)
+    class_count: int = 0
+    annotation_scope: dict = Field(default_factory=dict)
+
+    @field_validator("task", mode="before")
+    @classmethod
+    def canonical_task(cls, value):
+        return normalize_task(value)
+
     creator_id: uuid.UUID | None
     parent_id: uuid.UUID | None
     async_job_id: uuid.UUID | None

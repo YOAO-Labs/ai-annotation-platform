@@ -461,7 +461,7 @@ function ModelsContent({
         predictRequest.current.payload = {
           ml_backend_id: String(current?.snapshot.registry_id),
           model_id: "project-release",
-          task_type: "detection",
+          task: "detect",
           model_variants: {},
           task_ids: [...selectedTasks].sort(),
           predict_mode: predictMode,

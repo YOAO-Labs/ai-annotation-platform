@@ -34,7 +34,7 @@ import { useAuthStore } from "@/stores/authStore";
 export type PreannotateTaskType = "text" | "ocr" | "doc_layout";
 
 // v0.14.17 · YOLO 等"多 task 几何 backend"(闭集, supported_prompts=['none']) 的可选 task.
-export const GEOMETRIC_TASKS = ["detection", "segmentation", "keypoint", "obb"];
+export const GEOMETRIC_TASKS = ["detect", "segment", "pose", "obb"];
 
 // 整图预标注(单图/批量)只接受能吃 full_image 投递的 model;显式声明 crop-only
 // 的识别原子(如 rapidocr 的 ocr-rec,只能吃裁剪图)被排除——否则整图喂进 crop 原子,
@@ -54,7 +54,7 @@ export interface PreannotateAlias {
 /** buildArgs 产出的单次请求字段袋 (不含 task_ids / batch_id, 由调用方补). */
 export interface PreannotateArgs {
   ml_backend_id: string;
-  task_type?: string;
+  task?: string;
   model_id?: string;
   model_variants?: Record<string, string>;
   prompt?: string;
@@ -194,7 +194,7 @@ export function usePreannotateConfig({
   // v0.21.6 / v0.21.7 · 视频项目源模型按**执行单位**分叉 (输入节点顶层选择, 见 母计划对等分叉):
   //   - 整段序列 (executionUnit!=='frame', 默认): 只列 tracker (detect-then-track, 落 video_track);
   //     配置层(变体 series×size / 参数 conf-iou-tracker / 类别白名单)与检测同构, 复用几何 model 机制,
-  //     buildArgs 几何分支自然发 task_type='tracker'。
+  //     buildArgs 几何分支自然发 task='tracker'。
   //   - 逐帧 (executionUnit==='frame'): 只列图像检测 (GEOMETRIC_TASKS, 排除 tracker), yolo det/seg
   //     逐帧跑、落 video_bbox。
   //   图像项目恒图像检测 (GEOMETRIC_TASKS)。
@@ -241,8 +241,8 @@ export function usePreannotateConfig({
     const preferSeg = project?.type_key !== "image-det";
     setTextTaskId((prev) => {
       if (prev && textModels.some((m) => m.id === prev)) return prev;
-      const seg = textModels.find((m) => m.task === "segmentation");
-      const det = textModels.find((m) => m.task === "detection");
+      const seg = textModels.find((m) => m.task === "segment");
+      const det = textModels.find((m) => m.task === "detect");
       return (preferSeg ? (seg ?? det) : (det ?? seg))?.id ?? textModels[0]?.id ?? null;
     });
   }, [backendId, textModels, project?.type_key]);
@@ -349,7 +349,7 @@ export function usePreannotateConfig({
   //   因「分割@框」与「检测」等价冗余); 选中检测 model → 无子选项 (强制 box, 结构即隐藏 SAM)。
   //   值取分割 model 的 supported_text_outputs 中的 mask/both (排除 box)。
   const textOutputOptions = useMemo<TextOutputMode[]>(() => {
-    if (!isTextPath || textModel?.task !== "segmentation") return [];
+    if (!isTextPath || textModel?.task !== "segment") return [];
     const outs = new Set(textModel?.supported_text_outputs ?? ["mask", "both"]);
     return (["mask", "both"] as TextOutputMode[]).filter((o) => outs.has(o));
   }, [isTextPath, textModel]);
@@ -517,7 +517,7 @@ export function usePreannotateConfig({
   // v0.18.12 · 文本 task 切到分割且 outputMode 残留 box (检测态) → 回落 mask;
   //   子开关只 {掩膜, 全部}, 不留无匹配项的 box。检测态由 buildArgs 强制 box, 无需在此处理。
   useEffect(() => {
-    if (isTextPath && textModel?.task === "segmentation" && outputMode === "box") {
+    if (isTextPath && textModel?.task === "segment" && outputMode === "box") {
       setOutputMode("mask");
     }
   }, [isTextPath, textModel, outputMode]);
@@ -585,7 +585,7 @@ export function usePreannotateConfig({
     if (isGeometricBackend) {
       return {
         ml_backend_id: backendId,
-        task_type: geometricModel?.task,
+        task: geometricModel?.task,
         model_id: geometricModel?.id,
         model_variants: variantSlice,
         params: nonVariantParams,
@@ -600,7 +600,7 @@ export function usePreannotateConfig({
       return {
         ml_backend_id: backendId,
         model_id: activeDocModel?.id,
-        task_type: taskType,
+        task: taskType,
         // v0.20.5 · 把变体轴(version/size/lang)从 params 拆出、按 model_variants 下发,
         //   否则后端 resolve() 读不到、永远跑默认档(此前 doc 分支漏发 model_variants)。
         model_variants: variantSlice,
@@ -608,16 +608,16 @@ export function usePreannotateConfig({
         predict_mode: predictMode,
       };
     }
-    // 文本路径 (gsam2 / sam3): v0.18.12 统一 wire 发 model_id + task_type + model_variants。
+    // 文本路径 (gsam2 / sam3): v0.18.12 统一 wire 发 model_id + task + model_variants。
     //   输出形态: 检测 model 恒 box; 分割 model 取子开关 outputMode (mask/both)。
     //   variantSlice 已只含选中文本 model 的轴 (variantSource 按 textModel 派生); 阈值走 nonVariantParams。
     return {
       ml_backend_id: backendId,
       model_id: textModel?.id,
-      task_type: textModel?.task,
+      task: textModel?.task,
       model_variants: variantSlice,
       prompt: prompt.trim(),
-      output_mode: textModel?.task === "detection" ? "box" : effectiveOutputMode,
+      output_mode: textModel?.task === "detect" ? "box" : effectiveOutputMode,
       params: nonVariantParams,
       predict_mode: predictMode,
     };

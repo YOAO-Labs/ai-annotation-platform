@@ -1,6 +1,8 @@
 """Serialize optional training triggers without changing project publication."""
 
 from __future__ import annotations
+
+from aap_task_contract import normalize_task
 import logging
 import uuid
 from datetime import timedelta
@@ -19,6 +21,7 @@ from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
     semantic_partitions,
+    semantic_partition_aliases,
 )
 from app.services import training_initialization as initialization
 
@@ -37,7 +40,7 @@ def fixed_template(framework, base_model):
     from training_contract import definition
 
     template = runs.controlled_template(framework, base_model)
-    if definition(framework, base_model)["task"] != "image-detection":
+    if normalize_task(definition(framework, base_model)["task"]) != "detect":
         raise HTTPException(
             status_code=422, detail="自动学习策略目前仅通过图片检测资格验证"
         )
@@ -58,12 +61,13 @@ def template_current(policy):
         elif getattr(policy, "initialization_model_id", None) is not None:
             return False
         if policy.config.get("configuration"):
-            from training_contract import definition, schema_identity
+            from training_contract.catalog import definition_for_identity
 
-            if policy.config["configuration"]["identity"] != schema_identity(
-                definition(expected["framework"], expected["base_model"]["id"])
-            ):
-                return False
+            definition_for_identity(
+                expected["framework"],
+                expected["base_model"]["id"],
+                policy.config["configuration"]["identity"],
+            )
         return (
             fixed_template(expected["framework"], expected["base_model"]["id"])
             == expected
@@ -248,12 +252,19 @@ async def reconcile(db, policy, trigger):
     candidate = content_digest(
         {"train": trigger.train_digest, "val": trigger.validation_digest}
     )
+    aliases = semantic_partition_aliases(dataset.manifest)
+    candidates = {
+        content_digest(
+            {"train": value["train_digest"], "val": value["validation_digest"]}
+        )
+        for value in aliases
+    }
     duplicate = await db.scalar(
         select(LearningTrigger.id)
         .where(
             LearningTrigger.project_id == policy.project_id,
             LearningTrigger.policy_revision == policy.revision,
-            LearningTrigger.candidate_digest == candidate,
+            LearningTrigger.candidate_digest.in_(candidates),
             LearningTrigger.id != trigger.id,
         )
         .limit(1)
@@ -262,7 +273,7 @@ async def reconcile(db, policy, trigger):
     reason = None
     if duplicate:
         reason = "相同候选已处理；修改并保存策略后才能明确重试"
-    elif policy.blocked_train_digest == trigger.train_digest:
+    elif policy.blocked_train_digest in {value["train_digest"] for value in aliases}:
         reason = "相同训练内容曾失败；变化仍保留，修改并保存策略后才能重试"
     elif trigger.changed_samples < policy.config["min_changed_samples"]:
         reason = f"训练分区变化 {trigger.changed_samples} 个，未达到门槛 {policy.config['min_changed_samples']} 个"
@@ -415,7 +426,8 @@ async def check_policy(db, policy_id, *, force=False):
     try:
         valid_parent = (
             parent is not None
-            and datasets.contract_of(parent.manifest)["task"] == "image-detection"
+            and normalize_task(datasets.contract_of(parent.manifest)["task"])
+            == "detect"
         )
     except TrainingDatasetError:
         valid_parent = False

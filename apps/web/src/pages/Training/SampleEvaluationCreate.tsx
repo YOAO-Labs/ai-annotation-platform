@@ -81,7 +81,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
       );
       if (data.id !== datasetId || data.project_id !== projectId)
         throw new Error("冻结数据版本身份不符");
-      if ((data.task ?? "image-detection") !== "image-detection")
+      if ((data.task ?? "detect") !== "detect")
         throw new Error("样本评估目前仅支持图片检测数据版本");
       return data;
     },
@@ -384,7 +384,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                   <option value={datasetId}>{dataset.data?.name ?? datasetId}</option>
                 )}
                 {datasets.data?.items
-                  .filter((item) => (item.task ?? "image-detection") === "image-detection")
+                  .filter((item) => (item.task ?? "detect") === "detect")
                   .map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}

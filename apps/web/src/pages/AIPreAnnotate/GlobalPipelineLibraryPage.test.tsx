@@ -80,7 +80,7 @@ describe("GlobalPipelineLibraryPage", () => {
               {
                 id: "det",
                 display_name: "Global Det",
-                task: "detection",
+                task: "detect",
                 supported_inputs: ["full_image"],
                 supported_geometric_outputs: ["bbox"],
                 output_attribute_types: [],
@@ -96,7 +96,7 @@ describe("GlobalPipelineLibraryPage", () => {
               {
                 id: "bad",
                 display_name: "Bad Det",
-                task: "detection",
+                task: "detect",
                 supported_inputs: ["full_image"],
                 supported_geometric_outputs: ["bbox"],
                 output_attribute_types: [],
@@ -130,7 +130,7 @@ describe("GlobalPipelineLibraryPage", () => {
               {
                 id: "det",
                 display_name: "Global Det",
-                task: "detection",
+                task: "detect",
                 supported_inputs: ["full_image"],
                 supported_geometric_outputs: ["bbox"],
                 output_attribute_types: [],
@@ -159,7 +159,7 @@ describe("GlobalPipelineLibraryPage", () => {
               {
                 id: "attr",
                 display_name: "Vehicle Attr",
-                task: "classification",
+                task: "classify",
                 supported_inputs: ["crop"],
                 supported_geometric_outputs: [],
                 output_attribute_types: ["class"],

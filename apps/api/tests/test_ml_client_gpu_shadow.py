@@ -1621,3 +1621,33 @@ async def test_dispatch_context_sees_cancellation(
     assert observed == [asyncio.CancelledError]
     assert outcomes[0].kind == "uncertain"
     assert outcomes[0].reason == "request_aborted"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "revision,task,expected",
+    [
+        (0, "detect", "detection"),
+        (0, "segment", "segmentation"),
+        (0, "pose", "keypoint"),
+        (0, "interactive", "interactive"),
+        (1, "detection", "detect"),
+        (1, "segment", "segment"),
+    ],
+)
+async def test_warmup_adapts_task_at_transport_without_mutating_body(
+    monkeypatch, observe_mode, revision, task, expected
+):
+    backend = _backend()
+    backend.health_meta = {"capabilities": {"task_contract_revision": revision}}
+    seen = []
+
+    async def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    _patch_async_client(monkeypatch, httpx.MockTransport(handler))
+    body = {"task": task, "variants": {"size": "n"}}
+    await MLBackendClient(backend).warmup(body)
+    assert seen == [{"task": expected, "variants": {"size": "n"}}]
+    assert body["task"] == task

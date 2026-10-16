@@ -1,0 +1,29 @@
+[
+  {
+    "adapter_revision": 2,
+    "framework": "ultralytics",
+    "framework_version": "8.4.177",
+    "model_family": "yolo11",
+    "schema_digest": "4230ae95a885793c7db77ee4daa69b6d5c32c33d28ff37ea908b077cb0c54d7d",
+    "schema_id": "ultralytics-8.4.177-yolo11-detect-2",
+    "task": "image-detection"
+  },
+  {
+    "adapter_revision": 2,
+    "framework": "libreyolo",
+    "framework_version": "1.6.0",
+    "model_family": "yolo9",
+    "schema_digest": "fa3a9697401df6ebb6b34929b40b620a6274ce1a50e76e56b5337fdcf22cb5ed",
+    "schema_id": "libreyolo-1.6.0-yolo9-detect-2",
+    "task": "image-detection"
+  },
+  {
+    "adapter_revision": 2,
+    "framework": "ultralytics",
+    "framework_version": "8.4.177",
+    "model_family": "yolo11",
+    "schema_digest": "ee9244dee56fef16ee4045508907c0dfe1cf0ece88edb8a877dafa2fe8d1013a",
+    "schema_id": "ultralytics-8.4.177-yolo11-segment-2",
+    "task": "image-instance-segmentation"
+  }
+]

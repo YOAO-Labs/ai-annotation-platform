@@ -91,11 +91,17 @@ async def test_patch_persists_and_get_returns_pipeline(
         json={"preannotate_pipeline": stages},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["preannotate_pipeline"] == stages
+    assert resp.json()["preannotate_pipeline"] == [
+        {
+            **{k: v for k, v in stage.items() if k != "task_type"},
+            **({"task": "classify"} if "task_type" in stage else {}),
+        }
+        for stage in stages
+    ]
 
     got = await httpx_client.get(f"/api/v1/projects/{proj.id}", headers=_bearer(token))
     assert got.status_code == 200, got.text
-    assert got.json()["preannotate_pipeline"] == stages
+    assert got.json()["preannotate_pipeline"] == resp.json()["preannotate_pipeline"]
 
 
 @pytest.mark.asyncio
@@ -109,7 +115,13 @@ async def test_patch_single_stage_pipeline(httpx_client, super_admin, db_session
         json={"preannotate_pipeline": stages},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["preannotate_pipeline"] == stages
+    assert resp.json()["preannotate_pipeline"] == [
+        {
+            **{k: v for k, v in stage.items() if k != "task_type"},
+            **({"task": "classify"} if "task_type" in stage else {}),
+        }
+        for stage in stages
+    ]
 
 
 @pytest.mark.asyncio
@@ -147,7 +159,13 @@ async def test_patch_omit_keeps_pipeline(httpx_client, super_admin, db_session):
         json={"name": "renamed"},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["preannotate_pipeline"] == stages
+    assert resp.json()["preannotate_pipeline"] == [
+        {
+            **{k: v for k, v in stage.items() if k != "task_type"},
+            **({"task": "classify"} if "task_type" in stage else {}),
+        }
+        for stage in stages
+    ]
 
 
 @pytest.mark.asyncio

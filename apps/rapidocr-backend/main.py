@@ -14,6 +14,9 @@ det/cls/rec 三条 ORT session；single-flight builder、borrower、per-entry us
 
 from __future__ import annotations
 
+from aap_protocol_v2.predict import normalize_context_task
+from aap_task_contract import normalize_task
+
 import asyncio
 import logging
 import os
@@ -213,6 +216,7 @@ async def health() -> dict[str, Any]:
 def setup() -> dict[str, Any]:
     payload = {
         "protocol_version": PROTOCOL_VERSION,
+        "task_contract_revision": 1,
         "compat_protocol_versions": COMPAT_PROTOCOL_VERSIONS,
         "name": "rapidocr-backend",
         "version": BACKEND_VERSION,
@@ -278,15 +282,26 @@ def _warmup_target(body: dict[str, Any]) -> tuple[str, dict[str, str] | None]:
     if variants is None:
         variants = body.get("variants")
     if model_id is None:
-        task = body.get("task")
+        try:
+            task = (
+                normalize_task(body["task"]) if body.get("task") is not None else None
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if task in (None, "ocr"):
             model_id = catalog.E2E_MODEL_ID
-        elif task == "detection":
+        elif task == "detect":
             model_id = catalog.DET_MODEL_ID
         else:
             raise HTTPException(
                 status_code=422, detail=f"unsupported warmup task: {task}"
             )
+    try:
+        normalize_context_task(
+            source, model_task="detect" if model_id == catalog.DET_MODEL_ID else "ocr"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not isinstance(model_id, str):
         raise HTTPException(status_code=422, detail="model_id must be a string")
     if variants is not None:
@@ -392,6 +407,13 @@ async def _run_predict(
         raise HTTPException(status_code=503, detail="backend not ready")
 
     model_id = req.context.get("model_id", catalog.E2E_MODEL_ID)
+    try:
+        req.context = normalize_context_task(
+            req.context,
+            model_task="detect" if model_id == catalog.DET_MODEL_ID else "ocr",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     variants = req.context.get("model_variants")
     params = _extract_params(req.context)
     if variants is not None and (

@@ -262,6 +262,8 @@ names:
 
 ## AAP JSON 1.5（无损）
 
+> 任务、输出媒体和格式分别记录为 `task`、`media_type`、`format`。AAP 格式为 `aap`，混合标注通过 `available_tasks` 列出候选，不会自动选择训练任务。新 ZIP 的 `data_contract.json` 按目标记录契约；视频来源另保留原采样参数与绝对源帧号。
+
 > AAP JSON 是平台原生无损中间格式。当前 schema 在 task 层包含 `media_type` 与视频元数据，可无损透传图片 `raster_mask` 和视频 `video_track_mask`；顶层 `scene_tracks` 保留 3D 时序对象身份、轨迹级属性和多个存在区间。`mask_objects` 携带内容寻址 RLE 对象，使引用在导出后仍可移植并校验哈希。与 COCO / YOLO 并列，但**包含**它们丢失的项目、来源、属性与渲染配置。
 
 <!-- history: 1.1 tool bindings; 1.2 media blocks; 1.3 portable raster mask objects; 1.5 scene tracks and temporal roles. -->
@@ -278,7 +280,7 @@ AAP JSON 是单文档格式，落在包根的 `annotations.json`（无 per-image
 
 ```json
 {
-  "schema_version": "1.5",
+  "schema_version": "1.7",
   "exported_at": "2026-05-19T10:00:00Z",
   "exported_from": {
     "platform": "aap",

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from aap_task_contract import TASK_ALIASES
+
 import hashlib
 import json
 import logging
@@ -50,6 +52,7 @@ logger = logging.getLogger(__name__)
 def _build_payload() -> ProtocolCapabilitiesResponse:
     return ProtocolCapabilitiesResponse(
         version="v2",
+        task_aliases=dict(TASK_ALIASES),
         tasks=[
             ProtocolTaskItem(
                 id=t.id,

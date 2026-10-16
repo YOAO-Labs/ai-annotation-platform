@@ -1,16 +1,16 @@
 import type { TrainingEpochEvent, TrainingRunOut } from "@/api/trainingRuns";
 
-export const segmentationTask = "image-instance-segmentation";
-export const trainingTaskLabel = (task?: unknown) =>
-  task === segmentationTask
-    ? "图片实例分割"
-    : task == null || task === "image-detection"
-      ? "图片目标检测"
-      : String(task);
+import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
+
+export const segmentationTask = "segment";
+export const trainingTaskLabel = (task?: unknown) => {
+  const value = normalizeTask(typeof task === "string" ? task : "detect");
+  return value === "segment" ? "图片实例分割" : value === "detect" ? "图片目标检测" : value;
+};
 
 export function trainingTaskOf(config?: Record<string, unknown>) {
   const configuration = config?.configuration as { identity?: { task?: string } } | undefined;
-  return configuration?.identity?.task ?? "image-detection";
+  return normalizeTask(String(config?.task ?? configuration?.identity?.task ?? "detect"));
 }
 
 export const activeTrainingStates = new Set([

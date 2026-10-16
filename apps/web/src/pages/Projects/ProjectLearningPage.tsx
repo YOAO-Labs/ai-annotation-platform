@@ -79,7 +79,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
   const [batchId, setBatchId] = useState("");
   const [parentId, setParentId] = useState("");
   const [trainingTask, setTrainingTask] =
-    useState<NonNullable<TrainingDatasetSelection["task"]>>("image-detection");
+    useState<NonNullable<TrainingDatasetSelection["task"]>>("detect");
   const taskChosen = useRef(false);
   const [mode, setMode] = useState<"reviewed" | "manager_confirmed">("reviewed");
   const [seed, setSeed] = useState("42");
@@ -267,6 +267,11 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
   const unsupported = project.data && (project.data.data_type ?? "image") !== "image";
   const detectionEnabled = !!project.data?.tool_bindings?.bbox?.enabled;
   const segmentationEnabled = !!project.data?.tool_bindings?.region?.enabled;
+  const selectedTool = trainingTask === segmentationTask ? "region" : "bbox";
+  const selectedBinding = project.data?.tool_bindings?.[selectedTool];
+  const selectedClasses = selectedBinding?.classes ?? [];
+  const selectedTaskEnabled =
+    trainingTask === segmentationTask ? segmentationEnabled : detectionEnabled;
   useEffect(() => {
     if (taskChosen.current || !project.data) return;
     taskChosen.current = true;
@@ -362,10 +367,11 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                         taskChosen.current = true;
                         setTrainingTask(event.target.value as typeof trainingTask);
                         setParentId("");
+                        setNegatives([]);
                       })
                     }
                   >
-                    <option value="image-detection" disabled={!detectionEnabled}>
+                    <option value="detect" disabled={!detectionEnabled}>
                       图片目标检测 · 矩形框
                     </option>
                     <option value={segmentationTask} disabled={!segmentationEnabled}>
@@ -436,8 +442,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                     {versions.data?.items
                       .filter(
                         (version) =>
-                          version.status === "ready" &&
-                          (version.task ?? "image-detection") === trainingTask,
+                          version.status === "ready" && (version.task ?? "detect") === trainingTask,
                       )
                       .map((version) => (
                         <option key={version.id} value={version.id}>
@@ -446,10 +451,24 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                       ))}
                   </select>
                 </label>
+                <div className="rounded-md bg-muted p-3 text-xs md:col-span-3" aria-live="polite">
+                  <p className="font-medium">
+                    抽取范围：{trainingTaskLabel(trainingTask)} · {selectedTool} 工具
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    类别（{selectedClasses.length}）：
+                    {selectedClasses
+                      .map((value) => (typeof value === "string" ? value : value.name))
+                      .join("、") || "尚未配置"}
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    每个版本固定一个训练任务。同一项目可分别创建检测、分割等数据版本；其他工具标注会排除并计数。无目标确认仅针对当前所选任务。
+                  </p>
+                </div>
                 {trainingTask === segmentationTask && (
                   <p className="text-xs leading-relaxed text-muted-foreground md:col-span-3">
                     仅接受 region 的无洞单多边形。洞、多部件、栅格 mask
-                    或混合矩形框标注会在预检时报错。训练包保留实例来源；原生 mask
+                    会在预检时报错；其他工具的标注会单独计数并排除。训练包保留实例来源；原生 mask
                     的像素覆盖取决于训练分辨率。
                   </p>
                 )}
@@ -544,7 +563,12 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Button
                   disabled={
-                    busy || (mode === "manager_confirmed" && !selected.length) || !seed || !fraction
+                    busy ||
+                    !selectedTaskEnabled ||
+                    !selectedClasses.length ||
+                    (mode === "manager_confirmed" && !selected.length) ||
+                    !seed ||
+                    !fraction
                   }
                   onClick={() => preflight.mutate()}
                 >
@@ -566,6 +590,11 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                   <p className="mt-2 text-muted-foreground">
                     正样本 {report.summary.positives} · 负样本 {report.summary.negatives} · 排除{" "}
                     {report.summary.excluded} · 类别 {report.classes.length}
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    {trainingTaskLabel(report.task ?? trainingTask)} · 对象{" "}
+                    {report.summary.objects ?? 0} · 排除其他工具标注{" "}
+                    {report.summary.excluded_annotations ?? 0} 条
                   </p>
                   {report.issues.map((issue, index) => (
                     <p className="mt-2 text-status-danger" key={index}>
@@ -630,7 +659,13 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
                           {version.name}
                         </button>
                         <p className="mt-1 text-muted-foreground">
-                          {trainingTaskLabel(version.task)}
+                          {trainingTaskLabel(version.task)} ·{" "}
+                          {version.source_media_type === "video" ? "视频来源 → 图片" : "图片来源"} ·
+                          类别 {version.class_count ?? 0} · 样本{" "}
+                          {String(version.summary?.samples ?? version.summary?.eligible ?? "—")} ·
+                          对象 {String(version.summary?.objects ?? "—")}
+                          {version.status === "ready" &&
+                            ` · 训练 ${version.summary?.train ?? "—"} / 验证 ${version.summary?.val ?? "—"}`}
                         </p>
                         {["pending", "running"].includes(version.status) && (
                           <div

@@ -21,6 +21,8 @@ single-flight builder、borrower/use-lock、受管全池清理与取消安全 ex
 
 from __future__ import annotations
 
+from aap_protocol_v2.predict import normalize_context_task
+
 import asyncio
 import gc
 import logging
@@ -407,7 +409,7 @@ def _detect_model_entry() -> dict[str, Any]:
     return {
         "id": DETECT_MODEL_ID,
         "display_name": "[专用]车辆检测+属性",
-        "task": "detection",
+        "task": "detect",
         "model_family": "rtdetr-v1",
         "infra": "onnx",
         # 一个 model 内部串 rtdetr(检测)+ va(属性分类),内部编排复合。
@@ -435,7 +437,7 @@ def _detect_only_model_entry() -> dict[str, Any]:
     return {
         "id": DETECT_ONLY_MODEL_ID,
         "display_name": "[专用]车辆检测",
-        "task": "detection",
+        "task": "detect",
         "model_family": "rtdetr-v1",
         "infra": "onnx",
         # 单跑 rtdetr 检测,原子。多阶段编排上游检测阶段直接选用。
@@ -461,7 +463,7 @@ def _classify_model_entry() -> dict[str, Any]:
     return {
         "id": CLASSIFY_MODEL_ID,
         "display_name": "[专用]车辆属性分类",
-        "task": "classification",
+        "task": "classify",
         "model_family": "PP-lcnet",
         "infra": "onnx",
         # 单跑 va 属性分类,原子。多阶段编排下游分类阶段直接选用。
@@ -485,6 +487,7 @@ def setup() -> dict[str, Any]:
     + 纯检测原子(atom,多阶段上游)+ 纯分类原子(atom,多阶段下游)。predict 对三者路由均支持。"""
     payload = {
         "protocol_version": PROTOCOL_VERSION,
+        "task_contract_revision": 1,
         "compat_protocol_versions": COMPAT_PROTOCOL_VERSIONS,
         "name": "onnxtools-backend",
         "version": BACKEND_VERSION,
@@ -616,6 +619,11 @@ async def _run_predict(
         raise HTTPException(status_code=503, detail="backend not ready")
 
     model_id = req.context.get("model_id")
+    expected_task = "classify" if model_id == CLASSIFY_MODEL_ID else "detect"
+    try:
+        req.context = normalize_context_task(req.context, model_task=expected_task)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     handle_name = _handle_for(model_id)
     if handle_name == "va":
         model_version = VA_MODEL_VERSION

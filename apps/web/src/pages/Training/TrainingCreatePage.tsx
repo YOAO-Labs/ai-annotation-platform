@@ -288,11 +288,11 @@ function TrainingCreateContent({
     selectedDataset.data.project_id === projectId &&
     selectedDataset.data.status === "ready" &&
     !!selectedDataset.data.package_sha256;
-  const datasetTask = selectedDataset.data?.task ?? "image-detection";
+  const datasetTask = selectedDataset.data?.task ?? "detect";
   const tasksMatch =
     !!selectedBase &&
     !!schema &&
-    datasetTask === (selectedBase.task ?? "image-detection") &&
+    datasetTask === (selectedBase.task ?? "detect") &&
     datasetTask === schema.task;
   const segmentation = (selectedBase?.task ?? schema?.task) === segmentationTask;
   const collected = schema ? collectOverrides(schema, draft.fields) : { values: {}, errors: {} };
@@ -736,6 +736,7 @@ function TrainingCreateContent({
     if (!schema || !state.matches(snapshot)) return;
     const body: TrainingRunCreate = {
       name: snapshot.name.trim(),
+      task: schema.task as TrainingRunCreate["task"],
       dataset_id: snapshot.datasetId,
       framework: snapshot.framework as TrainingRunCreate["framework"],
       base_model: snapshot.baseModel,
@@ -1135,9 +1136,7 @@ function TrainingCreateContent({
                         key={item.framework}
                         disabled={
                           validDataset &&
-                          !item.base_models.some(
-                            (base) => (base.task ?? "image-detection") === datasetTask,
-                          )
+                          !item.base_models.some((base) => (base.task ?? "detect") === datasetTask)
                         }
                       >
                         {item.framework} {item.version}
@@ -1156,16 +1155,13 @@ function TrainingCreateContent({
                     <option value="">选择基础权重</option>
                     {draft.baseModel &&
                       (!selectedBase ||
-                        (validDataset &&
-                          (selectedBase.task ?? "image-detection") !== datasetTask)) && (
+                        (validDataset && (selectedBase.task ?? "detect") !== datasetTask)) && (
                         <option value={draft.baseModel} disabled>
                           {draft.baseModel}（目录不可用或与数据任务不匹配）
                         </option>
                       )}
                     {template?.base_models
-                      .filter(
-                        (item) => !validDataset || (item.task ?? "image-detection") === datasetTask,
-                      )
+                      .filter((item) => !validDataset || (item.task ?? "detect") === datasetTask)
                       .map((item) => (
                         <option value={item.id} key={item.id}>
                           {item.id} · {trainingTaskLabel(item.task)}

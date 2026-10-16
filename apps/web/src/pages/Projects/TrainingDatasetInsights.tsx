@@ -194,7 +194,7 @@ function InsightsContent({
     queryKey: [...key, "baseline", baselineId],
     queryFn: async ({ signal }) => {
       const value = await trainingDatasetsApi.getSummary(projectId, baselineId, { signal });
-      if ((value.task ?? "image-detection") !== (version.task ?? "image-detection"))
+      if ((value.task ?? "detect") !== (version.task ?? "detect"))
         throw new Error("比较基线与当前版本的训练任务不同，请选择相同任务的数据版本");
       return value;
     },
@@ -585,7 +585,7 @@ function InsightsContent({
                   .filter(
                     (item) =>
                       item.id !== version.id &&
-                      (item.task ?? "image-detection") === (version.task ?? "image-detection"),
+                      (item.task ?? "detect") === (version.task ?? "detect"),
                   )
                   .map((item) => (
                     <option key={item.id} value={item.id}>

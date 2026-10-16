@@ -11,6 +11,7 @@ for package in lock["package"]:
     if name in {
         "aap-training-executor",
         "aap-training-contract",
+        "aap-task-contract",
         "torch",
         "torchvision",
         "triton",

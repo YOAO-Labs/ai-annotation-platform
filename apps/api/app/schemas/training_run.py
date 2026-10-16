@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 from app.schemas.training_initialization import TrainingInitialization
+from training_contract.dataset import config_task
+from aap_task_contract import normalize_task, normalize_task_fields
 
 
 class TrainingConfiguration(BaseModel):
@@ -61,6 +63,7 @@ class TrainingOrigin(BaseModel):
 class TrainingRunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
+    task: Literal["detect", "segment"] | None = None
     dataset_id: uuid.UUID
     framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
     base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
@@ -70,6 +73,11 @@ class TrainingRunCreate(BaseModel):
     origin: TrainingOrigin | None = None
     request_id: uuid.UUID
     preflight_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_task(cls, value):
+        return normalize_task_fields(value)
 
     @field_validator("name")
     @classmethod
@@ -94,6 +102,8 @@ class TrainingRunCreate(BaseModel):
 
     def request_payload(self):
         payload = self.model_dump(mode="json")
+        if self.task is None:
+            payload.pop("task")
         if self.configuration is None:
             # Preserve v1 digests exactly, including preflight_digest=None.
             payload.pop("configuration")
@@ -122,7 +132,15 @@ class TrainingRunOut(BaseModel):
     study_id: uuid.UUID | None = None
     name: str
     status: str
+    task: Literal["detect", "segment"] = "detect"
+    media_type: Literal["image"] = "image"
     config: dict
+
+    @model_validator(mode="after")
+    def canonical_task_view(self):
+        self.task = config_task(self.config)
+        return self
+
     config_digest: str
     origin: dict | None = None
     current_attempt_id: uuid.UUID | None
@@ -247,6 +265,14 @@ class TrainingClassEvaluation(BaseModel):
 
 
 class TrainingEvaluationOut(BaseModel):
+    task: Literal["detect", "segment"] = "detect"
+
+    @model_validator(mode="after")
+    def canonical_task_view(self):
+        if self.descriptor is not None:
+            self.task = normalize_task(self.descriptor.evaluator.task)
+        return self
+
     identity_status: Literal["verified", "unknown"]
     reasons: list[str]
     descriptor: TrainingEvaluationDescriptor | None

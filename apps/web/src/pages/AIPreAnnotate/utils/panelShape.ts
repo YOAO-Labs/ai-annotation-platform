@@ -34,7 +34,7 @@ function geoToMode(geo: string): TextOutputMode | null {
 /**
  * 由当前选中 model 的 capability 派生面板形态.
  * @param model    当前任务对应的 model capability (文本任务取 primaryModel; 为空表示能力未就位)
- * @param isDocMode OCR / 文档版面模式 (走 model_id + task_type, 无文本 prompt / 无几何选择)
+ * @param isDocMode OCR / 文档版面模式 (走 model_id + task, 无文本 prompt / 无几何选择)
  */
 export function derivePanelShape(
   model: MLModelCapability | undefined,

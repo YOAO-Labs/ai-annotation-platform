@@ -1,5 +1,6 @@
 """Behavioral checks for strict packaging and leakage prevention."""
 
+import hashlib
 import json
 import uuid
 import zipfile
@@ -261,6 +262,12 @@ def test_segmentation_package_binds_task_and_instance_sources_without_semantic_i
         )
     snapshot = {
         **SEGMENTATION_CONTRACT,
+        "annotation_scope": {
+            "task": "segment",
+            "tool_unit_ids": ["region"],
+            "classes": ["shape"],
+        },
+        "source": {"media_type": "image", "project_id": "frozen-source"},
         "classes": ["shape"],
         "samples": samples,
         "seed": 42,
@@ -270,7 +277,7 @@ def test_segmentation_package_binds_task_and_instance_sources_without_semantic_i
     result = build_training_package(snapshot, media, archive)
     assert (
         result["task"] == SEGMENTATION_CONTRACT["task"]
-        and result["format"] == "ultralytics-segmentation"
+        and result["format"] == "ultralytics-yolo"
     )
     assert result["summary"]["negatives"] == 1
     by_id = {sample["task_id"]: sample for sample in samples}
@@ -297,3 +304,88 @@ def test_segmentation_package_binds_task_and_instance_sources_without_semantic_i
             parent_manifest={"schema": 1, "samples": []},
         )
     assert error.value.code == "task_mismatch"
+
+
+@pytest.mark.parametrize(
+    "schema,content,validation,semantic_train,semantic_val",
+    [
+        (
+            1,
+            "714c6719d0db872a71f7be273ae4dca94e6b51fc11f7d81f3ee454fbd6e8224b",
+            "4bafa96a7dd59d8cbed66db7b52592d925a840eacaffbf890a19de1a61be3d8e",
+            "7527e0c540fb340d2fcf764a5cd9b2cc9ca905e829eea3bcf1e8c185740d7827",
+            "d488615d89a9b185c782b476ae6c0e39dd31e934768e936f466a1cb89a2616ef",
+        ),
+        (
+            2,
+            "5fd83c96cca0dcef64571f56ccf0252387beb8601f50f8eeb65e6d812848d761",
+            "05c1907fd044e865da2ddd6ce3c0e5e33e450b64bb966de8207ca4039c18cb56",
+            "1fadd6d7019f47160f0af42ecadf25aea13b3658afd07161be9f6f2c3c8d8884",
+            "093b17e8d320f25c5310634b3787c00954c521f77d80856593291365e1c487d2",
+        ),
+    ],
+)
+def test_historical_package_digest_is_unchanged(
+    tmp_path, schema, content, validation, semantic_train, semantic_val
+):
+    # Golden outputs computed from commit 770fb03be, before canonical task metadata.
+    samples, media = [], []
+    for index in range(3):
+        task_id = f"00000000-0000-4000-8000-{index + 1:012d}"
+        raw = f"legacy-source-{index}".encode()
+        path = tmp_path / f"{index}.png"
+        path.write_bytes(raw)
+        media.append(
+            {
+                "task_id": task_id,
+                "path": path,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "width": 160,
+                "height": 96,
+                "size_bytes": len(raw),
+                "extension": ".png",
+            }
+        )
+        geometry = (
+            {"type": "bbox", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
+            if schema == 1
+            else {
+                "type": "polygon",
+                "points": [[0.1, 0.1], [0.8, 0.1], [0.6, 0.3], [0.4, 0.8], [0.1, 0.8]],
+            }
+        )
+        samples.append(
+            {
+                "task_id": task_id,
+                "scene_id": None,
+                "annotations": []
+                if index == 0
+                else [
+                    {
+                        "id": f"10000000-0000-4000-8000-{index + 1:012d}",
+                        "version": 4,
+                        "class_name": "vehicle",
+                        "tool_unit_id": "bbox" if schema == 1 else "region",
+                        "geometry": geometry,
+                    }
+                ],
+            }
+        )
+    snapshot = (
+        {"schema": 1}
+        if schema == 1
+        else {
+            "schema": 2,
+            "task": "image-instance-segmentation",
+            "geometry": "normalized-simple-polygon",
+            "bridge": "ultralytics-simple-polygon-1",
+        }
+    )
+    snapshot.update(
+        classes=["vehicle"], seed=42, validation_fraction=0.2, samples=samples
+    )
+    manifest = build_training_package(snapshot, media, tmp_path / "legacy.zip")
+    assert manifest["content_digest"] == content
+    assert manifest["validation_digest"] == validation
+    assert manifest["semantic_partitions"]["train_digest"] == semantic_train
+    assert manifest["semantic_partitions"]["validation_digest"] == semantic_val

@@ -163,6 +163,7 @@ function pendingBody(value: unknown): value is TrainingRunCreate {
       (key) =>
         ![
           "name",
+          "task",
           "dataset_id",
           "framework",
           "base_model",
@@ -179,6 +180,7 @@ function pendingBody(value: unknown): value is TrainingRunCreate {
   return (
     Object.keys(config).every((key) => ["schema_id", "schema_digest", "values"].includes(key)) &&
     typeof value.name === "string" &&
+    (value.task == null || value.task === "detect" || value.task === "segment") &&
     value.name.length <= 120 &&
     typeof value.dataset_id === "string" &&
     value.dataset_id.length <= 64 &&

@@ -1,3 +1,4 @@
+from aap_task_contract import normalize_task_fields
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from datetime import date, datetime
 from typing import Annotated, Literal
@@ -288,6 +289,16 @@ class ProjectOut(BaseModel):
     default_variants: dict[str, dict[str, str]] = Field(default_factory=dict)
     # v0.18.27 · 项目级「已保存的编排」(方案 A). None = 未配编排.
     preannotate_pipeline: list[dict] | None = None
+
+    @field_validator("preannotate_pipeline", mode="before")
+    @classmethod
+    def canonical_pipeline_tasks(cls, value):
+        return (
+            [normalize_task_fields(stage) for stage in value]
+            if value is not None
+            else None
+        )
+
     # v0.19.3 WS1 · 保存编排时的能力软提示 (batchable/产 class 判据), 仅 PATCH 响应填充;
     # 非 DB 列, 不挡保存, dispatch-time 422 仍是最终闸。
     capability_warnings: list[str] = []

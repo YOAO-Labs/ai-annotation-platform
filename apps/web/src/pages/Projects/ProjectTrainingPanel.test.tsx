@@ -98,7 +98,7 @@ beforeEach(() => {
         image_digest: "sha256:fixed",
         base_models: [{ id: "yolo11n", sha256: "base", filename: "yolo11n.pt" }],
         capabilities: {
-          task_types: ["image-detection"],
+          tasks: ["detect"],
           resume: true,
           artifact_download: true,
           model_registration: true,

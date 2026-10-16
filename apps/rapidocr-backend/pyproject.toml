@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 # rapidocr / onnxruntime-gpu / opencv 由 Dockerfile 安装（pin rapidocr==3.9.0 + GPU 引擎 +
 # opencv-python-headless），不在此声明，避免与运行时版本冲突。
 dependencies = [
+    "aap-task-contract",
     "cryptography>=43.0.0",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
@@ -30,4 +31,7 @@ py-modules = ["main", "predictor", "schemas", "catalog", "engine_pool", "gpu_lif
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # 共享协议包从 apps/_shared 注入：Docker 内 `pip install -e /app/protocol_v2`；本地 pytest 走 pythonpath。
-pythonpath = [".", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../_shared/task_contract", editable = true }

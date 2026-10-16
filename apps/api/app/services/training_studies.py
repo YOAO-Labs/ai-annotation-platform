@@ -41,7 +41,7 @@ async def freeze_plan(db, project_id, body):
         raise HTTPException(
             status_code=422, detail="基础权重不在支持的参数目录中"
         ) from exc
-    if schema["task"] != "image-detection":
+    if schema["task"] != "detect":
         raise HTTPException(
             status_code=422, detail="参数搜索目前仅通过图片检测资格验证"
         )

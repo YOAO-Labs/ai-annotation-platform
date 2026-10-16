@@ -172,6 +172,7 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
             }
         )
     return dict(
+        task=config_task(run.config),
         identity_status="verified" if descriptor else "unknown",
         reasons=reasons,
         descriptor=descriptor,

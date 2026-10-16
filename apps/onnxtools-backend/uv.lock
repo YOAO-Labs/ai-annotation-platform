@@ -8,6 +8,11 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "aap-task-contract"
+version = "0.1.0"
+source = { editable = "../_shared/task_contract" }
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -584,6 +589,7 @@ name = "onnxtools-backend"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aap-task-contract" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -603,6 +609,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27" },

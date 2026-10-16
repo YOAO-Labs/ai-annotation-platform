@@ -31,7 +31,12 @@ from app.services.training_dataset_bridge import (
     contract_of,
     native_labels,
 )
-from training_contract.dataset import SEGMENTATION, SEGMENTATION_CONTRACT
+from training_contract.dataset import (
+    SEGMENTATION,
+    SEGMENTATION_CONTRACT,
+    DETECTION_CONTRACT,
+)
+from aap_task_contract import normalize_task
 
 MAX_SAMPLES = 20000
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
@@ -159,7 +164,7 @@ async def freeze_selection(
             raise TrainingDatasetError(
                 "parent_not_ready", "父数据版本尚未就绪", status_code=409
             )
-        if contract_of(parent.manifest)["task"] != selection.task:
+        if normalize_task(contract_of(parent.manifest)["task"]) != selection.task:
             raise TrainingDatasetError("task_mismatch", "父数据版本与当前训练任务不同")
     annotation_json = (
         select(
@@ -208,14 +213,10 @@ async def freeze_selection(
             "task_not_found", "选中的任务不属于当前项目或批次", status_code=404
         )
     segmentation = selection.task == SEGMENTATION
-    contract = (
-        dict(SEGMENTATION_CONTRACT)
-        if segmentation
-        else {"schema": 1, "task": "image-detection"}
-    )
-    binding = (rows[0][2] if rows else project.tool_bindings).get(
-        "region" if segmentation else "bbox", {}
-    )
+    contract = dict(SEGMENTATION_CONTRACT) if segmentation else dict(DETECTION_CONTRACT)
+    tool_unit_id = "region" if segmentation else "bbox"
+    bindings = rows[0][2] if rows else project.tool_bindings
+    binding = bindings.get(tool_unit_id, {})
     raw_classes = binding.get("classes", []) if binding.get("enabled") else []
     classes = [item["name"] if isinstance(item, dict) else item for item in raw_classes]
     if not classes or len(set(classes)) != len(classes):
@@ -223,11 +224,26 @@ async def freeze_selection(
             "invalid_classes",
             "项目需要启用对应的 region 多边形或矩形框工具，并配置不重复的类别",
         )
+    annotation_scope = {
+        "task": selection.task,
+        "tool_unit_ids": [tool_unit_id],
+        "classes": classes,
+    }
+    source = {
+        "project_id": str(project.id),
+        "media_type": project.data_type or "image",
+        "tool_bindings": {tool_unit_id: binding},
+    }
     samples, excluded, issues = [], [], []
+    excluded_annotations = 0
     negatives = {str(value) for value in selection.confirmed_negative_ids}
     for task, item, _, active_annotations in rows:
         task_id = str(task.id)
-        active_annotations = sorted(active_annotations or [], key=lambda a: a["id"])
+        all_annotations = sorted(active_annotations or [], key=lambda a: a["id"])
+        active_annotations = [
+            a for a in all_annotations if a["tool_unit_id"] == tool_unit_id
+        ]
+        excluded_annotations += len(all_annotations) - len(active_annotations)
         current_skip = (
             task.skipped_at is not None and task.skipped_at == task.submitted_at
         )
@@ -240,7 +256,12 @@ async def freeze_selection(
         elif selection.mode == "reviewed" and not reviewed:
             reason = "not_reviewed"
         elif not active_annotations and not (
-            (reviewed and current_skip and task.skip_reason == "no_target")
+            (
+                reviewed
+                and current_skip
+                and task.skip_reason == "no_target"
+                and not all_annotations
+            )
             or task_id in negatives
         ):
             reason = "unconfirmed_negative"
@@ -308,7 +329,9 @@ async def freeze_selection(
             {"code": "dataset_size_limit", "message": "训练数据总量超过 20 GiB"}
         )
     snapshot = {
-        "schema": 1,
+        **contract,
+        "annotation_scope": annotation_scope,
+        "source": source,
         "classes": classes,
         "samples": samples,
         "seed": selection.seed,
@@ -316,9 +339,12 @@ async def freeze_selection(
         "selection": selection.canonical_payload(),
         "authorization": {"actor_id": str(actor_id), "api_key_id": api_key_id},
     }
-    if segmentation:
-        snapshot.update(contract)
     report = {
+        "task": selection.task,
+        "media_type": contract["media_type"],
+        "format": contract["format"],
+        "annotation_scope": annotation_scope,
+        "source": source,
         "ready": not issues,
         "digest": content_digest(snapshot),
         "classes": classes,
@@ -328,6 +354,8 @@ async def freeze_selection(
             "positives": sum(bool(s["annotations"]) for s in samples),
             "negatives": sum(not s["annotations"] for s in samples),
             "excluded": len(excluded),
+            "excluded_annotations": excluded_annotations,
+            "objects": sum(len(s["annotations"]) for s in samples),
         },
         "issues": sorted(issues, key=lambda i: (i.get("task_id", ""), i["code"])),
         "excluded": excluded,

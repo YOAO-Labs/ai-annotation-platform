@@ -1,3 +1,8 @@
+from aap_task_contract import (
+    Task as VisualTaskName,
+    normalize_task,
+    normalize_task_fields,
+)
 import logging
 import uuid
 from collections import Counter
@@ -1148,7 +1153,9 @@ async def update_project(
     await _assert_project_kind_update_allowed(db, project, payload)
     # v0.18.27 · 项目级编排结构校验 (显式 null = 清除, 跳过校验直接置 None)。
     if payload.get("preannotate_pipeline") is not None:
-        _validate_saved_pipeline(payload["preannotate_pipeline"])
+        payload["preannotate_pipeline"] = _validate_saved_pipeline(
+            payload["preannotate_pipeline"]
+        )
     # v0.23.3 ADR-0050 · 公共 schema 仍用 ml_backend_id (registry id);
     # 内部转成 ml_backend_pool_id (singleton pool) 存项目主绑定。
     # 注意区分「字段未提供」(不改动) 与「显式 null」(清空): 用 in 判断而非 pop 默认值。
@@ -1212,7 +1219,7 @@ async def apply_project_pipeline(
     if pipeline is None:
         raise HTTPException(status_code=404, detail="编排不存在")
     await assert_pipeline_visible(db, pipeline, current_user)
-    _validate_saved_pipeline(pipeline.stages)
+    canonical_stages = _validate_saved_pipeline(pipeline.stages)
 
     missing = await unenabled_backend_ids(db, project.id, pipeline.stages)
     if missing:
@@ -1230,7 +1237,7 @@ async def apply_project_pipeline(
         project_id=project.id,
         organization_id=None,
         name=pipeline.name,
-        stages=copy_pipeline_stages(pipeline.stages),
+        stages=copy_pipeline_stages(canonical_stages),
         is_default=False,
         created_by=current_user.id,
     )
@@ -2050,7 +2057,14 @@ class PipelineStage(BaseModel):
     # (video tracker 逐帧/整段编排由 v0.21.6 接线)。下游 stage 无此字段。
     source: dict | None = None
     model_id: str | None = None
-    task_type: str | None = None
+    task: VisualTaskName | None = None
+    prompt_type: Literal["text"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_task_fields(cls, value):
+        return normalize_task_fields(value)
+
     model_variants: dict[str, str] | None = None
     params: dict | None = None
     class_filter: list[int] | None = None
@@ -2095,7 +2109,14 @@ class PreannotateRequest(BaseModel):
     model_id: str | None = None
     # v0.14.9 · 任务类型便捷别名 ("ocr"/"doc_layout"/"text"): worker 写 context["type"],
     # 让纯文本以外的 task (OCR / 版面分析) 也能走批量预标。缺省走老的纯 prompt / image 行为。
-    task_type: str | None = None
+    task: VisualTaskName | None = None
+    prompt_type: Literal["text"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def canonical_task_fields(cls, value):
+        return normalize_task_fields(value)
+
     # v0.14.17 · 协议 v2 结构化路径 (YOLO 等多 task 几何 backend): 选中 variant 组合 (dict[axis,value])。
     # 非空时 worker 构造 v2 context (model_variants dict + nested params + type=几何 task),
     # 而非 gsam2 文本路径的扁平形态。修通 YOLO 批量预标 (此前 worker 发 type="text" 被 YOLO 422)。
@@ -2128,7 +2149,8 @@ class PreannotateRequest(BaseModel):
         root = roots[0]
         self.ml_backend_id = root.ml_backend_id
         self.model_id = root.model_id
-        self.task_type = root.task_type
+        self.task = root.task
+        self.prompt_type = root.prompt_type
         self.model_variants = root.model_variants
         self.params = root.params
         self.class_filter = root.class_filter
@@ -2228,7 +2250,7 @@ class PreannotateRequest(BaseModel):
         return self
 
 
-def _validate_saved_pipeline(stages) -> None:
+def _validate_saved_pipeline(stages) -> list[dict] | None:
     """v0.18.27 · 校验「保存到项目」的编排结构, 复用预标注端点同款 PipelineStage + 树形校验。
 
     存储态 ml_backend_id 是 str (PipelineStage 自动 coerce 成 UUID)。顶层 ml_backend_id
@@ -2239,7 +2261,7 @@ def _validate_saved_pipeline(stages) -> None:
     的职责); 本版只存不跑。
     """
     if not stages:
-        return
+        return stages
     if not isinstance(stages, list) or not all(isinstance(s, dict) for s in stages):
         raise HTTPException(
             status_code=422, detail="preannotate_pipeline 须为阶段对象数组"
@@ -2251,9 +2273,13 @@ def _validate_saved_pipeline(stages) -> None:
             detail="preannotate_pipeline 须恰有一个源阶段 (parent_stage=None)",
         )
     try:
-        PreannotateRequest(
+        parsed = PreannotateRequest(
             ml_backend_id=roots[0].get("ml_backend_id"), pipeline_stages=stages
         )
+        return [
+            stage.model_dump(mode="json", exclude_unset=True)
+            for stage in parsed.pipeline_stages
+        ]
     except ValidationError as e:
         raise HTTPException(
             status_code=422, detail=f"preannotate_pipeline 校验失败: {e}"
@@ -2290,7 +2316,10 @@ def _stage_model(backend, model_id: str | None) -> dict:
         return {}
     for m in models:
         if isinstance(m, dict) and str(m.get("id")) == str(model_id):
-            return m
+            return {
+                **m,
+                "task": normalize_task(m.get("task") or "unknown", allow_unknown=True),
+            }
     return {}
 
 
@@ -2540,27 +2569,14 @@ async def trigger_preannotation(
         trained_models.assert_image_scope(
             project,
             prompt=body.prompt,
-            task_type=body.task_type,
+            task=body.task,
+            prompt_type=body.prompt_type,
             model_variants=body.model_variants,
             pipeline_stages=body.pipeline_stages,
             execution_unit=root_source.get("execution_unit"),
         )
         if root_source.get("data_type") not in {None, "image"}:
             raise HTTPException(status_code=422, detail="受控模型不支持该数据源")
-
-    retry_context = _build_predict_context(
-        prompt=body.prompt,
-        output_mode=body.output_mode,
-        params=body.params,
-        model_id=body.model_id,
-        task_type=body.task_type,
-        model_variants=body.model_variants,
-        class_filter=body.class_filter,
-        box_threshold=float(project.box_threshold),
-        text_threshold=float(project.text_threshold),
-    )
-    if retry_context is not None and _retryable_request_context(retry_context) is None:
-        raise HTTPException(status_code=422, detail="预标注模型上下文不能超过 8 KiB")
 
     svc = MLBackendService(db)
     source_backend_id = body.ml_backend_id
@@ -2572,6 +2588,31 @@ async def trigger_preannotation(
     # 与下游阶段校验对称, 防止 owner 手动 POST 未启用/别项目 backend id 触发预标。
     if not backend or not await svc.is_enabled(project.id, source_backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
+
+    from app.services.ml_capabilities import resolve_model_task
+
+    try:
+        body.task = resolve_model_task(backend, body.model_id, body.task)
+        for stage in body.pipeline_stages or []:
+            if stage.parent_stage is None:
+                stage.task = body.task
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    retry_context = _build_predict_context(
+        prompt=body.prompt,
+        output_mode=body.output_mode,
+        params=body.params,
+        model_id=body.model_id,
+        task=body.task,
+        prompt_type=body.prompt_type,
+        model_variants=body.model_variants,
+        class_filter=body.class_filter,
+        box_threshold=float(project.box_threshold),
+        text_threshold=float(project.text_threshold),
+    )
+    if retry_context is not None and _retryable_request_context(retry_context) is None:
+        raise HTTPException(status_code=422, detail="预标注模型上下文不能超过 8 KiB")
 
     # v0.19.2 WS2 · 源阶段 (单模型预标 / 流水线源) batchable 闸门: 交互/有状态模型不可批量。
     # 源阶段不写属性, class 判据不适用 (writes_attributes=False)。
@@ -2588,7 +2629,11 @@ async def trigger_preannotation(
         # v0.20.21 · stage号→(caps, model_id) map, 源阶段固定 stage=0 (worker tasks.py:753)。
         # 循环内填各下游 caps, 循环后校验「上游产出几何可否作下游 ROI」。
         stage_caps: dict[int, tuple[dict, object]] = {
-            0: (_stage_model(backend, body.model_id), body.model_id)
+            next(
+                stage.stage
+                for stage in body.pipeline_stages
+                if stage.parent_stage is None
+            ): (_stage_model(backend, body.model_id), body.model_id)
         }
         for st in body.pipeline_stages:
             resolved_input = st.input
@@ -2601,6 +2646,12 @@ async def trigger_preannotation(
                         status_code=404,
                         detail=f"stage {st.stage} 的 ML Backend 不存在或未在本项目启用",
                     )
+                try:
+                    st.task = resolve_model_task(st_backend, st.model_id, st.task)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=422, detail=f"stage {st.stage}: {exc}"
+                    ) from exc
                 # v0.19.2 WS2 / v0.19.3 WS1 · 下游阶段能力闸门: batchable + 写属性产 class。
                 # 写属性的子但模型不产 class → 跑完属性恒空, 提前 422。
                 _assert_capabilities(
@@ -2641,7 +2692,8 @@ async def trigger_preannotation(
                     "stage": st.stage,
                     "ml_backend_id": str(st.ml_backend_id),
                     "model_id": st.model_id,
-                    "task_type": st.task_type,
+                    "task": st.task,
+                    "prompt_type": st.prompt_type,
                     "model_variants": st.model_variants,
                     "params": st.params,
                     "class_filter": st.class_filter,
@@ -2753,9 +2805,9 @@ async def trigger_preannotation(
         cpu_queue=settings.preannotate_cpu_queue,
     )
     # v0.21.6 · detect-then-track: 含 tracker 阶段的 job 施加 soft 超时 (帧上限之外的双保险)。
-    #   单阶段源 tracker 走 body.task_type; 编排里的 tracker 阶段走 pipeline_stages_payload。
-    has_tracker_stage = body.task_type == "tracker" or any(
-        (s or {}).get("task_type") == "tracker" for s in (pipeline_stages_payload or [])
+    #   单阶段源 tracker 走 body.task; 编排里的 tracker 阶段走 pipeline_stages_payload。
+    has_tracker_stage = body.task == "tracker" or any(
+        (s or {}).get("task") == "tracker" for s in (pipeline_stages_payload or [])
     )
     # v0.21.7 · 逐帧执行单位: 从源阶段(parent_stage=None)的 source.execution_unit 提取 (norm 丢弃了
     #   source, 故从原始 body.pipeline_stages 取)。frame → worker 走二级 fan-out 逐帧跑图像 backend。
@@ -2790,7 +2842,8 @@ async def trigger_preannotation(
             output_mode=body.output_mode,
             params=body.params,
             model_id=body.model_id,
-            task_type=body.task_type,
+            task=body.task,
+            prompt_type=body.prompt_type,
             model_variants=body.model_variants,
             class_filter=body.class_filter,
             frozen_model_ref=ref,
@@ -2953,7 +3006,8 @@ async def trigger_preannotation(
                 "model_id": f"trained:{frozen_model_ref['model_version_id']}"
                 if frozen_model_ref
                 else body.model_id,
-                "task_type": body.task_type,
+                "task": body.task,
+                "prompt_type": body.prompt_type,
                 # v0.14.17 · 协议 v2 结构化 variant 路径 (YOLO) + 类别白名单
                 "model_variants": body.model_variants,
                 "class_filter": body.class_filter,
@@ -3008,7 +3062,8 @@ async def trigger_preannotation(
             # v0.14.10 · 协议 v2 多模型路由溯源: 记录具体 model / task 类型
             # v0.14.18 · 增记 model_variants (实际 variant, 如 series/size=yolov8/l)
             "model_id": body.model_id,
-            "task_type": body.task_type,
+            "task": body.task,
+            "prompt_type": body.prompt_type,
             "model_variants": body.model_variants,
         },
     )

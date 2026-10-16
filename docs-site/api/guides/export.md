@@ -10,6 +10,14 @@ last_reviewed: 2026-08-27
 
 标注数据导出为下游训练可用格式。除 VOC 同步返回 blob 外，导出通过后台 job 执行：`POST` 创建 job 返回 `202 {job_id}`，产物 ZIP 生成后在任务铃用 7 天预签名 URL 下载。导出目标可多选，一个 job 产一个 ZIP。
 
+## 导出数据契约
+
+新 ZIP 包含 `data_contract.json`，单文档 JSON 在自身保留等价元数据。每个目标分别记录 `task`、`media_type`、`format`、可用任务和来源；多目标 ZIP 的 `contracts[]` 不能简化成全局单一任务。普通标注导出标记 `training_qualified=false`，训练仍须经过专门的数据预检与严格几何桥接。
+
+AAP 的格式标识为 `aap`；视觉任务使用 `detect`、`segment`、`classify`、`pose`、`obb`。混合 AAP 保留全部原标注，`task` 可为空、`available_tasks` 列出候选；存在尚未映射的工具时不能将整个包声明成单一检测任务。COCO 的原生 `segmentation`、`keypoints` 等字段不改名。
+
+视频 JSON 的任务 `source`、AAP 的视频块和 ZIP manifest 保留原项目 `video_sampling`/`video_collaboration`、原始源 key、DatasetItem/内容身份、`resolved_step`、绝对 `source_frame_indices` 和逐帧 `source_sample_ids`。帧网格始终锚定源视频第 0 帧，范围导出只裁网格，不从范围起点重编号。标签展开方式与采样网格相互独立。
+
 ## 触发导出
 
 ```http

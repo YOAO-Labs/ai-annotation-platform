@@ -55,13 +55,12 @@ const CONFIDENCE_KEYS = new Set([
 ]);
 
 const TASK_LABELS: Record<string, string> = {
-  detection: "检测",
+  detect: "检测",
   obb: "旋转框检测",
-  segmentation: "分割",
+  segment: "分割",
   instance_segmentation: "分割",
-  keypoint: "关键点",
   pose: "关键点",
-  classification: "分类",
+  classify: "分类",
   cls: "分类",
   ocr: "文字识别",
   doc_layout: "版面分析",

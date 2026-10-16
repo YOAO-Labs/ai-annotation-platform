@@ -4,13 +4,13 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field, JsonValue, AliasChoices
 
 from app.schemas.training_run import TrainingRunOut
 
 
 class TrainingCapabilities(BaseModel):
-    task_types: list[str]
+    tasks: list[str] = Field(validation_alias=AliasChoices("tasks", "task_types"))
     resume: bool
     artifact_download: bool
     model_registration: bool
@@ -20,7 +20,7 @@ class TrainingBaseModel(BaseModel):
     id: str
     sha256: str
     filename: str
-    task: Literal["image-detection", "image-instance-segmentation"] = "image-detection"
+    task: Literal["detect", "segment"] = "detect"
     capabilities: TrainingCapabilities | None = None
 
 

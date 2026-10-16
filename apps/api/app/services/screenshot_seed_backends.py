@@ -333,7 +333,7 @@ async def reconcile_screenshot_backends(
                     "stage": 0,
                     "ml_backend_id": str(backend.id),
                     "model_id": spec.default_pipeline_model_id,
-                    "task_type": requirement.required_tasks[0],
+                    "task": requirement.required_tasks[0],
                 }
             ]
         binding = {

@@ -41,9 +41,7 @@ class TrainingDatasetInsightOverview(BaseModel):
     snapshot_digest: str
     manifest_digest: str
     status: Literal["complete", "partial", "unavailable"]
-    task: Literal["image-detection", "image-instance-segmentation"] | None = (
-        "image-detection"
-    )
+    task: Literal["detect", "segment"] | None = "detect"
     counts: dict[str, int]
     splits: dict[str, dict[str, int]]
     classes_total: int

@@ -208,7 +208,7 @@ async def test_segmentation_only_catalog_reports_qualified_runtime_and_actual_ca
     assert response.status_code == 200, response.text
     item = response.json()["items"][0]
     assert item["compatible"] and item["parameter_schemas"][0]["compatible"]
-    assert item["capabilities"]["task_types"] == [SEGMENTATION]
+    assert item["capabilities"]["tasks"] == [SEGMENTATION]
     assert not item["capabilities"]["model_registration"]
     assert item["base_models"][0]["task"] == SEGMENTATION
 

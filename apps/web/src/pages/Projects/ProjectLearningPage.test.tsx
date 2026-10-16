@@ -30,7 +30,16 @@ vi.mock("./ProjectModelsPanel", () => ({ ProjectModelsPanel: () => null }));
 vi.mock("./ProjectLearningPolicyPanel", () => ({ ProjectLearningPolicyPanel: () => null }));
 
 vi.mock("@/hooks/useProjects", () => ({
-  useProject: () => ({ data: { name: "路口车辆", data_type: "image" } }),
+  useProject: () => ({
+    data: {
+      name: "路口车辆",
+      data_type: "image",
+      tool_bindings: {
+        bbox: { enabled: true, classes: ["car"] },
+        region: { enabled: true, classes: ["shape"] },
+      },
+    },
+  }),
 }));
 vi.mock("@/api/batches", () => ({ batchesApi: { list: vi.fn().mockResolvedValue([]) } }));
 vi.mock("@/api/asyncJobs", () => ({ asyncJobsApi: { cancel: vi.fn() } }));

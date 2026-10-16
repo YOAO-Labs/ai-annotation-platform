@@ -45,7 +45,7 @@ export interface SecondaryInferenceRequest {
   model_id?: string | null;
   model_variants?: Record<string, string> | null;
   params?: Record<string, unknown> | null;
-  task_type?: string | null;
+  task?: string | null;
   prompt?: string | null;
   class_filter?: number[] | null;
   pad?: number;

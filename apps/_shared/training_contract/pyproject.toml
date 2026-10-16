@@ -2,7 +2,7 @@
 name = "aap-training-contract"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["aap-task-contract"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -13,3 +13,6 @@ training_contract = ["native_inventory.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../task_contract", editable = true }

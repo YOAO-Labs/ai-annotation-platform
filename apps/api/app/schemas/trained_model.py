@@ -1,3 +1,4 @@
+from aap_task_contract import normalize_task
 import uuid
 from datetime import datetime
 
@@ -15,6 +16,14 @@ class TrainedModelCreate(BaseModel):
 
 
 class TrainedModelOut(BaseModel):
+    task: str = "detect"
+    media_type: str = "image"
+
+    @model_validator(mode="after")
+    def canonical_task_view(self):
+        self.task = normalize_task(self.provenance.get("task", "detect"))
+        return self
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

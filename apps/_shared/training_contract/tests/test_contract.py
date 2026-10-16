@@ -151,3 +151,34 @@ def test_native_observation_requires_real_values_and_cannot_override_algorithm_f
         verify_native(spec, observed, {**runtime, "optimizer": "AdamW"})
     with pytest.raises(ValueError, match="observation"):
         verify_native(spec, {}, runtime)
+
+
+def test_historical_task_identities_and_digests_are_immutable():
+    import json
+    from pathlib import Path
+    from training_contract.catalog import (
+        definitions,
+        schema_identity,
+        definition_for_identity,
+    )
+
+    expected = json.loads(
+        (Path(__file__).parent / "fixtures" / "legacy_task_identities.json").read_text()
+    )
+    assert [schema_identity(schema) for schema in definitions(legacy=True)] == expected
+    for schema in definitions(legacy=True):
+        identity = schema_identity(schema)
+        base = (
+            "yolo11n-seg"
+            if identity["task"] == "image-instance-segmentation"
+            else (
+                "yolo11n" if identity["framework"] == "ultralytics" else "LibreYOLO9t"
+            )
+        )
+        # The frozen identity selects its exact historical schema before validation.
+        assert (
+            schema_identity(
+                definition_for_identity(identity["framework"], base, identity)
+            )
+            == identity
+        )

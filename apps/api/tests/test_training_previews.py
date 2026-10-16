@@ -181,6 +181,89 @@ async def claimed(db, row):
     return claim, assignment
 
 
+async def test_idle_recovery_after_upgrade_preserves_lease_until_fresh_claim(
+    db_session,
+    super_admin,
+    httpx_client,
+    training_config,
+):
+    row, *_ = await preview(db_session, httpx_client, super_admin)
+    lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
+    old_runtime = {**claim_body().runtime, "image_digest": "sha256:" + "0" * 64}
+    old_claim = claim_body(runtime=old_runtime, recover_only=True)
+    lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at = (
+        old_claim.executor_id,
+        old_claim.boot_id,
+        old_runtime,
+        service.now() - timedelta(hours=1),
+    )
+    previous = (lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at)
+    await db_session.flush()
+
+    assert await service.claim(db_session, old_claim) is None
+    assert (
+        lease.executor_id,
+        lease.boot_id,
+        lease.runtime,
+        lease.last_seen_at,
+    ) == previous
+    assert lease.preview_id is None and row.status == "queued"
+    with pytest.raises(HTTPException) as rejected:
+        await service.claim(
+            db_session, old_claim.model_copy(update={"recover_only": False})
+        )
+    assert rejected.value.status_code == 409
+    with pytest.raises(HTTPException) as wrong_resource:
+        await service.claim(
+            db_session, old_claim.model_copy(update={"resource_id": "other"})
+        )
+    assert wrong_resource.value.status_code == 409
+
+    current = claim_body()
+    assignment = await service.claim(db_session, current)
+    assert assignment["preview_id"] == str(row.id)
+    assert lease.preview_id == row.id and row.status == "running"
+    assert lease.boot_id == current.boot_id and lease.runtime == current.runtime
+    assert lease.last_seen_at > previous[3]
+
+
+@pytest.mark.parametrize("same_owner", [True, False])
+async def test_old_runtime_recovery_preserves_active_preview_ownership(
+    db_session,
+    super_admin,
+    httpx_client,
+    training_config,
+    same_owner,
+):
+    row, *_ = await preview(db_session, httpx_client, super_admin)
+    original, assignment = await claimed(db_session, row)
+    lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
+    old_runtime = {**original.runtime, "image_digest": "sha256:" + "0" * 64}
+    row.runtime = lease.runtime = old_runtime
+    old_claim = original.model_copy(
+        update={"runtime": old_runtime, "recover_only": True}
+    )
+    if not same_owner:
+        old_claim = old_claim.model_copy(update={"boot_id": uuid.uuid4()})
+    previous = (lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at)
+    await db_session.flush()
+
+    recovered = await service.claim(db_session, old_claim)
+    assert recovered == (assignment if same_owner else None)
+    assert lease.preview_id == row.id and row.status == "running"
+    assert (
+        lease.executor_id,
+        lease.boot_id,
+        lease.runtime,
+        lease.last_seen_at,
+    ) == previous
+    assert row.boot_id == original.boot_id and row.claim_id == original.claim_id
+    assert (
+        row.lease_digest
+        == hashlib.sha256(assignment["lease_token"].encode()).hexdigest()
+    )
+
+
 async def test_create_is_frozen_idempotent_scoped_and_blocks_dataset_delete(
     db_session,
     super_admin,

@@ -640,3 +640,31 @@ async def test_success_parent_advance_without_source_change_does_not_repackage(
         await db_session.scalar(select(func.count()).select_from(LearningTrigger)) == 1
     )
     assert policy.baseline_dataset_id == data.id and policy.state == "waiting"
+
+
+@pytest.mark.parametrize("changed_validation", [False, True])
+async def test_contract_upgrade_does_not_retry_same_failed_training_content(
+    db_session, super_admin, httpx_client, frozen_source, changed_validation
+):
+    from training_contract.dataset import DETECTION_CONTRACT
+
+    owner, token = super_admin
+    _, _, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
+    policy.baseline = semantic_partitions(manifest({"a": "label-a"}))
+    old, old_data, run = await build_candidate(db_session, policy)
+    assert run is not None and old.changed_samples == 1
+    saved_manifest = copy.deepcopy(old_data.manifest)
+    saved_digest = old.train_digest
+    run.status = "failed"
+    await db_session.flush()
+    await service.check_policy(db_session, policy.id, force=True)
+    frozen_source["revision"] += 1
+    current = {
+        **manifest(val="corrected" if changed_validation else "v1"),
+        **DETECTION_CONTRACT,
+    }
+    skipped, _, retried = await build_candidate(db_session, policy, current)
+    assert skipped.train_digest != saved_digest
+    assert retried is None and skipped.status == "skipped"
+    assert "失败" in skipped.message or "相同候选" in skipped.message
+    assert old_data.manifest == saved_manifest and old.train_digest == saved_digest

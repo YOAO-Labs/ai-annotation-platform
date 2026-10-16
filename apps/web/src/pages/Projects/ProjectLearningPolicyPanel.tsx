@@ -1,3 +1,4 @@
+import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -291,8 +292,9 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
       );
       if (!latest.compatible) throw new Error(latest.incompatibility ?? "配方不兼容");
       if (
-        ((latest.snapshot as ReusableSnapshot).configuration.identity.task ?? "image-detection") !==
-        "image-detection"
+        normalizeTask(
+          (latest.snapshot as ReusableSnapshot).configuration.identity.task ?? "detect",
+        ) !== "detect"
       )
         throw new Error("自动学习策略目前仅支持图片检测配方");
       let before: ReusableSnapshot | null = null;
@@ -349,8 +351,9 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
       if (!latest.compatible || latest.snapshot_digest !== preview.candidate.snapshot_digest)
         throw new Error(latest.incompatibility ?? "配方已变化");
       if (
-        ((latest.snapshot as ReusableSnapshot).configuration.identity.task ?? "image-detection") !==
-        "image-detection"
+        normalizeTask(
+          (latest.snapshot as ReusableSnapshot).configuration.identity.task ?? "detect",
+        ) !== "detect"
       )
         throw new Error("自动学习策略目前仅支持图片检测配方");
       const current = await learningPoliciesApi.get(projectId);
@@ -525,10 +528,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     <option value={draft.parent}>当前策略的初始数据</option>
                   )}
                   {datasets.data?.items
-                    .filter(
-                      (d) =>
-                        d.status === "ready" && (d.task ?? "image-detection") === "image-detection",
-                    )
+                    .filter((d) => d.status === "ready" && (d.task ?? "detect") === "detect")
                     .map((d) => (
                       <option value={d.id} key={d.id}>
                         {d.name}
@@ -570,7 +570,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                       <option value={draft.base}>{draft.base}（当前不可用）</option>
                     )}
                   {template?.base_models
-                    .filter((m) => (m.task ?? "image-detection") === "image-detection")
+                    .filter((m) => (m.task ?? "detect") === "detect")
                     .map((m) => (
                       <option value={m.id} key={m.id}>
                         {m.id}

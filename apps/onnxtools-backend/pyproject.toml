@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 # onnxtools 由 Dockerfile 用 git 安装（含 inference extra: onnxruntime-gpu / opencv-contrib /
 # supervision 等），不在此声明，避免与运行时 opencv 版本冲突。cv2 由 onnxtools[inference] 提供。
 dependencies = [
+    "aap-task-contract",
     "cryptography>=43.0.0",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
@@ -30,4 +31,7 @@ py-modules = ["main", "predictor", "schemas", "attribute_schema", "handle_pool",
 testpaths = ["tests"]
 # 共享协议包从 apps/_shared 注入：Docker 内 `pip install -e /app/protocol_v2`；
 # 本地 pytest 走 pythonpath。cv2 需本地环境提供（如 onnxtools 的 .venv）。
-pythonpath = [".", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../_shared/task_contract", editable = true }

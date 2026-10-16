@@ -381,6 +381,10 @@ async def claim(db, body):
                 stop = True
             return await assignment(preview, stop=stop)
         return None
+    # Resolve an old durable claim before qualifying a new runtime. An idle
+    # recovery must not advertise stale capabilities or acquire queued work.
+    if body.recover_only:
+        return None
     if not qualified_runtime(body.runtime):
         raise HTTPException(
             status_code=409, detail="执行器未通过当前 CPU 预览协议与镜像验证"
@@ -391,8 +395,6 @@ async def claim(db, body):
         body.runtime,
         now(),
     )
-    if body.recover_only:
-        return None
     candidates = (
         await db.scalars(
             select(TrainingPreview)

@@ -1,3 +1,4 @@
+import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 // 能力目录的标签映射与配色(从 CapabilityCatalogPanel.tsx 拆出,行为零变化)。
 // 受控 task / infra / modality 的中文短标签 + task → Badge variant 配色 + 列表行 task 后缀。
 
@@ -5,11 +6,11 @@ import { inputLabel as generatedInputLabel } from "@/api/capabilityInputs";
 
 // 受控 task → 中文短标签 (协议 v2 边界枚举).
 const TASK_LABELS: Record<string, string> = {
-  detection: "检测",
+  detect: "检测",
   obb: "旋转框",
-  segmentation: "分割",
-  keypoint: "关键点",
-  classification: "分类",
+  segment: "分割",
+  pose: "关键点",
+  classify: "分类",
   ocr: "OCR",
   doc_layout: "版面分析",
   tracker: "追踪",
@@ -35,19 +36,19 @@ const MODALITY_LABELS: Record<string, string> = {
 };
 
 const TASK_SUFFIX: Record<string, string> = {
-  detection: "Det",
+  detect: "Det",
   obb: "OBB",
-  segmentation: "Seg",
-  keypoint: "Pose",
+  segment: "Seg",
+  pose: "Pose",
   interactive_seg: "ISeg",
   tracker: "Track",
-  classification: "Cls",
+  classify: "Cls",
   ocr: "OCR",
   doc_layout: "Layout",
 };
 
 export function taskLabel(task: string) {
-  return TASK_LABELS[task] ?? task;
+  return TASK_LABELS[normalizeTask(task)] ?? task;
 }
 export function infraLabel(infra: string) {
   return INFRA_LABELS[infra] ?? infra;
@@ -58,16 +59,17 @@ export function modalityLabel(m: string) {
 
 // task → badge 配色 (复用既有 Badge variant, 不引入新 token).
 export function taskVariant(task: string): "accent" | "ai" | "success" | "warning" | "outline" {
-  if (task === "detection" || task === "obb") return "accent";
-  if (task === "segmentation" || task === "interactive_seg") return "ai";
-  if (task === "keypoint" || task === "classification") return "success";
+  task = normalizeTask(task);
+  if (task === "detect" || task === "obb") return "accent";
+  if (task === "segment" || task === "interactive_seg") return "ai";
+  if (task === "pose" || task === "classify") return "success";
   if (task === "ocr" || task === "doc_layout") return "warning";
   return "outline";
 }
 
 export function taskSuffix(task: string | undefined): string {
   if (!task) return "";
-  return TASK_SUFFIX[task] ?? task;
+  return TASK_SUFFIX[normalizeTask(task)] ?? task;
 }
 
 // composition → badge (协议 v2.2 · 原子 vs 内部编排)。atom=单次推理原子; composite=一个 model

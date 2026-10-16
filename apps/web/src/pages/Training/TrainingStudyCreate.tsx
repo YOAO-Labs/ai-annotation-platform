@@ -68,7 +68,7 @@ export function TrainingStudyCreate({
       ? ["metrics/mAP50-95", "metrics/mAP50", "metrics/mAP75", "metrics/AR100"]
       : ["metrics/mAP50-95", "metrics/mAP50", "metrics/precision", "metrics/recall"];
   const editable = schema?.fields.filter((field) => field.status === "editable") ?? [];
-  const supported = !schema || schema.task === "image-detection";
+  const supported = !schema || schema.task === "detect";
   const build = (): TrainingStudyCreate => {
     if (!supported) throw new Error("参数搜索目前仅通过图片检测资格验证");
     if (!base) throw new Error("请先检查训练配置，再预览参数搜索");

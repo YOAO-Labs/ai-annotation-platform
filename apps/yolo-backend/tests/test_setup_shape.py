@@ -74,12 +74,12 @@ def test_setup_openvocab_models_declare_text_prompt(setup_dict: dict) -> None:
     for m in setup_dict["models"]:
         if m["id"] in OPENVOCAB_DETECT_IDS:
             assert m["supported_prompts"] == ["text"]
-            assert m["task"] == "detection"
+            assert m["task"] == "detect"
             assert m["supported_geometric_outputs"] == ["bbox"]
             assert m["is_interactive"] is False
         elif m["id"] in OPENVOCAB_SEGMENT_IDS:
             assert m["supported_prompts"] == ["text"]
-            assert m["task"] == "segmentation"
+            assert m["task"] == "segment"
             assert m["supported_geometric_outputs"] == ["polygon"]
             assert m["is_interactive"] is False
         elif m["id"] in EXEMPLAR_IDS:
@@ -205,9 +205,9 @@ def test_setup_models_declare_resource_profile(setup_dict: dict) -> None:
 def test_setup_models_carry_protocol_task(setup_dict: dict) -> None:
     tasks = {m["task"] for m in setup_dict["models"]}
     assert tasks == {
-        "detection",
-        "segmentation",
-        "keypoint",
+        "detect",
+        "segment",
+        "pose",
         "obb",
         "interactive_seg",
         "tracker",

@@ -30,6 +30,8 @@ Idle Unload (双 backend 并存场景的显存让渡机制):
 
 from __future__ import annotations
 
+from aap_protocol_v2.predict import normalize_context_task
+
 import asyncio
 import functools
 import logging
@@ -388,7 +390,17 @@ async def _warm_pool(
 
 def _normalize_predict_context(ctx: dict) -> dict:
     try:
-        normalized, deprecated = normalize_context_model_variants(ctx)
+        normalized = normalize_context_task(
+            ctx,
+            model_task={
+                "sam3-detection": "detect",
+                "sam3-segmentation": "segment",
+                "sam3-interactive-seg": "interactive_seg",
+                "sam3-video-tracker": "tracker",
+                "sam3-video-interactive-tracker": "tracker",
+            }.get(ctx.get("model_id")),
+        )
+        normalized, deprecated = normalize_context_model_variants(normalized)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     log_deprecated_model_variant_fields(logger, deprecated)
@@ -629,6 +641,7 @@ def setup() -> dict:
     # - params: JSON Schema (Draft-07 子集) — 前端 schema-form 自动渲染参数面板
     base = {
         "protocol_version": PROTOCOL_VERSION,
+        "task_contract_revision": 1,
         "compat_protocol_versions": COMPAT_PROTOCOL_VERSIONS,
         "name": "sam3-backend",
         "version": BACKEND_VERSION,
@@ -743,7 +756,7 @@ def setup() -> dict:
         {
             "id": "sam3-detection",
             "display_name": "SAM 3 · 文本检测 (PCS)",
-            "task": "detection",
+            "task": "detect",
             "model_family": "sam3",
             "infra": "pytorch",
             "is_interactive": False,
@@ -764,7 +777,7 @@ def setup() -> dict:
         {
             "id": "sam3-segmentation",
             "display_name": "SAM 3 · 文本分割 (PCS)",
-            "task": "segmentation",
+            "task": "segment",
             "model_family": "sam3",
             "infra": "pytorch",
             "is_interactive": False,

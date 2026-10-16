@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from app.services.exporting.contracts import export_contracts, video_source_contract
+
 import asyncio
 import hashlib
 import json
@@ -726,7 +728,11 @@ async def build_export_zip(
             now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
         ).isoformat()
 
+        metadata = export_contracts(project, targets)
         with _open_export_zip(tmp_path) as zf:
+            zf.writestr(
+                "data_contract.json", json.dumps(metadata, ensure_ascii=False, indent=2)
+            )
             # 共享产物（格式无关）：类别清单 + 属性 schema。
             zf.writestr("classes.txt", "\n".join(classes_list))
             if include_attributes:
@@ -790,7 +796,11 @@ async def build_export_zip(
             # 不把十万条 manifest dict 攒进 RAM，这是 B6「内存与 task 数解耦」的关键），
             # 顺带计 task 数 + 累积 coco 所需 items（不需 annotation）。
             with zf.open("images_manifest.json", "w") as mf:
-                mf.write(b'{"images": [')
+                mf.write(
+                    (
+                        json.dumps(metadata, ensure_ascii=False)[:-1] + ', "images": ['
+                    ).encode("utf-8")
+                )
                 first = True
                 async for tasks, _ann, dataset_items in svc.iter_export_chunks(
                     project_id, batch_id, with_annotations=False
@@ -814,6 +824,9 @@ async def build_export_zip(
                             bucket=storage_service.datasets_bucket,
                         )
                         entry = {
+                            "task_id": str(t.id),
+                            "dataset_item_id": str(item.id) if item else None,
+                            "content_hash": item.content_hash if item else None,
                             "rel_path": img_rel,
                             "dataset_id": str(item.dataset_id) if item else None,
                             "presigned_url": presigned,
@@ -1154,6 +1167,12 @@ async def _build_lidar_export_zip(
     ).isoformat()
 
     with _open_export_zip(tmp_path) as zf:
+        zf.writestr(
+            "data_contract.json",
+            json.dumps(
+                export_contracts(project, targets), ensure_ascii=False, indent=2
+            ),
+        )
         zf.writestr("classes.txt", "\n".join(classes_list))
         if include_attributes:
             zf.writestr(
@@ -1926,7 +1945,8 @@ async def _build_video_export_zip(
             raise UnsupportedExportError(f"unsupported video export format: {tg}")
 
     format_options = format_options or {}
-    sampling = project.video_sampling or {}
+    metadata = export_contracts(project, targets)
+    sampling = metadata["source"]["video_sampling"]
     multi = len(targets) > 1
     has_mot = "mot" in targets
     has_kitti = "kitti" in targets
@@ -1977,6 +1997,9 @@ async def _build_video_export_zip(
     ).isoformat()
 
     with _open_export_zip(tmp_path) as zf:
+        zf.writestr(
+            "data_contract.json", json.dumps(metadata, ensure_ascii=False, indent=2)
+        )
         for target in targets:
             prefix = f"{target}/" if multi else ""
             if target == "video_json":
@@ -2341,9 +2364,14 @@ async def _build_video_export_zip(
 
                 # manifest 视频条目（含网格帧号供 fetch_frames.py 抽帧）。
                 dataset_name = _dataset_name_for_task(t, item)
-                video_rel = relative_path_from_file_path(t.file_path, dataset_name)
+                video_source = video_source_contract(
+                    project, t, item, vmeta, video_scope
+                )
+                video_rel = relative_path_from_file_path(
+                    video_source["source_key"], dataset_name
+                )
                 presigned = storage_service.generate_download_url(
-                    t.file_path,
+                    video_source["source_key"],
                     expires_in=PRESIGN_EXPIRES_SECONDS,
                     bucket=storage_service.datasets_bucket,
                 )
@@ -2408,6 +2436,7 @@ async def _build_video_export_zip(
                 manifest_videos.append(
                     {
                         "sequence": seq,
+                        **video_source,
                         "task_display_id": t.display_id,
                         "rel_path": video_rel,
                         "presigned_url": presigned,
@@ -2499,6 +2528,7 @@ async def _build_video_export_zip(
             "manifest.json",
             json.dumps(
                 {
+                    **metadata,
                     "targets": targets,
                     "videos": manifest_videos,
                     "expires_at": expires_iso,

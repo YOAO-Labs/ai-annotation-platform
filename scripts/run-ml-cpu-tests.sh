@@ -132,7 +132,7 @@ install_editable() {
   local dir="$1" python_version="$2" extras="$3"
   new_venv "$python_version"
   log "install $dir editable [$extras] (python $python_version)"
-  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e ".[$extras]"
+  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/task_contract" -e ".[$extras]"
 }
 
 install_file() {
@@ -147,7 +147,7 @@ run_pytest() {
   local dir="$1" venv="$2"
   shift 2
   log "pytest $dir $*"
-  run_in "$dir" "$venv/bin/python" -m pytest -q "$@"
+  run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "$@"
 }
 
 # run: install the minimal dependencies for one suite and execute its tests.
@@ -164,6 +164,7 @@ run() {
       ;;
     shared-protocol-v2)
       install_editable "apps/_shared/protocol_v2" "3.10" "test"
+      run_pytest "apps/_shared/task_contract" "$VENV_PATH"
       run_pytest "apps/_shared/protocol_v2" "$VENV_PATH"
       ;;
     yolo)

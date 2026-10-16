@@ -32,6 +32,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 项目负责人可通过[在线学习数据版本](./docs-site/user-guide/projects/online-learning.md)冻结图片检测标注，下载包含原图、类别映射和独立训练/验证划分的 Ultralytics 数据包；就绪版本可查看类别与尺寸分布、分页预览冻结图片和框，并比较内容、标注与验证基准变化；接口见[训练数据版本 API](./docs-site/api/guides/training-datasets.md)。
 
+训练和推理统一使用 `task=detect|segment|classify|pose|obb`；AAP/COCO/YOLO 由 `format` 区分。混合标注项目可按任务分别抽取训练数据版本，保留工具、类别和媒体来源，参见[训练数据接口](docs-site/api/guides/training-datasets.md)。
+
 候选模型可逐层查看数据、实验、精确尝试、部署与发布谱系，并追加研究、拒绝发布或归档说明；归档不会改变当前项目发布。
 
 成功训练的权重可在同一页面注册为候选模型，完成类别绑定、认证推理实例加载及固定样本试用后发布。受控模型支持单阶段图片检测预标注，任务保留创建时的模型、实验和数据版本来源；发布与回退仅影响新任务。

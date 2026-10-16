@@ -45,7 +45,7 @@ def test_setup_exposes_five_models(setup_fn):
 def test_setup_models_cover_protocol_tasks(setup_fn):
     data = setup_fn()
     tasks = {m["task"] for m in data["models"]}
-    assert tasks == {"detection", "segmentation", "interactive_seg", "tracker"}
+    assert tasks == {"detect", "segment", "interactive_seg", "tracker"}
 
 
 def test_setup_each_model_carries_infra_pytorch(setup_fn):
@@ -106,7 +106,7 @@ def test_setup_models_declare_resource_profile(setup_fn):
 
 def test_detection_model_text_to_bbox(setup_fn):
     data = setup_fn()
-    det = next(m for m in data["models"] if m["task"] == "detection")
+    det = next(m for m in data["models"] if m["task"] == "detect")
     assert det["supported_prompts"] == ["text"]
     assert det["supported_geometric_outputs"] == ["bbox"]
     assert det["is_interactive"] is False
@@ -114,7 +114,7 @@ def test_detection_model_text_to_bbox(setup_fn):
 
 def test_segmentation_model_text_to_polygon(setup_fn):
     data = setup_fn()
-    seg = next(m for m in data["models"] if m["task"] == "segmentation")
+    seg = next(m for m in data["models"] if m["task"] == "segment")
     assert seg["supported_prompts"] == ["text"]
     assert seg["supported_geometric_outputs"] == ["bbox", "polygon"]
 
@@ -176,8 +176,8 @@ def test_models_carry_composition_dimension(setup_fn):
     """v0.18.12 · composition 维度: 检测/交互分割=atom, 文本分割(内置 检测→分割)=composite."""
     data = setup_fn()
     comp = {m["task"]: m.get("composition") for m in data["models"]}
-    assert comp["detection"] == "atom"
-    assert comp["segmentation"] == "composite"
+    assert comp["detect"] == "atom"
+    assert comp["segment"] == "composite"
     assert comp["interactive_seg"] == "atom"
 
 

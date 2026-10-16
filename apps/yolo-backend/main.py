@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from aap_task_contract import normalize_task
+
 import asyncio
 import copy
 import logging
@@ -169,8 +171,9 @@ def _build_model(task: str, series: str, size: str):
 
     开集 series (world/yoloe) 用 YOLOWorld/YOLOE 类加载; 闭集用 YOLO. 文件名按各自规则解析.
     """
+    task = normalize_task(task, allow_unknown=True)
     if series.startswith("trained:"):
-        if task != "detection":
+        if task != "detect":
             raise ValueError("Controlled models support detection only")
         sha, separator, receipt_digest = size.partition(":")
         path, receipt = _managed_models.resolve(series.removeprefix("trained:"), sha)
@@ -707,7 +710,7 @@ def _build_openvocab_model_entry(
     series_matrix: dict[str, tuple[str, ...]],
     default: tuple[str, str],
     *,
-    task: str = "detection",
+    task: str = "detect",
     geometric_outputs: list[str] | None = None,
     supported_text_outputs: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -819,7 +822,7 @@ def _build_tracker_model_entry() -> dict[str, Any]:
         "params": _TRACKER_PARAMS_SCHEMA,
     }
     # 追踪的是 detection 权重, 类别表同 COCO detection (供前端类别白名单 UI)。
-    classes = class_names.classes_for_task("detection")
+    classes = class_names.classes_for_task("detect")
     if classes:
         entry["classes"] = classes
     return entry
@@ -830,6 +833,7 @@ def setup() -> dict[str, Any]:
     """协议 v2 多模型目录. 详见 docs-site/dev/reference/ml-backend-protocol.md §4.1.6."""
     payload = {
         "protocol_version": PROTOCOL_VERSION,
+        "task_contract_revision": 1,
         "compat_protocol_versions": COMPAT_PROTOCOL_VERSIONS,
         "name": "yolo-backend",
         "version": BACKEND_VERSION,
@@ -852,19 +856,19 @@ def setup() -> dict[str, Any]:
             _build_model_entry(
                 "detect",
                 "YOLO 目标检测",
-                "detection",
+                "detect",
                 ["bbox"],
             ),
             _build_model_entry(
                 "segment",
                 "YOLO 实例分割",
-                "segmentation",
+                "segment",
                 ["polygon"],
             ),
             _build_model_entry(
                 "pose",
                 "YOLO 人体关键点",
-                "keypoint",
+                "pose",
                 ["keypoint"],
             ),
             _build_model_entry(
@@ -880,7 +884,7 @@ def setup() -> dict[str, Any]:
                 "YOLO-World 开集文本检测",
                 OPENVOCAB_WORLD_SERIES,
                 OPENVOCAB_DEFAULT_WORLD,
-                task="detection",
+                task="detect",
                 geometric_outputs=["bbox"],
                 supported_text_outputs=["box"],
             ),
@@ -889,7 +893,7 @@ def setup() -> dict[str, Any]:
                 "YOLOE 开集文本检测",
                 OPENVOCAB_YOLOE_SERIES,
                 OPENVOCAB_DEFAULT_YOLOE,
-                task="detection",
+                task="detect",
                 geometric_outputs=["bbox"],
                 supported_text_outputs=["box"],
             ),
@@ -899,7 +903,7 @@ def setup() -> dict[str, Any]:
                 "YOLOE 开集文本分割",
                 OPENVOCAB_YOLOE_SERIES,
                 OPENVOCAB_DEFAULT_YOLOE,
-                task="segmentation",
+                task="segment",
                 geometric_outputs=["polygon"],
                 supported_text_outputs=["mask", "both"],
             ),
@@ -995,7 +999,7 @@ async def _run_predict(
         ctx._managed_receipt_digest = digest(receipt)
     key = model_key_for_context(ctx)
     if not _is_supported_combo(ctx):
-        raise _unsupported_combo_error(ctx.type, ctx.variants.series, ctx.variants.size)
+        raise _unsupported_combo_error(ctx.task, ctx.variants.series, ctx.variants.size)
     results: list[PredictionResult] = []
     for t in req.tasks:
         try:
@@ -1183,12 +1187,12 @@ async def predict_interactive(request: Request) -> dict[str, Any]:
 
 def _is_supported_combo(ctx: Context) -> bool:
     if ctx.frozen_model_ref:
-        return ctx.type == "detection"
+        return ctx.task == "detect"
     series = ctx.variants.series
     size = ctx.variants.size
     if ctx.type == "text" or is_openvocab_series(series):
         return is_openvocab_supported(series, size)
-    return size in MODEL_MATRIX.get(ctx.type, {}).get(series, ())
+    return size in MODEL_MATRIX.get(ctx.task, {}).get(series, ())
 
 
 def _unsupported_combo_error(
@@ -1213,7 +1217,7 @@ def _pool_task_for_context(ctx: Context) -> str:
         return POOL_TASK_OPENVOCAB
     if ctx.type == "exemplar":
         return POOL_TASK_OPENVOCAB_VP
-    return ctx.type
+    return ctx.task
 
 
 def _validate_body(model_type, body):

@@ -251,7 +251,7 @@ def test_predict_rejects_oversized_body_before_gpu_admission(monkeypatch) -> Non
     ("body", "expected_task"),
     [(None, "image"), ({"task_type": "video"}, "video")],
 )
-def test_reload_success_wire_is_unchanged(
+def test_reload_accepts_legacy_input_and_returns_modality(
     monkeypatch,
     body,
     expected_task: str,
@@ -265,7 +265,7 @@ def test_reload_success_wire_is_unchanged(
     response = _run(_request("POST", "/reload", **kwargs))
     assert response.status_code == 200
     payload = response.json()
-    assert payload["task_type"] == expected_task
+    assert payload["modality"] == expected_task
     assert payload["loaded"] is True
     assert payload["reloaded"] is True
     if expected_task == "image":
@@ -275,7 +275,7 @@ def test_reload_success_wire_is_unchanged(
             "reloaded",
             "sam_variant",
             "dino_variant",
-            "task_type",
+            "modality",
         }
     else:
         assert set(payload) == {
@@ -283,7 +283,7 @@ def test_reload_success_wire_is_unchanged(
             "loaded",
             "reloaded",
             "sam_variant",
-            "task_type",
+            "modality",
         }
 
 

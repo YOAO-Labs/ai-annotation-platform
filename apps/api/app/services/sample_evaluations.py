@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from aap_task_contract import normalize_task
+
 import asyncio
 import copy
 import hashlib
@@ -93,7 +95,7 @@ def checked_dataset(version):
     try:
         contract = contract_of(manifest)
         if (
-            contract["task"] != "image-detection"
+            normalize_task(contract["task"]) != "detect"
             or contract_of(version.snapshot) != contract
         ):
             raise reject("unsupported_task", "样本评估目前仅通过图片检测资格验证", 422)

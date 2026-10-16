@@ -441,3 +441,16 @@ async def test_report_read_serializes_run_deletion(test_engine, monkeypatch, mis
             await cleanup.execute(delete(Project).where(Project.id == project.id))
             await cleanup.execute(delete(User).where(User.id == owner.id))
             await cleanup.commit()
+
+
+def test_segmentation_without_comparison_keeps_canonical_task():
+    from app.schemas.training_run import TrainingEvaluationOut
+
+    report, run, attempt, metrics, weights = evidence()
+    run.config["task"] = "segment"
+    report.pop("comparison")
+    report["evaluation"]["task"] = "instance-segmentation"
+    report["summary"] = {"metrics/mAP50-95(M)": 0.4}
+    report["per_class"] = []
+    parsed = parse_evaluation(report, run, attempt, metrics, weights, 0, 100)
+    assert TrainingEvaluationOut.model_validate(parsed).task == "segment"

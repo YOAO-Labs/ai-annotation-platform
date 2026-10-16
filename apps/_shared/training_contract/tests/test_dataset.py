@@ -155,11 +155,11 @@ def test_data_contract_cannot_reinterpret_legacy_or_unknown_identity():
 
 def test_detection_schema_digests_are_unchanged_and_segmentation_has_no_legacy_alias():
     assert (
-        definition("ultralytics")["schema_digest"]
+        definition("ultralytics", legacy=True)["schema_digest"]
         == "4230ae95a885793c7db77ee4daa69b6d5c32c33d28ff37ea908b077cb0c54d7d"
     )
     assert (
-        definition("libreyolo")["schema_digest"]
+        definition("libreyolo", legacy=True)["schema_digest"]
         == "fa3a9697401df6ebb6b34929b40b620a6274ce1a50e76e56b5337fdcf22cb5ed"
     )
     schema = definition("ultralytics", "yolo11n-seg")

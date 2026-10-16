@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from aap_task_contract import normalize_task
+
 import asyncio
 import hashlib
 import re
@@ -31,7 +33,7 @@ from app.services.training_dataset_bridge import (
 from app.services.training_datasets import MAX_IMAGE_BYTES, MAX_SAMPLES
 from training_contract.dataset import DETECTION, SEGMENTATION, polygon_area
 
-ANALYSIS_SCHEMA = 1
+ANALYSIS_SCHEMA = 2
 HASH = re.compile(r"^[a-f0-9]{64}$")
 CHANGES = {
     "added",
@@ -102,7 +104,7 @@ def derive(
         contract = contract_of(manifest)
     except TrainingDatasetError:
         contract = None
-    segmentation = bool(contract and contract["task"] == SEGMENTATION)
+    segmentation = bool(contract and normalize_task(contract["task"]) == SEGMENTATION)
     class_rows = [
         {
             "index": i,
@@ -380,7 +382,7 @@ def derive(
     )
     overview = {
         "status": status,
-        "task": contract["task"] if contract else None,
+        "task": normalize_task(contract["task"]) if contract else None,
         "counts": {
             "images": len(members),
             "instances": sum((r["instances"] or 0) for r in samples if r["included"]),
@@ -439,8 +441,8 @@ def derive(
 
 
 def compare(baseline: dict, target: dict) -> dict:
-    if baseline["overview"].get("task", DETECTION) != target["overview"].get(
-        "task", DETECTION
+    if normalize_task(baseline["overview"].get("task", DETECTION)) != normalize_task(
+        target["overview"].get("task", DETECTION)
     ):
         raise TrainingDatasetError(
             "task_mismatch",

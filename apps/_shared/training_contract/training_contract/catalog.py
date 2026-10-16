@@ -4,7 +4,8 @@ from copy import deepcopy
 import hashlib
 import json
 from importlib.resources import files
-from .dataset import SEGMENTATION
+from aap_task_contract import legacy_training_task, normalize_task
+from .dataset import DETECTION, SEGMENTATION
 
 ADAPTERS = {
     "ultralytics": {"version": "8.4.177", "revision": 1, "model_registration": True},
@@ -306,7 +307,7 @@ def digest(value):
     ).hexdigest()
 
 
-def definition(framework, base_model=None):
+def definition(framework, base_model=None, *, legacy=False):
     inventory = json.loads(
         files(__package__).joinpath("native_inventory.json").read_text()
     )[framework]
@@ -322,11 +323,15 @@ def definition(framework, base_model=None):
         raise ValueError("该基础模型家族尚未通过参数契约验证")
     reviewed = {**COMMON, **(ULTRA if framework == "ultralytics" else LIBRE)}
     result = {
-        "schema_id": f"{framework}-{inventory['version']}-{family}-{'segment' if segmentation else 'detect'}-2",
+        "schema_id": f"{framework}-{inventory['version']}-{family}-{'segment' if segmentation else 'detect'}-{'2' if legacy else '3'}",
         "framework": framework,
         "framework_version": inventory["version"],
         "adapter_revision": 2,
-        "task": SEGMENTATION if segmentation else "image-detection",
+        "task": (
+            legacy_training_task(SEGMENTATION if segmentation else DETECTION)
+            if legacy
+            else (SEGMENTATION if segmentation else DETECTION)
+        ),
         "model_family": family,
         "source": inventory["source"],
         "source_sha256": inventory["source_sha256"],
@@ -399,9 +404,9 @@ def definition(framework, base_model=None):
     return result
 
 
-def definitions():
-    return [definition(framework) for framework in ADAPTERS] + [
-        definition("ultralytics", "yolo11n-seg")
+def definitions(*, legacy=False):
+    return [definition(framework, legacy=legacy) for framework in ADAPTERS] + [
+        definition("ultralytics", "yolo11n-seg", legacy=legacy)
     ]
 
 
@@ -422,10 +427,10 @@ def schema_identity(schema):
 
 def supported_identities():
     result = []
-    for schema in definitions():
+    for schema in [*definitions(), *definitions(legacy=True)]:
         identity = schema_identity(schema)
         result.append(identity)
-        if schema["task"] == SEGMENTATION:
+        if normalize_task(schema["task"]) == SEGMENTATION:
             continue
         result.append(
             {
@@ -435,3 +440,12 @@ def supported_identities():
             }
         )
     return result
+
+
+def definition_for_identity(framework, base_model, identity):
+    """Select an exact frozen schema; aliases never change its hashed content."""
+    for legacy in (False, True):
+        schema = definition(framework, base_model, legacy=legacy)
+        if identity == schema_identity(schema):
+            return schema
+    raise ValueError("未知或不匹配的冻结参数定义")

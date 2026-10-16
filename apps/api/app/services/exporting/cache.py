@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from app.services.exporting.contracts import EXPORT_CONTRACT_REVISION
+
 import hashlib
 import json
 import uuid
@@ -41,6 +43,7 @@ def compute_cache_key(
     active_count = count(active annotation)。两者共同失效，覆盖删除标注场景。
     """
     parts = [
+        f"task-data-contract:{EXPORT_CONTRACT_REVISION}",
         str(scope_id),
         ",".join(sorted(targets)),
         "1" if include_attributes else "0",

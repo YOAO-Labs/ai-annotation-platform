@@ -8,6 +8,7 @@ mock 掉图像加载 / 对象存储 / ml_client.predict, 只验编排 + 产物�
 
 from __future__ import annotations
 
+import uuid
 import types
 
 import pytest
@@ -705,3 +706,33 @@ async def test_backend_5xx_surfaces_as_502_not_500(
             user_id=user.id,
         )
     assert exc.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_task_model_conflict_rejected_before_image_or_storage(monkeypatch):
+    from fastapi import HTTPException
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid task must fail before loading or uploading a crop")
+
+    monkeypatch.setattr(tasks_mod, "_load_task_image", forbidden)
+    monkeypatch.setattr(storage_mod, "StorageService", forbidden)
+    with pytest.raises(HTTPException) as error:
+        await run_secondary_inference(
+            None,
+            annotation=None,
+            task=None,
+            backend=_fake_backend([{"id": "vehicle-attr", "task": "classify"}]),
+            write_target="attributes",
+            write_keys=None,
+            label=None,
+            model_id="vehicle-attr",
+            model_variants=None,
+            params=None,
+            visual_task="detect",
+            prompt=None,
+            class_filter=None,
+            pad=0.08,
+            user_id=uuid.uuid4(),
+        )
+    assert error.value.status_code == 422

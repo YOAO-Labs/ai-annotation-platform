@@ -1,6 +1,7 @@
 """Framework contracts, selected explicitly before the training subprocess runs."""
 
 from __future__ import annotations
+from aap_task_contract import normalize_task
 import json
 import math
 from pathlib import Path, PurePosixPath
@@ -56,9 +57,11 @@ def validate_dataset(spec):
     manifest = json.loads((root / "manifest.json").read_text())
     contract = data_contract(manifest)
     frozen = spec["frozen_config"]
-    segmentation = contract["task"] == SEGMENTATION
+    segmentation = normalize_task(contract["task"]) == SEGMENTATION
     if (
-        contract["task"] != config_task(frozen)
+        normalize_task(contract["task"]) != config_task(frozen)
+        or (frozen.get("data_contract") is not None or contract["schema"] == 3)
+        and frozen.get("data_contract") != contract
         or segmentation
         and (
             frozen.get("adapter_revision") != 2

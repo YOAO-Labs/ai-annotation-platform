@@ -8,6 +8,7 @@ version = "0.2.0"
 description = "ML backend 协议 v2 共享 Pydantic schema 与受控词表常量, 被 sam3 / grounded-sam2 / yolo 等 backend 复用"
 requires-python = ">=3.10"
 dependencies = [
+    "aap-task-contract",
     "cryptography>=43.0.0",
     "fastapi>=0.110",
     "PyJWT>=2.10,<3",
@@ -24,3 +25,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../task_contract", editable = true }

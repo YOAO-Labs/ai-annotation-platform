@@ -4747,6 +4747,15 @@
             "title": "Supported Trackers",
             "type": "array"
           },
+          "task_contract_revision": {
+            "default": 0,
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Task Contract Revision",
+            "type": "integer"
+          },
           "text_driven_trackers": {
             "default": [],
             "items": {
@@ -19836,6 +19845,21 @@
             ],
             "title": "Dino Variant"
           },
+          "modality": {
+            "anyOf": [
+              {
+                "enum": [
+                  "image",
+                  "video"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modality"
+          },
           "sam_variant": {
             "anyOf": [
               {
@@ -19846,17 +19870,6 @@
               }
             ],
             "title": "Sam Variant"
-          },
-          "task_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Type"
           }
         },
         "title": "MLBackendReloadRequest",
@@ -26316,6 +26329,18 @@
             ],
             "title": "Parent Stage"
           },
+          "prompt_type": {
+            "anyOf": [
+              {
+                "const": "text",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Type"
+          },
           "roi": {
             "anyOf": [
               {
@@ -26344,16 +26369,27 @@
             "title": "Stage",
             "type": "integer"
           },
-          "task_type": {
+          "task": {
             "anyOf": [
               {
+                "enum": [
+                  "detect",
+                  "segment",
+                  "classify",
+                  "pose",
+                  "obb",
+                  "ocr",
+                  "doc_layout",
+                  "tracker",
+                  "interactive_seg"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Task Type"
+            "title": "Task"
           },
           "write": {
             "anyOf": [
@@ -28348,6 +28384,40 @@
             ],
             "title": "Prompt"
           },
+          "prompt_type": {
+            "anyOf": [
+              {
+                "const": "text",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Type"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "detect",
+                  "segment",
+                  "classify",
+                  "pose",
+                  "obb",
+                  "ocr",
+                  "doc_layout",
+                  "tracker",
+                  "interactive_seg"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
           "task_ids": {
             "anyOf": [
               {
@@ -28364,17 +28434,6 @@
               }
             ],
             "title": "Task Ids"
-          },
-          "task_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Type"
           }
         },
         "title": "PreannotateRequest",
@@ -32780,6 +32839,13 @@
             "title": "Prompts",
             "type": "array"
           },
+          "task_aliases": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Task Aliases",
+            "type": "object"
+          },
           "tasks": {
             "items": {
               "$ref": "#/components/schemas/ProtocolTaskItem"
@@ -36124,16 +36190,39 @@
             ],
             "title": "Prompt"
           },
-          "task_type": {
+          "prompt_type": {
             "anyOf": [
               {
+                "const": "text",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Task Type"
+            "title": "Prompt Type"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "detect",
+                  "segment",
+                  "classify",
+                  "pose",
+                  "obb",
+                  "ocr",
+                  "doc_layout",
+                  "tracker",
+                  "interactive_seg"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
           },
           "write_keys": {
             "anyOf": [
@@ -39882,6 +39971,11 @@
             "title": "Is Current Release",
             "type": "boolean"
           },
+          "media_type": {
+            "default": "image",
+            "title": "Media Type",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -39899,6 +39993,11 @@
           "run_id": {
             "format": "uuid",
             "title": "Run Id",
+            "type": "string"
+          },
+          "task": {
+            "default": "detect",
+            "title": "Task",
             "type": "string"
           }
         },
@@ -40159,10 +40258,10 @@
             "type": "string"
           },
           "task": {
-            "default": "image-detection",
+            "default": "detect",
             "enum": [
-              "image-detection",
-              "image-instance-segmentation"
+              "detect",
+              "segment"
             ],
             "title": "Task",
             "type": "string"
@@ -40190,16 +40289,16 @@
             "title": "Resume",
             "type": "boolean"
           },
-          "task_types": {
+          "tasks": {
             "items": {
               "type": "string"
             },
-            "title": "Task Types",
+            "title": "Tasks",
             "type": "array"
           }
         },
         "required": [
-          "task_types",
+          "tasks",
           "resume",
           "artifact_download",
           "model_registration"
@@ -40639,10 +40738,10 @@
             "type": "integer"
           },
           "task": {
-            "default": "image-detection",
+            "default": "detect",
             "enum": [
-              "image-detection",
-              "image-instance-segmentation"
+              "detect",
+              "segment"
             ],
             "title": "Task",
             "type": "string"
@@ -40883,8 +40982,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "image-detection",
-                  "image-instance-segmentation"
+                  "detect",
+                  "segment"
                 ],
                 "type": "string"
               },
@@ -40892,7 +40991,7 @@
                 "type": "null"
               }
             ],
-            "default": "image-detection",
+            "default": "detect",
             "title": "Task"
           },
           "validation": {
@@ -41058,6 +41157,11 @@
       },
       "TrainingDatasetOut": {
         "properties": {
+          "annotation_scope": {
+            "additionalProperties": true,
+            "title": "Annotation Scope",
+            "type": "object"
+          },
           "async_job_id": {
             "anyOf": [
               {
@@ -41069,6 +41173,11 @@
               }
             ],
             "title": "Async Job Id"
+          },
+          "class_count": {
+            "default": 0,
+            "title": "Class Count",
+            "type": "integer"
           },
           "completed_at": {
             "anyOf": [
@@ -41121,6 +41230,11 @@
             ],
             "title": "Error Message"
           },
+          "format": {
+            "default": "ultralytics-yolo",
+            "title": "Format",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -41130,6 +41244,11 @@
             "additionalProperties": true,
             "title": "Manifest",
             "type": "object"
+          },
+          "media_type": {
+            "default": "image",
+            "title": "Media Type",
+            "type": "string"
           },
           "name": {
             "title": "Name",
@@ -41182,15 +41301,25 @@
             "title": "Snapshot Digest",
             "type": "string"
           },
+          "source_media_type": {
+            "default": "image",
+            "title": "Source Media Type",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
           },
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          },
           "task": {
-            "default": "image-detection",
+            "default": "detect",
             "enum": [
-              "image-detection",
-              "image-instance-segmentation"
+              "detect",
+              "segment"
             ],
             "title": "Task",
             "type": "string"
@@ -41240,6 +41369,11 @@
       },
       "TrainingDatasetPreflight": {
         "properties": {
+          "annotation_scope": {
+            "additionalProperties": true,
+            "title": "Annotation Scope",
+            "type": "object"
+          },
           "classes": {
             "items": {
               "type": "string"
@@ -41259,6 +41393,11 @@
             "title": "Excluded",
             "type": "array"
           },
+          "format": {
+            "default": "ultralytics-yolo",
+            "title": "Format",
+            "type": "string"
+          },
           "issues": {
             "items": {
               "additionalProperties": true,
@@ -41267,9 +41406,20 @@
             "title": "Issues",
             "type": "array"
           },
+          "media_type": {
+            "const": "image",
+            "default": "image",
+            "title": "Media Type",
+            "type": "string"
+          },
           "ready": {
             "title": "Ready",
             "type": "boolean"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
           },
           "summary": {
             "additionalProperties": {
@@ -41277,6 +41427,15 @@
             },
             "title": "Summary",
             "type": "object"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
+            "type": "string"
           }
         },
         "required": [
@@ -41462,10 +41621,10 @@
             "type": "integer"
           },
           "task": {
-            "default": "image-detection",
+            "default": "detect",
             "enum": [
-              "image-detection",
-              "image-instance-segmentation"
+              "detect",
+              "segment"
             ],
             "title": "Task",
             "type": "string"
@@ -41492,6 +41651,11 @@
       },
       "TrainingDatasetSummary": {
         "properties": {
+          "annotation_scope": {
+            "additionalProperties": true,
+            "title": "Annotation Scope",
+            "type": "object"
+          },
           "async_job_id": {
             "anyOf": [
               {
@@ -41503,6 +41667,11 @@
               }
             ],
             "title": "Async Job Id"
+          },
+          "class_count": {
+            "default": 0,
+            "title": "Class Count",
+            "type": "integer"
           },
           "completed_at": {
             "anyOf": [
@@ -41555,9 +41724,19 @@
             ],
             "title": "Error Message"
           },
+          "format": {
+            "default": "ultralytics-yolo",
+            "title": "Format",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "default": "image",
+            "title": "Media Type",
             "type": "string"
           },
           "name": {
@@ -41611,15 +41790,25 @@
             "title": "Snapshot Digest",
             "type": "string"
           },
+          "source_media_type": {
+            "default": "image",
+            "title": "Source Media Type",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
           },
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          },
           "task": {
-            "default": "image-detection",
+            "default": "detect",
             "enum": [
-              "image-detection",
-              "image-instance-segmentation"
+              "detect",
+              "segment"
             ],
             "title": "Task",
             "type": "string"
@@ -41910,6 +42099,15 @@
             },
             "title": "Summary",
             "type": "object"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
+            "type": "string"
           }
         },
         "required": [
@@ -43419,6 +43617,21 @@
             "format": "uuid",
             "title": "Request Id",
             "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "detect",
+                  "segment"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
           }
         },
         "required": [
@@ -43568,6 +43781,12 @@
             ],
             "title": "Initialization Model Id"
           },
+          "media_type": {
+            "const": "image",
+            "default": "image",
+            "title": "Media Type",
+            "type": "string"
+          },
           "metrics": {
             "additionalProperties": true,
             "title": "Metrics",
@@ -43609,6 +43828,15 @@
               }
             ],
             "title": "Study Id"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
+            "type": "string"
           }
         },
         "required": [

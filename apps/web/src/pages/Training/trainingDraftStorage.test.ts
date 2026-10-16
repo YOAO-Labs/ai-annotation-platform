@@ -203,3 +203,15 @@ it("restores exact source identity and pending origin, rejects mismatched or exe
     expect(readTrainingDraft(owner).draft).toBeNull();
   }
 });
+
+it("restores the exact canonical task for a request whose creation response was lost", () => {
+  const old = pendingDraft();
+  const draft = { ...old, pending: { body: { ...old.pending.body, task: "segment" as const } } };
+  expect(saveTrainingDraft(draft)).toBeNull();
+  expect(readTrainingDraft(owner).draft?.pending?.body.task).toBe("segment");
+  localStorage.setItem(
+    trainingDraftKey(owner),
+    JSON.stringify({ ...draft, pending: { body: { ...draft.pending.body, task: "aap" } } }),
+  );
+  expect(readTrainingDraft(owner).draft).toBeNull();
+});

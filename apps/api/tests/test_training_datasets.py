@@ -111,7 +111,7 @@ async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_
     version = await db_session.get(
         TrainingDatasetVersion, uuid.UUID(response.json()["id"])
     )
-    assert version.snapshot["task"] == SEGMENTATION and version.snapshot["schema"] == 2
+    assert version.snapshot["task"] == SEGMENTATION and version.snapshot["schema"] == 3
     assert {
         a["id"] for sample in version.snapshot["samples"] for a in sample["annotations"]
     } == {str(a.id) for a in annotations}
@@ -128,6 +128,9 @@ async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_
         f"{path}/{version.id}?include_manifest=false", headers=headers
     )
     assert detail.status_code == 200 and detail.json()["task"] == SEGMENTATION
+    assert detail.json()["class_count"] == 1
+    assert detail.json()["source_media_type"] == "image"
+    assert detail.json()["summary"]["objects"] == 3
     # Unsupported active geometry is an error, never a silently emitted negative.
     annotations[0].geometry = {
         **annotations[0].geometry,
@@ -598,3 +601,116 @@ def test_changed_source_is_rejected_before_preserving_media(tmp_path):
     finally:
         storage_service.delete_prefix(prefix)
         storage_service.delete_prefix(prefix, bucket=storage_service.training_bucket)
+
+
+async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_other_task_negatives(
+    db_session,
+    super_admin,
+    source_headers,
+):
+    owner, _ = super_admin
+    project, boxes = await reviewed_project(db_session, owner)
+    project.tool_bindings = {
+        **project.tool_bindings,
+        "region": {"enabled": True, "classes": ["shape"]},
+    }
+    region_only = await create_task(
+        db_session, project_id=project.id, status="completed"
+    )
+    region_only.reviewed_at = datetime.now(timezone.utc)
+    polygons = []
+    for task in [*boxes, region_only]:
+        ann = Annotation(
+            task_id=task.id,
+            project_id=project.id,
+            user_id=owner.id,
+            tool_unit_id="region",
+            class_name="shape",
+            geometry={
+                "type": "polygon",
+                "points": [[0.1, 0.1], [0.8, 0.1], [0.7, 0.7], [0.1, 0.8]],
+            },
+        )
+        polygons.append(ann)
+        db_session.add(ann)
+    await db_session.flush()
+    detect, report = await service.freeze_selection(
+        db_session, project, TrainingDatasetSelection(task="detect"), actor_id=owner.id
+    )
+    assert report["ready"]
+    assert report["summary"]["eligible"] == 3 and report["summary"]["objects"] == 3
+    assert report["summary"]["excluded_annotations"] == 4
+    assert report["excluded"] == [
+        {"task_id": str(region_only.id), "code": "unconfirmed_negative"}
+    ]
+    assert detect["annotation_scope"]["tool_unit_ids"] == ["bbox"]
+    assert all(
+        a["tool_unit_id"] == "bbox"
+        for sample in detect["samples"]
+        for a in sample["annotations"]
+    )
+    segment, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(task="segmentation"),
+        actor_id=owner.id,
+    )
+    assert report["ready"] and report["summary"]["eligible"] == 4
+    assert (
+        report["classes"] == ["shape"]
+        and report["summary"]["excluded_annotations"] == 3
+    )
+    assert segment["source"]["tool_bindings"] == {
+        "region": project.tool_bindings["region"]
+    }
+    assert all(
+        a["tool_unit_id"] == "region"
+        for sample in segment["samples"]
+        for a in sample["annotations"]
+    )
+    # Invalid geometry in the selected binding remains a hard validation issue.
+    polygons[0].geometry = {
+        **polygons[0].geometry,
+        "holes": [[[0.2, 0.2], [0.3, 0.2], [0.3, 0.3]]],
+    }
+    await db_session.flush()
+    _, report = await service.freeze_selection(
+        db_session, project, TrainingDatasetSelection(task="segment"), actor_id=owner.id
+    )
+    assert (
+        not report["ready"] and report["issues"][0]["code"] == "unsupported_annotation"
+    )
+    # The manager's negative confirmation is explicit and scoped to detect.
+    snapshot, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(
+            task="detect",
+            mode="manager_confirmed",
+            task_ids=[task.id for task in [*boxes, region_only]],
+            confirmed_negative_ids=[region_only.id],
+        ),
+        actor_id=owner.id,
+    )
+    assert report["ready"] and report["summary"]["negatives"] == 1
+    assert (
+        next(
+            sample
+            for sample in snapshot["samples"]
+            if sample["task_id"] == str(region_only.id)
+        )["annotations"]
+        == []
+    )
+
+
+def test_task_aliases_merge_semantically_and_conflicts_fail():
+    from pydantic import ValidationError
+
+    assert (
+        TrainingDatasetSelection(task="detect", task_type="detection").task == "detect"
+    )
+    assert TrainingDatasetSelection(task_type="segmentation").task == "segment"
+    with pytest.raises(ValidationError):
+        TrainingDatasetSelection(task="detect", task_type="segmentation")
+    with pytest.raises(ValidationError):
+        TrainingDatasetSelection(task="aap")

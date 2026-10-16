@@ -19,7 +19,9 @@ from aap_protocol_v2 import (
     log_deprecated_model_variant_fields,
     normalize_context_model_variants,
 )
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator, field_validator
+from aap_protocol_v2.predict import normalize_context_task
+from aap_task_contract import normalize_task
 from managed_models import ManagedModelRef
 from sample_evaluations import EvaluationRequest
 
@@ -110,9 +112,10 @@ class Context(BaseModel):
       平台文本路径把 conf/iou/max_det 扁平在顶层 (非嵌套 params), 由 before-validator 收拢.
     """
 
-    type: Literal[
-        "detection", "segmentation", "keypoint", "obb", "text", "exemplar", "tracker"
-    ]
+    task: Literal["detect", "segment", "pose", "obb", "interactive_seg", "tracker"] = (
+        "detect"
+    )
+    type: Literal["text", "exemplar"] | None = None
     model_variants: dict[str, str] | None = None
     variants: Variants | None = None
     frozen_model_ref: ManagedModelRef | None = None
@@ -141,7 +144,38 @@ class Context(BaseModel):
     def _normalize_model_variants(cls, data):
         if not isinstance(data, dict):
             return data
-        normalized, deprecated = normalize_context_model_variants(data)
+        normalized = normalize_context_task(data)
+        model_tasks = {
+            "detect": "detect",
+            "segment": "segment",
+            "pose": "pose",
+            "obb": "obb",
+            "detect-world": "detect",
+            "detect-yoloe": "detect",
+            "segment-yoloe": "segment",
+            "exemplar-yoloe": "interactive_seg",
+            "track": "tracker",
+        }
+        model_id = normalized.get("model_id")
+        expected = (
+            "detect"
+            if str(model_id or "").startswith("trained:")
+            else model_tasks.get(model_id)
+        )
+        if expected is not None:
+            normalized = normalize_context_task(normalized, model_task=expected)
+        elif normalized.get("task") is None:
+            normalized["task"] = (
+                "interactive_seg"
+                if normalized.get("type") == "exemplar"
+                else (
+                    "segment"
+                    if normalized.get("type") == "text"
+                    and normalized.get("output") in {"mask", "both"}
+                    else "detect"
+                )
+            )
+        normalized, deprecated = normalize_context_model_variants(normalized)
         log_deprecated_model_variant_fields(logger, deprecated)
         if normalized.get("frozen_model_ref"):
             normalized.pop("variants", None)
@@ -170,7 +204,7 @@ class Context(BaseModel):
     def _validate_combination(self) -> "Context":
         if self.sample_evaluation and (
             not self.frozen_model_ref
-            or self.type != "detection"
+            or self.task != "detect"
             or self.classes is not None
             or self.params.max_det != 100
         ):
@@ -182,7 +216,8 @@ class Context(BaseModel):
         if self.frozen_model_ref:
             expected_id = f"trained:{self.frozen_model_ref.model_version_id}"
             if (
-                self.type != "detection"
+                self.task != "detect"
+                or self.type is not None
                 or self.model_id != expected_id
                 or self.text
                 or self.exemplars
@@ -202,7 +237,7 @@ class Context(BaseModel):
 def model_key_for_context(ctx: Context) -> tuple[str, str, str]:
     if ctx.frozen_model_ref:
         return (
-            "detection",
+            "detect",
             f"trained:{ctx.frozen_model_ref.model_version_id}",
             ctx.frozen_model_ref.sha256
             + (
@@ -212,7 +247,7 @@ def model_key_for_context(ctx: Context) -> tuple[str, str, str]:
     from model_registry import POOL_TASK_OPENVOCAB, POOL_TASK_OPENVOCAB_VP
 
     task = {"text": POOL_TASK_OPENVOCAB, "exemplar": POOL_TASK_OPENVOCAB_VP}.get(
-        ctx.type, ctx.type
+        ctx.type, ctx.task
     )
     return task, ctx.variants.series, ctx.variants.size
 
@@ -256,5 +291,10 @@ class WarmupRequest(BaseModel):
     (令 warmup 命中独立的 VP pool POOL_TASK_OPENVOCAB_VP, 与首次拖框交互同句柄; 见 issue 0003)。
     开集文本检测/分割条目的 task 仍是 detection/segmentation, 由 series 判定走文本 pool。"""
 
-    task: Literal["detection", "segmentation", "keypoint", "obb", "interactive_seg"]
+    task: Literal["detect", "segment", "pose", "obb", "interactive_seg"]
     variants: Variants
+
+    @field_validator("task", mode="before")
+    @classmethod
+    def canonical_task(cls, value):
+        return normalize_task(value)

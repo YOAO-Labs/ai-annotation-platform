@@ -1,3 +1,4 @@
+import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 // v0.20.11 · 选中框单框二次推理 (Q1b) 前端 hook。
 //
 // - useSecondaryCapabilities: 枚举本项目启用的 backend × model, 过滤出「能在 crop 上跑」
@@ -28,18 +29,11 @@ export interface SecondaryCapability {
   label: string;
 }
 
-const GEOMETRY_TASKS = new Set([
-  "detection",
-  "segmentation",
-  "instance_segmentation",
-  "obb",
-  "keypoint",
-  "pose",
-]);
-const ATTRIBUTE_TASKS = new Set(["classification", "cls", "ocr", "doc_layout"]);
+const GEOMETRY_TASKS = new Set(["detect", "segment", "obb", "pose"]);
+const ATTRIBUTE_TASKS = new Set(["classify", "ocr", "doc_layout"]);
 
 function deriveWriteTarget(m: MLModelCapability): "attributes" | "geometry" | null {
-  const task = (m.task ?? "").toLowerCase();
+  const task = normalizeTask(m.task ?? "");
   if (GEOMETRY_TASKS.has(task)) return "geometry";
   if (ATTRIBUTE_TASKS.has(task)) return "attributes";
   // 回落: 按输出形态推断 (backend 未报标准 task 名时)。
@@ -184,7 +178,7 @@ export function buildSecondaryInferencePayload(
       cap.writeTarget === "geometry" || (m.supported_variants?.length ?? 0) > 0
         ? mergeVariants(m.default_variants, variants)
         : null,
-    task_type: m.task ?? null,
+    task: m.task ? normalizeTask(m.task) : null,
     write_keys: cap.writeTarget === "attributes" && attrKeys.length > 0 ? attrKeys : null,
     params: params && Object.keys(params).length > 0 ? params : null,
     prompt: trimmedPrompt ? trimmedPrompt : null,

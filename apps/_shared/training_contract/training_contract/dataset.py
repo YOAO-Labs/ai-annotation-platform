@@ -5,11 +5,30 @@ import hashlib
 import math
 import struct
 
-DETECTION = "image-detection"
-SEGMENTATION = "image-instance-segmentation"
-SEGMENTATION_CONTRACT = {
+from aap_task_contract import normalize_task, resolve_task
+
+DETECTION = "detect"
+SEGMENTATION = "segment"
+LEGACY_DETECTION = "image-detection"
+LEGACY_SEGMENTATION_CONTRACT = {
     "schema": 2,
+    "task": "image-instance-segmentation",
+    "geometry": "normalized-simple-polygon",
+    "bridge": "ultralytics-simple-polygon-1",
+}
+DETECTION_CONTRACT = {
+    "schema": 3,
+    "task": DETECTION,
+    "media_type": "image",
+    "format": "ultralytics-yolo",
+    "geometry": "normalized-bbox",
+    "bridge": "ultralytics-bbox-1",
+}
+SEGMENTATION_CONTRACT = {
+    "schema": 3,
     "task": SEGMENTATION,
+    "media_type": "image",
+    "format": "ultralytics-yolo",
     "geometry": "normalized-simple-polygon",
     "bridge": "ultralytics-simple-polygon-1",
 }
@@ -28,23 +47,33 @@ def data_contract(record):
     schema = record.get("schema")
     if type(schema) is int and schema == 1:
         if (
-            record.get("task", DETECTION) != DETECTION
+            record.get("task", LEGACY_DETECTION) != LEGACY_DETECTION
             or "geometry" in record
             or "bridge" in record
             or record.get("format", "ultralytics-detection") != "ultralytics-detection"
         ):
             raise DatasetContractError("unknown_data_contract", "未知的检测数据身份")
-        return {"schema": 1, "task": DETECTION}
+        return {"schema": 1, "task": LEGACY_DETECTION}
     if (
         type(schema) is int
         and schema == 2
         and all(
-            record.get(key) == value for key, value in SEGMENTATION_CONTRACT.items()
+            record.get(key) == value
+            for key, value in LEGACY_SEGMENTATION_CONTRACT.items()
         )
         and record.get("format", "ultralytics-segmentation")
         == "ultralytics-segmentation"
     ):
-        return dict(SEGMENTATION_CONTRACT)
+        return dict(LEGACY_SEGMENTATION_CONTRACT)
+    if type(schema) is int and schema == 3:
+        expected = {
+            DETECTION: DETECTION_CONTRACT,
+            SEGMENTATION: SEGMENTATION_CONTRACT,
+        }.get(record.get("task"))
+        if expected and all(
+            record.get(key) == value for key, value in expected.items()
+        ):
+            return dict(expected)
     raise DatasetContractError(
         "unknown_data_contract", "未知的训练任务、几何或桥接身份"
     )
@@ -52,7 +81,11 @@ def data_contract(record):
 
 def config_task(config):
     identity = (config.get("configuration") or {}).get("identity", {})
-    return identity.get("task", DETECTION)
+    return resolve_task(config.get("task"), identity.get("task")) or DETECTION
+
+
+def data_task(record):
+    return normalize_task(data_contract(record)["task"])
 
 
 def _cross(a, b, c):

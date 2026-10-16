@@ -1189,6 +1189,7 @@ class MLBackendService:
         registry_id: uuid.UUID,
         sam_variant: str | None = None,
         dino_variant: str | None = None,
+        modality: str | None = None,
         task_type: str | None = None,
     ) -> dict | None:
         backend = await self.get(registry_id)
@@ -1200,7 +1201,10 @@ class MLBackendService:
             shadow_session_factory=self.shadow_session_factory,
             dispatch_context_factory=self.dispatch_context_factory,
         ).reload(
-            sam_variant=sam_variant, dino_variant=dino_variant, task_type=task_type
+            sam_variant=sam_variant,
+            dino_variant=dino_variant,
+            modality=modality,
+            task_type=task_type,
         )
 
     async def warmup(self, registry_id: uuid.UUID, body: dict) -> dict | None:

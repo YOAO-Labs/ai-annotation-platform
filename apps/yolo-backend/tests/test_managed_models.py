@@ -211,7 +211,7 @@ def test_controlled_context_has_a_separate_pool_key_and_never_uses_builtin_defau
         model_variants={},
     )
     assert model_key_for_context(context) == (
-        "detection",
+        "detect",
         f"trained:{body.model_version_id}",
         body.sha256,
     )

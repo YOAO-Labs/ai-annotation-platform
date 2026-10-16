@@ -12,9 +12,9 @@ export function useTrainingInitializationSource(
   baseModel: string,
   datasetId: string,
   value?: TrainingInitialization,
-  task = "image-detection",
+  task = "detect",
 ) {
-  const supportsProjectWeights = task === "image-detection" && !baseModel.endsWith("-seg");
+  const supportsProjectWeights = task === "detect" && !baseModel.endsWith("-seg");
   const selectedId = value?.kind === "trained_model" ? (value.model_version_id ?? "") : "";
   const view = useTrainingViewOwner(
     projectId,

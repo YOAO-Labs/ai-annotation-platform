@@ -35,7 +35,7 @@ def test_setup_models_catalog_minimal_entry() -> None:
     m = models[0]
     assert m["id"] == "echo-detect"
     assert m["display_name"]
-    assert m["task"] == "detection"
+    assert m["task"] == "detect"
     assert m["supported_prompts"] == ["none"]
     assert m["supported_geometric_outputs"] == ["bbox"]
 

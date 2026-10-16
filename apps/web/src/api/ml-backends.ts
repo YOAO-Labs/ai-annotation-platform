@@ -291,7 +291,7 @@ export const mlBackendsApi = {
     projectId: string,
     backendId: string,
     variant?: MLBackendVariant,
-    taskType?: "image" | "video",
+    modality?: "image" | "video",
   ) =>
     apiClient.post<{
       ok: boolean;
@@ -299,12 +299,10 @@ export const mlBackendsApi = {
       reloaded: boolean;
       sam_variant?: string;
       dino_variant?: string;
-      task_type?: "image" | "video";
+      modality?: "image" | "video";
     }>(
       `/projects/${projectId}/ml-backends/${backendId}/reload`,
-      variant || taskType
-        ? { ...(variant ?? {}), ...(taskType ? { task_type: taskType } : {}) }
-        : undefined,
+      variant || modality ? { ...(variant ?? {}), ...(modality ? { modality } : {}) } : undefined,
     ),
 
   predictTest: (projectId: string, backendId: string, taskId: string) =>
@@ -327,7 +325,7 @@ export const mlBackendsApi = {
     ),
 
   // v0.14.14 协议 §4.4 · POST /warmup 代理. body 各 backend 自定义:
-  //   yolo:  { task: "detection", variants: { series: "yolo11", size: "s" } }
+  //   yolo:  { task: "detect", variants: { series: "yolo11", size: "s" } }
   //   gsam2: { variants: { sam_variant: "small", dino_variant: "B" } }
   //   sam3:  {} 或 { variants: { model_variant: "sam3" } }
   warmup: (projectId: string, backendId: string, body?: Record<string, unknown>) =>
@@ -340,7 +338,7 @@ export const mlBackendsApi = {
 
   // v0.21.4 · 视频单题 AI: 对客户端传入的当前帧 JPEG 跑图像 backend, 落单帧 video_bbox 候选。
   // 走 multipart/form-data(不用 apiClient, 其默认 Content-Type=application/json), config 是
-  // PreannotateConfig.buildArgs 产出的字段袋(task_type/model_id/model_variants/prompt/params/
+  // PreannotateConfig.buildArgs 产出的字段袋(task/model_id/model_variants/prompt/params/
   // class_filter 等), 后端据此构造 predict context。
   predictFrame: async (
     projectId: string,

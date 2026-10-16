@@ -78,7 +78,7 @@ const schema: TrainingParameterSchema = {
   framework: "ultralytics",
   framework_version: "8.4.177",
   model_family: "yolo11",
-  task: "image-detection",
+  task: "detect",
   schema_id: "schema-1",
   schema_digest: "a".repeat(64),
   source: "native",
@@ -110,7 +110,7 @@ const catalog = {
       image_digest: `sha256:${"e".repeat(64)}`,
       base_models: [{ id: "yolo11n", filename: "yolo11n.pt", sha256: "f".repeat(64) }],
       capabilities: {
-        task_types: ["image-detection"],
+        tasks: ["detect"],
         resume: true,
         artifact_download: true,
         model_registration: true,
@@ -433,7 +433,7 @@ async function check() {
 }
 
 it("filters segmentation weights by dataset task and preserves an incompatible selection until explicitly replaced", async () => {
-  const task = "image-instance-segmentation";
+  const task = "segment" as const;
   const segmented = { ...dataset, task };
   vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [segmented], total: 1 } as never);
   vi.mocked(trainingDatasetsApi.get).mockResolvedValue(segmented as never);

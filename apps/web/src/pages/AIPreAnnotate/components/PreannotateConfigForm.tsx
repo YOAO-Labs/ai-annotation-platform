@@ -28,9 +28,9 @@ const OUTPUT_MODE_BY_LABEL: Record<string, TextOutputMode> = {
 };
 
 const GEOMETRIC_TASK_LABELS: Record<string, string> = {
-  detection: "检测（框）",
-  segmentation: "分割（掩膜）",
-  keypoint: "关键点",
+  detect: "检测（框）",
+  segment: "分割（掩膜）",
+  pose: "关键点",
   obb: "朝向框",
 };
 

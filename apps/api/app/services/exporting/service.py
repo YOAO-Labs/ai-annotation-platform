@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from app.services.exporting.contracts import (
+    export_contracts,
+    source_contract,
+    project_tasks,
+    tasks_for_tools,
+    video_source_contract,
+    TOOL_TASKS,
+    target_contract,
+)
+
 import io
 import json
 import uuid
@@ -609,6 +619,9 @@ class ExportService:
                     "sequence_order": task.sequence_order,
                     "batch_id": str(task.batch_id) if task.batch_id else None,
                     "video_metadata": video,
+                    "source": video_source_contract(
+                        project, task, item, video, video_scope
+                    ),
                     "order": index,
                 }
             )
@@ -706,6 +719,7 @@ class ExportService:
             )
 
         payload = {
+            "data_contract": export_contracts(project, ["video_json"]),
             "export_type": "video_tracks",
             "exported_at": datetime.utcnow().isoformat(),
             "frame_mode": video_frame_mode,
@@ -925,6 +939,7 @@ class ExportService:
             info["axis_frame"] = axis_frame
 
         coco = {
+            "data_contract": export_contracts(project, ["coco"]),
             "info": info,
             "images": images,
             "annotations": coco_annotations,
@@ -952,6 +967,10 @@ class ExportService:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "data_contract.json",
+                json.dumps(export_contracts(project, ["yolo"]), ensure_ascii=False),
+            )
             classes_txt = "\n".join(yolo_classes)
             zf.writestr("classes.txt", classes_txt)
 
@@ -1009,6 +1028,10 @@ class ExportService:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "data_contract.json",
+                json.dumps(export_contracts(project, ["voc"]), ensure_ascii=False),
+            )
             for t in tasks:
                 root = Element("annotation")
                 SubElement(root, "filename").text = t.file_name
@@ -1222,7 +1245,7 @@ class ExportService:
                 )
                 vmeta = _video_metadata(item)
                 video_block = {
-                    "sampling": project.video_sampling or {},
+                    **video_source_contract(project, t, item, vmeta, video_scope),
                     "fps": vmeta.get("fps"),
                     "frame_count": vmeta.get("frame_count"),
                     "duration_ms": vmeta.get("duration_ms"),
@@ -1232,8 +1255,13 @@ class ExportService:
                 if video_scope is not None:
                     video_block["export_scope"] = video_scope.as_dict()
 
+            tool_ids = {entry.tool_unit_id for entry in [*ann_entries, *pred_entries]}
+            available = tasks_for_tools(tool_ids)
+            unmapped = tool_ids - TOOL_TASKS.keys()
             task_blocks.append(
                 AAPTaskBlock(
+                    task=available[0] if len(available) == 1 and not unmapped else None,
+                    available_tasks=available,
                     task_match=AAPTaskMatch(
                         display_id=t.display_id, file_path=t.file_path
                     ),
@@ -1248,6 +1276,11 @@ class ExportService:
 
         envelope = AAPJsonV1Envelope(
             schema_version=AAP_SCHEMA_VERSION,
+            format="aap",
+            task=target_contract(project, "aap_json")["task"],
+            available_tasks=project_tasks(project),
+            media_type=project.data_type or "image",
+            source=source_contract(project),
             exported_at=datetime.utcnow(),
             exported_from=AAPExportedFrom(
                 platform="aap",

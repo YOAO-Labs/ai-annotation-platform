@@ -672,13 +672,13 @@ async def reload_ml_backend(
     )
     sam_variant = body.sam_variant if body else None
     dino_variant = body.dino_variant if body else None
-    task_type = body.task_type if body else None
+    modality = body.modality if body else None
     try:
         result = await svc.reload(
             backend_id,
             sam_variant=sam_variant,
             dino_variant=dino_variant,
-            task_type=task_type,
+            modality=modality,
         )
     except GPUArbiterDispatchError:
         raise
@@ -1434,26 +1434,37 @@ async def predict_frame(
 
     # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 workers/tasks.py `_run_batch`)。
     project = await db.get(Project, project_id)
-    context = _build_predict_context(
-        prompt=cfg.get("prompt"),
-        # 单帧只要框: 文本 backend (gsam2) 输出 box; mask/polygon 非 video_bbox 会被丢弃。
-        output_mode=cfg.get("output_mode") or "box",
-        params=cfg.get("params"),
-        model_id=cfg.get("model_id"),
-        task_type=cfg.get("task_type"),
-        model_variants=cfg.get("model_variants"),
-        class_filter=cfg.get("class_filter"),
-        box_threshold=(
-            float(project.box_threshold)
-            if project is not None and project.box_threshold is not None
-            else None
-        ),
-        text_threshold=(
-            float(project.text_threshold)
-            if project is not None and project.text_threshold is not None
-            else None
-        ),
-    )
+    try:
+        context = _build_predict_context(
+            prompt=cfg.get("prompt"),
+            # 单帧只要框: 文本 backend (gsam2) 输出 box; mask/polygon 非 video_bbox 会被丢弃。
+            output_mode=cfg.get("output_mode") or "box",
+            params=cfg.get("params"),
+            model_id=cfg.get("model_id"),
+            task=cfg.get("task"),
+            task_type=cfg.get("task_type"),
+            prompt_type=cfg.get("prompt_type"),
+            model_variants=cfg.get("model_variants"),
+            class_filter=cfg.get("class_filter"),
+            box_threshold=(
+                float(project.box_threshold)
+                if project is not None and project.box_threshold is not None
+                else None
+            ),
+            text_threshold=(
+                float(project.text_threshold)
+                if project is not None and project.text_threshold is not None
+                else None
+            ),
+        )
+        from app.services.ml_capabilities import resolve_model_task
+
+        if context is not None:
+            context["task"] = resolve_model_task(
+                backend, context.get("model_id"), context.get("task")
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # v0.23.5 · WS-D · D2 · bounded frame read (Content-Length + streaming cap
     # + JPEG/PNG decode + dim/pixel limits) before any storage I/O.

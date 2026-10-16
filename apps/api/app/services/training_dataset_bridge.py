@@ -7,9 +7,13 @@ import json
 import math
 import zipfile
 from pathlib import Path
+from aap_task_contract import normalize_task
 from training_contract.dataset import (
+    DETECTION_CONTRACT,
     DatasetContractError,
+    LEGACY_SEGMENTATION_CONTRACT,
     SEGMENTATION,
+    SEGMENTATION_CONTRACT,
     data_contract,
     segmentation_labels,
 )
@@ -30,7 +34,7 @@ def contract_of(record):
 
 
 def native_labels(annotations, classes, contract):
-    if contract["task"] == SEGMENTATION:
+    if normalize_task(contract["task"]) == SEGMENTATION:
         try:
             return segmentation_labels(annotations, classes)
         except DatasetContractError as exc:
@@ -192,8 +196,10 @@ def build_training_package(
     if len(media) != len(by_task) or {m["task_id"] for m in media} != set(by_task):
         raise TrainingDatasetError("incomplete_media", "冻结的素材尚未完整物化")
     contract = contract_of(snapshot)
-    segmentation = contract["task"] == SEGMENTATION
-    if parent_manifest is not None and contract_of(parent_manifest) != contract:
+    segmentation = normalize_task(contract["task"]) == SEGMENTATION
+    if parent_manifest is not None and normalize_task(
+        contract_of(parent_manifest)["task"]
+    ) != normalize_task(contract["task"]):
         raise TrainingDatasetError(
             "task_mismatch", "父数据版本与当前训练任务或几何身份不同"
         )
@@ -278,7 +284,15 @@ def build_training_package(
                 "negatives": sum(not s["labels"] for s in samples),
             },
         }
-        if segmentation:
+        if contract["schema"] == 3:
+            manifest.update(contract)
+            manifest["annotation_scope"] = snapshot["annotation_scope"]
+            manifest["source"] = snapshot["source"]
+            manifest["summary"]["objects"] = sum(
+                len(s["labels"].splitlines()) for s in samples
+            )
+            manifest["summary"]["classes"] = len(classes)
+        elif segmentation:
             manifest.update(**contract, format="ultralytics-segmentation")
         manifest["split_history"] = split_history(manifest)
         manifest["semantic_partitions"] = semantic_partitions(manifest)
@@ -286,7 +300,11 @@ def build_training_package(
             {
                 "classes": classes,
                 "samples": [s for s in manifest_samples if s["split"] == "val"],
-                **({"data_contract": contract} if segmentation else {}),
+                **(
+                    {"data_contract": contract}
+                    if segmentation or contract["schema"] == 3
+                    else {}
+                ),
             }
         )
         manifest["content_digest"] = content_digest(manifest)
@@ -296,11 +314,31 @@ def build_training_package(
     return manifest
 
 
+def semantic_partition_aliases(manifest: dict) -> list[dict]:
+    """Compare qualified equivalent contracts without changing frozen evidence."""
+    contract = contract_of(manifest)
+    contracts = (
+        [LEGACY_SEGMENTATION_CONTRACT, SEGMENTATION_CONTRACT]
+        if normalize_task(contract["task"]) == SEGMENTATION
+        else [{"schema": 1}, DETECTION_CONTRACT]
+    )
+    return [
+        semantic_partitions(
+            {"classes": manifest["classes"], "samples": manifest["samples"], **value}
+        )
+        for value in contracts
+    ]
+
+
 def semantic_partitions(manifest: dict) -> dict:
     """Identify content without database IDs, ordering, paths or actor noise."""
     classes = manifest["classes"]
     contract = contract_of(manifest)
-    identity = {"data_contract": contract} if contract["task"] == SEGMENTATION else {}
+    identity = (
+        {"data_contract": contract}
+        if normalize_task(contract["task"]) == SEGMENTATION or contract["schema"] == 3
+        else {}
+    )
     partitions = {"train": {}, "val": {}}
     for sample in manifest["samples"]:
         values = partitions[sample["split"]]

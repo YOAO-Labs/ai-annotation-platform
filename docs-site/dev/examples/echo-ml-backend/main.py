@@ -39,6 +39,7 @@ async def setup():
         "name": "echo-backend",
         "version": "0.1.0",
         "protocol_version": "2.1",
+        "task_contract_revision": 1,
         "compat_protocol_versions": ["2.0"],
         "model_version": MODEL_VERSION,
         "is_interactive": False,
@@ -47,7 +48,7 @@ async def setup():
             {
                 "id": "echo-detect",
                 "display_name": "Echo 固定框 demo",
-                "task": "detection",
+                "task": "detect",
                 "supported_prompts": ["none"],
                 "supported_geometric_outputs": ["bbox"],
             }

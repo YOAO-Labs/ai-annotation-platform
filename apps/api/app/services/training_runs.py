@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from aap_task_contract import normalize_task, legacy_training_task
+from training_contract.catalog import definition_for_identity
 import asyncio
 import hashlib
 import hmac
@@ -112,7 +114,7 @@ def catalog():
                     "image_digest": image,
                     "base_models": valid_models,
                     "capabilities": {
-                        "task_types": sorted({base["task"] for base in valid_models}),
+                        "tasks": sorted({base["task"] for base in valid_models}),
                         **{
                             key: any(base["capabilities"][key] for base in valid_models)
                             for key in (
@@ -212,11 +214,18 @@ def runtime_compatible(config, runtime):
         }
         if revision == 2:
             identity = config.get("configuration", {}).get("identity")
-            if identity != schema_identity(schema):
+            try:
+                definition_for_identity(framework, config["base_model"]["id"], identity)
+            except (ValueError, TypeError):
                 return False
         elif schema["task"] != DETECTION:
             return False
         supported = identity in runtime.get("supported_configs", [])
+        if revision == 1 and not supported:
+            supported = {
+                **identity,
+                "task": legacy_training_task(identity["task"]),
+            } in runtime.get("supported_configs", [])
     else:
         return False
     if not supported:
@@ -227,7 +236,8 @@ def runtime_compatible(config, runtime):
     if (
         revision == 2
         and protocol == 2
-        and config["configuration"]["identity"]["task"] == DETECTION
+        and normalize_task(config["configuration"]["identity"]["task"])
+        in {DETECTION, SEGMENTATION}
         and entry.get("version") == config["framework_version"]
         and entry.get("image_digest") == runtime.get("image_digest")
         and config.get("configuration", {}).get("identity")
@@ -293,15 +303,20 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         schema = definition(body.framework, body.base_model)
     except (TrainingDatasetError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if contract["task"] != schema["task"]:
+    if body.task is not None and body.task != normalize_task(contract["task"]):
+        raise HTTPException(status_code=422, detail="显式训练任务与数据版本不匹配")
+    if normalize_task(contract["task"]) != normalize_task(schema["task"]):
         raise HTTPException(
             status_code=422, detail="训练数据任务与基础模型或参数定义不匹配"
         )
-    if contract["task"] == SEGMENTATION and body.configuration is None:
+    if normalize_task(contract["task"]) == SEGMENTATION and body.configuration is None:
         raise HTTPException(
             status_code=422, detail="分割训练必须提交完整的任务参数配置"
         )
     config = {
+        "task": normalize_task(contract["task"]),
+        "media_type": "image",
+        "format": "ultralytics-yolo",
         "adapter_revision": ADAPTERS[body.framework]["revision"],
         "framework": body.framework,
         "framework_version": template["version"],
@@ -316,7 +331,7 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         "resource_id": resource_id(),
         "fixed_options": fixed_options(body.framework),
     }
-    if contract["task"] == SEGMENTATION:
+    if normalize_task(contract["task"]) == SEGMENTATION or contract["schema"] == 3:
         config["data_contract"] = contract
     if body.configuration is not None:
         configuration = resolve_configuration(

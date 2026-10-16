@@ -562,3 +562,12 @@ def test_invalid_nonempty_keyring_fails_startup(monkeypatch) -> None:
     with pytest.raises(ValueError, match="verify keyring"):
         with TestClient(main.app):
             pass
+
+
+@pytest.mark.parametrize(
+    "payload", [{"task": "aap"}, {"task": "segment", "model_id": "ocr-det"}]
+)
+def test_warmup_rejects_unknown_or_conflicting_task(managed_client, payload):
+    _main, client, _private_key = managed_client
+    response = client.post("/warmup", json=payload)
+    assert response.status_code == 422

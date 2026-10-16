@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from aap_task_contract import normalize_task_fields
+from training_contract.dataset import config_task
+
 import asyncio
 import math
 import uuid
@@ -122,6 +125,8 @@ async def register(db, project, user, body):
         bindings=body.bindings,
         binding_digest=content_digest({"classes": classes, "bindings": body.bindings}),
         provenance={
+            "task": config_task(run.config),
+            "media_type": "image",
             "run_id": str(run.id),
             "attempt_id": str(attempt.id),
             "dataset_id": str(run.dataset_id),
@@ -303,7 +308,7 @@ def frozen_reference(version, deployment, release=None):
 
 def wire_context(ref, params=None):
     return {
-        "type": "detection",
+        "task": "detect",
         "model_id": f"trained:{ref['model_version_id']}",
         "model_variants": {},
         "params": params or {},
@@ -332,12 +337,18 @@ def assert_image_scope(
     model_variants=None,
     pipeline_stages=None,
     execution_unit=None,
+    task=None,
+    prompt_type=None,
 ):
+    semantic = normalize_task_fields(
+        {"task": task, "task_type": task_type, "prompt_type": prompt_type}
+    )
     if (
         project is None
         or project.data_type != "image"
         or prompt
-        or task_type not in {None, "detection"}
+        or semantic.get("task") not in {None, "detect"}
+        or semantic.get("prompt_type")
         or model_variants
         or len(pipeline_stages or []) > 1
         or execution_unit not in {None, "image", "task"}

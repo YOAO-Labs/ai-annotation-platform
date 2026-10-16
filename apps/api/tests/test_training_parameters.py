@@ -187,9 +187,7 @@ def test_runtime_image_upgrade_requires_full_qualified_schema_and_source_image(
     assert not service.runtime_compatible(segmentation, old_runtime)
     assert service.runtime_compatible(segmentation, runtime)
     entry["compatible_config_images"][old].append(seg_identity)
-    assert not service.runtime_compatible(
-        {**segmentation, "image_digest": old}, runtime
-    )
+    assert service.runtime_compatible({**segmentation, "image_digest": old}, runtime)
 
 
 async def new_v2(client, token, project, dataset):
@@ -430,3 +428,39 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
         await service.finish(db_session, attempt.id, body)
     blob["observed"]["optimizer"] = "AdamW"
     assert (await service.finish(db_session, attempt.id, body)).status == "succeeded"
+
+
+def test_training_request_task_aliases_conflicts_and_legacy_payload():
+    from pydantic import ValidationError
+
+    raw = {
+        "name": "Explicit task",
+        "dataset_id": uuid.uuid4(),
+        "request_id": uuid.uuid4(),
+    }
+    old = TrainingRunCreate(**raw)
+    assert "task" not in old.request_payload()
+    canonical = TrainingRunCreate(**raw, task="segment", task_type="segmentation")
+    assert (
+        canonical.task == "segment" and canonical.request_payload()["task"] == "segment"
+    )
+    with pytest.raises(ValidationError):
+        TrainingRunCreate(**raw, task="detect", task_type="segment")
+
+
+async def test_explicit_training_task_must_match_frozen_dataset(
+    db_session, super_admin, httpx_client
+):
+    owner, token = super_admin
+    project, dataset = await ready_dataset(db_session, owner)
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-runs:preflight",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Wrong task",
+            "task": "segment",
+            "dataset_id": str(dataset.id),
+            "request_id": str(uuid.uuid4()),
+        },
+    )
+    assert response.status_code == 422 and "任务" in response.text

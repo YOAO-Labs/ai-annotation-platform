@@ -3,6 +3,7 @@ name = "aap-training-executor"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+    "aap-task-contract",
   "aap-training-contract",
   "httpx==0.28.1",
   "ultralytics==8.4.177",
@@ -25,6 +26,7 @@ include = ["training_executor*"]
 testpaths = ["tests"]
 
 [tool.uv.sources]
+aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }
 torch = { index = "pytorch-cu132" }
 torchvision = { index = "pytorch-cu132" }

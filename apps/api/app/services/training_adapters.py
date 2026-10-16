@@ -7,7 +7,7 @@ from training_contract.dataset import DETECTION, SEGMENTATION
 def capabilities(framework, task=None):
     adapter = ADAPTERS[framework]
     return {
-        "task_types": [task]
+        "tasks": [task]
         if task
         else ([DETECTION, SEGMENTATION] if framework == "ultralytics" else [DETECTION]),
         "resume": True,

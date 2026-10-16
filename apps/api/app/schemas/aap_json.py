@@ -20,6 +20,8 @@ video_track_mask 的内容寻址 RLE 可跨实例迁移；scene_tracks 保留 3D
 
 from __future__ import annotations
 
+from aap_task_contract import Task as VisualTaskName
+
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -36,7 +38,7 @@ AAP_SCHEMA_MAJOR = 1
 # v0.22.0 · 升 1.3: envelope 增 mask_objects，令 coco_rle_ref 跨实例可移植。
 # 1.5: annotation entry 增 track_id / temporal_role，envelope 增 scene_tracks。
 # 1.6: annotation entry 增持久化多相机成员及其标定版本关系。
-AAP_SCHEMA_VERSION = "1.6"
+AAP_SCHEMA_VERSION = "1.7"
 
 
 # ── task_match (oneof) ───────────────────────────────────────────────
@@ -146,6 +148,8 @@ class AAPSceneTrackEntry(BaseModel):
 
 
 class AAPTaskBlock(BaseModel):
+    task: VisualTaskName | None = None
+    available_tasks: list[VisualTaskName] = Field(default_factory=list)
     task_match: AAPTaskMatch
     file_path: str | None = None
     # v0.10.31 · 媒体维度 (1.2+). 1.x reader 走 extra=ignore, 缺失默认 "image".
@@ -193,6 +197,11 @@ class AAPJsonV1Envelope(BaseModel):
     """
 
     schema_version: str = AAP_SCHEMA_VERSION
+    format: Literal["aap"] = "aap"
+    task: VisualTaskName | None = None
+    available_tasks: list[VisualTaskName] = Field(default_factory=list)
+    media_type: Literal["image", "video", "lidar"] = "image"
+    source: dict[str, Any] = Field(default_factory=dict)
     exported_at: datetime | None = None
     exported_from: AAPExportedFrom = Field(default_factory=AAPExportedFrom)
     project: AAPProjectMeta = Field(default_factory=AAPProjectMeta)

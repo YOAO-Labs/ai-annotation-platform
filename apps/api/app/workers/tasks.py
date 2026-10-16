@@ -1,3 +1,5 @@
+from aap_task_contract import normalize_task_fields
+from app.services.ml_capabilities import resolve_model_task
 import asyncio
 import json
 import logging
@@ -104,52 +106,49 @@ def _build_predict_context(
     output_mode: str,
     params: dict | None,
     model_id: str | None,
-    task_type: str | None,
-    model_variants: dict | None,
+    task_type: str | None = None,
+    model_variants: dict | None = None,
     class_filter: list[int] | None = None,
     box_threshold: float | None = None,
     text_threshold: float | None = None,
     frozen_model_ref: dict | None = None,
+    task: str | None = None,
+    prompt_type: str | None = None,
 ) -> dict | None:
-    """构造发往 backend /predict 的 context (纯函数, 便于单测).
-
-    三条互斥路径 (按优先序):
-    - **文本 prompt 扁平路径** (gsam2 / sam3 开放词表): 顶层 `text` / `output` / 阈值 / params,
-      v0.18.12 起**统一 wire**额外带 `model_id` + `model_variants`——后端据 model_id 路由
-      (detection→box / segmentation→output)。prompt 非空即此路径 (优先于 v2): 几何 backend 不发
-      prompt, 故不会误入。老 wire (无 model_id) 仍兼容。
-    - **协议 v2 结构化** (model_variants 非 None 且无 prompt, 几何 backend yolo/onnxtools): backend 要
-      `model_variants` dict + nested `params` + `type=<几何 task>` + `classes` 白名单。判定用
-      `is not None` 而非真值: variant 轴未就位时为空 dict `{}` 仍须走 v2 才能透传 class_filter。
-    - **老扁平路径** (OCR / doc_layout: 仅 model_id + task_type, 无 prompt 无 variants)。
-    """
+    """Build canonical context; legacy task_type is a compatibility input only."""
+    semantic = normalize_task_fields(
+        {"task": task, "task_type": task_type, "prompt_type": prompt_type}
+    )
+    visual_task = semantic.get("task")
+    prompt_type = semantic.get("prompt_type")
     if frozen_model_ref:
+        if visual_task not in {None, "detect"} or prompt or prompt_type:
+            raise ValueError(
+                "Controlled models require the detect task without prompts"
+            )
         if class_filter and any(
             type(i) is not int or not 0 <= i < len(frozen_model_ref["classes"])
             for i in class_filter
         ):
             raise ValueError("Controlled class filter is outside native classes")
-        ctx = {
-            "type": "detection",
+        context = {
+            "task": "detect",
             "model_id": f"trained:{frozen_model_ref['model_version_id']}",
             "model_variants": {},
             "params": params or {},
             "frozen_model_ref": frozen_model_ref,
         }
-        if class_filter:
-            ctx["classes"] = class_filter
-        return ctx
-    # ── 文本 prompt 扁平路径 (gsam2 / sam3): 顶层 params + model_id + model_variants 统一 wire。 ──
-    if prompt:
-        context: dict = {"type": "text", "text": prompt, "output": output_mode}
+    elif prompt:
+        context = {"type": prompt_type or "text", "text": prompt, "output": output_mode}
+        if visual_task:
+            context["task"] = visual_task
         if box_threshold is not None:
             context["box_threshold"] = box_threshold
             context["text_threshold"] = text_threshold
-        if model_id:
-            context["model_id"] = model_id
-        if model_variants:
-            context["model_variants"] = model_variants
-        _reserved = {
+        reserved = {
+            "task",
+            "task_type",
+            "prompt_type",
             "type",
             "text",
             "output",
@@ -157,50 +156,49 @@ def _build_predict_context(
             "model_variants",
             "frozen_model_ref",
         }
-        if params:
-            context.update(
-                {
-                    k: v
-                    for k, v in params.items()
-                    if v is not None and k not in _reserved
-                }
-            )
-        return context
-
-    # ── 协议 v2 结构化 (几何 backend, 无 prompt)。 ──
-    if model_variants is not None:
-        ctx: dict = {
-            "type": task_type or "detection",
-            "model_variants": model_variants,
-            "params": params or {},
+        context.update(
+            {
+                k: v
+                for k, v in (params or {}).items()
+                if v is not None and k not in reserved
+            }
+        )
+        if model_variants:
+            context["model_variants"] = model_variants
+    elif model_variants is not None:
+        context = {"model_variants": model_variants, "params": params or {}}
+        if visual_task or not model_id:
+            context["task"] = visual_task or "detect"
+        if prompt_type:
+            context["type"] = prompt_type
+    elif visual_task or model_id or prompt_type:
+        context = {}
+        if visual_task:
+            context["task"] = visual_task
+        if prompt_type:
+            context["type"] = prompt_type
+        reserved = {
+            "task",
+            "task_type",
+            "prompt_type",
+            "type",
+            "model_id",
+            "frozen_model_ref",
         }
-        if model_id:
-            ctx["model_id"] = model_id
-        if class_filter:
-            # v0.14.17 · 类别白名单 (模型原生类别 index 子集); yolo /predict 用 model.predict(classes=) 过滤.
-            ctx["classes"] = class_filter
-        return ctx
-
-    # ── 老扁平 (OCR / doc_layout / 纯分类下游: model_id + task_type, 无 prompt 无 variants)。 ──
-    context2: dict | None = None
-    if task_type or model_id:
-        context2 = {}
-        if task_type:
-            context2["type"] = task_type
-        if model_id:
-            context2["model_id"] = model_id
-        # 透传 params: 多阶段下游 (如 onnxtools 纯分类) 经 StageCard 带 params, 早期 flat 路径
-        # 漏了透传; 顶层保留键 (type/model_id) 不被 params 覆盖, 与文本路径一致。
-        if params:
-            _reserved2 = {"type", "model_id", "frozen_model_ref"}
-            context2.update(
-                {
-                    k: v
-                    for k, v in params.items()
-                    if v is not None and k not in _reserved2
-                }
-            )
-    return context2
+        context.update(
+            {
+                k: v
+                for k, v in (params or {}).items()
+                if v is not None and k not in reserved
+            }
+        )
+    else:
+        return None
+    if model_id and not frozen_model_ref:
+        context["model_id"] = model_id
+    if class_filter:
+        context["classes"] = class_filter
+    return context
 
 
 def _model_label(model_variants: dict | None) -> str | None:
@@ -597,6 +595,8 @@ async def _run_batch(
     execution_scope: str = "bulk",
     async_job_id: str | None = None,
     frozen_model_ref: dict | None = None,
+    task: str | None = None,
+    prompt_type: str | None = None,
 ):
     """v0.9.5 · 批量预标 worker.
 
@@ -608,12 +608,20 @@ async def _run_batch(
     - celery_task_id (v0.9.8): 用于 _BatchPredictTask.on_failure 回查 async_jobs 行.
     - user_id (v0.10.45): 写 async_jobs owner, 供 /async-jobs owner-scope 列表可见.
     - model_id (v0.14.9): 协议 v2 多模型路由, 非空时写 context["model_id"]。
-    - task_type (v0.14.9): 协议 v2 task 别名 ("ocr"/"doc_layout"/"text"), 非空时写
+    - visual_task (v0.14.9): 协议 v2 task 别名 ("ocr"/"doc_layout"/"text"), 非空时写
       context["type"]; 让 OCR / 版面分析等非纯文本 task 也能走批量预标。
 
     v0.10.49 · async_jobs 收敛：async_jobs 升为单一真值，prediction_jobs 专表已删。
     domain 字段（batch_id / prompt / 统计）进 payload/result JSONB。
     """
+    semantic = normalize_task_fields(
+        {"task": task, "task_type": task_type, "prompt_type": prompt_type}
+    )
+    visual_task = semantic.get("task")
+    prompt_type = semantic.get("prompt_type")
+    if pipeline_stages is not None:
+        pipeline_stages = [normalize_task_fields(stage) for stage in pipeline_stages]
+
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
@@ -805,6 +813,7 @@ async def _run_batch(
                     raise ValueError("preannotation task scope is locked for editing")
         from app.services import trained_models
 
+        visual_task = resolve_model_task(backend, model_id, visual_task)
         controlled = (
             trained_models.is_controlled(model_id)
             or frozen_model_ref is not None
@@ -817,7 +826,8 @@ async def _run_batch(
             trained_models.assert_image_scope(
                 project,
                 prompt=prompt,
-                task_type=task_type,
+                task=visual_task,
+                prompt_type=prompt_type,
                 model_variants=model_variants,
                 pipeline_stages=pipeline_stages,
                 execution_unit=execution_unit,
@@ -835,7 +845,8 @@ async def _run_batch(
             output_mode=output_mode,
             params=params,
             model_id=model_id,
-            task_type=task_type,
+            task=visual_task,
+            prompt_type=prompt_type,
             model_variants=model_variants,
             class_filter=class_filter,
             box_threshold=float(project.box_threshold) if project is not None else None,
@@ -910,8 +921,10 @@ async def _run_batch(
             job_payload["model_id"] = model_id
         if frozen_model_ref:
             job_payload["frozen_model_ref"] = frozen_model_ref
-        if task_type:
-            job_payload["task_type"] = task_type
+        if visual_task:
+            job_payload["task"] = visual_task
+        if prompt_type:
+            job_payload["prompt_type"] = prompt_type
         if model_variants is not None:
             job_payload["model_variants"] = model_variants
             label = _model_label(model_variants)
@@ -1059,7 +1072,8 @@ async def _run_batch(
                     "stage": 0,
                     "ml_backend_id": ml_backend_id,
                     "model_id": model_id,
-                    "task_type": task_type,
+                    "task": visual_task,
+                    "prompt_type": prompt_type,
                     "model_variants": model_variants,
                     "params": params,
                     "class_filter": class_filter,
@@ -1157,7 +1171,8 @@ async def _run_batch(
                         output_mode=output_mode,
                         params=s.get("params"),
                         model_id=s.get("model_id"),
-                        task_type=s.get("task_type"),
+                        task=s.get("task"),
+                        prompt_type=s.get("prompt_type"),
                         model_variants=s.get("model_variants"),
                         class_filter=s.get("class_filter"),
                         box_threshold=box_thr,
@@ -1494,6 +1509,8 @@ def batch_predict(
     execution_scope: str = "bulk",
     async_job_id: str | None = None,
     frozen_model_ref: dict | None = None,
+    task: str | None = None,
+    prompt_type: str | None = None,
 ):
     asyncio.run(
         _run_batch(
@@ -1508,7 +1525,9 @@ def batch_predict(
             params=params,
             predict_mode=predict_mode,
             model_id=model_id,
+            task=task,
             task_type=task_type,
+            prompt_type=prompt_type,
             model_variants=model_variants,
             class_filter=class_filter,
             pipeline_stages=pipeline_stages,

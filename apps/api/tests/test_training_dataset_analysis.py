@@ -99,7 +99,7 @@ def test_polygon_insights_use_instance_area_and_keep_source_identity():
 
     snapshot, manifest = inputs([{"content": "polygon", "split": "val"}])
     snapshot.update(SEGMENTATION_CONTRACT)
-    manifest.update(**SEGMENTATION_CONTRACT, format="ultralytics-segmentation")
+    manifest.update(SEGMENTATION_CONTRACT)
     ring = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.15], [0.15, 0.15], [0.15, 0.9], [0.1, 0.9]]
     annotation = {
         "id": str(uuid.uuid4()),

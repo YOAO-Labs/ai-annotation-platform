@@ -1,22 +1,9 @@
-"""协议级能力注册表 (SSOT, 与 ml backend 注册解耦).
-
-v0.14.11 引入。本模块定义平台对外承诺支持的「能力清单」, 是「模型市场 / 能力目录」
-的协议层数据源:
-
-- task / infra / modality / geometry / prompt / input 六张受控词表;
-- 每条 task 的人类可读元数据 (label / 简介 / 协议要求 / 推荐 backend);
-- 由 `GET /v1/ml-capabilities/protocol` 直接对外暴露 (无 project 作用域);
-- 也被 `services/ml_capabilities.py` 内部消费 (受控词表 + task 默认几何)。
-
-约束:
-- 与 v0.14.9 协议 v2 边界严格一致, 不在本版扩展;
-- 元数据 (label / summary / protocol_notes) 是产品文案, 改动不算 breaking change;
-- 受控词表本身是协议契约, 任何增删都要走 ADR (本版不动)。
-"""
+"""Capability metadata; canonical visual task names are shared across services."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from aap_task_contract import TASK_VALUES as CANONICAL_TASK_VALUES
 
 
 @dataclass(frozen=True)
@@ -92,7 +79,7 @@ class InputSpec:
 # ── 9 个 task (v0.14.9 协议 v2 受控词表, 顺序即 UI 展示顺序) ───────────────────
 TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
-        id="detection",
+        id="detect",
         label="目标检测",
         summary="在图像或视频帧中输出 bbox + 类别标签。",
         default_geometry=("bbox",),
@@ -154,7 +141,7 @@ TASKS: tuple[TaskSpec, ...] = (
         ),
     ),
     TaskSpec(
-        id="segmentation",
+        id="segment",
         label="实例分割",
         summary="为每个对象输出 polygon / multi_polygon 几何 + 类别。",
         default_geometry=("polygon",),
@@ -189,7 +176,7 @@ TASKS: tuple[TaskSpec, ...] = (
         ),
     ),
     TaskSpec(
-        id="keypoint",
+        id="pose",
         label="关键点",
         summary="输出 2D 关键点集合 (含可见性), 如人体姿态、面部关键点。",
         default_geometry=("keypoint",),
@@ -209,7 +196,7 @@ TASKS: tuple[TaskSpec, ...] = (
         ),
     ),
     TaskSpec(
-        id="classification",
+        id="classify",
         label="图像分类",
         summary="对整张图或裁片输出类别标签, 无几何输出。",
         default_geometry=("none",),
@@ -477,7 +464,8 @@ INPUTS: tuple[InputSpec, ...] = (
 
 # ── 派生表 (供 ml_capabilities.py 消费, 避免双份维护) ───────────────────────────
 INFRA_VALUES: tuple[str, ...] = tuple(s.id for s in INFRAS)
-TASK_VALUES: tuple[str, ...] = tuple(s.id for s in TASKS)
+TASKS = tuple(sorted(TASKS, key=lambda spec: CANONICAL_TASK_VALUES.index(spec.id)))
+TASK_VALUES = CANONICAL_TASK_VALUES
 GEOMETRY_VALUES: tuple[str, ...] = tuple(s.id for s in GEOMETRIES)
 MODALITY_VALUES: tuple[str, ...] = tuple(s.id for s in MODALITIES)
 PROMPT_VALUES: tuple[str, ...] = tuple(s.id for s in PROMPTS)

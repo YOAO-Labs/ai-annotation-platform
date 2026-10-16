@@ -1,6 +1,7 @@
 """Strict JSON validation and native observation checks, with no framework imports."""
 
 import math
+from aap_task_contract import normalize_task
 from pathlib import PurePath
 
 from .catalog import FIXED, SEGMENTATION_FIXED, definition, schema_identity
@@ -62,11 +63,19 @@ def validate_value(value, rule):
 
 
 def resolve(framework, base_model, request):
-    schema = definition(framework, base_model)
-    if (
-        request["schema_id"] != schema["schema_id"]
-        or request["schema_digest"] != schema["schema_digest"]
-    ):
+    schemas = [
+        definition(framework, base_model, legacy=legacy) for legacy in (False, True)
+    ]
+    schema = next(
+        (
+            item
+            for item in schemas
+            if request["schema_id"] == item["schema_id"]
+            and request["schema_digest"] == item["schema_digest"]
+        ),
+        None,
+    )
+    if schema is None:
         raise ValueError("参数定义已变化或不属于当前模型，请重新读取目录")
     submitted = request["values"]
     if not isinstance(submitted, dict) or len(submitted) > 150:
@@ -98,7 +107,7 @@ def resolve(framework, base_model, request):
         key: "user" if key in user_values else "reviewed-default" for key in effective
     }
     fixed = {**FIXED[framework]}
-    if schema["task"] == SEGMENTATION:
+    if normalize_task(schema["task"]) == SEGMENTATION:
         fixed.update(SEGMENTATION_FIXED)
     effective.update(fixed)
     origins.update({key: "platform" for key in fixed})

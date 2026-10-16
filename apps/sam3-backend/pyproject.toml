@@ -8,6 +8,7 @@ requires-python = ">=3.12,<3.13"
 # 不在此处重复声明以避免 pip 误升级覆盖预装版本.
 # 与官仓 facebookresearch/sam3 的 README 对齐: CUDA 12.6+, Python 3.12, torch 2.7+.
 dependencies = [
+    "aap-task-contract",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "pydantic>=2.5",
@@ -47,4 +48,7 @@ py-modules = ["main", "predictor", "video_predictor", "pvs_video_predictor", "sc
 testpaths = ["tests"]
 # mask_utils 共享包从 apps/_shared/mask_utils 注入. Docker 容器内由
 # `pip install -e /app/mask_utils` 提供; 本地 pytest 通过 pythonpath 直接定位 src/.
-pythonpath = [".", "../_shared/mask_utils/src", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/mask_utils/src", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../_shared/task_contract", editable = true }

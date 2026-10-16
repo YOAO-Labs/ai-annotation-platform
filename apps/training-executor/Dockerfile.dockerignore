@@ -1,6 +1,8 @@
 **
 !apps/
 !apps/_shared/
+!apps/_shared/task_contract/
+!apps/_shared/task_contract/**
 !apps/_shared/training_contract/
 !apps/_shared/training_contract/**
 !apps/training-executor/

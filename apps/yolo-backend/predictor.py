@@ -263,7 +263,7 @@ class YoloPredictor:
             return await self._predict_open_text(file_path, ctx)
         if ctx.type == "exemplar":
             return await self._predict_visual_prompt(file_path, ctx)
-        if ctx.type == "tracker":
+        if ctx.task == "tracker":
             return await self._predict_tracker(file_path, ctx)
 
         async with self._pool.borrow(*model_key_for_context(ctx)) as lease:
@@ -278,7 +278,7 @@ class YoloPredictor:
         file_path: str,
         ctx: Context,
     ) -> tuple[list[dict[str, Any]], int]:
-        task = ctx.type
+        task = ctx.task
         params = ctx.params
         img = fetch_image(file_path)
         img_w, img_h = img.size
@@ -319,11 +319,11 @@ class YoloPredictor:
         names: dict[int, str] = getattr(result, "names", {}) or getattr(
             model, "names", {}
         )
-        if task == "detection":
+        if task == "detect":
             items = _emit_detection(result, names, img_w, img_h)
-        elif task == "segmentation":
+        elif task == "segment":
             items = _emit_segmentation(result, names, img_w, img_h)
-        elif task == "keypoint":
+        elif task == "pose":
             items = _emit_keypoint(result, names, img_w, img_h)
         elif task == "obb":
             items = _emit_obb(result, names, img_w, img_h)

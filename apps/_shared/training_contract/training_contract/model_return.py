@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import re
+from aap_task_contract import normalize_task
 from .dataset import DETECTION, config_task
 
 
@@ -29,7 +30,11 @@ def libre_identity(base_model):
 
 def registration_eligibility(config):
     framework = config.get("framework")
-    if config_task(config) != DETECTION or str(
+    try:
+        task = config_task(config)
+    except ValueError:
+        task = None
+    if task != DETECTION or str(
         (config.get("base_model") or {}).get("id", "")
     ).lower().endswith("-seg"):
         return {
@@ -52,7 +57,7 @@ def registration_eligibility(config):
         if config.get("adapter_revision") == 2 and not identity:
             raise ValueError("冻结训练配置缺少模型身份")
         if identity and (
-            identity.get("task") != "image-detection"
+            normalize_task(identity.get("task")) != DETECTION
             or identity.get("model_family") != "yolo9"
             or identity.get("framework") != framework
             or identity.get("framework_version") != "1.6.0"
