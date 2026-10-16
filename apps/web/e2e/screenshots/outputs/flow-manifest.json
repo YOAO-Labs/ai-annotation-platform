@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-16T05:21:37.047Z",
+  "updated_at": "2026-10-16T05:51:03.839Z",
   "entries": {
     "docs-site/.vitepress/theme/assets/home/hero/data-manager.webp": {
       "asset_id": "home-hero/data-manager",
@@ -6814,8 +6814,8 @@
     "docs-site/public/media/video/tracker-range-poster.webp": {
       "asset_id": "video-tracker-range",
       "role": "poster",
-      "generated_at": "2026-10-15T13:15:33.793Z",
-      "captured_commit": "ccf603f72c8ca63a17425a2456d830a858cbbcf7",
+      "generated_at": "2026-10-16T05:51:03.839Z",
+      "captured_commit": "8ffdd7b321362419751a9ac3a29a0996928fbc01",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -6824,18 +6824,16 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/video-tracker-range.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "be299f295efb152dd20073bb674cbf4b4eab83e4f1e4abfabb686a9454953c47",
-      "bytes": 72154,
+      "sha256": "0163f231db29d8045b66c12884069cbcb8623f4c6f6c3b6094bdd68b5427c7ba",
+      "bytes": 74298,
       "media": {
         "container": "webp_pipe",
         "codec": "webp",
@@ -6845,25 +6843,26 @@
         "duration_seconds": null
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-49-22-711Z-1622570",
+        "runId": "20261016T054357Z-8ffdd7b32136",
         "assetId": "video-tracker-range",
-        "sha256": "c1868be87bb6750ab9b35d25a5f5393481adbc24003327dc9d80ca4233fdd6f1",
-        "quality": "standard",
+        "sha256": "86b8fa179ea7cc0327842c0537bfc7fb3633804c9e6c7ea93e3fac308468f823",
+        "quality": "marketing",
         "clip": {
-          "start": 157.5,
-          "duration": 32
-        }
+          "start": 0,
+          "duration": 32.983333
+        },
+        "poster_time_seconds": 32.4
       }
     },
     "docs-site/public/media/video/tracker-range.mp4": {
       "asset_id": "video-tracker-range",
       "role": "docs-video",
-      "generated_at": "2026-10-15T13:15:33.750Z",
-      "captured_commit": "ccf603f72c8ca63a17425a2456d830a858cbbcf7",
+      "generated_at": "2026-10-16T05:51:03.800Z",
+      "captured_commit": "8ffdd7b321362419751a9ac3a29a0996928fbc01",
       "source_worktree_dirty": false,
       "seed_revision": "screenshots-2026-08-g",
       "source": "apps/web/scripts/media-derivation.mjs",
@@ -6872,38 +6871,36 @@
         "apps/api/app/services/screenshot_seed_backends.py",
         "apps/api/app/services/screenshot_seed_spec.py",
         "apps/web/e2e/fixtures/seed.ts",
-        "apps/web/e2e/screenshots/_helpers/portable-recorder.ts",
         "apps/web/e2e/screenshots/environment.ts",
         "apps/web/e2e/screenshots/flows/_canvas.ts",
         "apps/web/e2e/screenshots/flows/_workbench-layout.ts",
         "apps/web/e2e/screenshots/flows/flows.spec.ts",
         "apps/web/e2e/screenshots/flows/video-tracker-range.ts",
-        "apps/web/e2e/screenshots/recording-plan.mjs",
         "apps/web/scripts/derive-doc-media.mjs",
         "apps/web/scripts/media-derivation.mjs"
       ],
-      "sha256": "c79d04751d95c9096222b8d9efa955ca9631ffaecbd498736da01825e579c260",
-      "bytes": 1270948,
+      "sha256": "4a6db08d16c4edc5408942dfd995d52555e03e61c991055914b215f9842cf03f",
+      "bytes": 923389,
       "media": {
         "container": "mov,mp4,m4a,3gp,3g2,mj2",
         "codec": "h264",
         "width": 1280,
         "height": 720,
-        "fps": "25/1",
-        "duration_seconds": 32
+        "fps": "30/1",
+        "duration_seconds": 33
       },
       "capture": {
-        "source_quality": "standard",
+        "source_quality": "marketing",
         "source_inference": "live"
       },
       "source_asset": {
-        "runId": "2026-10-15T12-49-22-711Z-1622570",
+        "runId": "20261016T054357Z-8ffdd7b32136",
         "assetId": "video-tracker-range",
-        "sha256": "c1868be87bb6750ab9b35d25a5f5393481adbc24003327dc9d80ca4233fdd6f1",
-        "quality": "standard",
+        "sha256": "86b8fa179ea7cc0327842c0537bfc7fb3633804c9e6c7ea93e3fac308468f823",
+        "quality": "marketing",
         "clip": {
-          "start": 157.5,
-          "duration": 32
+          "start": 0,
+          "duration": 32.983333
         }
       }
     },
