@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { withHeadlessDisplay } from "./headless-marketing-display.mjs";
 import {
   RECORDING_FLOWS,
   MARKETING_ONLY_FLOWS,
@@ -20,6 +21,7 @@ const { values } = parseArgs({
     plan: { type: "boolean" },
     "validate-only": { type: "boolean" },
     "resize-display": { type: "boolean" },
+    "headless-display": { type: "boolean" },
   },
 });
 if (values.list) {
@@ -38,9 +40,26 @@ const profile = values.profile ?? (values["validate-only"] ? "docs" : "marketing
 const plan = recordingPlan(values.flow ?? [], profile);
 const captureDriver =
   plan.profile === "marketing"
-    ? marketingCaptureDriver(process.platform, process.env.MARKETING_CAPTURE_DRIVER, plan.flows)
+    ? marketingCaptureDriver(
+        process.platform,
+        values["headless-display"] ? "x11grab" : process.env.MARKETING_CAPTURE_DRIVER,
+        plan.flows,
+      )
     : undefined;
-console.log(JSON.stringify({ ...plan, ...(captureDriver ? { captureDriver } : {}) }, null, 2));
+if (values["headless-display"] && (process.platform !== "linux" || plan.profile !== "marketing")) {
+  throw new Error("--headless-display requires the Linux marketing profile.");
+}
+console.log(
+  JSON.stringify(
+    {
+      ...plan,
+      ...(captureDriver ? { captureDriver } : {}),
+      ...(values["headless-display"] ? { headlessDisplay: true } : {}),
+    },
+    null,
+    2,
+  ),
+);
 if (values["resize-display"] && plan.profile !== "marketing") {
   throw new Error("--resize-display only applies to the marketing profile.");
 }
@@ -49,6 +68,14 @@ if (values["resize-display"] && captureDriver === "screencapturekit") {
 }
 if (values.plan) process.exit(0);
 assertRecordingMode(plan.profile, values["validate-only"]);
+if (values["headless-display"]) {
+  // Re-enter the same selector on our owned display, before any database/fixture operation.
+  process.exitCode = await withHeadlessDisplay(process.execPath, [
+    fileURLToPath(import.meta.url),
+    ...process.argv.slice(2).filter((arg) => arg !== "--headless-display"),
+  ]);
+  process.exit(process.exitCode);
+}
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const apiRoot = path.resolve(webRoot, "../api");
