@@ -56,3 +56,16 @@ Retain the existing output contract of 3840×2160 at 60fps, hardware compositing
 - Capture/content acceptance reached 24/34 assets. Closed accepted runs are delivered incrementally with media checks and byte-identical original-manifest readback. GPU contention caused several honest cadence rejections despite successful product behavior; image and management retries now alternate exclusive capture windows. No external GPU task was modified.
 - Repeated range tracking with point prompts returned the wrong real object. The range story now uses an actual whole-bus box with submitted-input IoU >0.95, preserving output IoU >=0.6, range selection and persisted readback. The combo window starts at the fully configured prompt and retains real inference plus all review actions with readable one-second bookends; its original 30–50 second content policy remains unchanged.
 - Interim root integration checks passed: 215 referenced media files, zero broken references, and all 65 static references present. Existing stale human review evidence remains truthful; final 34-master/83-derivative acceptance is still pending.
+
+## Video range prompt qualification
+
+A bounded real-API diagnostic in the owned video capture runtime compared the same left-bus box with one or two targets and the two end frames. Only one factor changed between successive requests; every job was removed through the maintained scoped cleanup. The task returned to pending with zero annotations and zero tracker jobs.
+
+| Targets | End frame | Left-bus F0 IoU | Right-bus F0 IoU |
+| ------- | --------- | --------------- | ---------------- |
+| One     | F20       | 0               | —                |
+| One     | F30       | 0               | —                |
+| Two     | F30       | 0.94497         | 0.85036          |
+| Two     | F20       | 0.94497         | 0.85036          |
+
+These observations apply to this video and these requests in this runtime, not to all single-target tracking. The backend product path was not changed. The range recording now uses actual left/right bus box prompts and a Shift-brushed F0→F20 range, preserving both candidate sets, each original IoU ≥0.6 gate, and both saved/reloaded tracks. No model output or class was substituted. Bounded input/output evidence is retained in the private capture handoff (`range-factor-diagnostic.json`); credentials and temporary decoded media are excluded.

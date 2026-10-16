@@ -59,7 +59,7 @@ last_reviewed: 2026-09-05
   src="/media/video/tracker-range.mp4"
   poster="/media/video/tracker-range-poster.webp"
   alt="按住 Shift 刷选时间轴范围并把自定义范围回填到 AI 追踪面板"
-  caption="先给公交车添加 F0 种子，再按住 Shift 刷选 F0–F20；确认范围后运行追踪，检查中间帧并采纳为同一条轨迹。"
+  caption="先为左右两辆公交车分别添加 F0 整车框种子，再按住 Shift 刷选 F0–F20；确认范围后运行追踪，核对中间帧并分别采纳为两条轨迹。"
 />
 
 时间轴上的紫色「AI 影响范围」是待处理帧的预览，不表示 AI 正在运行。它只在视频追踪面板可见时显示；切到同组其他标签页或隐藏面板后会消失，切回时恢复原有范围配置。
