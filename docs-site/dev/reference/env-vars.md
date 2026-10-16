@@ -357,7 +357,7 @@ last_reviewed: 2026-10-16
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DUCKDB_PATH` | `./data/duckdb/analytics.duckdb` | Celery worker 每日 02:30 UTC 增量同步 task_events + audit_logs 到这个 DuckDB 文件; FastAPI /admin/analytics 端点以 read_only 模式读取它出固定面板. Docker 部署: worker 容器把 host ./data/duckdb 挂到 /var/lib/duckdb; 本地 API 进程跑 host 时直接读 host 文件 (单 writer 多 reader). PostgreSQL *_test / *_e2e 库未显式配置时，自动使用当前 checkout 下 .artifacts/analytics/<host-port-database-hash>.duckdb；测试 seed 与 API 必须 使用同一 checkout 和数据库。显式路径优先，但截图 seed 拒绝共享开发默认文件。 |
+| `DUCKDB_PATH` | `./data/duckdb/analytics.duckdb` | Celery worker 每日 02:30 UTC 增量同步 task_events + audit_logs 到这个 DuckDB 文件; FastAPI /admin/analytics 端点以 read_only 模式读取它出固定面板. Docker 部署: worker 容器把 host ./data/duckdb 挂到 /var/lib/duckdb; 本地 API 进程跑 host 时直接读 host 文件 (单 writer 多 reader). PostgreSQL *_test / *_e2e 库未显式配置时，自动使用当前 checkout 下 .artifacts/analytics/数据库标识哈希.duckdb；测试 seed 与 API 必须 使用同一 checkout 和数据库。显式路径优先，但截图 seed 拒绝共享开发默认文件。 |
 
 ## 部署环境
 
