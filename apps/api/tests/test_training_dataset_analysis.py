@@ -121,6 +121,21 @@ def test_polygon_insights_use_instance_area_and_keep_source_identity():
     assert label["annotation_version"] == 3
     assert label["area"] == pytest.approx(0.0775)
     assert result["overview"]["box_area_bins"][1]["val"] == 1
+    assert result["overview"]["task_statistics"]["task"] == "segment"
+    assert result["overview"]["task_statistics"]["polygon_area_sum"] == pytest.approx(
+        0.0775
+    )
+    assert "box_centers" not in result["overview"]["task_statistics"]
+    # Recognition modernizes only the derived adapter profile. Historical
+    # polygon labels and their source receipt remain exactly the same inputs.
+    from training_contract.dataset import LEGACY_SEGMENTATION_CONTRACT
+
+    for record in (snapshot, manifest):
+        record.pop("media_type")
+        record.pop("format")
+        record.update(LEGACY_SEGMENTATION_CONTRACT)
+    legacy = service.derive(snapshot, manifest, None, content_digest(snapshot))
+    assert service.compare(legacy, result)["counts"]["labels_changed"] == 0
     detection = derived([{"content": "polygon", "split": "val"}])
     with pytest.raises(ValueError, match="不同训练任务"):
         service.compare(detection, result)
@@ -305,7 +320,9 @@ async def test_indexed_pages_filters_and_frozen_preparation_are_bounded(
         "unchecked": 160,
         "last_checked_at": None,
     }
-    assert len(response.content) < 5000
+    assert len(response.content) < 30000
+    assert response.json()["task_statistics"]["task"] == "detect"
+    assert response.json()["evidence"]["analyzed_members"] == 160
     compact = await httpx_client.get(
         path.removesuffix("/insights") + "?include_manifest=false", headers=headers
     )
@@ -348,6 +365,56 @@ async def test_indexed_pages_filters_and_frozen_preparation_are_bounded(
     )
     bad_page = await httpx_client.get(path + "/samples?limit=101", headers=headers)
     assert bad_page.status_code == 422
+
+
+async def test_class_ranking_and_content_matching_filter_before_pagination(
+    db_session, super_admin, httpx_client
+):
+    owner, token = super_admin
+    project, data = await version(
+        db_session,
+        owner,
+        classes=["unused", "truck", "car"],
+        specs=[
+            {"content": "duplicate", "labels": ["car"] * 3},
+            {"content": "duplicate", "task": "another-member", "labels": ["car"] * 3},
+            {"content": "truck", "split": "val", "labels": ["truck"] * 2},
+            {"content": "car", "split": "val", "labels": ["car"]},
+        ],
+    )
+    path = f"/api/v1/projects/{project.id}/training-datasets/{data.id}/insights"
+    headers = {"Authorization": "Bearer " + token}
+    ranked = await httpx_client.get(
+        path + "/classes?order_by=instances&limit=1", headers=headers
+    )
+    assert ranked.status_code == 200, ranked.text
+    assert ranked.json()["items"][0]["name"] == "car"
+    assert ranked.json()["total"] == 3
+    assert ranked.json()["order_by"] == "instances"
+    validation = await httpx_client.get(
+        path + "/classes?order_by=instances&split=val&limit=1", headers=headers
+    )
+    assert validation.json()["items"][0]["name"] == "truck"
+    assert validation.json()["split"] == "val"
+    member_rank = await httpx_client.get(
+        path + "/classes?order_by=images&limit=1&offset=1", headers=headers
+    )
+    assert member_rank.json()["items"][0]["name"] == "truck"
+    exact = await httpx_client.get(
+        path + f"/samples?content_sha256={sha('duplicate')}&limit=1&offset=1",
+        headers=headers,
+    )
+    assert exact.status_code == 200, exact.text
+    assert exact.json()["total"] == 2 and len(exact.json()["items"]) == 1
+    assert exact.json()["items"][0]["sha256"] == sha("duplicate")
+    unknown = await httpx_client.get(
+        path + f"/samples?content_sha256={sha('not-retained')}", headers=headers
+    )
+    assert unknown.json()["total"] == 0
+    invalid = await httpx_client.get(
+        path + "/samples?content_sha256=not-a-content-hash", headers=headers
+    )
+    assert invalid.status_code == 422
 
 
 async def test_comparison_scope_removed_rows_and_cache_rebuild_then_cascade(
@@ -589,7 +656,7 @@ def test_large_metadata_derivation_keeps_public_summary_constant_size():
     )
     assert value["overview"]["counts"]["images"] == 10000
     assert len(value["samples"]) == 10000
-    assert len(json.dumps(value["overview"])) < 5000
+    assert len(json.dumps(value["overview"])) < 30000
 
 
 @pytest.mark.parametrize("storage_missing", [False, True])

@@ -2,9 +2,95 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from aap_task_contract import VisualTask
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class TrainingDatasetInsightCapability(BaseModel):
+    supported: bool
+    reason: str | None = None
+
+
+class TrainingDatasetInsightCapabilities(BaseModel):
+    create_version: TrainingDatasetInsightCapability
+    qualified_training: TrainingDatasetInsightCapability
+    overview_statistics: TrainingDatasetInsightCapability
+    task_statistics: TrainingDatasetInsightCapability
+    sample_preview: TrainingDatasetInsightCapability
+    semantic_comparison: TrainingDatasetInsightCapability
+
+
+class TrainingDatasetInsightContractProfile(BaseModel):
+    task: VisualTask
+    media_type: str
+    format: str
+    geometry: str
+    bridge: str
+
+
+class TrainingDatasetInsightAdapter(BaseModel):
+    id: str
+    revision: int
+
+
+class TrainingDatasetInsightEvidence(BaseModel):
+    analyzed_members: int
+    unknown_label_members: int
+    known_instances: int
+    geometry_unknown_members: int
+
+
+class TrainingDatasetStatisticAxisBin(BaseModel):
+    key: str
+    label: str
+    lower: float | None
+    upper: float | None
+
+
+class TrainingDatasetStatisticHeatmap(BaseModel):
+    x_bins: list[TrainingDatasetStatisticAxisBin]
+    y_bins: list[TrainingDatasetStatisticAxisBin]
+    counts: list[list[int]]
+    unit: Literal["member_images", "instances"]
+    population: int
+    unknown_members: int
+
+
+class TrainingDatasetObjectDensityBin(BaseModel):
+    key: str
+    label: str
+    count: int
+
+
+class TrainingDatasetObjectDensity(BaseModel):
+    bins: list[TrainingDatasetObjectDensityBin]
+    analyzed_members: int
+    unknown_label_members: int
+
+
+class TrainingDatasetDetectionStatistics(BaseModel):
+    task: Literal["detect"] = "detect"
+    schema_version: Literal[1] = 1
+    image_dimensions: TrainingDatasetStatisticHeatmap
+    box_centers: TrainingDatasetStatisticHeatmap
+    box_dimensions: TrainingDatasetStatisticHeatmap
+    objects_per_member: TrainingDatasetObjectDensity
+
+
+class TrainingDatasetSegmentationStatistics(BaseModel):
+    task: Literal["segment"] = "segment"
+    schema_version: Literal[1] = 1
+    geometry: Literal["normalized-simple-polygon"] = "normalized-simple-polygon"
+    known_instances: int
+    polygon_area_sum: float
+
+
+TrainingDatasetTaskStatistics = Annotated[
+    TrainingDatasetDetectionStatistics | TrainingDatasetSegmentationStatistics,
+    Field(discriminator="task"),
+]
 
 
 class TrainingDatasetDistributionBin(BaseModel):
@@ -41,7 +127,12 @@ class TrainingDatasetInsightOverview(BaseModel):
     snapshot_digest: str
     manifest_digest: str
     status: Literal["complete", "partial", "unavailable"]
-    task: Literal["detect", "segment"] | None = "detect"
+    task: VisualTask | None = "detect"
+    contract_profile: TrainingDatasetInsightContractProfile | None
+    adapter: TrainingDatasetInsightAdapter | None
+    capabilities: TrainingDatasetInsightCapabilities
+    evidence: TrainingDatasetInsightEvidence
+    task_statistics: TrainingDatasetTaskStatistics | None
     counts: dict[str, int]
     splits: dict[str, dict[str, int]]
     classes_total: int
@@ -68,6 +159,8 @@ class TrainingDatasetClassPage(BaseModel):
     total: int
     limit: int
     offset: int
+    order_by: Literal["index", "instances", "images"] = "index"
+    split: Literal["train", "val"] | None = None
 
 
 class TrainingDatasetAnalyzedSampleOut(BaseModel):
@@ -132,6 +225,11 @@ class TrainingDatasetInsightComparison(BaseModel):
     version_id: uuid.UUID
     status: Literal["complete", "partial", "unavailable"]
     counts: dict[str, int]
+    count_unit: Literal["unique_contents"]
+    baseline_members: int
+    target_members: int
+    overlapping_changes: bool
+    semantic_unchanged_label: str
     classes_added: int
     classes_removed: int
     class_order_changed: bool

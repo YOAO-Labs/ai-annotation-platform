@@ -27,13 +27,18 @@ from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
     contract_of,
-    native_labels,
     semantic_partitions,
 )
 from app.services.training_datasets import MAX_IMAGE_BYTES, MAX_SAMPLES
-from training_contract.dataset import DETECTION, SEGMENTATION, polygon_area
+from training_contract.dataset import SEGMENTATION
+from app.services.training_dataset_insight_adapters import (
+    adapter_cache_identity,
+    adapter_for_profile,
+    contract_profile,
+    unsupported_capabilities,
+)
 
-ANALYSIS_SCHEMA = 2
+ANALYSIS_SCHEMA = 3
 HASH = re.compile(r"^[a-f0-9]{64}$")
 CHANGES = {
     "added",
@@ -102,8 +107,12 @@ def derive(
     frozen = {str(s["task_id"]): s for s in snapshot.get("samples", [])}
     try:
         contract = contract_of(manifest)
-    except TrainingDatasetError:
-        contract = None
+        profile = contract_profile(manifest)
+        adapter = adapter_for_profile(profile)
+        unavailable_reason = None
+    except TrainingDatasetError as exc:
+        contract, profile, adapter = None, None, None
+        unavailable_reason = str(exc)
     segmentation = bool(contract and normalize_task(contract["task"]) == SEGMENTATION)
     class_rows = [
         {
@@ -184,12 +193,14 @@ def derive(
                 or "annotations" not in source
                 or snapshot.get("classes") != classes
                 or contract is None
-                or contract_of(snapshot) != contract
+                or contract_profile(snapshot) != profile
             ):
                 raise TrainingDatasetError(
                     "frozen_labels_unavailable", "冻结标注或类别映射未保留"
                 )
-            text, instances = native_labels(source["annotations"], classes, contract)
+            text, instances, labels = adapter.labels(
+                source["annotations"], classes, contract
+            )
             if segmentation and member.get("instances") != instances:
                 raise TrainingDatasetError(
                     "frozen_instances_mismatch", "冻结实例来源与训练包不一致"
@@ -200,39 +211,6 @@ def derive(
             ):
                 raise TrainingDatasetError(
                     "frozen_labels_mismatch", "冻结标签与训练包摘要不一致"
-                )
-            labels = []
-            for line_number, line in enumerate(text.splitlines()):
-                if segmentation:
-                    values = line.split()
-                    index = int(values[0])
-                    coords = list(map(float, values[1:]))
-                    points = [coords[i : i + 2] for i in range(0, len(coords), 2)]
-                    labels.append(
-                        {
-                            "type": "polygon",
-                            "class_index": index,
-                            "class_name": classes[index],
-                            "points": points,
-                            "area": polygon_area(points),
-                            "annotation_id": instances[line_number]["annotation_id"],
-                            "annotation_version": instances[line_number][
-                                "annotation_version"
-                            ],
-                        }
-                    )
-                    continue
-                index, x, y, w, h = line.split()
-                index = int(index)
-                labels.append(
-                    {
-                        "class_index": index,
-                        "class_name": classes[index],
-                        "x_center": float(x),
-                        "y_center": float(y),
-                        "width": float(w),
-                        "height": float(h),
-                    }
                 )
             row.update(
                 labels=labels,
@@ -246,25 +224,7 @@ def derive(
                 if not labels
                 else False,
                 class_ids=sorted({label["class_index"] for label in labels}),
-                semantic_label_digest=content_digest(
-                    {
-                        "data_contract": contract,
-                        "labels": sorted(
-                            (label["class_name"], label["points"]) for label in labels
-                        ),
-                    }
-                    if segmentation
-                    else sorted(
-                        (
-                            label["class_name"],
-                            label["x_center"],
-                            label["y_center"],
-                            label["width"],
-                            label["height"],
-                        )
-                        for label in labels
-                    )
-                ),
+                semantic_label_digest=adapter.semantic_fingerprint(labels),
             )
             if split:
                 splits[split]["instances"] += len(labels)
@@ -359,21 +319,39 @@ def derive(
     )
     observations.update(
         {
-            "classes_absent_from_train": sum(not c["train_images"] for c in class_rows),
-            "classes_absent_from_validation": sum(
-                not c["val_images"] for c in class_rows
+            "classes_with_no_known_train_instances": sum(
+                not c["train_instances"] for c in class_rows
+            ),
+            "classes_with_no_known_validation_instances": sum(
+                not c["val_instances"] for c in class_rows
             ),
             "unknown_labels": unknown_labels,
             "unknown_dimensions": unknown_dimensions,
             "unknown_contents": unknown_contents,
         }
     )
+    for split in ("train", "val"):
+        if not splits[split]["unknown_labels"] and not observations["unknown_split"]:
+            observations[
+                f"classes_absent_from_{'validation' if split == 'val' else 'train'}"
+            ] = sum(not c[f"{split}_images"] for c in class_rows)
     known = len(members) - unknown_labels
+    included_rows = [row for row in samples if row["included"]]
+    known_instances = sum(row["instances"] or 0 for row in included_rows)
+    observed_classes = len(
+        {index for row in included_rows for index in row["class_ids"]}
+    )
+    observations["observed_classes"] = observed_classes
+    geometry_unknown = (
+        adapter.geometry_unknown_members(included_rows) if adapter else len(members)
+    )
+    observations["geometry_unknown_members"] = geometry_unknown
     status = (
         "unavailable"
-        if members and not known
+        if adapter is None or members and not known
         else "partial"
         if unknown_labels
+        or geometry_unknown
         or unknown_dimensions
         or unknown_contents
         or observations["unknown_split"]
@@ -382,10 +360,25 @@ def derive(
     )
     overview = {
         "status": status,
-        "task": normalize_task(contract["task"]) if contract else None,
+        "task": profile["task"] if profile else None,
+        "contract_profile": profile,
+        "adapter": {"id": adapter.id, "revision": adapter.revision}
+        if adapter
+        else None,
+        "capabilities": adapter.capabilities(snapshot)
+        if adapter
+        else unsupported_capabilities(unavailable_reason),
+        "evidence": {
+            "analyzed_members": known,
+            "unknown_label_members": unknown_labels,
+            "known_instances": known_instances,
+            "geometry_unknown_members": geometry_unknown,
+        },
+        "task_statistics": adapter.statistics(included_rows) if adapter else None,
         "counts": {
             "images": len(members),
-            "instances": sum((r["instances"] or 0) for r in samples if r["included"]),
+            "instances": known_instances,
+            "observed_classes": observed_classes,
             "known_label_images": known,
             "unique_contents": len(contents),
             "duplicate_images": len(members) - unknown_contents - len(contents),
@@ -441,14 +434,18 @@ def derive(
 
 
 def compare(baseline: dict, target: dict) -> dict:
-    if normalize_task(baseline["overview"].get("task", DETECTION)) != normalize_task(
-        target["overview"].get("task", DETECTION)
-    ):
+    before_profile, after_profile = (
+        value["overview"].get("contract_profile") for value in (baseline, target)
+    )
+    if before_profile is None or after_profile is None:
         raise TrainingDatasetError(
-            "task_mismatch",
-            "不同训练任务的数据版本不能作为同类数据比较",
+            "unsupported_insight_contract",
+            "数据契约没有足够证据支持语义比较",
             status_code=422,
         )
+    adapter_for_profile(before_profile).assert_comparable(
+        adapter_for_profile(after_profile)
+    )
     before, after = baseline["contents"], target["contents"]
     common = before.keys() & after.keys()
     changes = {key: set() for key in CHANGES}
@@ -497,6 +494,11 @@ def compare(baseline: dict, target: dict) -> dict:
         or target["overview"]["status"] != "complete"
         else "complete",
         "counts": {key: len(value) for key, value in changes.items()},
+        "count_unit": "unique_contents",
+        "baseline_members": baseline["overview"]["counts"]["images"],
+        "target_members": target["overview"]["counts"]["images"],
+        "overlapping_changes": True,
+        "semantic_unchanged_label": "训练语义未变化",
         "classes_added": len(set(b) - set(a)),
         "classes_removed": len(set(a) - set(b)),
         "class_order_changed": set(a) == set(b) and a != b,
@@ -507,6 +509,20 @@ def compare(baseline: dict, target: dict) -> dict:
         "target_validation": bv,
         "changes": changes,
     }
+
+
+def analysis_input_digest(
+    snapshot_digest: str, manifest: dict, package_digest: str | None
+) -> str:
+    return content_digest(
+        {
+            "schema": ANALYSIS_SCHEMA,
+            "snapshot": snapshot_digest,
+            "manifest": manifest.get("content_digest"),
+            "package": package_digest,
+            "adapter": adapter_cache_identity(manifest),
+        }
+    )
 
 
 async def ensure_analysis(db, project_id, version_id):
@@ -529,18 +545,46 @@ async def ensure_analysis(db, project_id, version_id):
         raise HTTPException(
             status_code=409, detail="数据版本尚未就绪；分析不会改变构建状态"
         )
-    manifest_digest = await db.scalar(
-        select(TrainingDatasetVersion.manifest["content_digest"].astext).where(
-            TrainingDatasetVersion.id == version.id
-        )
+    manifest_identity = await db.scalar(
+        select(
+            func.jsonb_build_object(
+                *[
+                    part
+                    for key in (
+                        "content_digest",
+                        "schema",
+                        "task",
+                        "media_type",
+                        "format",
+                        "geometry",
+                        "bridge",
+                    )
+                    for part in (
+                        key,
+                        func.jsonb_build_object(
+                            "present",
+                            TrainingDatasetVersion.manifest.has_key(key),
+                            "value",
+                            TrainingDatasetVersion.manifest[key],
+                        ),
+                    )
+                ]
+            )
+        ).where(TrainingDatasetVersion.id == version.id)
     )
-    identity = {
-        "schema": ANALYSIS_SCHEMA,
-        "snapshot": version.snapshot_digest,
-        "manifest": manifest_digest,
-        "package": version.package_sha256,
+    if manifest_identity is None:
+        raise HTTPException(status_code=404, detail="数据版本已删除")
+    # Distinguish historical absence from an explicit invalid null. Dispatch and
+    # cache identity must be identical on the compact projection and full record.
+    manifest_identity = {
+        key: entry["value"]
+        for key, entry in manifest_identity.items()
+        if entry["present"]
     }
-    fingerprint = content_digest(identity)
+    manifest_digest = manifest_identity.get("content_digest")
+    fingerprint = analysis_input_digest(
+        version.snapshot_digest, manifest_identity, version.package_sha256
+    )
     cached = await db.get(TrainingDatasetAnalysis, version.id)
     if cached and cached.input_digest == fingerprint:
         return version, cached, manifest_digest or ""
@@ -558,13 +602,8 @@ async def ensure_analysis(db, project_id, version_id):
         raise HTTPException(status_code=404, detail="数据版本已删除")
     cached = await db.get(TrainingDatasetAnalysis, version.id, populate_existing=True)
     current_manifest_digest = version.manifest.get("content_digest")
-    fingerprint = content_digest(
-        {
-            "schema": ANALYSIS_SCHEMA,
-            "snapshot": version.snapshot_digest,
-            "manifest": current_manifest_digest,
-            "package": version.package_sha256,
-        }
+    fingerprint = analysis_input_digest(
+        version.snapshot_digest, version.manifest, version.package_sha256
     )
     if cached and cached.input_digest == fingerprint:
         return version, cached, current_manifest_digest or ""

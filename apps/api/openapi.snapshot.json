@@ -40616,6 +40616,31 @@
             "title": "Offset",
             "type": "integer"
           },
+          "order_by": {
+            "default": "index",
+            "enum": [
+              "index",
+              "instances",
+              "images"
+            ],
+            "title": "Order By",
+            "type": "string"
+          },
+          "split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "train",
+                  "val"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -40771,6 +40796,42 @@
         "title": "TrainingDatasetCreate",
         "type": "object"
       },
+      "TrainingDatasetDetectionStatistics": {
+        "properties": {
+          "box_centers": {
+            "$ref": "#/components/schemas/TrainingDatasetStatisticHeatmap"
+          },
+          "box_dimensions": {
+            "$ref": "#/components/schemas/TrainingDatasetStatisticHeatmap"
+          },
+          "image_dimensions": {
+            "$ref": "#/components/schemas/TrainingDatasetStatisticHeatmap"
+          },
+          "objects_per_member": {
+            "$ref": "#/components/schemas/TrainingDatasetObjectDensity"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "task": {
+            "const": "detect",
+            "default": "detect",
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_dimensions",
+          "box_centers",
+          "box_dimensions",
+          "objects_per_member"
+        ],
+        "title": "TrainingDatasetDetectionStatistics",
+        "type": "object"
+      },
       "TrainingDatasetDistributionBin": {
         "properties": {
           "key": {
@@ -40799,12 +40860,90 @@
         "title": "TrainingDatasetDistributionBin",
         "type": "object"
       },
+      "TrainingDatasetInsightAdapter": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "revision"
+        ],
+        "title": "TrainingDatasetInsightAdapter",
+        "type": "object"
+      },
+      "TrainingDatasetInsightCapabilities": {
+        "properties": {
+          "create_version": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightCapability"
+          },
+          "overview_statistics": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightCapability"
+          },
+          "qualified_training": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightCapability"
+          },
+          "sample_preview": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightCapability"
+          },
+          "semantic_comparison": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightCapability"
+          },
+          "task_statistics": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightCapability"
+          }
+        },
+        "required": [
+          "create_version",
+          "qualified_training",
+          "overview_statistics",
+          "task_statistics",
+          "sample_preview",
+          "semantic_comparison"
+        ],
+        "title": "TrainingDatasetInsightCapabilities",
+        "type": "object"
+      },
+      "TrainingDatasetInsightCapability": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "supported": {
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "supported"
+        ],
+        "title": "TrainingDatasetInsightCapability",
+        "type": "object"
+      },
       "TrainingDatasetInsightComparison": {
         "properties": {
           "baseline_id": {
             "format": "uuid",
             "title": "Baseline Id",
             "type": "string"
+          },
+          "baseline_members": {
+            "title": "Baseline Members",
+            "type": "integer"
           },
           "baseline_validation": {
             "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
@@ -40825,6 +40964,11 @@
             "title": "Classes Removed",
             "type": "integer"
           },
+          "count_unit": {
+            "const": "unique_contents",
+            "title": "Count Unit",
+            "type": "string"
+          },
           "counts": {
             "additionalProperties": {
               "type": "integer"
@@ -40842,6 +40986,14 @@
               }
             ],
             "title": "Evaluation Benchmark Changed"
+          },
+          "overlapping_changes": {
+            "title": "Overlapping Changes",
+            "type": "boolean"
+          },
+          "semantic_unchanged_label": {
+            "title": "Semantic Unchanged Label",
+            "type": "string"
           },
           "semantic_validation_changed": {
             "anyOf": [
@@ -40863,6 +41015,10 @@
             "title": "Status",
             "type": "string"
           },
+          "target_members": {
+            "title": "Target Members",
+            "type": "integer"
+          },
           "target_validation": {
             "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
           },
@@ -40877,6 +41033,11 @@
           "version_id",
           "status",
           "counts",
+          "count_unit",
+          "baseline_members",
+          "target_members",
+          "overlapping_changes",
+          "semantic_unchanged_label",
           "classes_added",
           "classes_removed",
           "class_order_changed",
@@ -40889,8 +41050,86 @@
         "title": "TrainingDatasetInsightComparison",
         "type": "object"
       },
+      "TrainingDatasetInsightContractProfile": {
+        "properties": {
+          "bridge": {
+            "title": "Bridge",
+            "type": "string"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "geometry": {
+            "title": "Geometry",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "task": {
+            "enum": [
+              "detect",
+              "segment",
+              "classify",
+              "pose",
+              "obb"
+            ],
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "media_type",
+          "format",
+          "geometry",
+          "bridge"
+        ],
+        "title": "TrainingDatasetInsightContractProfile",
+        "type": "object"
+      },
+      "TrainingDatasetInsightEvidence": {
+        "properties": {
+          "analyzed_members": {
+            "title": "Analyzed Members",
+            "type": "integer"
+          },
+          "geometry_unknown_members": {
+            "title": "Geometry Unknown Members",
+            "type": "integer"
+          },
+          "known_instances": {
+            "title": "Known Instances",
+            "type": "integer"
+          },
+          "unknown_label_members": {
+            "title": "Unknown Label Members",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "analyzed_members",
+          "unknown_label_members",
+          "known_instances",
+          "geometry_unknown_members"
+        ],
+        "title": "TrainingDatasetInsightEvidence",
+        "type": "object"
+      },
       "TrainingDatasetInsightOverview": {
         "properties": {
+          "adapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetInsightAdapter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "box_area_bins": {
             "items": {
               "$ref": "#/components/schemas/TrainingDatasetDistributionBin"
@@ -40898,9 +41137,22 @@
             "title": "Box Area Bins",
             "type": "array"
           },
+          "capabilities": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightCapabilities"
+          },
           "classes_total": {
             "title": "Classes Total",
             "type": "integer"
+          },
+          "contract_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetInsightContractProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "counts": {
             "additionalProperties": {
@@ -40929,6 +41181,9 @@
             },
             "title": "Dimensions",
             "type": "object"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/TrainingDatasetInsightEvidence"
           },
           "input_digest": {
             "title": "Input Digest",
@@ -40983,7 +41238,10 @@
               {
                 "enum": [
                   "detect",
-                  "segment"
+                  "segment",
+                  "classify",
+                  "pose",
+                  "obb"
                 ],
                 "type": "string"
               },
@@ -40993,6 +41251,31 @@
             ],
             "default": "detect",
             "title": "Task"
+          },
+          "task_statistics": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "detect": "#/components/schemas/TrainingDatasetDetectionStatistics",
+                    "segment": "#/components/schemas/TrainingDatasetSegmentationStatistics"
+                  },
+                  "propertyName": "task"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/TrainingDatasetDetectionStatistics"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TrainingDatasetSegmentationStatistics"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Statistics"
           },
           "validation": {
             "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
@@ -41010,6 +41293,11 @@
           "snapshot_digest",
           "manifest_digest",
           "status",
+          "contract_profile",
+          "adapter",
+          "capabilities",
+          "evidence",
+          "task_statistics",
           "counts",
           "splits",
           "classes_total",
@@ -41153,6 +41441,55 @@
           "annotation_version"
         ],
         "title": "TrainingDatasetNormalizedPolygon",
+        "type": "object"
+      },
+      "TrainingDatasetObjectDensity": {
+        "properties": {
+          "analyzed_members": {
+            "title": "Analyzed Members",
+            "type": "integer"
+          },
+          "bins": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetObjectDensityBin"
+            },
+            "title": "Bins",
+            "type": "array"
+          },
+          "unknown_label_members": {
+            "title": "Unknown Label Members",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bins",
+          "analyzed_members",
+          "unknown_label_members"
+        ],
+        "title": "TrainingDatasetObjectDensity",
+        "type": "object"
+      },
+      "TrainingDatasetObjectDensityBin": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count"
+        ],
+        "title": "TrainingDatasetObjectDensityBin",
         "type": "object"
       },
       "TrainingDatasetOut": {
@@ -41568,6 +41905,42 @@
         "title": "TrainingDatasetSamplePage",
         "type": "object"
       },
+      "TrainingDatasetSegmentationStatistics": {
+        "properties": {
+          "geometry": {
+            "const": "normalized-simple-polygon",
+            "default": "normalized-simple-polygon",
+            "title": "Geometry",
+            "type": "string"
+          },
+          "known_instances": {
+            "title": "Known Instances",
+            "type": "integer"
+          },
+          "polygon_area_sum": {
+            "title": "Polygon Area Sum",
+            "type": "number"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "task": {
+            "const": "segment",
+            "default": "segment",
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "known_instances",
+          "polygon_area_sum"
+        ],
+        "title": "TrainingDatasetSegmentationStatistics",
+        "type": "object"
+      },
       "TrainingDatasetSelection": {
         "additionalProperties": false,
         "properties": {
@@ -41647,6 +42020,102 @@
           }
         },
         "title": "TrainingDatasetSelection",
+        "type": "object"
+      },
+      "TrainingDatasetStatisticAxisBin": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "lower": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lower"
+          },
+          "upper": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upper"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "lower",
+          "upper"
+        ],
+        "title": "TrainingDatasetStatisticAxisBin",
+        "type": "object"
+      },
+      "TrainingDatasetStatisticHeatmap": {
+        "properties": {
+          "counts": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Counts",
+            "type": "array"
+          },
+          "population": {
+            "title": "Population",
+            "type": "integer"
+          },
+          "unit": {
+            "enum": [
+              "member_images",
+              "instances"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "unknown_members": {
+            "title": "Unknown Members",
+            "type": "integer"
+          },
+          "x_bins": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetStatisticAxisBin"
+            },
+            "title": "X Bins",
+            "type": "array"
+          },
+          "y_bins": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDatasetStatisticAxisBin"
+            },
+            "title": "Y Bins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "x_bins",
+          "y_bins",
+          "counts",
+          "unit",
+          "population",
+          "unknown_members"
+        ],
+        "title": "TrainingDatasetStatisticHeatmap",
         "type": "object"
       },
       "TrainingDatasetSummary": {
@@ -72552,6 +73021,41 @@
               "title": "Search",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "order_by",
+            "required": false,
+            "schema": {
+              "default": "index",
+              "enum": [
+                "index",
+                "instances",
+                "images"
+              ],
+              "title": "Order By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "split",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "train",
+                    "val"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Split"
+            }
           }
         ],
         "responses": {
@@ -72738,6 +73242,23 @@
                 }
               ],
               "title": "Class Index"
+            }
+          },
+          {
+            "in": "query",
+            "name": "content_sha256",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content Sha256"
             }
           },
           {

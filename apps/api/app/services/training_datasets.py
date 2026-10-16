@@ -28,7 +28,6 @@ from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
-    contract_of,
     native_labels,
 )
 from training_contract.dataset import (
@@ -36,7 +35,7 @@ from training_contract.dataset import (
     SEGMENTATION_CONTRACT,
     DETECTION_CONTRACT,
 )
-from aap_task_contract import normalize_task
+from app.services.training_dataset_insight_adapters import assert_parent_compatible
 
 MAX_SAMPLES = 20000
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
@@ -164,8 +163,13 @@ async def freeze_selection(
             raise TrainingDatasetError(
                 "parent_not_ready", "父数据版本尚未就绪", status_code=409
             )
-        if normalize_task(contract_of(parent.manifest)["task"]) != selection.task:
-            raise TrainingDatasetError("task_mismatch", "父数据版本与当前训练任务不同")
+        assert_parent_compatible(
+            parent.snapshot,
+            parent.manifest,
+            SEGMENTATION_CONTRACT
+            if selection.task == SEGMENTATION
+            else DETECTION_CONTRACT,
+        )
     annotation_json = (
         select(
             func.jsonb_agg(

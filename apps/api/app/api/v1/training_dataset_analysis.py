@@ -81,6 +81,8 @@ async def classes(
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0, le=2147483647),
     search: str = Query("", max_length=200),
+    order_by: Literal["index", "instances", "images"] = "index",
+    split: Literal["train", "val"] | None = None,
 ):
     _, analysis, _ = await authorized_analysis(db, project, user, version_id)
     values = [
@@ -88,11 +90,21 @@ async def classes(
         for row in analysis.summary["classes"]
         if search.casefold() in row["name"].casefold()
     ]
+    if order_by != "index":
+        scopes = [split] if split else ["train", "val"]
+        values.sort(
+            key=lambda row: (
+                -sum(row[f"{scope}_{order_by}"] for scope in scopes),
+                row["index"],
+            )
+        )
     return {
         "items": values[offset : offset + limit],
         "total": len(values),
         "limit": limit,
         "offset": offset,
+        "order_by": order_by,
+        "split": split,
     }
 
 
@@ -121,6 +133,7 @@ async def samples(
     offset: int = Query(0, ge=0, le=2147483647),
     split: Literal["train", "val"] | None = None,
     class_index: int | None = Query(None, ge=0),
+    content_sha256: str | None = Query(None, pattern=r"^[a-f0-9]{64}$"),
     kind: Literal["all", "positive", "negative", "excluded", "unavailable"] = "all",
     baseline_id: uuid.UUID | None = None,
     change: Literal[
@@ -157,6 +170,8 @@ async def samples(
     query = query.where(Sample.included.is_(kind != "excluded"))
     if split:
         query = query.where(Sample.split == split)
+    if content_sha256:
+        query = query.where(Sample.sha256 == content_sha256)
     if class_index is not None:
         if class_index >= len(source.summary["classes"]):
             raise HTTPException(status_code=422, detail="类别索引不属于当前样本版本")
