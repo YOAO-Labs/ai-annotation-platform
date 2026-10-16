@@ -205,6 +205,7 @@ export class ImageTileScheduler {
   private readonly options: ImageTileSchedulerOptions;
   private readonly listeners = new Set<() => void>();
   private readonly cache = new Map<string, CacheEntry>();
+  private drawableTiles: LoadedImageTile[] | null = null;
   private readonly active = new Map<string, ActiveTileLoad>();
   private readonly failures = new Map<string, { attempts: number; failedAt: number }>();
   private desired = new Map<string, QueueEntry>();
@@ -286,6 +287,7 @@ export class ImageTileScheduler {
 
   update(rect: PixelRect | null, viewportScale: number, devicePixelRatio: number): void {
     if (this.disposed) return;
+    this.drawableTiles = null;
     if (!rect) {
       this.currentRect = null;
       this.replaceDesired(new Map(), new Set());
@@ -570,6 +572,7 @@ export class ImageTileScheduler {
         lastUsed: ++this.clock,
         ...(active?.resource ? { resource: active.resource } : {}),
       });
+      this.drawableTiles = null;
       if (active) active.resource = undefined;
       this.retainedBytes += item.geometry.decodedBytes;
       this.decodedBytes += item.geometry.decodedBytes;
@@ -672,6 +675,7 @@ export class ImageTileScheduler {
     const entry = this.cache.get(key);
     if (!entry) return;
     this.cache.delete(key);
+    this.drawableTiles = null;
     entry.resource?.release();
     entry.decoded.release();
     this.retainedBytes = Math.max(0, this.retainedBytes - entry.geometry.decodedBytes);
@@ -687,18 +691,21 @@ export class ImageTileScheduler {
     this.evictions += 1;
   }
 
-  getTiles(): LoadedImageTile[] {
+  getTiles(): readonly LoadedImageTile[] {
+    if (this.drawableTiles) return this.drawableTiles;
     const rect = this.currentRect;
-    if (!rect) return [];
-    return [...this.cache.values()]
-      .filter((entry) => intersects(entry.geometry.world, rect))
-      .sort(
-        (left, right) =>
-          right.geometry.level - left.geometry.level ||
-          left.geometry.y - right.geometry.y ||
-          left.geometry.x - right.geometry.x,
-      )
-      .map((entry) => ({ ...entry.geometry, image: entry.decoded.image }));
+    this.drawableTiles = rect
+      ? [...this.cache.values()]
+          .filter((entry) => intersects(entry.geometry.world, rect))
+          .sort(
+            (left, right) =>
+              right.geometry.level - left.geometry.level ||
+              left.geometry.y - right.geometry.y ||
+              left.geometry.x - right.geometry.x,
+          )
+          .map((entry) => ({ ...entry.geometry, image: entry.decoded.image }))
+      : [];
+    return this.drawableTiles;
   }
 
   getSnapshot(): ImageTileResourceSnapshot {

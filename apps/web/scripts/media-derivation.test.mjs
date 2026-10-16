@@ -90,6 +90,7 @@ test("one archive derives every format, preserves unrelated entries, and never u
       quality: "standard",
       assets: ["bbox-draw"],
       clip: parseClip("0.2:1"),
+      posterAt: 0.6,
       outputs: () => [
         { target: "docs-site/public/media/test.mp4", kind: "mp4", role: "docs-video" },
         { target: "docs-site/public/home/test.webm", kind: "webm", role: "home-video" },
@@ -105,9 +106,19 @@ test("one archive derives every format, preserves unrelated entries, and never u
         },
       ],
     };
+    for (const posterAt of [-1, Infinity, 1])
+      assert.throws(() => deriveMedia({ ...options, posterAt }), /--poster-at/);
+    assert.throws(
+      () => deriveMedia({ ...options, assets: ["bbox-draw", "other"] }),
+      /--poster-at|--clip/,
+    );
     deriveMedia(options);
     const manifestPath = path.join(root, "apps/web/e2e/screenshots/outputs/flow-manifest.json");
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    assert.equal(
+      manifest.entries["docs-site/public/media/test-poster.webp"].source_asset.poster_time_seconds,
+      0.8,
+    );
     const video = manifest.entries["docs-site/public/media/test.mp4"];
     assert.equal(video.media.width, 320);
     assert.equal(video.media.fps, "25/1");
@@ -179,7 +190,7 @@ test("one archive derives every format, preserves unrelated entries, and never u
   }
 });
 
-test("legacy schema-4 masters retain their quality gate and derive through the same encoder", () => {
+test("schema-4 masters preserve inference provenance and the existing quality gate", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-master-derive-test-"));
   try {
     const run = path.join(root, "master");
@@ -241,12 +252,174 @@ test("legacy schema-4 masters retain their quality gate and derive through the s
       result.entries["docs-site/public/media/master.mp4"].source_asset.quality,
       "marketing",
     );
+    assert.equal(
+      result.entries["docs-site/public/media/master.mp4"].capture.source_inference,
+      "unverified",
+    );
+    manifest.entries["bbox-draw"].evidence = {
+      inference: "live",
+      backend_requirements: "image_interactive",
+      clock: "live",
+    };
     manifest.entries["bbox-draw"].capture.driver = "screencapturekit";
     fs.writeFileSync(path.join(run, "manifest.json"), JSON.stringify(manifest));
     deriveMedia(options);
+    const updated = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "apps/web/e2e/screenshots/outputs/flow-manifest.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      updated.entries["docs-site/public/media/master.mp4"].capture.source_inference,
+      "live",
+    );
     manifest.entries["bbox-draw"].capture.cadence.unique_frame_ratio = 0.1;
     fs.writeFileSync(path.join(run, "manifest.json"), JSON.stringify(manifest));
     assert.throws(() => deriveMedia(options), /qualified 4K60/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+test("normalized privacy masks protect encoded video, GIF, and poster pixels", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-privacy-mask-test-"));
+  try {
+    const assetId = "test-privacy-mask";
+    const run = path.join(root, ".artifacts/recordings/privacy-run");
+    fs.mkdirSync(run, { recursive: true });
+    const source = path.join(run, `${assetId}.mp4`);
+    checked("ffmpeg", [
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=white:s=320x180:r=10:d=1.2",
+      "-vf",
+      "drawbox=x=100:y=80:w=28:h=10:color=red:t=fill",
+      "-c:v",
+      "libx264",
+      "-threads",
+      "2",
+      source,
+    ]);
+    const sha256 = createHash("sha256").update(fs.readFileSync(source)).digest("hex");
+    fs.writeFileSync(
+      path.join(run, "manifest.json"),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          entries: {
+            [assetId]: {
+              asset_id: assetId,
+              source: "apps/web/scripts/media-derivation.test.mjs",
+              sha256,
+              captured_commit: "test-commit",
+              source_worktree_dirty: false,
+              capture: { profile: "docs", inference: "none" },
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const privacyMasks = [
+      {
+        x: 0.3125,
+        y: 0.4444444444444444,
+        width: 0.0875,
+        height: 0.05555555555555555,
+        fromSeconds: 0.5,
+        untilSeconds: 0.9,
+      },
+    ];
+    const recipes = [
+      {
+        target: "docs-site/public/media/privacy-mask.mp4",
+        kind: "mp4",
+        role: "docs-video",
+        width: 160,
+        height: 90,
+        fps: 10,
+        privacyMasks,
+      },
+      {
+        target: "docs-site/user-guide/images/privacy-mask.gif",
+        kind: "gif",
+        role: "docs-gif",
+        raw: true,
+        width: 160,
+        height: 90,
+        fps: 10,
+        privacyMasks,
+      },
+      {
+        target: "docs-site/public/media/privacy-mask-poster.webp",
+        kind: "webp",
+        role: "poster",
+        width: 160,
+        height: 90,
+        posterAt: 0.3,
+        privacyMasks,
+      },
+    ];
+    deriveMedia({
+      repoRoot: root,
+      runDirectory: run,
+      quality: "standard",
+      assets: [assetId],
+      clip: { start: 0.25, duration: 0.9 },
+      outputs: () => recipes,
+    });
+    for (const recipe of recipes) {
+      const rawFrame = path.join(root, `${recipe.kind}.rgb`);
+      const frameTimes = recipe.kind === "webp" ? [0] : [0, 0.3, 0.7];
+      for (const frameTime of frameTimes) {
+        checked("ffmpeg", [
+          "-y",
+          "-v",
+          "error",
+          "-ss",
+          String(frameTime),
+          "-i",
+          path.join(root, recipe.target),
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          rawFrame,
+        ]);
+        const frame = fs.readFileSync(rawFrame);
+        assert.equal(frame.length, 160 * 90 * 3);
+        const pixelAt = (x, y) => [...frame.subarray((y * 160 + x) * 3, (y * 160 + x + 1) * 3)];
+        if (recipe.kind === "webp" || frameTime === 0.3) {
+          assert.ok(
+            pixelAt(56, 42).every((channel) => channel < 48),
+            `${recipe.kind} leaks masked pixels after the source-time boundary`,
+          );
+        } else {
+          assert.ok(
+            pixelAt(56, 42)[0] > 180 && pixelAt(56, 42)[1] < 80,
+            `${recipe.kind} masks an unrelated earlier or later phase`,
+          );
+        }
+        for (const [x, y] of [
+          [49, 42],
+          [64, 42],
+          [56, 39],
+          [56, 45],
+        ]) {
+          assert.ok(
+            pixelAt(x, y).some((channel) => channel > 32),
+            `${recipe.kind} over-masks pixels outside the normalized boundary at ${x},${y}`,
+          );
+        }
+      }
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

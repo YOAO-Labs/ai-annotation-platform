@@ -23,7 +23,7 @@
  */
 import { test } from "../fixtures/seed";
 import type { ScreenshotSeedCatalog } from "../fixtures/seed";
-import { SCENES } from "./scenes/index";
+import { selectScreenshotScenes } from "./scenes/index";
 import type { Role } from "./scenes/index";
 import { injectAnnotations } from "./_helpers/annotate";
 import { setupMockState } from "./_helpers/mock-state";
@@ -61,6 +61,15 @@ function readExistingManifest(): Record<string, { auto?: boolean }> {
 
 const existingManifest = readExistingManifest();
 
+const screenshotSelection = selectScreenshotScenes(process.env.SCREENSHOT_STATIC_PROFILE);
+if (process.env.SCREENSHOT_STATIC_PROFILE === "non-ml") {
+  console.info(
+    `[screenshots] static profile=non-ml; selected ${screenshotSelection.scenes.length} scene(s): ` +
+      `${screenshotSelection.scenes.map((scene) => scene.name).join(", ")}; excluded ML scene(s): ` +
+      screenshotSelection.excluded.join(", "),
+  );
+}
+
 test.describe("screenshots automation", () => {
   let cached: ScreenshotSeedCatalog | null = null;
 
@@ -68,7 +77,7 @@ test.describe("screenshots automation", () => {
     cached = loadScreenshotCatalog();
   });
 
-  for (const scene of SCENES) {
+  for (const scene of screenshotSelection.scenes) {
     test(scene.name, async ({ page, seed }, info) => {
       if (!cached) throw new Error("screenshot seed catalog 未完成");
       const catalog = cached;
@@ -97,6 +106,7 @@ test.describe("screenshots automation", () => {
       let cleanupMock: () => Promise<void> = async () => {};
       let cleanupAnnotations: () => Promise<void> = async () => {};
 
+      let cleanupScene: () => Promise<void> = async () => {};
       try {
         // 激活网络 mock（如有）
         cleanupMock = await setupMockState(page, scene.mockState);
@@ -105,7 +115,11 @@ test.describe("screenshots automation", () => {
         await seed.injectToken(page, roleEmail);
         await applyScreenshotTheme(page, axis.theme);
         await page.goto(route);
-        if (scene.prepare) await scene.prepare(page, catalog);
+        if (scene.prepare) {
+          await scene.prepare(page, catalog, (cleanup) => {
+            cleanupScene = cleanup;
+          });
+        }
         await applyScreenshotTheme(page, axis.theme);
         await waitForScreenshotReady(page);
 
@@ -217,8 +231,12 @@ test.describe("screenshots automation", () => {
           try {
             await cleanupMock();
           } finally {
-            // scene.prepare 也可能注册局部 route；测试失败时一并清除。
-            await page.unrouteAll({ behavior: "ignoreErrors" });
+            try {
+              await cleanupScene();
+            } finally {
+              // scene.prepare 也可能注册局部 route；测试失败时一并清除。
+              await page.unrouteAll({ behavior: "ignoreErrors" });
+            }
           }
         }
       }

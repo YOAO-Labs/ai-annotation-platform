@@ -174,6 +174,29 @@ export async function runPointcloudPanelLayout(
   await waitForRecordingPanels(page, ["canvas", "tri-view"], ["camera-view"]);
   await expectTriViewReady(page);
   await assertStableCanvasAndSelection();
+  const topView = page.getByLabel(/^俯视精修视图/);
+  const sideView = page.getByLabel(/^侧视精修视图/);
+  const frontView = page.getByLabel(/^正视精修视图/);
+  await expect(topView).toHaveAttribute("aria-label", "俯视精修视图，缩放 100%");
+  await expect(sideView).toHaveAttribute("aria-label", "侧视精修视图，缩放 100%");
+  await expect(frontView).toHaveAttribute("aria-label", "正视精修视图，缩放 100%");
+  const topViewBounds = await topView.boundingBox();
+  if (!topViewBounds) throw new Error("[pointcloud-panel-layout] 俯视精修视图不可见");
+  await page.mouse.move(
+    topViewBounds.x + topViewBounds.width / 2,
+    topViewBounds.y + topViewBounds.height / 2,
+  );
+  await page.mouse.wheel(0, -120);
+  await expect(topView).toHaveAttribute("aria-label", "俯视精修视图，缩放 112%");
+  await expect(sideView).toHaveAttribute("aria-label", "侧视精修视图，缩放 100%");
+  await expect(frontView).toHaveAttribute("aria-label", "正视精修视图，缩放 100%");
+  await assertStableCanvasAndSelection();
+  await page.waitForTimeout(1_400);
+  await topView.focus();
+  await page.keyboard.press("Shift+Digit0");
+  await expect(topView).toHaveAttribute("aria-label", "俯视精修视图，缩放 100%");
+  await assertStableCanvasAndSelection();
+  await page.waitForTimeout(1_100);
   await page.waitForTimeout(1_200);
 
   // 传感器融合保留已选框，按物理 camera role 显示六路实景图；先验证悬浮，再

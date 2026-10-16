@@ -131,7 +131,6 @@ export async function runVideoTrackerComboDiscovery(
     throw new Error("[video-tracker-combo-discovery] 录制锚点不是两辆独立公交车");
   }
 
-  const drawStartMs = Date.now();
   await page.getByTestId("workbench-ai-tracker").click();
   const dialog = page.getByTestId("video-tracker-propagate-dialog");
   await dialog.waitFor({ timeout: 5_000 });
@@ -153,7 +152,8 @@ export async function runVideoTrackerComboDiscovery(
   const textInput = dialog.getByTestId("tracker-text-input");
   await textInput.click();
   await textInput.pressSequentially("bus", { delay: 120 });
-  await page.waitForTimeout(1_200);
+  const drawStartMs = Date.now();
+  await page.waitForTimeout(1_000);
 
   const serverErrors: string[] = [];
   const collectServerError = (response: Response) => {
@@ -162,7 +162,7 @@ export async function runVideoTrackerComboDiscovery(
   page.on("response", collectServerError);
   try {
     await dialog.getByRole("button", { name: "开始发现" }).click();
-    await page.getByTestId("tool-btn-select").click();
+    await page.getByTestId("video-tool-btn-select").click();
     await page
       .getByTestId("tracker-review-tool-capsule")
       .waitFor({ state: "visible", timeout: 120_000 });
@@ -226,7 +226,7 @@ export async function runVideoTrackerComboDiscovery(
     await review.getByTestId("tracker-review-discard").click();
     await rejected;
     await review.waitFor({ state: "hidden", timeout: 5_000 });
-    await page.waitForTimeout(2_200);
+    await page.waitForTimeout(1_000);
   } finally {
     page.off("response", collectServerError);
   }

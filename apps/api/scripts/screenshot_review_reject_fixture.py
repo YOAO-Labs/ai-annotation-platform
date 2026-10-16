@@ -28,6 +28,10 @@ from app.db.models.annotation_feedback import AnnotationFeedback  # noqa: E402
 from app.db.models.notification import Notification  # noqa: E402
 from app.db.models.task import Task  # noqa: E402
 from app.db.models.user import User  # noqa: E402
+from app.services.annotation_evidence import (  # noqa: E402
+    freeze_review_contributor_evidence,
+    known_annotation_contributor_ids,
+)
 from app.services.batch import BatchService  # noqa: E402
 from scripts.cleanup_screenshot_ocr_flow import assert_screenshot_scope  # noqa: E402
 
@@ -76,6 +80,17 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
                 raise RuntimeError(
                     "review-reject task is not assigned to the recording reviewer"
                 )
+            contributors = known_annotation_contributor_ids(task)
+            if (
+                contributors is None
+                or task.assignee_id is None
+                or str(task.assignee_id) not in contributors
+                or str(reviewer.id) in contributors
+            ):
+                raise RuntimeError(
+                    "review-reject fixture needs complete seeded author evidence; "
+                    "repair the screenshot seed before recording"
+                )
 
             feedback_result = await db.execute(
                 delete(AnnotationFeedback).where(
@@ -99,6 +114,9 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
             task.reject_reason_type = None
             task.reject_reason = None
             task.reviewer_claimed_at = None
+            if task.review_round_id is None:
+                task.review_round_id = uuid.uuid4()
+            freeze_review_contributor_evidence(task, submitter_id=task.assignee_id)
             if task.batch_id is not None:
                 await BatchService(db).recalculate_counters(task.batch_id)
             await db.commit()

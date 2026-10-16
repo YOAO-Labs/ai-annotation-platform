@@ -171,7 +171,8 @@ export async function runProjectMlRouting(
   await singleTaskAi.click();
   const aiPanel = page.getByTestId("ai-prediction-popover");
   await expect(aiPanel).toBeVisible();
-  const batchSelector = aiPanel.getByLabel("本次 backend");
+  await aiPanel.getByTestId("ai-prediction-advanced-toggle").click();
+  const batchSelector = aiPanel.getByLabel("本次后端");
   await expect(batchSelector).toHaveValue(batchBackendId);
   await expect(batchSelector.locator("option:checked")).toHaveText(
     `${BATCH_BACKEND_NAME}（项目主后端）`,

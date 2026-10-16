@@ -38,8 +38,8 @@ last_reviewed: 2026-09-07
 <DocsVideo
   src="/media/video/workbench-overview.mp4"
   poster="/media/video/workbench-overview-poster.webp"
-  alt="视频工作台双向逐帧、播放暂停后，手动圈定货车并查看保存的轨迹"
-  caption="在视频追踪布局中切到标注详情，核对帧位置，再手动画出轨迹的首个关键帧。"
+  alt="为货车绘制两个关键帧，双向逐帧查看同一轨迹插值，播放暂停后刷新核对保存结果"
+  caption="先保存同一货车轨迹的两个关键帧，再逐帧核对插值与播放状态；刷新后仍保留同一轨迹和关键帧。"
 />
 
 - 播放、逐帧、帧采样软网格与章节导航 → [视频播放、帧导航与采样](./video-playback)

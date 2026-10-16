@@ -17,6 +17,7 @@ import { videoIntrinsicSize } from "../stage/videoKonvaCoordinates";
 import type { TimelineRangePurpose } from "../stage/VideoPlaybackOverlay";
 import { cocoRleBounds, type CocoRle } from "../stage/shared/geometry/maskRle";
 import { ApiError } from "@/api/client";
+import type { TaskStatus } from "@/types";
 
 /**
  * Classify a `/projects/{id}/access` preflight failure for the offline drain.
@@ -59,6 +60,16 @@ export function videoAnnotationQueriesEnabled(
   activeSegmentId: string | null,
 ): boolean {
   return (!isVideoTask || segmentsResolved) && (!collaborationEnabled || activeSegmentId !== null);
+}
+
+export function canAcquireWorkbenchTaskLock(
+  mode: "annotate" | "review",
+  taskStatus: TaskStatus | undefined,
+  projectWriteBlocked: boolean,
+): boolean {
+  if (projectWriteBlocked) return false;
+  if (mode === "review") return taskStatus === "review";
+  return taskStatus === "pending" || taskStatus === "in_progress" || taskStatus === "rejected";
 }
 
 export function annotationsForTask<T extends { task_id: string }>(

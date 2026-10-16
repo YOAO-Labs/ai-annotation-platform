@@ -11,11 +11,13 @@
  *
  * 返回 { drawStartMs, drawEndMs }：供 finalize 裁掉开头(导航/解析/点云加载等待)。
  */
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
 import type { DrawWindow } from "./rotated-bbox";
 import {
   installRecordingWorkbenchLayout,
+  recordingLayoutCommand,
+  waitForRecordingPanels,
   waitForRecordingWorkbenchLayout,
 } from "./_workbench-layout";
 
@@ -35,6 +37,21 @@ export async function runPointcloudControls(
   await page.getByTestId("pc-viewport").waitFor({ timeout: 20_000 });
   await waitForRecordingWorkbenchLayout(page, "both");
   await page.waitForTimeout(4000);
+
+  await recordingLayoutCommand(page, "传感器融合");
+  await recordingLayoutCommand(page, "全部相机停靠");
+  await waitForRecordingPanels(page, ["canvas", "camera-view"], ["tri-view"]);
+  const frontCamera = page
+    .locator('[data-workbench-panel="camera-view"] section')
+    .filter({ has: page.locator('img[alt="CAM_FRONT"]') });
+  await expect(frontCamera).toBeVisible();
+  await expect
+    .poll(() =>
+      frontCamera
+        .locator('img[alt="CAM_FRONT"]')
+        .evaluate((node) => (node instanceof HTMLImageElement ? node.naturalWidth : 0)),
+    )
+    .toBeGreaterThan(0);
 
   const drawStartMs = Date.now();
 
@@ -70,6 +87,29 @@ export async function runPointcloudControls(
   // ── 关闭设置窗口, 露出完整重着色 + 放大后的点云, 停留展示 ──
   await page.keyboard.press("Escape");
   await page.waitForTimeout(4200);
+  await expect
+    .poll(() =>
+      frontCamera.locator("canvas").evaluate((node) => {
+        if (!(node instanceof HTMLCanvasElement)) return 0;
+        const context = node.getContext("2d");
+        if (!context) return 0;
+        const pixels = context.getImageData(0, 0, node.width, node.height).data;
+        let coloredPixels = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          const red = pixels[index] ?? 0;
+          const green = pixels[index + 1] ?? 0;
+          const blue = pixels[index + 2] ?? 0;
+          if (
+            (pixels[index + 3] ?? 0) > 0 &&
+            Math.max(red, green, blue) - Math.min(red, green, blue) > 20
+          ) {
+            coloredPixels += 1;
+          }
+        }
+        return coloredPixels;
+      }),
+    )
+    .toBeGreaterThan(100);
 
   const drawEndMs = Date.now();
   return { drawStartMs, drawEndMs };

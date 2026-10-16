@@ -970,11 +970,13 @@ async def test_multi_resource_writer_and_promotion_do_not_deadlock(
     writer_task = asyncio.create_task(update_two_resources())
     try:
         await asyncio.wait_for(writer_has_global.wait(), timeout=2)
+        # Keep resource B locked until the writer has attempted its second
+        # update. Releasing promotion earlier lets its retry race that update.
+        with pytest.raises(DBAPIError) as writer_error:
+            await asyncio.wait_for(writer_task, timeout=2)
+        assert _is_serialization_failure(writer_error.value)
         release_promotion.set()
-        result, writer_outcome = await asyncio.wait_for(
-            asyncio.gather(promotion_task, writer_task, return_exceptions=True),
-            timeout=2,
-        )
+        result = await asyncio.wait_for(promotion_task, timeout=2)
     finally:
         release_promotion.set()
         for task in (promotion_task, writer_task):
@@ -983,8 +985,6 @@ async def test_multi_resource_writer_and_promotion_do_not_deadlock(
         await asyncio.gather(promotion_task, writer_task, return_exceptions=True)
 
     assert result.status == "promoted"
-    assert isinstance(writer_outcome, DBAPIError)
-    assert _is_serialization_failure(writer_outcome)
 
 
 async def test_trigger_writers_fail_fast_when_global_promotion_barrier_is_busy(

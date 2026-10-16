@@ -34,3 +34,27 @@ export const SCENES: ResolvedScreenshotScene[] = [
   ...fromSource("apps/web/e2e/screenshots/scenes/settings.ts", SETTINGS_SCENES),
   ...fromSource("apps/web/e2e/screenshots/scenes/superadmin.ts", SUPERADMIN_SCENES),
 ];
+
+export function isMLScreenshotScene(scene: ScreenshotScene): boolean {
+  return (
+    scene.requiresML === true ||
+    Boolean(scene.fixture?.backend) ||
+    (scene.fixture?.capabilities?.length ?? 0) > 0
+  );
+}
+
+export function selectScreenshotScenes(profile: string | undefined) {
+  if (profile === undefined) return { scenes: SCENES, excluded: [] as string[] };
+  if (profile !== "non-ml") {
+    throw new Error(
+      `Unsupported SCREENSHOT_STATIC_PROFILE "${profile}"; use "non-ml" or unset it.`,
+    );
+  }
+
+  const scenes = SCENES.filter((scene) => !isMLScreenshotScene(scene));
+  const excluded = SCENES.filter(isMLScreenshotScene).map((scene) => scene.name);
+  if (!scenes.length || scenes.some(isMLScreenshotScene)) {
+    throw new Error("The non-ML static screenshot selection is empty or includes an ML scene.");
+  }
+  return { scenes, excluded };
+}

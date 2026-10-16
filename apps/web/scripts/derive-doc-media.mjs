@@ -15,33 +15,42 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../../..");
 
 const POSTER_AT_SECONDS = new Map([
-  ["project-onboarding", 21.5],
-  ["ai-preannotate", 12.5],
+  ["project-onboarding", 19],
+  ["ai-preannotate", 14.2],
   ["video-tracker-range", 32.8],
   ["video-tracker-cross-frame-points", 26],
-  ["video-tracker-positive-negative", 29.3],
+  ["video-tracker-positive-negative", 27],
   ["video-tracker-box-seed", 20.6],
-  ["video-tracker-text-discovery", 14.2],
-  ["video-mask-track-edit", 19.2],
-  ["video-track-carryover", 10.1],
-  ["video-draw", 16.9],
-  ["video-timeline-zoom", 9.2],
-  ["video-chapter", 14.0],
+  ["video-tracker-text-discovery", 30],
+  ["video-mask-track-edit", 17],
+  ["video-track-carryover", 9.2],
+  ["video-draw", 8],
+  ["video-timeline-zoom", 8],
+  ["video-chapter", 15],
   ["sam-tools/smart-box", 7.8],
   ["sam-tools/smart-point", 6.2],
   ["ai-assisted-annotation", 7.7],
   ["candidate-review-lifecycle", 14],
   ["smart-scribble", 15.8],
-  ["bbox-draw", 6.4],
-  ["polyline-draw", 11.8],
-  ["polygon-draw", 13],
-  ["hotkey-cheatsheet", 2],
-  ["workspace-layout-basics", 18.8],
-  ["workspace-layout-persistence", 23],
-  ["rotated-bbox", 9.3],
-  ["mask-draw", 7.6],
+  ["bbox-draw", 6.7],
+  ["polyline-draw", 10.2],
+  ["polygon-draw", 11],
+  ["hotkey-cheatsheet", 7],
+  ["batch-bulk-actions", 6.8],
+  ["workspace-layout-basics", 1],
+  ["workspace-layout-persistence", 16],
+  ["workspace-named-preset", 18],
+  ["polygon-boundary-trace", 17],
+  ["polygon-slice-undo", 18.5],
+  ["video-comment-badges", 21],
+  ["discussion-mention-return", 18],
+  ["mask-slice-instances", 15.5],
+  ["discussion-target-drafts", 18],
+  ["task-drawing-comment", 14],
+  ["rotated-bbox", 10.5],
+  ["mask-draw", 8.2],
   ["ai-tracker-panel", 8],
-  ["review-reject", 8],
+  ["review-reject", 18],
   ["jobs-retry-recovery", 15],
   ["model-market-runtime-pool", 10],
   ["model-market-video-pool", 10],
@@ -49,26 +58,41 @@ const POSTER_AT_SECONDS = new Map([
   ["model-market-runtime-partial-failure", 7],
   ["model-market-gpu-resource-overview", 10],
   ["platform-overview", 17],
-  ["project-actions-menu", 9],
+  ["project-actions-menu", 8],
   ["jobs-bell-active", 10],
-  ["video-tracker-job-states", 5],
-  ["project-ml-routing", 11],
+  ["video-tracker-job-states", 1],
+  ["project-ml-routing", 12.3],
   ["pipeline-apply-project", 33.25],
   ["secondary-inference-attribute", 9],
-  ["background-export-download", 16],
-  ["project-create-existing-resources", 14],
-  ["large-image-pyramid-recovery", 9],
-  ["large-image-mask-limit", 11],
-  ["pointcloud-view", 0.8],
-  ["pointcloud-camera-seed-3d-box", 10],
-  ["pointcloud-crossframe-track", 15],
-  ["pointcloud-billboard-label", 13],
-  ["pointcloud-panel-layout", 28],
-  ["storage-connector-create-test", 15],
+  ["background-export-download", 22],
+  ["project-create-existing-resources", 13],
+  ["large-image-pyramid-recovery", 17.5],
+  ["large-image-mask-limit", 12],
+  ["large-image-progressive", 11],
+  ["pointcloud-controls", 8],
+  ["pointcloud-view", 11.5],
+  ["pointcloud-camera-seed-3d-box", 17],
+  ["pointcloud-crossframe-track", 23],
+  ["pointcloud-billboard-label", 14],
+  ["pointcloud-panel-layout", 2],
+  ["storage-connector-create-test", 16],
   ["video-track-batch-propagate", 2.5],
-  ["video-track", 19.9],
-  ["video-propagate-track-vs-copy", 14],
-  ["video-mask-correction-propagate", 25],
+  ["video-track", 24],
+  ["video-propagate-track-vs-copy", 31],
+  ["video-mask-correction-propagate", 37],
+  ["video-issue-resolution", 23],
+  ["project-guide-autosave", 16],
+  ["project-invitation-join", 21],
+]);
+// Masks are reviewed against this immutable source; the saved row appears after the form closes.
+const NORMALIZED_PRIVACY_MASKS = new Map([
+  [
+    "storage-connector-create-test",
+    [
+      { x: 0.3052, y: 0.4653, width: 0.0862, height: 0.0227, untilSeconds: 13.5 },
+      { x: 0.3542, y: 0.3713, width: 0.0797, height: 0.019, fromSeconds: 13.1 },
+    ],
+  ],
 ]);
 
 const TARGETS = new Map(
@@ -79,6 +103,14 @@ const TARGETS = new Map(
     ["bbox-draw", "workbench/bbox-draw"],
     ["workspace-layout-basics", "workbench/layout-basics"],
     ["workspace-layout-persistence", "workbench/layout-persistence"],
+    ["workspace-named-preset", "workbench/named-preset"],
+    ["polygon-boundary-trace", "polygon/boundary-trace"],
+    ["polygon-slice-undo", "polygon/slice-undo"],
+    ["video-comment-badges", "discussion/video-comment-badges"],
+    ["discussion-mention-return", "discussion/mention-return"],
+    ["mask-slice-instances", "mask/slice-instances"],
+    ["discussion-target-drafts", "discussion/target-drafts"],
+    ["task-drawing-comment", "discussion/task-drawing"],
     ["ai-prediction-import", "ai/prediction-import"],
     ["ai-preannotate", "ai/preannotate"],
     ["ai-assisted-annotation", "ai/assisted-annotation"],
@@ -139,6 +171,9 @@ const TARGETS = new Map(
     ["large-image-progressive", "large-image/progressive"],
     ["large-image-pyramid-recovery", "large-image/pyramid-recovery"],
     ["large-image-mask-limit", "large-image/mask-limit"],
+    ["video-issue-resolution", "discussion/video-issue-resolution"],
+    ["project-guide-autosave", "projects/guide-autosave"],
+    ["project-invitation-join", "team/project-invitation-join"],
   ].map(([assetId, target]) => [assetId, target]),
 );
 
@@ -160,6 +195,7 @@ const { values } = parseArgs({
     quality: { type: "string", default: "marketing" },
     format: { type: "string", default: "all" },
     clip: { type: "string" },
+    "poster-at": { type: "string" },
     "gif-target": { type: "string" },
     article: { type: "string" },
   },
@@ -186,7 +222,7 @@ const run =
 if (!run) throw new Error("No source archive; capture first or pass --run");
 const runDirectory = path.resolve(archiveRoot, run);
 if (values.article) {
-  if (values.format !== "all" || values["gif-target"]) {
+  if (values.format !== "all" || values["gif-target"] || values["poster-at"] !== undefined) {
     throw new Error(
       "Article presets generate paired GIF/cover outputs; omit --format and --gif-target",
     );
@@ -205,6 +241,11 @@ if (values.article) {
   process.stdout.write(output);
   process.exit(0);
 }
+if (
+  values["poster-at"] !== undefined &&
+  (values.asset?.length !== 1 || values.format === "gif" || !values["poster-at"].trim())
+)
+  throw new Error("--poster-at requires one --asset and video/poster outputs");
 const archive = readArchive(runDirectory);
 if (values["gif-target"] && (values.format !== "gif" || values.asset?.length !== 1)) {
   throw new Error("--gif-target requires --format gif and one --asset");
@@ -221,8 +262,17 @@ deriveMedia({
   quality: values.quality,
   assets,
   clip: parseClip(values.clip),
+  posterAt: values["poster-at"] === undefined ? undefined : Number(values["poster-at"]),
   outputs(assetId, item) {
     const outputs = [];
+    const privacyMasks = NORMALIZED_PRIVACY_MASKS.get(assetId);
+    if (
+      privacyMasks &&
+      item.main.sha256 !== "4eddd1ffecc3b9216577bffa2ad7f47570639ee0131880c745b20aba26ba7279"
+    ) {
+      throw new Error("Review connector privacy-mask coordinates and timing for the new source");
+    }
+    const privacy = privacyMasks ? { privacyMasks } : {};
     if (values.format !== "gif") {
       for (const [map, root, videoRole, posterRole] of [
         [TARGETS, "docs-site/public/media", "docs-video", "poster"],
@@ -230,14 +280,25 @@ deriveMedia({
       ]) {
         const stem = map.get(assetId);
         if (!stem) continue;
-        outputs.push({ target: `${root}/${stem}.mp4`, kind: "mp4", role: videoRole });
+        outputs.push({
+          target: `${root}/${stem}.mp4`,
+          kind: "mp4",
+          role: videoRole,
+          ...privacy,
+        });
         if (map === HOME_TARGETS)
-          outputs.push({ target: `${root}/${stem}.webm`, kind: "webm", role: videoRole });
+          outputs.push({
+            target: `${root}/${stem}.webm`,
+            kind: "webm",
+            role: videoRole,
+            ...privacy,
+          });
         outputs.push({
           target: `${root}/${stem}-poster.webp`,
           kind: "webp",
           role: posterRole,
           posterAt: POSTER_AT_SECONDS.get(assetId),
+          ...privacy,
         });
       }
     }
@@ -261,6 +322,7 @@ deriveMedia({
             gif.durationSec === undefined
               ? undefined
               : { start: gif.startSec ?? 0, duration: gif.durationSec },
+          ...privacy,
         });
       }
       if (values.format === "gif" && !item.gifs.length)

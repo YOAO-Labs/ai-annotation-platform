@@ -5,7 +5,7 @@
  *   pnpm screenshots                  # desktop-light 全量（默认）
  *   pnpm screenshots:dark             # desktop-dark 单跑
  *   pnpm screenshots:matrix           # 三个截图 project 全跑
- *   pnpm screenshots:flows            # 流程录制 → 标准源归档（video:on）
+ *   pnpm screenshots:flows            # 流程预演，不产正式素材
  *   pnpm screenshots:marketing        # 流程录制 → 4K60 MKV 采集源 + MP4 通用母版
  *   pnpm screenshots:regression       # 视觉回归子集（M4）
  *
@@ -17,10 +17,10 @@
 import { defineConfig, devices } from "@playwright/test";
 import { MARKETING_PROJECT_NAME } from "./e2e/screenshots/_helpers/marketing-recorder";
 import { recordingPlan, marketingCaptureDriver } from "./e2e/screenshots/recording-plan.mjs";
+import { SCREENSHOT_MATRIX_PROJECTS } from "./e2e/screenshots/matrix";
 
 const MAC_CAPTURE = process.platform === "darwin";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
-const VALIDATE_ONLY = process.env.SCREENSHOT_VALIDATE_ONLY === "1";
 // One source archive identity must survive Playwright worker restarts.
 process.env.SCREENSHOT_RECORDING_RUN ??= `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
 const BROWSER_ENV: Record<string, string> = {};
@@ -101,7 +101,7 @@ const config = defineConfig({
         deviceScaleFactor: 1,
       },
     },
-    // ── 流程录制（video:on 全程）────────────────────────────────
+    // ── 流程预演（正式素材统一从营销母版衍生）────────────────────────────────
     {
       name: "flows",
       testMatch: ["**/flows/flows.spec.ts"],
@@ -109,7 +109,7 @@ const config = defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 810 },
         deviceScaleFactor: 1,
-        video: VALIDATE_ONLY ? "off" : { mode: "on", size: { width: 1440, height: 810 } },
+        video: "off",
         trace: "on",
       },
     },
@@ -127,7 +127,8 @@ const config = defineConfig({
         launchOptions: {
           env: MARKETING_BROWSER_ENV,
           args: [
-            "--window-position=0,0",
+            // 起始位置避开屏幕左上角：macOS 26 会把贴边窗口吸进平铺槽并改写尺寸。
+            "--window-position=22,55",
             "--window-size=1440,900",
             `--force-device-scale-factor=${MAC_CAPTURE ? 2 : 1.8}`,
             "--hide-scrollbars",
@@ -145,7 +146,8 @@ const config = defineConfig({
             "--disable-renderer-backgrounding",
             "--disable-backgrounding-occluded-windows",
             "--disable-features=CalculateNativeWinOcclusion",
-            "--run-all-compositor-stages-before-draw",
+            // Linux headed capture needs native frame scheduling for workbench canvases.
+            ...(MAC_CAPTURE ? ["--run-all-compositor-stages-before-draw"] : []),
           ],
         },
       },
@@ -164,14 +166,39 @@ const config = defineConfig({
   ],
 });
 
-// FullConfig retains all configured projects even when CLI --project selects one.
-// A scoped catalog must never be shared with the full screenshot matrix.
-if (process.env.SCREENSHOT_BACKEND_REQUIREMENTS !== undefined) {
+// An ML-service-free static run has its own catalog scope and only schedules the matrix projects.
+const staticProfile = process.env.SCREENSHOT_STATIC_PROFILE;
+const backendScope = process.env.SCREENSHOT_BACKEND_REQUIREMENTS;
+if (staticProfile !== undefined) {
+  if (staticProfile !== "non-ml") {
+    throw new Error(`Unsupported SCREENSHOT_STATIC_PROFILE "${staticProfile}"; use "non-ml".`);
+  }
+  if (
+    backendScope !== undefined ||
+    process.env.SCREENSHOT_RECORDING_FLOWS !== undefined ||
+    process.env.SCREENSHOT_RECORDING_PROFILE !== undefined
+  ) {
+    throw new Error("Static screenshot selection cannot be combined with a recording scope.");
+  }
+  config.projects = config.projects?.filter((project) =>
+    SCREENSHOT_MATRIX_PROJECTS.includes(
+      project.name as (typeof SCREENSHOT_MATRIX_PROJECTS)[number],
+    ),
+  );
+  if (
+    config.projects?.length !== SCREENSHOT_MATRIX_PROJECTS.length ||
+    SCREENSHOT_MATRIX_PROJECTS.some(
+      (name) => !config.projects?.some((project) => project.name === name),
+    )
+  ) {
+    throw new Error("The non-ML static profile requires desktop-light, desktop-dark, and mobile.");
+  }
+} else if (backendScope !== undefined) {
   const plan = recordingPlan(
     (process.env.SCREENSHOT_RECORDING_FLOWS ?? "").split(","),
     process.env.SCREENSHOT_RECORDING_PROFILE,
   );
-  if (plan.backendRequirements !== process.env.SCREENSHOT_BACKEND_REQUIREMENTS) {
+  if (plan.backendRequirements !== backendScope) {
     throw new Error("Recording flow selection does not match backend requirements");
   }
   if (plan.profile === "marketing") {

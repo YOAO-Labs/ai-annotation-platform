@@ -136,6 +136,42 @@ export function outputGeometry(media, maxWidth = 1280, maxHeight = 720, fps = 30
     fps: Math.min(fps, media.fps),
   };
 }
+function privacyMaskFilter(masks, sourceOffsetSeconds) {
+  if (masks === undefined) return "";
+  if (
+    !Array.isArray(masks) ||
+    masks.some((mask) => {
+      if (!mask || typeof mask !== "object" || Array.isArray(mask)) return true;
+      const { x, y, width, height } = mask;
+      return (
+        ![x, y, width, height].every(Number.isFinite) ||
+        x < 0 ||
+        y < 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        x + width > 1 ||
+        y + height > 1 ||
+        (mask.fromSeconds !== undefined &&
+          (!Number.isFinite(mask.fromSeconds) || mask.fromSeconds < 0)) ||
+        (mask.untilSeconds !== undefined &&
+          (!Number.isFinite(mask.untilSeconds) || mask.untilSeconds <= (mask.fromSeconds ?? 0)))
+      );
+    })
+  ) {
+    throw new Error("Privacy masks must be normalized rectangles");
+  }
+  return masks
+    .map(({ x, y, width, height, fromSeconds, untilSeconds }) => {
+      let condition = "";
+      if (fromSeconds !== undefined) condition = `gte(t+${sourceOffsetSeconds},${fromSeconds})`;
+      if (untilSeconds !== undefined) {
+        condition += `${condition ? "*" : ""}lt(t+${sourceOffsetSeconds},${untilSeconds})`;
+      }
+      const enable = condition ? `:enable='${condition}'` : "";
+      return `drawbox=x=iw*${x}:y=ih*${y}:w=iw*${width}:h=ih*${height}:color=black:t=fill${enable}`;
+    })
+    .join(",");
+}
 
 // Both publishers use this path: validate the complete request, encode to staging,
 // then update only selected files and their provenance. No review is implied.
@@ -146,10 +182,13 @@ export function deriveMedia({
   assets,
   outputs,
   clip,
+  posterAt,
 }) {
   if (!["standard", "marketing"].includes(quality)) throw new Error("Unknown source quality");
   if (!assets.length || (clip && assets.length !== 1))
     throw new Error("--clip requires exactly one selected asset");
+  if (posterAt !== undefined && (assets.length !== 1 || !Number.isFinite(posterAt) || posterAt < 0))
+    throw new Error("--poster-at requires one selected asset and finite nonnegative seconds");
   const archive = readArchive(runDirectory);
   const jobs = [];
   const targets = new Set();
@@ -230,11 +269,22 @@ export function deriveMedia({
       }
       const window = clipFor(source.media, clip ?? recipe.clip);
       const geometry = outputGeometry(source.media, recipe.width, recipe.height, recipe.fps);
-      const posterAt = recipe.posterAt ?? window.duration * 0.72;
-      if (!Number.isFinite(posterAt) || posterAt < 0) throw new Error("Invalid poster timestamp");
+      const imageOutput = ["webp", "png"].includes(recipe.kind);
+      if (imageOutput && posterAt !== undefined && posterAt >= window.duration)
+        throw new Error("--poster-at must fall inside the selected clip");
+      const selectedPosterAt =
+        (imageOutput ? posterAt : undefined) ?? recipe.posterAt ?? window.duration * 0.72;
+      if (!Number.isFinite(selectedPosterAt) || selectedPosterAt < 0)
+        throw new Error("Invalid poster timestamp");
       const colors = recipe.colors ?? 256;
       if (!Number.isInteger(colors) || colors < 4 || colors > 256)
         throw new Error("Invalid GIF palette size");
+      const absolutePosterAt =
+        window.start + Math.min(selectedPosterAt, Math.max(0, window.duration - 0.1));
+      const privacyFilter = privacyMaskFilter(
+        recipe.privacyMasks,
+        ["webp", "png"].includes(recipe.kind) ? absolutePosterAt : window.start,
+      );
       jobs.push({
         assetId,
         item,
@@ -243,7 +293,8 @@ export function deriveMedia({
         window,
         geometry,
         colors,
-        posterAt: window.start + Math.min(posterAt, Math.max(0, window.duration - 0.1)),
+        privacyFilter,
+        posterAt: absolutePosterAt,
       });
     }
   }
@@ -255,7 +306,11 @@ export function deriveMedia({
     for (const [index, job] of jobs.entries()) {
       const { recipe, source, window, geometry } = job;
       const target = path.join(stage, `${index}.${recipe.kind}`);
-      const filter = `fps=${geometry.fps},scale=${geometry.width}:${geometry.height}:flags=lanczos,setsar=1`;
+      const scaleFilter = `scale=${geometry.width}:${geometry.height}:flags=lanczos`;
+      const filter = [job.privacyFilter, `fps=${geometry.fps}`, scaleFilter, "setsar=1"]
+        .filter(Boolean)
+        .join(",");
+      const posterFilter = [job.privacyFilter, scaleFilter].filter(Boolean).join(",");
       const input = [
         "-y",
         "-v",
@@ -283,7 +338,7 @@ export function deriveMedia({
           "-frames:v",
           "1",
           "-vf",
-          `scale=${geometry.width}:${geometry.height}:flags=lanczos`,
+          posterFilter,
           "-c:v",
           recipe.kind === "webp" && !useCwebp ? "libwebp" : "png",
           frameTarget,
@@ -302,7 +357,7 @@ export function deriveMedia({
           "-i",
           palette,
           "-lavfi",
-          `${filter}[x];[x][1:v]paletteuse`,
+          `${filter}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
           target,
         ]);
       } else {
@@ -369,10 +424,27 @@ export function deriveMedia({
           sha256: job.source.sha256,
           quality,
           clip: job.window,
+          ...(["webp", "png"].includes(job.recipe.kind)
+            ? { poster_time_seconds: job.posterAt }
+            : {}),
+          ...(job.recipe.kind === "gif"
+            ? {
+                gif_encoding: {
+                  palette_colors: job.colors,
+                  dither: "bayer",
+                  bayer_scale: 5,
+                  diff_mode: "rectangle",
+                },
+              }
+            : {}),
+          ...(job.recipe.privacyMasks?.length
+            ? { normalized_privacy_masks: job.recipe.privacyMasks }
+            : {}),
         },
         capture: {
           source_quality: quality,
-          source_inference: job.item.entry.capture?.inference ?? "unverified",
+          source_inference:
+            job.item.entry.evidence?.inference ?? job.item.entry.capture?.inference ?? "unverified",
         },
       });
       console.log(`[media] ${quality} ${job.assetId} → ${job.recipe.target}`);

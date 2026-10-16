@@ -1,6 +1,115 @@
+import { expect, type Page } from "@playwright/test";
 import type { ScreenshotScene } from "./_types";
 import type { NotificationItem, NotificationsResponse } from "../../../src/api/notifications";
+import {
+  API_PREFIX,
+  GROUP_FIXTURE,
+  prepareScreenshotGroup,
+  prepareScreenshotTemplates,
+} from "../_helpers/superadmin-fixtures";
 
+async function waitForHealthyAnalytics(page: Page): Promise<void> {
+  const panels = [
+    { endpoint: "throughput_daily", testId: "panel-throughput" },
+    { endpoint: "reject_rate_by_type", testId: "panel-reject-rate" },
+    { endpoint: "duration_dist", testId: "panel-duration" },
+    { endpoint: "activity_heatmap", testId: "panel-heatmap" },
+  ] as const;
+  const responses = Promise.all(
+    panels.map(({ endpoint }) =>
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === `${API_PREFIX}/admin/analytics/${endpoint}`,
+        { timeout: 15_000 },
+      ),
+    ),
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  const bodies = await Promise.all(
+    (await responses).map(async (response, index) => {
+      if (!response.ok()) {
+        throw new Error(
+          `[superadmin analytics] ${panels[index].endpoint}: HTTP ${response.status()}`,
+        );
+      }
+      const body = (await response.json()) as { panel?: unknown; data?: unknown };
+      if (body.panel !== panels[index].endpoint || body.data === undefined || body.data === null) {
+        throw new Error(
+          `[superadmin analytics] ${panels[index].endpoint} returned an invalid panel`,
+        );
+      }
+      return body.data;
+    }),
+  );
+  const arrayData = (value: unknown, name: string): Array<Record<string, unknown>> => {
+    if (!Array.isArray(value))
+      throw new Error(`[superadmin analytics] ${name} data is not an array`);
+    return value as Array<Record<string, unknown>>;
+  };
+  const throughput = arrayData(bodies[0], "throughput_daily");
+  const reject = arrayData(bodies[1], "reject_rate_by_type");
+  const duration = bodies[2] as Record<string, unknown>;
+  const heatmap = arrayData(bodies[3], "activity_heatmap");
+  if (
+    !throughput.every(
+      (row) => typeof row.day === "string" && typeof row.event_count === "number",
+    ) ||
+    !reject.every(
+      (row) =>
+        typeof row.reason_type === "string" &&
+        typeof row.count === "number" &&
+        typeof row.pct === "number",
+    ) ||
+    !["n", "p50", "p95", "mean"].every(
+      (field) => typeof duration[field] === "number" && Number.isFinite(duration[field]),
+    ) ||
+    !heatmap.every(
+      (row) =>
+        typeof row.weekday === "number" &&
+        typeof row.hour === "number" &&
+        typeof row.count === "number",
+    )
+  ) {
+    throw new Error("[superadmin analytics] healthy endpoint returned malformed panel data");
+  }
+  for (const { testId } of panels) await expect(page.getByTestId(testId)).toBeVisible();
+  await expect(page.getByText(/数据初始化中|DuckDB 文件不存在|HTTP 503|HTTP 500/)).toHaveCount(0);
+  if (throughput.length > 0) {
+    await expect(page.getByTestId("panel-throughput").locator("svg")).toBeVisible();
+  } else {
+    await expect(page.getByText("所选范围内暂无数据")).toBeVisible();
+  }
+  if (reject.length > 0) {
+    await expect(page.getByTestId("panel-reject-rate").locator("svg")).toBeVisible();
+  } else {
+    await expect(page.getByText("所选范围内无 reject 记录")).toBeVisible();
+  }
+  await expect(page.getByTestId("panel-duration")).toContainText("样本数");
+  if (heatmap.some((row) => Number(row.count) > 0)) {
+    await expect(page.getByTestId("panel-heatmap").locator("[title]")).toHaveCount(168);
+  } else {
+    await expect(page.getByText("所选范围内暂无工时数据")).toBeVisible();
+  }
+}
+
+async function fitPermissionMatrix(page: Page): Promise<void> {
+  const grid = page.locator("div.grid.grid-cols-2.gap-3.p-4");
+  const cards = grid.locator(":scope > div");
+  await expect(cards).toHaveCount(4);
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("[superadmin screenshot] viewport is unavailable");
+  const measuredBottom = await grid.evaluate((element) =>
+    Math.ceil(element.getBoundingClientRect().bottom),
+  );
+  const height = Math.max(viewport.height, measuredBottom + 24);
+  if (height !== viewport.height) {
+    await page.setViewportSize({ width: viewport.width, height });
+  }
+  for (const card of await cards.all()) {
+    await expect(card).toBeInViewport({ ratio: 0.95 });
+  }
+}
 // notifications/panel-overview 使用确定性列表：截图库没有持久通知，
 // created_at 对齐固定截图时钟（2026-07-13 10:00 +08），保证日期分组与相对时间稳定。
 const NOTIFICATION_FIXTURE_ITEMS: NotificationItem[] = [
@@ -163,10 +272,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/analytics/overview",
     role: "admin",
     route: () => "/admin/analytics",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(800); // recharts 渲染：时间范围下拉 + 4 面板
-    },
+    prepare: waitForHealthyAnalytics,
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/analytics/overview.png",
   },
@@ -174,11 +280,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/analytics/heatmap",
     role: "admin",
     route: () => "/admin/analytics",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      await page.locator('[data-testid="panel-heatmap"]').waitFor({ timeout: 4000 });
-      await page.waitForTimeout(500);
-    },
+    prepare: waitForHealthyAnalytics,
     capture: { kind: "locator", selector: '[data-testid="panel-heatmap"]', padding: 0 },
     target: "docs-site/user-guide/images/superadmin/analytics/heatmap.png",
   },
@@ -195,6 +297,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
   },
   {
     name: "superadmin/model-market/list",
+    requiresML: true,
     role: "admin",
     route: () => "/model-market",
     prepare: async (page) => {
@@ -260,13 +363,15 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/users/groups-tab",
     role: "admin",
     route: () => "/users",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      // 切「数据组」tab（组创建 + 成员添加）
+    prepare: async (page, catalog, registerCleanup) => {
+      const { group, cleanup } = await prepareScreenshotGroup(page, catalog);
+      registerCleanup(cleanup);
+      await page.reload({ waitUntil: "networkidle" });
       const tab = page.getByRole("button", { name: /数据组|用户组/ }).first();
       await tab.click();
-      await page.waitForTimeout(400);
-      await page.waitForLoadState("networkidle");
+      await expect(page.getByText(GROUP_FIXTURE.name, { exact: true })).toBeVisible();
+      const memberCount = new RegExp(`^${group.member_count} 名成员`);
+      await expect(page.getByText(memberCount)).toBeVisible();
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/users/groups-tab.png",
@@ -277,11 +382,11 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     route: () => "/users",
     prepare: async (page) => {
       await page.waitForLoadState("networkidle");
-      // 切「角色」tab 展示权限矩阵预览
+      // 切「角色」tab 后按卡片真实高度扩展截图视口，避免内部滚动容器裁掉下排角色。
       const tab = page.getByRole("button", { name: /角色/ }).first();
       await tab.click();
-      await page.waitForTimeout(400);
       await page.waitForLoadState("networkidle");
+      await fitPermissionMatrix(page);
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/users/permission-matrix.png",
@@ -319,12 +424,26 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
   },
   {
     name: "superadmin/ml-backend/register-form",
+    requiresML: true,
     role: "admin",
     // tab 是 role="tab" 且由 URL ?tab= 驱动（ModelMarketPage.tsx），直接深链到注册管理 tab
     route: () => "/model-market?tab=registry",
     prepare: async (page) => {
       await page.waitForLoadState("networkidle");
       await page.waitForTimeout(400);
+      // Preserve resource readiness/budgets while replacing the physical GPU identity.
+      await page.route("**/api/v1/admin/ml-integrations/gpu-resources", async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        body.resources = body.resources.map(
+          (resource: { gpu_resource_id: string }, index: number) => ({
+            ...resource,
+            gpu_resource_id: `demo-node/GPU-${index}`,
+          }),
+        );
+        await route.fulfill({ response, json: body });
+      });
+      await page.reload({ waitUntil: "networkidle" });
       const reg = page.getByRole("button", { name: "注册实例", exact: true });
       await reg.click({ timeout: 3000 });
       const dialog = page.getByRole("dialog");
@@ -347,14 +466,26 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     name: "superadmin/public-templates/templates-list",
     role: "admin",
     route: () => "/project-templates",
-    prepare: async (page) => {
-      await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(400);
-      // 切「全部」tab 展示四 tab + scope chip + usage_count
-      const allTab = page.getByRole("button", { name: /^全部$|全部/ }).first();
+    prepare: async (page, catalog, registerCleanup) => {
+      const { templates, cleanup } = await prepareScreenshotTemplates(page, catalog);
+      registerCleanup(cleanup);
+      await page.reload({ waitUntil: "networkidle" });
+      const allTab = page.getByRole("button", { name: "全部", exact: true });
       await allTab.click();
-      await page.waitForTimeout(300);
-      await page.waitForLoadState("networkidle");
+      await expect(page).toHaveURL(/(?:\?|&)scope=all(?:&|$)/);
+      const publicTemplate = templates.find((template) => template.scope === "public")!;
+      await expect(page.getByTestId(`template-card-${publicTemplate.id}`)).toBeVisible();
+      await page.getByPlaceholder("搜索模板名称…").fill("截图示例");
+      const cards = page.locator('[data-testid^="template-card-"]');
+      await expect(cards).toHaveCount(templates.length);
+      for (const template of templates) {
+        const card = page.getByTestId(`template-card-${template.id}`);
+        await expect(card).toContainText(template.name);
+        await expect(card).toContainText(`使用 ${template.usage_count} 次`);
+        await expect(page.getByTestId(`template-scope-${template.id}`)).toHaveText(
+          template.scope === "public" ? "公共" : "私有",
+        );
+      }
     },
     capture: { kind: "fullPage" },
     target: "docs-site/user-guide/images/superadmin/public-templates/templates-list.png",

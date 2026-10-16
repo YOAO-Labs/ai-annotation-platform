@@ -31,7 +31,7 @@ function apiPath(url: string): string {
 }
 
 function isProjectsListRequest(method: string, path: string): boolean {
-  return method === "GET" && path === "/api/v1/projects";
+  return method === "GET" && path === "/api/v1/projects/query";
 }
 
 function isProjectStatsRequest(method: string, path: string): boolean {
@@ -49,12 +49,19 @@ export async function setupMockState(
     case "empty": {
       await page.route(API_PATTERN, (route) => {
         const method = route.request().method();
-        const path = apiPath(route.request().url());
+        const url = new URL(route.request().url());
+        const path = url.pathname;
         if (isProjectsListRequest(method, path)) {
           return route.fulfill({
             status: 200,
             contentType: "application/json",
-            body: JSON.stringify([]),
+            body: JSON.stringify({
+              items: [],
+              page: Number(url.searchParams.get("page") ?? "1"),
+              page_size: Number(url.searchParams.get("page_size") ?? "20"),
+              pages: 0,
+              total: 0,
+            }),
           });
         }
         if (isProjectStatsRequest(method, path)) {

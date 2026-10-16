@@ -2,23 +2,26 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { withHeadlessDisplay } from "./headless-marketing-display.mjs";
 import {
   RECORDING_FLOWS,
   MARKETING_ONLY_FLOWS,
   recordingInference,
   recordingPlan,
   marketingCaptureDriver,
+  assertRecordingMode,
 } from "../e2e/screenshots/recording-plan.mjs";
 
 const { values } = parseArgs({
   args: process.argv.slice(2).filter((arg) => arg !== "--"),
   options: {
     flow: { type: "string", multiple: true },
-    profile: { type: "string", default: "docs" },
+    profile: { type: "string" },
     list: { type: "boolean" },
     plan: { type: "boolean" },
     "validate-only": { type: "boolean" },
     "resize-display": { type: "boolean" },
+    "headless-display": { type: "boolean" },
   },
 });
 if (values.list) {
@@ -28,24 +31,51 @@ if (values.list) {
       requirements.join(",") ||
       (inference === "live" ? "live inference (flow setup)" : "manual (no ML backend)");
     console.log(
-      `${id}\t${scope}\t${MARKETING_ONLY_FLOWS.includes(id) ? "marketing only" : "docs / marketing"}`,
+      `${id}\t${scope}\t${MARKETING_ONLY_FLOWS.includes(id) ? "marketing only" : "marketing / docs rehearsal"}`,
     );
   }
   process.exit(0);
 }
-const plan = recordingPlan(values.flow ?? [], values.profile);
+const profile = values.profile ?? (values["validate-only"] ? "docs" : "marketing");
+const plan = recordingPlan(values.flow ?? [], profile);
 const captureDriver =
   plan.profile === "marketing"
-    ? marketingCaptureDriver(process.platform, process.env.MARKETING_CAPTURE_DRIVER, plan.flows)
+    ? marketingCaptureDriver(
+        process.platform,
+        values["headless-display"] ? "x11grab" : process.env.MARKETING_CAPTURE_DRIVER,
+        plan.flows,
+      )
     : undefined;
-console.log(JSON.stringify({ ...plan, ...(captureDriver ? { captureDriver } : {}) }, null, 2));
-if (values["resize-display"] && values.profile !== "marketing") {
+if (values["headless-display"] && (process.platform !== "linux" || plan.profile !== "marketing")) {
+  throw new Error("--headless-display requires the Linux marketing profile.");
+}
+console.log(
+  JSON.stringify(
+    {
+      ...plan,
+      ...(captureDriver ? { captureDriver } : {}),
+      ...(values["headless-display"] ? { headlessDisplay: true } : {}),
+    },
+    null,
+    2,
+  ),
+);
+if (values["resize-display"] && plan.profile !== "marketing") {
   throw new Error("--resize-display only applies to the marketing profile.");
 }
 if (values["resize-display"] && captureDriver === "screencapturekit") {
   throw new Error("--resize-display applies only to Linux X11 capture.");
 }
 if (values.plan) process.exit(0);
+assertRecordingMode(plan.profile, values["validate-only"]);
+if (values["headless-display"]) {
+  // Re-enter the same selector on our owned display, before any database/fixture operation.
+  process.exitCode = await withHeadlessDisplay(process.execPath, [
+    fileURLToPath(import.meta.url),
+    ...process.argv.slice(2).filter((arg) => arg !== "--headless-display"),
+  ]);
+  process.exit(process.exitCode);
+}
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const apiRoot = path.resolve(webRoot, "../api");
@@ -95,6 +125,18 @@ function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+// Fail read-only capture checks before fixture reconciliation can mutate the database.
+if (plan.profile === "marketing") {
+  run(
+    process.execPath,
+    [
+      "scripts/run-marketing-capture.mjs",
+      "--preflight-only",
+      ...(values["resize-display"] ? ["--resize-display"] : []),
+    ],
+    webRoot,
+  );
 }
 // Probe live registered backends during reconciliation, never silently start a stub.
 run(

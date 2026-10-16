@@ -50,6 +50,10 @@ from app.services.screenshot_seed_backends import (
     default_screenshot_stub_url,
     reconcile_screenshot_backends,
 )
+from app.services.screenshot_seed_analytics import (
+    prepare_screenshot_analytics,
+    validate_screenshot_analytics_target,
+)
 from app.services.screenshot_seed_spec import SEED_REVISION, parse_backend_requirements
 
 # 生产保护栏：seed.py 仅用于 dev / staging
@@ -224,6 +228,7 @@ async def seed(
     assets = {}
     generated_assets = None
     if profile == "screenshots":
+        validate_screenshot_analytics_target()
         selected_assets = select_profile(
             "screenshots",
             required_ids={"rapidocr-image", *REQUIRED_SOURCE_IDS},
@@ -466,6 +471,12 @@ async def seed(
                     "screenshots catalog preflight failed: " + "; ".join(exc.issues)
                 ) from exc
             print("  ready screenshots catalog preflight")
+            analytics_report = await prepare_screenshot_analytics(db)
+            print(
+                "  ready screenshots analytics "
+                f"task_events={analytics_report['task_events']['rows']} "
+                f"audit_logs={analytics_report['audit_logs']['rows']}"
+            )
 
     if not strict:
         # Demo keeps asynchronous backfill for all image/video datasets. The

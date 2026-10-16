@@ -125,6 +125,7 @@ import { IssueCreateModal } from "../shell/IssueCreateModal";
 import { isAIToolId, TOOL_REGISTRY, type ToolId } from "../stage/tools";
 import { toolUnitForGeometryType } from "../stage/tools/toolUnits";
 import {
+  canAcquireWorkbenchTaskLock,
   resolveSamCandidateClass,
   samCandidateDisplayShapes,
   samCandidateGeom,
@@ -1669,14 +1670,18 @@ export function useWorkbenchShellModel({
   } = usePreannotationProgress(projectId);
   const sceneMayEdit =
     mode === "annotate" && !!task && task.status !== "review" && task.status !== "completed";
+  const taskLockPhaseAllowed = canAcquireWorkbenchTaskLock(mode, task?.status, projectWriteBlocked);
   const {
     lockError,
     lockConflict,
     remainingMs,
     isLocked: taskLockReady,
+    releaseForPhaseTransition: releaseTaskLock,
+    resumeAfterPhaseTransitionFailure: resumeTaskLock,
   } = useTaskLock(
     taskId,
-    videoCollaborationResolved &&
+    taskLockPhaseAllowed &&
+      videoCollaborationResolved &&
       !videoCollaborationEnabled &&
       (stageKind !== "3d" || (sceneMayEdit && !scenePlaybackActive)),
   );
@@ -2732,7 +2737,7 @@ export function useWorkbenchShellModel({
     projectWriteBlocked ||
     sceneWriteBlocked ||
     (mode === "review"
-      ? task?.status === "completed" || videoCollaborationEnabled || !!lockConflict || !!lockError
+      ? task?.status !== "review" || videoCollaborationEnabled || !!lockConflict || !!lockError
       : task?.status === "review" ||
         task?.status === "completed" ||
         !!lockConflict ||
@@ -4364,6 +4369,8 @@ export function useWorkbenchShellModel({
     navigateTask,
     pushToast,
     isCurrentContext: isCurrentSubmitContext,
+    releaseTaskLock,
+    resumeTaskLock,
   });
   const modeState = mode === "review" ? reviewModeState : annotateModeState;
   const { topbarActions, bannerActions } = modeState;

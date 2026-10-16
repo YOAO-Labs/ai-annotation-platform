@@ -18,9 +18,17 @@ export interface ScreenshotScene {
   role: Role | Role[];
   /** 场景消费的稳定 seed 资源；driver 会在导航前统一 fail-closed 校验。 */
   fixture?: ScreenshotFixture;
+  /**
+   * ML-only UI without backend/capability fixture requirements; excluded from service-free static selection.
+   */
+  requiresML?: true;
   route: (catalog: ScreenshotSeedCatalog) => string;
-  /** 进页面后的准备步骤（开 modal / 切 tab / 键盘交互等） */
-  prepare?: (page: Page, catalog: ScreenshotSeedCatalog) => Promise<void>;
+  /** Prepare UI and register owned fixture cleanup before any later assertion can fail. */
+  prepare?: (
+    page: Page,
+    catalog: ScreenshotSeedCatalog,
+    registerCleanup: (cleanup: () => Promise<void>) => void,
+  ) => Promise<void>;
 
   /**
    * 自动红框 / 编号注释（截图前用 SVG overlay 注入，截图后自动移除）。

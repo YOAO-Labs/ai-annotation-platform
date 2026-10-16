@@ -1,6 +1,6 @@
 import { openContextToolbar } from "../../fixtures/context-toolbar";
 /**
- * 流程录制：在同一条真实中间卡车轨迹上对比纯几何复制与 SAM3 AI 延展。
+ * 流程录制：在同一条真实中间卡车轨迹上对比纯几何复制与 SAM2 AI 延展。
  */
 import { expect, type Locator, type Page, type Response } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
@@ -119,6 +119,9 @@ export async function runVideoPropagateTrackVsCopy(
     );
   }
   await rows.first().click();
+  await page.getByTestId("video-tool-btn-select").click();
+  const selectionCapsule = page.getByLabel("展开选中信息卡(可拖动)", { exact: true });
+  if (await selectionCapsule.isVisible()) await selectionCapsule.click();
   const copyButton = page.getByRole("button", { name: "复制后续", exact: true });
   const aiButton = page.getByRole("button", { name: "延展此轨迹", exact: true });
   await copyButton.waitFor({ state: "visible", timeout: 5_000 });
@@ -166,7 +169,7 @@ export async function runVideoPropagateTrackVsCopy(
     await scrubToFrame(page, timeline, TARGET_FRAME, 0, 850);
     await page.waitForTimeout(650);
 
-    // 第二段：同一源轨迹发起真实 SAM3 延展，并通过候选审阅后回填。
+    // 第二段：同一源轨迹发起真实 SAM2 延展，并通过候选审阅后回填。
     await aiButton.hover();
     await aiButton.click();
     const aiDialog = page.getByTestId("video-tracker-propagate-dialog");
@@ -181,7 +184,7 @@ export async function runVideoPropagateTrackVsCopy(
     const modelValues = await modelSelect
       .locator("option")
       .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
-    const model = ["sam3_video_interactive", "sam2_video"].find((value) =>
+    const model = ["sam2_video", "sam3_video_interactive"].find((value) =>
       modelValues.includes(value),
     );
     if (!model) throw new Error("[video-propagate-track-vs-copy] 没有可用的真实点框追踪模型");
@@ -204,7 +207,7 @@ export async function runVideoPropagateTrackVsCopy(
     }
     onJobCreated(createdPayload.id);
 
-    await page.getByTestId("tool-btn-select").click();
+    await page.getByTestId("video-tool-btn-select").click();
     await page
       .getByTestId("tracker-review-tool-capsule")
       .waitFor({ state: "visible", timeout: 120_000 });

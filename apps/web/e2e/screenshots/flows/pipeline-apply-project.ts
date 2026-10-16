@@ -179,10 +179,9 @@ export async function runPipelineApplyProject(
   const panel = page.getByTestId("ai-prediction-popover");
   await panel.waitFor({ state: "visible", timeout: 5_000 });
   await dockAiPanelAtViewportRight(page, panel);
-  const runButton = panel.getByRole("button", {
-    name: "运行当前题（按项目编排 · 2 阶段）",
-    exact: true,
-  });
+  await panel.getByTestId("ai-prediction-advanced-toggle").click();
+  const runButton = panel.getByTestId("ai-prediction-run-pipeline");
+  await expect(runButton).toHaveText("运行当前题（项目编排 · 2 阶段）");
   await runButton.waitFor({ state: "visible", timeout: 15_000 });
   await expect(runButton).toBeEnabled();
   await page.waitForTimeout(2_100);
@@ -220,8 +219,8 @@ export async function runPipelineApplyProject(
       const workbench = document.querySelector('[data-testid="workbench-stage"]');
       const popover = document.querySelector('[data-testid="ai-prediction-popover"]');
       const candidateCount = Number(workbench?.getAttribute("data-ai-box-count") ?? "0");
-      const run = Array.from(popover?.querySelectorAll("button") ?? []).find((button) =>
-        button.textContent?.includes("按项目编排"),
+      const run = popover?.querySelector<HTMLButtonElement>(
+        '[data-testid="ai-prediction-run-pipeline"]',
       );
       return (
         Number.isInteger(candidateCount) && candidateCount > 0 && Boolean(run && !run.disabled)

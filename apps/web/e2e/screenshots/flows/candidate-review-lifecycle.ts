@@ -238,9 +238,8 @@ export async function runCandidateReviewLifecycle(
     geometry: acceptedAnnotation.geometry,
   });
   await page.waitForTimeout(3_200);
-  const drawEndMs = Date.now();
 
-  // Reload is outside the published clip, and proves decisions survive a fresh workbench mount.
+  // Include the fresh mount and persisted annotation inspection in the visible review story.
   await page.reload();
   await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 15_000 });
   await expect(stage).toHaveAttribute("data-ai-box-count", String(remainingIds.length));
@@ -248,6 +247,25 @@ export async function runCandidateReviewLifecycle(
   const reloaded = await readState();
   expect(reloaded.pendingIds.slice().sort()).toEqual(remainingIds.slice().sort());
   expect(reloaded.annotations.map((annotation) => annotation.id)).toEqual([acceptedAnnotation.id]);
+  expect(reloaded.annotations[0]).toMatchObject({
+    parent_prediction_id: acceptedAnnotation.parent_prediction_id,
+    attributes: { _shape_index: candidateIdentity(acceptedId).shapeIndex },
+    geometry: acceptedAnnotation.geometry,
+    class_name: acceptedAnnotation.class_name,
+  });
+  const manualSection = page.getByTestId("section-header-manual");
+  await manualSection.scrollIntoViewIfNeeded();
+  await expect(manualSection).toContainText("1");
+  if ((await manualSection.getAttribute("aria-expanded")) === "false") {
+    await manualSection.click();
+  }
+  const acceptedRow = page.getByTestId(`box-list-item-${acceptedAnnotation.id}`);
+  await acceptedRow.click();
+  await expect(acceptedRow).toHaveClass(/border-brand/);
+  // Keep the persisted, selected annotation readable at the same pace as the review decisions.
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(2_200);
+  const drawEndMs = Date.now();
 
   return {
     ...({ drawStartMs, drawEndMs } satisfies DrawWindow),

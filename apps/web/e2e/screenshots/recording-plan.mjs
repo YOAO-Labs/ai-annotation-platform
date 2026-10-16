@@ -10,6 +10,12 @@ const manual = [
   "ai-prediction-import",
   "review-reject",
   "pipeline-apply-project",
+  "pipeline-template-create",
+  "ai-pre-variant-selector",
+  "model-market-runtime-pool",
+  "model-market-video-pool",
+  "model-market-runtime-partial-failure",
+  "model-market-gpu-resource-overview",
   "ai-preannotate",
   "project-ml-routing",
   "batch-bulk-actions",
@@ -21,6 +27,12 @@ const manual = [
   "video-draw",
   "video-tracker-job-states",
   "workspace-layout-persistence",
+  "workspace-named-preset",
+  "polygon-boundary-trace",
+  "polygon-slice-undo",
+  "mask-slice-instances",
+  "discussion-target-drafts",
+  "task-drawing-comment",
   "pointcloud-controls",
   "pointcloud-view",
   "pointcloud-billboard-label",
@@ -31,6 +43,15 @@ const manual = [
   "large-image-pyramid-recovery",
   "large-image-mask-limit",
   "hotkey-cheatsheet",
+  "video-comment-badges",
+  "discussion-mention-return",
+  "video-issue-resolution",
+  "project-guide-autosave",
+  "project-invitation-join",
+  "project-create-existing-resources",
+  "project-actions-menu",
+  "background-export-download",
+  "storage-connector-create-test",
 ];
 
 // Inference execution is explicit: a panel can require live capabilities without
@@ -87,7 +108,52 @@ export const MARKETING_ONLY_FLOWS = [
   "pointcloud-panel-layout",
 ];
 
-export function recordingPlan(flows, profile = "docs") {
+// Repeatable non-ML refresh selection; this does not restrict other qualified flows.
+export const MAC_MARKETING_FLOWS = [
+  "project-onboarding",
+  "bbox-draw",
+  "workspace-layout-basics",
+  "rotated-bbox",
+  "polyline-draw",
+  "polygon-draw",
+  "mask-draw",
+  "review-reject",
+  "batch-bulk-actions",
+  "video-track",
+  "video-timeline-zoom",
+  "video-chapter",
+  "video-track-carryover",
+  "video-mask-track-edit",
+  "video-draw",
+  "workspace-layout-persistence",
+  "workspace-named-preset",
+  "polygon-boundary-trace",
+  "polygon-slice-undo",
+  "mask-slice-instances",
+  "discussion-target-drafts",
+  "task-drawing-comment",
+  "pointcloud-controls",
+  "pointcloud-view",
+  "pointcloud-billboard-label",
+  "pointcloud-camera-seed-3d-box",
+  "pointcloud-crossframe-track",
+  "pointcloud-panel-layout",
+  "large-image-progressive",
+  "large-image-pyramid-recovery",
+  "large-image-mask-limit",
+  "hotkey-cheatsheet",
+  "video-comment-badges",
+  "discussion-mention-return",
+  "video-issue-resolution",
+  "project-guide-autosave",
+  "project-invitation-join",
+  "project-create-existing-resources",
+  "project-actions-menu",
+  "background-export-download",
+  "storage-connector-create-test",
+];
+
+export function recordingPlan(flows, profile = "marketing") {
   if (!["docs", "marketing"].includes(profile)) throw new Error(`Unknown profile: ${profile}`);
   if (!flows.length)
     throw new Error("Select at least one --flow; use --list to see supported flows.");
@@ -132,4 +198,18 @@ export function screenshotCatalogPath(scope = process.env.SCREENSHOT_BACKEND_REQ
     "/api/v1/__test/seed/catalog?profile=screenshots" +
     (scope === undefined ? "" : `&backend_requirements=${encodeURIComponent(scope)}`)
   );
+}
+
+// Standard capture is rehearsal only; production sources must pass marketing gates.
+export function assertRecordingMode(profile, validateOnly) {
+  if (profile === "docs" && !validateOnly) {
+    throw new Error(
+      "The docs profile is rehearsal only; use --validate-only or capture a marketing master.",
+    );
+  }
+}
+
+// Selected captures include isolated fixture reconstruction and master encoding.
+export function recordingTimeout(requested, current, selected) {
+  return selected ? Math.max(900_000, current, requested) : requested;
 }
