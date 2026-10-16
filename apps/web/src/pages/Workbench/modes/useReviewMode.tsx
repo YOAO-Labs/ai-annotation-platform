@@ -47,10 +47,27 @@ export function useReviewMode({
   currentTaskIdRef.current = taskId;
   const currentReviewContextRef = useRef({ taskId, status: task?.status, mode });
   currentReviewContextRef.current = { taskId, status: task?.status, mode };
-  const ownsContext = useCallback(
-    (ownerTaskId: string) => () =>
-      currentTaskIdRef.current === ownerTaskId && isCurrentContext?.() !== false,
-    [isCurrentContext],
+  const reviewAvailable = mode === "review" && task?.status === "review";
+  const reviewSessionRef = useRef({ taskId, mode, available: reviewAvailable });
+  if (
+    reviewSessionRef.current.taskId !== taskId ||
+    reviewSessionRef.current.mode !== mode ||
+    (reviewAvailable && !reviewSessionRef.current.available)
+  ) {
+    reviewSessionRef.current = { taskId, mode, available: reviewAvailable };
+  } else {
+    // Completion may arrive before the mutation's success callback. Retire the session
+    // when review becomes available again, while allowing that success to navigate.
+    reviewSessionRef.current.available = reviewAvailable;
+  }
+  type Decision = { session: typeof reviewSessionRef.current; kind: "approve" | "reject" };
+  const decisionRef = useRef<Decision | null>(null);
+  const [decision, setDecision] = useState<Decision | null>(null);
+  useEffect(
+    () => () => {
+      decisionRef.current = null;
+    },
+    [],
   );
   const ownsReviewTask = useCallback(
     (ownerTaskId: string) => {
@@ -77,73 +94,86 @@ export function useReviewMode({
     // claimMut 故意不在依赖数组中（每次 taskId 变化只 fire 一次）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, taskId, task?.status, ownsReviewTask]);
-  const handleApproveTask = useCallback(async () => {
-    if (!taskId || !ownsReviewTask(taskId)) return;
-    const ownerTaskId = taskId;
-    const owns = ownsContext(ownerTaskId);
-    await releaseTaskLock?.(ownerTaskId);
-    if (!ownsReviewTask(ownerTaskId)) return;
-    approveMut.mutate(ownerTaskId, {
-      onSuccess: () => {
+  const handleDecision = useCallback(
+    async (kind: "approve" | "reject") => {
+      if (!taskId || !ownsReviewTask(taskId)) return;
+      const session = reviewSessionRef.current;
+      if (decisionRef.current?.session === session) return;
+      const ownerTaskId = taskId;
+      const operation: Decision = { session, kind };
+      decisionRef.current = operation;
+      setDecision(operation);
+      const owns = () =>
+        decisionRef.current === operation &&
+        reviewSessionRef.current === session &&
+        currentTaskIdRef.current === ownerTaskId &&
+        isCurrentContext?.() !== false;
+      const clear = () => {
+        if (decisionRef.current !== operation) return;
+        decisionRef.current = null;
+        if (reviewSessionRef.current === session) setDecision(null);
+      };
+      const onError = () => {
         if (!owns()) return;
-        pushToast({ msg: "任务已通过", kind: "success" });
-        navigateTask("next");
-      },
-      onError: () => {
-        if (!owns()) return;
+        clear();
+        if (!ownsReviewTask(ownerTaskId)) return;
         resumeTaskLock?.(ownerTaskId);
-        pushToast({ msg: "通过失败，请重试", kind: "error" });
-      },
-    });
-  }, [
-    taskId,
-    ownsReviewTask,
-    ownsContext,
-    releaseTaskLock,
-    approveMut,
-    pushToast,
-    navigateTask,
-    resumeTaskLock,
-  ]);
-
-  // 退回走 rejectReasonDialog 两步流；任一步取消即整次放弃。
-  const handleRejectTask = useCallback(async () => {
-    if (!taskId || !ownsReviewTask(taskId)) return;
-    const ownerTaskId = taskId;
-    const payload = await promptRejectReason({
-      count: 1,
-      skipReasonHint: task?.skip_reason ?? null,
-    });
-    if (!payload || !ownsReviewTask(ownerTaskId)) return;
-    const owns = ownsContext(ownerTaskId);
-    await releaseTaskLock?.(ownerTaskId);
-    if (!ownsReviewTask(ownerTaskId)) return;
-    rejectMut.mutate(
-      { taskId: ownerTaskId, ...payload },
-      {
-        onSuccess: () => {
-          if (!owns()) return;
-          pushToast({ msg: "任务已退回", kind: "success" });
-          navigateTask("next");
-        },
-        onError: () => {
-          if (!owns()) return;
-          resumeTaskLock?.(ownerTaskId);
-          pushToast({ msg: "退回失败，请重试", kind: "error" });
-        },
-      },
-    );
-  }, [
-    taskId,
-    task?.skip_reason,
-    ownsReviewTask,
-    ownsContext,
-    releaseTaskLock,
-    rejectMut,
-    pushToast,
-    navigateTask,
-    resumeTaskLock,
-  ]);
+        pushToast({
+          msg: kind === "approve" ? "通过失败，请重试" : "退回失败，请重试",
+          kind: "error",
+        });
+      };
+      try {
+        // Reserve the decision before opening either reject dialog or releasing the lock.
+        const payload =
+          kind === "reject"
+            ? await promptRejectReason({
+                count: 1,
+                skipReasonHint: task?.skip_reason ?? null,
+              })
+            : null;
+        if ((kind === "reject" && !payload) || !owns() || !ownsReviewTask(ownerTaskId)) {
+          clear();
+          return;
+        }
+        await releaseTaskLock?.(ownerTaskId);
+        if (!owns() || !ownsReviewTask(ownerTaskId)) {
+          clear();
+          return;
+        }
+        const callbacks = {
+          onSuccess: () => {
+            if (!owns()) return;
+            // Keep the reservation until navigation retires this review session.
+            pushToast({ msg: kind === "approve" ? "任务已通过" : "任务已退回", kind: "success" });
+            navigateTask("next");
+          },
+          onError,
+        };
+        if (kind === "reject" && payload) {
+          rejectMut.mutate({ taskId: ownerTaskId, ...payload }, callbacks);
+        } else {
+          approveMut.mutate(ownerTaskId, callbacks);
+        }
+      } catch {
+        onError();
+      }
+    },
+    [
+      taskId,
+      task?.skip_reason,
+      ownsReviewTask,
+      isCurrentContext,
+      releaseTaskLock,
+      resumeTaskLock,
+      pushToast,
+      navigateTask,
+      rejectMut,
+      approveMut,
+    ],
+  );
+  const handleApproveTask = useCallback(() => handleDecision("approve"), [handleDecision]);
+  const handleRejectTask = useCallback(() => handleDecision("reject"), [handleDecision]);
 
   useEffect(() => {
     if (mode !== "review") return;
@@ -169,25 +199,20 @@ export function useReviewMode({
     return () => window.removeEventListener("keydown", handler);
   }, [mode, handleApproveTask, handleRejectTask]);
 
-  const reviewTaskAvailable = mode === "review" && task?.status === "review";
+  const pendingDecision =
+    reviewAvailable && decision?.session === reviewSessionRef.current ? decision : null;
+  const reviewTaskAvailable = reviewAvailable && !pendingDecision;
   const topbarActions = useMemo(
     () => ({
       canApprove: reviewTaskAvailable,
       canReject: reviewTaskAvailable,
       onApprove: handleApproveTask,
       onReject: () => void handleRejectTask(),
-      isApproving: approveMut.isPending,
-      isRejecting: rejectMut.isPending,
+      isApproving: pendingDecision?.kind === "approve",
+      isRejecting: pendingDecision?.kind === "reject",
       reviewInfoSlot: mode === "review" ? <ReviewerMiniPanel /> : undefined,
     }),
-    [
-      mode,
-      reviewTaskAvailable,
-      handleApproveTask,
-      handleRejectTask,
-      approveMut.isPending,
-      rejectMut.isPending,
-    ],
+    [mode, reviewTaskAvailable, handleApproveTask, handleRejectTask, pendingDecision],
   );
 
   return {
