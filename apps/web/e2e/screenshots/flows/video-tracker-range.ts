@@ -4,7 +4,7 @@ import { expect, type Page } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
 import type { VideoTrackerJob, VideoTrackerJobPreview } from "../../../src/api/videoTracker";
 import {
-  mediaPoint,
+  mediaBbox,
   movePointerAtRefreshRate,
   normalizedBboxIoU,
   recordingAnchor,
@@ -77,15 +77,16 @@ export async function runVideoTrackerRange(
   await assertVideoTimelineVisible(page);
   await page.waitForTimeout(900);
 
+  await page.getByTestId("tracker-seed-mode-box").click();
   await dialog.getByTestId("tracker-seed-toggle").click();
   const media = await renderedMediaBounds(stage);
-  const points = [anchor.point, ...anchor.additional_points];
-  for (const point of points) {
-    const position = mediaPoint(media, point);
-    await page.mouse.click(position.x, position.y);
-    await page.waitForTimeout(400);
-  }
-  await expect(dialog.getByTestId("tracker-seed-target-1")).toContainText(`${points.length} 点`);
+  const targetBox = mediaBbox(media, anchor.bbox);
+  await page.mouse.move(targetBox.start.x, targetBox.start.y);
+  await page.mouse.down();
+  await movePointerAtRefreshRate(page, targetBox.start, targetBox.end, 700);
+  await page.mouse.up();
+  await page.waitForTimeout(650);
+  await expect(dialog.getByTestId("tracker-seed-target-1")).toContainText("1 框");
   await dialog.getByTestId("tracker-seed-toggle").click();
   await parkVideoPointer(page);
   await page.waitForTimeout(700);
@@ -144,7 +145,15 @@ export async function runVideoTrackerRange(
   expect(request.prompt.seeds).toHaveLength(1);
   expect(request.prompt.seeds[0].prompts).toHaveLength(1);
   expect(request.prompt.seeds[0].prompts[0]).toMatchObject({ frame_index: 0 });
-  expect(request.prompt.seeds[0].prompts[0].points).toHaveLength(points.length);
+  const submittedSeed = request.prompt.seeds[0].prompts[0];
+  expect(submittedSeed.points ?? []).toEqual([]);
+  const expectedBox = {
+    x: anchor.bbox[0],
+    y: anchor.bbox[1],
+    w: anchor.bbox[2] - anchor.bbox[0],
+    h: anchor.bbox[3] - anchor.bbox[1],
+  };
+  expect(normalizedBboxIoU(submittedSeed.bbox, expectedBox)).toBeGreaterThan(0.95);
   const preview = (await (await previewResponse).json()) as VideoTrackerJobPreview;
   expect(preview).toMatchObject({
     job_id: job.id,
@@ -210,12 +219,6 @@ export async function runVideoTrackerRange(
   expect(track.geometry.keyframes.map((frame) => frame.frame_index)).toEqual(
     Array.from({ length: endFrame + 1 }, (_, i) => i),
   );
-  const expectedBox = {
-    x: anchor.bbox[0],
-    y: anchor.bbox[1],
-    w: anchor.bbox[2] - anchor.bbox[0],
-    h: anchor.bbox[3] - anchor.bbox[1],
-  };
   const overlap = normalizedBboxIoU(track.geometry.keyframes[0]!.bbox, expectedBox);
   expect(
     overlap,
