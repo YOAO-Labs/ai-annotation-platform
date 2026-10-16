@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.exc import IntegrityError
 from training_contract.dataset import (
     DETECTION_CONTRACT,
+    LEGACY_SEGMENTATION_CONTRACT,
     SEGMENTATION_CONTRACT,
     DatasetContractError,
     data_contract,
@@ -29,7 +30,10 @@ from app.db.models.user import User
 from app.services.project_delete import delete_project_records
 from app.services import project_task_dataset as service
 from app.services import training_datasets as frozen_datasets
-from app.schemas.training_dataset import TrainingDatasetCreate
+from app.schemas.training_dataset import (
+    TrainingDatasetContractProfile,
+    TrainingDatasetCreate,
+)
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_dataset_bridge import TrainingDatasetError
 from tests.factory import create_project, create_user
@@ -109,6 +113,129 @@ async def test_sql_recognition_exactly_matches_frozen_python_contract(
         select(service.recognized_task_expression(literal(snapshot, type_=JSONB)))
     )
     assert actual == expected
+
+
+@pytest.mark.parametrize("schema", [1, 2])
+@pytest.mark.parametrize("output_media", ["missing", "image", "video", None])
+@pytest.mark.parametrize("source_media", ["missing", "image", "video", None])
+async def test_legacy_task_identity_keeps_media_truth_and_independent_capabilities(
+    db_session, super_admin, httpx_client, schema, output_media, source_media
+):
+    owner, token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    snapshot = {"schema": 1} if schema == 1 else dict(LEGACY_SEGMENTATION_CONTRACT)
+    snapshot["classes"] = ["car"]
+    if output_media != "missing":
+        snapshot["media_type"] = output_media
+    if source_media != "missing":
+        snapshot["source"] = {"media_type": source_media}
+    version = await add_version(db_session, project, snapshot=snapshot)
+    membership = await service.ensure_membership(db_session, version)
+    expected_task = "detect" if schema == 1 else "segment"
+    headers = {"Authorization": f"Bearer {token}"}
+    path = f"/api/v1/projects/{project.id}"
+    response = await httpx_client.get(f"{path}/task-datasets", headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    root = next(item for item in data["items"] if item["task"] == expected_task)
+    assert root["id"] == str(membership.task_dataset_id)
+    assert root["version_count"] == root["status_counts"]["ready"] == 1
+    assert data["unrecognized_version_count"] == 0
+    profile = root["latest_ready_version"]["contract_profile"]
+    assert profile["schema"] == schema and "schema_version" not in profile
+    assert profile["media_type"] == (
+        "image" if output_media == "missing" else output_media
+    )
+    assert profile["source_media_type"] == (
+        "image" if source_media == "missing" else source_media
+    )
+    can_analyze = output_media in {"missing", "image"}
+    can_train = can_analyze and source_media in {"missing", "image"}
+    caps = root["capabilities"]
+    assert caps["qualified_training"]["supported"] is can_train
+    for operation in (
+        "overview_statistics",
+        "task_statistics",
+        "sample_preview",
+        "semantic_comparison",
+    ):
+        assert caps[operation]["supported"] is can_analyze
+        assert (caps[operation]["reason"] is None) is can_analyze
+    assert (caps["qualified_training"]["reason"] is None) is can_train
+    listed = await httpx_client.get(
+        f"{path}/training-datasets", headers=headers, params={"task": expected_task}
+    )
+    assert listed.status_code == 200 and listed.json()["total"] == 1
+    assert listed.json()["items"][0]["contract_profile"] == profile
+    compact = await httpx_client.get(
+        f"{path}/training-datasets/{version.id}",
+        headers=headers,
+        params={"include_manifest": "false"},
+    )
+    assert compact.status_code == 200, compact.text
+    assert compact.json()["contract_profile"] == profile
+
+
+async def test_media_projection_preserves_nulls_and_malformed_source_evidence(
+    db_session,
+):
+    for snapshot, expected_output, expected_source in (
+        ({"schema": 1, "source": None}, "image", "image"),
+        ({"schema": 1, "source": {}}, "image", "image"),
+        ({"schema": 1, "source": "invalid"}, "image", None),
+        ({"schema": 1, "source": {"media_type": False}}, "image", None),
+        ({"schema": 1, "media_type": 3}, None, "image"),
+    ):
+        row = (
+            await db_session.execute(
+                select(
+                    service.contract_profile_expression(literal(snapshot, type_=JSONB))
+                )
+            )
+        ).scalar_one()
+        assert row["media_type"] == expected_output
+        assert row["source_media_type"] == expected_source
+
+
+async def test_task_choices_use_actual_project_tool_unit_names(
+    db_session, super_admin, httpx_client
+):
+    owner, token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    project.tool_bindings = {
+        key: {"enabled": True, "classes": ["car"]}
+        for key in (
+            "keypoint",
+            "rotated_bbox",
+            "classify",
+            "classification",
+            "oriented_bbox",
+            "keypoints",
+            "skeleton",
+            "obb",
+        )
+    }
+    await db_session.flush()
+    response = await httpx_client.get(
+        f"/api/v1/projects/{project.id}/task-datasets",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    assert {item["task"] for item in response.json()["items"]} == {"pose", "obb"}
+    assert all(
+        not capability["supported"] and capability["reason"]
+        for item in response.json()["items"]
+        for capability in item["capabilities"].values()
+    )
+
+
+def test_contract_profile_schema_alias_and_unknown_media_are_explicit():
+    profile = TrainingDatasetContractProfile.model_validate(
+        {**DETECTION_CONTRACT, "source_media_type": None, "media_type": None}
+    )
+    assert profile.schema_version == 3
+    assert profile.model_dump(by_alias=True)["schema"] == 3
+    assert profile.media_type is None and profile.source_media_type is None
 
 
 async def test_filter_before_count_paging_and_keep_unassociated_old_writer_versions(

@@ -449,6 +449,28 @@ async def test_current_authority_status_and_fixed_catalog_stop_future_runs(
     assert not await db_session.scalar(select(LearningTrigger.id))
 
 
+@pytest.mark.parametrize("media_type", ["video", None])
+async def test_legacy_parent_with_unqualified_output_media_suspends_before_freezing(
+    db_session, super_admin, httpx_client, frozen_source, monkeypatch, media_type
+):
+    owner, token = super_admin
+    _, parent, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
+    parent.manifest = {**parent.manifest, "media_type": media_type}
+    await db_session.flush()
+    freeze = AsyncMock(side_effect=AssertionError("Unqualified parent must not freeze"))
+    monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
+    await service.check_policy(db_session, policy.id, force=True)
+    await db_session.flush()
+    assert not policy.enabled and policy.state == "suspended"
+    freeze.assert_not_awaited()
+    assert (
+        await db_session.scalar(
+            select(LearningTrigger.id).where(LearningTrigger.policy_id == policy.id)
+        )
+        is None
+    )
+
+
 async def test_identical_snapshot_is_not_packaged_again_and_policy_delete_keeps_run_audit(
     db_session, super_admin, httpx_client, frozen_source
 ):

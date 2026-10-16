@@ -82,10 +82,11 @@ class TrainingDatasetPreflight(BaseModel):
 
 
 class TrainingDatasetContractProfile(BaseModel):
-    schema: int
+    model_config = ConfigDict(populate_by_name=True)
+    schema_version: int = Field(alias="schema")
     task: VisualTask
-    media_type: str
-    source_media_type: str
+    media_type: str | None
+    source_media_type: str | None
     format: str
     geometry: str
     bridge: str

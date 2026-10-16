@@ -25,6 +25,7 @@ from app.services.training_dataset_bridge import (
 )
 from app.services import training_initialization as initialization
 from app.services import project_task_dataset as task_datasets
+from app.services.training_dataset_insight_adapters import adapter_for
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
 CHECK_BATCH_SIZE = 100
@@ -429,9 +430,7 @@ async def check_policy(db, policy_id, *, force=False):
     parent = await db.get(TrainingDatasetVersion, selection.parent_id)
     try:
         valid_parent = (
-            parent is not None
-            and normalize_task(datasets.contract_of(parent.manifest)["task"])
-            == "detect"
+            parent is not None and adapter_for(parent.manifest).task == "detect"
         )
     except TrainingDatasetError:
         valid_parent = False

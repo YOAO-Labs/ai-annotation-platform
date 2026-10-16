@@ -27,6 +27,51 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services.training_dataset_bridge import TrainingDatasetError
 
 STATUSES = ("pending", "running", "ready", "failed", "cancelled")
+TASK_TO_TOOL_UNITS = {
+    "detect": ("bbox",),
+    "segment": ("region",),
+    "pose": ("keypoint",),
+    "obb": ("rotated_bbox",),
+}
+
+
+def _json_value(record, *path):
+    # Function syntax also works with bound JSONB fixtures on PostgreSQL: an
+    # unparenthesized "$1::JSONB[...]" subscript is invalid SQL.
+    return func.jsonb_extract_path(record, *path, type_=JSONB)
+
+
+def _json_text(record, *path):
+    return func.jsonb_extract_path_text(record, *path)
+
+
+def _media_field(record):
+    """Legacy omission is image; an explicit null/invalid value is unknown."""
+    return case(
+        (not_(record.has_key("media_type")), "image"),
+        (
+            func.jsonb_typeof(_json_value(record, "media_type")) == "string",
+            _json_text(record, "media_type"),
+        ),
+        else_=None,
+    )
+
+
+def output_media_expression(snapshot=None):
+    snapshot = TrainingDatasetVersion.snapshot if snapshot is None else snapshot
+    return _media_field(snapshot)
+
+
+def source_media_expression(snapshot=None):
+    snapshot = TrainingDatasetVersion.snapshot if snapshot is None else snapshot
+    source = _json_value(snapshot, "source")
+    # The existing adapter treats an absent/null source as the historical
+    # omitted image source. Explicit source.media_type=null stays unknown.
+    return case(
+        (or_(source.is_(None), func.jsonb_typeof(source) == "null"), "image"),
+        (func.jsonb_typeof(source) == "object", _media_field(source)),
+        else_=None,
+    )
 
 
 def recognized_task_expression(snapshot=None):
@@ -36,12 +81,12 @@ def recognized_task_expression(snapshot=None):
     def schema_is(number):
         # JSON string/bool/float schemas are not Python int schemas.
         return and_(
-            func.jsonb_typeof(snapshot["schema"]) == "number",
-            snapshot["schema"].as_string() == str(number),
+            func.jsonb_typeof(_json_value(snapshot, "schema")) == "number",
+            _json_text(snapshot, "schema") == str(number),
         )
 
     def absent_or_equal(key, value):
-        return or_(not_(snapshot.has_key(key)), snapshot[key].as_string() == value)
+        return or_(not_(snapshot.has_key(key)), _json_text(snapshot, key) == value)
 
     legacy_detection = and_(
         schema_is(1),
@@ -53,7 +98,7 @@ def recognized_task_expression(snapshot=None):
     legacy_segmentation = and_(
         schema_is(2),
         *(
-            snapshot[key].as_string() == value
+            _json_text(snapshot, key) == value
             for key, value in LEGACY_SEGMENTATION_CONTRACT.items()
             if key != "schema"
         ),
@@ -64,7 +109,7 @@ def recognized_task_expression(snapshot=None):
         return and_(
             schema_is(3),
             *(
-                snapshot[key].as_string() == value
+                _json_text(snapshot, key) == value
                 for key, value in contract.items()
                 if key != "schema"
             ),
@@ -80,22 +125,22 @@ def recognized_task_expression(snapshot=None):
     )
 
 
-def contract_profile_expression():
+def contract_profile_expression(snapshot=None):
     """Small projection only; list reads never deserialize full frozen bodies."""
-    snapshot = TrainingDatasetVersion.snapshot
+    snapshot = TrainingDatasetVersion.snapshot if snapshot is None else snapshot
     task = recognized_task_expression(snapshot)
     return case(
         (
             task.is_not(None),
             func.jsonb_build_object(
                 "schema",
-                snapshot["schema"],
+                _json_value(snapshot, "schema"),
                 "task",
                 task,
                 "media_type",
-                "image",
+                output_media_expression(snapshot),
                 "source_media_type",
-                TrainingDatasetVersion.source_media_type,
+                source_media_expression(snapshot),
                 "format",
                 "ultralytics-yolo",
                 "geometry",
@@ -207,20 +252,16 @@ async def ensure_membership(db, version, *, project_locked=False):
     return membership
 
 
-def task_capabilities(project, task, has_ready_version):
-    tool = {
-        "detect": "bbox",
-        "segment": "region",
-        "classify": "classify",
-        "pose": "keypoints",
-        "obb": "oriented_bbox",
-    }.get(task)
-    binding = (project.tool_bindings or {}).get(tool, {})
-    binding = binding if isinstance(binding, dict) else {}
-    qualified = task in {"detect", "segment"}
-    create_supported = (
-        qualified and project.data_type == "image" and binding.get("enabled", False)
+def task_capabilities(
+    project, task, *, has_ready_version, has_analyzable_ready, has_training_ready
+):
+    bindings = project.tool_bindings or {}
+    tool_enabled = any(
+        isinstance(bindings.get(tool), dict) and bindings[tool].get("enabled")
+        for tool in TASK_TO_TOOL_UNITS.get(task, ())
     )
+    qualified = task in {"detect", "segment"}
+    create_supported = qualified and project.data_type == "image" and tool_enabled
     create_reason = (
         None
         if create_supported
@@ -230,11 +271,27 @@ def task_capabilities(project, task, has_ready_version):
             else "此任务的冻结、桥接和训练路径尚未通过资格验证"
         )
     )
-    read_supported = qualified and has_ready_version
+    read_supported = qualified and has_analyzable_ready
     read_reason = (
         None
         if read_supported
-        else ("尚无已就绪的合格冻结版本" if qualified else "此任务尚无合格分析适配器")
+        else (
+            "此任务尚无合格分析适配器"
+            if not qualified
+            else "该输出媒体尚无经过资格验证的分析适配器"
+            if has_ready_version
+            else "尚无已就绪的合格冻结版本"
+        )
+    )
+    training_supported = qualified and has_training_ready
+    training_reason = (
+        None
+        if training_supported
+        else (
+            "当前仅资格验证图片来源物化；该来源媒体尚未通过训练资格验证"
+            if read_supported
+            else read_reason
+        )
     )
     return {
         "create_version": {
@@ -242,8 +299,8 @@ def task_capabilities(project, task, has_ready_version):
             "reason": create_reason,
         },
         "qualified_training": {
-            "supported": qualified and has_ready_version,
-            "reason": read_reason,
+            "supported": training_supported,
+            "reason": training_reason,
         },
         **{
             name: {"supported": read_supported, "reason": read_reason}
@@ -259,6 +316,8 @@ def task_capabilities(project, task, has_ready_version):
 
 async def list_task_datasets(db, project):
     task = recognized_task_expression()
+    analyzable = output_media_expression() == "image"
+    trainable = and_(analyzable, source_media_expression() == "image")
     counts = (
         await db.execute(
             select(
@@ -268,6 +327,8 @@ async def list_task_datasets(db, project):
                 func.count()
                 .filter(TaskDatasetVersionMembership.version_id.is_(None))
                 .label("pending"),
+                func.count().filter(analyzable).label("analyzable"),
+                func.count().filter(trainable).label("trainable"),
             )
             .outerjoin(
                 TaskDatasetVersionMembership,
@@ -288,7 +349,15 @@ async def list_task_datasets(db, project):
     summaries = {}
     pending = {}
     unrecognized = 0
-    for canonical, status, count, pending_count in counts:
+    ready_qualifications = {}
+    for (
+        canonical,
+        status,
+        count,
+        pending_count,
+        analyzable_count,
+        trainable_count,
+    ) in counts:
         if canonical is None:
             unrecognized += count
             continue
@@ -296,15 +365,11 @@ async def list_task_datasets(db, project):
             count
         )
         pending[canonical] = pending.get(canonical, 0) + pending_count
+        if status == "ready":
+            ready_qualifications[canonical] = (analyzable_count, trainable_count)
     bindings = project.tool_bindings or {}
     choices = set(summaries) | set(stream_by_task)
-    for task_name, tools in {
-        "detect": ("bbox",),
-        "segment": ("region",),
-        "classify": ("classify", "classification"),
-        "pose": ("keypoint", "keypoints", "skeleton"),
-        "obb": ("obb", "oriented_bbox"),
-    }.items():
+    for task_name, tools in TASK_TO_TOOL_UNITS.items():
         if any(
             isinstance(bindings.get(tool), dict) and bindings[tool].get("enabled")
             for tool in tools
@@ -338,6 +403,7 @@ async def list_task_datasets(db, project):
             )
         ).one_or_none()
         states = summaries.get(task_name, {state: 0 for state in STATUSES})
+        analyzable_ready, training_ready = ready_qualifications.get(task_name, (0, 0))
         items.append(
             {
                 "id": stream_by_task[task_name].id
@@ -350,7 +416,11 @@ async def list_task_datasets(db, project):
                 "pending_membership_count": pending.get(task_name, 0),
                 "latest_ready_version": summary_metadata(row) if row else None,
                 "capabilities": task_capabilities(
-                    project, task_name, bool(states["ready"])
+                    project,
+                    task_name,
+                    has_ready_version=bool(states["ready"]),
+                    has_analyzable_ready=bool(analyzable_ready),
+                    has_training_ready=bool(training_ready),
                 ),
             }
         )
