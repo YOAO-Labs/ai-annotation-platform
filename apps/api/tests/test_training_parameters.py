@@ -14,6 +14,9 @@ from app.config import settings
 from app.db.models.training_run import TrainingRun, TrainingAttempt
 from app.schemas.training_run import ExecutorFinish, TrainingRunCreate
 from app.services import training_runs as service
+from app.services import training_adapters as adapters
+from app.services import training_artifacts as artifact_service
+from app.services import training_claims as claims
 from app.services.training_dataset_bridge import content_digest
 from tests.test_training_runs import ready_dataset, executor_claim, fence
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
@@ -49,7 +52,7 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
     db_session, super_admin, httpx_client, monkeypatch
 ):
     from training_contract.dataset import SEGMENTATION_CONTRACT
-    from app.services import training_recipes, learning_policies
+    from app.services import training_recipes
 
     owner, token = super_admin
     project, dataset = await ready_dataset(db_session, owner)
@@ -90,10 +93,10 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
     )
     assert training_recipes.compatibility(reusable) == (True, None)
     with pytest.raises(HTTPException, match="检测"):
-        learning_policies.fixed_template("ultralytics", "yolo11n-seg")
+        claims.fixed_policy_template("ultralytics", "yolo11n-seg")
     model = next(
         base
-        for item in service.catalog()["items"]
+        for item in adapters.catalog()["items"]
         for base in item["base_models"]
         if base["id"] == "yolo11n-seg"
     )
@@ -386,7 +389,7 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
             ("train.log", "log"),
         ]
     }
-    monkeypatch.setattr(service, "verify_artifact", lambda *args: None)
+    monkeypatch.setattr(artifact_service, "verify_artifact", lambda *args: None)
     body = ExecutorFinish(
         **fence(claim, assignment), status="succeeded", process_exited=True
     )

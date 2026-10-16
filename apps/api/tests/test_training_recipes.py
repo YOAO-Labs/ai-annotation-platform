@@ -9,7 +9,7 @@ from app.config import settings
 from app.db.models.learning_policy import LearningPolicy
 from app.db.models.training_recipe import TrainingRecipeRevision
 from app.db.models.training_run import TrainingRun
-from app.services import learning_policies
+from app.services import training_claims as claims
 from tests.test_training_parameters import configuration, new_v2
 from tests.test_training_runs import ready_dataset
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
@@ -277,7 +277,7 @@ async def test_policy_pins_revision_and_archive_does_not_break_edits_or_executio
     policy = await db_session.scalar(
         select(LearningPolicy).where(LearningPolicy.project_id == project.id)
     )
-    assert learning_policies.template_current(policy)
+    assert claims.policy_template_current(policy)
     updated = {**recipe_body(), "expected_head_revision": 1}
     updated["configuration"]["configuration"]["values"]["mosaic"] = 0.1
     second = await httpx_client.post(
@@ -300,7 +300,7 @@ async def test_policy_pins_revision_and_archive_does_not_break_edits_or_executio
     assert edited.json()["config"]["configuration"] == pinned["configuration"]
     assert edited.json()["config"]["origin"] == pinned["origin"]
     await db_session.refresh(policy)
-    assert learning_policies.template_current(policy)
+    assert claims.policy_template_current(policy)
     adoption = {
         **body,
         "expected_revision": 2,

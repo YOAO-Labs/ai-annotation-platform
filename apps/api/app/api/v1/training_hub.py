@@ -23,6 +23,7 @@ from app.schemas.training_hub import (
 )
 from app.schemas.training_run import TrainingRunOut
 from app.services import training_runs as service
+from app.services import training_adapters as adapters
 from app.services.project_aggregates import managed_project_scope_clause
 
 router = APIRouter(
@@ -41,8 +42,8 @@ def project_scope(user):
 
 @router.get("/catalog", response_model=TrainingHubCatalog)
 async def catalog(db: AsyncSession = Depends(get_db)):
-    result = service.catalog()
-    lease = await db.get(TrainingResourceLease, service.resource_id())
+    result = adapters.catalog()
+    lease = await db.get(TrainingResourceLease, adapters.resource_id())
     online = bool(
         lease
         and lease.last_seen_at
@@ -199,7 +200,7 @@ async def runs(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if service.catalog()["enabled"]:
+    if adapters.catalog()["enabled"]:
         lease = await service.lock_resource(db)
         await service.observe_lost(db, lease)
         await db.commit()

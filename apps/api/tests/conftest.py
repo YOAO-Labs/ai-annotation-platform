@@ -27,6 +27,8 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -222,6 +224,19 @@ def media_dispatcher(app_module):
     app_module.dependency_overrides[get_media_job_dispatcher] = lambda: dispatcher
     yield dispatcher
     app_module.dependency_overrides.pop(get_media_job_dispatcher, None)
+
+
+@pytest.fixture
+def dataset_dispatcher(monkeypatch, app_module):
+    from app.deps import get_training_dataset_dispatcher
+
+    dispatcher = SimpleNamespace(dispatch_dataset=AsyncMock())
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_training_dataset_dispatcher,
+        lambda: dispatcher,
+    )
+    return dispatcher
 
 
 @pytest.fixture

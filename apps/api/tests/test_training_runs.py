@@ -24,6 +24,8 @@ from app.schemas.training_run import (
     ExecutorUpload,
 )
 from app.services import training_runs as service
+from app.services import training_adapters as adapters
+from app.services import training_artifacts as artifact_service
 from app.services.storage import StorageService
 from tests.factory import create_membership, create_project
 
@@ -437,7 +439,7 @@ async def test_artifact_digest_failure_cannot_publish_success_and_failure_frees_
     def invalid(*args):
         raise ValueError("Artifact mismatch")
 
-    monkeypatch.setattr(service, "verify_artifact", invalid)
+    monkeypatch.setattr(artifact_service, "verify_artifact", invalid)
     with pytest.raises(HTTPException) as error:
         await service.finish(
             db_session,
@@ -477,14 +479,14 @@ def test_real_artifact_stream_digest_and_partial_delete_errors(monkeypatch):
 
     attempt_id = uuid.uuid4()
     client = Client()
-    monkeypatch.setattr(service.storage, "client", client)
-    service.verify_artifact(
+    monkeypatch.setattr(artifact_service.storage, "client", client)
+    artifact_service.verify_artifact(
         "owned/a",
         {"sha256": hashlib.sha256(b"abc").hexdigest(), "size_bytes": 3},
         attempt_id,
     )
     with pytest.raises(ValueError):
-        service.verify_artifact(
+        artifact_service.verify_artifact(
             "owned/a", {"sha256": "0" * 64, "size_bytes": 3}, attempt_id
         )
     storage = StorageService.__new__(StorageService)
@@ -507,7 +509,7 @@ async def test_libreyolo_catalog_freezes_native_options_and_return_capability(
         },
     }
     monkeypatch.setattr(settings, "training_catalog_json", catalog)
-    options = service.catalog()["items"]
+    options = adapters.catalog()["items"]
     libre = next(x for x in options if x["framework"] == "libreyolo")
     assert (
         libre["capabilities"]["model_registration"] is True
@@ -528,7 +530,7 @@ async def test_libreyolo_catalog_freezes_native_options_and_return_capability(
     monkeypatch.setattr(
         settings, "training_catalog_json", {"ultralytics": catalog["ultralytics"]}
     )
-    assert [x["framework"] for x in service.catalog()["items"]] == ["ultralytics"]
+    assert [x["framework"] for x in adapters.catalog()["items"]] == ["ultralytics"]
     retained = await httpx_client.get(
         f"/api/v1/projects/{project.id}/training-runs/{run['id']}",
         headers={"Authorization": "Bearer " + token},

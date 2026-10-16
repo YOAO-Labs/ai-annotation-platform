@@ -15,6 +15,7 @@ from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import trained_models as service
+from app.services import training_artifacts as artifacts
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
 from tests.conftest import create_registry_with_pool
@@ -92,9 +93,9 @@ async def seed_source(db, owner):
 
 @pytest.fixture
 def controlled_artifacts(monkeypatch):
-    monkeypatch.setattr(service, "verify_artifact", Mock())
+    monkeypatch.setattr(artifacts, "verify_artifact", Mock())
     monkeypatch.setattr(
-        service,
+        artifacts,
         "read_json_artifact",
         lambda *_: {
             "summary": {"mAP50-95": 0.4},
@@ -138,7 +139,7 @@ async def test_libre_registration_retains_native_gaps_and_immutable_runtime_qual
         "base_model": {"id": "LibreYOLO9t"},
     }
     monkeypatch.setattr(
-        service,
+        artifacts,
         "read_json_artifact",
         lambda *_: {
             "validation_digest": run.config["validation_digest"],

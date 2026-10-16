@@ -18,11 +18,12 @@ from app.db.models.project import Project
 from app.db.models.training_run import TrainingAttempt, TrainingEvent, TrainingRun
 from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.services import (
+    training_adapters as adapters,
+    training_claims as claims,
     training_evaluations,
     training_recipes,
     training_runs as runs,
 )
-from app.services.learning_policies import project_lock
 from app.services.training_dataset_bridge import content_digest
 
 log = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ async def freeze_plan(db, project_id, body):
         configuration = body.base.configuration.model_copy(
             update={"values": {**body.base.configuration.values, **overrides}}
         )
-        resolved = runs.resolve_configuration(
+        resolved = adapters.resolve_configuration(
             body.base.framework, body.base.base_model, configuration.model_dump()
         )
         config = {
@@ -212,18 +213,6 @@ def reserve(attempt, run, allowance):
     attempt.native_budget = budget
 
 
-async def claim_allowed(db, run):
-    if run.study_id is None:
-        return True
-    study = await db.get(TrainingStudy, run.study_id, populate_existing=True)
-    project = await db.get(Project, run.project_id, populate_existing=True)
-    return bool(
-        study
-        and project.status == "in_progress"
-        and (study.scheduling or run.authorization.get("study_manual_resume"))
-    )
-
-
 async def stop_child(db, run):
     if run.status == "queued":
         attempt = await db.get(TrainingAttempt, run.current_attempt_id)
@@ -237,7 +226,7 @@ async def stop_child(db, run):
 
 async def coordinate(db, study_id):
     preliminary = await db.get(TrainingStudy, study_id)
-    if preliminary is None or not await project_lock(
+    if preliminary is None or not await claims.project_lock(
         db, preliminary.project_id, wait=False
     ):
         return

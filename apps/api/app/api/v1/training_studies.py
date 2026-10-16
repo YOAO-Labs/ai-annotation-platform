@@ -12,7 +12,7 @@ from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_study import TrainingStudyCreate
 from app.services import training_initialization, training_studies as service
-from app.services.learning_policies import project_lock
+from app.services import training_claims as claims
 from app.services.training_dataset_bridge import content_digest
 
 router = APIRouter(
@@ -28,7 +28,7 @@ async def preview(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ) -> dict:
-    await project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     if project.status != "in_progress":
         raise HTTPException(status_code=409, detail="项目停用时不能启动参数搜索")
@@ -46,7 +46,7 @@ async def create(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ) -> dict:
-    await project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     request_digest = content_digest(body.request_payload())
     existing = await db.scalar(
@@ -155,7 +155,7 @@ async def cancel(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ) -> dict:
-    await project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     study = await service.load(db, project.id, study_id, lock=True)
     study.scheduling = False

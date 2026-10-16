@@ -2,7 +2,6 @@
 
 import copy
 import uuid
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,8 +11,8 @@ from app.config import settings
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
-from app.deps import get_training_dataset_dispatcher
 from app.services import learning_policies as service, training_runs as runs
+from app.services import training_claims as claims
 from app.services.training_dataset_bridge import semantic_partitions
 from tests.test_training_runs import ready_dataset, executor_claim
 
@@ -33,7 +32,7 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
     )
     legacy = copy.deepcopy(policy.config)
     assert "configuration" not in legacy
-    assert service.template_current(policy)
+    assert claims.policy_template_current(policy)
     schema = definition("ultralytics")
     update = {key: value for key, value in body.items() if key != "parameters"}
     update.update(
@@ -86,17 +85,6 @@ def manifest(train=None, val="v1", classes=None):
             }
         ],
     }
-
-
-@pytest.fixture
-def dataset_dispatcher(monkeypatch, app_module):
-    dispatcher = SimpleNamespace(dispatch_dataset=AsyncMock())
-    monkeypatch.setitem(
-        app_module.dependency_overrides,
-        get_training_dataset_dispatcher,
-        lambda: dispatcher,
-    )
-    return dispatcher
 
 
 @pytest.fixture

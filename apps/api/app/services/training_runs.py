@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
-from training_contract import definition, resolve, schema_identity, verify_native
+from training_contract import definition, verify_native
 from training_contract.validation import CANONICAL
 from training_contract.dataset import DETECTION, SEGMENTATION
 from training_contract.observability import failure_receipt, redact_text
@@ -37,7 +37,9 @@ from app.services.training_dataset_bridge import (
     contract_of,
 )
 from app.services.training_datasets import assert_training_authority
-from app.services.training_adapters import ADAPTERS, capabilities, fixed_options
+from app.services import training_adapters as adapters
+from app.services import training_artifacts as artifact_service
+from app.services import training_claims as claims
 from app.services import training_initialization as initialization
 
 ACTIVE = {
@@ -55,124 +57,6 @@ SCOPES = frozenset({"datasets:read", "datasets:write", "annotations:read"})
 
 def now():
     return datetime.now(timezone.utc)
-
-
-def resource_id():
-    return f"{settings.training_node_id}/{settings.training_gpu_uuid}"
-
-
-def catalog():
-    configured = settings.training_catalog_json
-    enabled = bool(
-        settings.training_enabled
-        and len(settings.training_executor_token) >= 32
-        and settings.training_gpu_uuid.startswith("GPU-")
-    )
-    items = []
-    for framework, entry in configured.items():
-        if framework not in ADAPTERS:
-            continue
-        version = entry.get("version")
-        image = entry.get("image_digest", "")
-        models = entry.get("base_models", {})
-        if (
-            version != ADAPTERS[framework]["version"]
-            or not image.startswith("sha256:")
-            or len(image) != 71
-        ):
-            continue
-        valid_models = []
-        for name, model in models.items():
-            try:
-                task = definition(framework, name)["task"]
-            except ValueError:
-                continue
-            sha = model.get("sha256", "")
-            filename = model.get("filename", "")
-            if (
-                len(sha) == 64
-                and all(c in "0123456789abcdef" for c in sha)
-                and filename
-                and "/" not in filename
-                and "\\" not in filename
-                and ".." not in filename
-            ):
-                valid_models.append(
-                    {
-                        "id": name,
-                        "sha256": sha,
-                        "filename": filename,
-                        "task": task,
-                        "capabilities": capabilities(framework, task),
-                    }
-                )
-        if valid_models:
-            items.append(
-                {
-                    "framework": framework,
-                    "version": version,
-                    "image_digest": image,
-                    "base_models": valid_models,
-                    "capabilities": {
-                        "tasks": sorted({base["task"] for base in valid_models}),
-                        **{
-                            key: any(base["capabilities"][key] for base in valid_models)
-                            for key in (
-                                "resume",
-                                "artifact_download",
-                                "model_registration",
-                            )
-                        },
-                    },
-                    "parameter_schemas": parameter_summaries(framework, valid_models),
-                }
-            )
-    return {
-        "enabled": enabled and bool(items),
-        "resource_id": resource_id() if enabled else None,
-        "items": items,
-    }
-
-
-def parameter_summaries(framework, models):
-    schemas = {}
-    for base in models:
-        try:
-            schema = definition(framework, base["id"])
-        except ValueError:
-            continue
-        identity = schema_identity(schema)
-        identity["field_count"] = len(schema["fields"])
-        identity["editable_count"] = sum(
-            field["status"] == "editable" for field in schema["fields"]
-        )
-        schemas[schema["schema_id"]] = identity
-    return list(schemas.values())
-
-
-def resolve_configuration(framework, base_model, configuration):
-    try:
-        return resolve(framework, base_model, configuration)
-    except (KeyError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-def controlled_template(framework, base_model):
-    options = catalog()
-    template = next((x for x in options["items"] if x["framework"] == framework), None)
-    base = next(
-        (x for x in (template or {}).get("base_models", []) if x["id"] == base_model),
-        None,
-    )
-    if not options["enabled"] or not template or not base:
-        raise HTTPException(status_code=409, detail="训练器或基础权重尚未配置")
-    return {
-        "framework": framework,
-        "framework_version": template["version"],
-        "image_digest": template["image_digest"],
-        "base_model": {key: base[key] for key in ("id", "sha256", "filename")},
-        "resource_id": options["resource_id"],
-    }
 
 
 def runtime_compatible(config, runtime):
@@ -270,7 +154,7 @@ async def authority(db, run):
 
 
 async def frozen_config(db, project_id, body: TrainingRunCreate):
-    options = catalog()
+    options = adapters.catalog()
     if not options["enabled"]:
         raise HTTPException(status_code=409, detail="训练执行器尚未配置，请联系管理员")
     template = next(
@@ -317,7 +201,7 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         "task": normalize_task(contract["task"]),
         "media_type": "image",
         "format": "ultralytics-yolo",
-        "adapter_revision": ADAPTERS[body.framework]["revision"],
+        "adapter_revision": adapters.ADAPTERS[body.framework]["revision"],
         "framework": body.framework,
         "framework_version": template["version"],
         "image_digest": template["image_digest"],
@@ -328,13 +212,13 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         "validation_digest": dataset.manifest["validation_digest"],
         "classes": dataset.manifest["classes"],
         "parameters": body.parameters.model_dump(),
-        "resource_id": resource_id(),
-        "fixed_options": fixed_options(body.framework),
+        "resource_id": adapters.resource_id(),
+        "fixed_options": adapters.fixed_options(body.framework),
     }
     if normalize_task(contract["task"]) == SEGMENTATION or contract["schema"] == 3:
         config["data_contract"] = contract
     if body.configuration is not None:
-        configuration = resolve_configuration(
+        configuration = adapters.resolve_configuration(
             body.framework, body.base_model, body.configuration.model_dump()
         )
         config.update(
@@ -397,7 +281,7 @@ async def new_attempt(db, run, *, resume_from=None):
 
 
 async def lock_resource(db, identity=None):
-    identity = identity or resource_id()
+    identity = identity or adapters.resource_id()
     await db.execute(
         insert(TrainingResourceLease)
         .values(resource_id=identity)
@@ -573,8 +457,8 @@ async def assignment(db, run, attempt, token):
 
 async def claim(db, body):
     if (
-        not catalog()["enabled"]
-        or body.resource_id != resource_id()
+        not adapters.catalog()["enabled"]
+        or body.resource_id != adapters.resource_id()
         or body.runtime.get("gpu_uuid") != settings.training_gpu_uuid
     ):
         raise HTTPException(status_code=409, detail="执行器物理资源与配置不一致")
@@ -626,18 +510,15 @@ async def claim(db, body):
                 raise
             await mark_terminal(db, run, attempt, "failed", "训练启动权限已撤销")
             continue
-        from app.services.learning_policies import claim_allowed
-
-        if not await claim_allowed(db, run):
+        if not await claims.policy_claim_allowed(db, run):
             await mark_terminal(
                 db, run, attempt, "cancelled", "自动策略已关闭、变化或项目已停用"
             )
             continue
         if run.study_id:
-            from app.services import training_studies
             from training_contract.budget import validate_budget
 
-            if not await training_studies.claim_allowed(db, run):
+            if not await claims.study_claim_allowed(db, run):
                 await mark_terminal(
                     db, run, attempt, "cancelled", "参数搜索已停止或项目已停用"
                 )
@@ -836,26 +717,6 @@ async def authorize_upload(db, attempt_id, body):
     return result
 
 
-def verify_artifact(key, spec, attempt_id):
-    response = storage.client.get_object(Bucket=storage.training_bucket, Key=key)
-    try:
-        if response["ContentLength"] != spec["size_bytes"] or response.get(
-            "Metadata", {}
-        ).get("attempt-id") != str(attempt_id):
-            raise ValueError("Artifact size or identity mismatch")
-        digest = hashlib.sha256()
-        total = 0
-        for chunk in iter(lambda: response["Body"].read(1024 * 1024), b""):
-            digest.update(chunk)
-            total += len(chunk)
-            if total > spec["size_bytes"]:
-                raise ValueError("Artifact size exceeded")
-        if total != spec["size_bytes"] or digest.hexdigest() != spec["sha256"]:
-            raise ValueError("Artifact digest mismatch")
-    finally:
-        response["Body"].close()
-
-
 def verify_native_artifact(run, attempt, artifacts):
     receipt = artifacts.get("native-config.json")
     if (
@@ -932,7 +793,9 @@ async def finish(db, attempt_id, body):
     for name, spec in attempt.upload_inventory.items():
         key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
         try:
-            await asyncio.to_thread(verify_artifact, key, spec, attempt.id)
+            await asyncio.to_thread(
+                artifact_service.verify_artifact, key, spec, attempt.id
+            )
         except Exception as exc:
             if status == "succeeded":
                 raise HTTPException(
@@ -941,10 +804,10 @@ async def finish(db, attempt_id, body):
             continue
         artifacts[name] = {**spec, "key": key}
         if spec["role"] == "telemetry":
-            from app.services.training_observability import verify_summary
-
             try:
-                await asyncio.to_thread(verify_summary, run, attempt, artifacts[name])
+                await asyncio.to_thread(
+                    artifact_service.verify_summary, run, attempt, artifacts[name]
+                )
             except (ValueError, KeyError, TypeError) as exc:
                 if status == "succeeded":
                     raise HTTPException(

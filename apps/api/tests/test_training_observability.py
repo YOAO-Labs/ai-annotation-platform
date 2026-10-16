@@ -27,6 +27,7 @@ from app.schemas.training_observability import (
 from app.schemas.training_run import ExecutorFinish
 from app.services import training_observability as observations
 from app.services import training_runs as training
+from app.services import training_artifacts as artifact_service
 from app.services.training_dataset_bridge import content_digest
 from tests.factory import create_project
 from tests import test_training_runs as training_fixtures
@@ -576,7 +577,7 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
             ("observability.json", "telemetry"),
         )
     }
-    monkeypatch.setattr(training, "verify_artifact", lambda *args: None)
+    monkeypatch.setattr(artifact_service, "verify_artifact", lambda *args: None)
     summary = {
         "protocol": 1,
         "run_id": str(run.id),
@@ -584,7 +585,7 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
         "config_digest": run.config_digest,
     }
     monkeypatch.setattr(
-        observations.storage.client,
+        artifact_service.storage.client,
         "get_object",
         lambda **kwargs: {"Body": io.BytesIO(json.dumps(summary).encode())},
     )

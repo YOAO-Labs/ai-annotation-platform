@@ -517,8 +517,13 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
 
 
 async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lock(
-    test_engine,
+    test_engine, monkeypatch
 ):
+    from app.config import settings
+    from app.services import training_adapters
+
+    monkeypatch.setattr(settings, "training_node_id", f"concurrent-{uuid.uuid4().hex}")
+    resource_id = training_adapters.resource_id()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     project_id = user_id = study_id = None
     try:
@@ -577,7 +582,9 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
 
             async def execute():
                 async with maker() as db:
-                    claim = native_claim()
+                    claim = native_claim().model_copy(
+                        update={"resource_id": resource_id}
+                    )
                     assignment = await runs.claim(db, claim)
                     assert assignment
                     await finish(db, claim, assignment, seconds=1)
@@ -593,11 +600,7 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
             async with maker() as db:
                 await db.execute(
                     delete(TrainingResourceLease).where(
-                        TrainingResourceLease.attempt_id.in_(
-                            select(TrainingAttempt.id)
-                            .join(TrainingRun)
-                            .where(TrainingRun.project_id == project_id)
-                        )
+                        TrainingResourceLease.resource_id == resource_id
                     )
                 )
                 await db.execute(

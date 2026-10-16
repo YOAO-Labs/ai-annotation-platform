@@ -150,6 +150,14 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="video_segment_service", legacy_facades=()),
     DomainSpec(package="video_collaboration", legacy_facades=()),
     DomainSpec(package="annotation_evidence", legacy_facades=()),
+    DomainSpec(package="training_adapters", legacy_facades=()),
+    DomainSpec(package="training_artifacts", legacy_facades=()),
+    DomainSpec(package="training_claims", legacy_facades=()),
+    DomainSpec(package="training_initialization", legacy_facades=()),
+    DomainSpec(package="training_observability", legacy_facades=()),
+    DomainSpec(package="training_recipes", legacy_facades=()),
+    DomainSpec(package="training_runs", legacy_facades=()),
+    DomainSpec(package="training_studies", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -587,6 +595,15 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.video_segment_service",
         "app.services.video_collaboration",
         "app.services.annotation_evidence",
+        "app.services.training_adapters",
+        "app.services.training_artifacts",
+        "app.services.training_claims",
+        "app.services.training_initialization",
+        "app.services.training_observability",
+        "app.services.training_recipes",
+        "app.services.training_runs",
+        "app.services.training_studies",
+        "app.services.learning_policies",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

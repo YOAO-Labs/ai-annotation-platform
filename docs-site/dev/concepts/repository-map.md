@@ -110,9 +110,9 @@ last_reviewed: 2026-10-16
 ## 5. 在线学习与模型训练调用链
 
 1. 数据版本化：`apps/api/app/services/training_datasets.py` 快照项目已审核标注；Celery export worker (`app/workers/training_dataset.py`) 下载校验原图素材并物化为 Ultralytics YOLO 格式数据包，上传至 MinIO `training` 存储桶。
-2. 执行调度与排队：`app/services/training_runs.py` / `training_studies.py` 管理训练实验与参数搜索计划，通过数据库资源锁和租约在多框架、多实验间排队。
+2. 执行调度与排队：`app/services/training_runs.py` / `training_studies.py` 管理训练实验与参数搜索计划，通过数据库资源锁和租约在多框架、多实验间排队。共同下层由 `training_adapters.py` 持有资源标识、配置目录与参数解析，`training_claims.py` 持有项目事务锁及策略/搜索的领取准入，不反向依赖编排服务。
 3. 执行器通信：`apps/training-executor` 通过 `/api/v1/internal/training` 拉取实验与任务凭据，以 OS flock 独占 GPU 文件锁，拉取不可变训练包并守护训练子进程；阶段耗时、资源采样与脱敏日志通过 `/observations` 上报。
-4. 产物与模型回流：训练完成后由执行器上传不可变权重与完整检查点；负责人核验最终评估后注册为 `TrainedModelVersion`；在已认证的 YOLO backend (`/managed-models`) 完成 CPU 加载与样本试用后发布（`ModelRelease`），最终接入 Workbench 与预标注流水线 (`model_id="project-release"`)。
+4. 产物与模型回流：`training_artifacts.py` 统一流式产物校验、观测摘要校验与有界 JSON 读取，执行终态、初始化和模型注册直接消费该所有者。训练完成后由执行器上传不可变权重与完整检查点；负责人核验最终评估后注册为 `TrainedModelVersion`；在已认证的 YOLO backend (`/managed-models`) 完成 CPU 加载与样本试用后发布（`ModelRelease`），最终接入 Workbench 与预标注流水线 (`model_id="project-release"`)。
 5. 谱系与决策：`app/services/model_lineage.py` 提供单跳追溯，`model_decisions` 记录负责人处置（发布、归档、说明追加）。详见[在线学习与训练体系](./training-datasets)。
 
 ## 6. 测试层级与运行入口

@@ -27,8 +27,8 @@ from app.services.ml_backend import MLBackendService
 from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
-from app.services.training_runs import internal_download, verify_artifact
-from app.services.training_artifacts import read_json_artifact
+from app.services.training_runs import internal_download
+from app.services import training_artifacts as artifact_service
 from app.services.training_evaluations import parse_evaluation
 
 
@@ -89,8 +89,12 @@ async def register(db, project, user, body):
     classes = run.config["classes"]
     validate_bindings(project, classes, body.bindings)
     try:
-        await asyncio.to_thread(verify_artifact, weights["key"], weights, attempt.id)
-        evaluation = await asyncio.to_thread(read_json_artifact, metrics, attempt.id)
+        await asyncio.to_thread(
+            artifact_service.verify_artifact, weights["key"], weights, attempt.id
+        )
+        evaluation = await asyncio.to_thread(
+            artifact_service.read_json_artifact, metrics, attempt.id
+        )
         if run.config["framework"] == "libreyolo":
             checked = parse_evaluation(
                 evaluation, run, attempt, metrics, weights, 0, len(classes)

@@ -1,4 +1,4 @@
-"""Bounded verified JSON reads; cached parsing never replaces storage verification."""
+"""Bounded artifact verification and cached JSON parsing."""
 
 import copy
 import hashlib
@@ -6,6 +6,8 @@ import json
 import math
 import threading
 from collections import OrderedDict
+
+from training_contract.observability import SUMMARY_BYTES
 
 from app.services.storage import storage_service as storage
 
@@ -84,3 +86,48 @@ def read_json_artifact(
             _cache[key] = (copy.deepcopy(result), len(raw))
             _cache_bytes += len(raw)
     return result
+
+
+def verify_artifact(key, spec, attempt_id):
+    response = storage.client.get_object(Bucket=storage.training_bucket, Key=key)
+    try:
+        if response["ContentLength"] != spec["size_bytes"] or response.get(
+            "Metadata", {}
+        ).get("attempt-id") != str(attempt_id):
+            raise ValueError("Artifact size or identity mismatch")
+        digest = hashlib.sha256()
+        total = 0
+        for chunk in iter(lambda: response["Body"].read(1024 * 1024), b""):
+            digest.update(chunk)
+            total += len(chunk)
+            if total > spec["size_bytes"]:
+                raise ValueError("Artifact size exceeded")
+        if total != spec["size_bytes"] or digest.hexdigest() != spec["sha256"]:
+            raise ValueError("Artifact digest mismatch")
+    finally:
+        response["Body"].close()
+
+
+def verify_summary(run, attempt, artifact):
+    if artifact["size_bytes"] > SUMMARY_BYTES:
+        raise ValueError("Observation artifact exceeds its bound")
+    response = storage.client.get_object(
+        Bucket=storage.training_bucket, Key=artifact["key"]
+    )
+    try:
+        body = json_load_bounded(response["Body"].read(SUMMARY_BYTES + 1))
+    finally:
+        response["Body"].close()
+    if (
+        body.get("protocol") != 1
+        or body.get("run_id") != str(run.id)
+        or body.get("attempt_id") != str(attempt.id)
+        or body.get("config_digest") != run.config_digest
+    ):
+        raise ValueError("Observation artifact identity differs")
+
+
+def json_load_bounded(raw):
+    if len(raw) > SUMMARY_BYTES:
+        raise ValueError("Observation artifact exceeds its bound")
+    return json.loads(raw)

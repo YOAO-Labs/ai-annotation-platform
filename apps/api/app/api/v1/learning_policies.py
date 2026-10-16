@@ -25,6 +25,8 @@ from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import learning_policies as service, training_runs as runs
 from app.services import training_recipes as recipes
 from app.services import training_initialization as initialization
+from app.services import training_adapters as adapters
+from app.services import training_claims as claims
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
 router = APIRouter(
@@ -54,7 +56,7 @@ async def save_policy(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    await service.project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     policy = await db.scalar(
         select(LearningPolicy)
@@ -96,9 +98,9 @@ async def save_policy(
         body.base_model,
         parent.manifest.get("classes"),
     )
-    template = service.fixed_template(body.framework, body.base_model)
+    template = claims.fixed_policy_template(body.framework, body.base_model)
     configuration = (
-        runs.resolve_configuration(
+        adapters.resolve_configuration(
             body.framework, body.base_model, body.configuration.model_dump()
         )
         if body.configuration is not None
@@ -181,7 +183,7 @@ async def disable_policy(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    await service.project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     policy = await db.scalar(
         select(LearningPolicy)
@@ -215,7 +217,7 @@ async def check_policy(
         get_training_dataset_dispatcher
     ),
 ):
-    await service.project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     policy = await db.scalar(
         select(LearningPolicy).where(LearningPolicy.project_id == project.id)
@@ -285,7 +287,7 @@ async def delete_policy(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    await service.project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     policy = await db.scalar(
         select(LearningPolicy)

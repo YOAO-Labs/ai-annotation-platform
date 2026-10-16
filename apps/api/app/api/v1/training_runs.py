@@ -41,6 +41,8 @@ from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
 from app.services import training_initialization as initialization
+from app.services import training_adapters as adapters
+from app.services import training_claims as claims
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 
@@ -84,8 +86,8 @@ async def catalog(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    result = service.catalog()
-    lease = await db.get(TrainingResourceLease, service.resource_id())
+    result = adapters.catalog()
+    lease = await db.get(TrainingResourceLease, adapters.resource_id())
     result["online"] = bool(
         lease
         and lease.last_seen_at
@@ -136,7 +138,11 @@ async def parameter_schema(
     project: Project = Depends(require_project_owner),
 ):
     template = next(
-        (item for item in service.catalog()["items"] if item["framework"] == framework),
+        (
+            item
+            for item in adapters.catalog()["items"]
+            if item["framework"] == framework
+        ),
         None,
     )
     if not template or not any(
@@ -162,9 +168,7 @@ async def create_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await db.execute(
-        select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
-    )
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     request_digest = content_digest(body.request_payload())
     existing = await db.scalar(
@@ -210,7 +214,7 @@ async def list_runs(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    if service.catalog()["enabled"]:
+    if adapters.catalog()["enabled"]:
         lease = await service.lock_resource(db)
         await service.observe_lost(db, lease)
         await db.commit()
@@ -369,7 +373,7 @@ async def resume_run(
     if preliminary.auto_trigger_id:
         from app.services import learning_policies
 
-        await learning_policies.project_lock(db, project.id)
+        await claims.project_lock(db, project.id)
         from app.db.models.learning_policy import LearningTrigger
 
         if await learning_policies.active_run(
@@ -389,9 +393,8 @@ async def resume_run(
     study = None
     if preliminary.study_id:
         from app.services import training_studies
-        from app.services.learning_policies import project_lock
 
-        await project_lock(db, project.id)
+        await claims.project_lock(db, project.id)
         study = await training_studies.load(
             db, project.id, preliminary.study_id, lock=True
         )
@@ -513,9 +516,7 @@ async def delete_run(
 ):
     preliminary = await load_run(db, project.id, run_id)
     if preliminary.auto_trigger_id:
-        from app.services.learning_policies import project_lock
-
-        await project_lock(db, project.id)
+        await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     run = await load_run(db, project.id, run_id, lock=True)
     if run.status not in service.TERMINAL:

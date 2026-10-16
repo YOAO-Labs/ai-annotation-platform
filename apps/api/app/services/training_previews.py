@@ -31,6 +31,7 @@ from app.db.models.training_preview import TrainingPreview, TrainingPreviewResou
 from app.schemas.training_preview import TrainingPreviewOut, TrainingPreviewReport
 from app.schemas.training_run import TrainingRunCreate
 from app.services import async_job as jobs, training_runs as training
+from app.services import training_adapters as adapters
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
 from app.services.training_artifacts import read_json_artifact
@@ -50,7 +51,7 @@ def resource_id():
 
 
 def qualified_runtime(runtime):
-    catalog = training.catalog()
+    catalog = adapters.catalog()
     template = next(
         (item for item in catalog["items"] if item["framework"] == "ultralytics"), None
     )

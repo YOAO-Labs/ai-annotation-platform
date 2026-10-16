@@ -7,6 +7,7 @@ import pytest
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingResourceLease, TrainingRun
 from app.services import training_runs as service
+from app.services import training_adapters as adapters
 
 from tests.factory import create_membership, create_project
 from tests.test_training_runs import (  # noqa: F401
@@ -131,7 +132,7 @@ async def test_catalog_distinguishes_heartbeat_and_template_compatibility(
     db_session, httpx_client, super_admin
 ):
     lease = TrainingResourceLease(
-        resource_id=service.resource_id(),
+        resource_id=adapters.resource_id(),
         executor_id="actual-container",
         last_seen_at=service.now(),
         runtime={
@@ -187,7 +188,7 @@ async def test_segmentation_only_catalog_reports_qualified_runtime_and_actual_ca
     )
     db_session.add(
         TrainingResourceLease(
-            resource_id=service.resource_id(),
+            resource_id=adapters.resource_id(),
             executor_id="segmentation-container",
             last_seen_at=service.now(),
             runtime={
@@ -270,7 +271,7 @@ async def test_queue_observes_lost_execution_without_releasing_its_resource(
     run.status = attempt.status = "training"
     attempt.heartbeat_at = service.now() - timedelta(hours=1)
     lease = TrainingResourceLease(
-        resource_id=service.resource_id(), attempt_id=attempt.id
+        resource_id=adapters.resource_id(), attempt_id=attempt.id
     )
     db_session.add(lease)
     await db_session.flush()

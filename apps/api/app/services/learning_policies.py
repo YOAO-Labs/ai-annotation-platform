@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from aap_task_contract import normalize_task
 import logging
 import uuid
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -16,6 +15,7 @@ from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.schemas.training_run import TrainingRunCreate
 from app.services import training_datasets as datasets, training_runs as runs
+from app.services import training_claims as claims
 from app.services import async_job as jobs
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
@@ -33,52 +33,6 @@ CHECK_BATCH_SIZE = 100
 log = logging.getLogger(__name__)
 
 
-async def project_lock(db, project_id, *, wait=True):
-    fn = func.pg_advisory_xact_lock if wait else func.pg_try_advisory_xact_lock
-    result = await db.scalar(select(fn(func.hashtextextended(str(project_id), 0))))
-    return True if wait else bool(result)
-
-
-def fixed_template(framework, base_model):
-    from training_contract import definition
-
-    template = runs.controlled_template(framework, base_model)
-    if normalize_task(definition(framework, base_model)["task"]) != "detect":
-        raise HTTPException(
-            status_code=422, detail="自动学习策略目前仅通过图片检测资格验证"
-        )
-    return template
-
-
-def template_current(policy):
-    try:
-        expected = policy.config["template"]
-        pin = policy.config.get("initialization")
-        if pin:
-            if initialization.compatible_pin(
-                pin, expected["framework"], expected["base_model"]["id"]
-            ) or getattr(
-                policy, "initialization_model_id", None
-            ) != initialization.model_id(pin):
-                return False
-        elif getattr(policy, "initialization_model_id", None) is not None:
-            return False
-        if policy.config.get("configuration"):
-            from training_contract.catalog import definition_for_identity
-
-            definition_for_identity(
-                expected["framework"],
-                expected["base_model"]["id"],
-                policy.config["configuration"]["identity"],
-            )
-        return (
-            fixed_template(expected["framework"], expected["base_model"]["id"])
-            == expected
-        )
-    except (HTTPException, KeyError, ValueError, TypeError):
-        return False
-
-
 async def eligible(db, policy):
     await datasets.assert_training_authority(
         db,
@@ -93,34 +47,6 @@ async def eligible(db, policy):
             "project_inactive", "项目已停用，自动训练停止", status_code=403
         )
     return project
-
-
-async def claim_allowed(db, run):
-    if run.auto_trigger_id is None:
-        return True
-    if run.authorization.get("manual_resume"):
-        project = await db.get(Project, run.project_id, populate_existing=True)
-        return project.status == "in_progress"
-    # Claim already owns resource/run locks. Never acquire a policy lock here.
-    row = (
-        await db.execute(
-            select(LearningPolicy, LearningTrigger)
-            .join(LearningTrigger, LearningTrigger.policy_id == LearningPolicy.id)
-            .where(LearningTrigger.id == run.auto_trigger_id)
-            .execution_options(populate_existing=True)
-        )
-    ).one_or_none()
-    if row is None:
-        return False
-    policy, trigger = row
-    project = await db.get(Project, run.project_id, populate_existing=True)
-    return bool(
-        policy.enabled
-        and policy.revision == trigger.policy_revision
-        and project.status == "in_progress"
-        and template_current(policy)
-        and run.config.get("initialization") == policy.config.get("initialization")
-    )
 
 
 async def active_run(db, project_id, *, excluding=None):
@@ -286,7 +212,7 @@ async def reconcile(db, policy, trigger):
         terminal_trigger(trigger, "skipped", reason)
         policy.state, policy.message = "waiting", reason
         return
-    if not template_current(policy):
+    if not claims.policy_template_current(policy):
         policy.enabled = False
         terminal_trigger(trigger, "cancelled", "训练目录已变化，请检查并重新保存策略")
         policy.state, policy.message = "suspended", trigger.message
@@ -357,7 +283,7 @@ async def reconcile(db, policy, trigger):
 
 async def check_policy(db, policy_id, *, force=False):
     preliminary = await db.get(LearningPolicy, policy_id, populate_existing=True)
-    if preliminary is None or not await project_lock(
+    if preliminary is None or not await claims.project_lock(
         db, preliminary.project_id, wait=False
     ):
         return
@@ -405,7 +331,7 @@ async def check_policy(db, policy_id, *, force=False):
     policy.next_check_at = runs.now() + timedelta(
         minutes=policy.config["check_interval_minutes"]
     )
-    if not template_current(policy):
+    if not claims.policy_template_current(policy):
         policy.enabled, policy.state, policy.message = (
             False,
             "suspended",

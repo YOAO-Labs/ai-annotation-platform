@@ -12,6 +12,8 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.schemas.training_initialization import TrainingInitialization
 from app.services.storage import storage_service as storage
+from app.services import training_artifacts as artifacts
+
 from app.services.training_dataset_bridge import content_digest
 
 
@@ -151,13 +153,10 @@ async def source_pin(db, project_id, version_id):
 
 
 def verify_storage(pin, metrics, *, full):
-    from app.services.training_runs import verify_artifact
-    from app.services.training_artifacts import read_json_artifact
-
     artifact = pin["artifact"]
     if full:
-        verify_artifact(artifact["key"], artifact, pin["attempt_id"])
-        report = read_json_artifact(metrics, pin["attempt_id"])
+        artifacts.verify_artifact(artifact["key"], artifact, pin["attempt_id"])
+        report = artifacts.read_json_artifact(metrics, pin["attempt_id"])
         if content_digest(report) != pin["evaluation"]["report_digest"]:
             raise ValueError("来源评估与候选注册时的报告不一致")
     else:

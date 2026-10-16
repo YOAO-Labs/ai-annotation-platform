@@ -16,7 +16,6 @@ from training_contract.observability import (
     REDACTION_REVISION,
     SAMPLE_LIMIT,
     STATE_BYTES,
-    SUMMARY_BYTES,
     RedactedLines,
     encoded,
     redact_text,
@@ -291,33 +290,6 @@ def redacted_log(run, attempt, name, artifact):
         "source_sha256": artifact["sha256"],
         "redaction_revision": REDACTION_REVISION,
     }
-
-
-def verify_summary(run, attempt, artifact):
-    if artifact["size_bytes"] > SUMMARY_BYTES:
-        raise ValueError("Observation artifact exceeds its bound")
-    response = storage.client.get_object(
-        Bucket=storage.training_bucket, Key=artifact["key"]
-    )
-    try:
-        body = json_load_bounded(response["Body"].read(SUMMARY_BYTES + 1))
-    finally:
-        response["Body"].close()
-    if (
-        body.get("protocol") != 1
-        or body.get("run_id") != str(run.id)
-        or body.get("attempt_id") != str(attempt.id)
-        or body.get("config_digest") != run.config_digest
-    ):
-        raise ValueError("Observation artifact identity differs")
-
-
-def json_load_bounded(raw):
-    import json
-
-    if len(raw) > SUMMARY_BYTES:
-        raise ValueError("Observation artifact exceeds its bound")
-    return json.loads(raw)
 
 
 def checkpoint_available(run, attempt, checkpoint):

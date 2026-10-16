@@ -16,7 +16,7 @@ from app.schemas.training_recipe import (
     TrainingReuseCandidate,
 )
 from app.services import training_recipes as service
-from app.services.learning_policies import project_lock
+from app.services import training_claims as claims
 from app.services.training_dataset_bridge import content_digest
 from app.services import training_initialization as initialization
 
@@ -60,7 +60,7 @@ async def list_recipes(
 
 
 async def write_revision(body, project, user, db, recipe_id=None):
-    await project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     digest = content_digest(
         {
@@ -231,7 +231,7 @@ async def archive_recipe(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    await project_lock(db, project.id)
+    await claims.project_lock(db, project.id)
     await lock_owner(db, user, project)
     recipe, revision = await service.recipe_revision(
         db, project.id, recipe_id, lock=True
