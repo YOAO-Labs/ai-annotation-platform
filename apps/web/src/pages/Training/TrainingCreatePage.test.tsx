@@ -477,6 +477,242 @@ describe("training creation modal", () => {
   });
 });
 
+describe("exact frozen-version experiment handoff", () => {
+  const targetId = "44444444-4444-4444-8444-444444444444";
+  const target = { ...dataset, id: targetId, name: "指定冻结版本" };
+  const key = trainingDraftKey(trainingDraftOwner("user-1", "project-1"));
+  const entry = `/projects/project-1/learning/new?dataset=${targetId}&tab=data&return_tab=data&return_dataset=${targetId}&data_task=detect`;
+  const readTarget = () =>
+    vi
+      .mocked(trainingDatasetsApi.get)
+      .mockImplementation(async (_project, id) => (id === targetId ? target : dataset) as never);
+
+  it("confirms an exact off-page version before selecting its compatible defaults and returns to data context", async () => {
+    readTarget();
+    const user = userEvent.setup();
+    mount(entry);
+    const review = await screen.findByRole("dialog", { name: "核对训练数据版本" });
+    expect(within(review).getByText("指定冻结版本")).toBeVisible();
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(trainingRunsApi.create).not.toHaveBeenCalled();
+    await user.click(within(review).getByRole("button", { name: "确认采用数据版本" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("训练数据")).toHaveValue(targetId);
+    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+    expect(
+      new URL(`http://test${screen.getByTestId("location").textContent}`).searchParams.has(
+        "dataset",
+      ),
+    ).toBe(false);
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({
+      datasetId: targetId,
+      framework: "ultralytics",
+      baseModel: "yolo11n",
+      fields: {},
+    });
+    await user.click(
+      within(screen.getByRole("dialog", { name: "新建训练实验" })).getByRole("button", {
+        name: "关闭",
+      }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      `/projects/project-1/learning?tab=data&dataset=${targetId}&data_task=detect`,
+    );
+  });
+
+  it("keeps an edited draft unchanged until explicit acceptance and retains compatible parameters", async () => {
+    readTarget();
+    const { user } = await prepare(false);
+    await user.clear(screen.getByLabelText("批大小"));
+    await user.type(screen.getByLabelText("批大小"), "4");
+    const before = localStorage.getItem(key)!;
+    act(() => navigate(entry));
+    await screen.findByRole("dialog", { name: "核对训练数据版本" });
+    expect(localStorage.getItem(key)).toBe(before);
+    await user.click(screen.getByRole("button", { name: "取消采用" }));
+    expect(localStorage.getItem(key)).toBe(before);
+    act(() => navigate(entry));
+    await user.click(await screen.findByRole("button", { name: "确认采用数据版本" }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).datasetId).toBe(targetId));
+    const after = JSON.parse(localStorage.getItem(key)!);
+    expect(after.name).toBe("车辆实验");
+    expect(after.fields.batch.text).toBe("4");
+    expect(after.requestId).not.toBe(JSON.parse(before).requestId);
+    expect(after.revision).toBe(JSON.parse(before).revision + 1);
+  });
+
+  it("shows the task-specific model and explicit reset before adopting segmentation", async () => {
+    const segmented = { ...target, task: "segment" };
+    vi.mocked(trainingDatasetsApi.get).mockImplementation(
+      async (_project, id) => (id === targetId ? segmented : dataset) as never,
+    );
+    vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          base_models: [
+            ...catalog.items[0].base_models,
+            {
+              id: "yolo11n-seg",
+              filename: "yolo11n-seg.pt",
+              sha256: "a".repeat(64),
+              task: "segment",
+            },
+          ],
+        },
+      ],
+    });
+    vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(
+      async (_project, _framework, base) =>
+        base === "yolo11n-seg" ? { ...schema, task: "segment", schema_id: "seg-schema" } : schema,
+    );
+    const { user } = await prepare(false);
+    await user.clear(screen.getByLabelText("批大小"));
+    await user.type(screen.getByLabelText("批大小"), "4");
+    const before = localStorage.getItem(key);
+    act(() => navigate(entry));
+    const review = await screen.findByRole("dialog", { name: "核对训练数据版本" });
+    expect(within(review).getByText(/yolo11n-seg/)).toBeVisible();
+    expect(within(review).getByText(/移除原参数覆盖/)).toBeVisible();
+    expect(localStorage.getItem(key)).toBe(before);
+    await user.click(within(review).getByRole("button", { name: "确认采用数据版本" }));
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(key)!).baseModel).toBe("yolo11n-seg"),
+    );
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({
+      name: "车辆实验",
+      datasetId: targetId,
+      fields: {},
+      initialization: { kind: "catalog" },
+    });
+  });
+
+  it.each(["pending", "pendingStudy"])(
+    "preserves an unresolved %s request through handoff and modal dismissal",
+    async (kind) => {
+      vi.mocked(trainingRunsApi.create).mockRejectedValueOnce(new Error("连接中断"));
+      const { user, view } = await prepare();
+      await check();
+      await user.click(screen.getByRole("button", { name: "开始训练" }));
+      await screen.findByText("连接中断");
+      if (kind === "pendingStudy") {
+        const saved = JSON.parse(localStorage.getItem(key)!);
+        saveTrainingDraft({
+          ...saved,
+          pending: undefined,
+          pendingStudy: {
+            base: saved.pending.body,
+            grid: { batch: [4, 8] },
+            objective: "metrics/mAP50-95",
+            direction: "maximize",
+            budgets: { max_trials: 2, max_planned_epochs: 100, max_native_seconds: 3600 },
+            preview_digest: "a".repeat(64),
+          },
+        });
+      }
+      const before = localStorage.getItem(key);
+      view.unmount();
+      readTarget();
+      mount(entry);
+      await screen.findByText(/当前草稿有尚未确认的创建请求/);
+      expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "重新核对数据版本" })).toBeDisabled();
+      expect(localStorage.getItem(key)).toBe(before);
+      const dialog = screen.getByRole("dialog", { name: "新建训练实验" });
+      await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+      expect(localStorage.getItem(key)).toBe(before);
+    },
+  );
+
+  it.each([{ project_id: "project-2" }, { status: "running" }, { package_sha256: null }])(
+    "rejects an unqualified or foreign authoritative version %j",
+    async (patch) => {
+      vi.mocked(trainingDatasetsApi.get).mockResolvedValue({ ...target, ...patch } as never);
+      mount(entry);
+      await screen.findByRole("alert");
+      expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument();
+      expect(localStorage.getItem(key)).toBeNull();
+    },
+  );
+
+  it("retries a failed lookup and a failed acceptance without changing the draft", async () => {
+    vi.mocked(trainingDatasetsApi.get)
+      .mockResolvedValue(target as never)
+      .mockRejectedValueOnce(new Error("数据读取失败"));
+    const user = userEvent.setup();
+    mount(entry);
+    await screen.findByText("数据读取失败");
+    await user.click(screen.getByRole("button", { name: "重新核对数据版本" }));
+    await screen.findByRole("dialog", { name: "核对训练数据版本" });
+    vi.mocked(trainingDatasetsApi.get).mockRejectedValueOnce(new Error("重新校验失败"));
+    await user.click(screen.getByRole("button", { name: "确认采用数据版本" }));
+    await screen.findByText("重新校验失败");
+    expect(localStorage.getItem(key)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "确认采用数据版本" }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).datasetId).toBe(targetId));
+  });
+
+  it("revalidates ready state before adoption", async () => {
+    readTarget();
+    const user = userEvent.setup();
+    mount(entry);
+    await screen.findByRole("dialog", { name: "核对训练数据版本" });
+    vi.mocked(trainingDatasetsApi.get).mockResolvedValue({ ...target, status: "failed" } as never);
+    await user.click(screen.getByRole("button", { name: "确认采用数据版本" }));
+    await screen.findByText("此冻结版本尚未就绪，不能用于训练");
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
+  it("rejects the first response after dataset intent changes A to B to A", async () => {
+    const late = deferred<Awaited<ReturnType<typeof trainingDatasetsApi.get>>>();
+    vi.mocked(trainingDatasetsApi.get)
+      .mockRejectedValue(new Error("当前版本不存在"))
+      .mockReturnValueOnce(late.promise);
+    mount(entry);
+    await waitFor(() => expect(trainingDatasetsApi.get).toHaveBeenCalledTimes(1));
+    act(() => navigate("/projects/project-1/learning/new?dataset=second"));
+    await screen.findByText("当前版本不存在");
+    act(() => navigate(entry));
+    await waitFor(() => expect(trainingDatasetsApi.get).toHaveBeenCalledTimes(3));
+    await act(async () => late.resolve(target as never));
+    expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument();
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
+  it.each(["project", "session"])("ignores a late acceptance after changing %s", async (kind) => {
+    readTarget();
+    const user = userEvent.setup();
+    mount(entry);
+    await screen.findByRole("dialog", { name: "核对训练数据版本" });
+    const late = deferred<Awaited<ReturnType<typeof trainingDatasetsApi.get>>>();
+    vi.mocked(trainingDatasetsApi.get).mockReturnValueOnce(late.promise);
+    await user.click(screen.getByRole("button", { name: "确认采用数据版本" }));
+    await waitFor(() => expect(trainingDatasetsApi.get).toHaveBeenCalledTimes(2));
+    if (kind === "project") act(() => navigate("/projects/project-2/learning/new"));
+    else act(() => useAuthStore.getState().setAuth("session-2", { id: "user-1" } as never));
+    const newOwner = trainingDraftOwner("user-1", kind === "project" ? "project-2" : "project-1");
+    const newer = emptyTrainingDraft(newOwner);
+    saveTrainingDraft(newer);
+    await act(async () => late.resolve(target as never));
+    expect(localStorage.getItem(trainingDraftKey(newOwner))).toContain(newer.draftId);
+    expect(JSON.parse(localStorage.getItem(trainingDraftKey(newOwner))!).datasetId).toBe("");
+  });
+
+  it("keeps nested Escape scoped to the handoff and leaves the experiment draft intact", async () => {
+    readTarget();
+    const user = userEvent.setup();
+    mount(entry);
+    await screen.findByRole("dialog", { name: "核对训练数据版本" });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "新建训练实验" })).toBeVisible();
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+});
+
 it("filters segmentation weights by dataset task and preserves an incompatible selection until explicitly replaced", async () => {
   const task = "segment" as const;
   const segmented = { ...dataset, task };

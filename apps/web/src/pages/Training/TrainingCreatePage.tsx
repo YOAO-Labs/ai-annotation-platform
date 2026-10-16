@@ -10,7 +10,7 @@ import {
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, FileUp, FlaskConical } from "lucide-react";
 import { projectsApi } from "@/api/projects";
-import { trainingDatasetsApi } from "@/api/trainingDatasets";
+import { trainingDatasetsApi, type TrainingDatasetOut } from "@/api/trainingDatasets";
 import { trainingRunsApi, type TrainingRunCreate } from "@/api/trainingRuns";
 import {
   recipeCandidate,
@@ -83,6 +83,15 @@ type ReusePreview = {
   intent?: string;
   intentOwner?: { intent: string; key: string };
 };
+type DatasetHandoffPreview = {
+  snapshot: TrainingDraft;
+  dataset: TrainingDatasetOut;
+  schema: TrainingParameterSchema;
+  baseModel: string;
+  runtime: string;
+  keepConfiguration: boolean;
+  intentOwner: object;
+};
 const steps = ["数据与模型", "配置参数", "核对并开始"];
 const reasonMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : "操作失败，请重试";
@@ -140,6 +149,13 @@ function TrainingCreateContent({
   );
   const cloneRun = params.get("clone_run") ?? "";
   const cloneAttempt = params.get("clone_attempt") ?? "";
+  const datasetIntent = params.get("dataset") ?? "";
+  const datasetIntentOwner = useMemo(
+    () => ({ dataset: datasetIntent, key: location.key }),
+    [datasetIntent, location.key],
+  );
+  const datasetIntentOwnerRef = useRef(datasetIntentOwner);
+  datasetIntentOwnerRef.current = datasetIntentOwner;
   const intentOwner = useMemo(
     () => ({ intent: `${cloneRun}:${cloneAttempt}`, key: location.key }),
     [cloneRun, cloneAttempt, location.key],
@@ -176,6 +192,13 @@ function TrainingCreateContent({
   const [reusePreview, setReusePreview] = useState<ReusePreview | null>(null);
   const [reuseBusy, setReuseBusy] = useState(false);
   const [cloneRetry, setCloneRetry] = useState(0);
+  const [datasetHandoff, setDatasetHandoff] = useState<DatasetHandoffPreview | null>(null);
+  const [datasetHandoffBusy, setDatasetHandoffBusy] = useState(false);
+  const [datasetHandoffError, setDatasetHandoffError] = useState("");
+  const [datasetHandoffRetry, setDatasetHandoffRetry] = useState(0);
+  const datasetHandoffAttempt = useRef<object | null>(null);
+  const datasetHandoffRequest = useRef<AbortController | null>(null);
+  const datasetHandoffLock = useRef(false);
   const reuseLock = useRef(false);
   const cloneIntent = useRef("");
   const cloneSequence = useRef(0);
@@ -186,7 +209,13 @@ function TrainingCreateContent({
   const switchLock = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const fileSequence = useRef(0);
-  const backParams = new URLSearchParams({ tab: "training" });
+  const backParams = new URLSearchParams({
+    tab: params.get("return_tab") === "data" ? "data" : "training",
+  });
+  if (params.get("return_tab") === "data") {
+    if (params.get("return_dataset")) backParams.set("dataset", params.get("return_dataset")!);
+    if (params.get("data_task")) backParams.set("data_task", params.get("data_task")!);
+  }
   if (params.get("return_run")) backParams.set("run", params.get("return_run")!);
   const back = `/projects/${projectId}/learning?${backParams}`;
 
@@ -322,7 +351,9 @@ function TrainingCreateContent({
     creating ||
     switching ||
     reuseBusy ||
-    !!reusePreview;
+    datasetHandoffBusy ||
+    !!reusePreview ||
+    !!datasetHandoff;
   const initialization = useTrainingInitializationSource(
     projectId,
     draft.framework,
@@ -412,6 +443,9 @@ function TrainingCreateContent({
       switchLock.current ||
       reuseLock.current ||
       reusePreview ||
+      datasetHandoffLock.current ||
+      datasetHandoffBusy ||
+      datasetHandoff ||
       state.current.current.pending ||
       state.current.current.pendingStudy ||
       !state.ownsSession()
@@ -430,6 +464,199 @@ function TrainingCreateContent({
     )
       throw new Error("当前账号已失去此项目的管理权限");
     return true;
+  };
+
+  const clearDatasetIntent = () => {
+    datasetHandoffRequest.current?.abort();
+    setDatasetHandoff(null);
+    setDatasetHandoffError("");
+    const next = new URLSearchParams(params);
+    next.delete("dataset");
+    setParams(next, { replace: true });
+  };
+  const validateHandoffDataset = (value: TrainingDatasetOut) => {
+    if (value.id !== datasetIntentOwnerRef.current.dataset || value.project_id !== projectId)
+      throw new Error("数据版本不属于当前项目或与选择不一致");
+    if (value.status !== "ready" || !value.package_sha256)
+      throw new Error("此冻结版本尚未就绪，不能用于训练");
+    if (!["detect", "segment"].includes(value.task ?? "detect"))
+      throw new Error("此数据任务尚未获得训练资格");
+  };
+  const ownsDatasetIntent = (owner: object, snapshot: TrainingDraft) =>
+    datasetIntentOwnerRef.current === owner && state.matches(snapshot);
+
+  useEffect(() => {
+    datasetHandoffRequest.current?.abort();
+    setDatasetHandoff(null);
+    setDatasetHandoffBusy(false);
+    setDatasetHandoffError("");
+    return () => datasetHandoffRequest.current?.abort();
+  }, [datasetIntentOwner]);
+
+  useEffect(() => {
+    if (
+      !datasetIntent ||
+      !catalog.data ||
+      catalog.isError ||
+      cloneRun ||
+      draft.pending ||
+      draft.pendingStudy ||
+      checking ||
+      readingFile ||
+      reuseBusy ||
+      reusePreview ||
+      switchPreview ||
+      importPreview ||
+      datasetHandoffLock.current ||
+      datasetHandoffAttempt.current === datasetIntentOwner
+    )
+      return;
+    datasetHandoffAttempt.current = datasetIntentOwner;
+    const snapshot = state.current.current;
+    const owner = datasetIntentOwner;
+    const controller = new AbortController();
+    datasetHandoffRequest.current = controller;
+    setDatasetHandoffBusy(true);
+    setDatasetHandoffError("");
+    void (async () => {
+      try {
+        const value = await trainingDatasetsApi.get(projectId, datasetIntent, {
+          signal: controller.signal,
+        });
+        if (!ownsDatasetIntent(owner, snapshot) || controller.signal.aborted) return;
+        validateHandoffDataset(value);
+        const task = value.task ?? "detect";
+        const qualified = catalogRef.current?.items.flatMap((item) =>
+          item.base_models
+            .filter((base) => (base.task ?? "detect") === task)
+            .map((base) => ({ framework: item.framework, base })),
+        );
+        const selected =
+          qualified?.find(
+            (item) => item.framework === snapshot.framework && item.base.id === snapshot.baseModel,
+          ) ??
+          qualified?.find((item) => item.framework === snapshot.framework) ??
+          qualified?.find((item) => item.framework === "ultralytics") ??
+          qualified?.[0];
+        if (!selected || !catalogRef.current?.enabled)
+          throw new Error("当前目录没有与此数据任务兼容的受控训练器和基础权重");
+        const runtime = modelRuntime(selected.framework, selected.base.id);
+        if (!runtime) throw new Error("训练目录已变化，请重新核对");
+        const definition = await trainingRunsApi.parameterSchema(
+          projectId,
+          selected.framework,
+          selected.base.id,
+          { signal: controller.signal },
+        );
+        if (!ownsDatasetIntent(owner, snapshot) || controller.signal.aborted) return;
+        if (
+          definition.task !== task ||
+          definition.framework !== selected.framework ||
+          !catalogSchemaMatches(definition) ||
+          modelRuntime(selected.framework, selected.base.id) !== runtime
+        )
+          throw new Error("训练参数定义与数据任务或当前目录不一致，请重新核对");
+        setDatasetHandoff({
+          snapshot,
+          dataset: value,
+          schema: definition,
+          baseModel: selected.base.id,
+          runtime,
+          intentOwner: owner,
+          keepConfiguration:
+            snapshot.framework === selected.framework &&
+            snapshot.baseModel === selected.base.id &&
+            snapshot.schemaId === definition.schema_id &&
+            snapshot.schemaDigest === definition.schema_digest,
+        });
+      } catch (reason) {
+        if (ownsDatasetIntent(owner, snapshot) && !controller.signal.aborted)
+          setDatasetHandoffError(reasonMessage(reason));
+      } finally {
+        if (datasetIntentOwnerRef.current === owner && state.ownsSession())
+          setDatasetHandoffBusy(false);
+      }
+    })();
+    // Each route intent is read once; edits require an explicit retry against the new draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    datasetIntent,
+    datasetIntentOwner,
+    catalog.data,
+    catalog.isError,
+    cloneRun,
+    draft.pending,
+    draft.pendingStudy,
+    checking,
+    readingFile,
+    reuseBusy,
+    reusePreview,
+    switchPreview,
+    importPreview,
+    datasetHandoffBusy,
+    datasetHandoffRetry,
+  ]);
+
+  const acceptDatasetHandoff = async () => {
+    const preview = datasetHandoff;
+    if (
+      !preview ||
+      datasetHandoffLock.current ||
+      createLock.current ||
+      state.current.current.pending ||
+      state.current.current.pendingStudy ||
+      !ownsDatasetIntent(preview.intentOwner, preview.snapshot)
+    )
+      return;
+    datasetHandoffLock.current = true;
+    setDatasetHandoffBusy(true);
+    setDatasetHandoffError("");
+    try {
+      if (!(await freshAuthority(preview.snapshot))) return;
+      const value = await trainingDatasetsApi.get(projectId, preview.dataset.id);
+      if (!ownsDatasetIntent(preview.intentOwner, preview.snapshot)) return;
+      validateHandoffDataset(value);
+      if (value.package_sha256 !== preview.dataset.package_sha256)
+        throw new Error("冻结数据身份已变化，请取消后重新核对");
+      const definition = await trainingRunsApi.parameterSchema(
+        projectId,
+        preview.schema.framework,
+        preview.baseModel,
+      );
+      if (!ownsDatasetIntent(preview.intentOwner, preview.snapshot)) return;
+      if (
+        !catalogRef.current?.enabled ||
+        modelRuntime(preview.schema.framework, preview.baseModel) !== preview.runtime ||
+        !catalogSchemaMatches(definition) ||
+        definition.schema_digest !== preview.schema.schema_digest ||
+        definition.schema_id !== preview.schema.schema_id ||
+        definition.task !== (value.task ?? "detect")
+      )
+        throw new Error("训练目录或参数定义已变化，请取消后重新核对");
+      clearReview();
+      state.update({
+        datasetId: value.id,
+        framework: definition.framework,
+        baseModel: preview.baseModel,
+        schemaId: definition.schema_id,
+        schemaDigest: definition.schema_digest,
+        fields: preview.keepConfiguration ? preview.snapshot.fields : {},
+        source: preview.keepConfiguration ? preview.snapshot.source : undefined,
+        initialization: preview.keepConfiguration
+          ? preview.snapshot.initialization
+          : { kind: "catalog" },
+      });
+      setStep(0);
+      clearDatasetIntent();
+    } catch (reason) {
+      if (ownsDatasetIntent(preview.intentOwner, preview.snapshot))
+        setDatasetHandoffError(reasonMessage(reason));
+    } finally {
+      datasetHandoffLock.current = false;
+      if (state.ownsSession()) setDatasetHandoffBusy(false);
+      if (state.ownsSession() && datasetIntentOwnerRef.current !== preview.intentOwner)
+        setDatasetHandoffRetry((value) => value + 1);
+    }
   };
 
   const reloadCandidate = async (candidate: TrainingReuseCandidate) => {
@@ -634,6 +861,7 @@ function TrainingCreateContent({
     }
     if (
       !cloneRun ||
+      datasetIntent ||
       !catalog.data ||
       cloneIntent.current === intentOwner.key ||
       draft.pending ||
@@ -670,6 +898,7 @@ function TrainingCreateContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     cloneRun,
+    datasetIntent,
     cloneAttempt,
     intentOwner,
     catalog.data,
@@ -948,6 +1177,57 @@ function TrainingCreateContent({
           {state.storageError ? "草稿保存异常" : state.restored ? "已恢复本地草稿" : "本地草稿"}
         </Badge>
       </header>
+      {datasetIntent && !datasetHandoff && (
+        <section
+          aria-label="指定冻结数据版本"
+          className="mb-4 rounded-lg border border-border bg-card p-4 text-xs"
+        >
+          <p className="font-medium">使用指定冻结版本创建实验</p>
+          <p className="mt-2 break-all text-muted-foreground">版本 {datasetIntent}</p>
+          {datasetHandoffBusy && (
+            <p role="status" className="mt-2">
+              正在核对数据与兼容训练器…
+            </p>
+          )}
+          {(draft.pending || draft.pendingStudy) && (
+            <p role="status" className="mt-2 text-status-caution">
+              当前草稿有尚未确认的创建请求，不能替换数据版本。请先确认原请求的结果。
+            </p>
+          )}
+          {cloneRun && (
+            <p role="status" className="mt-2 text-status-caution">
+              同时指定了克隆来源。请先取消其中一个意图，再核对训练配置。
+            </p>
+          )}
+          {datasetHandoffError && (
+            <p role="alert" className="mt-2 text-status-danger">
+              {datasetHandoffError}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={
+                locked ||
+                checking ||
+                readingFile ||
+                !!importPreview ||
+                !!switchPreview ||
+                !!cloneRun
+              }
+              onClick={() => {
+                datasetHandoffAttempt.current = null;
+                setDatasetHandoffRetry((value) => value + 1);
+              }}
+            >
+              重新核对数据版本
+            </Button>
+            <Button size="sm" variant="ghost" onClick={clearDatasetIntent}>
+              取消指定数据版本
+            </Button>
+          </div>
+        </section>
+      )}
       <nav
         aria-label="创建步骤"
         className="mb-5 flex gap-1 rounded-lg border border-border bg-card p-1"
@@ -1533,6 +1813,55 @@ function TrainingCreateContent({
           )}
         </div>
       </div>
+      <Modal
+        open={!!datasetHandoff && datasetHandoff.intentOwner === datasetIntentOwner}
+        onClose={clearDatasetIntent}
+        title="核对训练数据版本"
+        width={600}
+        stopEscapePropagation
+      >
+        {datasetHandoff && (
+          <>
+            <p className="text-sm font-medium">{datasetHandoff.dataset.name}</p>
+            <p className="mt-2 break-all text-xs text-muted-foreground">
+              冻结版本 {datasetHandoff.dataset.id} ·{" "}
+              {trainingTaskLabel(datasetHandoff.dataset.task)}
+            </p>
+            <p className="mt-3 text-xs">
+              训练器：{datasetHandoff.schema.framework} / {datasetHandoff.baseModel}
+            </p>
+            {datasetHandoff.snapshot.datasetId && (
+              <p className="mt-2 break-all text-xs text-muted-foreground">
+                将替换当前草稿的数据版本 {datasetHandoff.snapshot.datasetId}。
+              </p>
+            )}
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              {datasetHandoff.keepConfiguration
+                ? "实验名称、当前训练参数与初始化选择会保留，并重新核验数据兼容性。"
+                : "实验名称会保留；采用兼容基础权重及受控默认参数，移除原参数覆盖、配方来源与项目权重初始化。"}
+              确认后还需检查配置并提交实验。
+            </p>
+            {datasetHandoffError && (
+              <p role="alert" className="mt-3 text-xs text-status-danger">
+                {datasetHandoffError}
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button size="sm" onClick={clearDatasetIntent}>
+                取消采用
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={datasetHandoffBusy}
+                onClick={() => void acceptDatasetHandoff()}
+              >
+                {datasetHandoffBusy ? "正在确认…" : "确认采用数据版本"}
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
       <Modal
         open={!!switchPreview}
         onClose={() => setSwitchPreview(null)}
