@@ -5,6 +5,7 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   nvidiaBusId,
   headlessXorgConfig,
@@ -288,9 +289,9 @@ test("display crash during capture fails and cleans the capture process", async 
 });
 
 test("read-only selector previews never probe headless tools or require services", () => {
-  const cli = new URL("./run-recording-capture.mjs", import.meta.url);
+  const cli = fileURLToPath(new URL("./run-recording-capture.mjs", import.meta.url));
   const env = { ...process.env, PATH: "/missing-headless-tools", SCREENSHOT_DATABASE_URL: "" };
-  const list = execFileSync(process.execPath, [cli.pathname, "--headless-display", "--list"], {
+  const list = execFileSync(process.execPath, [cli, "--headless-display", "--list"], {
     env,
     encoding: "utf8",
   });
@@ -298,7 +299,7 @@ test("read-only selector previews never probe headless tools or require services
   if (process.platform === "linux") {
     const preview = execFileSync(
       process.execPath,
-      [cli.pathname, "--headless-display", "--flow", "bbox-draw", "--plan"],
+      [cli, "--headless-display", "--flow", "bbox-draw", "--plan"],
       { env, encoding: "utf8" },
     );
     assert.equal(JSON.parse(preview).headlessDisplay, true);
@@ -309,7 +310,7 @@ test("read-only selector previews never probe headless tools or require services
       execFileSync(
         process.execPath,
         [
-          cli.pathname,
+          cli,
           "--headless-display",
           "--flow",
           "bbox-draw",
