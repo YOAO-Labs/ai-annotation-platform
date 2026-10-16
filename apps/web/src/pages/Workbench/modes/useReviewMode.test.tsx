@@ -162,6 +162,206 @@ describe("useReviewMode", () => {
     expect(resumeTaskLock).toHaveBeenCalledWith("t1");
   });
 
+  it("serializes button and keyboard decisions while lock release is pending", async () => {
+    let finishRelease!: () => void;
+    const releasePending = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    const releaseTaskLock = vi.fn(() => releasePending);
+    const { result } = renderReview("review", {}, { releaseTaskLock });
+    act(() => {
+      result.current.topbarActions.onApprove?.();
+      result.current.topbarActions.onApprove?.();
+      result.current.topbarActions.onReject?.();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", repeat: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", repeat: true }));
+    });
+    expect(releaseTaskLock).toHaveBeenCalledTimes(1);
+    expect(result.current.topbarActions.isApproving).toBe(true);
+    expect(result.current.topbarActions.canApprove).toBe(false);
+    expect(result.current.topbarActions.canReject).toBe(false);
+    expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
+    await act(async () => {
+      finishRelease();
+      await releasePending;
+    });
+    expect(mocks.approveMutate).toHaveBeenCalledTimes(1);
+    act(() => mocks.approveMutate.mock.calls[0][1].onSuccess());
+    act(() => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    expect(releaseTaskLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reserves one reject dialog and decision through lock release", async () => {
+    let finishRelease!: () => void;
+    const releasePending = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    const releaseTaskLock = vi.fn(() => releasePending);
+    const { result } = renderReview("review", {}, { releaseTaskLock });
+    act(() => {
+      result.current.topbarActions.onReject?.();
+      result.current.topbarActions.onReject?.();
+      result.current.topbarActions.onApprove?.();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", repeat: true }));
+    });
+    expect(useDecisionDialogStore.getState().queue).toHaveLength(1);
+    expect(result.current.topbarActions.isRejecting).toBe(true);
+    expect(result.current.topbarActions.canApprove).toBe(false);
+    expect(result.current.topbarActions.canReject).toBe(false);
+    await settleDecisionDialog("missing");
+    await settleDecisionDialog("Missing object");
+    act(() => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    expect(releaseTaskLock).toHaveBeenCalledTimes(1);
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+    await act(async () => {
+      finishRelease();
+      await releasePending;
+    });
+    expect(mocks.rejectMutate).toHaveBeenCalledTimes(1);
+    act(() => mocks.rejectMutate.mock.calls[0][1].onError());
+    expect(result.current.topbarActions.isRejecting).toBe(false);
+    await act(async () => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    expect(mocks.approveMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores decision actions after reject cancellation at either step", async () => {
+    const releaseTaskLock = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderReview("review", {}, { releaseTaskLock });
+    act(() => {
+      result.current.topbarActions.onReject?.();
+    });
+    await settleDecisionDialog(null);
+    expect(result.current.topbarActions.isRejecting).toBe(false);
+    expect(result.current.topbarActions.canReject).toBe(true);
+    act(() => {
+      result.current.topbarActions.onReject?.();
+    });
+    await settleDecisionDialog("missing");
+    await settleDecisionDialog(null);
+    expect(result.current.topbarActions.canApprove).toBe(true);
+    expect(releaseTaskLock).not.toHaveBeenCalled();
+    await act(async () => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    expect(mocks.approveMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the lock and permits retry when releasing it fails", async () => {
+    const releaseTaskLock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(undefined);
+    const resumeTaskLock = vi.fn();
+    const { result, pushToast } = renderReview("review", {}, { releaseTaskLock, resumeTaskLock });
+    await act(async () => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+    expect(resumeTaskLock).toHaveBeenCalledWith("t1");
+    expect(pushToast).toHaveBeenCalledWith({ msg: "通过失败，请重试", kind: "error" });
+    expect(result.current.topbarActions.isApproving).toBe(false);
+    await act(async () => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    expect(mocks.approveMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not apply an old release after switching away and back to the same task", async () => {
+    let finishRelease!: () => void;
+    const releasePending = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    const releaseTaskLock = vi
+      .fn()
+      .mockReturnValueOnce(releasePending)
+      .mockResolvedValue(undefined);
+    const { result, rerender, initialProps } = renderReview("review", {}, { releaseTaskLock });
+    act(() => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    rerender({ ...initialProps, taskId: "t2", task: task({ id: "t2" }) });
+    rerender(initialProps);
+    expect(result.current.topbarActions.isApproving).toBe(false);
+    act(() => {
+      result.current.topbarActions.onReject?.();
+    });
+    await act(async () => {
+      finishRelease();
+      await releasePending;
+    });
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+    expect(result.current.topbarActions.isRejecting).toBe(true);
+    await settleDecisionDialog("missing");
+    await settleDecisionDialog("Missing object");
+    expect(mocks.rejectMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores retired mutation callbacks without clearing the next task's decision", async () => {
+    let finishRelease!: () => void;
+    const releasePending = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    const releaseTaskLock = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(releasePending);
+    const resumeTaskLock = vi.fn();
+    const { result, rerender, initialProps, navigateTask, pushToast } = renderReview(
+      "review",
+      {},
+      { releaseTaskLock, resumeTaskLock },
+    );
+    await act(async () => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    const oldCallbacks = mocks.approveMutate.mock.calls[0][1];
+    rerender({ ...initialProps, taskId: "t2", task: task({ id: "t2" }) });
+    act(() => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    act(() => {
+      oldCallbacks.onError();
+      oldCallbacks.onSuccess();
+    });
+    expect(resumeTaskLock).not.toHaveBeenCalled();
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(navigateTask).not.toHaveBeenCalled();
+    expect(result.current.topbarActions.isApproving).toBe(true);
+    await act(async () => {
+      finishRelease();
+      await releasePending;
+    });
+    expect(mocks.approveMutate).toHaveBeenCalledTimes(2);
+    expect(mocks.approveMutate.mock.calls[1][0]).toBe("t2");
+  });
+
+  it("abandons a pending lock release after unmount", async () => {
+    let finishRelease!: () => void;
+    const releasePending = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    const { result, unmount } = renderReview(
+      "review",
+      {},
+      { releaseTaskLock: () => releasePending },
+    );
+    act(() => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    unmount();
+    await act(async () => {
+      finishRelease();
+      await releasePending;
+    });
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+  });
+
   it("exposes diff mode state for review mode", () => {
     const { result } = renderReview();
 
@@ -177,6 +377,7 @@ describe("useReviewMode", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
     });
     await waitFor(() => expect(mocks.approveMutate).toHaveBeenCalledWith("t1", expect.any(Object)));
+    act(() => mocks.approveMutate.mock.calls[0][1].onError());
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
