@@ -120,13 +120,16 @@ backend 默认输出 ultralytics 内置类名：
 ## 测试
 
 ```bash
-# 单测（不需 GPU / ultralytics）
+# 单测（按锁文件安装依赖，不需 GPU 或模型权重）
 cd apps/yolo-backend
-uv run pytest tests/ -q
+uv run pytest tests/ -q --ignore=tests/test_libreyolo_adapter.py
+uv run pytest tests/test_libreyolo_adapter.py -q
 
 # 端到端冒烟（需 GPU + ultralytics 权重）
 # 见 v0.14.12 计划 §6.2
 ```
+
+CI 使用 `bash scripts/run-ml-cpu-tests.sh run yolo` 创建临时虚拟环境，按后端锁文件安装完整的固定依赖。普通契约测试与原生 LibreYOLO 测试分别启动 Python 进程，避免 Torch 桩污染真实张量测试。原生测试在 CPU 上验证固定运行时的加载、类别顺序和坐标，无需 GPU、下载权重或启动训练；结束后自动删除虚拟环境和测试临时文件。
 
 ## LibreYOLO 受控模型
 

@@ -5,7 +5,8 @@
 # Isolated per suite: every invocation creates its own throwaway virtualenv, so
 # no suite can inherit another package's `sys.modules` (the committed tests
 # install MagicMock torch stubs, and a shared interpreter would let a stub leak
-# into a later suite). No GPU, weights or network are used by the tests.
+# into a later suite). YOLO native tests also run in a separate interpreter from
+# its stubbed contract tests. No GPU, weights or network are used by the tests.
 #
 # Usage:
 #   scripts/run-ml-cpu-tests.sh plan "<spec>"   # print name=value suite flags
@@ -168,9 +169,13 @@ run() {
       run_pytest "apps/_shared/protocol_v2" "$VENV_PATH"
       ;;
     yolo)
-      # Test-only deps: deliberately avoids the backend's ultralytics -> torch runtime stack.
-      install_file "apps/yolo-backend" "3.10" "yolo-test-only.txt"
-      run_pytest "apps/yolo-backend" "$VENV_PATH"
+      # Native loading verifies the exact qualified binary/runtime identity.
+      # Install the backend lock, including its pinned CUDA wheels, but execute
+      # on CPU. Do not mix real tensors with the older contract tests' stubs.
+      new_venv "3.12"
+      run_in "apps/yolo-backend" env UV_PROJECT_ENVIRONMENT="$VENV_PATH" uv sync --locked --extra dev
+      run_pytest "apps/yolo-backend" "$VENV_PATH" --ignore=tests/test_libreyolo_adapter.py
+      run_pytest "apps/yolo-backend" "$VENV_PATH" tests/test_libreyolo_adapter.py
       ;;
     rapidocr)
       install_editable "apps/rapidocr-backend" "3.10" "dev"
