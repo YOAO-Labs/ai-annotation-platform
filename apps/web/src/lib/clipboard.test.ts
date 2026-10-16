@@ -60,4 +60,31 @@ describe("copyToClipboard", () => {
       }
     },
   );
+
+  it.each(["dialog", "alertdialog"])("keeps the fallback inside the active %s", async (role) => {
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    const modal = document.createElement("div");
+    modal.setAttribute("role", role);
+    const trigger = document.createElement("button");
+    modal.appendChild(trigger);
+    document.body.appendChild(modal);
+    trigger.focus();
+    const previous = document.execCommand;
+    document.execCommand = vi.fn(() => {
+      const textarea = modal.querySelector("textarea");
+      expect(textarea).not.toBeNull();
+      expect(textarea?.value).toBe("historical-hash");
+      return true;
+    });
+    try {
+      expect(await copyToClipboard("historical-hash")).toBe(true);
+      expect(document.activeElement).toBe(trigger);
+      expect(modal.querySelector("textarea")).toBeNull();
+    } finally {
+      modal.remove();
+      document.execCommand = previous;
+    }
+  });
 });

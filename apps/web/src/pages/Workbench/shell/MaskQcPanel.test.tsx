@@ -103,6 +103,49 @@ const trackerCandidate: MaskQcTrackerCandidate = {
   label: "SAM2 · r4",
 };
 
+function trackerComparison(
+  candidate: MaskQcTrackerCandidate,
+): NonNullable<MaskQcPanelProps["compare"]> {
+  const locator = {
+    annotation_id: "annotation-1",
+    annotation_version: 7,
+    frame_index: 3,
+    state: "exact" as const,
+    size: [4, 4] satisfies [number, number],
+    candidate_job_id: null,
+    candidate_digest: null,
+    candidate_instance_id: null,
+  };
+  return {
+    baseline_kind: "tracker_candidate",
+    current: { ...locator, source: "prediction", digest: "current", content_path: "/current" },
+    baseline: {
+      ...locator,
+      source: "tracker_candidate",
+      state: "candidate",
+      digest: "candidate",
+      content_path: "/candidate",
+      candidate_job_id: candidate.jobId,
+      candidate_digest: candidate.digest,
+      candidate_instance_id: candidate.instanceId,
+    },
+    metrics: {
+      current_area_pixels: 4,
+      baseline_area_pixels: 5,
+      intersection_pixels: 4,
+      union_pixels: 5,
+      changed_pixels: 1,
+      added_pixels: 1,
+      removed_pixels: 0,
+      iou_numerator: 4,
+      iou_denominator: 5,
+      dice_numerator: 8,
+      dice_denominator: 9,
+    },
+    loss: [],
+  };
+}
+
 function props(overrides: Partial<MaskQcPanelProps> = {}): MaskQcPanelProps {
   return {
     projectId: "project-1",
@@ -272,6 +315,32 @@ describe("MaskQcPanel", () => {
     expect(screen.queryByText(digest)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "复制 Tracker 候选哈希" }));
     await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(digest));
+    expect(onSetTrackerCandidate).not.toHaveBeenCalled();
+  });
+
+  it.each(["unrelated", "empty"])("历史对比复制证据候选而非 %s 实时候选", async (live) => {
+    const historical = {
+      ...trackerCandidate,
+      key: "history",
+      digest: "h".repeat(64),
+      instanceId: "historical-instance",
+    };
+    const onSetTrackerCandidate = vi.fn();
+    render(
+      <MaskQcPanel
+        {...props({
+          baseline: "tracker_candidate",
+          trackerCandidateKey: historical.key,
+          trackerCandidates: live === "empty" ? [] : [trackerCandidate],
+          compare: trackerComparison(historical),
+          onSetTrackerCandidate,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "复制 Tracker 候选哈希" }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenLastCalledWith(historical.digest));
+    fireEvent.click(screen.getByRole("button", { name: "复制 Tracker 实例 ID" }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenLastCalledWith(historical.instanceId));
     expect(onSetTrackerCandidate).not.toHaveBeenCalled();
   });
 

@@ -15,7 +15,11 @@ export async function copyToClipboard(value: string): Promise<boolean> {
   textarea.className = "sr-only";
   textarea.setAttribute("aria-hidden", "true");
   try {
-    document.body.appendChild(textarea);
+    const modal =
+      activeElement instanceof Element
+        ? activeElement.closest('[role="dialog"], [role="alertdialog"]')
+        : null;
+    (modal ?? document.body).appendChild(textarea);
     textarea.select();
     return document.execCommand("copy");
   } catch {

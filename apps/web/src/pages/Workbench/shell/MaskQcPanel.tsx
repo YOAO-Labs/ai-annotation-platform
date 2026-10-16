@@ -214,6 +214,22 @@ export function MaskQcPanel({
     trackerCandidates.find((candidate) => candidate.key === trackerCandidateKey) ??
     trackerCandidates[0] ??
     null;
+  const comparedTracker = compare?.baseline_kind === "tracker_candidate" ? compare.baseline : null;
+  const historicalTracker =
+    comparedTracker &&
+    !trackerCandidates.some(
+      (candidate) =>
+        candidate.jobId === comparedTracker.candidate_job_id &&
+        candidate.digest === comparedTracker.candidate_digest &&
+        candidate.instanceId === comparedTracker.candidate_instance_id &&
+        candidate.frameIndex === comparedTracker.frame_index,
+    );
+  const trackerDigest = comparedTracker
+    ? comparedTracker.candidate_digest
+    : selectedTrackerCandidate?.digest;
+  const trackerInstanceId = comparedTracker
+    ? comparedTracker.candidate_instance_id
+    : selectedTrackerCandidate?.instanceId;
   const canDecideTrackerRegion = Boolean(
     !stale &&
     activeIssue?.effective_status === "open" &&
@@ -627,36 +643,44 @@ export function MaskQcPanel({
             </option>
             <option value="neighbor_keyframe">邻近关键帧</option>
           </select>
-          {baseline === "tracker_candidate" && trackerCandidates.length > 0 && (
+          {baseline === "tracker_candidate" && (selectedTrackerCandidate || comparedTracker) && (
             <div className="flex items-center gap-1">
-              <select
-                aria-label="Tracker 候选"
-                value={trackerCandidateKey ?? trackerCandidates[0].key}
-                disabled={busy}
-                onChange={(event) => {
-                  const candidate = trackerCandidates.find(
-                    (item) => item.key === event.target.value,
-                  );
-                  if (candidate) onSetTrackerCandidate(candidate);
-                }}
-                className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
-              >
-                {trackerCandidates.map((candidate, index) => (
-                  <option key={candidate.key} value={candidate.key}>
-                    候选 {index + 1} · {candidate.label} · F{candidate.frameIndex}
-                  </option>
-                ))}
-              </select>
-              <CopyValueButton
-                value={selectedTrackerCandidate?.digest}
-                label="复制 Tracker 候选哈希"
-              />
-              {selectedTrackerCandidate?.instanceId && (
-                <CopyValueButton
-                  value={selectedTrackerCandidate.instanceId}
-                  kind="id"
-                  label="复制 Tracker 实例 ID"
-                />
+              {trackerCandidates.length > 0 ? (
+                <select
+                  aria-label="Tracker 候选"
+                  value={
+                    historicalTracker
+                      ? "historical"
+                      : (trackerCandidateKey ?? trackerCandidates[0].key)
+                  }
+                  disabled={busy}
+                  onChange={(event) => {
+                    const candidate = trackerCandidates.find(
+                      (item) => item.key === event.target.value,
+                    );
+                    if (candidate) onSetTrackerCandidate(candidate);
+                  }}
+                  className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
+                >
+                  {historicalTracker && (
+                    <option value="historical" disabled>
+                      历史候选 · F{comparedTracker.frame_index}
+                    </option>
+                  )}
+                  {trackerCandidates.map((candidate, index) => (
+                    <option key={candidate.key} value={candidate.key}>
+                      候选 {index + 1} · {candidate.label} · F{candidate.frameIndex}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  历史候选 · F{comparedTracker?.frame_index}
+                </span>
+              )}
+              <CopyValueButton value={trackerDigest} label="复制 Tracker 候选哈希" />
+              {trackerInstanceId && (
+                <CopyValueButton value={trackerInstanceId} kind="id" label="复制 Tracker 实例 ID" />
               )}
             </div>
           )}

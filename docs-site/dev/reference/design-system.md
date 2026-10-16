@@ -106,6 +106,8 @@ Use semantic z utilities instead of raw numeric z-index classes:
 
 Use `@/components/ui/CopyValueButton` for opaque hashes and internal IDs. Pass the original `value`, `kind="id"` for IDs (hash is the default), and a field-specific accessible `label`, such as `复制权重哈希`. The visible control is a compact copy icon; the Tooltip reads `复制哈希` or `复制 ID` on hover and keyboard focus. Touch pointers receive a larger target.
 
+Clipboard fallback controls mount inside the focused dialog or alertdialog, preserving its focus scope. Evidence views copy the active comparison's stored identity, including historical candidates that no longer appear in a live selector.
+
 The shared clipboard helper preserves the full value, including prefixes, and retains the legacy fallback with DOM cleanup and focus restoration. Success and failure use the existing toast adapter. Missing values render `—`; callers retain more specific empty-state wording when needed.
 
 Keep each copy action on the same row as its field label or object name, including narrow layouts. Pair definition-list labels and values with flex/grid, and group names with their actions before allowing a containing header to wrap.
