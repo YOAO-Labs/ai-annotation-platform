@@ -217,7 +217,7 @@ export async function runSamToolRecording(
     await page.waitForTimeout(1200);
   }
 
-  const drawEndMs = Date.now();
+  let drawEndMs = Date.now();
   if (created) {
     const saved = await verifySavedImageDrawing(
       page,
@@ -226,6 +226,15 @@ export async function runSamToolRecording(
       ["bbox", "polygon", "multipolygon", "raster_mask"],
     );
     evidence.saved_annotation = saved;
+    if (toolId === "exemplar") {
+      // The exemplar story includes the actual persisted box after a reload.
+      // Re-select it so the final geometry and saved class remain readable.
+      const restoredRow = page.getByTestId(`box-list-item-${created.id}`);
+      await expect(restoredRow).toContainText(anchor.label);
+      await restoredRow.click();
+      await page.waitForTimeout(1_200);
+      drawEndMs = Date.now();
+    }
   }
   return { drawStartMs, drawEndMs, evidence };
 }
