@@ -3,6 +3,7 @@
 import json
 
 import typer
+from rich.table import Table
 
 from ai_annotation.cli._output import cli_errors, console, get_client, print_json
 
@@ -11,6 +12,34 @@ app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+
+
+@app.command("list")
+def list_(
+    task_id: str = typer.Argument(..., help="任务 ID"),
+    video_segment_id: str | None = typer.Option(
+        None, "--video-segment-id", help="视频片段 ID"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """列出任务标注，可按视频片段筛选。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            annotations = client.annotations.list(
+                task_id, video_segment_id=video_segment_id
+            )
+    if json_output:
+        print_json([annotation.model_dump(mode="json") for annotation in annotations])
+        return
+    table = Table()
+    table.add_column("ID")
+    table.add_column("类型")
+    table.add_column("类别")
+    for annotation in annotations:
+        table.add_row(
+            str(annotation.id), annotation.annotation_type, annotation.class_name
+        )
+    console.print(table)
 
 
 @app.command("bulk-update")

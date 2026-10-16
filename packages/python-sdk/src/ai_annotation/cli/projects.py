@@ -40,12 +40,35 @@ def _tasks_progress(p: Project) -> str:
 
 @app.command("list")
 def list_(
+    status: str | None = typer.Option(None, "--status", help="项目状态"),
+    search: str | None = typer.Option(None, "--search", help="名称搜索"),
+    type_key: list[str] | None = typer.Option(
+        None, "--type-key", help="项目类型 key，可重复"
+    ),
+    data_type: list[str] | None = typer.Option(
+        None, "--data-type", help="数据类型，可重复"
+    ),
+    member_id: str | None = typer.Option(None, "--member-id", help="成员用户 ID"),
+    project_role: str | None = typer.Option(None, "--project-role", help="项目角色"),
+    created_from: str | None = typer.Option(
+        None, "--created-from", help="创建日期起始"
+    ),
+    created_to: str | None = typer.Option(None, "--created-to", help="创建日期截止"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """列出项目。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            projects = client.projects.list()
+            projects = client.projects.list(
+                status=status,
+                search=search,
+                type_key=type_key,
+                data_type=data_type,
+                member_id=member_id,
+                project_role=project_role,
+                created_from=created_from,
+                created_to=created_to,
+            )
     if json_output:
         print_json([p.model_dump(mode="json") for p in projects])
         return

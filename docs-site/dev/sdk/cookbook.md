@@ -2,14 +2,13 @@
 title: SDK Cookbook
 audience: [dev]
 type: how-to
-since: v0.15.2
 status: beta
-last_reviewed: 2026-06-11
+last_reviewed: 2026-10-16
 ---
 
 # SDK Cookbook
 
-三个可直接拷贝运行的完整片段。凭据均假定已通过 `aap login` 或环境变量 `AAP_BASE_URL` / `AAP_API_KEY` 配置(`Client()` 无参构造时自动回落),也可以显式传 `Client(base_url=..., api_key=...)`。
+以下片段展示上传、标注、导出和在线学习流程。凭据均假定已通过 `aap login` 或环境变量 `AAP_BASE_URL` / `AAP_API_KEY` 配置(`Client()` 无参构造时自动回落),也可以显式传 `Client(base_url=..., api_key=...)`。
 
 ## 1. 上传数据并创建项目
 
@@ -156,3 +155,173 @@ aap jobs wait "$job_id" --json
 ## 5. 从 echo 示例改出一个 OCR backend
 
 接入自定义模型推理服务属于 ML Backend 范畴,完整教程(echo 示例 → OCR backend → 注册到平台)见 [ML Backend 接入教程](/dev/ml-backend/starter)。
+
+## 6. 冻结数据并提交训练
+
+准备已有审核图片与矩形框类别的项目，将 `PROJECT_ID` 改为项目 UUID。脚本持久保存两次创建请求：网络响应不确定时重新运行会重放原请求，不会用新 ID 重复创建。修改来源或参数时使用新的请求文件；文件与项目绑定，不要跨项目复用。
+
+该示例明确提交一次单轮训练，需要项目管理权限、相关 read/write scope 和就绪执行器。等待使用领域状态，超时不会取消远端任务；用资源 ID 继续查看详情。
+
+```python
+from pathlib import Path
+import time
+from uuid import uuid4
+
+from ai_annotation import (
+    Client, TrainingConfiguration, TrainingDatasetCreate,
+    TrainingDatasetSelection, TrainingRunCreate,
+)
+
+PROJECT_ID = "<project-id>"
+dataset_request_file = Path(f"{PROJECT_ID}.dataset-request.json")
+run_request_file = Path(f"{PROJECT_ID}.run-request.json")
+
+with Client() as client:
+    if dataset_request_file.exists():
+        data_request = TrainingDatasetCreate.model_validate_json(
+            dataset_request_file.read_text(encoding="utf-8")
+        )
+    else:
+        selection = TrainingDatasetSelection(task="detect", mode="reviewed")
+        checked = client.training_datasets.preflight(PROJECT_ID, selection)
+        if not checked.ready:
+            raise RuntimeError(f"数据预检未通过: {checked.issues}")
+        data_request = TrainingDatasetCreate(
+            **selection.model_dump(mode="json", exclude_unset=True),
+            name="reviewed-detection", request_id=uuid4(),
+            preflight_digest=checked.digest,
+        )
+        dataset_request_file.write_text(
+            data_request.model_dump_json(exclude_unset=True), encoding="utf-8"
+        )
+    version = client.training_datasets.create(PROJECT_ID, data_request)
+    print("训练数据版本:", version.id)
+    deadline = time.monotonic() + 600
+    while version.status != "ready":
+        if version.status in {"failed", "cancelled"}:
+            raise RuntimeError(f"构建终止: {version.status}: {version.error_message}")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"稍后继续查询数据版本 {version.id}")
+        time.sleep(2)
+        version = client.training_datasets.get(PROJECT_ID, version.id)
+    client.training_datasets.download(PROJECT_ID, version.id, "./dataset.zip")
+
+    if run_request_file.exists():
+        run_request = TrainingRunCreate.model_validate_json(
+            run_request_file.read_text(encoding="utf-8")
+        )
+    else:
+        schema = client.training_runs.parameter_schema(
+            PROJECT_ID, framework="ultralytics", base_model="yolo11n"
+        )
+        values = {
+            field.key: field.default for field in schema.fields
+            if field.status == "editable"
+        }
+        values.update(epochs=1, batch=1)
+        draft = TrainingRunCreate(
+            name="one-epoch", task="detect", dataset_id=version.id,
+            framework="ultralytics", base_model="yolo11n", request_id=uuid4(),
+            configuration=TrainingConfiguration(
+                schema_id=schema.schema_id, schema_digest=schema.schema_digest,
+                values=values,
+            ),
+        )
+        checked = client.training_runs.preflight(PROJECT_ID, draft)
+        run_request = draft.model_copy(update={"preflight_digest": checked.config_digest})
+        run_request_file.write_text(
+            run_request.model_dump_json(exclude_unset=True), encoding="utf-8"
+        )
+    run = client.training_runs.create(PROJECT_ID, run_request)
+    print("训练实验:", run.id, run.status)
+    deadline = time.monotonic() + 1800
+    while True:
+        detail = client.training_runs.get(PROJECT_ID, run.id)
+        print(detail.run.status, detail.run.metrics)
+        if detail.run.status == "succeeded":
+            break
+        if detail.run.status in {"failed", "cancelled", "lost"}:
+            raise RuntimeError(f"实验需人工处理: {detail.run.status}")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"稍后继续查询实验 {run.id}")
+        time.sleep(2)
+    attempt = next(a for a in detail.attempts if a.id == detail.run.current_attempt_id)
+    weights = next(name for name, item in attempt.artifacts.items() if item["role"] == "weights")
+    client.training_runs.download_artifact(PROJECT_ID, run.id, attempt.id, weights, "./weights.pt")
+```
+
+暂停与恢复是独立操作。先查看 `client.training_runs.recovery(PROJECT_ID, run_id)` 的 `eligible` 和 `reasons`，确认后再调用 `resume`；失联或停止中的实验可能仍占用资源。服务端返回冲突时保留结构化 `detail`，重新预检或处理来源，不能自动替换成基础权重。
+
+## 7. 模型回流、评估和发布分开执行
+
+训练成功后先核对 `registration_eligibility`。注册请求固定 `run_id`、`attempt_id` 和项目类别绑定；部署指定已认证的物理 `registry_id`。候选决策、部署成功和项目发布是不同动作，任何一步都不隐式完成下一步。
+
+```python
+from uuid import uuid4
+from ai_annotation import Client, TrainedModelCreateRequest, ModelDeploymentCreateRequest
+
+PROJECT_ID = "<project-id>"
+RUN_ID = "<run-id>"
+ATTEMPT_ID = "<attempt-id>"
+REGISTRY_ID = "<registry-id>"
+
+with Client() as client:
+    detail = client.training_runs.get(PROJECT_ID, RUN_ID)
+    eligibility = detail.registration_eligibility
+    if eligibility is None or not eligibility.qualified:
+        raise RuntimeError("请先核对实验的模型回流资格")
+    request = TrainedModelCreateRequest(
+        request_id=uuid4(), name="review-candidate", run_id=RUN_ID,
+        attempt_id=ATTEMPT_ID, bindings=["car"],
+    )
+    # 首次提交前持久保存 request；重放同一注册时使用原对象。
+    model = client.trained_models.create(PROJECT_ID, request)
+    deployment = client.trained_models.deploy(
+        PROJECT_ID, model.id, ModelDeploymentCreateRequest(registry_id=REGISTRY_ID)
+    )
+    print(model.id, deployment.id, deployment.status)
+    qualification = client.sample_evaluations.qualification(
+        PROJECT_ID, model_version_id=model.id, deployment_id=deployment.id
+    )
+    print(qualification.model_dump(mode="json"))
+```
+
+`bindings` 必须按真实项目类别填写。逐样本评估使用 `SampleEvaluationCreateRequest`，明确选定冻结数据版本、样本 ID、候选部署及阈值；随后按 evaluation/attempt 读取 `report`、`samples`、`source`。评估对照需同口径资格，未知指标不能用零替代。
+
+发布时读取 `model_releases.list()` 的当前 generation，再显式提交 `ModelReleaseCreateRequest(expected_generation=..., model_version_id=..., deployment_id=..., sample_confirmed=True, request_id=...)`。409 表示当前发布已改变，需要人工刷新并重新确认。回退使用同一创建接口的 `rollback_from_id`，保留新的审计记录；候选归档不会替换当前发布。
+
+## 8. 参数搜索与人工主动学习
+
+两类流程都先预览，再带回原摘要提交；预算来自负责人明确选择。保存下列请求文件后再提交，重复运行创建步骤时加载相同文件。
+
+```python
+from pathlib import Path
+from ai_annotation import Client, TrainingStudyCreate
+
+PROJECT_ID = "<project-id>"
+path = Path("study-request.json")
+draft = TrainingStudyCreate.model_validate_json(path.read_text(encoding="utf-8"))
+with Client() as client:
+    preview = client.training_studies.preview(PROJECT_ID, draft)
+    print(preview.plan)
+    # 人工核对所有组合、目标和预算后，再保存并提交这个对象。
+    request = draft.model_copy(update={"preview_digest": preview.preview_digest})
+    Path("study-confirmed.json").write_text(
+        request.model_dump_json(exclude_unset=True), encoding="utf-8"
+    )
+```
+
+Study 请求包含完整配置的 `base`、有限 `grid`、框架实际提供的 `objective`、`direction="maximize"` 以及 `budgets.max_trials`、`max_planned_epochs`、`max_native_seconds`。创建调用为 `client.training_studies.create(PROJECT_ID, request)`，幂等 ID 使用 `base.request_id`；结果只在服务端认定可比的组内解释。
+
+主动学习依次调用 `pool` → `preview(ActiveLearningSelection)` → `create(ActiveLearningRoundCreate)`，必须指定模型与部署、独立候选任务、随机种子、推理／审核预算和 `batch_size`。读取轮次及 candidates 后，由负责人通过 `decide(ActiveLearningDecisionCreate)` 明确接纳或拒绝序号；接纳只创建普通人工批次，不自动标注或发布。后续 `create_feedback(ActiveLearningFeedbackCreate)` 保存事实反馈与精确 evaluation/attempt 引用，未知工时或效率不会补算。
+
+CLI 使用相同请求对象的 JSON 字段：
+
+```bash
+aap learning studies preview --project "$PROJECT_ID" --body study-request.json --json
+aap learning studies create --project "$PROJECT_ID" --body study-confirmed.json --yes --json
+aap learning active-learning preview --project "$PROJECT_ID" --body selection.json --json
+aap learning active-learning create --project "$PROJECT_ID" --body round-request.json --yes --json
+aap learning active-learning candidates "$ROUND_ID" --project "$PROJECT_ID" --json
+aap learning active-learning decide "$ROUND_ID" --project "$PROJECT_ID" --body decision.json --yes --json
+```

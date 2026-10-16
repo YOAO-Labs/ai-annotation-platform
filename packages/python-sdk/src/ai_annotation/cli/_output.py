@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 import sys
 from contextlib import contextmanager
-from typing import Any, Iterator
+from pathlib import Path
+from typing import Any, Iterator, TypeVar
 
 import httpx
 import typer
+from pydantic import BaseModel, ValidationError as ModelValidationError
 from rich.console import Console
 
 from ai_annotation import Client
@@ -23,6 +25,43 @@ console = Console()
 err_console = Console(stderr=True)
 # 进度条/spinner 是瞬态 UI 而非命令输出, 走 stderr, 避免污染管道中的 stdout
 progress_console = Console(stderr=True)
+ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+def _model_error(exc: ModelValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(map(str, error['loc'])) or 'body'}: {error['msg']}"
+        for error in exc.errors(include_input=False, include_url=False)
+    ).replace("\n", " ")
+
+
+def read_json_body(path: Path, model_type: type[ModelT]) -> ModelT:
+    """Read typed request JSON without including input values in failures."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
+        raise AAPError("无法读取请求文件：请检查路径、UTF-8 编码和 JSON 格式") from None
+    if not isinstance(data, dict):
+        raise AAPError("请求文件必须包含 JSON 对象")
+    try:
+        return model_type.model_validate(data)
+    except ModelValidationError as exc:
+        raise AAPError(f"请求参数无效: {_model_error(exc)}") from None
+
+
+def print_learning_result(result: Any, json_mode: bool) -> None:
+    if isinstance(result, BaseModel):
+        data = result.model_dump(mode="json", by_alias=True)
+    elif isinstance(result, Path):
+        data = {"path": str(result)}
+    elif result is None:
+        data = {"deleted": True}
+    else:
+        data = result
+    if json_mode:
+        print_json(data)
+    else:
+        console.print_json(data=data)
 
 
 def print_json(data: Any) -> None:
@@ -80,8 +119,14 @@ def cli_errors(json_mode: bool = False) -> Iterator[None]:
     except AAPError as e:
         print_error(str(e), json_mode)
         raise typer.Exit(code=1) from None
+    except ModelValidationError as e:
+        print_error(f"请求参数无效: {_model_error(e)}", json_mode)
+        raise typer.Exit(code=1) from None
     except httpx.HTTPError as e:
         print_error(f"网络错误: {e}", json_mode)
+        raise typer.Exit(code=1) from None
+    except OSError as e:
+        print_error(f"文件操作失败: {e.strerror or type(e).__name__}", json_mode)
         raise typer.Exit(code=1) from None
 
 

@@ -2,9 +2,8 @@
 title: Python SDK 参考
 audience: [dev]
 type: reference
-since: v0.15.2
 status: beta
-last_reviewed: 2026-06-11
+last_reviewed: 2026-10-16
 ---
 
 # Python SDK 参考
@@ -60,7 +59,7 @@ with Client() as client:
 ### 传输层行为
 
 - 认证:`Authorization: Bearer <api_key>`。
-- 幂等重试:**仅 GET** 请求在 429 / 502 / 503 / 504 时做最多 3 次指数退避重试;POST / PATCH / DELETE 不重试。
+- 幂等重试:普通 API 的 **GET** 读取在 429 / 502 / 503 / 504 时指数退避，最多请求 3 次；POST / PATCH / DELETE 与流式下载不自动重试。
 - 预签名 URL(上传 PUT、绝对地址下载)走无 auth 的裸 client。
 
 ## 资源命名空间
@@ -285,13 +284,17 @@ with Client() as client:
 
 ### client.api_keys
 
-| 方法     | 签名                                                      | 返回            |
-| -------- | --------------------------------------------------------- | --------------- |
-| `list`   | `list()`                                                  | `list[ApiKey]`  |
-| `create` | `create(name: str, scopes: Sequence[str] \| None = None)` | `ApiKeyCreated` |
-| `revoke` | `revoke(key_id)`                                          | `None`          |
+| 方法     | 签名                                                                            | 返回            |
+| -------- | ------------------------------------------------------------------------------- | --------------- |
+| `list`   | `list()`                                                                        | `list[ApiKey]`  |
+| `create` | `create(name: str, scopes: Sequence[str] \| None = None, expires_in_days=None)` | `ApiKeyCreated` |
+| `update` | `update(key_id, *, name=None, scopes=None, expires_in_days=None)`               | `ApiKey`        |
+| `rotate` | `rotate(key_id)`                                                                | `ApiKeyCreated` |
+| `revoke` | `revoke(key_id)`                                                                | `None`          |
 
 `ApiKeyCreated.plaintext` 是**一次性**的完整 key,创建响应之后无法再次查看,请立即妥善保存。
+
+`update(expires_in_days=None)` 保持不改有效期的既有语义；改回永不过期仍使用 REST PATCH 的显式 `null`。轮换后旧明文失效，不应把完整 key 写入日志。
 
 ## 异常层级
 
@@ -325,4 +328,68 @@ with Client() as client:
 
 顶层导出的 pydantic 模型包括资源模型(`Project` / `Dataset` / `Task` / `Annotation` / `Batch` 等)、工作流结果(`TaskActionResult` / `BulkBatchActionResult` / `JobRetryResult` 等)与模型服务运维模型(`MLBackend` / `ServicePool` / `CapabilityDrift` / topology / runtime snapshot)。
 
-所有模型 `extra="allow"`:只声明 SDK 用户关心的稳定字段,**容忍服务端新增字段**——未声明字段不会导致校验失败,且仍可通过属性访问(如 `project.total_tasks`,服务端附加字段,可能缺失,建议 `getattr(p, "total_tasks", None)` 取用)。
+响应模型 `extra="allow"`:只声明 SDK 用户关心的稳定字段,**容忍服务端新增字段**——未声明字段不会导致校验失败,且仍可通过属性访问(如 `project.total_tasks`,服务端附加字段,可能缺失,建议 `getattr(p, "total_tasks", None)` 取用)。新的写请求模型使用 `extra="forbid"`，未知字段和非法数值会在发送前被拒绝。
+
+## 现有列表的筛选与反馈计数
+
+现有列表保留原参数行为，并支持以下可选筛选。UUID 可用字符串或 `UUID`；创建时间使用后端接受的日期时间值。省略参数时不改变原查询。
+
+| 方法               | 可选筛选                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| `projects.list`    | `type_key`, `data_type`, `member_id`, `project_role`, `created_from`, `created_to` |
+| `datasets.list`    | `has_scenes`                                                                       |
+| `tasks.list`       | `assignee_id`, `batch_id`, `unbatched`, `reject_reason_type`, `class_name`         |
+| `annotations.list` | `video_segment_id`                                                                 |
+| `jobs.list`        | `search`                                                                           |
+| `feedbacks.list`   | `root_only`, `include_counts`                                                      |
+
+`FeedbackPage` 保留 `items` 和 `next_cursor`。传 `include_counts=True` 后，`total` 和 `status_counts` 返回同一权限范围的计数；未请求时为 `None`，不能将它理解为零。`root_only=True` 仅返回根反馈。布尔筛选支持明确传入 `False`。
+
+## 在线学习命名空间
+
+项目级方法的前几个位置参数依次为 `project_id`、路径中的资源 ID、写请求对象或下载目标路径；查询参数使用具名参数。全局 `training` 方法不需要项目路径。完整参数及边界可通过 Python 签名或对应的 `aap learning <group> <command> --help` 查询。
+
+| 命名空间                    | 方法                                                                                                                                                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.training`           | `catalog`, `projects`, `runs`                                                                                                                                                                            |
+| `client.task_datasets`      | `list`, `unrecognized_versions`                                                                                                                                                                          |
+| `client.training_datasets`  | `preflight`, `create`, `list`, `get`, `retry`, `download`, `delete`, `insights`, `classes`, `compare`, `samples`, `sample`, `download_media`                                                             |
+| `client.training_runs`      | `catalog`, `parameter_schema`, `initialization_source`, `preflight`, `create`, `list`, `get`, `events`, `evaluation`, `telemetry`, `logs`, `download_artifact`, `recovery`, `cancel`, `resume`, `delete` |
+| `client.training_recipes`   | `list`, `create`, `get`, `revisions`, `create_revision`, `resolve`, `clone_candidate`, `archive`                                                                                                         |
+| `client.training_previews`  | `capabilities`, `create`, `get`, `download_image`, `cancel`, `delete`                                                                                                                                    |
+| `client.trained_models`     | `create`, `list`, `get`, `download`, `deploy`, `lineage`, `decisions`, `decide`                                                                                                                          |
+| `client.model_releases`     | `list`, `create`                                                                                                                                                                                         |
+| `client.learning_policies`  | `get`, `save`, `check`, `disable`, `delete`, `triggers`                                                                                                                                                  |
+| `client.sample_evaluations` | `qualification`, `create`, `list`, `get`, `compare`, `report`, `samples`, `source`, `download_image`, `cancel`, `retry`, `delete`                                                                        |
+| `client.training_studies`   | `preview`, `create`, `list`, `get`, `cancel`                                                                                                                                                             |
+| `client.active_learning`    | `pool`, `preview`, `create`, `list`, `get`, `report`, `candidates`, `download_image`, `decisions`, `decide`, `feedback`, `create_feedback`, `cancel`, `retry`                                            |
+
+### 请求对象与冻结身份
+
+请求模型从 `ai_annotation` 顶层导入。训练数据使用 `TrainingDatasetSelection` / `TrainingDatasetCreate`；实验使用 `TrainingRunCreate`；配方使用 `TrainingRecipeWrite` / `TrainingConfigurationResolve`；增强预览使用 `TrainingPreviewCreate`。模型回流、部署、发布和候选决策分别使用 `TrainedModelCreateRequest`、`ModelDeploymentCreateRequest`、`ModelReleaseCreateRequest`、`ModelDecisionCreateRequest`；策略和评估分别使用 `LearningPolicySaveRequest`、`SampleEvaluationCreateRequest`。
+
+参数搜索使用 `TrainingStudyCreate` 和 `StudyBudgets`，主动学习使用 `ActiveLearningSelection`、`ActiveLearningRoundCreate`、`ActiveLearningDecisionCreate`、`ActiveLearningFeedbackCreate`。数字预算、候选任务和人工决策均为明确输入，不会由客户端补算或自动采纳。
+
+训练公开任务为 `detect` / `segment`，当前仅支持合格图片任务。任务流中更广的任务枚举不代表均可训练。原始上传数据集、任务流、冻结版本、版本展示序号是不同身份；训练请求的 `dataset_id` 必须是冻结版本 UUID。冻结配置、清单、模型来源和摘要原样保留。
+
+创建前显式调用 `preflight` / `preview`，将返回摘要放入创建请求。`request_id` 由调用方生成并持久保存，网络结果不确定时重放相同 ID 和相同请求体；不能用新 ID 代替一次重试。实验创建需要 `preflight_digest`，Study 创建需要 `preview_digest`，即使预检共用的请求模型允许省略它们。Study 的幂等 ID 是 `base.request_id`。
+
+配置选用 `configuration` 时不再同时发送旧 `parameters`。请求仅序列化显式设置字段，保留明确的 `null`；动态 `values` 由服务端参数 schema 校验，SDK 不复制整个训练器参数词表。
+
+### 分页、状态与发布保护
+
+训练页常为 `items` / `total`，部分主动学习页只有 `items`。任务流另有待关联和无法识别版本计数；运行详情是 `{run, attempts, registration_eligibility}`，模型详情是 `{model, deployments}`。响应字段容忍服务端扩展，不能假定每页都有 `limit` / `offset`。
+
+日志和遥测使用序列游标；`logs(after=..., before=...)` 不能同时传两个方向。模型决策用 `before` 游标。冻结版本比较中的 `source_version_id` 指明样本实际属于哪个版本，被移除项可能来自基线版本。每次列表只获取请求的一页。
+
+创建返回 `202` 表示已受理。实验、预览、评估、参数搜索和主动学习有各自的状态，`cancelling` 不等于已停止，`lost` 不等于已释放资源；读取资源详情核对当前 attempt 和恢复资格，不能套用 `jobs.wait()` 的 `completed` 规则。取消／恢复、预览创建和参数搜索均不会由读取调用自动提交。
+
+策略保存／停用需要 `expected_revision`，配方修订／归档需要 `expected_head_revision`，模型发布需要 `expected_generation`。候选模型决策和主动学习人工决策是幂等追加记录，不会自动改变当前发布。发布回退通过 `model_releases.create()` 的 `rollback_from_id` 表达。删除受下游引用保护，409 时不会级联清除依赖。
+
+### 权限、错误与下载
+
+项目级接口要求项目管理权限及 `annotations:read`、`datasets:read`；写接口还要求 `datasets:write`。全局 `training` 入口另要求 `project_admin` / `super_admin`。客户端不绕过外键归属、预检新鲜度、原生资格、运行环境或配额检查；服务端错误保持原始状态码与结构化 `detail`。
+
+下载方法返回本地 `Path`。训练包、权重和产物先获取短期预签名描述，再使用无平台认证头的下载请求；冻结样本／预览图片通过带认证的项目接口流式读取。存在大小与 SHA-256 元数据时在落盘前校验，成功后原子替换目标；失败保留原目标并清理临时文件。过期链接需要重新显式调用下载方法，不自动重试写操作或刷新身份。
+
+核心安装仍只依赖 httpx 和 Pydantic，执行器内部 claim、heartbeat、upload、finish、recover 和 observations 协议不在公开 SDK 中。完整流程见 [Cookbook](./cookbook#_6-冻结数据并提交训练)。

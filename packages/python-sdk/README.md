@@ -4,6 +4,8 @@ AI 标注平台官方 Python SDK(beta)。同步 Client 覆盖 projects / dataset
 feedbacks / predictions / jobs / exports / ml_backends / batches / members / dashboard / api_keys 等稳定自动化工作流；
 并提供全局 ML registry 与 service pool 运维；extras 提供 `aap` CLI 与终端监控面板。
 
+在线学习命名空间覆盖冻结训练数据、训练实验与观测、配方和增强预览、逐样本评估、受控模型回流与发布、学习策略、有预算的参数搜索和人工主动学习；CLI 使用 `aap learning`，TUI 提供按需加载的训练监控。
+
 SDK、CLI 与 TUI 使用独立于 AAP 的 SemVer。AAP target 表示该 SDK release 最近一次完成测试与
 OpenAPI 对账的平台基线，不代表未经验证的完整兼容范围。主仓库发布新版本时无需同步更新该字段，
 也不会仅因 target 落后于当前主仓库版本而让契约测试失败；定期优化 SDK 时再更新它：
@@ -96,7 +98,7 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 
 ## Issue 与反馈
 
-`client.feedbacks.create()` 创建反馈，`client.feedbacks.list()` 按 `items` / `next_cursor` 翻页。
+`client.feedbacks.create()` 创建反馈，`client.feedbacks.list()` 按 `items` / `next_cursor` 翻页；`root_only=True` 只读根反馈，`include_counts=True` 同时读取可见范围的 `total` 和 `status_counts`。
 任务级 Issue 使用 `anchor_type="task"`，不绑定像素或帧；图片像素锚继续只需 x/y。
 
 视频像素 Issue 的上下文使用严格 V1 模型，并保留旧 `frame`。源帧范围是闭区间，必须包含
@@ -182,6 +184,26 @@ aap tui        # 按需加载的终端监控与轻运维台；需要 [tui] extra
 在不同项目中保持同一 ID。service pool 是独立的逻辑路由身份，使用 `service-pools` 命令管理，不与
 registry ID 混用。删除、卸载、drain 和能力漂移接受等保护操作需要显式确认，且不会绕过服务端的
 409/503 静默守卫。
+
+## 在线学习自动化
+
+项目级接口要求项目管理权限以及 `annotations:read`、`datasets:read` scope，写接口还需要 `datasets:write`。全局 `client.training` 还要求平台角色为 `project_admin` 或 `super_admin`。
+
+新建接口接收顶层导出的 Pydantic 请求对象，例如 `TrainingDatasetCreate`、`TrainingRunCreate`、`TrainedModelCreateRequest`、`TrainingStudyCreate` 和 `ActiveLearningRoundCreate`。预检／预览与提交分开执行；重放同一请求时复用原 `request_id` 和原始请求体。响应 `202` 只表示已受理，训练状态从 run/attempt 读取，不能把 `async_job_id` 当作训练完成证明。
+
+```bash
+aap learning training catalog --json
+aap learning task-datasets list --project "$PROJECT_ID" --json
+aap learning datasets preflight --project "$PROJECT_ID" --body selection.json --json
+aap learning datasets create --project "$PROJECT_ID" --body dataset-request.json --json
+aap learning runs create --project "$PROJECT_ID" --body run-request.json --json
+aap learning runs get "$RUN_ID" --project "$PROJECT_ID" --json
+aap learning runs logs "$RUN_ID" "$ATTEMPT_ID" --project "$PROJECT_ID" --after 0 --json
+```
+
+`--body` 必须是 UTF-8 JSON 对象，包含接口要求的幂等 ID、预检摘要、修订或显式预算。删除、取消、重试、恢复、部署、发布、策略变更、参数搜索与人工决策需要交互确认；JSON 模式需传 `--yes`。下载使用 `--out`，校验可用的 SHA-256／大小后原子替换目标文件，中断和校验失败不会覆盖已有文件。
+
+方法、分页和完整示例见 `docs-site/dev/sdk/python-client.md`、`cli.md` 与 `cookbook.md`。执行器 claim、heartbeat、uploads 等内部协议不属于用户 SDK。
 
 ## 测试
 

@@ -15,6 +15,7 @@ from ai_annotation.cli import (
     datasets,
     export,
     jobs,
+    learning,
     login,
     members,
     ml_backends,
@@ -78,6 +79,7 @@ app.add_typer(ml_backends.app, name="ml-backends", rich_help_panel=PANEL_MONITOR
 app.add_typer(ml_registry.app, name="ml-registry", rich_help_panel=PANEL_MONITOR)
 app.add_typer(service_pools.app, name="service-pools", rich_help_panel=PANEL_MONITOR)
 app.add_typer(dashboard.app, name="dashboard", rich_help_panel=PANEL_MONITOR)
+app.add_typer(learning.app, name="learning", rich_help_panel=PANEL_PIPELINE)
 
 
 @app.command(rich_help_panel=PANEL_CONFIG)

@@ -2,9 +2,8 @@
 title: aap CLI 参考
 audience: [dev]
 type: reference
-since: v0.15.2
 status: beta
-last_reviewed: 2026-06-11
+last_reviewed: 2026-10-16
 ---
 
 # aap CLI 参考
@@ -38,6 +37,52 @@ aap export -h                # 子命令: 用法 + 参数 + 示例
 ```
 
 ## 命令一览
+
+### aap learning
+
+学习命令统一放在 `aap learning` 下；原 `aap datasets` 管理上传素材，`aap learning datasets` 管理冻结训练版本。项目资源使用 `--project <项目 UUID>`，其他路径 ID 使用位置参数，查询条件与分页使用具名选项。每个命令可加 `--json`，完整参数见 `--help`。
+
+| 子组              | 命令                                                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `training`        | `catalog`, `projects`, `runs`                                                                                                                                                                            |
+| `task-datasets`   | `list`, `unrecognized-versions`                                                                                                                                                                          |
+| `datasets`        | `preflight`, `create`, `list`, `get`, `retry`, `download`, `delete`, `insights`, `classes`, `compare`, `samples`, `sample`, `download-media`                                                             |
+| `runs`            | `catalog`, `parameter-schema`, `initialization-source`, `preflight`, `create`, `list`, `get`, `events`, `evaluation`, `telemetry`, `logs`, `download-artifact`, `recovery`, `cancel`, `resume`, `delete` |
+| `recipes`         | `list`, `create`, `get`, `revisions`, `create-revision`, `resolve`, `clone-candidate`, `archive`                                                                                                         |
+| `previews`        | `capabilities`, `create`, `get`, `download-image`, `cancel`, `delete`                                                                                                                                    |
+| `models`          | `create`, `list`, `get`, `download`, `deploy`, `lineage`, `decisions`, `decide`                                                                                                                          |
+| `releases`        | `list`, `create`                                                                                                                                                                                         |
+| `policies`        | `get`, `save`, `check`, `disable`, `delete`, `triggers`                                                                                                                                                  |
+| `evaluations`     | `qualification`, `create`, `list`, `get`, `compare`, `report`, `samples`, `source`, `download-image`, `cancel`, `retry`, `delete`                                                                        |
+| `studies`         | `preview`, `create`, `list`, `get`, `cancel`                                                                                                                                                             |
+| `active-learning` | `pool`, `preview`, `create`, `list`, `get`, `report`, `candidates`, `download-image`, `decisions`, `decide`, `feedback`, `create-feedback`, `cancel`, `retry`                                            |
+
+复杂写请求使用 `--body <UTF-8 JSON 文件>`，字段与 [SDK 请求对象](./python-client#请求对象与冻结身份)相同。无效文件、非对象 JSON 和模型校验失败会在发送前返回非零退出码；错误写到 stderr，不回显请求值。新建返回已受理资源，不自动等待训练，也不会生成或替换幂等 ID。
+
+```bash
+aap learning training catalog --json
+aap learning training runs --state active --limit 20 --json
+aap learning task-datasets list --project "$PROJECT_ID" --json
+aap learning datasets preflight --project "$PROJECT_ID" --body selection.json --json
+aap learning datasets create --project "$PROJECT_ID" --body dataset-request.json --json
+aap learning datasets list --project "$PROJECT_ID" --task detect --limit 20 --offset 0 --json
+aap learning runs parameter-schema --project "$PROJECT_ID" --framework ultralytics --base-model yolo11n --json
+aap learning runs preflight --project "$PROJECT_ID" --body run-draft.json --json
+aap learning runs create --project "$PROJECT_ID" --body run-request.json --json
+aap learning runs get "$RUN_ID" --project "$PROJECT_ID" --json
+aap learning runs logs "$RUN_ID" "$ATTEMPT_ID" --project "$PROJECT_ID" --after 0 --limit 120 --json
+aap learning runs download-artifact "$RUN_ID" "$ATTEMPT_ID" best.pt --project "$PROJECT_ID" --out ./best.pt --json
+aap learning recipes archive "$RECIPE_ID" --project "$PROJECT_ID" --expected-head-revision 2 --yes --json
+aap learning policies disable --project "$PROJECT_ID" --expected-revision 2 --yes --json
+```
+
+`dataset-request.json` 必须包含与选择条件对应的 `preflight_digest`；`run-request.json` 带回训练预检的 `config_digest`，字段名为 `preflight_digest`。Study 与主动学习创建带回预览的 `preview_digest`。重放结果不确定的请求时使用同一文件；数据或参数变化后重新预检并使用新的请求 ID。
+
+删除、取消、重试、恢复、归档、部署、发布、策略保存／检查／停用、参数搜索创建、主动学习创建和人工决策／反馈提交都会确认。交互模式默认可取消；JSON 模式必须加 `--yes`，拒绝确认不会发送变更。`--yes` 不绕过服务端权限、预算和 409 冲突保护。
+
+训练、评估等状态以资源详情为准；`202` 只表示已受理，`cancelling` 仍可能在退出中。日志不能同时指定 `--after` 和 `--before`。下载使用 `--out`，JSON 输出 `{"path":"..."}`；删除成功输出 `{"deleted":true}`。文件校验失败保留原目标，过期预签名链接需重新调用下载命令。
+
+项目级调用需要项目管理权限及对应 API-key scopes；全局 `training` 子组另要求平台管理角色。核心安装没有 CLI 依赖时，`aap` 会给出 extras 安装提示。执行器内部协议不提供 CLI。
 
 ### aap login
 
@@ -152,6 +197,8 @@ aap me
 ```
 
 ### aap tasks
+
+`aap tasks list --project <project-id>` 支持标注人、批次、退回原因、类别及 cursor 筛选。`--unbatched` 只读未分批任务，`--all-batches` 明确关闭这一限制；它不表示只读已分批任务。项目类型和数据类型可在 `aap projects list` 中重复传入，`aap datasets list --has-scenes/--no-scenes` 按场景筛选，`aap annotations list <task-id> --video-segment-id <id>` 读取指定片段，`aap jobs list --search <text>` 查询 Job。
 
 ```text
 aap tasks submit|withdraw|reopen|accept-rejection <task-id> [--json]

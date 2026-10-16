@@ -390,6 +390,8 @@ class AnnotationFeedback(_AAPModel):
 class FeedbackPage(_AAPModel):
     items: list[AnnotationFeedback]
     next_cursor: str | None = None
+    total: int | None = None
+    status_counts: dict[str, int] | None = None
 
 
 class ImportResult(_AAPModel):

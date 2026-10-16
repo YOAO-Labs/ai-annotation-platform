@@ -32,6 +32,39 @@ app = typer.Typer(
 )
 
 
+@app.command("list")
+def list_(
+    search: str | None = typer.Option(None, "--search", help="名称搜索"),
+    data_type: str | None = typer.Option(None, "--data-type", help="数据类型"),
+    has_scenes: bool | None = typer.Option(
+        None, "--has-scenes/--no-scenes", help="是否包含场景"
+    ),
+    limit: int = typer.Option(50, "--limit", min=1, max=200, help="返回条数"),
+    offset: int = typer.Option(0, "--offset", min=0, help="起始偏移"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """列出数据集。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            page = client.datasets.list(
+                search=search,
+                data_type=data_type,
+                has_scenes=has_scenes,
+                limit=limit,
+                offset=offset,
+            )
+    if json_output:
+        print_json(page.model_dump(mode="json"))
+        return
+    table = Table()
+    table.add_column("ID")
+    table.add_column("名称")
+    table.add_column("类型")
+    for dataset in page.items:
+        table.add_row(dataset.display_id, dataset.name, dataset.data_type)
+    console.print(table)
+
+
 @app.command("create")
 def create(
     name: str = typer.Option(..., "--name", help="数据集名称"),

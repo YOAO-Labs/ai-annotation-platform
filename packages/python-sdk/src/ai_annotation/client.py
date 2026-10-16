@@ -8,9 +8,24 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 from uuid import UUID
 
-from ai_annotation._http import HttpTransport
+from ai_annotation._http import HttpTransport, _drop_none
 from ai_annotation.config import load_config
 from ai_annotation.errors import AAPError, JobFailedError, JobTimeoutError
+from ai_annotation.learning_automation import ActiveLearning, TrainingStudies
+from ai_annotation.model_management import (
+    LearningPolicies,
+    ModelReleases,
+    SampleEvaluations,
+    TrainedModels,
+)
+from ai_annotation.training import (
+    TaskDatasets,
+    Training,
+    TrainingDatasets,
+    TrainingPreviews,
+    TrainingRecipes,
+    TrainingRuns,
+)
 from ai_annotation.models import (
     Annotation,
     AnnotationBulkUpdateResult,
@@ -69,19 +84,37 @@ IdLike = str | UUID
 _JOB_TERMINAL = frozenset({"completed", "failed", "cancelled"})
 
 
-def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in d.items() if v is not None}
-
-
 class Projects:
     def __init__(self, http: HttpTransport):
         self._http = http
 
     def list(
-        self, status: str | None = None, search: str | None = None
+        self,
+        status: str | None = None,
+        search: str | None = None,
+        *,
+        type_key: Sequence[str] | None = None,
+        data_type: Sequence[str] | None = None,
+        member_id: IdLike | None = None,
+        project_role: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
     ) -> list[Project]:
         resp = self._http.request(
-            "GET", "/projects", params=_drop_none({"status": status, "search": search})
+            "GET",
+            "/projects",
+            params=_drop_none(
+                {
+                    "status": status,
+                    "search": search,
+                    "type_key": type_key,
+                    "data_type": data_type,
+                    "member_id": str(member_id) if member_id is not None else None,
+                    "project_role": project_role,
+                    "created_from": created_from,
+                    "created_to": created_to,
+                }
+            ),
         )
         return [Project.model_validate(x) for x in resp.json()]
 
@@ -139,6 +172,8 @@ class Datasets:
         data_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        *,
+        has_scenes: bool | None = None,
     ) -> Page[Dataset]:
         resp = self._http.request(
             "GET",
@@ -149,6 +184,7 @@ class Datasets:
                     "data_type": data_type,
                     "limit": limit,
                     "offset": offset,
+                    "has_scenes": has_scenes,
                 }
             ),
         )
@@ -262,6 +298,12 @@ class Tasks:
         limit: int = 50,
         offset: int = 0,
         cursor: str | None = None,
+        *,
+        assignee_id: IdLike | None = None,
+        batch_id: IdLike | None = None,
+        unbatched: bool | None = None,
+        reject_reason_type: str | None = None,
+        class_name: str | None = None,
     ) -> TaskPage:
         resp = self._http.request(
             "GET",
@@ -273,6 +315,13 @@ class Tasks:
                     "limit": limit,
                     "offset": offset,
                     "cursor": cursor,
+                    "assignee_id": str(assignee_id)
+                    if assignee_id is not None
+                    else None,
+                    "batch_id": str(batch_id) if batch_id is not None else None,
+                    "unbatched": unbatched,
+                    "reject_reason_type": reject_reason_type,
+                    "class_name": class_name,
                 }
             ),
         )
@@ -343,8 +392,20 @@ class Annotations:
     def __init__(self, http: HttpTransport):
         self._http = http
 
-    def list(self, task_id: IdLike) -> list[Annotation]:
-        resp = self._http.request("GET", f"/tasks/{task_id}/annotations")
+    def list(
+        self, task_id: IdLike, *, video_segment_id: IdLike | None = None
+    ) -> list[Annotation]:
+        resp = self._http.request(
+            "GET",
+            f"/tasks/{task_id}/annotations",
+            params=_drop_none(
+                {
+                    "video_segment_id": (
+                        str(video_segment_id) if video_segment_id is not None else None
+                    )
+                }
+            ),
+        )
         return [Annotation.model_validate(x) for x in resp.json()]
 
     def create(
@@ -445,8 +506,10 @@ class Feedbacks:
         status: FeedbackStatus | None = None,
         cursor: str | None = None,
         limit: int = 50,
+        root_only: bool | None = None,
+        include_counts: bool | None = None,
     ) -> FeedbackPage:
-        """List visible feedback using items/next_cursor pagination (no total field)."""
+        """List visible feedback; request total and status counts with include_counts."""
         if type(limit) is not int or not 1 <= limit <= 200:
             raise ValueError("limit must be an integer between 1 and 200")
         params = _drop_none(
@@ -461,6 +524,8 @@ class Feedbacks:
                 "status": status,
                 "cursor": cursor,
                 "limit": limit,
+                "root_only": root_only,
+                "include_counts": include_counts,
             }
         )
         resp = self._http.request("GET", "/feedbacks", params=params)
@@ -516,6 +581,8 @@ class Jobs:
         project_id: IdLike | None = None,
         limit: int = 50,
         offset: int = 0,
+        *,
+        search: str | None = None,
     ) -> JobPage:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if status is not None:
@@ -524,6 +591,8 @@ class Jobs:
             params["kind"] = [kind] if isinstance(kind, str) else list(kind)
         if project_id is not None:
             params["project_id"] = str(project_id)
+        if search is not None:
+            params["search"] = search
         resp = self._http.request("GET", "/async-jobs", params=params)
         return JobPage.model_validate(resp.json())
 
@@ -1208,6 +1277,18 @@ class Client:
         self.members = Members(self._http)
         self.dashboard = Dashboard(self._http)
         self.api_keys = ApiKeys(self._http)
+        self.training = Training(self._http)
+        self.task_datasets = TaskDatasets(self._http)
+        self.training_datasets = TrainingDatasets(self._http)
+        self.training_runs = TrainingRuns(self._http)
+        self.training_recipes = TrainingRecipes(self._http)
+        self.training_previews = TrainingPreviews(self._http)
+        self.trained_models = TrainedModels(self._http)
+        self.model_releases = ModelReleases(self._http)
+        self.learning_policies = LearningPolicies(self._http)
+        self.sample_evaluations = SampleEvaluations(self._http)
+        self.training_studies = TrainingStudies(self._http)
+        self.active_learning = ActiveLearning(self._http)
 
     def me(self) -> Me:
         """当前认证主体 (GET /auth/me)。用于自检凭据 / 角色感知。"""

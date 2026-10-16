@@ -5,4 +5,4 @@ without importing the package.
 """
 
 __version__ = "0.20.0"
-__aap_target_version__ = "0.24.0"
+__aap_target_version__ = "0.26.1"
