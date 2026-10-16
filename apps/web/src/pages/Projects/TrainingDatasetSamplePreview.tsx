@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trainingDatasetsApi, type TrainingDatasetAnalyzedSampleOut } from "@/api/trainingDatasets";
 import { useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
 
 type Props = {
   projectId: string;
@@ -13,10 +15,11 @@ type Props = {
 };
 
 type PanelProps = Omit<Props, "onClose">;
-type PreviewOwner = { userId: string; token: string; key: string };
+type PreviewOwner = { userId: string; token: string; revision: number; key: string };
 
 function ownsPreview(owner: PreviewOwner) {
   return (
+    getAuthSessionRevision() === owner.revision &&
     useAuthStore.getState().user?.id === owner.userId &&
     useAuthStore.getState().token === owner.token &&
     localStorage.getItem("token") === owner.token
@@ -51,12 +54,14 @@ export function TrainingDatasetSamplePreview(props: Props) {
 }
 
 export function TrainingDatasetSamplePanel(props: PanelProps) {
+  const revision = useTrainingSessionRevision();
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const token = useAuthStore((state) => state.token ?? "");
   const owner = useMemo(
     () => ({
       userId,
       token,
+      revision,
       projectId: props.projectId,
       versionId: props.sample.version_id,
       taskId: props.sample.task_id,
@@ -67,6 +72,7 @@ export function TrainingDatasetSamplePanel(props: PanelProps) {
     [
       userId,
       token,
+      revision,
       props.projectId,
       props.sample.version_id,
       props.sample.task_id,

@@ -6,9 +6,11 @@ import {
   type TrainingDatasetSamplePage,
 } from "@/api/trainingDatasets";
 import { useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TrainingDatasetSamplePanel } from "./TrainingDatasetSamplePreview";
+import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
 
 type Props = {
   projectId: string;
@@ -22,6 +24,7 @@ type Props = {
 type Owner = {
   userId: string;
   token: string;
+  revision: number;
   projectId: string;
   baselineVersionId: string;
   targetVersionId: string;
@@ -35,6 +38,7 @@ const CONTENT_HASH = /^[a-f0-9]{64}$/;
 function ownsComparison(owner: Owner) {
   const current = useAuthStore.getState();
   return (
+    getAuthSessionRevision() === owner.revision &&
     Boolean(owner.userId && owner.token) &&
     current.user?.id === owner.userId &&
     current.token === owner.token &&
@@ -98,6 +102,7 @@ function useContentMembers(owner: Owner, versionId: string) {
 }
 
 export function TrainingDatasetSampleComparison(props: Props) {
+  const revision = useTrainingSessionRevision();
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const token = useAuthStore((state) => state.token ?? "");
   const returnFocusRef = useRef<HTMLElement | null>(
@@ -107,6 +112,7 @@ export function TrainingDatasetSampleComparison(props: Props) {
     () => ({
       userId,
       token,
+      revision,
       projectId: props.projectId,
       baselineVersionId: props.baselineVersionId,
       targetVersionId: props.targetVersionId,
@@ -116,6 +122,7 @@ export function TrainingDatasetSampleComparison(props: Props) {
     [
       userId,
       token,
+      revision,
       props.projectId,
       props.baselineVersionId,
       props.targetVersionId,

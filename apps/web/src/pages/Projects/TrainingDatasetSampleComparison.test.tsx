@@ -296,6 +296,63 @@ describe("frozen content comparison", () => {
     expect(createUrl).not.toHaveBeenCalled();
   });
 
+  it("retires old member queries after batched A to B to A session changes", async () => {
+    const retiredBaseline = deferred<TrainingDatasetSamplePage>();
+    const retiredTarget = deferred<TrainingDatasetSamplePage>();
+    vi.mocked(trainingDatasetsApi.samples)
+      .mockImplementationOnce(() => retiredBaseline.promise)
+      .mockImplementationOnce(() => retiredTarget.promise);
+    mount();
+    const signals = vi
+      .mocked(trainingDatasetsApi.samples)
+      .mock.calls.map((call) => call[3]!.signal!);
+    act(() => {
+      useAuthStore.getState().setAuth("session-b", { id: "user-b" } as MeResponse);
+      useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
+    });
+    expect(await screen.findByText("当前类别")).toBeVisible();
+    await waitFor(() => expect(observed).toHaveBeenCalledTimes(2));
+    expect(trainingDatasetsApi.samples).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      retiredBaseline.resolve(page("baseline", [member("baseline", "retired-baseline-member")]));
+      retiredTarget.resolve(page("target", [member("target", "retired-target-member")]));
+    });
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(
+      vi
+        .mocked(trainingDatasetsApi.sample)
+        .mock.calls.some((call) => call[2].startsWith("retired-")),
+    ).toBe(false);
+    expect(createUrl).toHaveBeenCalledTimes(2);
+    expect(observed).toHaveBeenCalledTimes(2);
+  });
+
+  it("retires both old media requests after batched A to B to A session changes", async () => {
+    const retiredBaseline = deferred<Blob>();
+    const retiredTarget = deferred<Blob>();
+    vi.mocked(trainingDatasetsApi.sampleMedia)
+      .mockImplementationOnce(() => retiredBaseline.promise)
+      .mockImplementationOnce(() => retiredTarget.promise);
+    mount();
+    await waitFor(() => expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(2));
+    const signals = vi
+      .mocked(trainingDatasetsApi.sampleMedia)
+      .mock.calls.map((call) => call[3]!.signal!);
+    act(() => {
+      useAuthStore.getState().setAuth("session-b", { id: "user-b" } as MeResponse);
+      useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
+    });
+    await waitFor(() => expect(observed).toHaveBeenCalledTimes(2));
+    expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      retiredBaseline.resolve(new Blob(["retired baseline"]));
+      retiredTarget.resolve(new Blob(["retired target"]));
+    });
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(createUrl).toHaveBeenCalledTimes(2);
+    expect(observed).toHaveBeenCalledTimes(2);
+  });
+
   it("aborts pending members on close and ignores late results", async () => {
     const pending = deferred<TrainingDatasetSamplePage>();
     vi.mocked(trainingDatasetsApi.samples).mockReturnValue(pending.promise);

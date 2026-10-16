@@ -140,6 +140,47 @@ describe("immutable sample preview", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("冻结标注响应身份与所选成员不一致");
     expect(screen.queryByText("其他成员类别")).not.toBeInTheDocument();
   });
+  it("retires old detail and media after batched A to B to A session changes", async () => {
+    let resolveMedia!: (blob: Blob) => void;
+    let resolveDetail!: (value: Awaited<ReturnType<typeof trainingDatasetsApi.sample>>) => void;
+    vi.mocked(trainingDatasetsApi.sampleMedia).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMedia = resolve;
+        }),
+    );
+    vi.mocked(trainingDatasetsApi.sample).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+    mount();
+    const retiredMediaSignal = vi.mocked(trainingDatasetsApi.sampleMedia).mock.calls[0][3]!.signal!;
+    const retiredDetailSignal = vi.mocked(trainingDatasetsApi.sample).mock.calls[0][4]!.signal!;
+    act(() => {
+      useAuthStore.getState().setAuth("session-b", { id: "user-b" } as MeResponse);
+      useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
+    });
+    expect(await screen.findByText("冻结车辆")).toBeVisible();
+    expect(await screen.findByAltText("冻结样本 task-123")).toBeVisible();
+    expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveMedia(new Blob(["retired A session"]));
+      resolveDetail({
+        sample: insightSample,
+        labels: [{ ...insightBox, class_name: "退役会话类别" }],
+        total: 1,
+        offset: 0,
+        limit: 500,
+      });
+    });
+    expect(retiredMediaSignal.aborted).toBe(true);
+    expect(retiredDetailSignal.aborted).toBe(true);
+    expect(createUrl).toHaveBeenCalledTimes(1);
+    expect(observed).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("退役会话类别")).not.toBeInTheDocument();
+  });
   it("resets labels/media on sample and session switches, including another tab's credential change", async () => {
     let resolve!: (blob: Blob) => void;
     vi.mocked(trainingDatasetsApi.sampleMedia).mockImplementationOnce(
