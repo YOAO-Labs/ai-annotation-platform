@@ -12,12 +12,15 @@ created, ownership-tagged database derived from the current disposable target:
 2. ``reversible``- ``upgrade <floor>`` (a real schema, not a stamp), then a real
                    ``downgrade base`` and ``upgrade head``.  ``<floor>`` is the
                    revision below the unique irreversible revision, so the
-                   irreversible ``downgrade()`` is never executed.
+                   irreversible ``downgrade()`` is never executed.  When a
+                   reversible suffix exists above it, also run ``downgrade
+                   <irreversible>`` and ``upgrade head`` on that real schema.
 3. ``forward``   - seed authentic legacy rows at ``<floor>``, snapshot them, run
                    the irreversible ``upgrade`` and assert the forward data
                    semantics (converted roles, preserved history, new server
                    default, no invented memberships).  It also proves the
-                   irreversible ``downgrade`` refuses.
+                   irreversible ``downgrade`` refuses at the barrier before
+                   upgrading its reversible suffix to head.
 4. ``restore``   - restore the pre-conversion ``pg_dump`` snapshot into an
                    independent database and assert the authentic pre-conversion
                    state is recoverable.
@@ -620,8 +623,11 @@ async def phase_reversible(anchor: Anchor, state: RunState) -> None:
     downgrades = sum(
         1 for line in downgrade_output.splitlines() if "Running downgrade" in line
     )
-    if downgrades == 0:
-        raise ValidationError("downgrade base executed no real downgrade step")
+    if downgrades != len(policy.reversible_segment):
+        raise ValidationError(
+            f"downgrade base executed {downgrades} steps; "
+            f"expected {len(policy.reversible_segment)} real downgrades"
+        )
     if await current_revision(anchor, database):
         raise ValidationError("downgrade base left an alembic_version row")
     run_alembic(anchor, database, "upgrade", "head")
@@ -631,6 +637,33 @@ async def phase_reversible(anchor: Anchor, state: RunState) -> None:
     state.phases.append(
         f"reversible:{database}@{floor}->base({downgrades} downgrades)->{policy.head}"
     )
+    if policy.post_irreversible_segment:
+        barrier = policy.irreversible[0]
+        downgrade_output = run_alembic(anchor, database, "downgrade", barrier)
+        downgrades = sum(
+            1 for line in downgrade_output.splitlines() if "Running downgrade" in line
+        )
+        if downgrades != len(policy.post_irreversible_segment):
+            raise ValidationError(
+                f"suffix downgrade executed {downgrades} steps; "
+                f"expected {len(policy.post_irreversible_segment)} real downgrades"
+            )
+        if await current_revision(anchor, database) != [barrier]:
+            raise ValidationError(f"suffix downgrade did not stop at barrier {barrier}")
+        await assert_sentinel_columns(anchor, database)
+        default = await column_default(anchor, database, "users", "role")
+        if default is None or HEAD_DEFAULT not in default:
+            raise ValidationError(
+                "suffix downgrade changed the irreversible role default"
+            )
+        run_alembic(anchor, database, "upgrade", "head")
+        if await current_revision(anchor, database) != [policy.head]:
+            raise ValidationError("suffix re-upgrade did not reach head")
+        await assert_sentinel_columns(anchor, database)
+        state.phases.append(
+            f"reversible-suffix:{database}@{policy.head}->{barrier}"
+            f"({downgrades} downgrades)->{policy.head}"
+        )
 
 
 async def seed_legacy_rows(anchor: Anchor, database: str) -> dict:
@@ -815,22 +848,28 @@ async def phase_forward(anchor: Anchor, state: RunState, backend: DumpBackend) -
     database = derived_database(anchor, "forward")
     policy = graph_policy()
     floor = policy.reversible_floor
+    barrier = policy.irreversible[0]
     await create_owned_database(anchor, state, database)
     run_alembic(anchor, database, "upgrade", floor)
     ids = await seed_legacy_rows(anchor, database)
     snapshot = anchor.dump_dir / f"{database}__pre_conversion.dump"
     state.dumps.append(snapshot)
     pg_dump_database(backend, anchor, database, snapshot)
-    run_alembic(anchor, database, "upgrade", "head")
+    run_alembic(anchor, database, "upgrade", barrier)
     await assert_forward_conversion(anchor, database, ids)
     refusal = run_alembic(anchor, database, "downgrade", floor, check=False)
     if "not reversible" not in refusal.lower():
         raise ValidationError(
             "irreversible downgrade did not refuse with the documented error"
         )
-    if await current_revision(anchor, database) != [policy.head]:
+    if await current_revision(anchor, database) != [barrier]:
         raise ValidationError("refused downgrade mutated the version marker")
-    state.phases.append(f"forward:{database}@base->{floor}->{policy.head}")
+    await assert_forward_conversion(anchor, database, ids)
+    run_alembic(anchor, database, "upgrade", "head")
+    if await current_revision(anchor, database) != [policy.head]:
+        raise ValidationError("forward conversion did not reach head")
+    await assert_forward_conversion(anchor, database, ids)
+    state.phases.append(f"forward:{database}@base->{floor}->{barrier}->{policy.head}")
     return snapshot
 
 
@@ -961,6 +1000,7 @@ def main(argv: list[str] | None = None) -> int:
                 "head": policy.head,
                 "reversible_floor": policy.reversible_floor,
                 "irreversible": list(policy.irreversible),
+                "post_irreversible_segment": list(policy.post_irreversible_segment),
                 "phases": state.phases,
                 "result": "passed",
             }

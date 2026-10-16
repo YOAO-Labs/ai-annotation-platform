@@ -36,12 +36,14 @@ uv run alembic history             # 查看版本历史
 
 `scripts/validate_migrations.py` 在一次性数据库上执行真实验证，不使用 `alembic stamp`：
 
-1. `fresh`：新库完整 `upgrade head`（174 步）。
+1. `fresh`：新库完整 `upgrade head`。
 2. `reversible`：新库先 `upgrade <floor>`（真实 schema，不是 stamp），再真实
-   `downgrade base`（173 步）并重新 `upgrade head`；`<floor>` 是唯一不可逆迁移之下
-   的最新版本，因此不可逆迁移的 `downgrade()` 从不执行。
+   `downgrade base` 并重新 `upgrade head`；`<floor>` 是唯一不可逆迁移之下
+   的最新版本。若不可逆迁移之上存在可逆后缀，还在该真实 schema 上执行
+   `head → 不可逆边界 → head`，校验每一步实际回退及准确停止位置，始终不跨越边界。
 3. `forward`：在 `<floor>` 播种真实历史行，做前向数据断言（角色转换、历史行保留、
-   新 server default、不伪造成员关系），并证明不可逆迁移的 `downgrade()` 会拒绝。
+   新 server default、不伪造成员关系）。先只升级到不可逆边界，证明其 `downgrade()`
+   拒绝且版本、转换数据保持不变，再升级后缀到 head 并重新检查转换结果。
 4. `restore`：把转换前的 `pg_dump` 快照恢复到独立数据库，证明恢复路径真实可用。
 
 ```yaml
@@ -62,8 +64,9 @@ uv run alembic history             # 查看版本历史
 确实无法无损回滚的迁移（如 `0174` 员工角色切换）在迁移文件里声明模块级
 `IRREVERSIBLE = True` 并让 `downgrade()` 抛错。`scripts/alembic_reversible_floor.py`
 只用于**报告**可逆边界：默认打印 floor，`--json` 输出完整策略；它不授权 `stamp`。
-修订图出现多 head、merge、孤儿分支、多个不可逆迁移、基线处不可逆，或在不可逆迁移之上还有
-可逆版本（后缀段验证尚未实现）时，脚本会 fail closed（非零退出），而不是给出一个会漏检的 floor。
+`--json` 分别列出边界下方的可逆前缀和上方的可逆后缀。修订图出现多 head、merge、
+孤儿分支、未知父版本、循环、多个不可逆迁移或基线处不可逆时，脚本仍会
+fail closed（非零退出），避免漏检或意外跨越不可逆边界。
 
 本地验证：
 
