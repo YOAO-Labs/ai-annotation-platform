@@ -432,7 +432,8 @@ export function deriveMedia({
         },
         capture: {
           source_quality: quality,
-          source_inference: job.item.entry.capture?.inference ?? "unverified",
+          source_inference:
+            job.item.entry.evidence?.inference ?? job.item.entry.capture?.inference ?? "unverified",
         },
       });
       console.log(`[media] ${quality} ${job.assetId} → ${job.recipe.target}`);
