@@ -33,8 +33,7 @@ from app.services import training_datasets as service
 from app.services import project_task_dataset as task_datasets
 from app.services import training_storage_cleanup as cleanup
 from aap_task_contract import VisualTask
-from app.services.project_write_guard import lock_actor_project_authority
-from app.services.project_access import resolve_project_access_by_id
+from app.services.project_write_guard import lock_project_manager
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
@@ -49,13 +48,6 @@ def fail(exc: TrainingDatasetError):
     raise HTTPException(
         status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
     ) from exc
-
-
-async def lock_owner(db, user, project):
-    await lock_actor_project_authority(db, user.id, project.id)
-    _, access = await resolve_project_access_by_id(db, user=user, project_id=project.id)
-    if not access.is_manager:
-        raise HTTPException(status_code=403, detail="项目管理权限已变化")
 
 
 async def load_version(db, project, version_id, *, lock=False):
@@ -108,7 +100,7 @@ async def create_version(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     existing = (
         await db.execute(
             select(TrainingDatasetVersion).where(
@@ -264,7 +256,7 @@ async def retry_version(
         get_training_dataset_dispatcher
     ),
 ):
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     try:
         await service.lock_dataset_execution(db, version_id)
     except TrainingDatasetError as exc:
@@ -290,7 +282,7 @@ async def download_version(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     version = await load_version(db, project, version_id)
     if version.status != "ready" or not version.package_key:
         raise HTTPException(status_code=409, detail="训练数据版本尚未就绪")
@@ -323,7 +315,7 @@ async def delete_version(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     try:
         await service.lock_dataset_execution(db, version_id)
     except TrainingDatasetError as exc:

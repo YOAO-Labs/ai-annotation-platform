@@ -666,3 +666,84 @@ class TestAsyncJobsAPI:
         listed = await httpx_client.get("/api/v1/async-jobs", headers=_bearer(token))
         assert listed.status_code == 200, listed.text
         assert str(aj.id) not in {item["id"] for item in listed.json()["items"]}
+
+
+@pytest.mark.parametrize("kind", ["mask_repair", "mask_format_import"])
+@pytest.mark.parametrize("status", ["pending", "running"])
+@pytest.mark.parametrize("broker_fails", [False, True])
+async def test_domain_cancellation_keeps_pending_and_running_semantics_on_revoke_failure(
+    httpx_client, db_session, super_admin, monkeypatch, kind, status, broker_fails
+):
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models.mask_format_import import MaskFormatImport
+    from app.db.models.mask_repair_batch import MaskRepairBatch
+    from app.workers.celery_app import celery_app
+
+    user, token = super_admin
+    project = await create_project(db_session, owner_id=user.id)
+    job = await async_job_svc.create_job(
+        db_session,
+        kind=kind,
+        user_id=user.id,
+        project_id=project.id,
+        celery_task_id=str(uuid.uuid4()),
+    )
+    job.status = status
+    common = {
+        "project_id": project.id,
+        "requested_by_id": user.id,
+        "async_job_id": job.id,
+        "token_hash": "a" * 64,
+        "plan_digest": "b" * 64,
+        "plan_json": {},
+        "receipt_expires_at": datetime.now(timezone.utc) + timedelta(minutes=15),
+        "status": status,
+    }
+    if kind == "mask_repair":
+        ledger = MaskRepairBatch(**common, request_json={})
+    else:
+        ledger = MaskFormatImport(
+            **common,
+            format_id="coco-rle",
+            adapter_version="1.0",
+            manifest_version="1.0",
+            staged_object_key=f"fixture/{uuid.uuid4()}.json",
+            staged_sha256="c" * 64,
+            mapping_json={},
+            options_json={},
+            mapping_digest="d" * 64,
+            options_digest="e" * 64,
+        )
+    db_session.add(ledger)
+    await db_session.flush()
+
+    def request_stop(*args, **kwargs):
+        if broker_fails:
+            raise RuntimeError("Broker unavailable")
+
+    monkeypatch.setattr(celery_app.control, "revoke", request_stop)
+    response = await httpx_client.post(
+        f"/api/v1/async-jobs/{job.id}/cancel", headers=_bearer(token)
+    )
+    assert response.status_code == 200
+    expected = "cancelled" if status == "pending" else "cancel_requested"
+    assert response.json() == {"status": expected, "id": str(job.id)}
+    await db_session.refresh(job)
+    await db_session.refresh(ledger)
+    notices = list(
+        (
+            await db_session.scalars(
+                select(Notification).where(Notification.target_id == job.id)
+            )
+        ).all()
+    )
+    if status == "pending":
+        assert job.status == ledger.status == "cancelled"
+        assert job.result == {"reason": "cancelled_by_user"}
+        assert [notice.type for notice in notices] == ["job.cancelled"]
+    else:
+        assert job.status == ledger.status == "running"
+        assert job.payload["cancel_requested"] is True
+        assert notices == []

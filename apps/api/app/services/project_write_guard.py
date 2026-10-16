@@ -1,4 +1,4 @@
-"""Phase-aware project write authorization for asynchronous final writes (B3).
+"""Workspace authority locks and task-phase admission for final writes.
 
 Long-running workers (cross-frame propagation, video tracker) must re-check the
 *actual* task the write lands on, not the authority that was checked when work
@@ -10,6 +10,9 @@ was enqueued.  This module composes the existing canonical helpers:
   :mod:`app.services.task_access`;
 * frozen review contributor evidence from
   :mod:`app.services.annotation_evidence`.
+
+Project-manager commands share the account/project lock and current-management
+revalidation here; the caller retains the transaction and releases those locks.
 
 It deliberately adds no new policy language: an annotation-phase write requires
 the effective annotator (or a manager), and a review-phase write requires a
@@ -25,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.project_access import resolve_project_access_by_id
 
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
 
@@ -121,6 +125,20 @@ async def lock_actor_project_authority(
                 status_code=409, detail={"reason": "project_busy"}
             ) from exc
         raise
+
+
+async def lock_project_manager(
+    db: AsyncSession,
+    user: User,
+    project_id,
+    *,
+    denial_detail: str = "项目管理权限已变化",
+) -> None:
+    """Serialize current management authority with account/ownership changes."""
+    await lock_actor_project_authority(db, user.id, project_id)
+    _, access = await resolve_project_access_by_id(db, user=user, project_id=project_id)
+    if not access.is_manager:
+        raise HTTPException(status_code=403, detail=denial_detail)
 
 
 async def assert_phase_write_allowed(

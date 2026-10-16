@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from starlette.background import BackgroundTask
 
-from app.api.v1.training_datasets import lock_owner
+from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_dataset_analysis import (
@@ -38,7 +38,7 @@ router = APIRouter(
 
 async def authorized_analysis(db, project, user, version_id):
     result = await service.ensure_analysis(db, project.id, version_id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     return result
 
 

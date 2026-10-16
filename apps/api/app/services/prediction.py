@@ -59,6 +59,29 @@ async def release_failed_prediction_retry_claim(
         await db.flush()
 
 
+def cancelled_batch_result(payload: dict) -> dict:
+    total_tasks = _payload_int(payload, "total_tasks") or 0
+    return {
+        "success_count": 0,
+        "failed_count": 0,
+        "done_count": 0,
+        "skipped_count": total_tasks,
+        "cancelled_at_index": 0,
+    }
+
+
+def _payload_int(payload: dict, key: str) -> int | None:
+    value = payload.get(key)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
 def derive_tool_unit_from_ls_type(
     typ: str | None, value: dict[str, Any] | None = None
 ) -> str:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -24,7 +25,10 @@ from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.project_access import resolve_project_access
-from app.services.project_write_guard import lock_actor_project_authority
+from app.services.project_write_guard import (
+    lock_actor_project_authority,
+    lock_project_manager,
+)
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
@@ -38,6 +42,9 @@ from training_contract.dataset import (
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.job_execution_control import JobExecutionControl
+
+log = logging.getLogger(__name__)
 
 MAX_SAMPLES = 20000
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
@@ -461,3 +468,39 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
             else "构建进程异常终止，可重试同一快照"
         )
         version.completed_at = datetime.now(timezone.utc)
+
+
+async def request_job_cancel(
+    db: AsyncSession,
+    job: AsyncJob,
+    user: User,
+    *,
+    execution_control: JobExecutionControl,
+) -> None:
+    """Fence dataset cancellation against a replaced or already-ended build."""
+    await lock_project_manager(
+        db, user, job.project_id, denial_detail="需要项目管理权限"
+    )
+    version = (
+        await db.execute(
+            select(TrainingDatasetVersion)
+            .where(TrainingDatasetVersion.async_job_id == job.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    await db.refresh(job)
+    if (
+        version is None
+        or version.status not in {"pending", "running"}
+        or job.status not in {"pending", "running"}
+    ):
+        raise HTTPException(status_code=409, detail="训练数据构建已结束")
+    if job.celery_task_id:
+        try:
+            execution_control.request_cancel(job.celery_task_id)
+        except Exception:
+            log.exception("Training dataset revoke failed job=%s", job.id)
+    await jobs.mark_cancelled(db, job.id)
+    await reconcile_job_terminal(db, JobTerminal(job.id, job.kind, cancelled=True))
+    await notify_job_terminal(db, job_id=job.id)

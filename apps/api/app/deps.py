@@ -14,6 +14,7 @@ from app.services.project_access import ProjectAccess, resolve_project_access_by
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.job_execution_control import JobExecutionControl
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -59,6 +60,13 @@ def get_training_dataset_dispatcher() -> TrainingDatasetDispatcher:
     from app.workers.training_dataset_dispatch import CeleryTrainingDatasetDispatcher
 
     return CeleryTrainingDatasetDispatcher()
+
+
+def get_job_execution_control() -> JobExecutionControl:
+    """Bind cooperative execution cancellation without importing brokers into services."""
+    from app.workers.job_execution_control import CeleryJobExecutionControl
+
+    return CeleryJobExecutionControl()
 
 
 async def get_current_user(

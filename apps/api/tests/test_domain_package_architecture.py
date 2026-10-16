@@ -166,6 +166,13 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=("app.db.models.async_job",),
     ),
     DomainSpec(package="async_job_terminal", legacy_facades=(), allowed_app_imports=()),
+    DomainSpec(package="async_job_access", legacy_facades=()),
+    DomainSpec(
+        package="job_execution_control", legacy_facades=(), allowed_app_imports=()
+    ),
+    DomainSpec(package="prediction", legacy_facades=()),
+    DomainSpec(package="cross_frame_job", legacy_facades=()),
+    DomainSpec(package="sample_evaluations", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -625,6 +632,10 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.learning_policies",
         "app.services.async_job",
         "app.services.async_job_terminal",
+        "app.services.async_job_access",
+        "app.services.job_execution_control",
+        "app.services.prediction",
+        "app.services.cross_frame_job",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

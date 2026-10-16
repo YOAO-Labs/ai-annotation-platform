@@ -602,6 +602,16 @@ async def mark_terminal(
     await notify_job_terminal(db, job_id=attempt.async_job_id)
 
 
+async def request_job_cancel(db, job_id):
+    """Resolve the current evaluation for this job before requesting cancellation."""
+    run = await db.scalar(
+        select(Run).where(Run.async_job_id == job_id).with_for_update()
+    )
+    if run is None:
+        raise HTTPException(status_code=409, detail="该任务已被新的评估尝试替代")
+    await request_cancel(db, run)
+
+
 async def request_cancel(db, run):
     if run.status in TERMINAL or run.status == "cancelling":
         return

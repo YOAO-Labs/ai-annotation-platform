@@ -36,7 +36,7 @@ from app.schemas.training_hub import TrainingParameterSchema
 from app.schemas.training_initialization import TrainingInitializationEligibility
 from training_contract import definition
 from training_contract.model_return import registration_eligibility
-from app.api.v1.training_datasets import lock_owner
+from app.services.project_write_guard import lock_project_manager
 from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
@@ -169,7 +169,7 @@ async def create_run(
     db: AsyncSession = Depends(get_db),
 ):
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     request_digest = content_digest(body.request_payload())
     existing = await db.scalar(
         select(TrainingRun).where(
@@ -308,7 +308,7 @@ async def get_evaluation(
 ):
     from app.services.training_evaluations import read_evaluation
 
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     run = await db.scalar(
         select(TrainingRun)
         .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
@@ -334,7 +334,7 @@ async def cancel_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     run = await load_run(db, project.id, run_id, lock=True)
     attempt = await db.get(TrainingAttempt, run.current_attempt_id)
     if run.status in service.TERMINAL:
@@ -399,7 +399,7 @@ async def resume_run(
             db, project.id, preliminary.study_id, lock=True
         )
     lease = await service.lock_resource(db, preliminary.config["resource_id"])
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     run = await load_run(db, project.id, run_id, lock=True)
     if (
         run.status not in {"failed", "cancelled"}
@@ -455,7 +455,7 @@ async def download_artifact(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     run = await db.scalar(
         select(TrainingRun)
         .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
@@ -517,7 +517,7 @@ async def delete_run(
     preliminary = await load_run(db, project.id, run_id)
     if preliminary.auto_trigger_id:
         await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     run = await load_run(db, project.id, run_id, lock=True)
     if run.status not in service.TERMINAL:
         raise HTTPException(status_code=409, detail="训练尚未结束，不能删除")

@@ -463,3 +463,41 @@ async def test_comparison_requires_two_explicit_compatible_successful_reports(
         incompatible.json()["candidates"][0]["aggregate"]
         and incompatible.json()["candidates"][1]["aggregate"] is None
     )
+
+
+@pytest.mark.parametrize("replaced", [False, True])
+async def test_async_job_cancel_preserves_evaluation_intent_and_current_attempt(
+    db_session, super_admin, httpx_client, objects, replaced
+):
+    from app.db.models.async_job import AsyncJob
+    from app.db.models.sample_evaluation import SampleEvaluationAttempt
+
+    owner, token = super_admin
+    world = await seed(db_session, owner, objects)
+    run, attempt = await evaluation(db_session, owner, world)
+    job = await db_session.get(AsyncJob, attempt.async_job_id)
+    if replaced:
+        run.status = attempt.status = "lost"
+        current = await service.new_attempt(db_session, run)
+    else:
+        current = attempt
+    await db_session.flush()
+
+    response = await httpx_client.post(
+        f"/api/v1/async-jobs/{job.id}/cancel",
+        headers={"Authorization": "Bearer " + token},
+    )
+    await db_session.refresh(run)
+    await db_session.refresh(job)
+    current = await db_session.get(SampleEvaluationAttempt, current.id)
+    await db_session.refresh(current)
+    if replaced:
+        assert response.status_code == 409
+        assert run.status == current.status == "queued"
+        assert run.current_attempt_id != attempt.id
+    else:
+        assert response.status_code == 200
+        assert response.json()["status"] == "cancel_requested"
+        assert run.status == current.status == "cancelling"
+        assert current.error_code == "cancel_requested"
+    assert job.status == "pending"

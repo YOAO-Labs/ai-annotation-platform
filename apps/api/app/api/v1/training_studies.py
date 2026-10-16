@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 
-from app.api.v1.training_datasets import lock_owner
+from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
 from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.db.models.user import User
@@ -29,7 +29,7 @@ async def preview(
     db=Depends(get_db),
 ) -> dict:
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     if project.status != "in_progress":
         raise HTTPException(status_code=409, detail="项目停用时不能启动参数搜索")
     plan, digest = await service.freeze_plan(db, project.id, body)
@@ -47,7 +47,7 @@ async def create(
     db=Depends(get_db),
 ) -> dict:
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     request_digest = content_digest(body.request_payload())
     existing = await db.scalar(
         select(TrainingStudy).where(
@@ -156,7 +156,7 @@ async def cancel(
     db=Depends(get_db),
 ) -> dict:
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     study = await service.load(db, project.id, study_id, lock=True)
     study.scheduling = False
     study.status = "cancelling"

@@ -132,6 +132,24 @@ def summarize_items(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def cancelled_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Retain each frozen target in the result of a pending cancellation."""
+    targets = payload.get("targets") or []
+    items = [
+        {
+            "frame_index": int(target.get("frame_index") or 0),
+            "task_id": target.get("task_id"),
+            "status": "cancelled",
+            "created_count": 0,
+            "skipped_count": 0,
+            "reason": "cancelled_by_user",
+        }
+        for target in targets
+        if isinstance(target, dict)
+    ]
+    return summarize_items(items)
+
+
 def retryable_targets(result: dict[str, Any]) -> list[dict[str, Any]]:
     items = result.get("items")
     if not isinstance(items, list):

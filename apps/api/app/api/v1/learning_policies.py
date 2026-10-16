@@ -14,7 +14,7 @@ from app.deps import (
     require_project_owner,
     require_scopes,
 )
-from app.api.v1.training_datasets import lock_owner
+from app.services.project_write_guard import lock_project_manager
 from app.schemas.learning_policy import (
     LearningPolicyOut,
     LearningPolicySave,
@@ -57,7 +57,7 @@ async def save_policy(
     db=Depends(get_db),
 ):
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     policy = await db.scalar(
         select(LearningPolicy)
         .where(LearningPolicy.project_id == project.id)
@@ -184,7 +184,7 @@ async def disable_policy(
     db=Depends(get_db),
 ):
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     policy = await db.scalar(
         select(LearningPolicy)
         .where(LearningPolicy.project_id == project.id)
@@ -218,7 +218,7 @@ async def check_policy(
     ),
 ):
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     policy = await db.scalar(
         select(LearningPolicy).where(LearningPolicy.project_id == project.id)
     )
@@ -288,7 +288,7 @@ async def delete_policy(
     db=Depends(get_db),
 ):
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     policy = await db.scalar(
         select(LearningPolicy)
         .where(LearningPolicy.project_id == project.id)

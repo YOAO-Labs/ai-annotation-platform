@@ -38,6 +38,7 @@ from app.schemas.mask_repair import (
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
+from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
@@ -938,6 +939,30 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
     batch.completed_at = datetime.now(timezone.utc)
 
 
+async def request_job_cancel(
+    db: AsyncSession, job_id: uuid.UUID, *, pending: bool
+) -> str:
+    """Keep immediate pending cancellation distinct from running shard cancellation."""
+    batch = (
+        await db.execute(
+            select(MaskRepairBatch)
+            .where(MaskRepairBatch.async_job_id == job_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if pending:
+        await async_job_svc.mark_cancelled(
+            db, job_id, result={"reason": "cancelled_by_user"}
+        )
+        if batch is not None and batch.status == "pending":
+            batch.status = "cancelled"
+            batch.completed_at = datetime.now(timezone.utc)
+        await notify_job_terminal(db, job_id=job_id)
+        return "cancelled"
+    await async_job_svc.request_cancel(db, job_id)
+    return "cancel_requested"
+
+
 __all__ = [
     "MAX_SHARD_MUTATIONS",
     "ROLLBACK_TTL",
@@ -948,6 +973,7 @@ __all__ = [
     "dispatch_repair_batch",
     "execute_repair_plan",
     "request_repair_rollback",
+    "request_job_cancel",
     "reconcile_job_terminal",
     "resume_repair_batch",
     "result_digest",

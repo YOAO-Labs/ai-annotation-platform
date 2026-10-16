@@ -7,7 +7,7 @@ from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
-from app.api.v1.training_datasets import lock_owner
+from app.services.project_write_guard import lock_project_manager
 from app.schemas.training_recipe import (
     TrainingConfigurationResolve,
     TrainingRecipeOut,
@@ -61,7 +61,7 @@ async def list_recipes(
 
 async def write_revision(body, project, user, db, recipe_id=None):
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     digest = content_digest(
         {
             "recipe_id": str(recipe_id) if recipe_id else None,
@@ -232,7 +232,7 @@ async def archive_recipe(
     db=Depends(get_db),
 ):
     await claims.project_lock(db, project.id)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     recipe, revision = await service.recipe_revision(
         db, project.id, recipe_id, lock=True
     )

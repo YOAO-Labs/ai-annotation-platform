@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.training_datasets import lock_owner
+from app.services.project_write_guard import lock_project_manager
 from app.db.models.active_learning import (
     ActiveLearningAttempt as Attempt,
     ActiveLearningDecision as Decision,
@@ -174,7 +174,7 @@ async def cancel(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     round = await service.load_round(db, project.id, round_id, lock=True)
     await service.request_cancel(db, round)
     await db.commit()
@@ -190,7 +190,7 @@ async def retry(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     round = await service.load_round(db, project.id, round_id, lock=True)
     rows = await service.candidate_rows(db, round)
     if (

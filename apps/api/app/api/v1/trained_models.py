@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.training_datasets import lock_owner
+from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
 from app.db.models.trained_model import (
     ModelDeployment,
@@ -54,7 +54,7 @@ async def register_model(
     db: AsyncSession = Depends(get_db),
 ):
     await serialize(db, project)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     result = await service.register(db, project, user, body)
     await db.commit()
     return result
@@ -108,7 +108,7 @@ async def model_detail(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     version = await service.load_version(db, project.id, version_id)
     deployments = (
         await db.scalars(
@@ -156,7 +156,7 @@ async def deploy_model(
     db: AsyncSession = Depends(get_db),
 ):
     await serialize(db, project)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     version = await service.load_version(db, project.id, version_id)
     service.validate_bindings(project, version.classes, version.bindings)
     backend = await service.enabled_backend(db, project.id, body.registry_id)
@@ -208,7 +208,7 @@ async def deploy_model(
         receipt, trial = {}, {}
         error = f"加载或样本试用未通过（{type(exc).__name__}）"
     await serialize(db, project)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     deployment = await db.scalar(
         select(ModelDeployment)
         .where(ModelDeployment.id == deployment_id)
@@ -233,7 +233,7 @@ async def download_model(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     version = await service.load_version(db, project.id, version_id)
     from app.services.storage import storage_service
 
@@ -307,7 +307,7 @@ async def publish_model(
     db: AsyncSession = Depends(get_db),
 ):
     await serialize(db, project)
-    await lock_owner(db, user, project)
+    await lock_project_manager(db, user, project.id)
     result = await service.publish(db, project, user, body)
     await db.commit()
     return result

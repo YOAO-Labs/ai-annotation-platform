@@ -23,6 +23,7 @@ from app.schemas.mask_format import (
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
+from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.registry import registry
@@ -411,3 +412,27 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
     else:
         batch.status = "failed"
     batch.completed_at = datetime.now(timezone.utc)
+
+
+async def request_job_cancel(
+    db: AsyncSession, job_id: uuid.UUID, *, pending: bool
+) -> str:
+    """Cancel a queued import or request a stop at its next item boundary."""
+    batch = (
+        await db.execute(
+            select(MaskFormatImport)
+            .where(MaskFormatImport.async_job_id == job_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if pending:
+        await async_job_svc.mark_cancelled(
+            db, job_id, result={"reason": "cancelled_by_user"}
+        )
+        if batch is not None and batch.status == "pending":
+            batch.status = "cancelled"
+            batch.completed_at = datetime.now(timezone.utc)
+        await notify_job_terminal(db, job_id=job_id)
+        return "cancelled"
+    await async_job_svc.request_cancel(db, job_id)
+    return "cancel_requested"
