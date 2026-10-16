@@ -47,6 +47,8 @@ export async function runOcrInference(
   const panel = page.getByTestId("ai-prediction-popover");
   await panel.waitFor({ state: "visible", timeout: 5_000 });
   await dockAiPanelAtViewportRight(page, panel);
+  await panel.getByTestId("ai-prediction-advanced-toggle").click();
+  await expect(panel.getByTestId("ai-prediction-advanced")).toBeVisible();
 
   const modelField = panel.locator("label").filter({ hasText: "模型任务" });
   const modelSelect = modelField.locator("select");
@@ -93,10 +95,18 @@ export async function runOcrInference(
   await page.waitForFunction(
     () => {
       const popover = document.querySelector('[data-testid="ai-prediction-popover"]');
-      if (!popover || !/[1-9]\d*\s*待审/.test(popover.textContent ?? "")) return false;
-      return Array.from(popover.querySelectorAll("button")).some(
-        (button) => button.textContent?.trim() === "运行当前题" && !button.disabled,
+      const stage = document.querySelector('[data-testid="workbench-stage"]');
+      if (
+        popover
+          ?.querySelector('[data-testid="ai-prediction-phase"]')
+          ?.getAttribute("data-phase") !== "review" ||
+        Number(stage?.getAttribute("data-ai-box-count") ?? "0") < 1
+      )
+        return false;
+      const run = popover.querySelector<HTMLButtonElement>(
+        '[data-testid="ai-prediction-run-next"]',
       );
+      return Boolean(run && !run.disabled);
     },
     undefined,
     { timeout: 120_000 },

@@ -569,6 +569,8 @@ seed profile 和只读 catalog，不会随机选取开发库里的项目。`--re
 seed 标记的对象。整套自动化固定使用 `annotation_screenshots_test`，不连接
 开发库 `annotation`。
 
+截图 seed 会同步初始化真实离线分析视图，无需等待 `cleanup` 队列。PostgreSQL `_test` / `_e2e` 库未显式设置 `DUCKDB_PATH` 时，默认使用当前 checkout 的 `.artifacts/analytics/` 私有文件，按数据库主机、端口和库名区分；seed 与 API 必须使用同一 checkout 和数据库。显式 `DUCKDB_PATH` 优先，相关进程须指向同一个专属文件，截图 seed 拒绝共享开发默认分析文件。详见[截图维护指南](docs-site/dev/how-to/update-screenshots.md#快速运行)。
+
 交互流程的点击与笔迹坐标来自 catalog 中随任务版本化的归一化语义锚点：锚点可由模型候选生成，但进入截图 seed 前必须经过标签或人工复核，录制器不在运行时猜测画布目标。点云静态场景同时包含轻量 PCL RGB-D 夹具与 nuScenes 六相机环视夹具；后者固定携带六路同步图像、内外参与单帧激光雷达，专门覆盖多相机画布状态。
 
 nuScenes 缓存需包含地图、元数据和关键帧传感器文件；初始化时会校验地图是否齐全。录制 catalog 根据数据集 UUID 解析导入器的隔离存储路径，逻辑帧名称保持固定。
@@ -632,10 +634,18 @@ Worker 与上述命令必须使用同一 `SCREENSHOT_DATABASE_URL`；开发库 W
 ### 触发
 
 Mac / Linux 分工录制优先使用 `pnpm --filter @anno/web screenshots:record -- --list`，
-再用 `--flow bbox-draw --plan` 预览依赖。默认 `docs` 规格归档未裁剪标准源视频，
-`--profile marketing` 保留 Linux X11/NVIDIA 母版检查；手工场景无需模型，SAM / OCR 可使用远程注册后端。
+再用 `--flow bbox-draw --plan` 预览依赖。正式录制默认采集 `marketing` 高清母版，
+再同源衍生项目需要的视频、GIF 与封面；`--profile docs --validate-only` 只预演，不生成正式源。
+手工场景无需模型，真实 ML 母版目前使用 Linux X11/NVIDIA，模型服务可独立部署。
 入口会修复隔离夹具，运行前须核对数据库和 Redis，并准备完整离线素材缓存。
-详见 [跨平台录制与隔离要求](docs-site/dev/how-to/update-screenshots.md#mac-linux-分工录制)。
+详见 [跨平台录制与隔离要求](docs-site/dev/how-to/update-screenshots.md#高清母版统一采集与衍生)。
+
+无显示器的 Linux NVIDIA 主机可在同一入口添加 `--headless-display`，为本次营销母版采集启动独立 Xorg 和 Metacity，
+结束时清理自己的图形会话，继续执行硬件合成、帧率与母版门禁。需要当前用户已有 GPU 设备访问权。
+专用会话关闭屏保和 DPMS，保持长时间准备夹具期间的显示输出。
+可在采集进程中通过 `MARKETING_HEADLESS_GPU` 指定 `nvidia-smi` 报告的 PCI bus ID，
+通过 `MARKETING_FFMPEG` / `MARKETING_FFPROBE` 指定编码工具；默认选择第一张 GPU，验证 PATH 中工具并在需要时尝试 `/usr/bin`。
+这些选项不需要写入共享 `.env`；入口不修改系统图形配置或持久化桌面偏好。
 
 ```bash
 export PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001
@@ -645,7 +655,7 @@ SCREENSHOT_VALIDATE_ONLY=1 pnpm --filter web screenshots  # 只验证场景，�
 pnpm --filter web screenshots                              # 生成 desktop-light 正式图
 pnpm --filter web screenshots:dark                         # 显式声明的深色场景
 pnpm --filter web screenshots:matrix                       # desktop-light/dark/mobile
-pnpm --filter web screenshots:flows                        # 标准源录像及 GIF 配置归档，需 ffmpeg
+pnpm --filter web screenshots:flows                        # 流程预演，不生成正式素材
 pnpm --filter web screenshots:marketing                    # 4K60 MKV + MP4/H.264，需本机 X11/NVIDIA/ffmpeg
 pnpm docs:media:derive                                      # 从最新营销批次统一派生视频 / GIF / 封面
 pnpm docs:media:audit                                       # 检查引用、来源与人工复核版本

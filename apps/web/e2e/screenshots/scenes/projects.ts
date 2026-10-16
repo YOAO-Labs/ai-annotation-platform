@@ -25,11 +25,10 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     route: () => "/projects",
     prepare: async (page) => {
       await waitForAdminProjectsDashboard(page);
-      const newBtn = page.getByRole("button", { name: /新建项目|新建/ }).first();
-      if (await newBtn.count()) {
-        await newBtn.click();
-        await page.locator('[data-testid="project-wizard"]').waitFor({ timeout: 10_000 });
-      }
+      const newButton = page.getByTestId("new-project-btn");
+      await newButton.waitFor({ state: "visible", timeout: 10_000 });
+      await newButton.click();
+      await page.getByTestId("project-wizard").waitFor({ state: "visible", timeout: 10_000 });
     },
     capture: { kind: "locator", selector: '[data-testid="project-wizard"]', padding: 0 },
     target: "docs-site/user-guide/images/projects/wizard-steps.png",
@@ -52,8 +51,8 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     route: () => "/projects",
     prepare: async (page) => {
       await page.getByRole("heading", { name: "Dashboard" }).waitFor({ timeout: 10_000 });
-      await page.getByText("HTTP 500").first().waitFor({ timeout: 10_000 });
-      await page.getByText("没有匹配的项目").waitFor({ timeout: 10_000 });
+      await page.getByRole("alert").filter({ hasText: "项目列表暂时无法加载" }).waitFor();
+      await page.getByRole("button", { name: "重新加载", exact: true }).waitFor();
     },
     mockState: "error",
     target: "docs-site/user-guide/images/projects/error-state.png",
@@ -150,6 +149,14 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
       await reg.click();
       await page.waitForTimeout(300);
       await page.waitForSelector('[role="dialog"]', { timeout: 3000 });
+      // Redact endpoint text only; preserve live registry state and capability labels.
+      await page.locator('[role="dialog"] .mono[title]').evaluateAll((elements) => {
+        elements.forEach((element, index) => {
+          const endpoint = `https://ml.example.invalid/backend-${index + 1}`;
+          element.textContent = endpoint;
+          element.setAttribute("title", endpoint);
+        });
+      });
     },
     capture: { kind: "locator", selector: '[role="dialog"]', padding: 0 },
     target: "docs-site/user-guide/images/projects/ml-backends/register-form.png",
@@ -193,6 +200,7 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
   },
   {
     name: "projects/prediction-purge-modal",
+    requiresML: true,
     role: "admin",
     fixture: { project: "image_demo", task: "predicted" },
     // /projects（AdminProjectsDashboard）的项目卡/行才有 ProjectActionsMenu ⋮ 菜单

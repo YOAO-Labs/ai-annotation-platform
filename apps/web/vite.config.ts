@@ -83,7 +83,13 @@ const config: Parameters<typeof defineConfig>[0] = {
     // `node --test` by screenshots:docs-media:test) and would report "No test
     // suite found"; the remaining scripts/*.test.mjs files are vitest style and
     // must stay collected.
-    exclude: ["**/node_modules/**", "**/dist/**", "**/e2e/**", "scripts/media-derivation.test.mjs"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/e2e/**",
+      "scripts/media-derivation.test.mjs",
+      "scripts/headless-marketing-display.test.mjs",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html", "lcov"],

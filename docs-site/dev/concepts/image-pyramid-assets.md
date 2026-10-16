@@ -117,6 +117,9 @@ snapshot。overview 与已缓存的粗层级在目标 tile 到达前保持，单
 短期 tile URL 过期或首次拉取失败时只重新批签一次；仍失败的可见区域由 overview/粗层级覆盖，
 并在五秒冷却结束后自动重试，无需用户平移或缩放视口。
 
+异步 Konva 绘制从调度器读取当前仍存活的 tile，不持有 React 提交前的 bitmap 快照。淘汰会先移除可绘制列表，
+再同步关闭 bitmap；tile 变化重新调度绘制，避免缩放或平移后继续访问已释放资源而冻结画布。
+
 背景路径不读取 `navigator.gpu`。Raster Mask 的 WebGPU/CPU 计算与图片 tile 保持独立 owner 和释放语义，
 但共同进入当前 Task 的[栅格资源协调账本](./raster-resource-coordination)。前台 Mask 运算会暂停背景预取，
 pressure 先释放非可见 detail，不能淘汰 dirty Mask 或撤销历史。

@@ -102,7 +102,7 @@ Scene 时间轴的「跨帧任务」会打开当前 Scene 的 3D 跨帧任务中
 <DocsVideo
   src="/media/pointcloud/controls.mp4"
   poster="/media/pointcloud/controls-poster.webp"
-  alt="切换点云相机上色并调整点大小和深度范围"
+  alt="切换点云相机上色、调整点大小，并开启相机图深度提示"
 />
 
 ### 相机 RGB 上色

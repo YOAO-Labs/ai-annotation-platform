@@ -19,6 +19,10 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
+from app.services.annotation_evidence import (
+    clear_review_contributor_evidence,
+    freeze_review_contributor_evidence,
+)
 from app.services.project_delete import delete_project_records
 from app.services.screenshot_seed_spec import (
     PROJECT_SPECS,
@@ -744,6 +748,17 @@ async def _reconcile_annotations(
         has_annotation = key in managed_ids
         task.total_annotations = 1 if has_annotation else 0
         task.is_labeled = has_annotation
+        # Every surviving annotation was reconciled above to its declared author;
+        # this complete owned fixture is not a legacy task with unknown history.
+        task.annotation_contributor_ids = (
+            [str(users["annotator"].id)] if has_annotation else []
+        )
+        if task.status in {"review", "completed"}:
+            task.review_round_id = uuid.uuid5(task.id, "screenshot-review-round")
+            freeze_review_contributor_evidence(task, submitter_id=users["annotator"].id)
+        else:
+            task.review_round_id = None
+            clear_review_contributor_evidence(task)
 
 
 def _set_task_state(tasks: dict[str, Task], users: dict[str, User]) -> None:

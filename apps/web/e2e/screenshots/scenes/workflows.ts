@@ -5,7 +5,7 @@ import type { AsyncJob } from "../../../src/api/asyncJobs";
 // failed-jobs 用 page.route mock 后端响应，不污染真实 DB（同 ai-pre.ts 思路）。
 // v0.10.16+ 页面改读 /api/v1/async-jobs，响应为 { items, total } 的 AsyncJob 列表。
 
-function makeFailedJob(i: number): AsyncJob {
+function makeFailedJob(i: number, now: number): AsyncJob {
   const prompts = [
     "person, car, truck",
     "traffic light, stop sign",
@@ -20,8 +20,8 @@ function makeFailedJob(i: number): AsyncJob {
     "invalid prompt schema",
     "rate limited by upstream",
   ];
-  const startedAt = new Date(Date.now() - (i + 1) * 3600_000).toISOString();
-  const completedAt = new Date(Date.now() - i * 3600_000).toISOString();
+  const startedAt = new Date(now - (i + 1) * 3600_000).toISOString();
+  const completedAt = new Date(now - i * 3600_000).toISOString();
   return {
     id: `mock-fail-${i}-${"0".repeat(28)}`.slice(0, 36),
     kind: "batch_predict",
@@ -54,13 +54,15 @@ function makeFailedJob(i: number): AsyncJob {
 export const WORKFLOW_SCENES: ScreenshotScene[] = [
   {
     name: "workflows/failed-prediction-recovery-jobs-list",
+    requiresML: true,
     role: "admin",
     route: () => "/ai-pre/jobs",
     prepare: async (page) => {
       // mock 返回全 failed job；不带 status query / 不切 select（客户端筛选会清空 mock 列表），
       // 列表本身全为失败态 + 错误信息，即可展示「失败恢复」场景。
+      const now = await page.evaluate(() => Date.now());
       await page.route("**/api/v1/async-jobs*", async (route) => {
-        const items = Array.from({ length: 6 }, (_, i) => makeFailedJob(i));
+        const items = Array.from({ length: 6 }, (_, i) => makeFailedJob(i, now));
         await route.fulfill({
           status: 200,
           contentType: "application/json",

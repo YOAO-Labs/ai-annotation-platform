@@ -12,6 +12,7 @@ import {
   createWorkspacePreset,
   type WorkspacePresetId,
 } from "../../../src/pages/Workbench/layout/workbenchLayoutPresets";
+import type { WorkspaceSnapshot } from "../../../src/pages/Workbench/layout/workbenchLayoutSnapshot";
 import {
   WORKSPACE_SCHEMA_VERSION,
   type WorkspaceContext,
@@ -23,8 +24,33 @@ import type {
 } from "../../../src/api/auth";
 
 export type RecordingSidebarMode = "both" | "none";
+
+/**
+ * 把快照根分支里最右侧的可见停靠列（inspector/discussion 所在竖向分支）加宽到
+ * 目标像素，等量收窄画布。录制中真实拖动分隔条会与偏好 PATCH 竞争回弹，这里
+ * 直接在沙箱快照里给出宽列，避免依赖 sash 拖拽。
+ */
+function widenRightColumn(snapshot: WorkspaceSnapshot, targetWidth: number): void {
+  const root = snapshot.layout.grid.root;
+  if (root.type !== "branch") {
+    throw new Error("[recording-layout] 快照根节点不是 branch，无法加宽右栏");
+  }
+  const visible = root.data.filter((node) => node.visible !== false);
+  const rightColumn = visible[visible.length - 1];
+  const canvas = visible.find((node) => node.type === "leaf" && node.data.views.includes("canvas"));
+  if (!rightColumn || !canvas || rightColumn === canvas) {
+    throw new Error("[recording-layout] 快照缺少画布或右栏停靠列");
+  }
+  const growth = targetWidth - (rightColumn.size ?? 0);
+  if (growth <= 0) return;
+  rightColumn.size = targetWidth;
+  canvas.size = Math.max(1, (canvas.size ?? 0) - growth);
+}
+
 export interface RecordingWorkbenchOverrides {
   workspace?: { context: WorkspaceContext; preset: WorkspacePresetId };
+  /** 覆盖快照里右栏停靠列的像素宽度（含 inspector/discussion 的竖向分支）。 */
+  rightColumnWidth?: number;
   common?: Partial<WorkbenchPreferences["common"]>;
   image?: Partial<WorkbenchPreferences["image"]>;
   video?: Partial<WorkbenchPreferences["video"]>;
@@ -62,7 +88,16 @@ function applyRecordingLayout(
         leftWidthPct: 15,
         rightWidthPct: 15,
       },
-      layout: embeddedLayout(preferences.workbench.layout, open),
+      layout: {
+        ...embeddedLayout(preferences.workbench.layout, open),
+        // 选中标注的浮动信息卡默认展开在画布右上（约 340×440），会盖住母版
+        // 关键内容。录制沙箱统一让它以收起胶囊起步：需要展示选中详情的流程
+        // 仍可在窗口内点击胶囊展开。
+        floatingSelection: {
+          ...preferences.workbench.layout.floatingSelection,
+          collapsed: true,
+        },
+      },
     },
   };
 }
@@ -141,12 +176,16 @@ export async function installRecordingWorkbenchLayout(
   );
   if (overrides.workspace) {
     const { context, preset } = overrides.workspace;
+    const snapshot = createWorkspacePreset(preset, page.viewportSize() ?? undefined, context);
+    if (overrides.rightColumnWidth) {
+      widenRightColumn(snapshot, overrides.rightColumnWidth);
+    }
     sandbox.workbench.layout.workspace = {
       engine: "dockview@8",
       contexts: {
         [context]: {
           schemaVersion: WORKSPACE_SCHEMA_VERSION,
-          snapshot: createWorkspacePreset(preset, page.viewportSize() ?? undefined, context),
+          snapshot,
         },
       },
     };
@@ -165,9 +204,7 @@ export async function installRecordingWorkbenchLayout(
     }
     if (method === "PATCH") {
       const patch = route.request().postDataJSON() as Partial<UserPreferences>;
-      sandbox = overrides.workspace
-        ? mergePreferences(sandbox, patch)
-        : applyRecordingLayout(mergePreferences(sandbox, patch), mode);
+      sandbox = mergePreferences(sandbox, patch);
       await route.fulfill({ status: 200, json: sandbox });
       return;
     }

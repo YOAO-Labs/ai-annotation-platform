@@ -50,6 +50,45 @@ export async function runAiTrackerPanel(
   await recordingPanelCommand(page, "视频追踪", "浮动面板");
   await expectTrackerState();
   await page.waitForTimeout(1600);
+  // Move the floating window away from the canvas edge before the native redock drag.
+  const floating = page.locator(".dv-render-overlay-float").filter({ has: tracker });
+  const floatingBounds = await floating.boundingBox();
+  const canvas = page.locator('[data-workbench-panel="canvas"]');
+  const canvasBounds = await canvas.boundingBox();
+  expect(floatingBounds).not.toBeNull();
+  expect(canvasBounds).not.toBeNull();
+  const dragHandle = page
+    .getByRole("tab", { name: "视频追踪", exact: true })
+    .locator("span")
+    .first();
+  const handleBounds = await dragHandle.boundingBox();
+  expect(handleBounds).not.toBeNull();
+  const start = {
+    x: handleBounds!.x + handleBounds!.width / 2,
+    y: handleBounds!.y + handleBounds!.height / 2,
+  };
+  await page.keyboard.down("Shift");
+  try {
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + canvasBounds!.x + 20 - floatingBounds!.x, start.y, {
+      steps: 16,
+    });
+    await page.mouse.up();
+  } finally {
+    await page.keyboard.up("Shift");
+  }
+  await expectTrackerState();
+  await expect
+    .poll(() =>
+      canvas.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return element.contains(
+          document.elementFromPoint(bounds.right - 8, bounds.y + bounds.height / 2),
+        );
+      }),
+    )
+    .toBe(true);
   await recordingPanelCommand(page, "视频追踪", "停靠到右侧");
   await expectTrackerState();
   await page.waitForTimeout(1600);

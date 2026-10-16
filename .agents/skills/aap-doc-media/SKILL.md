@@ -1,9 +1,9 @@
 ---
 name: aap-doc-media
-description: Capture, update, or diagnose this project's documentation screenshots and videos, including seed isolation, manifests, and stale media-review records.
+description: Capture qualified marketing masters and derive this project's documentation videos, GIFs, and posters from those masters; also maintain static screenshots, capture isolation, provenance, and media-review records.
 ---
 
-# Documentation media
+# Project media from qualified masters
 
 Start with `pnpm docs:media:audit` for provenance/review failures, or the requested asset/flow for capture work. Distinguish a missing file, changed content hash, outdated generation source, and stale/unreachable review commit. Regeneration is not the default fix for every audit failure.
 
@@ -16,7 +16,9 @@ Start with `pnpm docs:media:audit` for provenance/review failures, or the reques
 
 Read [capture](references/capture.md) when generating or rerecording assets. Inspect the actual image and, for video, its beginning, core interaction, ending, and poster. Verify the represented feature, loading state, real target geometry, and sensitive-data masking. Successful encoding is not visual acceptance.
 
-For video work across macOS and Linux, select inference requirements separately from capture quality. Use `pnpm --filter @anno/web screenshots:record -- --list`, then `--flow <id> --plan` before recording. All flow recording commands archive sources only. Publish video, GIF, and poster derivatives through `pnpm docs:media:derive`; `standard` sources and qualified `marketing` masters use the same pipeline without sharing quality claims. Read the cross-platform and derivation sections in the capture reference before preparing either environment.
+Use one production video workflow: capture a qualified `marketing` master, archive it, then derive every requested resolution, frame rate, GIF, and poster from that same source. This applies to ML and non-ML recordings. Standard `docs` recording is for functional rehearsal/diagnosis, not a second production source. Missing hardware or model services are blockers to report or resolve, not permission to downgrade. Existing standard archives retain their truthful provenance; do not relabel them or silently regenerate them. Static screenshots remain independent.
+
+For video work across macOS and Linux, select inference requirements separately from capture quality. Use `pnpm --filter @anno/web screenshots:record -- --list`, then `--flow <id> --plan` before recording. All flow recording commands archive sources only. Publish video, GIF, and poster derivatives through `pnpm docs:media:derive` using its default `marketing` quality. Explicit `standard` support is for previously archived material when its reuse is requested, not the routine refresh workflow. Read the cross-platform and derivation sections in the capture reference before preparing either environment.
 
 ## Repair provenance honestly
 

@@ -81,10 +81,9 @@ function Harness({
     deviceMemory: 8,
     devicePixelRatio: 1,
   });
-  const keys = state.tiles.map((tile) => tile.key);
   useEffect(() => {
-    onRender(keys);
-  }, [keys, onRender]);
+    onRender(state.scheduler?.getTiles().map((tile) => tile.key) ?? []);
+  }, [state, onRender]);
   return null;
 }
 

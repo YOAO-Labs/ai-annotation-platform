@@ -11,7 +11,7 @@
  *
  * 返回 { drawStartMs, drawEndMs }：供 finalize 裁掉开头(导航/解析/点云加载等待 + 收边栏)。
  */
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
 import { movePointerAtRefreshRate } from "./_canvas";
 import type { DrawWindow } from "./rotated-bbox";
@@ -38,6 +38,30 @@ async function dragOrbit(
   await page.waitForTimeout(350);
 }
 
+/** 读取点云场景的真实相机方向，保证录制结尾没有回到初始视角。 */
+async function viewDirection(viewport: Locator): Promise<[number, number, number]> {
+  return viewport.evaluate((element) => {
+    const scene = (
+      element as HTMLElement & {
+        __pointCloudScene?: {
+          getViewState: () => {
+            position: [number, number, number];
+            target: [number, number, number];
+          };
+        };
+      }
+    ).__pointCloudScene;
+    if (!scene) throw new Error("[pointcloud-view] 点云视图状态不可用");
+    const view = scene.getViewState();
+    const direction = view.position.map((value, index) => value - view.target[index]);
+    const length = Math.hypot(...direction);
+    if (!Number.isFinite(length) || length === 0) {
+      throw new Error("[pointcloud-view] 点云视图方向无效");
+    }
+    return direction.map((value) => value / length) as [number, number, number];
+  });
+}
+
 export async function runPointcloudView(
   page: Page,
   catalog: ScreenshotSeedCatalog,
@@ -58,6 +82,7 @@ export async function runPointcloudView(
 
   const box = await viewport.boundingBox();
   if (!box) throw new Error("[pointcloud-view] pc-viewport 没有可见边界");
+  const startingDirection = await viewDirection(viewport);
 
   const drawStartMs = Date.now();
   await page.waitForTimeout(1_500);
@@ -84,10 +109,17 @@ export async function runPointcloudView(
     await page.mouse.wheel(0, 120);
     await page.waitForTimeout(180);
   }
-  // 使用产品提供的复位按钮收边，回到稳定的斜俯视角，避免固定拖动方向受当前轨道姿态影响。
-  await page.getByRole("button", { name: "重置视角", exact: true }).click();
-  await page.waitForTimeout(1_500);
-
+  // Keep the final orbit as the end state instead of resetting back to the opening top view.
+  await dragOrbit(page, box, { dx: 0.54, dy: 0.46 }, { dx: 0.34, dy: 0.58 });
+  await page.waitForTimeout(2_400);
+  const endingDirection = await viewDirection(viewport);
+  const directionDot = startingDirection.reduce(
+    (sum, value, index) => sum + value * endingDirection[index],
+    0,
+  );
+  if (directionDot >= 0.94) {
+    throw new Error("[pointcloud-view] 结束视角未明显偏离初始视角");
+  }
   const drawEndMs = Date.now();
   return { drawStartMs, drawEndMs };
 }

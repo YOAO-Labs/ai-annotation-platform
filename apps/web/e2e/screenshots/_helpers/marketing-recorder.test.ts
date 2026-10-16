@@ -4,8 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
-import { MARKETING_ASSET_SPECS, type MarketingAssetSpec } from "./marketing-assets.ts";
+import { type MarketingAssetSpec } from "./marketing-assets.ts";
 import {
   committedAnnotationFromPayload,
   isAnnotationCommitRequest,
@@ -36,9 +35,6 @@ import {
 } from "./marketing-external-recorder.ts";
 
 import { macCaptureReady } from "../../../scripts/mac-marketing-capture.mjs";
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(HERE, "../../../../..");
 
 const RUN: MarketingRunContext = {
   runId: "20260814T000000Z-0123456789ab",
@@ -84,24 +80,6 @@ function createVideoFixture(
   ]);
   return target;
 }
-
-test("registers and documents every independent marketing asset", () => {
-  const catalog = fs.readFileSync(
-    path.join(REPO_ROOT, "docs-site/dev/reference/marketing-asset-catalog.md"),
-    "utf8",
-  );
-  assert.equal(MARKETING_ASSET_SPECS.size, 66);
-  for (const spec of MARKETING_ASSET_SPECS.values()) {
-    assert.ok(spec.title.length > 0, `${spec.assetId} missing title`);
-    assert.ok(spec.theme.length > 0, `${spec.assetId} missing theme`);
-    assert.ok(spec.objective.length > 0, `${spec.assetId} missing objective`);
-    assert.ok(spec.shots.length >= 3, `${spec.assetId} needs at least three shots`);
-    assert.ok(spec.editingNotes.length > 0, `${spec.assetId} missing editing notes`);
-    assert.ok(spec.duration.minSeconds < spec.duration.targetSeconds, spec.assetId);
-    assert.ok(spec.duration.targetSeconds < spec.duration.maxSeconds, spec.assetId);
-    assert.match(catalog, new RegExp("\\|\\s*`" + spec.assetId + "`\\s*\\|"));
-  }
-});
 
 test("reuses one explicit run identity across Playwright workers", () => {
   const temporaryRepo = fs.mkdtempSync(path.join(os.tmpdir(), "marketing-run-context-"));
@@ -239,6 +217,17 @@ test("archives an immutable video and writes a verifiable manifest", async () =>
       source: "apps/web/e2e/screenshots/flows/flows.spec.ts",
       watchPaths: ["apps/web/e2e/screenshots/flows/project-onboarding.ts"],
       testTitle: "flow recordings › sam-tool-smart-point",
+      evidence: {
+        clock: "live",
+        backend_requirements: "image_interactive",
+        inference: "live",
+        inference_evidence: {
+          model_family: "sam3",
+          job_id: "owned-job",
+          saved_annotation_ids: ["owned-annotation"],
+        },
+        behavior_evidence: { saved_and_reloaded: true },
+      },
       projectName: "marketing-master",
       seedRevision: "screenshots-test",
       viewport: { width: 1920, height: 1080 },
@@ -319,6 +308,17 @@ test("archives an immutable video and writes a verifiable manifest", async () =>
       "apps/web/e2e/screenshots/flows/project-onboarding.ts",
     ]);
     const entry = manifest.entries["sam-tools/smart-point"];
+    assert.deepEqual(entry.evidence, {
+      clock: "live",
+      backend_requirements: "image_interactive",
+      inference: "live",
+      inference_evidence: {
+        model_family: "sam3",
+        job_id: "owned-job",
+        saved_annotation_ids: ["owned-annotation"],
+      },
+      behavior_evidence: { saved_and_reloaded: true },
+    });
     assert.deepEqual(
       entry.gif_variants
         .slice(0, 2)

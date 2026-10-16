@@ -89,28 +89,51 @@ export async function runRotatedBbox(
   // 故让光标保持半径 r 绕框中心 (cx,cy) 顺时针扫角，即可把 angle 从 0 拖到 targetDeg。
   const handleOffset = 18;
   const r = halfH + handleOffset;
-  await page.mouse.move(cx, cy - r); // 命中正上方手柄
-  await page.waitForTimeout(450);
-  await page.mouse.down();
-  await page.waitForTimeout(200);
-  const targetDeg = 35;
-  const rotSteps = 14;
-  const rotationPath = Array.from({ length: rotSteps + 1 }, (_, i) => {
-    const rad = ((targetDeg * i) / rotSteps) * (Math.PI / 180);
-    return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
-  });
-  await movePointerPathAtRefreshRate(page, rotationPath, 750);
-  await page.waitForTimeout(700); // 停留展示旋转到位的框
-  const rotationSaved = page.waitForResponse(
-    (response) =>
-      response.request().method() === "PATCH" &&
-      response.url().includes(`/annotations/${created.id ?? "missing"}`) &&
-      response.ok(),
-    { timeout: 20_000 },
-  );
-  await page.mouse.up();
-  await rotationSaved;
-  await page.waitForTimeout(2_000); // 等 commit 落库 + 选中态稳定
+  const targetDeg = 0;
+  let currentAngle = 0;
+  // Demonstrate rotation, then realign this rear-facing car instead of saving a diagonal error.
+  for (const angle of [35, targetDeg]) {
+    const startRadians = currentAngle * (Math.PI / 180);
+    await page.mouse.move(cx + r * Math.sin(startRadians), cy - r * Math.cos(startRadians));
+    await page.waitForTimeout(450);
+    await page.mouse.down();
+    await page.waitForTimeout(200);
+    const rotSteps = 14;
+    const rotationPath = Array.from({ length: rotSteps + 1 }, (_, i) => {
+      const rad = (currentAngle + ((angle - currentAngle) * i) / rotSteps) * (Math.PI / 180);
+      return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
+    });
+    await movePointerPathAtRefreshRate(page, rotationPath, 750);
+    await page.waitForTimeout(700);
+    const rotationSaved = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        response.url().includes(`/annotations/${created.id ?? "missing"}`) &&
+        response.ok(),
+      { timeout: 20_000 },
+    );
+    await page.mouse.up();
+    const savedPayload: unknown = await (await rotationSaved).json();
+    if (
+      !savedPayload ||
+      typeof savedPayload !== "object" ||
+      !("geometry" in savedPayload) ||
+      !savedPayload.geometry ||
+      typeof savedPayload.geometry !== "object" ||
+      !("angle" in savedPayload.geometry) ||
+      typeof savedPayload.geometry.angle !== "number" ||
+      !Number.isFinite(savedPayload.geometry.angle)
+    ) {
+      throw new Error("[rotated-bbox] Rotation response lacks a finite saved angle");
+    }
+    const savedAngle = savedPayload.geometry.angle;
+    const angleDelta = Math.abs(savedAngle - angle) % 360;
+    if (Math.min(angleDelta, 360 - angleDelta) > 2) {
+      throw new Error(`[rotated-bbox] Rotation save differs from displayed ${angle} degrees`);
+    }
+    currentAngle = angle;
+    await page.waitForTimeout(1_500);
+  }
 
   const drawEndMs = Date.now();
 
@@ -123,7 +146,12 @@ export async function runRotatedBbox(
     String(created.id),
     ["rotated_bbox"],
   );
-  if (Math.abs((saved.geometry.angle ?? 0) - targetDeg) > 2) {
+  const finalAngle = saved.geometry.angle;
+  if (typeof finalAngle !== "number" || !Number.isFinite(finalAngle)) {
+    throw new Error("[rotated-bbox] Saved drawing lacks a finite angle");
+  }
+  const finalDelta = Math.abs(finalAngle - targetDeg) % 360;
+  if (Math.min(finalDelta, 360 - finalDelta) > 2) {
     throw new Error(
       `[rotated-bbox] Saved angle ${saved.geometry.angle} differs from the demonstrated ${targetDeg} degrees`,
     );

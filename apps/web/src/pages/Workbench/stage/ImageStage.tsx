@@ -2133,7 +2133,8 @@ export function ImageStage({
               overviewImage={displayImage}
               imageWidth={imgW}
               imageHeight={imgH}
-              tiles={imageTiles.tiles}
+              scheduler={imageTiles.scheduler}
+              revision={imageTiles.revision}
               imageSmoothingEnabled={workbenchConfig.image.smoothImage}
             />
           ) : (

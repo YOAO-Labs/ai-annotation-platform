@@ -279,9 +279,9 @@ export async function runAiPreannotate(
 
     // 终态不是链路终点：打开 job 详情核对成功数，再进入工作台查看落到任务上的候选。
     await completedRow.click();
-    await page.getByText("Job 详情", { exact: true }).waitFor({ timeout: 10_000 });
-    await expect(page.getByText(terminalJob.id, { exact: true })).toBeVisible({ timeout: 10_000 });
-    await page.getByText("成功", { exact: true }).waitFor({ timeout: 5_000 });
+    const jobDialog = page.getByRole("dialog", { name: "后台任务详情" });
+    await jobDialog.waitFor({ timeout: 10_000 });
+    await expect(jobDialog).toContainText(/成功\s+[1-9]\d*\s*\/\s*失败\s+0/);
     await page.waitForTimeout(1_500);
     await page.getByRole("button", { name: "关闭" }).click();
 

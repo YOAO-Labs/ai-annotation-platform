@@ -87,17 +87,19 @@ export async function runReviewReject(
   const rejectButton = page.getByTestId("review-reject");
   await moveTo(page, rejectButton);
   await rejectButton.click();
-  const dialog = page.getByRole("dialog", { name: /退回原因/ });
+  const dialog = page.getByRole("alertdialog", { name: /退回原因/ });
   await expect(dialog).toBeVisible({ timeout: 5_000 });
-  const reasonType = dialog.getByTestId("reject-type-wrong_geometry");
+  const reasonType = dialog.getByRole("button", { name: "位置或尺寸不准", exact: true });
   await moveTo(page, reasonType);
   await reasonType.click();
-  const comment = dialog.getByTestId("reject-comment");
+  const commentDialog = page.getByRole("alertdialog", { name: "补充说明", exact: true });
+  await expect(commentDialog).toBeVisible();
+  const comment = commentDialog.getByRole("textbox", { name: "补充说明（可选）" });
   await moveTo(page, comment);
   await comment.pressSequentially(REVIEW_REJECT_REASON, { delay: 70 });
   await page.waitForTimeout(1_400);
 
-  const confirm = dialog.getByTestId("reject-confirm");
+  const confirm = commentDialog.getByRole("button", { name: "确认退回", exact: true });
   await moveTo(page, confirm);
   const rejected = page.waitForResponse(
     (response) =>

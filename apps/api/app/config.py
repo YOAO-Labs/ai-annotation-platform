@@ -1,3 +1,4 @@
+import hashlib
 import json
 from enum import Enum
 from pathlib import Path
@@ -5,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 from pydantic_settings import BaseSettings, NoDecode
+from sqlalchemy.engine import make_url
 
 from app.utils.gpu_resource import validate_physical_device_token
 
@@ -23,6 +25,22 @@ _REPO_ROOT_DUCKDB = (
     if len(_PARENTS) > 3
     else "./data/duckdb/analytics.duckdb"
 )
+
+
+def _default_duckdb_path(data: dict) -> str:
+    """Keep API and offline seed analytics on the same isolated test store."""
+    database_url = make_url(data["database_url"])
+    database = database_url.database or ""
+    if database_url.get_backend_name() == "postgresql" and database.endswith(
+        ("_test", "_e2e")
+    ):
+        # Credentials never enter the name. Include the server identity so test
+        # databases with the same name on separate servers cannot share a store.
+        identity = json.dumps([database_url.host, database_url.port, database])
+        store_id = hashlib.sha256(identity.encode()).hexdigest()[:20]
+        root = _PARENTS[3] if len(_PARENTS) > 3 else Path.cwd()
+        return str(root / ".artifacts" / "analytics" / f"{store_id}.duckdb")
+    return _REPO_ROOT_DUCKDB
 
 
 class GPUArbiterMode(str, Enum):
@@ -88,7 +106,7 @@ class Settings(BaseSettings):
     # v0.10.24 · 版本号单源真值。FastAPI title version 与 /health version 都读它，
     # 发版只改这一处（+ pyproject.toml / package.json）。运维 scrape /health 拿到的
     # 版本号此前长期 stale（曾硬编码 0.7.6），故收口到 settings。
-    app_version: str = "0.26.0"
+    app_version: str = "0.26.1"
     debug: bool = True
     environment: Literal["development", "staging", "production"] = "development"
     e2e_seed_enabled: bool = False
@@ -412,7 +430,7 @@ class Settings(BaseSettings):
     # docker compose 把 host 路径 ./data/duckdb 挂到 worker /var/lib/duckdb；API 跑 host
     # 时直接读 host 文件 (默认锚定仓库根，见 _REPO_ROOT_DUCKDB)。容器与 host 均可通过
     # DUCKDB_PATH env 覆盖。
-    duckdb_path: str = _REPO_ROOT_DUCKDB
+    duckdb_path: str = Field(default_factory=_default_duckdb_path)
 
     # Governance / invitations. max_invitations_per_day 与 offline_threshold_minutes
     # 可由 super_admin 通过 system_settings 覆盖；env 始终保留为部署默认。

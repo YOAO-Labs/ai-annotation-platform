@@ -1,7 +1,7 @@
 import type { ScreenshotScene } from "./_types";
 import { waitForScreenshotImage } from "../environment";
 
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import {
   installRecordingWorkbenchLayout,
   waitForRecordingPanels,
@@ -47,17 +47,23 @@ export const REVIEW_SCENES: ScreenshotScene[] = [
   },
   {
     name: "review/reject-form",
+    clock: "live",
     role: "reviewer",
     fixture: { project: "image_demo", task: "review", batch: "review" },
     route: reviewWorkbenchRoute,
     prepare: async (page) => {
       await waitForReviewWorkbench(page);
-      const rejectBtn = page.getByTestId("review-reject");
-      await rejectBtn.click();
-      await page.waitForTimeout(300);
+      await page.getByTestId("review-reject").click();
+      const reason = page.getByRole("alertdialog", { name: "退回原因（1 个任务）" });
+      await reason.getByRole("button", { name: "位置或尺寸不准", exact: true }).click();
+      const comment = page.getByRole("alertdialog", { name: "补充说明", exact: true });
+      await comment.getByRole("button", { name: /位置与边界不准/ }).click();
+      await expect(comment.getByRole("textbox", { name: "补充说明（可选）" })).toHaveValue(
+        "位置与边界不准",
+      );
     },
-    // 只截拒回对话框，不露出后面的标注画布（Modal 无 reject-dialog testid，用 role=dialog）
-    capture: { kind: "locator", selector: '[role="dialog"]', padding: 0 },
+    // 第二步的真实补充说明与快捷标签，不提交退回，也不修改待审任务。
+    capture: { kind: "locator", selector: '[role="alertdialog"]', padding: 0 },
     matrix: DARK_WORKBENCH_MATRIX,
     target: "docs-site/user-guide/images/review/reject-form.png",
   },

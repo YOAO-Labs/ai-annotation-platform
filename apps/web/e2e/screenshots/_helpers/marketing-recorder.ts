@@ -25,6 +25,14 @@ export interface MarketingRunContext {
   sourceWorktreeDirty: boolean;
 }
 
+interface MarketingRecordingEvidence {
+  clock: "live" | "unverified";
+  backend_requirements: string | null;
+  inference: "live" | "none" | "unverified";
+  inference_evidence?: unknown;
+  behavior_evidence?: unknown;
+}
+
 interface MarketingCaptureMetadata {
   assetId: string;
   source: string;
@@ -34,6 +42,7 @@ interface MarketingCaptureMetadata {
   seedRevision: string | null;
   viewport: { width: number; height: number } | null;
   browser: { name: string; version: string };
+  evidence?: MarketingRecordingEvidence;
 }
 
 interface MarketingArchiveOptions extends MarketingCaptureMetadata {
@@ -81,6 +90,7 @@ interface VideoProbe {
 
 interface MarketingManifestEntry {
   asset_id: string;
+  evidence?: MarketingRecordingEvidence;
   watch_paths?: string[];
   gif_variants?: SourceGifVariant[];
   source: string;
@@ -611,6 +621,7 @@ export async function archiveMarketingMaster(options: MarketingArchiveOptions): 
     ].join("/");
     manifest.entries[assetId] = {
       asset_id: assetId,
+      ...(options.evidence ? { evidence: options.evidence } : {}),
       ...(options.gifVariants?.length
         ? {
             gif_variants: options.gifVariants.map((variant) => {

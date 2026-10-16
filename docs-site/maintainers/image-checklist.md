@@ -4,12 +4,12 @@
 >
 > 标 `[auto]` 的图由 `pnpm --filter @anno/web screenshots` 自动生成（脚本：`apps/web/e2e/screenshots/`），输出到 `docs-site/user-guide/images/`。
 >
-> 所有流程录制先归档标准源或高清营销母版，再由 `pnpm docs:media:derive` 统一派生 GIF、文档 MP4、首页 WebM/MP4 和封面；`screenshots:flows` 不再直接覆盖 GIF。标准源需显式选择 `--quality standard`，发布时（包括 GIF）指定审阅过的 `--clip start:duration`，不能冒充 4K60 母版。
+> 正式流程素材先统一归档高清营销母版，再由 `pnpm docs:media:derive` 统一派生 GIF、文档 MP4、首页 WebM/MP4 和封面；`screenshots:flows` 只用于预演。历史标准源仅在明确要求复用时显式选择 `--quality standard` 并指定审阅过的 `--clip start:duration`，不能替代新高清母版。
 > 更新流程：
 >
 > 1. 启动 docker / api / dev 三件套（同 `pnpm test:e2e`）
-> 2. 修复截图 seed 并按能力绑定 live backend；无 GPU 时显式使用协议 stub
-> 3. `pnpm --filter @anno/web screenshots:matrix`、`pnpm --filter @anno/web screenshots:flows` 和 `pnpm docs:media:derive`；首页 Hero 源图有变化时再运行 `pnpm --filter @anno/docs-site media:home-hero`
+> 2. 核对隔离运行环境，修复截图 seed 并按能力绑定 live backend；协议 stub 仅用于支持它的静态截图或诊断，不代替真实 ML 母版
+> 3. 静态截图运行 `pnpm --filter @anno/web screenshots:matrix`；正式视频运行 `pnpm --filter @anno/web screenshots:record -- --flow <id>`，再执行 `pnpm docs:media:derive`；首页 Hero 源图有变化时再运行 `pnpm --filter @anno/docs-site media:home-hero`
 > 4. 人眼审阅全部 PNG，并检查 MP4/GIF 的起点、核心动作、结果落地和终点
 > 5. 运行 `pnpm docs:media:audit -- --release`、manifest release gate 和 orphan strict gate 后再提交
 
@@ -17,6 +17,7 @@
 
 - **分辨率**：desktop 1440×900、mobile 390×664；高清母版 3840×2160 / 60fps；文档 MP4 1280×720 / 30fps
 - **格式**：截图 PNG；不超过约 6 秒的简单动作可用 GIF；AI、视频、3D 和长链路使用 H.264 MP4 + WebP 封面
+- **GIF 编码**：全局调色板配合有序抖动与矩形差分，减少静止 UI 的帧间噪点和文件体积；保持已审阅的分辨率、帧率与动作窗口，单文件遵守仓库 2 MiB 上限，不改动采集源或高清母版。
 - **浏览器**：Playwright 固定版本 Chromium；时区、语言、DPR、时钟和动画由 driver 统一固定
 - **数据来源**：只使用 `screenshots` seed catalog 的固定逻辑键；不从开发库随机选择项目或任务
 - **动态信息**：账号、时间和通知数等不稳定区域由统一 mask 规则处理
@@ -294,10 +295,10 @@
 - [~] ~~`images/sam/smart-point-interaction.gif`~~ — **已由** `public/media/sam/smart-point.mp4` **替代**：智能点真实推理完整流已迁移到 DocsVideo
 - [~] ~~`images/sam/smart-box-interaction.gif`~~ — **已由** `public/media/sam/smart-box.mp4` **替代**：智能框真实推理完整流已迁移到 DocsVideo
 - [~] ~~`images/sam/smart-scribble-interaction.gif`~~ — **已由** `public/media/sam/smart-scribble.mp4` **替代**：正负笔迹精修完整流已迁移到 DocsVideo
-- [x] `public/media/ai/assisted-annotation.mp4` — 无侧边栏的真实 SAM3 Magic Box 粗框、候选收紧与类别确认 `[derived-mp4]`（P-COCO8）
+- [x] `public/media/ai/assisted-annotation.mp4` — 真实 SAM3 Magic Box 粗框、候选收紧、类别确认与保存后的车辆框 `[derived-mp4]`（P-COCO8）
 - [~] ~~`images/sam/exemplar-interaction.gif`~~ — **已由** `public/media/sam/exemplar.mp4` **替代**：Exemplar 示例推理完整流已迁移到 DocsVideo
 - [ ] `images/sam/exemplar-yoloe-toolbar.png` — YOLOE exemplar 交互工具栏能力裁剪态；红框：仅正样例、无负框/叠加文本、输出形态 [manual]
-- [ ] `images/workbench/current-task-project-pipeline.png` — 工作台「当前题 AI」面板按项目编排运行入口；红框：运行当前题（按项目编排 · N 阶段）按钮、项目编排来源提示 [manual]
+- [ ] `images/workbench/current-task-project-pipeline.png` — 工作台「当前题 AI」高级配置中的项目编排运行入口；红框：运行当前题（项目编排 · N 阶段）按钮、项目编排来源提示 [manual]
 - [ ] `images/video-playback/sampling-config.png` — 项目设置帧采样配置区（mode/target_fps/frame_step） [manual]
 - [ ] `images/video-playback/chapter-sidebar.png` — 章节侧栏含彩色色带 + 章节列表 [manual]
 - [x] `public/media/video/ai-tracker-panel.mp4` — 自由布局中的浮动、停靠、隐藏恢复与 AI 标签合并，已接入工作台布局指南 `[derived-mp4]`

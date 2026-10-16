@@ -81,7 +81,7 @@ export async function runBackgroundExportDownload(
   await expect(jobsDialog).toBeVisible();
   const jobRow = page.getByTestId(`job-row-${body.job_id}`);
   await expect(jobRow).toBeVisible({ timeout: 10_000 });
-  await expect(jobRow).toContainText(`${project.display_id} · COCO + AAP JSON`);
+  await expect(jobRow).toContainText(`${project.name} · COCO + AAP JSON`);
   await expect(jobRow).toContainText("等待中");
   await page.waitForTimeout(1_200);
 
@@ -92,9 +92,10 @@ export async function runBackgroundExportDownload(
   await page.waitForTimeout(2_000);
 
   const downloadLink = page.getByTestId(`job-download-${body.job_id}`);
-  await moveTo(page, downloadLink);
+  await page.mouse.move(128, 90);
+  await downloadLink.focus();
   const downloadPromise = page.waitForEvent("download", { timeout: 20_000 });
-  await downloadLink.click();
+  await page.keyboard.press("Enter");
   const download = await downloadPromise;
   const downloadPath = await download.path();
   if (!downloadPath) throw new Error("[background-export-download] 浏览器未保存 ZIP 下载");

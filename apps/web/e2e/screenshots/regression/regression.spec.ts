@@ -107,6 +107,7 @@ test.describe("visual regression", () => {
 
       let cleanupMock: () => Promise<void> = async () => {};
       let cleanupAnnotations: () => Promise<void> = async () => {};
+      let cleanupScene: () => Promise<void> = async () => {};
 
       try {
         await installScreenshotEnvironment(page, { clock: scene.clock });
@@ -114,7 +115,11 @@ test.describe("visual regression", () => {
         await applyScreenshotTheme(page, "light");
         cleanupMock = await setupMockState(page, scene.mockState);
         await page.goto(scene.route(catalog));
-        if (scene.prepare) await scene.prepare(page, catalog);
+        if (scene.prepare) {
+          await scene.prepare(page, catalog, (cleanup) => {
+            cleanupScene = cleanup;
+          });
+        }
         if (scene.name === "projects/ai-pre-config-panel") {
           // Regression baselines use the protocol stub's explicit source model.
           // Documentation captures keep their live backend selection.
@@ -138,8 +143,12 @@ test.describe("visual regression", () => {
           try {
             await cleanupMock();
           } finally {
-            // scene.prepare 也可能注册局部 route；测试失败时一并清除。
-            await page.unrouteAll({ behavior: "ignoreErrors" });
+            try {
+              await cleanupScene();
+            } finally {
+              // scene.prepare 也可能注册局部 route；测试失败时一并清除。
+              await page.unrouteAll({ behavior: "ignoreErrors" });
+            }
           }
         }
       }

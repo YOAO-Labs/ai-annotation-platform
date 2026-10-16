@@ -3,7 +3,7 @@ audience: [super_admin]
 type: reference
 since: v0.10.16
 status: stable
-last_reviewed: 2026-09-16
+last_reviewed: 2026-10-14
 ---
 
 # 离线分析面板（DuckDB）
@@ -14,7 +14,10 @@ last_reviewed: 2026-09-16
 
 ## 面板
 
-![分析页概览](../images/superadmin/analytics/overview.png)
+![分析页概览：已初始化面板在当前范围没有匹配事件时显示正常空态](../images/superadmin/analytics/overview.png)
+
+截图中的时间范围没有匹配提交或工时事件，面板展示正常空态，耗时样本数为 0。
+这与接口返回 `503` 的「数据初始化中」不同；有匹配事件时会按下表显示相应统计。
 
 | 面板                | 数据源                                                             | 说明                                                                                                 |
 | ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -25,7 +28,7 @@ last_reviewed: 2026-09-16
 
 时间范围下拉支持 **近 7 / 30 / 90 天**。
 
-![工时热力图](../images/superadmin/analytics/heatmap.png)
+![工时热力图面板：当前时间范围暂无工时数据](../images/superadmin/analytics/heatmap.png)
 
 ### reject_reason_type 枚举值
 

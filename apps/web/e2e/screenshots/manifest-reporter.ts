@@ -83,9 +83,16 @@ function readExistingEntries(): Record<string, LegacyEntry> {
     schema_version?: number;
     entries?: Record<string, LegacyEntry>;
   };
-  return raw.schema_version === 2 && raw.entries
-    ? raw.entries
-    : (raw as Record<string, LegacyEntry>);
+  if (raw.schema_version === 2 && raw.entries) {
+    for (const target in raw.entries) {
+      const entry = raw.entries[target];
+      entry.source_commit ??= raw.source_commit;
+      entry.source_worktree_dirty ??= raw.source_worktree_dirty;
+      entry.seed_revision ??= raw.seed_revision;
+    }
+    return raw.entries;
+  }
+  return raw as Record<string, LegacyEntry>;
 }
 
 function sortedRecord<T>(entries: Array<[string, T]>): Record<string, T> {
@@ -110,7 +117,7 @@ export default class ScreenshotManifestReporter implements Reporter {
     }
   }
 
-  onEnd(result: FullResult): { status?: FullResult["status"] } | void {
+  async onEnd(result: FullResult): Promise<{ status?: FullResult["status"] } | void> {
     try {
       return this.rebuildManifest(result);
     } catch (error) {
@@ -132,11 +139,8 @@ export default class ScreenshotManifestReporter implements Reporter {
     const isCompleteMatrix =
       missingTargets.length === 0 &&
       SCREENSHOT_MATRIX_PROJECTS.every((project) => runProjects.includes(project));
-    if (!isCompleteMatrix) {
-      if (migrateLegacy) {
-        throw new Error(`manifest 迁移要求完整矩阵，缺少 ${missingTargets.length} 个 target`);
-      }
-      return;
+    if (!isCompleteMatrix && migrateLegacy) {
+      throw new Error(`manifest 迁移要求完整矩阵，缺少 ${missingTargets.length} 个 target`);
     }
     if (!migrateLegacy && process.env.SCREENSHOT_VALIDATE_ONLY === "1") return;
     if (result.status !== "passed") {
@@ -149,6 +153,10 @@ export default class ScreenshotManifestReporter implements Reporter {
     const outputEntries: Array<[string, Record<string, unknown>]> = [];
 
     for (const [target, entry] of Object.entries(existing)) {
+      if (!isCompleteMatrix && !this.runEntries.has(target)) {
+        outputEntries.push([target, entry]);
+        continue;
+      }
       if (entry.auto !== false) continue;
       const absolute = path.join(REPO_ROOT, target);
       if (!fs.existsSync(absolute)) {
@@ -190,6 +198,7 @@ export default class ScreenshotManifestReporter implements Reporter {
           seed_profile: "screenshots",
           seed_revision: migrateLegacy ? "legacy-pre-catalog" : metadata.seed_revision,
           source_commit: migrateLegacy ? fileCommit(target) : sourceCommit,
+          source_worktree_dirty: migrateLegacy ? null : this.sourceWorktreeDirty,
           browser: migrateLegacy ? { name: "chromium", version: "unknown" } : metadata.browser,
           project: metadata.project,
           viewport: metadata.viewport,
@@ -221,10 +230,14 @@ export default class ScreenshotManifestReporter implements Reporter {
         : seedRevisions.size === 1
           ? [...seedRevisions][0]
           : null,
-      source_commit: sourceCommit,
-      source_worktree_dirty: this.sourceWorktreeDirty,
-      projects: [...SCREENSHOT_MATRIX_PROJECTS],
-      provenance: migrateLegacy ? "legacy-migration" : "current-run",
+      source_commit: isCompleteMatrix ? sourceCommit : null,
+      source_worktree_dirty: isCompleteMatrix ? this.sourceWorktreeDirty : null,
+      projects: runProjects,
+      provenance: migrateLegacy
+        ? "legacy-migration"
+        : isCompleteMatrix
+          ? "current-run"
+          : "partial-run",
       entries: sortedRecord(outputEntries),
     };
 
