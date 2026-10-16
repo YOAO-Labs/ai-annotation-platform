@@ -471,6 +471,12 @@
 | PUT | `/{pipeline_id}` |
 | DELETE | `/{pipeline_id}` |
 
+## `project_task_datasets.py`
+
+| Method | Path |
+|---|---|
+| GET | `/unrecognized-versions` |
+
 ## `project_templates.py`
 
 | Method | Path |
@@ -890,4 +896,4 @@
 
 ---
 
-_共 81 模块 / 508 路由_
+_共 82 模块 / 509 路由_

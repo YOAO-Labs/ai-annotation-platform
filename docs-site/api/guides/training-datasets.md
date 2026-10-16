@@ -75,6 +75,8 @@ last_reviewed: 2026-10-16
 
 比较增加 `count_unit=unique_contents`、`baseline_members`、`target_members`、`overlapping_changes` 与 `semantic_unchanged_label`，不能把重叠计数相加成总变化量。`raw_contract_changed` 单独表达原始契约变化；`validation_comparison_basis=canonical-profile-validation-1` 及双方 `validation.comparison_identity` 用认可的规范 profile 表达历史／现行等价契约的比较身份，原 `manifest_digest` 等训练身份不回写。相同任务之外还须媒体／几何／桥接兼容；跨任务返回 `422 task_mismatch`，不兼容 profile 返回 `422 data_contract_mismatch`，未资格契约给出明确原因。来源任务 ID 变化、类别重排与真实训练标签变化分开报告，不能据此推断类别重命名、框移动或对象追踪。
 
+`added`／`removed` 是双方已知内容 SHA 集合的差集。另一侧 `counts.unknown_contents > 0` 时，差集不能证明实际内容缺席；客户端应结合双方概览提示待核实，不把未匹配成员直接声明为新增／删除。共同已知内容含未知分区时计入 `unknown`，不计入 `unchanged` 或推断 `split_changed`；已确认的标注、重复次数和来源变化仍独立保留。
+
 媒体仅读取训练桶该版本的冻结成员；验证保留身份、大小及实际字节 SHA 后才响应，不回退可变源。缺失或损坏返回明确错误；`media` 记录 `verified`、`unavailable`、`unchecked` 与最近检查时间，静态报告不保证当前对象仍可读。未就绪版本返回 `409`，跨项目版本或非成员返回 `404`；洞察失败不改变训练包状态。
 
 预检请求示例：

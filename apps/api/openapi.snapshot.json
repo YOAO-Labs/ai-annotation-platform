@@ -31228,6 +31228,104 @@
         "title": "ProjectStats",
         "type": "object"
       },
+      "ProjectTaskDatasetOut": {
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/TaskDatasetCapabilities"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "latest_ready_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending_membership_count": {
+            "title": "Pending Membership Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Status Counts",
+            "type": "object"
+          },
+          "task": {
+            "enum": [
+              "detect",
+              "segment",
+              "classify",
+              "pose",
+              "obb"
+            ],
+            "title": "Task",
+            "type": "string"
+          },
+          "version_count": {
+            "title": "Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "task",
+          "status_counts",
+          "version_count",
+          "pending_membership_count",
+          "latest_ready_version",
+          "capabilities"
+        ],
+        "title": "ProjectTaskDatasetOut",
+        "type": "object"
+      },
+      "ProjectTaskDatasetPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectTaskDatasetOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "pending_membership_count": {
+            "title": "Pending Membership Count",
+            "type": "integer"
+          },
+          "unrecognized_version_count": {
+            "title": "Unrecognized Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "pending_membership_count",
+          "unrecognized_version_count"
+        ],
+        "title": "ProjectTaskDatasetPage",
+        "type": "object"
+      },
       "ProjectTaskQueryRequest": {
         "properties": {
           "columns_json": {
@@ -37877,6 +37975,62 @@
         "title": "SystemSettingsUpdate",
         "type": "object"
       },
+      "TaskDatasetCapabilities": {
+        "properties": {
+          "create_version": {
+            "$ref": "#/components/schemas/TaskDatasetCapability"
+          },
+          "overview_statistics": {
+            "$ref": "#/components/schemas/TaskDatasetCapability"
+          },
+          "qualified_training": {
+            "$ref": "#/components/schemas/TaskDatasetCapability"
+          },
+          "sample_preview": {
+            "$ref": "#/components/schemas/TaskDatasetCapability"
+          },
+          "semantic_comparison": {
+            "$ref": "#/components/schemas/TaskDatasetCapability"
+          },
+          "task_statistics": {
+            "$ref": "#/components/schemas/TaskDatasetCapability"
+          }
+        },
+        "required": [
+          "create_version",
+          "qualified_training",
+          "overview_statistics",
+          "task_statistics",
+          "sample_preview",
+          "semantic_comparison"
+        ],
+        "title": "TaskDatasetCapabilities",
+        "type": "object"
+      },
+      "TaskDatasetCapability": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "supported": {
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "supported"
+        ],
+        "title": "TaskDatasetCapability",
+        "type": "object"
+      },
       "TaskDiscussionItem": {
         "description": "One row in the authoritative, mixed task discussion feed.\n\n``data`` deliberately retains the source endpoint's complete response shape.  The\nsource discriminator lives beside it because annotation comments and feedbacks can\nhave the same UUID; consumers must use ``(source, data.id)`` as the identity.",
         "properties": {
@@ -40693,6 +40847,118 @@
         "title": "TrainingDatasetClassStatistics",
         "type": "object"
       },
+      "TrainingDatasetComparisonValidationIdentity": {
+        "properties": {
+          "contract_profile_digest": {
+            "title": "Contract Profile Digest",
+            "type": "string"
+          },
+          "evaluation_multiset_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Multiset Digest"
+          },
+          "ordered_classes_digest": {
+            "title": "Ordered Classes Digest",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "semantic_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Digest"
+          }
+        },
+        "required": [
+          "contract_profile_digest",
+          "semantic_digest",
+          "evaluation_multiset_digest",
+          "ordered_classes_digest"
+        ],
+        "title": "TrainingDatasetComparisonValidationIdentity",
+        "type": "object"
+      },
+      "TrainingDatasetContractProfile": {
+        "properties": {
+          "bridge": {
+            "title": "Bridge",
+            "type": "string"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "geometry": {
+            "title": "Geometry",
+            "type": "string"
+          },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
+          "schema": {
+            "title": "Schema",
+            "type": "integer"
+          },
+          "source_media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Media Type"
+          },
+          "task": {
+            "enum": [
+              "detect",
+              "segment",
+              "classify",
+              "pose",
+              "obb"
+            ],
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "task",
+          "media_type",
+          "source_media_type",
+          "format",
+          "geometry",
+          "bridge"
+        ],
+        "title": "TrainingDatasetContractProfile",
+        "type": "object"
+      },
       "TrainingDatasetCreate": {
         "additionalProperties": false,
         "properties": {
@@ -40991,6 +41257,17 @@
             "title": "Overlapping Changes",
             "type": "boolean"
           },
+          "raw_contract_changed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Contract Changed"
+          },
           "semantic_unchanged_label": {
             "title": "Semantic Unchanged Label",
             "type": "string"
@@ -41022,6 +41299,11 @@
           "target_validation": {
             "$ref": "#/components/schemas/TrainingDatasetValidationIdentity"
           },
+          "validation_comparison_basis": {
+            "const": "canonical-profile-validation-1",
+            "title": "Validation Comparison Basis",
+            "type": "string"
+          },
           "version_id": {
             "format": "uuid",
             "title": "Version Id",
@@ -41044,6 +41326,8 @@
           "class_encoding_changed",
           "semantic_validation_changed",
           "evaluation_benchmark_changed",
+          "validation_comparison_basis",
+          "raw_contract_changed",
           "baseline_validation",
           "target_validation"
         ],
@@ -41528,6 +41812,16 @@
             ],
             "title": "Completed At"
           },
+          "contract_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetContractProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -41660,6 +41954,29 @@
             ],
             "title": "Task",
             "type": "string"
+          },
+          "task_dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Dataset Id"
+          },
+          "version_ordinal": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Ordinal"
           }
         },
         "required": [
@@ -42154,6 +42471,16 @@
             ],
             "title": "Completed At"
           },
+          "contract_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetContractProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -42281,6 +42608,29 @@
             ],
             "title": "Task",
             "type": "string"
+          },
+          "task_dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Dataset Id"
+          },
+          "version_ordinal": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Ordinal"
           }
         },
         "required": [
@@ -42305,6 +42655,16 @@
       },
       "TrainingDatasetValidationIdentity": {
         "properties": {
+          "comparison_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetComparisonValidationIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "evaluation_multiset_digest": {
             "anyOf": [
               {
@@ -42330,6 +42690,17 @@
           "ordered_classes_digest": {
             "title": "Ordered Classes Digest",
             "type": "string"
+          },
+          "raw_contract_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Contract Digest"
           },
           "semantic_digest": {
             "anyOf": [
@@ -44631,6 +45002,80 @@
           "unread"
         ],
         "title": "UnreadCount",
+        "type": "object"
+      },
+      "UnrecognizedTrainingDatasetVersion": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "default": "unknown_data_contract",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "raw_task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Task"
+          },
+          "reason": {
+            "default": "冻结任务、几何或桥接契约未被识别；未分配任务数据集",
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "created_at",
+          "raw_task"
+        ],
+        "title": "UnrecognizedTrainingDatasetVersion",
+        "type": "object"
+      },
+      "UnrecognizedTrainingDatasetVersionPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UnrecognizedTrainingDatasetVersion"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "UnrecognizedTrainingDatasetVersionPage",
         "type": "object"
       },
       "UploadInitRequest": {
@@ -71530,6 +71975,125 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/task-datasets": {
+      "get": {
+        "operationId": "list_project_task_datasets_api_v1_projects__project_id__task_datasets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectTaskDatasetPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Project Task Datasets",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/task-datasets/unrecognized-versions": {
+      "get": {
+        "operationId": "list_unrecognized_versions_api_v1_projects__project_id__task_datasets_unrecognized_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnrecognizedTrainingDatasetVersionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Unrecognized Versions",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/task-views": {
       "get": {
         "operationId": "list_task_views_api_v1_projects__project_id__task_views_get",
@@ -72634,6 +73198,46 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "detect",
+                    "segment",
+                    "classify",
+                    "pose",
+                    "obb"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_dataset_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Dataset Id"
             }
           }
         ],
