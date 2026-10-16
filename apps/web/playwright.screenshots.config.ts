@@ -146,7 +146,8 @@ const config = defineConfig({
             "--disable-renderer-backgrounding",
             "--disable-backgrounding-occluded-windows",
             "--disable-features=CalculateNativeWinOcclusion",
-            "--run-all-compositor-stages-before-draw",
+            // Linux headed capture needs native frame scheduling for workbench canvases.
+            ...(MAC_CAPTURE ? ["--run-all-compositor-stages-before-draw"] : []),
           ],
         },
       },
