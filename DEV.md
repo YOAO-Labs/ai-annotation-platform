@@ -525,6 +525,8 @@ seed profile 和只读 catalog，不会随机选取开发库里的项目。`--re
 seed 标记的对象。整套自动化固定使用 `annotation_screenshots_test`，不连接
 开发库 `annotation`。
 
+截图 seed 会同步初始化真实离线分析视图，无需等待 `cleanup` 队列。PostgreSQL `_test` / `_e2e` 库未显式设置 `DUCKDB_PATH` 时，默认使用当前 checkout 的 `.artifacts/analytics/` 私有文件，按数据库主机、端口和库名区分；seed 与 API 必须使用同一 checkout 和数据库。显式 `DUCKDB_PATH` 优先，相关进程须指向同一个专属文件，截图 seed 拒绝共享开发默认分析文件。详见[截图维护指南](docs-site/dev/how-to/update-screenshots.md#快速运行)。
+
 交互流程的点击与笔迹坐标来自 catalog 中随任务版本化的归一化语义锚点：锚点可由模型候选生成，但进入截图 seed 前必须经过标签或人工复核，录制器不在运行时猜测画布目标。点云静态场景同时包含轻量 PCL RGB-D 夹具与 nuScenes 六相机环视夹具；后者固定携带六路同步图像、内外参与单帧激光雷达，专门覆盖多相机画布状态。
 
 nuScenes 缓存需包含地图、元数据和关键帧传感器文件；初始化时会校验地图是否齐全。录制 catalog 根据数据集 UUID 解析导入器的隔离存储路径，逻辑帧名称保持固定。
