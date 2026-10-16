@@ -132,6 +132,22 @@ afterEach(() => {
 });
 
 describe("project learning data versions", () => {
+  it("focuses the version name from the data list preparation entry", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(screen.getByLabelText("版本名称")).toHaveFocus();
+    expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+  });
+  it("retries a failed version list without losing access to preparation fields", async () => {
+    vi.mocked(trainingDatasetsApi.list).mockRejectedValueOnce(new Error("版本列表读取失败"));
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByRole("alert")).toHaveTextContent("版本列表读取失败");
+    expect(screen.getByLabelText("版本名称")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByRole("heading", { name: "尚无训练数据版本" })).toBeVisible();
+  });
   it("redirects legacy creation links with controlled framework and return experiment context", async () => {
     mount("/projects/project-1/learning?tab=training&new=1&framework=libreyolo&run=run-1");
     expect(

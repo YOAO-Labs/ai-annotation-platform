@@ -78,6 +78,22 @@ afterEach(() => {
   clients.splice(0).forEach((c) => c.clear());
 });
 describe("ProjectLearningPolicyPanel", () => {
+  it("does not announce a missing policy or disabled executor while they are still loading", async () => {
+    vi.mocked(learningPoliciesApi.get).mockReturnValue(new Promise(() => {}));
+    vi.mocked(trainingRunsApi.catalog).mockReturnValue(new Promise(() => {}));
+    mount();
+    expect(screen.getByText("正在读取策略…")).toBeVisible();
+    expect(screen.queryByText("尚未配置 · 默认关闭")).not.toBeInTheDocument();
+    expect(screen.queryByText(/管理员配置受控训练执行器后/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "配置自动策略" })).toBeDisabled();
+  });
+  it("announces policy read failures without presenting the policy as unconfigured", async () => {
+    vi.mocked(learningPoliciesApi.get).mockRejectedValue(new Error("策略读取失败"));
+    mount();
+    expect(await screen.findByText("策略状态读取失败")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("策略读取失败");
+    expect(screen.queryByText("尚未配置 · 默认关闭")).not.toBeInTheDocument();
+  });
   it("requires an explicit threshold and keeps new policies disabled unless checked", async () => {
     const u = userEvent.setup();
     mount();

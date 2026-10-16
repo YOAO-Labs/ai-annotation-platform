@@ -19,6 +19,8 @@ import {
   type ModelReleaseOut,
   type TrainedModelOut,
 } from "@/api/trainedModels";
+import { Layers, RadioTower } from "lucide-react";
+import { TrainingLoading } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -26,7 +28,7 @@ import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/tr
 import { confirmDialog } from "@/components/ui/decisionDialog";
 
 const inputClass =
-  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const metricNames: Record<string, string> = {
   "metrics/mAP50-95": "mAP50-95",
   "metrics/mAP50": "mAP50",
@@ -74,22 +76,24 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
       )}
       {perClass.length > 0 && (
         <details>
-          <summary className="cursor-pointer">分类别结果（仅列出验证集中出现的类别）</summary>
+          <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            分类别结果（仅列出验证集中出现的类别）
+          </summary>
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr>
-                  <th className="p-2">类别</th>
-                  <th className="p-2">Precision</th>
-                  <th className="p-2">Recall</th>
-                  <th className="p-2">mAP50</th>
-                  <th className="p-2">mAP50-95</th>
+                  <th className="px-4 py-3">类别</th>
+                  <th className="px-4 py-3">Precision</th>
+                  <th className="px-4 py-3">Recall</th>
+                  <th className="px-4 py-3">mAP50</th>
+                  <th className="px-4 py-3">mAP50-95</th>
                 </tr>
               </thead>
               <tbody>
                 {perClass.map((item, index) => (
                   <tr key={index} className="border-t border-border">
-                    <td className="p-2">{String(item.name ?? item.index)}</td>
+                    <td className="px-4 py-3">{String(item.name ?? item.index)}</td>
                     {["precision", "recall", "mAP50", "mAP50-95"].map((key) => (
                       <td key={key} className="p-2 font-mono">
                         {numeric(item[key])}
@@ -103,7 +107,9 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
         </details>
       )}
       <details>
-        <summary className="cursor-pointer">来源与评估范围</summary>
+        <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          来源与评估范围
+        </summary>
         <dl className="mt-2 space-y-1 break-all text-muted-foreground">
           <div>实验：{model.run_id}</div>
           <div>执行尝试：{model.attempt_id}</div>
@@ -239,6 +245,7 @@ function ModelsContent({
     updateModelParams({ model_page: String(change(page)) });
   const lineageHref = (id: string) =>
     `/projects/${projectId}/learning/lineage/model/${id}?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
+  const registrationForm = useRef<HTMLFormElement>(null);
   const [name, setName] = useState("");
   const [runId, setRunId] = useState("");
   const [attemptId, setAttemptId] = useState("");
@@ -508,13 +515,13 @@ function ModelsContent({
         <div className="flex flex-wrap gap-2">
           <Link
             to={`/projects/${projectId}/learning/active-learning`}
-            className="rounded-md border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-muted"
+            className="rounded-md border border-border px-3 py-2 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             主动学习人工选样
           </Link>
           <Link
             to={`/projects/${projectId}/learning/evaluations`}
-            className="rounded-md border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-muted"
+            className="rounded-md border border-border px-3 py-2 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             逐样本评估与误差复查
           </Link>
@@ -536,381 +543,15 @@ function ModelsContent({
           {(models.error ?? releases.error ?? runs.error ?? backends.error)?.message}
         </p>
       )}
-      <form
-        className="mt-4 grid gap-4 rounded-md border border-border p-4 md:grid-cols-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setError("");
-          register.mutate(captureView());
-        }}
+      <section
+        aria-label="当前项目发布"
+        className="mt-5 rounded-xl border border-border bg-card p-4 sm:p-5"
       >
-        <label className="space-y-1 text-xs">
-          模型名称
-          <input
-            className={inputClass}
-            value={name}
-            maxLength={120}
-            disabled={register.isPending}
-            onChange={(event) => changeRegistration(() => setName(event.target.value))}
-          />
-        </label>
-        <label className="space-y-1 text-xs">
-          来源训练实验
-          <select
-            className={inputClass}
-            value={runId}
-            disabled={register.isPending}
-            onChange={(event) =>
-              changeRegistration(() => {
-                setRunId(event.target.value);
-                setAttemptId("");
-                setBindings({});
-              })
-            }
-          >
-            <option value="">选择成功实验</option>
-            {runs.data?.items
-              .filter((run) => run.status === "succeeded")
-              .map((run) => (
-                <option key={run.id} value={run.id}>
-                  {run.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <div className="flex items-center gap-2 text-xs md:col-span-2">
-          <span className="text-muted-foreground">来源列表第 {sourcePage + 1} 页</span>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!sourcePage || register.isPending}
-            onClick={() =>
-              changeRegistration(() => {
-                setSourcePage((p) => p - 1);
-                setRunId("");
-                setBindings({});
-              })
-            }
-          >
-            上一页实验
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={(sourcePage + 1) * 20 >= (runs.data?.total ?? 0) || register.isPending}
-            onClick={() =>
-              changeRegistration(() => {
-                setSourcePage((p) => p + 1);
-                setRunId("");
-                setBindings({});
-              })
-            }
-          >
-            下一页实验
-          </Button>
-        </div>
-        {runId && (
-          <label className="space-y-1 text-xs">
-            成功执行尝试
-            <select
-              className={inputClass}
-              value={selectedAttempt}
-              disabled={register.isPending}
-              onChange={(event) => changeRegistration(() => setAttemptId(event.target.value))}
-            >
-              {source.data?.attempts
-                .filter((attempt) => attempt.status === "succeeded")
-                .map((attempt) => (
-                  <option key={attempt.id} value={attempt.id}>
-                    第 {attempt.ordinal} 次执行
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
-        {source.error && (
-          <p role="alert" className="text-xs text-status-danger">
-            {source.error.message}
-          </p>
-        )}
-        {source.data && !source.data.registration_eligibility?.qualified && (
-          <p className="text-sm text-muted-foreground md:col-span-2">
-            {source.data.registration_eligibility?.reason ??
-              "尚未取得模型回流资格，请重新加载；仍可在训练实验中下载原生权重。"}
-          </p>
-        )}
-        {source.data?.registration_eligibility?.qualified === true &&
-          nativeClasses.map((native, index) => (
-            <label key={index} className="space-y-1 text-xs">
-              原生类别 {index} · {native}
-              <select
-                className={inputClass}
-                value={bindings[index] ?? ""}
-                disabled={register.isPending}
-                onChange={(event) =>
-                  changeRegistration(() =>
-                    setBindings((value) => ({ ...value, [index]: event.target.value })),
-                  )
-                }
-              >
-                <option value="">明确选择项目类别</option>
-                {classes.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
-        <div className="md:col-span-2">
-          <Button type="submit" size="sm" disabled={!validRegistration || register.isPending}>
-            {register.isPending ? "校验与注册中…" : "注册候选模型"}
-          </Button>
-        </div>
-      </form>
-      <label className="mt-5 block max-w-xs space-y-1 text-xs">
-        候选显示范围
-        <select
-          className={inputClass}
-          value={archive}
-          onChange={(event) =>
-            updateModelParams({ archive: event.target.value, model_page: undefined })
-          }
-        >
-          <option value="exclude">默认候选（保留当前发布）</option>
-          <option value="include">全部候选，包含归档</option>
-          <option value="only">仅已归档候选</option>
-        </select>
-      </label>
-      <div className="mt-5 overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="text-muted-foreground">
-            <tr>
-              <th className="p-2">模型</th>
-              <th className="p-2">训练器</th>
-              <th className="p-2">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {models.data?.items.map((model) => (
-              <tr key={model.id} className="border-t border-border">
-                <td className="p-2 font-medium">
-                  {model.name}
-                  {model.archived && (
-                    <Badge>已归档{model.is_current_release ? " · 当前发布" : ""}</Badge>
-                  )}
-                </td>
-                <td className="p-2">
-                  {model.framework} {model.framework_version}
-                </td>
-                <td className="p-2">
-                  <Button size="sm" variant="ghost" onClick={() => showDetail(model.id)}>
-                    评估与部署
-                  </Button>
-                  <Link
-                    className="ml-2 inline-block text-primary hover:underline"
-                    to={lineageHref(model.id)}
-                  >
-                    谱系与决策
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {models.data?.items.length === 0 && (
-        <p className="mt-3 text-xs text-muted-foreground">尚未注册模型版本。</p>
-      )}
-      <div className="mt-3 flex justify-end gap-2">
-        <Button size="sm" disabled={!page} onClick={() => setPage((p) => p - 1)}>
-          上一页模型
-        </Button>
-        <Button
-          size="sm"
-          disabled={(page + 1) * 20 >= (models.data?.total ?? 0)}
-          onClick={() => setPage((p) => p + 1)}
-        >
-          下一页模型
-        </Button>
-      </div>
-      {detail.error && (
-        <p role="alert" className="mt-3 text-sm text-status-danger">
-          {detail.error.message}
-        </p>
-      )}
-      {activeModel && (
-        <div className="mt-4 rounded-md bg-muted p-4" aria-label="模型版本详情">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">{activeModel.name}</h3>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                className="rounded-md border border-border px-3 py-2 text-xs text-primary"
-                to={lineageHref(activeModel.id)}
-              >
-                谱系与决策
-              </Link>
-              <Button
-                size="sm"
-                disabled={download.isPending}
-                onClick={() => download.mutate(captureView())}
-              >
-                下载模型
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setDetailId("")}>
-                收起模型
-              </Button>
-            </div>
-          </div>
-          <Evaluation model={activeModel} />
-          <label className="mt-4 block space-y-1 text-xs">
-            对比另一候选
-            <select
-              className={inputClass}
-              value={compareId}
-              onChange={(event) => setCompareId(event.target.value)}
-            >
-              <option value="">选择模型</option>
-              {models.data?.items
-                .filter((item) => item.id !== activeModel.id)
-                .map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          {comparison &&
-            (comparable ? (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr>
-                      <th className="p-2">同一验证范围</th>
-                      <th className="p-2">{activeModel.name}</th>
-                      <th className="p-2">{comparison.name}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      ...new Set([
-                        ...Object.keys(modelMetrics(activeModel)),
-                        ...Object.keys(modelMetrics(comparison)),
-                      ]),
-                    ].map((key) => (
-                      <tr key={key} className="border-t border-border">
-                        <td className="p-2">{metricNames[key] ?? key}</td>
-                        <td className="p-2 font-mono">{numeric(modelMetrics(activeModel)[key])}</td>
-                        <td className="p-2 font-mono">{numeric(modelMetrics(comparison)[key])}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-muted-foreground">
-                验证基准、类别绑定或评估配置不同，不计算新旧提升。请分别查看各自报告。
-              </p>
-            ))}
-          <div className="mt-4 flex flex-wrap items-end gap-2">
-            <label className="min-w-0 flex-1 space-y-1 text-xs">
-              已启用的认证推理实例
-              <select
-                className={inputClass}
-                value={registryId}
-                onChange={(event) => {
-                  setRegistryId(event.target.value);
-                  setError("");
-                }}
-              >
-                <option value="">选择受控 YOLO 实例</option>
-                {enabledBackends.map(({ backend }) => (
-                  <option
-                    key={backend.id}
-                    value={backend.id}
-                    disabled={backend.state !== "connected"}
-                  >
-                    {backend.name} · {backend.state === "connected" ? "在线" : "不可用"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button
-              size="sm"
-              disabled={!registryId || deploy.isPending}
-              onClick={() => deploy.mutate(captureView())}
-            >
-              {deploy.isPending ? "加载与试用中…" : "加载检查与样本试用"}
-            </Button>
-          </div>
-          {enabledBackends.length === 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              请管理员注册支持受控权重的 YOLO 实例，配置认证并在项目中启用。
-            </p>
-          )}
-          {detail.data?.deployments.map((deployment) => (
-            <div key={deployment.id} className="mt-4 rounded-md border border-border p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant={
-                    deployment.status === "ready"
-                      ? "success"
-                      : deployment.status === "failed"
-                        ? "danger"
-                        : "default"
-                  }
-                >
-                  {states[deployment.status] ?? deployment.status}
-                </Badge>
-                <span className="text-xs">
-                  {enabledBackends.find((item) => item.backend.id === deployment.registry_id)
-                    ?.backend.name ?? deployment.registry_id.slice(0, 8)}
-                </span>
-              </div>
-              {deployment.error_message && (
-                <p role="alert" className="mt-2 text-xs text-status-danger">
-                  {deployment.error_message}
-                </p>
-              )}
-              {deployment.status === "ready" && (
-                <>
-                  <TrialImage trial={deployment.trial} />
-                  <label className="mt-3 flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={!!confirmed[deployment.id]}
-                      onChange={(event) =>
-                        setConfirmed((value) => ({
-                          ...value,
-                          [deployment.id]: event.target.checked,
-                        }))
-                      }
-                    />
-                    已查看固定验证样本，确认用于后续人工试用
-                  </label>
-                  <Button
-                    size="sm"
-                    className="mt-3"
-                    disabled={!confirmed[deployment.id] || publish.isPending || !releases.data}
-                    onClick={() =>
-                      publish.mutate({
-                        view: captureView(),
-                        modelId: activeModel.id,
-                        deploymentId: deployment.id,
-                      })
-                    }
-                  >
-                    发布此模型
-                  </Button>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="mt-6 rounded-md border border-border p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">当前项目发布</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <RadioTower aria-hidden="true" className="size-4 text-muted-foreground" />
+            当前项目发布
+          </h3>
           {current?.model_version_id && (
             <Button
               size="sm"
@@ -924,139 +565,595 @@ function ModelsContent({
           )}
         </div>
         <p className="mt-2 text-xs">
-          {current ? modelName(current) : "尚未发布受控模型"}
+          {releases.isLoading
+            ? "正在读取发布状态…"
+            : releases.error
+              ? "发布状态暂时不可用"
+              : current
+                ? modelName(current)
+                : "尚未发布受控模型"}
           {current && ` · 发布代次 ${current.generation}`}
         </p>
-        {current?.model_version_id && (
-          <>
-            <p className="mt-3 text-xs text-muted-foreground">
-              选择待标图片，用当前发布模型生成候选，再到工作台修正与审核。
-            </p>
-            <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
-              {pendingTasks.data?.items.map((task) => (
-                <label key={task.id} className="flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={selectedTasks.includes(task.id)}
-                    disabled={
-                      predictionRunning ||
-                      (selectedTasks.length >= 200 && !selectedTasks.includes(task.id))
-                    }
-                    onChange={(event) => {
-                      resetPrediction();
-                      setSelectedTasks((value) =>
-                        event.target.checked
-                          ? [...value, task.id]
-                          : value.filter((id) => id !== task.id),
-                      );
-                    }}
-                  />
-                  <span className="min-w-0 break-all">
-                    {task.display_id} · {task.file_name}
-                  </span>
-                </label>
-              ))}
-            </div>
-            {pendingTasks.data?.items.length === 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">暂无待标图片。</p>
-            )}
-            {pendingTasks.error && (
-              <p role="alert" className="mt-2 text-xs text-status-danger">
-                {pendingTasks.error.message}
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button size="sm" disabled={!taskPage} onClick={() => setTaskPage((p) => p - 1)}>
-                上一页任务
-              </Button>
-              <Button
-                size="sm"
-                disabled={(taskPage + 1) * 25 >= (pendingTasks.data?.total ?? 0)}
-                onClick={() => setTaskPage((p) => p + 1)}
-              >
-                下一页任务
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                已选 {selectedTasks.length} / 200
-              </span>
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1 text-xs">
-                已有预测
+      </section>
+      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0">
+          <section
+            aria-label="候选模型"
+            className="overflow-hidden rounded-xl border border-border bg-card"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
+              <h3 className="text-sm font-semibold">
+                候选模型{" "}
+                <span className="ml-1 text-xs font-normal tabular-nums text-muted-foreground">
+                  {models.data?.total ?? "—"}
+                </span>
+              </h3>
+              <label className="block w-full space-y-1 text-2xs text-muted-foreground sm:w-auto sm:max-w-xs">
+                候选显示范围
                 <select
                   className={inputClass}
-                  value={predictMode}
-                  disabled={predictionRunning}
-                  onChange={(event) => {
-                    resetPrediction();
-                    setPredictMode(event.target.value as typeof predictMode);
-                  }}
+                  value={archive}
+                  onChange={(event) =>
+                    updateModelParams({ archive: event.target.value, model_page: undefined })
+                  }
                 >
-                  <option value="skip_predicted">跳过已有预测</option>
-                  <option value="overwrite">覆盖旧预测，保留人工标注</option>
+                  <option value="exclude">默认候选（保留当前发布）</option>
+                  <option value="include">全部候选，包含归档</option>
+                  <option value="only">仅已归档候选</option>
                 </select>
               </label>
-              <label className="space-y-1 text-xs">
-                置信度阈值
-                <input
-                  className={inputClass}
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={confidence}
-                  disabled={predictionRunning}
-                  onChange={(event) => {
-                    resetPrediction();
-                    setConfidence(event.target.value);
-                  }}
-                />
-              </label>
             </div>
-            <Button
-              size="sm"
-              className="mt-3"
-              disabled={
-                !selectedTasks.length ||
-                predictionRunning ||
-                confidence.trim() === "" ||
-                !Number.isFinite(Number(confidence)) ||
-                Number(confidence) < 0 ||
-                Number(confidence) > 1
-              }
-              onClick={() => predict.mutate(captureView())}
-            >
-              {predict.isPending ? "正在排入…" : "用当前发布模型预标注"}
-            </Button>
-          </>
-        )}
-        {job.data && (
-          <div className="mt-3 text-xs" role="status">
-            <p>
-              {states[job.data.status] ?? job.data.status} · {job.data.progress_pct}%
-            </p>
-            <div className="mt-2">
-              <ProgressBar value={job.data.progress_pct} />
+            {models.isLoading && <TrainingLoading label="正在加载候选模型…" />}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-muted/30 text-2xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">模型</th>
+                    <th className="px-4 py-3">训练器</th>
+                    <th className="px-4 py-3">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.data?.items.map((model) => (
+                    <tr key={model.id} className="border-t border-border">
+                      <td className="min-w-32 break-words px-4 py-4 font-medium">
+                        {model.name}
+                        {model.is_current_release && (
+                          <span className="mt-1 block text-2xs text-status-positive">当前发布</span>
+                        )}
+                        {model.archived && (
+                          <Badge>已归档{model.is_current_release ? " · 当前发布" : ""}</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {model.framework} {model.framework_version}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button size="sm" variant="ghost" onClick={() => showDetail(model.id)}>
+                          评估与部署
+                        </Button>
+                        <Link
+                          className="ml-2 inline-block text-primary hover:underline"
+                          to={lineageHref(model.id)}
+                        >
+                          谱系与决策
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            {job.data.error_message && (
-              <p className="mt-2 text-status-danger">{job.data.error_message}</p>
+            {models.data?.items.length === 0 && !models.error && (
+              <div className="px-5 py-10 text-center">
+                <Layers aria-hidden="true" className="mx-auto mb-3 size-6 text-muted-foreground" />
+                <h4 className="text-sm font-medium">
+                  {archive === "only"
+                    ? "此范围暂无归档候选"
+                    : models.data.total > 0
+                      ? "当前页没有候选模型"
+                      : "尚未注册模型版本"}
+                </h4>
+                <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
+                  成功训练后注册权重，完成评估与加载试用，再由负责人发布。
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-3"
+                  onClick={() =>
+                    registrationForm.current?.querySelector<HTMLInputElement>("input")?.focus()
+                  }
+                >
+                  填写候选信息
+                </Button>
+              </div>
             )}
-            <Link
-              className="mt-2 inline-block text-primary hover:underline"
-              to={`/projects/${projectId}/annotate`}
+            {((models.data?.total ?? 0) > 20 || page > 0) && (
+              <div className="flex justify-end gap-2 border-t border-border p-3">
+                <Button size="sm" disabled={!page} onClick={() => setPage((p) => p - 1)}>
+                  上一页模型
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={(page + 1) * 20 >= (models.data?.total ?? 0)}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  下一页模型
+                </Button>
+              </div>
+            )}
+          </section>
+          {detail.error && (
+            <p role="alert" className="mt-3 text-sm text-status-danger">
+              {detail.error.message}
+            </p>
+          )}
+          {activeModel && (
+            <div
+              className="mt-5 min-w-0 space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5"
+              aria-label="模型版本详情"
             >
-              前往工作台修正与确认
-            </Link>
-          </div>
-        )}
-        {job.error && (
-          <p role="alert" className="mt-2 text-xs text-status-danger">
-            {job.error.message}
-          </p>
-        )}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">{activeModel.name}</h3>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    className="rounded-md border border-border px-3 py-2 text-xs text-primary"
+                    to={lineageHref(activeModel.id)}
+                  >
+                    谱系与决策
+                  </Link>
+                  <Button
+                    size="sm"
+                    disabled={download.isPending}
+                    onClick={() => download.mutate(captureView())}
+                  >
+                    下载模型
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setDetailId("")}>
+                    收起模型
+                  </Button>
+                </div>
+              </div>
+              <Evaluation model={activeModel} />
+              <label className="mt-4 block space-y-1 text-xs">
+                对比另一候选
+                <select
+                  className={inputClass}
+                  value={compareId}
+                  onChange={(event) => setCompareId(event.target.value)}
+                >
+                  <option value="">选择模型</option>
+                  {models.data?.items
+                    .filter((item) => item.id !== activeModel.id)
+                    .map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {comparison &&
+                (comparable ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr>
+                          <th className="px-4 py-3">同一验证范围</th>
+                          <th className="px-4 py-3">{activeModel.name}</th>
+                          <th className="px-4 py-3">{comparison.name}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          ...new Set([
+                            ...Object.keys(modelMetrics(activeModel)),
+                            ...Object.keys(modelMetrics(comparison)),
+                          ]),
+                        ].map((key) => (
+                          <tr key={key} className="border-t border-border">
+                            <td className="px-4 py-3">{metricNames[key] ?? key}</td>
+                            <td className="p-2 font-mono">
+                              {numeric(modelMetrics(activeModel)[key])}
+                            </td>
+                            <td className="p-2 font-mono">
+                              {numeric(modelMetrics(comparison)[key])}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    验证基准、类别绑定或评估配置不同，不计算新旧提升。请分别查看各自报告。
+                  </p>
+                ))}
+              <div className="mt-4 flex flex-wrap items-end gap-2">
+                <label className="min-w-0 flex-1 space-y-1 text-xs">
+                  已启用的认证推理实例
+                  <select
+                    className={inputClass}
+                    value={registryId}
+                    onChange={(event) => {
+                      setRegistryId(event.target.value);
+                      setError("");
+                    }}
+                  >
+                    <option value="">选择受控 YOLO 实例</option>
+                    {enabledBackends.map(({ backend }) => (
+                      <option
+                        key={backend.id}
+                        value={backend.id}
+                        disabled={backend.state !== "connected"}
+                      >
+                        {backend.name} · {backend.state === "connected" ? "在线" : "不可用"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  size="sm"
+                  disabled={!registryId || deploy.isPending}
+                  onClick={() => deploy.mutate(captureView())}
+                >
+                  {deploy.isPending ? "加载与试用中…" : "加载检查与样本试用"}
+                </Button>
+              </div>
+              {enabledBackends.length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  请管理员注册支持受控权重的 YOLO 实例，配置认证并在项目中启用。
+                </p>
+              )}
+              {detail.data?.deployments.map((deployment) => (
+                <div key={deployment.id} className="mt-4 rounded-md border border-border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={
+                        deployment.status === "ready"
+                          ? "success"
+                          : deployment.status === "failed"
+                            ? "danger"
+                            : "default"
+                      }
+                    >
+                      {states[deployment.status] ?? deployment.status}
+                    </Badge>
+                    <span className="text-xs">
+                      {enabledBackends.find((item) => item.backend.id === deployment.registry_id)
+                        ?.backend.name ?? deployment.registry_id.slice(0, 8)}
+                    </span>
+                  </div>
+                  {deployment.error_message && (
+                    <p role="alert" className="mt-2 text-xs text-status-danger">
+                      {deployment.error_message}
+                    </p>
+                  )}
+                  {deployment.status === "ready" && (
+                    <>
+                      <TrialImage trial={deployment.trial} />
+                      <label className="mt-3 flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={!!confirmed[deployment.id]}
+                          onChange={(event) =>
+                            setConfirmed((value) => ({
+                              ...value,
+                              [deployment.id]: event.target.checked,
+                            }))
+                          }
+                        />
+                        已查看固定验证样本，确认用于后续人工试用
+                      </label>
+                      <Button
+                        size="sm"
+                        className="mt-3"
+                        disabled={!confirmed[deployment.id] || publish.isPending || !releases.data}
+                        onClick={() =>
+                          publish.mutate({
+                            view: captureView(),
+                            modelId: activeModel.id,
+                            deploymentId: deployment.id,
+                          })
+                        }
+                      >
+                        发布此模型
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <aside className="min-w-0" aria-label="注册候选模型">
+          <form
+            ref={registrationForm}
+            className="grid gap-4 rounded-xl border border-border bg-card p-4 sm:p-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setError("");
+              register.mutate(captureView());
+            }}
+          >
+            <div className="border-b border-border pb-4">
+              <h3 className="text-sm font-semibold">注册候选模型</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                选取成功实验的权重，并明确绑定项目类别。
+              </p>
+            </div>
+            <label className="space-y-1 text-xs">
+              模型名称
+              <input
+                className={inputClass}
+                value={name}
+                maxLength={120}
+                disabled={register.isPending}
+                onChange={(event) => changeRegistration(() => setName(event.target.value))}
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              来源训练实验
+              <select
+                className={inputClass}
+                value={runId}
+                disabled={register.isPending}
+                onChange={(event) =>
+                  changeRegistration(() => {
+                    setRunId(event.target.value);
+                    setAttemptId("");
+                    setBindings({});
+                  })
+                }
+              >
+                <option value="">选择成功实验</option>
+                {runs.data?.items
+                  .filter((run) => run.status === "succeeded")
+                  .map((run) => (
+                    <option key={run.id} value={run.id}>
+                      {run.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {((runs.data?.total ?? 0) > 20 || sourcePage > 0) && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-muted-foreground">来源列表第 {sourcePage + 1} 页</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!sourcePage || register.isPending}
+                  onClick={() =>
+                    changeRegistration(() => {
+                      setSourcePage((p) => p - 1);
+                      setRunId("");
+                      setBindings({});
+                    })
+                  }
+                >
+                  上一页实验
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={(sourcePage + 1) * 20 >= (runs.data?.total ?? 0) || register.isPending}
+                  onClick={() =>
+                    changeRegistration(() => {
+                      setSourcePage((p) => p + 1);
+                      setRunId("");
+                      setBindings({});
+                    })
+                  }
+                >
+                  下一页实验
+                </Button>
+              </div>
+            )}
+            {runId && (
+              <label className="space-y-1 text-xs">
+                成功执行尝试
+                <select
+                  className={inputClass}
+                  value={selectedAttempt}
+                  disabled={register.isPending}
+                  onChange={(event) => changeRegistration(() => setAttemptId(event.target.value))}
+                >
+                  {source.data?.attempts
+                    .filter((attempt) => attempt.status === "succeeded")
+                    .map((attempt) => (
+                      <option key={attempt.id} value={attempt.id}>
+                        第 {attempt.ordinal} 次执行
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+            {source.error && (
+              <p role="alert" className="text-xs text-status-danger">
+                {source.error.message}
+              </p>
+            )}
+            {source.data && !source.data.registration_eligibility?.qualified && (
+              <p className="text-sm text-muted-foreground ">
+                {source.data.registration_eligibility?.reason ??
+                  "尚未取得模型回流资格，请重新加载；仍可在训练实验中下载原生权重。"}
+              </p>
+            )}
+            {source.data?.registration_eligibility?.qualified === true &&
+              nativeClasses.map((native, index) => (
+                <label key={index} className="space-y-1 text-xs">
+                  原生类别 {index} · {native}
+                  <select
+                    className={inputClass}
+                    value={bindings[index] ?? ""}
+                    disabled={register.isPending}
+                    onChange={(event) =>
+                      changeRegistration(() =>
+                        setBindings((value) => ({ ...value, [index]: event.target.value })),
+                      )
+                    }
+                  >
+                    <option value="">明确选择项目类别</option>
+                    {classes.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            <div className="border-t border-border pt-4">
+              <Button
+                type="submit"
+                size="sm"
+                variant="primary"
+                disabled={!validRegistration || register.isPending}
+              >
+                {register.isPending ? "校验与注册中…" : "注册候选模型"}
+              </Button>
+            </div>
+          </form>
+        </aside>
       </div>
-      <details className="mt-5 text-xs">
-        <summary className="cursor-pointer">发布历史与回退</summary>
+      {(current?.model_version_id || jobId) && (
+        <section
+          aria-label="使用当前发布模型"
+          className="mt-5 rounded-xl border border-border bg-card p-4 sm:p-5"
+        >
+          <h3 className="text-sm font-semibold">使用当前发布模型</h3>
+          {current?.model_version_id && (
+            <>
+              <p className="mt-3 text-xs text-muted-foreground">
+                选择待标图片，用当前发布模型生成候选，再到工作台修正与审核。
+              </p>
+              <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
+                {pendingTasks.data?.items.map((task) => (
+                  <label key={task.id} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedTasks.includes(task.id)}
+                      disabled={
+                        predictionRunning ||
+                        (selectedTasks.length >= 200 && !selectedTasks.includes(task.id))
+                      }
+                      onChange={(event) => {
+                        resetPrediction();
+                        setSelectedTasks((value) =>
+                          event.target.checked
+                            ? [...value, task.id]
+                            : value.filter((id) => id !== task.id),
+                        );
+                      }}
+                    />
+                    <span className="min-w-0 break-all">
+                      {task.display_id} · {task.file_name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {pendingTasks.data?.items.length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">暂无待标图片。</p>
+              )}
+              {pendingTasks.error && (
+                <p role="alert" className="mt-2 text-xs text-status-danger">
+                  {pendingTasks.error.message}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button size="sm" disabled={!taskPage} onClick={() => setTaskPage((p) => p - 1)}>
+                  上一页任务
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={(taskPage + 1) * 25 >= (pendingTasks.data?.total ?? 0)}
+                  onClick={() => setTaskPage((p) => p + 1)}
+                >
+                  下一页任务
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  已选 {selectedTasks.length} / 200
+                </span>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1 text-xs">
+                  已有预测
+                  <select
+                    className={inputClass}
+                    value={predictMode}
+                    disabled={predictionRunning}
+                    onChange={(event) => {
+                      resetPrediction();
+                      setPredictMode(event.target.value as typeof predictMode);
+                    }}
+                  >
+                    <option value="skip_predicted">跳过已有预测</option>
+                    <option value="overwrite">覆盖旧预测，保留人工标注</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs">
+                  置信度阈值
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={confidence}
+                    disabled={predictionRunning}
+                    onChange={(event) => {
+                      resetPrediction();
+                      setConfidence(event.target.value);
+                    }}
+                  />
+                </label>
+              </div>
+              <Button
+                size="sm"
+                className="mt-3"
+                disabled={
+                  !selectedTasks.length ||
+                  predictionRunning ||
+                  confidence.trim() === "" ||
+                  !Number.isFinite(Number(confidence)) ||
+                  Number(confidence) < 0 ||
+                  Number(confidence) > 1
+                }
+                onClick={() => predict.mutate(captureView())}
+              >
+                {predict.isPending ? "正在排入…" : "用当前发布模型预标注"}
+              </Button>
+            </>
+          )}
+          {job.data && (
+            <div className="mt-3 text-xs" role="status">
+              <p>
+                {states[job.data.status] ?? job.data.status} · {job.data.progress_pct}%
+              </p>
+              <div className="mt-2">
+                <ProgressBar value={job.data.progress_pct} />
+              </div>
+              {job.data.error_message && (
+                <p className="mt-2 text-status-danger">{job.data.error_message}</p>
+              )}
+              <Link
+                className="mt-2 inline-block text-primary hover:underline"
+                to={`/projects/${projectId}/annotate`}
+              >
+                前往工作台修正与确认
+              </Link>
+            </div>
+          )}
+          {job.error && (
+            <p role="alert" className="mt-2 text-xs text-status-danger">
+              {job.error.message}
+            </p>
+          )}
+        </section>
+      )}
+      <details className="mt-5 rounded-xl border border-border bg-card p-4 text-xs">
+        <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          发布历史与回退
+        </summary>
         <div className="mt-3 space-y-2">
           {releases.data?.items.map((release) => (
             <div

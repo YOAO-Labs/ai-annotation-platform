@@ -138,6 +138,23 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
+  it("keeps loading release and candidate states distinct from an empty model library", async () => {
+    vi.mocked(trainedModelsApi.list).mockReturnValue(new Promise(() => {}));
+    vi.mocked(trainedModelsApi.releases).mockReturnValue(new Promise(() => {}));
+    mount();
+    expect(screen.getByText("正在读取发布状态…")).toBeVisible();
+    expect(screen.getByText("正在加载候选模型…")).toBeInTheDocument();
+    expect(screen.queryByText("尚未注册模型版本")).not.toBeInTheDocument();
+    expect(screen.queryByText("尚未发布受控模型")).not.toBeInTheDocument();
+  });
+  it("takes the empty candidate entry to the registration name without creating a model", async () => {
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 0, items: [] });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "填写候选信息" }));
+    expect(screen.getByLabelText("模型名称")).toHaveFocus();
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+  });
   it.each(["ultralytics", "libreyolo"])(
     "registers qualified %s with explicit complete class binding and preserves identity after a lost response",
     async (framework) => {

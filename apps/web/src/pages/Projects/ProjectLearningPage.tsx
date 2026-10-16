@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Database, FlaskConical, GitBranch, Layers } from "lucide-react";
+import { ArrowLeft, Database, FlaskConical, GitBranch, Layers, Settings2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { batchesApi } from "@/api/batches";
@@ -14,10 +14,10 @@ import {
 } from "@/api/trainingDatasets";
 import { useProject } from "@/hooks/useProjects";
 import { PageContainer } from "@/components/layout/PageContainer";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { confirmDialog } from "@/components/ui/decisionDialog";
+import { ProjectTrainingDataVersions } from "./ProjectTrainingDataVersions";
+import { TrainingError } from "../Training/TrainingFeedback";
 import { ProjectTrainingPanel } from "./ProjectTrainingPanel";
 import { lineageReturn } from "@/api/modelLineage";
 import { ProjectModelsPanel } from "./ProjectModelsPanel";
@@ -27,14 +27,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 
 const inputClass =
-  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring";
-const statuses: Record<string, string> = {
-  pending: "等待构建",
-  running: "构建中",
-  ready: "已就绪",
-  failed: "构建失败",
-  cancelled: "已取消",
-};
+  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const exclusionReasons: Record<string, string> = {
   unsupported_media: "不是图片任务",
   unusable_sample: "本轮标记为损坏、模糊或不可用",
@@ -75,6 +68,7 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
     });
   const client = useQueryClient();
   const project = useProject(projectId);
+  const datasetForm = useRef<HTMLElement>(null);
   const [name, setName] = useState("");
   const [batchId, setBatchId] = useState("");
   const [parentId, setParentId] = useState("");
@@ -288,497 +282,415 @@ function ProjectLearningContent({ projectId, scope }: { projectId: string; scope
           返回模型谱系
         </Link>
       )}
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <div className="min-w-0">
           <Link
             to="/training"
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1.5 rounded-sm text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft className="size-3.5" />
             训练队列
           </Link>
-          <h1 className="mt-2 text-xl font-semibold">{project.data?.name ?? "项目训练"}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            从标注数据到训练实验，再到模型验证与发布。
+          <h1
+            title={project.data?.name}
+            className="mt-2 line-clamp-2 break-words text-xl font-semibold tracking-tight"
+          >
+            {project.data?.name ?? "项目训练"}
+          </h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="font-mono">{project.data?.display_id ?? "项目训练"}</span>
+            <span aria-hidden="true">/</span>
+            <span>数据、实验与模型发布</span>
           </p>
         </div>
         <Link
           to={`/projects/${projectId}/settings`}
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
+          <Settings2 aria-hidden="true" className="size-3.5" />
           项目设置
         </Link>
       </header>
+      {project.error && (
+        <div className="mb-4">
+          <TrainingError message={project.error.message} onRetry={() => void project.refetch()} />
+        </div>
+      )}
       <Tabs value={tab} activationMode="manual" onValueChange={changeTab}>
         <TabsList
           variant="line"
           aria-label="项目训练功能"
-          className="mb-5 w-full justify-start gap-4 overflow-x-auto border-b border-border pb-2"
+          className="mb-5 w-full justify-start gap-1 overflow-x-auto border-b border-border pb-2 sm:gap-4"
         >
-          <TabsTrigger value="training" className="flex-none">
-            <FlaskConical className="size-4" />
+          <TabsTrigger
+            value="training"
+            className="flex-1 px-1 text-xs sm:flex-none sm:px-2 sm:text-sm"
+          >
+            <FlaskConical className="hidden size-4 sm:block" />
             训练实验
           </TabsTrigger>
-          <TabsTrigger value="data" className="flex-none">
-            <Database className="size-4" />
+          <TabsTrigger value="data" className="flex-1 px-1 text-xs sm:flex-none sm:px-2 sm:text-sm">
+            <Database className="hidden size-4 sm:block" />
             训练数据
           </TabsTrigger>
-          <TabsTrigger value="models" className="flex-none">
-            <Layers className="size-4" />
+          <TabsTrigger
+            value="models"
+            className="flex-1 px-1 text-xs sm:flex-none sm:px-2 sm:text-sm"
+          >
+            <Layers className="hidden size-4 sm:block" />
             模型与发布
           </TabsTrigger>
-          <TabsTrigger value="automation" className="flex-none">
-            <GitBranch className="size-4" />
+          <TabsTrigger
+            value="automation"
+            className="flex-1 px-1 text-xs sm:flex-none sm:px-2 sm:text-sm"
+          >
+            <GitBranch className="hidden size-4 sm:block" />
             自动训练
           </TabsTrigger>
         </TabsList>
         <TabsContent value="data" forceMount className="data-[state=inactive]:hidden">
-          {(error || versions.error || project.error) && (
+          {error && (
             <p
               role="alert"
               className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
             >
-              {error || versions.error?.message || project.error?.message}
+              {error}
             </p>
           )}
-          {unsupported ? (
-            <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">
-              当前支持图片矩形框检测和单多边形实例分割数据。请切换到图片项目。
-            </p>
-          ) : (
-            <section
-              aria-labelledby="create-dataset-title"
-              className="mb-7 border-b border-border pb-6"
-            >
-              <h2 id="create-dataset-title" className="mb-1 text-sm font-semibold">
-                创建训练数据版本
-              </h2>
-              <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
-                冻结本轮图片、标注与类别，生成包含原图的训练包。后续修改标注不会改变已有版本。
-              </p>
-              <fieldset disabled={busy} className="grid gap-4 border-0 p-0 md:grid-cols-3">
-                <label className="grid gap-1.5 text-xs font-medium">
-                  训练任务
-                  <select
-                    className={inputClass}
-                    value={trainingTask}
-                    onChange={(event) =>
-                      updateSelection(() => {
-                        taskChosen.current = true;
-                        setTrainingTask(event.target.value as typeof trainingTask);
-                        setParentId("");
-                        setNegatives([]);
-                      })
-                    }
-                  >
-                    <option value="detect" disabled={!detectionEnabled}>
-                      图片目标检测 · 矩形框
-                    </option>
-                    <option value={segmentationTask} disabled={!segmentationEnabled}>
-                      图片实例分割 · 单多边形
-                    </option>
-                  </select>
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium">
-                  版本名称
-                  <input
-                    className={inputClass}
-                    value={name}
-                    maxLength={120}
-                    onChange={(event) => {
-                      setName(event.target.value);
-                      requestId.current = crypto.randomUUID();
-                    }}
-                    placeholder="例如：路口车辆首轮数据"
-                  />
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium">
-                  数据范围
-                  <select
-                    className={inputClass}
-                    value={batchId}
-                    onChange={(event) =>
-                      updateSelection(() => {
-                        setBatchId(event.target.value);
-                        setSelected([]);
-                        setNegatives([]);
-                        setTaskPage(0);
-                      })
-                    }
-                  >
-                    <option value="">整个项目</option>
-                    {batches.data?.map((batch) => (
-                      <option key={batch.id} value={batch.id}>
-                        {batch.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium">
-                  标注纳入方式
-                  <select
-                    className={inputClass}
-                    value={mode}
-                    onChange={(event) =>
-                      updateSelection(() => {
-                        setMode(event.target.value as typeof mode);
-                        setSelected([]);
-                        setNegatives([]);
-                      })
-                    }
-                  >
-                    <option value="reviewed">已审核通过</option>
-                    <option value="manager_confirmed">负责人明确确认</option>
-                  </select>
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium">
-                  继承数据划分
-                  <select
-                    className={inputClass}
-                    value={parentId}
-                    onChange={(event) => updateSelection(() => setParentId(event.target.value))}
-                  >
-                    <option value="">首次划分</option>
-                    {versions.data?.items
-                      .filter(
-                        (version) =>
-                          version.status === "ready" && (version.task ?? "detect") === trainingTask,
-                      )
-                      .map((version) => (
-                        <option key={version.id} value={version.id}>
-                          {version.name}
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
+            <div className="min-w-0 space-y-5">
+              <ProjectTrainingDataVersions
+                data={versions.data}
+                loading={versions.isLoading}
+                error={versions.error?.message}
+                pending={action.isPending}
+                page={page}
+                onPage={setPage}
+                onRetry={() => void versions.refetch()}
+                onSelect={setDetailId}
+                onAction={(kind, version) => action.mutate({ kind, version })}
+                onPrepare={
+                  unsupported
+                    ? undefined
+                    : () => {
+                        datasetForm.current?.scrollIntoView?.({
+                          block: "start",
+                          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                            ? "auto"
+                            : "smooth",
+                        });
+                        datasetForm.current
+                          ?.querySelector<HTMLInputElement>("input")
+                          ?.focus({ preventScroll: true });
+                      }
+                }
+              />
+              {detailId && detail.isLoading && (
+                <p role="status" className="mt-5 text-sm text-muted-foreground">
+                  正在加载所选数据版本…
+                </p>
+              )}
+              {detail.error && (
+                <p role="alert" className="mt-5 text-sm text-status-danger">
+                  {detail.error.message}
+                </p>
+              )}
+              {tab === "data" && detail.data && (
+                <TrainingDatasetInsights
+                  projectId={projectId}
+                  version={detail.data}
+                  onClose={() => setDetailId("")}
+                />
+              )}
+            </div>
+            <div className="min-w-0">
+              {unsupported ? (
+                <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">
+                  当前支持图片矩形框检测和单多边形实例分割数据。请切换到图片项目。
+                </p>
+              ) : (
+                <section
+                  ref={datasetForm}
+                  aria-labelledby="create-dataset-title"
+                  className="rounded-xl border border-border bg-card p-4 sm:p-5"
+                >
+                  <h2 id="create-dataset-title" className="mb-1 text-sm font-semibold">
+                    创建训练数据版本
+                  </h2>
+                  <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+                    冻结本轮图片、标注与类别，生成包含原图的训练包。后续修改标注不会改变已有版本。
+                  </p>
+                  <fieldset disabled={busy} className="grid gap-4 border-0 p-0 sm:grid-cols-2">
+                    <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
+                      训练任务
+                      <select
+                        className={inputClass}
+                        value={trainingTask}
+                        onChange={(event) =>
+                          updateSelection(() => {
+                            taskChosen.current = true;
+                            setTrainingTask(event.target.value as typeof trainingTask);
+                            setParentId("");
+                            setNegatives([]);
+                          })
+                        }
+                      >
+                        <option value="detect" disabled={!detectionEnabled}>
+                          图片目标检测 · 矩形框
                         </option>
-                      ))}
-                  </select>
-                </label>
-                <div className="rounded-md bg-muted p-3 text-xs md:col-span-3" aria-live="polite">
-                  <p className="font-medium">
-                    抽取范围：{trainingTaskLabel(trainingTask)} · {selectedTool} 工具
-                  </p>
-                  <p className="mt-1 text-muted-foreground">
-                    类别（{selectedClasses.length}）：
-                    {selectedClasses
-                      .map((value) => (typeof value === "string" ? value : value.name))
-                      .join("、") || "尚未配置"}
-                  </p>
-                  <p className="mt-1 text-muted-foreground">
-                    每个版本固定一个训练任务。同一项目可分别创建检测、分割等数据版本；其他工具标注会排除并计数。无目标确认仅针对当前所选任务。
-                  </p>
-                </div>
-                {trainingTask === segmentationTask && (
-                  <p className="text-xs leading-relaxed text-muted-foreground md:col-span-3">
-                    仅接受 region 的无洞单多边形。洞、多部件、栅格 mask
-                    会在预检时报错；其他工具的标注会单独计数并排除。训练包保留实例来源；原生 mask
-                    的像素覆盖取决于训练分辨率。
-                  </p>
-                )}
-                <label className="grid gap-1.5 text-xs font-medium">
-                  验证集比例（%）
-                  <input
-                    type="number"
-                    min={5}
-                    max={50}
-                    className={inputClass}
-                    value={fraction}
-                    onChange={(event) => updateSelection(() => setFraction(event.target.value))}
-                  />
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium">
-                  划分随机种子
-                  <input
-                    type="number"
-                    min={0}
-                    max={2147483647}
-                    className={inputClass}
-                    value={seed}
-                    onChange={(event) => updateSelection(() => setSeed(event.target.value))}
-                  />
-                </label>
-                {mode === "manager_confirmed" && (
-                  <div className="md:col-span-3">
-                    <p className="mb-2 text-xs text-muted-foreground">
-                      选择本轮确认用于训练的任务。空白图片只有勾选“确认为无目标”后才会作为负样本。
-                    </p>
-                    {taskList.error && (
-                      <p role="alert" className="text-xs text-status-danger">
-                        {taskList.error.message}
+                        <option value={segmentationTask} disabled={!segmentationEnabled}>
+                          图片实例分割 · 单多边形
+                        </option>
+                      </select>
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
+                      版本名称
+                      <input
+                        className={inputClass}
+                        value={name}
+                        maxLength={120}
+                        onChange={(event) => {
+                          setName(event.target.value);
+                          requestId.current = crypto.randomUUID();
+                        }}
+                        placeholder="例如：路口车辆首轮数据"
+                      />
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-medium">
+                      数据范围
+                      <select
+                        className={inputClass}
+                        value={batchId}
+                        onChange={(event) =>
+                          updateSelection(() => {
+                            setBatchId(event.target.value);
+                            setSelected([]);
+                            setNegatives([]);
+                            setTaskPage(0);
+                          })
+                        }
+                      >
+                        <option value="">整个项目</option>
+                        {batches.data?.map((batch) => (
+                          <option key={batch.id} value={batch.id}>
+                            {batch.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-medium">
+                      标注纳入方式
+                      <select
+                        className={inputClass}
+                        value={mode}
+                        onChange={(event) =>
+                          updateSelection(() => {
+                            setMode(event.target.value as typeof mode);
+                            setSelected([]);
+                            setNegatives([]);
+                          })
+                        }
+                      >
+                        <option value="reviewed">已审核通过</option>
+                        <option value="manager_confirmed">负责人明确确认</option>
+                      </select>
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
+                      继承数据划分
+                      <select
+                        className={inputClass}
+                        value={parentId}
+                        onChange={(event) => updateSelection(() => setParentId(event.target.value))}
+                      >
+                        <option value="">首次划分</option>
+                        {versions.data?.items
+                          .filter(
+                            (version) =>
+                              version.status === "ready" &&
+                              (version.task ?? "detect") === trainingTask,
+                          )
+                          .map((version) => (
+                            <option key={version.id} value={version.id}>
+                              {version.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <div
+                      className="rounded-md bg-muted p-3 text-xs sm:col-span-2"
+                      aria-live="polite"
+                    >
+                      <p className="font-medium">
+                        抽取范围：{trainingTaskLabel(trainingTask)} · {selectedTool} 工具
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        类别（{selectedClasses.length}）：
+                        {selectedClasses
+                          .map((value) => (typeof value === "string" ? value : value.name))
+                          .join("、") || "尚未配置"}
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        每个版本固定一个训练任务。同一项目可分别创建检测、分割等数据版本；其他工具标注会排除并计数。无目标确认仅针对当前所选任务。
+                      </p>
+                    </div>
+                    {trainingTask === segmentationTask && (
+                      <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
+                        仅接受 region 的无洞单多边形。洞、多部件、栅格 mask
+                        会在预检时报错；其他工具的标注会单独计数并排除。训练包保留实例来源；原生
+                        mask 的像素覆盖取决于训练分辨率。
                       </p>
                     )}
-                    <div className="max-h-64 overflow-auto rounded-md border border-border">
-                      {taskList.data?.items.map((task) => (
-                        <div
-                          key={task.id}
-                          className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0"
-                        >
-                          <label className="flex min-w-0 items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={selected.includes(task.id)}
-                              onChange={() => toggleTask(task.id)}
-                            />
-                            <span className="truncate">
-                              {task.display_id} · {task.file_name}
-                            </span>
-                          </label>
-                          <label className="flex items-center gap-2 text-muted-foreground">
-                            <input
-                              type="checkbox"
-                              disabled={!selected.includes(task.id)}
-                              checked={negatives.includes(task.id)}
-                              onChange={() =>
-                                updateSelection(() =>
-                                  setNegatives((current) =>
-                                    current.includes(task.id)
-                                      ? current.filter((key) => key !== task.id)
-                                      : [...current, task.id],
-                                  ),
-                                )
-                              }
-                            />
-                            确认为无目标
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                      <span>已选择 {selected.length} 个任务</span>
-                      <Button
-                        size="sm"
-                        disabled={!taskPage || taskList.isFetching}
-                        onClick={() => setTaskPage((value) => value - 1)}
-                      >
-                        上一页
-                      </Button>
-                      <Button
-                        size="sm"
-                        disabled={taskList.isFetching || (taskList.data?.items.length ?? 0) < 25}
-                        onClick={() => setTaskPage((value) => value + 1)}
-                      >
-                        下一页
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </fieldset>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <Button
-                  disabled={
-                    busy ||
-                    !selectedTaskEnabled ||
-                    !selectedClasses.length ||
-                    (mode === "manager_confirmed" && !selected.length) ||
-                    !seed ||
-                    !fraction
-                  }
-                  onClick={() => preflight.mutate()}
-                >
-                  {preflight.isPending ? "正在检查素材…" : "检查训练数据"}
-                </Button>
-                <Button
-                  variant="primary"
-                  disabled={busy || !report?.ready || !name.trim()}
-                  onClick={() => create.mutate()}
-                >
-                  {create.isPending ? "正在创建…" : "创建数据版本"}
-                </Button>
-              </div>
-              {report && (
-                <div className="mt-4 rounded-md bg-muted p-3 text-xs" aria-live="polite">
-                  <p className="font-medium">
-                    {report.ready ? "数据检查通过" : "需要处理数据问题"}
-                  </p>
-                  <p className="mt-2 text-muted-foreground">
-                    正样本 {report.summary.positives} · 负样本 {report.summary.negatives} · 排除{" "}
-                    {report.summary.excluded} · 类别 {report.classes.length}
-                  </p>
-                  <p className="mt-1 text-muted-foreground">
-                    {trainingTaskLabel(report.task ?? trainingTask)} · 对象{" "}
-                    {report.summary.objects ?? 0} · 排除其他工具标注{" "}
-                    {report.summary.excluded_annotations ?? 0} 条
-                  </p>
-                  {report.issues.map((issue, index) => (
-                    <p className="mt-2 text-status-danger" key={index}>
-                      {String(issue.message ?? issue.code)}
-                      {issue.task_id ? `（${issue.task_id}）` : ""}
-                    </p>
-                  ))}
-                  {report.excluded.length > 0 && (
-                    <details className="mt-2">
-                      <summary className="cursor-pointer">查看排除原因</summary>
-                      <ul className="mt-2 space-y-1">
-                        {report.excluded.map((item, index) => (
-                          <li key={index}>
-                            任务 {String(item.task_id).slice(0, 8)}：
-                            {exclusionReasons[String(item.code)] ?? "不符合当前数据条件"}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                </div>
-              )}
-            </section>
-          )}
-          <section aria-labelledby="dataset-versions-title">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 id="dataset-versions-title" className="text-sm font-semibold">
-                数据版本
-              </h2>
-              <span className="text-xs tabular-nums text-muted-foreground">
-                共 {versions.data?.total ?? 0} 个
-              </span>
-            </div>
-            {versions.isLoading && (
-              <p role="status" className="py-8 text-sm text-muted-foreground">
-                正在加载数据版本…
-              </p>
-            )}
-            {versions.data?.items.length === 0 && (
-              <p className="py-8 text-sm text-muted-foreground">
-                尚无训练数据版本。先检查上方的数据范围，再创建第一轮数据。
-              </p>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-border text-muted-foreground">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">版本</th>
-                    <th className="px-3 py-2 font-medium">状态</th>
-                    <th className="px-3 py-2 font-medium">创建时间</th>
-                    <th className="py-2 text-right font-medium">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versions.data?.items.map((version) => (
-                    <tr key={version.id} className="border-b border-border">
-                      <td className="min-w-40 py-3 pr-4">
-                        <button
-                          className="cursor-pointer text-left font-medium hover:underline"
-                          onClick={() => setDetailId(version.id)}
-                        >
-                          {version.name}
-                        </button>
-                        <p className="mt-1 text-muted-foreground">
-                          {trainingTaskLabel(version.task)} ·{" "}
-                          {version.source_media_type === "video" ? "视频来源 → 图片" : "图片来源"} ·
-                          类别 {version.class_count ?? 0} · 样本{" "}
-                          {String(version.summary?.samples ?? version.summary?.eligible ?? "—")} ·
-                          对象 {String(version.summary?.objects ?? "—")}
-                          {version.status === "ready" &&
-                            ` · 训练 ${version.summary?.train ?? "—"} / 验证 ${version.summary?.val ?? "—"}`}
+                    <label className="grid gap-1.5 text-xs font-medium">
+                      验证集比例（%）
+                      <input
+                        type="number"
+                        min={5}
+                        max={50}
+                        className={inputClass}
+                        value={fraction}
+                        onChange={(event) => updateSelection(() => setFraction(event.target.value))}
+                      />
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-medium">
+                      划分随机种子
+                      <input
+                        type="number"
+                        min={0}
+                        max={2147483647}
+                        className={inputClass}
+                        value={seed}
+                        onChange={(event) => updateSelection(() => setSeed(event.target.value))}
+                      />
+                    </label>
+                    {mode === "manager_confirmed" && (
+                      <div className="sm:col-span-2">
+                        <p className="mb-2 text-xs text-muted-foreground">
+                          选择本轮确认用于训练的任务。空白图片只有勾选“确认为无目标”后才会作为负样本。
                         </p>
-                        {["pending", "running"].includes(version.status) && (
-                          <div
-                            className="mt-2"
-                            role="progressbar"
-                            aria-label={`${version.name} 构建进度`}
-                            aria-valuenow={version.progress_pct}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                          >
-                            <ProgressBar value={version.progress_pct} />
-                          </div>
-                        )}
-                        {version.error_message && (
-                          <p className="mt-1 max-w-sm text-status-danger">
-                            {version.error_message}
+                        {taskList.error && (
+                          <p role="alert" className="text-xs text-status-danger">
+                            {taskList.error.message}
                           </p>
                         )}
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge
-                          variant={
-                            version.status === "ready"
-                              ? "success"
-                              : version.status === "failed"
-                                ? "danger"
-                                : "default"
-                          }
-                        >
-                          {statuses[version.status] ?? version.status}
-                        </Badge>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3 tabular-nums text-muted-foreground">
-                        {new Date(version.created_at).toLocaleString("zh-CN")}
-                      </td>
-                      <td className="py-3">
-                        <div className="flex justify-end gap-1">
-                          {["pending", "running"].includes(version.status) &&
-                            version.async_job_id && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={action.isPending}
-                                onClick={() => action.mutate({ kind: "cancel", version })}
-                              >
-                                取消构建
-                              </Button>
-                            )}
-                          {version.status === "ready" && (
-                            <Button
-                              size="sm"
-                              disabled={action.isPending}
-                              onClick={() => action.mutate({ kind: "download", version })}
+                        <div className="max-h-64 overflow-auto rounded-md border border-border">
+                          {taskList.data?.items.map((task) => (
+                            <div
+                              key={task.id}
+                              className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0"
                             >
-                              下载训练包
-                            </Button>
-                          )}
-                          {["failed", "cancelled"].includes(version.status) && (
-                            <Button
-                              size="sm"
-                              disabled={action.isPending}
-                              onClick={() => action.mutate({ kind: "retry", version })}
-                            >
-                              重试
-                            </Button>
-                          )}
-                          {!["pending", "running"].includes(version.status) && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={action.isPending}
-                              onClick={() => action.mutate({ kind: "delete", version })}
-                            >
-                              删除
-                            </Button>
-                          )}
+                              <label className="flex min-w-0 items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selected.includes(task.id)}
+                                  onChange={() => toggleTask(task.id)}
+                                />
+                                <span className="truncate">
+                                  {task.display_id} · {task.file_name}
+                                </span>
+                              </label>
+                              <label className="flex items-center gap-2 text-muted-foreground">
+                                <input
+                                  type="checkbox"
+                                  disabled={!selected.includes(task.id)}
+                                  checked={negatives.includes(task.id)}
+                                  onChange={() =>
+                                    updateSelection(() =>
+                                      setNegatives((current) =>
+                                        current.includes(task.id)
+                                          ? current.filter((key) => key !== task.id)
+                                          : [...current, task.id],
+                                      ),
+                                    )
+                                  }
+                                />
+                                确认为无目标
+                              </label>
+                            </div>
+                          ))}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                          <span>已选择 {selected.length} 个任务</span>
+                          <Button
+                            size="sm"
+                            disabled={!taskPage || taskList.isFetching}
+                            onClick={() => setTaskPage((value) => value - 1)}
+                          >
+                            上一页
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={
+                              taskList.isFetching || (taskList.data?.items.length ?? 0) < 25
+                            }
+                            onClick={() => setTaskPage((value) => value + 1)}
+                          >
+                            下一页
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </fieldset>
+                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+                    <Button
+                      disabled={
+                        busy ||
+                        !selectedTaskEnabled ||
+                        !selectedClasses.length ||
+                        (mode === "manager_confirmed" && !selected.length) ||
+                        !seed ||
+                        !fraction
+                      }
+                      onClick={() => preflight.mutate()}
+                    >
+                      {preflight.isPending ? "正在检查素材…" : "检查训练数据"}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      disabled={busy || !report?.ready || !name.trim()}
+                      onClick={() => create.mutate()}
+                    >
+                      {create.isPending ? "正在创建…" : "创建数据版本"}
+                    </Button>
+                  </div>
+                  {report && (
+                    <div className="mt-4 rounded-md bg-muted p-3 text-xs" aria-live="polite">
+                      <p className="font-medium">
+                        {report.ready ? "数据检查通过" : "需要处理数据问题"}
+                      </p>
+                      <p className="mt-2 text-muted-foreground">
+                        正样本 {report.summary.positives} · 负样本 {report.summary.negatives} · 排除{" "}
+                        {report.summary.excluded} · 类别 {report.classes.length}
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        {trainingTaskLabel(report.task ?? trainingTask)} · 对象{" "}
+                        {report.summary.objects ?? 0} · 排除其他工具标注{" "}
+                        {report.summary.excluded_annotations ?? 0} 条
+                      </p>
+                      {report.issues.map((issue, index) => (
+                        <p className="mt-2 text-status-danger" key={index}>
+                          {String(issue.message ?? issue.code)}
+                          {issue.task_id ? `（${issue.task_id}）` : ""}
+                        </p>
+                      ))}
+                      {report.excluded.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer">查看排除原因</summary>
+                          <ul className="mt-2 space-y-1">
+                            {report.excluded.map((item, index) => (
+                              <li key={index}>
+                                任务 {String(item.task_id).slice(0, 8)}：
+                                {exclusionReasons[String(item.code)] ?? "不符合当前数据条件"}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
-            <div className="mt-3 flex justify-end gap-2">
-              <Button size="sm" disabled={!page} onClick={() => setPage((value) => value - 1)}>
-                上一页
-              </Button>
-              <Button
-                size="sm"
-                disabled={(page + 1) * 20 >= (versions.data?.total ?? 0)}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                下一页
-              </Button>
-            </div>
-          </section>
-          {detailId && detail.isLoading && (
-            <p role="status" className="mt-5 text-sm text-muted-foreground">
-              正在加载所选数据版本…
-            </p>
-          )}
-          {detail.error && (
-            <p role="alert" className="mt-5 text-sm text-status-danger">
-              {detail.error.message}
-            </p>
-          )}
-          {tab === "data" && detail.data && (
-            <TrainingDatasetInsights
-              projectId={projectId}
-              version={detail.data}
-              onClose={() => setDetailId("")}
-            />
-          )}
+          </div>
         </TabsContent>
         <TabsContent value="training">
           {unsupported ? (

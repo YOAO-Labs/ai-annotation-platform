@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -119,6 +119,51 @@ afterEach(() => {
   localStorage.clear();
 });
 describe("managed project training", () => {
+  it("starts with metrics and keeps execution resources accessible in their own view", async () => {
+    vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [run as never], total: 1 });
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByRole("tab", { name: "指标曲线" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByRole("region", { name: "所选执行资源与耗时" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "资源与耗时" }));
+    expect(await screen.findByRole("region", { name: "所选执行资源与耗时" })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "指标曲线" }));
+    expect(screen.queryByRole("region", { name: "所选执行资源与耗时" })).not.toBeInTheDocument();
+    expect(trainingRunsApi.cancel).not.toHaveBeenCalled();
+  });
+  it("filters only the current experiment page and selects the requested run without a write", async () => {
+    const other = { ...run, id: "other", name: "行人分割实验", task: "segment" };
+    vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [run, other] as never, total: 2 });
+    vi.mocked(trainingRunsApi.get).mockImplementation(
+      async (_project, id) => ({ run: id === "other" ? other : run, attempts: [] }) as never,
+    );
+    const user = userEvent.setup();
+    mount();
+    await user.type(await screen.findByRole("textbox", { name: "搜索本页实验" }), "分割");
+    const list = screen.getByRole("complementary", { name: "实验列表" });
+    expect(within(list).queryByRole("button", { name: "车辆训练" })).not.toBeInTheDocument();
+    await user.click(within(list).getByRole("button", { name: "行人分割实验" }));
+    expect(await screen.findByRole("heading", { name: "行人分割实验" })).toBeVisible();
+    expect(within(list).getByRole("button", { name: "行人分割实验" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(trainingRunsApi.get).toHaveBeenLastCalledWith(
+      "project",
+      "other",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(trainingRunsApi.create).not.toHaveBeenCalled();
+  });
+  it("keeps an experiment request in loading feedback without announcing an empty project", async () => {
+    vi.mocked(trainingRunsApi.list).mockReturnValue(new Promise(() => {}));
+    mount();
+    expect(await screen.findByText("正在加载训练实验…")).toBeInTheDocument();
+    expect(screen.queryByText("创建你的第一个训练实验")).not.toBeInTheDocument();
+  });
   it("opens the independent project creation page", async () => {
     const user = userEvent.setup();
     mount();

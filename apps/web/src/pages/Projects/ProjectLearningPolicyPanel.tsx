@@ -9,6 +9,8 @@ import {
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { Button } from "@/components/ui/Button";
+import { GitBranch, ArrowRight } from "lucide-react";
+import { TrainingLoading } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useAuthStore } from "@/stores/authStore";
@@ -46,6 +48,13 @@ const labels: Record<string, string> = {
   running: "实验进行中",
   skipped: "未触发训练",
 };
+function policyStatusVariant(state: string): "danger" | "warning" | "success" | "default" {
+  if (["failed", "invalid_data"].includes(state)) return "danger";
+  if (["building", "active", "queued", "running", "suspended"].includes(state)) return "warning";
+  if (["waiting", "succeeded"].includes(state)) return "success";
+  return "default";
+}
+
 type Form = {
   enabled: boolean;
   parent: string;
@@ -391,29 +400,81 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
   return (
     <section
       aria-label="自动训练策略"
-      className="space-y-4 rounded-lg border border-border bg-card p-5"
+      className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-5"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-semibold">自动训练策略</h2>
-        <Badge variant={policy.data?.enabled ? "success" : "default"}>
-          {policy.data ? (labels[policy.data.state] ?? policy.data.state) : "尚未配置 · 默认关闭"}
+        <h2 className="flex items-center gap-2 text-md font-semibold">
+          <GitBranch aria-hidden="true" className="size-4 text-muted-foreground" />
+          自动训练策略
+        </h2>
+        <Badge
+          dot
+          variant={
+            policy.error
+              ? "danger"
+              : policy.data
+                ? policyStatusVariant(policy.data.state)
+                : "default"
+          }
+        >
+          {policy.isPending
+            ? "正在读取策略…"
+            : policy.error
+              ? "策略状态读取失败"
+              : policy.data
+                ? (labels[policy.data.state] ?? policy.data.state)
+                : "尚未配置 · 默认关闭"}
         </Badge>
       </div>
-      <p className="text-sm text-muted-foreground">
+      <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
         只使用已审核图片；按训练分区的新增或修正内容计数，相同图片合并。训练完成后仍需人工注册、试用与发布模型。
       </p>
-      {(policy.error || history.error || error) && (
+      {(policy.error || catalog.error || history.error || error) && (
         <p role="alert" className="text-sm text-status-danger">
-          {error || policy.error?.message || history.error?.message}
+          {error || policy.error?.message || catalog.error?.message || history.error?.message}
         </p>
       )}
-      {policy.data && (
-        <div className="space-y-1 text-sm">
-          <p>
-            策略 {policy.data.revision} · 门槛 {currentConfig?.min_changed_samples} 个 · 每{" "}
-            {currentConfig?.check_interval_minutes} 分钟检查 · 冷却{" "}
-            {currentConfig?.cooldown_minutes} 分钟
+      {policy.isPending && <TrainingLoading label="正在加载自动训练策略…" rows={2} />}
+      {!policy.isPending && !policy.error && !policy.data && !editing && (
+        <div className="rounded-lg border border-dashed border-border p-4 sm:p-5">
+          <h3 className="text-sm font-medium">按已审核数据的变化触发训练</h3>
+          <ol
+            aria-label="自动训练流程"
+            className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"
+          >
+            <li className="flex items-center gap-3">
+              审核后数据变化
+              <ArrowRight aria-hidden="true" className="size-3" />
+            </li>
+            <li className="flex items-center gap-3">
+              冻结数据版本
+              <ArrowRight aria-hidden="true" className="size-3" />
+            </li>
+            <li>排队训练</li>
+          </ol>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            配置样本门槛、检查间隔与冷却时间。模型发布继续由负责人确认。
           </p>
+        </div>
+      )}
+      {policy.data && (
+        <div className="space-y-3 text-xs">
+          <dl className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-4 sm:grid-cols-4">
+            {[
+              ["策略修订", policy.data.revision, ""],
+              ["变化样本门槛", currentConfig?.min_changed_samples, "个"],
+              ["检查间隔", currentConfig?.check_interval_minutes, "分钟"],
+              ["冷却时间", currentConfig?.cooldown_minutes, "分钟"],
+            ].map(([label, value, unit]) => (
+              <div key={String(label)}>
+                <dt className="text-2xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 font-mono text-md tabular-nums">
+                  {value ?? "—"}
+                  <span className="ml-1 font-sans text-2xs text-muted-foreground">{unit}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
           <p className="text-muted-foreground">{policy.data.message}</p>
           {initial(policy.data).origin && (
             <TrainingRecipeStatus projectId={projectId} origin={initial(policy.data).origin!} />
@@ -437,6 +498,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
+            variant="primary"
             onClick={begin}
             disabled={busy || policy.isPending || !catalog.data?.enabled}
           >
@@ -475,7 +537,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           )}
         </div>
       )}
-      {!catalog.data?.enabled && (
+      {catalog.isSuccess && !catalog.data?.enabled && (
         <p className="text-sm text-muted-foreground">
           管理员配置受控训练执行器后可保存策略；已有策略仍可关闭。
         </p>
@@ -514,8 +576,9 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
             </p>
           )}
           <fieldset disabled={busy} className="space-y-4 rounded-md border border-border p-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="space-y-1 text-sm">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <h3 className="text-xs font-semibold sm:col-span-2 lg:col-span-3">数据与训练模板</h3>
+              <label className="space-y-1 text-xs">
                 初始划分数据
                 <select
                   aria-label="初始划分数据"
@@ -536,7 +599,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     ))}
                 </select>
               </label>
-              <label className="space-y-1 text-sm">
+              <label className="space-y-1 text-xs">
                 自动训练器
                 <select
                   aria-label="自动训练器"
@@ -555,7 +618,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                   ))}
                 </select>
               </label>
-              <label className="space-y-1 text-sm">
+              <label className="space-y-1 text-xs">
                 自动基础权重
                 <select
                   aria-label="自动基础权重"
@@ -578,12 +641,15 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     ))}
                 </select>
               </label>
+              <h3 className="mt-1 border-t border-border pt-4 text-xs font-semibold sm:col-span-2 lg:col-span-3">
+                触发规则
+              </h3>
               {[
                 ["threshold", "变化样本门槛", 1, 20000],
                 ["interval", "检查间隔（分钟）", 1, 1440],
                 ["cooldown", "冷却时间（分钟）", 0, 10080],
               ].map(([key, label, min, max]) => (
-                <label className="space-y-1 text-sm" key={key}>
+                <label className="space-y-1 text-xs" key={key}>
                   {label}
                   <input
                     aria-label={String(label)}
@@ -598,6 +664,9 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                   />
                 </label>
               ))}
+              <h3 className="mt-1 border-t border-border pt-4 text-xs font-semibold sm:col-span-2 lg:col-span-3">
+                训练参数
+              </h3>
               {(
                 [
                   ["epochs", "自动训练轮数"],
@@ -608,7 +677,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                   ["patience", "自动早停耐心轮数"],
                 ] as const
               ).map(([key, label]) => (
-                <label className="space-y-1 text-sm" key={key}>
+                <label className="space-y-1 text-xs" key={key}>
                   {label}
                   <input
                     aria-label={label}
@@ -627,29 +696,31 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                 </label>
               ))}
             </div>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={datasetPage === 0}
-                onClick={() => setDatasetPage((p) => p - 1)}
-              >
-                上一页初始数据
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={(datasetPage + 1) * 20 >= (datasets.data?.total ?? 0)}
-                onClick={() => setDatasetPage((p) => p + 1)}
-              >
-                下一页初始数据
-              </Button>
-            </div>
+            {((datasets.data?.total ?? 0) > 20 || datasetPage > 0) && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={datasetPage === 0}
+                  onClick={() => setDatasetPage((p) => p - 1)}
+                >
+                  上一页初始数据
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={(datasetPage + 1) * 20 >= (datasets.data?.total ?? 0)}
+                  onClick={() => setDatasetPage((p) => p + 1)}
+                >
+                  下一页初始数据
+                </Button>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">
               范围：{draft.batch ? "保留当前策略的指定批次" : "整个项目"}
               。继承初始划分，之后继承最近成功基线；验证集变化不会增加训练样本计数。保存会产生新的策略修订，并取消旧修订尚未开始的候选和排队实验，已经开始的实验继续。
             </p>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-xs">
               <input
                 type="checkbox"
                 checked={draft.enabled}
@@ -660,6 +731,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
             <div className="flex gap-2">
               <Button
                 size="sm"
+                variant="primary"
                 disabled={
                   !draft.parent ||
                   !draft.base ||
@@ -692,13 +764,19 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           onAccept={() => void acceptRecipe()}
         />
       )}
-      <details>
-        <summary className="cursor-pointer text-sm">
+      <details className="border-t border-border pt-4">
+        <summary className="cursor-pointer rounded-sm text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           自动触发记录（{history.data?.total ?? 0}）
         </summary>
         <div className="mt-3 space-y-3">
+          {history.isPending && <TrainingLoading label="正在加载自动触发记录…" rows={2} />}
+          {history.data?.items.length === 0 && !history.error && (
+            <p className="py-3 text-xs text-muted-foreground">
+              尚无自动触发记录。策略启用后将在检查与触发时记录结果。
+            </p>
+          )}
           {history.data?.items.map((t) => (
-            <div className="space-y-1 rounded-md border border-border p-3 text-sm" key={t.id}>
+            <div className="space-y-2 rounded-lg border border-border p-3 text-xs" key={t.id}>
               <p>
                 策略 {t.policy_revision} · {labels[t.status] ?? t.status} · 变化 {t.changed_samples}{" "}
                 个

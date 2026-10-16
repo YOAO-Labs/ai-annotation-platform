@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, Check, Circle, Clock3, Download, FileText, Layers } from "lucide-react";
+import {
+  Activity,
+  Check,
+  Circle,
+  Clock3,
+  Download,
+  FileText,
+  Layers,
+  Gauge,
+  Terminal,
+} from "lucide-react";
 
 import type { TrainingAttemptOut, TrainingEpochEvent, TrainingRunOut } from "@/api/trainingRuns";
+import { cn } from "@/lib/utils";
+import { TrainingLoading } from "./TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -70,7 +82,7 @@ export function TrainingRunMonitor({
   const [now, setNow] = useState(Date.now);
   const progress = trainingProgress(run);
   const framework = String(run.config.framework ?? "");
-  const task = trainingTaskOf(run.config);
+  const task = run.task ?? trainingTaskOf(run.config);
   const segmentation = task === segmentationTask;
   const points = epochPoints(events, framework);
   const keys = [
@@ -111,17 +123,22 @@ export function TrainingRunMonitor({
   const stage = stages.indexOf(run.status);
   return (
     <article className="min-w-0 rounded-xl border border-border bg-card" aria-label="训练实验详情">
-      <header className="border-b border-border p-5">
+      <header className="border-b border-border p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="break-words text-md font-semibold">{run.name}</h3>
+              <h3 className="break-words text-md font-semibold tracking-tight">{run.name}</h3>
               <Badge dot variant={trainingStatusVariant(run.status)}>
                 {trainingStatusLabels[run.status] ?? run.status}
               </Badge>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {framework} · {run.auto_trigger_id ? "自动训练" : "手动实验"} ·{" "}
+              {framework === "libreyolo"
+                ? "LibreYOLO"
+                : framework === "ultralytics"
+                  ? "Ultralytics"
+                  : framework}{" "}
+              · {trainingTaskLabel(task)} · {run.auto_trigger_id ? "自动训练" : "手动实验"} ·{" "}
               {new Date(run.created_at).toLocaleString("zh-CN")}
               {currentAttempt && ` · 当前第 ${currentAttempt.ordinal} 次执行`}
             </p>
@@ -156,16 +173,26 @@ export function TrainingRunMonitor({
           aria-valuemin={0}
           aria-valuemax={Math.max(progress.total, progress.epoch)}
         >
-          <ProgressBar value={progress.percent} />
+          <ProgressBar
+            value={progress.percent}
+            color={run.status === "succeeded" ? "var(--sc-status-positive)" : "var(--sc-brand)"}
+          />
         </div>
         <ol className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="训练阶段">
           {stages.map((value, i) => (
             <li
               key={value}
               aria-current={i === stage ? "step" : undefined}
-              className={`flex items-center gap-1.5 text-xs ${i <= stage ? "text-status-info" : "text-muted-foreground"}`}
+              className={cn(
+                "flex items-center gap-1.5 text-2xs",
+                i < stage || run.status === "succeeded"
+                  ? "text-status-positive"
+                  : i === stage
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground",
+              )}
             >
-              {i < stage ? (
+              {i < stage || run.status === "succeeded" ? (
                 <Check className="size-3.5" />
               ) : i === stage ? (
                 <Activity className="size-3.5" />
@@ -227,7 +254,7 @@ export function TrainingRunMonitor({
           </p>
         )}
       </header>
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             查看执行
@@ -235,7 +262,7 @@ export function TrainingRunMonitor({
               aria-label="查看执行记录"
               value={selectedAttemptId}
               onChange={(event) => onAttemptChange(event.target.value)}
-              className="max-w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground"
+              className="min-w-0 max-w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {attempts.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -289,19 +316,19 @@ export function TrainingRunMonitor({
             )}
           </section>
         )}
-        <TrainingResourcePanel
-          data={observations.telemetry.data}
-          error={observations.telemetry.error?.message}
-          pending={observations.telemetry.isLoading}
-          live={live}
-          now={now}
-          status={attempt?.status ?? run.status}
-        />
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList aria-label="实验详情视图" className="mb-3 max-w-full overflow-x-auto">
+          <TabsList
+            variant="line"
+            aria-label="实验详情视图"
+            className="mb-4 w-full justify-start overflow-x-auto border-b border-border pb-2 [&>button]:flex-none [&>button]:text-xs"
+          >
             <TabsTrigger value="metrics">
               <Activity className="size-3.5" />
               指标曲线
+            </TabsTrigger>
+            <TabsTrigger value="resources">
+              <Gauge aria-hidden="true" className="size-3.5" />
+              资源与耗时
             </TabsTrigger>
             <TabsTrigger value="artifacts">
               <Download className="size-3.5" />
@@ -312,7 +339,7 @@ export function TrainingRunMonitor({
               训练配置
             </TabsTrigger>
             <TabsTrigger value="logs">
-              <FileText className="size-3.5" />
+              <Terminal aria-hidden="true" className="size-3.5" />
               实时日志
             </TabsTrigger>
           </TabsList>
@@ -323,35 +350,45 @@ export function TrainingRunMonitor({
               </p>
             )}
             <p className="mb-3 text-xs text-muted-foreground">{trainingTaskLabel(task)}</p>
-            <div className={`mb-4 grid grid-cols-2 gap-3 ${segmentation ? "lg:grid-cols-3" : ""}`}>
-              <div className="rounded-lg bg-muted p-3">
+            <div
+              className={cn(
+                "mb-4 grid grid-cols-2 overflow-hidden rounded-lg border border-border",
+                segmentation && "sm:grid-cols-3",
+              )}
+            >
+              <div className="p-3 sm:p-4">
                 <p className="text-xs text-muted-foreground">
                   {segmentation ? "最近掩码验证 mAP50–95" : "最近验证 mAP50–95"}
                 </p>
-                <p className="mt-1 font-mono text-stat">
+                <p className="mt-1 font-mono text-stat tabular-nums tracking-tight">
                   {mapKey && latest?.[mapKey] != null ? latest[mapKey].toFixed(4) : "—"}
                 </p>
               </div>
               {segmentation && (
-                <div className="rounded-lg bg-muted p-3">
+                <div className="border-l border-border p-3 sm:p-4">
                   <p className="text-xs text-muted-foreground">最近框验证 mAP50–95</p>
-                  <p className="mt-1 font-mono text-stat">
+                  <p className="mt-1 font-mono text-stat tabular-nums tracking-tight">
                     {boxMapKey && latest?.[boxMapKey] != null ? latest[boxMapKey].toFixed(4) : "—"}
                   </p>
                 </div>
               )}
-              <div className="rounded-lg bg-muted p-3">
+              <div
+                className={cn(
+                  "border-border p-3 sm:p-4",
+                  segmentation
+                    ? "col-span-2 border-t sm:col-span-1 sm:border-l sm:border-t-0"
+                    : "border-l",
+                )}
+              >
                 <p className="text-xs text-muted-foreground">本次已上报轮次</p>
-                <p className="mt-1 font-mono text-stat">
+                <p className="mt-1 font-mono text-stat tabular-nums tracking-tight">
                   {latest?.epoch ?? "—"}
                   <span className="ml-1 text-xs text-muted-foreground">轮</span>
                 </p>
               </div>
             </div>
             {eventsPending ? (
-              <p role="status" className="py-8 text-center text-sm text-muted-foreground">
-                正在加载训练指标…
-              </p>
+              <TrainingLoading label="正在加载训练指标…" />
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
                 <TrainingMetricChart
@@ -409,6 +446,16 @@ export function TrainingRunMonitor({
                 </div>
               </details>
             )}
+          </TabsContent>
+          <TabsContent value="resources">
+            <TrainingResourcePanel
+              data={observations.telemetry.data}
+              error={observations.telemetry.error?.message}
+              pending={observations.telemetry.isLoading}
+              live={live}
+              now={now}
+              status={attempt?.status ?? run.status}
+            />
           </TabsContent>
           <TabsContent value="logs">
             <TrainingLogViewer

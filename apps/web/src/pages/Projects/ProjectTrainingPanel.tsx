@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
 import { useNavigate } from "react-router-dom";
-import { Plus, FlaskConical, GitCompareArrows } from "lucide-react";
+import { Plus, FlaskConical, GitCompareArrows, Search } from "lucide-react";
 import { TrainingRunMonitor } from "../Training/TrainingRunMonitor";
 import { TrainingStudyPanel } from "../Training/TrainingStudyPanel";
 import { useTrainingEvents } from "../Training/useTrainingEvents";
@@ -13,7 +13,11 @@ import {
   trainingStatusLabels as labels,
   trainingProgress,
   trainingStatusVariant,
+  trainingTaskLabel,
+  trainingTaskOf,
 } from "../Training/trainingPresentation";
+import { cn } from "@/lib/utils";
+import { TrainingLoading, TrainingError } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -43,6 +47,7 @@ export function ProjectTrainingPanel({
   const [attemptId, setAttemptId] = useState(initialAttemptId);
   const [error, setError] = useState("");
   const [page, setPage] = useState(0);
+  const [search, setSearch] = useState("");
   const [selectedId, setDetailId] = useState(initialRunId);
   useEffect(() => {
     setDetailId(initialRunId);
@@ -237,17 +242,29 @@ export function ProjectTrainingPanel({
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Badge
           dot
-          variant={catalog.data?.online ? (catalog.data.busy ? "warning" : "success") : "default"}
+          variant={
+            catalog.isError
+              ? "danger"
+              : catalog.data?.online
+                ? catalog.data.busy
+                  ? "warning"
+                  : "success"
+                : "default"
+          }
         >
-          {catalog.data?.enabled
-            ? catalog.data.online
-              ? catalog.data.busy
-                ? "GPU 正忙 · 新实验将排队"
-                : "执行器在线 · 可开始训练"
-              : "执行器离线 · 实验可排队"
-            : "训练执行器尚未启用"}
+          {catalog.isLoading
+            ? "正在连接执行器…"
+            : catalog.isError
+              ? "执行器状态读取失败"
+              : catalog.data?.enabled
+                ? catalog.data.online
+                  ? catalog.data.busy
+                    ? "GPU 正忙 · 新实验将排队"
+                    : "执行器在线 · 可开始训练"
+                  : "执行器离线 · 实验可排队"
+                : "训练执行器尚未启用"}
         </Badge>
-        <span>共 {runs.data?.total ?? 0} 个实验</span>
+        <span>每 3 秒更新实验状态</span>
       </div>
       <TrainingStudyPanel
         key={`${projectId}:${scope}:${session.owner.revision}`}
@@ -255,70 +272,155 @@ export function ProjectTrainingPanel({
         scope={scope}
         visible={visible}
       />
-      {(error || catalog.error || runs.error || detail.error) && (
+      {error && (
         <p
           role="alert"
-          className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
+          className="mb-4 rounded-lg bg-status-danger-soft p-4 text-xs text-status-danger"
         >
-          {error || catalog.error?.message || runs.error?.message || detail.error?.message}
+          {error}
         </p>
       )}
-      {runs.isLoading && (
-        <p role="status" className="py-8 text-sm text-muted-foreground">
-          正在加载训练实验…
-        </p>
+      {(catalog.error || runs.error || detail.error) && (
+        <div className="mb-4">
+          <TrainingError
+            message={(catalog.error ?? runs.error ?? detail.error)!.message}
+            onRetry={() => {
+              if (catalog.error) void catalog.refetch();
+              if (runs.error) void runs.refetch();
+              if (detail.error) void detail.refetch();
+            }}
+          />
+        </div>
       )}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.8fr)]">
-        <aside className="min-w-0" aria-label="实验列表">
-          <div className="space-y-2">
-            {runs.data?.items.map((run) => {
-              const progress = trainingProgress(run);
-              return (
-                <button
-                  key={run.id}
-                  aria-label={run.name}
-                  aria-pressed={detailId === run.id}
-                  onClick={() => selectRun(run.id)}
-                  className={`w-full rounded-lg border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring ${detailId === run.id ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-muted"}`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="break-words text-sm font-medium">{run.name}</span>
-                    <Badge dot variant={trainingStatusVariant(run.status)}>
-                      {labels[run.status] ?? run.status}
-                    </Badge>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {String(run.config.framework)} · {run.auto_trigger_id ? "自动" : "手动"}
-                  </p>
-                  <div className="mt-3 flex justify-between text-xs tabular-nums text-muted-foreground">
-                    <span>{new Date(run.created_at).toLocaleDateString("zh-CN")}</span>
-                    <span>
-                      {progress.epoch} / {progress.total} 轮
-                    </span>
-                  </div>
-                  <div className="mt-2">
-                    <ProgressBar value={progress.percent} />
-                  </div>
-                </button>
-              );
-            })}
+      <div className="grid items-start gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <aside
+          className="min-w-0 overflow-hidden rounded-xl border border-border bg-card lg:sticky lg:top-4"
+          aria-label="实验列表"
+        >
+          <div className="space-y-3 border-b border-border p-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold">实验记录</h3>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                共 {runs.data?.total ?? "—"} 个
+              </span>
+            </div>
+            <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-2 focus-within:ring-2 focus-within:ring-ring">
+              <Search aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+              <input
+                aria-label="搜索本页实验"
+                placeholder="搜索本页实验"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+              />
+            </label>
           </div>
-          {!!runs.data?.total && (
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <Button size="sm" disabled={!page} onClick={() => setPage((value) => value - 1)}>
+          {runs.isLoading && <TrainingLoading label="正在加载训练实验…" rows={2} />}
+          <div className="max-h-80 divide-y divide-border overflow-y-auto lg:max-h-128">
+            {runs.data?.items
+              .filter((run) =>
+                run.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+              )
+              .map((run) => {
+                const progress = trainingProgress(run);
+                return (
+                  <button
+                    key={run.id}
+                    aria-label={run.name}
+                    aria-pressed={detailId === run.id}
+                    onClick={() => selectRun(run.id)}
+                    className={cn(
+                      "w-full border-l-2 p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      detailId === run.id
+                        ? "border-l-primary bg-primary/5"
+                        : "border-l-transparent hover:bg-muted/50",
+                    )}
+                  >
+                    <span
+                      title={run.name}
+                      className="line-clamp-2 break-words text-sm font-semibold"
+                    >
+                      {run.name}
+                    </span>
+                    <p className="mt-1.5 text-2xs text-muted-foreground">
+                      {run.config.framework === "libreyolo"
+                        ? "LibreYOLO"
+                        : run.config.framework === "ultralytics"
+                          ? "Ultralytics"
+                          : String(run.config.framework ?? "—")}{" "}
+                      · {trainingTaskLabel(run.task ?? trainingTaskOf(run.config))}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <Badge dot variant={trainingStatusVariant(run.status)}>
+                        {run.status === "lost" ? "执行器失联" : (labels[run.status] ?? run.status)}
+                      </Badge>
+                      <span className="text-2xs tabular-nums text-muted-foreground">
+                        {run.status === "queued"
+                          ? "等待调度"
+                          : `${progress.epoch} / ${progress.total} 轮`}
+                      </span>
+                    </div>
+                    {run.status !== "queued" && progress.total > 0 && (
+                      <div className="mt-2.5">
+                        <ProgressBar
+                          value={progress.percent}
+                          color={
+                            run.status === "succeeded"
+                              ? "var(--sc-status-positive)"
+                              : "var(--sc-brand)"
+                          }
+                        />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+          </div>
+          {runs.data &&
+            !runs.error &&
+            !runs.data.items.some((run) =>
+              run.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+            ) && (
+              <div className="p-5 text-center">
+                <p className="text-xs text-muted-foreground">
+                  {search ? "本页没有匹配的实验" : "尚无训练实验"}
+                </p>
+                {search && (
+                  <Button size="xs" variant="ghost" className="mt-2" onClick={() => setSearch("")}>
+                    清除搜索
+                  </Button>
+                )}
+              </div>
+            )}
+          {((runs.data?.total ?? 0) > 20 || page > 0) && (
+            <nav
+              aria-label="实验分页"
+              className="flex items-center justify-between gap-2 border-t border-border p-3"
+            >
+              <Button
+                size="xs"
+                disabled={!page}
+                onClick={() => {
+                  setSearch("");
+                  setPage((value) => value - 1);
+                }}
+              >
                 上一页实验
               </Button>
-              <span className="text-xs text-muted-foreground">
-                {page + 1} / {Math.ceil(runs.data.total / 20)}
+              <span className="text-2xs tabular-nums text-muted-foreground">
+                {page + 1} / {Math.max(1, Math.ceil((runs.data?.total ?? 0) / 20))}
               </span>
               <Button
-                size="sm"
-                disabled={(page + 1) * 20 >= runs.data.total}
-                onClick={() => setPage((value) => value + 1)}
+                size="xs"
+                disabled={(page + 1) * 20 >= (runs.data?.total ?? 0)}
+                onClick={() => {
+                  setSearch("");
+                  setPage((value) => value + 1);
+                }}
               >
                 下一页实验
               </Button>
-            </div>
+            </nav>
           )}
         </aside>
         {current &&
@@ -357,19 +459,36 @@ export function ProjectTrainingPanel({
             visible={visible}
             assertOwner={session.assert}
           />
+        ) : runs.isLoading || detail.isLoading ? (
+          <div className="rounded-xl border border-border bg-card">
+            <TrainingLoading label="正在加载实验详情…" rows={5} />
+          </div>
         ) : (
-          <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center">
-            <FlaskConical className="mb-4 size-8 text-muted-foreground" />
-            <h3 className="text-sm font-medium">
-              {detail.isLoading
-                ? "正在加载实验详情…"
+          <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-border bg-card p-8 text-center">
+            <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-muted">
+              <FlaskConical aria-hidden="true" className="size-5 text-muted-foreground" />
+            </div>
+            <h3 className="text-sm font-semibold">
+              {runs.error || detail.error
+                ? "暂时无法读取实验"
                 : runs.data?.items.length
                   ? "选择一个训练实验"
                   : "创建你的第一个训练实验"}
             </h3>
             <p className="mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
-              使用已就绪的数据版本创建实验，训练开始后将在这里显示进度和验证表现。
+              {runs.error || detail.error
+                ? "请重试读取记录，再查看实验指标与产物。"
+                : "使用就绪数据创建实验，在这里跟进训练指标、执行资源与产物。"}
             </p>
+            {!runs.error && !detail.error && !runs.data?.items.length && (
+              <Button
+                size="sm"
+                className="mt-5"
+                onClick={() => navigate(`/projects/${projectId}/learning?tab=data`)}
+              >
+                准备训练数据
+              </Button>
+            )}
           </div>
         )}
       </div>
