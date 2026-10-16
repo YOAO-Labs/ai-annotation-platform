@@ -1,6 +1,6 @@
 # Unified marketing-master capture
 
-> Status: implemented
+> Status: completed
 
 ## Objective
 
@@ -86,8 +86,8 @@ These observations apply to this video and these requests in this runtime, not t
 - All three owned capture runtimes, disposable databases, Redis containers, 24 storage buckets, isolated displays, seven integrated worktrees/branches and test intermediates were cleaned. Primary/shared environment and dependency symlink targets, existing desktop sessions, model services and other worktrees were preserved. Verified masters remain in the primary ignored archive and Drive; duplicate worker archives were removed only after delivery verification.
 - The output is 3840×2160/60fps. Actual Linux content is 2592×1458 at logical 1440×810 and DPR 1.8, normalized with Lanczos; this is not native pixel 4K. The bounded single-target tracking observations above remain a documented limitation of the tested inputs, without an unrequested backend behavior change.
 - Developer documentation: `DEV.md`, `docs-site/dev/how-to/update-screenshots.md`, `docs-site/dev/reference/generated-artifacts.md`, `docs-site/dev/reference/marketing-asset-catalog.md` and the generated environment-variable reference. User documentation: the affected ML and video guide captions, including the actual dual-bus range story. Skill instructions and the capture reference describe the single production source policy.
-- CHANGELOG: Unreleased entries cover unified production capture, refreshed ML demonstrations and the headless entry. Release milestone: not yet determined; no version bump or release requested.
-- Local capture, content review, encoding, source/hash and scope acceptance passed. The preceding pushed revision passed 24 remote checks with one conditional skip. Final-head remote validation is tracked by PR #139; the completion handoff records its actual result without rewriting generation provenance.
+- CHANGELOG: the requested application release `0.26.1` includes unified production capture, refreshed ML demonstrations and the headless entry. The capture work itself did not independently assign a release version.
+- Local capture, content review, encoding, source/hash and scope acceptance passed. Final reviewed head `b513bee2d` passed 24 remote checks with one conditional skip; both CI and Documentation workflows succeeded. PR #139 merged as `5eeb51303`, preserving all source commits. The root acceptance check passed again on main: 34 masters, 68 source files, 83 derivatives, 18 unchanged static screenshots and no unrelated public changes.
 
 ## PR review follow-up
 
@@ -95,4 +95,4 @@ These observations apply to this video and these requests in this runtime, not t
 - Screenshot seed now validates its disposable database and analytics target before writing, then synchronously runs the existing real analytics synchronization. Test-database defaults isolate DuckDB by checkout/server/database; explicit overrides remain supported. Four actual ASGI panel routes fail with 503 before initialization and return healthy real query results afterward, including empty-source cases.
 - Review decisions synchronously reserve one task session before the reject dialog or lock release. Cancellation/error permits retry; successful reservations persist until retirement. Reentry to review creates a fresh session, stale callbacks cannot alter the next session, and a completed-status refresh before the original success callback still permits its valid navigation.
 - Invitation cleanup verifies the unique email and baseline ownership before removing membership and deactivating the new account, including response-loss and cleanup-failure cases. Discussion cleanup enters `finally` immediately after receiving the created feedback ID. Regression tests exercised the actual flow functions with controlled API/UI doubles; no shared runtime or database was modified.
-- Old-code regressions failed before the fixes. Integrated verification passed 28 frontend tests and 36 analytics/configuration tests. Developer/user guides, `.env.example`, the generated environment reference and Unreleased fixes document the changed behavior. Latest-head remote CI and review-thread resolution are required before the authorized merge; their receipts are retained in the delivery handoff.
+- Old-code regressions failed before the fixes. Integrated verification passed 28 frontend tests and 36 analytics/configuration tests. Developer/user guides, `.env.example`, the generated environment reference and changelog fixes document the changed behavior. All four review threads were answered and resolved before the verified merge. Local main matches origin and is clean; task-owned test stores, build output and all three review-fix worktrees were removed. This plan has no remaining implementation or delivery work; existing human-review debt and the bounded model observations remain honestly recorded outside that completed scope.

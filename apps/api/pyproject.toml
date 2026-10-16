@@ -1,6 +1,6 @@
 [project]
 name = "anno-api"
-version = "0.26.0"
+version = "0.26.1"
 requires-python = ">=3.11"
 dependencies = [
     "aap-protocol-v2",
