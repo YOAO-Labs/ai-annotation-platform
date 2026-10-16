@@ -2,10 +2,12 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { MeResponse } from "../api/auth";
 import { markProactiveLogout } from "../utils/authRedirect";
+import { randomId } from "../utils/id";
 
 interface AuthStore {
   token: string | null;
   user: MeResponse | null;
+  sessionId: string | null;
   setToken: (token: string) => void;
   setUser: (user: MeResponse) => void;
   setAuth: (token: string, user: MeResponse) => void;
@@ -17,21 +19,57 @@ export const useAuthStore = create<AuthStore>()(
     (set) => ({
       token: null,
       user: null,
+      sessionId: null,
       setToken: (token) => {
         localStorage.setItem("token", token);
-        set({ token });
+        set((state) => ({
+          token,
+          // Token refresh continues the current login, including pending writes.
+          sessionId: state.token && state.sessionId ? state.sessionId : randomId(),
+        }));
       },
-      setUser: (user) => set({ user }),
+      setUser: (user) =>
+        set((state) => ({
+          user,
+          sessionId: state.user?.id === user.id && state.sessionId ? state.sessionId : randomId(),
+        })),
       setAuth: (token, user) => {
         localStorage.setItem("token", token);
-        set({ token, user });
+        set((state) => ({
+          token,
+          user,
+          sessionId:
+            state.token === token && state.user?.id === user.id && state.sessionId
+              ? state.sessionId
+              : randomId(),
+        }));
       },
       logout: () => {
         localStorage.removeItem("token");
-        set({ token: null, user: null });
+        set({ token: null, user: null, sessionId: null });
       },
     }),
-    { name: "auth-storage", partialize: (s) => ({ token: s.token, user: s.user }) },
+    {
+      name: "auth-storage",
+      partialize: (s) => ({ token: s.token, user: s.user, sessionId: s.sessionId }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<AuthStore> | undefined;
+        return {
+          ...current,
+          ...saved,
+          sessionId:
+            typeof saved?.sessionId === "string" &&
+            saved.sessionId.length > 0 &&
+            saved.sessionId.length <= 100
+              ? saved.sessionId
+              : null,
+        };
+      },
+      onRehydrateStorage: () => (state) => {
+        // Older persisted accounts acquire a stable, opaque session namespace.
+        if (state?.token && state.user && !state.sessionId) state.setAuth(state.token, state.user);
+      },
+    },
   ),
 );
 

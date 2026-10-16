@@ -3,7 +3,12 @@ import { useAuthStore } from "./authStore";
 let revision = 0;
 const listeners = new Set<() => void>();
 useAuthStore.subscribe((current, previous) => {
-  if (current.user?.id === previous.user?.id && current.token === previous.token) return;
+  if (
+    current.user?.id === previous.user?.id &&
+    current.token === previous.token &&
+    current.sessionId === previous.sessionId
+  )
+    return;
   revision += 1;
   listeners.forEach((listener) => listener());
 });

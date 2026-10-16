@@ -36,7 +36,10 @@ const base: TrainingRunCreate = {
   configuration: { schema_id: "schema", schema_digest: sha, values: { epochs: 2 } },
   preflight_digest: sha,
 };
-const schema = { fields: [{ key: "lr0", status: "editable" }] } as TrainingParameterSchema;
+const schema = {
+  task: "detect",
+  fields: [{ key: "lr0", status: "editable" }],
+} as TrainingParameterSchema;
 const onCreated = vi.fn();
 const beforeStart = vi.fn(async () => true);
 const clients: QueryClient[] = [];

@@ -16,6 +16,7 @@ export function useTrainingViewOwner(projectId: string, scope: string) {
       scope,
       userId: useAuthStore.getState().user?.id,
       token: useAuthStore.getState().token,
+      sessionId: useAuthStore.getState().sessionId,
       revision,
     }),
     [projectId, scope, revision],
@@ -30,13 +31,23 @@ export function useTrainingViewOwner(projectId: string, scope: string) {
     };
   }, []);
   return useMemo(() => {
-    const owns = () =>
-      alive.current &&
-      current.current === owner &&
-      getAuthSessionRevision() === owner.revision &&
-      !!owner.userId &&
-      isCurrentAuthOwner(owner.userId) &&
-      useAuthStore.getState().token === owner.token;
+    const owns = () => {
+      try {
+        return (
+          alive.current &&
+          current.current === owner &&
+          getAuthSessionRevision() === owner.revision &&
+          !!owner.userId &&
+          isCurrentAuthOwner(owner.userId) &&
+          useAuthStore.getState().token === owner.token &&
+          (!owner.sessionId ||
+            JSON.parse(localStorage.getItem("auth-storage") ?? "null")?.state?.sessionId ===
+              owner.sessionId)
+        );
+      } catch {
+        return false;
+      }
+    };
     const assert: AssertTrainingOwner = (signal) => {
       signal?.throwIfAborted();
       if (!owns()) throw new DOMException("训练查看会话已变化", "AbortError");

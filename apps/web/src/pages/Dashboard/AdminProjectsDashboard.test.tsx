@@ -174,7 +174,9 @@ describe("AdminProjectsDashboard", () => {
     renderUI();
     const input = screen.getByPlaceholderText("搜索项目...");
     fireEvent.change(input, { target: { value: "car" } });
-    fireEvent.click(screen.getByTestId("new-project-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("new-project-btn"));
+    });
     expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
     expect(input).toHaveValue("car");
     expect(screen.getByTestId("location-search").textContent).toContain("new=1");

@@ -38,7 +38,7 @@ it("adopts another tab's complete identity and clears the previous account cache
   const unbindCache = bindAuthQueryCache(client);
   const unbindStorage = bindAuthStorage();
   client.setQueryData(["projects"], ["alice-private"]);
-  const bob = { token: "bob-token", user: { id: "bob" } };
+  const bob = { token: "bob-token", user: { id: "bob" }, sessionId: crypto.randomUUID() };
   localStorage.setItem("token", bob.token);
   localStorage.setItem("auth-storage", JSON.stringify({ state: bob, version: 0 }));
   window.dispatchEvent(

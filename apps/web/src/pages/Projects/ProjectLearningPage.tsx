@@ -31,8 +31,13 @@ import { TASKS } from "@/api/generated/capabilityVocab.gen";
 import type { ProjectTaskDatasetOut, TrainingDatasetCreate } from "@/api/generated/types.gen";
 import { datasetParentReason } from "./datasetCompatibility";
 import { ApiError } from "@/api/client";
-import { getAuthSessionRevision } from "@/stores/authSession";
-import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
+import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/trainingViewOwner";
+import {
+  readTrainingDatasetDraft,
+  saveTrainingDatasetDraft,
+  removeMatchingTrainingDatasetDraft,
+  type TrainingDatasetDraftOwner,
+} from "../Training/trainingDatasetDraftStorage";
 
 type DatasetTask = ProjectTaskDatasetOut["task"];
 const datasetTasks: DatasetTask[] = ["detect", "segment", "classify", "pose", "obb"];
@@ -76,7 +81,6 @@ export function ProjectLearningPage() {
         key={owner.key}
         projectId={id}
         scope={owner.key}
-        revision={owner.revision}
         createButtonRef={createButtonRef}
       />
       <Outlet context={{ createButtonRef } satisfies ProjectLearningOutletContext} />
@@ -87,15 +91,37 @@ export function ProjectLearningPage() {
 function ProjectLearningContent({
   projectId,
   scope,
-  revision,
   createButtonRef,
 }: {
   projectId: string;
   scope: string;
-  revision: number;
   createButtonRef: RefObject<HTMLButtonElement>;
 }) {
   const [params, setParams] = useSearchParams();
+  const { owner, owns, assert } = useTrainingViewOwner(projectId, scope);
+  const datasetOwner = useCallback(
+    (task: "detect" | "segment"): TrainingDatasetDraftOwner => ({
+      userId: owner.userId ?? "",
+      sessionId: owner.sessionId ?? "",
+      projectId,
+      task,
+    }),
+    [owner.userId, owner.sessionId, projectId],
+  );
+  const [storedRequests] = useState(
+    () =>
+      new Map(
+        (["detect", "segment"] as const).map((task) => [
+          task,
+          owner.userId && owner.sessionId && owns()
+            ? readTrainingDatasetDraft(datasetOwner(task))
+            : { body: null, error: "登录会话不可用，请重新登录。" },
+        ]),
+      ),
+  );
+  const initialTask = params.get("data_task") === segmentationTask ? segmentationTask : "detect";
+  const initialRequest = storedRequests.get(initialTask)!;
+  const initialBody = initialRequest.body;
   const tab = ["training", "data", "models", "automation"].includes(params.get("tab") ?? "")
     ? params.get("tab")!
     : "training";
@@ -112,12 +138,11 @@ function ProjectLearningContent({
   const prepareButtonRef = useRef<HTMLButtonElement>(null);
   const versionNameRef = useRef<HTMLInputElement>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [name, setName] = useState(newTrainingVersionName);
-  const [batchId, setBatchId] = useState("");
-  const [parentId, setParentId] = useState("");
-  const [trainingTask, setTrainingTask] = useState<NonNullable<TrainingDatasetSelection["task"]>>(
-    params.get("data_task") === segmentationTask ? segmentationTask : "detect",
-  );
+  const [name, setName] = useState(() => initialBody?.name ?? newTrainingVersionName());
+  const [batchId, setBatchId] = useState(initialBody?.batch_id ?? "");
+  const [parentId, setParentId] = useState(initialBody?.parent_id ?? "");
+  const [trainingTask, setTrainingTask] =
+    useState<NonNullable<TrainingDatasetSelection["task"]>>(initialTask);
   const [browseTask, setBrowseTask] = useState<DatasetTask>(
     isDatasetTask(params.get("data_task")) ? (params.get("data_task") as DatasetTask) : "detect",
   );
@@ -125,22 +150,17 @@ function ProjectLearningContent({
   const [diagnosticsPage, setDiagnosticsPage] = useState(0);
   const taskChosen = useRef(params.has("data_task") || params.has("dataset"));
   const autoSelectPending = useRef(!params.has("dataset"));
-  const [mode, setMode] = useState<"reviewed" | "manager_confirmed">("reviewed");
-  const [seed, setSeed] = useState("42");
-  const [fraction, setFraction] = useState("20");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [negatives, setNegatives] = useState<string[]>([]);
+  const [mode, setMode] = useState<"reviewed" | "manager_confirmed">(
+    initialBody?.mode ?? "reviewed",
+  );
+  const [seed, setSeed] = useState(String(initialBody?.seed ?? 42));
+  const [fraction, setFraction] = useState(String((initialBody?.validation_fraction ?? 0.2) * 100));
+  const [selected, setSelected] = useState<string[]>(initialBody?.task_ids ?? []);
+  const [negatives, setNegatives] = useState<string[]>(initialBody?.confirmed_negative_ids ?? []);
   const [taskPage, setTaskPage] = useState(0);
   const [page, setPage] = useState(0);
   const [parentPage, setParentPage] = useState(0);
   const detailId = params.get("dataset") ?? "";
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
   const setDetailId = (value: string) => {
     if (!owns()) return;
     autoSelectPending.current = false;
@@ -159,8 +179,9 @@ function ProjectLearningContent({
   };
   const [report, setReport] = useState<TrainingDatasetPreflight | null>(null);
   const [error, setError] = useState("");
-  const [pendingCreate, setPendingCreate] = useState<TrainingDatasetCreate | null>(null);
-  const requestId = useRef(crypto.randomUUID());
+  const [pendingCreate, setPendingCreate] = useState<TrainingDatasetCreate | null>(initialBody);
+  const [storageError, setStorageError] = useState(initialRequest.error);
+  const requestId = useRef(initialBody?.request_id ?? crypto.randomUUID());
   const checkedDigest = useRef<string | null>(null);
   const selectionEpoch = useRef(0);
   const draftSnapshot = {
@@ -177,11 +198,11 @@ function ProjectLearningContent({
     checkedDigest: checkedDigest.current,
     error,
     pendingCreate,
+    storageError,
   };
   const currentDraft = useRef(draftSnapshot);
   currentDraft.current = draftSnapshot;
   const taskDrafts = useRef(new Map<typeof trainingTask, typeof draftSnapshot>());
-  const owns = () => alive.current && getAuthSessionRevision() === revision;
   const activeTask = useRef(trainingTask);
   const selection: TrainingDatasetSelection = useMemo(
     () => ({
@@ -272,7 +293,12 @@ function ProjectLearningContent({
     void client.invalidateQueries({ queryKey: ["training-dataset-parents", projectId] });
   };
   const preflight = useMutation({
-    mutationFn: () => trainingDatasetsApi.preflight(projectId, selection),
+    mutationFn: () => {
+      assert();
+      if (currentDraft.current.pendingCreate || currentDraft.current.storageError)
+        throw new DOMException("请先确认原创建请求", "AbortError");
+      return trainingDatasetsApi.preflight(projectId, selection);
+    },
     onMutate: () => selectionEpoch.current,
     onSuccess: (value, _variables, epoch) => {
       if (!owns() || epoch !== selectionEpoch.current) return;
@@ -289,13 +315,25 @@ function ProjectLearningContent({
     },
   });
   const create = useMutation({
-    mutationFn: (body: TrainingDatasetCreate) => trainingDatasetsApi.create(projectId, body),
+    mutationFn: (body: TrainingDatasetCreate) => {
+      assert();
+      return trainingDatasetsApi.create(projectId, body);
+    },
     onMutate: (body) => {
+      assert();
+      const failure = saveTrainingDatasetDraft(datasetOwner(body.task ?? "detect"), body);
+      if (failure) throw new Error(failure);
+      currentDraft.current.pendingCreate = body;
       setPendingCreate(body);
       return selectionEpoch.current;
     },
     onSuccess: (value, body, epoch) => {
       if (!owns()) return;
+      const failure = removeMatchingTrainingDatasetDraft(datasetOwner(body.task ?? "detect"), body);
+      if (failure) {
+        setError(failure);
+        return;
+      }
       refresh();
       const previous = taskDrafts.current.get(body.task ?? "detect");
       if (previous?.pendingCreate?.request_id === body.request_id)
@@ -318,8 +356,30 @@ function ProjectLearningContent({
     },
     onError: (reason: Error, body, epoch) => {
       if (!owns()) return;
-      const refused = reason instanceof ApiError && reason.status < 500;
+      const transientConflict =
+        reason instanceof ApiError &&
+        reason.status === 409 &&
+        typeof reason.detailRaw === "object" &&
+        reason.detailRaw !== null &&
+        "reason" in reason.detailRaw &&
+        ["project_busy", "account_busy", "membership_busy"].includes(
+          String(reason.detailRaw.reason),
+        );
+      const refused =
+        reason instanceof ApiError &&
+        reason.status >= 400 &&
+        reason.status < 500 &&
+        ![408, 425, 429].includes(reason.status) &&
+        !transientConflict;
       if (refused) {
+        const failure = removeMatchingTrainingDatasetDraft(
+          datasetOwner(body.task ?? "detect"),
+          body,
+        );
+        if (failure) {
+          setError(failure);
+          return;
+        }
         const previous = taskDrafts.current.get(body.task ?? "detect");
         if (previous?.pendingCreate?.request_id === body.request_id)
           taskDrafts.current.set(body.task ?? "detect", {
@@ -330,7 +390,7 @@ function ProjectLearningContent({
           });
         setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
       }
-      if (epoch !== selectionEpoch.current) return;
+      if (epoch !== undefined && epoch !== selectionEpoch.current) return;
       setError(reason.message);
       if (refused) setReport(null);
     },
@@ -388,6 +448,7 @@ function ProjectLearningContent({
   });
   const busy = preflight.isPending || create.isPending;
   const updateSelection = (update: () => void) => {
+    if (!owns() || busy || currentDraft.current.pendingCreate || storageError) return;
     update();
     selectionEpoch.current += 1;
     requestId.current = crypto.randomUUID();
@@ -395,30 +456,55 @@ function ProjectLearningContent({
     setReport(null);
     setError("");
   };
-  const activateTask = useCallback((task: typeof trainingTask) => {
-    if (activeTask.current === task) return;
-    taskDrafts.current.set(activeTask.current, currentDraft.current);
-    activeTask.current = task;
-    selectionEpoch.current += 1;
-    const draft = taskDrafts.current.get(task);
-    setTrainingTask(task);
-    setName(draft?.name ?? newTrainingVersionName());
-    setBatchId(draft?.batchId ?? "");
-    setParentId(draft?.parentId ?? "");
-    setMode(draft?.mode ?? "reviewed");
-    setSeed(draft?.seed ?? "42");
-    setFraction(draft?.fraction ?? "20");
-    setSelected(draft?.selected ?? []);
-    setNegatives(draft?.negatives ?? []);
-    setReport(draft?.report ?? null);
-    setError(draft?.error ?? "");
-    setPendingCreate(draft?.pendingCreate ?? null);
-    requestId.current = draft?.requestId ?? crypto.randomUUID();
-    checkedDigest.current = draft?.checkedDigest ?? null;
-    setPage(0);
-    setParentPage(0);
-    setTaskPage(0);
-  }, []);
+  const activateTask = useCallback(
+    (task: typeof trainingTask) => {
+      if (activeTask.current === task) return;
+      taskDrafts.current.set(activeTask.current, currentDraft.current);
+      activeTask.current = task;
+      selectionEpoch.current += 1;
+      const stored = storedRequests.get(task)!;
+      const body = stored.body;
+      const draft =
+        taskDrafts.current.get(task) ??
+        (body
+          ? {
+              name: body.name,
+              batchId: body.batch_id ?? "",
+              parentId: body.parent_id ?? "",
+              mode: body.mode ?? "reviewed",
+              seed: String(body.seed ?? 42),
+              fraction: String((body.validation_fraction ?? 0.2) * 100),
+              selected: body.task_ids ?? [],
+              negatives: body.confirmed_negative_ids ?? [],
+              report: null,
+              error: "",
+              pendingCreate: body,
+              storageError: stored.error,
+              requestId: body.request_id,
+              checkedDigest: null,
+            }
+          : undefined);
+      setTrainingTask(task);
+      setName(draft?.name ?? newTrainingVersionName());
+      setBatchId(draft?.batchId ?? "");
+      setParentId(draft?.parentId ?? "");
+      setMode(draft?.mode ?? "reviewed");
+      setSeed(draft?.seed ?? "42");
+      setFraction(draft?.fraction ?? "20");
+      setSelected(draft?.selected ?? []);
+      setNegatives(draft?.negatives ?? []);
+      setReport(draft?.report ?? null);
+      setError(draft?.error ?? "");
+      setPendingCreate(draft?.pendingCreate ?? null);
+      setStorageError(draft?.storageError ?? stored.error);
+      requestId.current = draft?.requestId ?? crypto.randomUUID();
+      checkedDigest.current = draft?.checkedDigest ?? null;
+      setPage(0);
+      setParentPage(0);
+      setTaskPage(0);
+    },
+    [storedRequests],
+  );
   const chooseTask = (task: DatasetTask) => {
     taskChosen.current = true;
     autoSelectPending.current = true;
@@ -508,8 +594,7 @@ function ProjectLearningContent({
       browseTask !== expectedTask ||
       !versions.isSuccess ||
       !versions.data.items[0] ||
-      !alive.current ||
-      getAuthSessionRevision() !== revision
+      !owns()
     )
       return;
     autoSelectPending.current = false;
@@ -534,7 +619,7 @@ function ProjectLearningContent({
     project.data,
     versions.isSuccess,
     versions.data,
-    revision,
+    owns,
     setParams,
   ]);
 
@@ -843,6 +928,11 @@ function ProjectLearningContent({
             initialFocusRef={versionNameRef}
           >
             <section ref={datasetForm} aria-labelledby="create-dataset-title" className="min-w-0">
+              {storageError && (
+                <p role="alert" className="mb-4 text-sm text-status-danger">
+                  {storageError}
+                </p>
+              )}
               {error && (
                 <p
                   role="alert"
@@ -865,39 +955,10 @@ function ProjectLearningContent({
                   <p>
                     上次创建结果尚未确认，原始请求已保留。确认会复用同一请求，避免重复创建；确认前暂时锁定编辑与重新检查。
                   </p>
-                  <Button
-                    size="sm"
-                    className="mt-2"
-                    disabled={busy}
-                    onClick={async () => {
-                      const pending = pendingCreate;
-                      const accepted = await confirmDialog({
-                        title: "放弃未确认请求？",
-                        description:
-                          "服务器可能已创建该版本。建议先确认原请求；放弃后再次创建会使用新的请求标识。",
-                        confirmLabel: "放弃原请求",
-                        tone: "danger",
-                      });
-                      if (
-                        !accepted ||
-                        !owns() ||
-                        currentDraft.current.pendingCreate?.request_id !== pending.request_id
-                      )
-                        return;
-                      setPendingCreate(null);
-                      setReport(null);
-                      setError("");
-                      checkedDigest.current = null;
-                      requestId.current = crypto.randomUUID();
-                      selectionEpoch.current += 1;
-                    }}
-                  >
-                    放弃未确认请求
-                  </Button>
                 </div>
               )}
               <fieldset
-                disabled={busy || !!pendingCreate}
+                disabled={busy || !!pendingCreate || !!storageError}
                 className="grid gap-4 border-0 p-0 sm:grid-cols-2"
               >
                 <label className="grid gap-1.5 text-xs font-medium sm:col-span-2">
@@ -923,6 +984,7 @@ function ProjectLearningContent({
                     value={name}
                     maxLength={120}
                     onChange={(event) => {
+                      if (!owns() || busy || pendingCreate || storageError) return;
                       setName(event.target.value);
                       requestId.current = crypto.randomUUID();
                     }}
@@ -1150,6 +1212,7 @@ function ProjectLearningContent({
                 <Button
                   disabled={
                     busy ||
+                    !!storageError ||
                     !!pendingCreate ||
                     !selectedTaskEnabled ||
                     !selectedClasses.length ||
@@ -1167,6 +1230,7 @@ function ProjectLearningContent({
                   variant="primary"
                   disabled={
                     busy ||
+                    !!storageError ||
                     (!pendingCreate &&
                       (!report?.ready ||
                         !name.trim() ||

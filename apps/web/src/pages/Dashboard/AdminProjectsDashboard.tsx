@@ -12,7 +12,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useToastStore } from "@/components/ui/Toast";
 import { useProjectPage, useProjectStats } from "@/hooks/useProjects";
 import type { ProjectResponse } from "@/api/projects";
-import { CreateProjectWizard } from "@/components/projects/CreateProjectWizard";
+import { CreateProjectWizard } from "@/components/projects/LazyCreateProjectWizard";
 import { ImportDatasetWizard } from "@/components/datasets/ImportDatasetWizard";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
 import { ProjectGrid } from "./ProjectGrid";

@@ -13,6 +13,7 @@ import type { MeResponse } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useProject } from "@/hooks/useProjects";
 import { confirmDialog } from "@/components/ui/decisionDialog";
+import { trainingDatasetDraftKey } from "../Training/trainingDatasetDraftStorage";
 
 vi.mock("@/components/ui/decisionDialog", () => ({ confirmDialog: vi.fn() }));
 
@@ -137,6 +138,7 @@ function mount(path = "/projects/project-1/learning?tab=data") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   vi.mocked(useProject).mockReturnValue({
     data: {
       name: "路口车辆",
@@ -168,6 +170,7 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear());
   vi.restoreAllMocks();
   useAuthStore.getState().logout();
+  localStorage.clear();
 });
 
 describe("project learning data versions", () => {
@@ -413,6 +416,224 @@ describe("project learning data versions", () => {
     expect(vi.mocked(trainingDatasetsApi.create).mock.calls[1][1]).toEqual(first);
     expect(trainingDatasetsApi.preflight).toHaveBeenCalledTimes(1);
   });
+  it.each(["network", "server", "in-flight", "408", "429"])(
+    "restores the exact %s request and editing guards after remount",
+    async (failure) => {
+      if (failure === "in-flight")
+        vi.mocked(trainingDatasetsApi.create).mockImplementationOnce(() => new Promise(() => {}));
+      else
+        vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(
+          failure === "server"
+            ? new ApiError(503, "服务暂不可用")
+            : failure === "408" || failure === "429"
+              ? new ApiError(Number(failure), "响应尚未确定")
+              : new Error("连接中断"),
+        );
+      const user = userEvent.setup();
+      const rendered = mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      await user.clear(screen.getByLabelText("版本名称"));
+      await user.type(screen.getByLabelText("版本名称"), "车辆首轮");
+      await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+      await screen.findByText("数据检查通过");
+      await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+      await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledOnce());
+      const first = structuredClone(vi.mocked(trainingDatasetsApi.create).mock.calls[0][1]);
+      rendered.unmount();
+      await act(async () => {
+        await useAuthStore.persist.rehydrate();
+      });
+      mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      expect(screen.getByLabelText("版本名称")).toHaveValue("车辆首轮");
+      expect(screen.getByLabelText("版本名称")).toBeDisabled();
+      expect(screen.getByRole("button", { name: "检查训练数据" })).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "确认原创建请求" }));
+      await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(trainingDatasetsApi.create).mock.calls[1][1]).toEqual(first);
+      expect(trainingDatasetsApi.preflight).toHaveBeenCalledOnce();
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      cleanup();
+      mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      expect(screen.getByLabelText("版本名称")).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "确认原创建请求" })).not.toBeInTheDocument();
+    },
+  );
+
+  it("restores a pending request when automatic token refresh remounts the view", async () => {
+    vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(new Error("连接中断"));
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    await screen.findByText("数据检查通过");
+    await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+    await screen.findByText("连接中断");
+    const original = structuredClone(vi.mocked(trainingDatasetsApi.create).mock.calls[0][1]);
+    act(() => useAuthStore.getState().setToken("refreshed-token"));
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(screen.getByLabelText("版本名称")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "确认原创建请求" }));
+    await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(trainingDatasetsApi.create).mock.calls[1][1]).toEqual(original);
+  });
+
+  it("keeps pending requests isolated by task and project across remount", async () => {
+    vi.mocked(trainingDatasetsApi.create).mockRejectedValue(new Error("连接中断"));
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    await user.clear(screen.getByLabelText("版本名称"));
+    await user.type(screen.getByLabelText("版本名称"), "仅检测的请求");
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    await screen.findByText("数据检查通过");
+    await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+    await screen.findByText("连接中断");
+    cleanup();
+    mount("/projects/project-2/learning?tab=data");
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(screen.getByLabelText("版本名称")).toBeEnabled();
+    expect(screen.getByLabelText("版本名称")).not.toHaveValue("仅检测的请求");
+    cleanup();
+    mount("/projects/project-1/learning?tab=data&data_task=segment");
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(screen.getByLabelText("版本名称")).toBeEnabled();
+    await user.keyboard("{Escape}");
+    await user.selectOptions(screen.getByLabelText("数据集任务"), "detect");
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(screen.getByLabelText("版本名称")).toHaveValue("仅检测的请求");
+    expect(screen.getByLabelText("版本名称")).toBeDisabled();
+  });
+
+  it.each(["different-account", "same-account-new-token", "same-account-relogin"])(
+    "does not expose a prior session request after %s",
+    async (change) => {
+      vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(new Error("连接中断"));
+      const user = userEvent.setup();
+      mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      await user.clear(screen.getByLabelText("版本名称"));
+      await user.type(screen.getByLabelText("版本名称"), "上一会话私有名称");
+      await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+      await screen.findByText("数据检查通过");
+      await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+      await screen.findByText("连接中断");
+      act(() => {
+        if (change === "same-account-relogin") useAuthStore.getState().logout();
+        useAuthStore
+          .getState()
+          .setAuth(change === "same-account-relogin" ? "session-a" : "session-b", {
+            id: change === "different-account" ? "user-b" : "user-a",
+          } as MeResponse);
+      });
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      expect(screen.getByLabelText("版本名称")).not.toHaveValue("上一会话私有名称");
+      expect(screen.getByLabelText("版本名称")).toBeEnabled();
+      cleanup();
+      mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      expect(screen.getByLabelText("版本名称")).not.toHaveValue("上一会话私有名称");
+      expect(screen.queryByRole("button", { name: "确认原创建请求" })).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(["project_busy", "account_busy", "membership_busy"])(
+    "retains a lost-response request across a transient %s conflict and remount",
+    async (reason) => {
+      vi.mocked(trainingDatasetsApi.create)
+        .mockRejectedValueOnce(new Error("连接中断"))
+        .mockRejectedValueOnce(new ApiError(409, "正在变更，请重试", { reason }));
+      const user = userEvent.setup();
+      mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+      await screen.findByText("数据检查通过");
+      await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+      await screen.findByText("连接中断");
+      const original = structuredClone(vi.mocked(trainingDatasetsApi.create).mock.calls[0][1]);
+      await user.click(screen.getByRole("button", { name: "确认原创建请求" }));
+      await screen.findByText("正在变更，请重试");
+      cleanup();
+      mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      expect(screen.getByLabelText("版本名称")).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "确认原创建请求" }));
+      await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledTimes(3));
+      expect(vi.mocked(trainingDatasetsApi.create).mock.calls[2][1]).toEqual(original);
+      expect(trainingDatasetsApi.preflight).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("blocks replacement of malformed persisted requests without revealing their contents", async () => {
+    const key = trainingDatasetDraftKey({
+      userId: "user-a",
+      sessionId: useAuthStore.getState().sessionId!,
+      projectId: "project-1",
+      task: "detect",
+    });
+    localStorage.setItem(key, '{"private":"不可显示的损坏记录"');
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法恢复本地创建请求");
+    expect(screen.queryByText(/不可显示的损坏记录/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "检查训练数据" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "创建数据版本" })).toBeDisabled();
+    expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+    expect(localStorage.getItem(key)).toBe('{"private":"不可显示的损坏记录"');
+  });
+
+  it("does not send a POST when the original request cannot be persisted", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    await screen.findByText("数据检查通过");
+    const setItem = Storage.prototype.setItem;
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith("aap-training-dataset-request:"))
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      setItem.call(this, key, value);
+    });
+    await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("请求尚未发送");
+    expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("版本名称")).toBeEnabled();
+    storage.mockRestore();
+    await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+    await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledOnce());
+  });
+
+  it.each(["token", "session"])(
+    "blocks a stale owner's pending retry before another tab's %s is adopted",
+    async (changed) => {
+      vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(new Error("连接中断"));
+      const user = userEvent.setup();
+      mount();
+      await user.click(screen.getByRole("button", { name: "准备新版本" }));
+      await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+      await screen.findByText("数据检查通过");
+      await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+      await screen.findByText("连接中断");
+      if (changed === "token") localStorage.setItem("token", "another-tab-session");
+      else {
+        const saved = JSON.parse(localStorage.getItem("auth-storage")!);
+        saved.state.sessionId = crypto.randomUUID();
+        localStorage.setItem("auth-storage", JSON.stringify(saved));
+      }
+      await user.click(screen.getByRole("button", { name: "确认原创建请求" }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "确认原创建请求" })).toBeEnabled(),
+      );
+      expect(trainingDatasetsApi.create).toHaveBeenCalledOnce();
+    },
+  );
+
   it("unlocks a definitively rejected create so the user can recheck changed data", async () => {
     vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(
       new ApiError(409, "数据已变化，请重新预检"),
@@ -426,6 +647,11 @@ describe("project learning data versions", () => {
     await screen.findByText("数据已变化，请重新预检");
     expect(screen.getByLabelText("版本名称")).toBeEnabled();
     expect(screen.getByRole("button", { name: "检查训练数据" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "确认原创建请求" })).not.toBeInTheDocument();
+    cleanup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(screen.getByLabelText("版本名称")).toBeEnabled();
     expect(screen.queryByRole("button", { name: "确认原创建请求" })).not.toBeInTheDocument();
   });
   it("allows confirming the original pending request after project creation eligibility is removed", async () => {

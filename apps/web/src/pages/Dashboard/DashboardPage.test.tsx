@@ -280,9 +280,9 @@ describe("DashboardPage", () => {
     expect(screen.getByTestId("project-grid")).toBeInTheDocument();
   });
 
-  it("初始 ?new=1 → CreateProjectWizard 立即 open", () => {
+  it("初始 ?new=1 → CreateProjectWizard 加载后 open", async () => {
     renderUI("/dashboard?new=1");
-    expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
+    expect(await screen.findByTestId("cp-wizard")).toBeInTheDocument();
   });
 
   it("restores URL filters and a tab change owns the single status value", async () => {
@@ -331,7 +331,9 @@ describe("DashboardPage", () => {
     renderUI();
     const input = screen.getByPlaceholderText("搜索项目...");
     fireEvent.change(input, { target: { value: "car" } });
-    fireEvent.click(screen.getByRole("button", { name: /新建项目/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /新建项目/ }));
+    });
     expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
     expect(input).toHaveValue("car");
     expect(screen.getByTestId("location-search").textContent).toContain("new=1");
