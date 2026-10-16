@@ -594,6 +594,12 @@ Mac / Linux 分工录制优先使用 `pnpm --filter @anno/web screenshots:record
 入口会修复隔离夹具，运行前须核对数据库和 Redis，并准备完整离线素材缓存。
 详见 [跨平台录制与隔离要求](docs-site/dev/how-to/update-screenshots.md#高清母版统一采集与衍生)。
 
+无显示器的 Linux NVIDIA 主机可在同一入口添加 `--headless-display`，为本次营销母版采集启动独立 Xorg 和 Metacity，
+结束时清理自己的图形会话，继续执行硬件合成、帧率与母版门禁。需要当前用户已有 GPU 设备访问权。
+可在采集进程中通过 `MARKETING_HEADLESS_GPU` 指定 `nvidia-smi` 报告的 PCI bus ID，
+通过 `MARKETING_FFMPEG` / `MARKETING_FFPROBE` 指定编码工具；默认选择第一张 GPU，验证 PATH 中工具并在需要时尝试 `/usr/bin`。
+这些选项不需要写入共享 `.env`；入口不修改系统图形配置或持久化桌面偏好。
+
 ```bash
 export PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001
 export PLAYWRIGHT_API_BASE=http://127.0.0.1:8010

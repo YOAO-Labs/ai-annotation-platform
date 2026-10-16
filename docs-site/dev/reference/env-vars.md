@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-09-15
+last_reviewed: 2026-10-16
 ---
 
 # 环境变量参考
@@ -391,4 +391,12 @@ last_reviewed: 2026-09-15
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `AAP_WORKTREE_MODE` | `—` | 工作树运行时内部标识 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |
+| `MARKETING_HEADLESS_GPU` | `—` | 无头 NVIDIA 母版录制可选：指定 nvidia-smi 报告的 PCI bus ID（例如 00000000:73:00.0）；默认选第一张 GPU。仅在采集进程中设置。 |
+| `MARKETING_FFMPEG` | `—` | 无头录制可选：指定支持 NVENC、libx264、x11grab 的 ffmpeg；默认验证 PATH，再尝试 /usr/bin。 |
+| `MARKETING_FFPROBE` | `—` | 无头录制可选：指定 ffprobe；默认使用所选 ffmpeg 同目录中的 ffprobe。 |
+
+## 工作树运行时内部标识
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `AAP_WORKTREE_MODE` | `—` | 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |

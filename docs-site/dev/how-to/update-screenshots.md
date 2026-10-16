@@ -251,6 +251,21 @@ GPU 合成未启用、p95 帧间隔超过 20ms、校准段少于 58 个采样帧
 Linux 桌面至少需要 2700×1750，以容纳 2592×1458 内容区和浏览器边框；
 `--resize-display` 会临时调整 X11 framebuffer，并在成功、失败或中断后恢复原尺寸；Mac 不使用该选项。
 
+无显示器的 Linux NVIDIA 主机可使用同一录制入口的 `--headless-display`：
+
+```bash
+pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point --headless-display
+```
+
+该选项在数据库准备前启动独立 NVIDIA Xorg，使用未占用的 display、独立 seat、3840×2160 虚拟屏幕、
+临时 Xauthority 和 Metacity 窗口管理器（关闭额外桌面合成）。需要当前用户已有 GPU 设备访问权，以及
+`/usr/lib/xorg/Xorg`、`nvidia-smi`、`xauth`、`xdpyinfo`、Metacity 和支持 NVENC、libx264、x11grab 的 ffmpeg/ffprobe。
+默认选择 `nvidia-smi` 报告的第一个 GPU；可通过 `MARKETING_HEADLESS_GPU` 指定其 PCI bus ID。
+可用 `MARKETING_FFMPEG`、`MARKETING_FFPROBE` 指定编码工具；默认验证 PATH 中的工具，不符合时尝试 `/usr/bin`。
+入口仅给 ffmpeg/ffprobe 添加临时 PATH 链接，保留 Node/pnpm 路径。
+它不修改系统 Xorg 配置、不重启登录管理器、不改设备权限，也不影响已有桌面；结束或中断时清理自己启动的进程组和临时文件。
+`--list`、`--plan` 保持只读。该选项仍执行相同的硬件合成和有效帧率门禁；不能用 Xvfb 或软件渲染替代。
+
 Linux 原有全量入口仍可定向选择测试；Mac 使用前述 `screenshots:record -- --flow ... --profile marketing`：
 
 ```bash

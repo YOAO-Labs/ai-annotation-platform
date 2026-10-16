@@ -29,7 +29,7 @@
     "screenshots:flows": "SCREENSHOT_VALIDATE_ONLY=1 playwright test --config=playwright.screenshots.config.ts --project=flows",
     "screenshots:marketing": "node scripts/run-marketing-capture.mjs",
     "screenshots:record": "node scripts/run-recording-capture.mjs",
-    "screenshots:record:test": "node --test e2e/screenshots/recording-plan.test.mjs e2e/screenshots/_helpers/portable-recorder.test.ts e2e/screenshots/_helpers/annotation-cleanup.test.ts e2e/screenshots/_helpers/recording-cleanup.test.ts e2e/screenshots/flows/_smart-scribble-evidence.test.ts e2e/screenshots/flows/_sam-recording-candidates.test.ts e2e/screenshots/flows/_video-keyframe-evidence.test.ts",
+    "screenshots:record:test": "node --test scripts/headless-marketing-display.test.mjs e2e/screenshots/recording-plan.test.mjs e2e/screenshots/_helpers/portable-recorder.test.ts e2e/screenshots/_helpers/annotation-cleanup.test.ts e2e/screenshots/_helpers/recording-cleanup.test.ts e2e/screenshots/flows/_smart-scribble-evidence.test.ts e2e/screenshots/flows/_sam-recording-candidates.test.ts e2e/screenshots/flows/_video-keyframe-evidence.test.ts",
     "screenshots:marketing:test": "node --test e2e/screenshots/_helpers/marketing-recorder.test.ts",
     "screenshots:docs-media": "node scripts/derive-doc-media.mjs",
     "screenshots:docs-media:test": "node --test scripts/media-derivation.test.mjs",
