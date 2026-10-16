@@ -860,7 +860,7 @@ const assetSpecs = [
     objective: "展示设置种子、Shift 刷选范围、生成候选并人工确认的完整链路。",
     duration: { minSeconds: 12, targetSeconds: 18, maxSeconds: 90 },
     shots: [
-      "为真实公交车设置 bus 类别和点种子。",
+      "为真实左侧公交车设置 bus 类别和整车框种子。",
       "在时间轴 Shift 刷选追踪范围并发起作业。",
       "展示追踪候选并执行人工采纳。",
     ],
@@ -936,7 +936,7 @@ const assetSpecs = [
       "展示 combo 模型先按 bus 文本发现目标，再以发现框为内部种子跨两个窗口保持身份，人工筛选并采纳左右两辆公交车。",
     duration: { minSeconds: 30, targetSeconds: 42, maxSeconds: 50 },
     shots: [
-      "在画布级入口选择 SAM3 发现追踪 combo、bus 类别与矩形框输出，并输入 bus。",
+      "展示已配置好的 SAM3 发现追踪 combo、bus 类别、矩形框输出和 bus 文本，再开始发现。",
       "运行真实的文本发现 → 逐对象 PVS memory 两趟编排，展示 7 个身份覆盖 31 帧的 217 个候选。",
       "取消远处目标，只保留实例 2、4 对应的左右两辆完整公交车，共 62 个候选。",
       "将时间轴拖到第二窗口的后段再回到第一窗口，核对身份稳定后采纳两条轨迹并拒绝剩余候选。",
