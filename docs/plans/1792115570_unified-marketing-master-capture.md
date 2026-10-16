@@ -1,6 +1,6 @@
 # Unified marketing-master capture
 
-> Status: implementing
+> Status: implemented
 
 ## Objective
 
@@ -76,3 +76,15 @@ These observations apply to this video and these requests in this runtime, not t
 - All 12 currently qualified video masters and their 24 existing public derivatives were reviewed and integrated. The main branch now has 71 of the 83 selected public files derived from qualified masters. Thirty-one accepted masters, 62 media source files and 15 original source manifests have byte/checksum-verified Drive backups; the consolidated current index remains unpublished until all 34 are ready.
 - GPU0 received recurring external computation during image/management capture and caused honest cadence rejections despite passing product behavior. The remaining flows now use strictly alternating GPU1 sessions. No external computation or shared model service was stopped.
 - A management retry passed real candidate decisions but its reload encountered 27 local ESM requests failing with ERR_NETWORK_CHANGED within one six-millisecond interval. This occurred in the same runtime-cleanup window, without sufficient evidence to assign a precise cause. Container/network changes are deferred until all capture is terminal; the existing reload assertion remains unchanged and only that asset is retried.
+
+## Outcome
+
+- Implementation and all selected replacements are integrated through `5dd762f90`, including the final range derivatives (`796d2fe29`) and candidate lifecycle story/readback fix (`22cb887f71`) and derivatives (`2631cf01d`). The final candidate master passed the unchanged duration policy at 19.834 seconds and measured 66/67 unique samples at 59.97 effective fps.
+- Root acceptance verified all 34 selected masters across 18 immutable runs, 68 source files and all 83 existing public derivatives (39 MP4, 39 WebP and five WebM). Every selected derivative matches its recorded hash, clean source revision, marketing master, inference evidence and content/poster window. All 18 static screenshots match the pre-rerecord baseline; no unrelated public files changed in this phase.
+- Drive payload checks passed for all 68 media files. All 18 original manifests were read back byte-identically. The consolidated current index was published only after those checks, then read back byte-identically: 34 selected entries updated, 30 unrelated entries and their original source-run records preserved, 64 total entries. No destructive sync or historical standard-source relabeling occurred.
+- The final integrity audit covers 215 referenced assets with zero broken references and zero provenance issues for the 83 selected derivatives. Twelve provenance warnings outside this scope and existing stale human review records remain visible; no human approval or review timestamp was synthesized. Static-reference lint passed for all 65 registered references.
+- All three owned capture runtimes, disposable databases, Redis containers, 24 storage buckets, isolated displays, seven integrated worktrees/branches and test intermediates were cleaned. Primary/shared environment and dependency symlink targets, existing desktop sessions, model services and other worktrees were preserved. Verified masters remain in the primary ignored archive and Drive; duplicate worker archives were removed only after delivery verification.
+- The output is 3840×2160/60fps. Actual Linux content is 2592×1458 at logical 1440×810 and DPR 1.8, normalized with Lanczos; this is not native pixel 4K. The bounded single-target tracking observations above remain a documented limitation of the tested inputs, without an unrequested backend behavior change.
+- Developer documentation: `DEV.md`, `docs-site/dev/how-to/update-screenshots.md`, `docs-site/dev/reference/generated-artifacts.md`, `docs-site/dev/reference/marketing-asset-catalog.md` and the generated environment-variable reference. User documentation: the affected ML and video guide captions, including the actual dual-bus range story. Skill instructions and the capture reference describe the single production source policy.
+- CHANGELOG: Unreleased entries cover unified production capture, refreshed ML demonstrations and the headless entry. Release milestone: not yet determined; no version bump or release requested.
+- Local capture, content review, encoding, source/hash and scope acceptance passed. The preceding pushed revision passed 24 remote checks with one conditional skip. Final-head remote validation is tracked by PR #139; the completion handoff records its actual result without rewriting generation provenance.
