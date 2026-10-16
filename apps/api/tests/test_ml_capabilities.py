@@ -280,7 +280,7 @@ def test_multi_model_parses_each_entry():
     assert caps["infra"] == "pytorch"
     models = {m["id"]: m for m in caps["models"]}
     assert set(models) == {"detect", "segment", "pose", "obb", "classify"}
-    assert models["detect"]["task"] == "detection"
+    assert models["detect"]["task"] == "detect"
     assert models["detect"]["model_family"] == "yolo"
     # infra 缺省继承 backend
     assert models["detect"]["infra"] == "pytorch"
@@ -539,7 +539,7 @@ def test_legacy_detection_only_backend():
     caps = extract_capabilities(setup)
     assert caps is not None
     assert len(caps["models"]) == 1
-    assert caps["models"][0]["task"] == "detection"
+    assert caps["models"][0]["task"] == "detect"
     assert caps["infra"] == "unknown"
     # 无 prompts/trackers → 扁平为空; per-model 补 image
     assert caps["modalities"] == ["image"]

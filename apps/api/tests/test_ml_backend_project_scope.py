@@ -245,7 +245,7 @@ async def test_reload_allowed_for_super_admin(
     await db_session.commit()
 
     async def _fake_reload(
-        self, registry_id, sam_variant=None, dino_variant=None, task_type=None
+        self, registry_id, sam_variant=None, dino_variant=None, modality=None
     ):
         return {"ok": True, "reloaded": True}
 

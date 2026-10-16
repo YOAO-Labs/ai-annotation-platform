@@ -1,9 +1,7 @@
-"""v0.14.17 · _build_predict_context 纯函数单测.
+"""Prediction contexts emit canonical tasks separately from prompt modes.
 
-两条互斥路径:
-- 协议 v2 结构化 (model_variants 非空, YOLO): model_variants dict + nested params + type=几何 task。
-  修通 YOLO 批量预标 (此前 worker 发扁平 series/size + type="text" 被 YOLO 422)。
-- 既有扁平路径 (gsam2 文本 / OCR / doc_layout): 与 v0.14.9 行为逐字等价, 防回归。
+Legacy task_type inputs remain accepted for structured and flat contexts.
+Text contexts retain their prompt type and carry an independent visual task.
 """
 
 from __future__ import annotations
@@ -35,7 +33,7 @@ def test_v2_structured_context_for_yolo():
         params={"conf": 0.4, "iou": 0.6, "max_det": 100},
     )
     assert ctx == {
-        "type": "detection",
+        "task": "detect",
         "model_variants": {"series": "yolo11", "size": "s"},
         "params": {"conf": 0.4, "iou": 0.6, "max_det": 100},
         "model_id": "detect",
@@ -44,7 +42,8 @@ def test_v2_structured_context_for_yolo():
 
 def test_v2_defaults_type_when_task_type_missing():
     ctx = _ctx(model_variants={"series": "yolo11", "size": "s"})
-    assert ctx["type"] == "detection"
+    assert ctx["task"] == "detect"
+    assert "type" not in ctx
     assert ctx["model_variants"] == {"series": "yolo11", "size": "s"}
     assert ctx["params"] == {}
 
@@ -80,7 +79,8 @@ def test_v2_empty_model_variants_still_passes_class_filter():
     assert ctx is not None
     assert ctx["model_variants"] == {}
     assert ctx["classes"] == [1, 3]
-    assert ctx["type"] == "detection"
+    assert ctx["task"] == "detect"
+    assert "type" not in ctx
 
 
 def test_prompt_takes_precedence_text_path():
@@ -99,6 +99,7 @@ def test_prompt_takes_precedence_text_path():
         text_threshold=0.25,
     )
     assert ctx["type"] == "text"  # 文本路径, 非几何 task type
+    assert ctx["task"] == "segment"
     assert ctx["text"] == "car"
     assert ctx["output"] == "both"
     assert ctx["model_id"] == "grounded-sam2-segmentation"
@@ -134,21 +135,22 @@ def test_flat_text_path_unchanged():
 
 
 def test_flat_task_type_override_for_ocr():
-    """OCR / doc_layout: 无 model_variants, task_type 覆盖 type, model_id 透传."""
+    """Legacy OCR task inputs become canonical tasks without prompt modes."""
     ctx = _ctx(prompt="", task_type="ocr", model_id="ocr-model")
-    assert ctx["type"] == "ocr"
+    assert ctx["task"] == "ocr"
+    assert "type" not in ctx
     assert ctx["model_id"] == "ocr-model"
 
 
 def test_flat_path_passes_through_params():
-    """flat 路径 (纯分类下游 / OCR / doc_layout) 应透传 params: StageCard 始终带 params,
-    早期 flat 路径漏了透传; 顶层保留键 (type/model_id) 不被 params 覆盖。"""
+    """Flat parameters cannot override the canonical task or prompt mode."""
     ctx = _ctx(
         task_type="classification",
         model_id="vehicle-attr-classify",
-        params={"conf": 0.5, "type": "should-be-ignored"},  # type 是保留键, 不被覆盖
+        params={"conf": 0.5, "task": "detect", "type": "should-be-ignored"},
     )
-    assert ctx["type"] == "classification"  # 保留键未被 params.type 覆盖
+    assert ctx["task"] == "classify"
+    assert "type" not in ctx
     assert ctx["model_id"] == "vehicle-attr-classify"
     assert ctx["conf"] == 0.5  # 非保留键透传
 
@@ -156,7 +158,7 @@ def test_flat_path_passes_through_params():
 def test_flat_path_none_params_is_noop():
     """flat 路径 params=None 时不应引发错误, 与既有行为等价。"""
     ctx = _ctx(task_type="ocr", model_id="ocr-model", params=None)
-    assert ctx == {"type": "ocr", "model_id": "ocr-model"}
+    assert ctx == {"task": "ocr", "model_id": "ocr-model"}
 
 
 def test_no_prompt_no_task_returns_none():

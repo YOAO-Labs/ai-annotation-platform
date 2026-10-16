@@ -389,6 +389,7 @@ def test_legacy_finish_digest_preserves_existing_nulls_and_structured_diagnostic
     )
     legacy = body.model_dump(mode="json")
     legacy.pop("failure")
+    legacy.pop("native_accounting")
     assert (
         body.request_payload() == legacy
         and "error_message" in legacy

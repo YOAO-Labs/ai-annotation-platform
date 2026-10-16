@@ -112,14 +112,14 @@ async def test_instances_returns_env_and_manual_registry_rows(
     assert env_inst["source"] == "env"
     assert env_inst["infra"] == "pytorch"
     assert len(env_inst["models"]) == 1
-    assert env_inst["models"][0]["task"] == "detection"
+    assert env_inst["models"][0]["task"] == "detect"
 
     reg_inst = by_name["sam3-registered"]
     assert reg_inst["backend_id"] == str(manual_id)
     assert reg_inst["state"] == "connected"
     assert reg_inst["source"] == "manual"
     assert reg_inst["infra"] == "pytorch"
-    assert reg_inst["models"][0]["task"] == "detection"
+    assert reg_inst["models"][0]["task"] == "detect"
 
 
 @pytest.mark.asyncio
@@ -274,7 +274,7 @@ async def test_instances_live_probe_when_snapshot_missing(
     assert insts[0]["name"] == "gsam2.legacy"
     assert len(insts[0]["models"]) == 2
     tasks = {m["task"] for m in insts[0]["models"]}
-    assert tasks == {"detection", "tracker"}
+    assert tasks == {"detect", "tracker"}
     probe.assert_called_once()
 
 

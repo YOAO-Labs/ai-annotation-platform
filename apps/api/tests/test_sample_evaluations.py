@@ -61,7 +61,7 @@ async def test_segmentation_dataset_is_rejected_even_when_selected_label_is_empt
     manifest = {
         key: value for key, value in version.manifest.items() if key != "content_digest"
     }
-    manifest.update(**SEGMENTATION_CONTRACT, format="ultralytics-segmentation")
+    manifest.update(SEGMENTATION_CONTRACT)
     manifest["content_digest"] = content_digest(manifest)
     version.manifest = manifest
     with pytest.raises(HTTPException) as error:

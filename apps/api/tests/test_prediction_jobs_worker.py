@@ -807,7 +807,7 @@ async def test_run_batch_merges_params_into_context(
 async def test_run_batch_passes_model_id_and_task_type_into_context(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
-    """v0.14.9 · 协议 v2: 无 prompt 的纯图片 OCR task 也写 context type / model_id。"""
+    """An OCR legacy task input produces a canonical task and model identity."""
     from app.db.models.task import Task
     from app.services.ml_client import PredictionResult
     from app.workers import tasks as worker_tasks
@@ -866,7 +866,8 @@ async def test_run_batch_passes_model_id_and_task_type_into_context(
 
     ctx = captured["context"]
     assert ctx is not None
-    assert ctx["type"] == "ocr"
+    assert ctx["task"] == "ocr"
+    assert "type" not in ctx
     assert ctx["model_id"] == "pp-ocrv4"
     # 纯 OCR 无文本 prompt, 不应混入 text/output 键
     assert "text" not in ctx
