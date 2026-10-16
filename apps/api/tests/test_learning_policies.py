@@ -2,13 +2,17 @@
 
 import copy
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy import func, select
+
 from app.config import settings
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
+from app.deps import get_training_dataset_dispatcher
 from app.services import learning_policies as service, training_runs as runs
 from app.services.training_dataset_bridge import semantic_partitions
 from tests.test_training_runs import ready_dataset, executor_claim
@@ -85,7 +89,18 @@ def manifest(train=None, val="v1", classes=None):
 
 
 @pytest.fixture
-def frozen_source(monkeypatch):
+def dataset_dispatcher(monkeypatch, app_module):
+    dispatcher = SimpleNamespace(dispatch_dataset=AsyncMock())
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_training_dataset_dispatcher,
+        lambda: dispatcher,
+    )
+    return dispatcher
+
+
+@pytest.fixture
+def frozen_source(monkeypatch, dataset_dispatcher):
     source = {"revision": 1}
 
     async def freeze(db, project, selection, **kw):
@@ -117,7 +132,6 @@ def frozen_source(monkeypatch):
         }
 
     monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
-    monkeypatch.setattr(service.datasets, "dispatch_dataset", AsyncMock())
     return source
 
 
@@ -239,7 +253,12 @@ async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
 
 
 async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is_skipped(
-    db_session, test_engine, super_admin, httpx_client, frozen_source
+    db_session,
+    test_engine,
+    super_admin,
+    httpx_client,
+    frozen_source,
+    dataset_dispatcher,
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -286,15 +305,15 @@ async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is
     )
     dataset = await db_session.get(TrainingDatasetVersion, trigger.dataset_id)
     attempt = dataset.attempt_id
-    await service.dispatch_pending(db_session, policy.id)
+    await service.dispatch_pending(db_session, policy.id, dispatcher=dataset_dispatcher)
     await service.check_policy(db_session, policy.id, force=True)
-    await service.dispatch_pending(db_session, policy.id)
+    await service.dispatch_pending(db_session, policy.id, dispatcher=dataset_dispatcher)
     assert dataset.attempt_id == attempt
     assert (
         await db_session.scalar(select(func.count()).select_from(LearningTrigger)) == 1
     )
-    calls = service.datasets.dispatch_dataset.call_args_list
-    assert len(calls) == 2 and all(call.args[1].id == dataset.id for call in calls)
+    calls = dataset_dispatcher.dispatch_dataset.call_args_list
+    assert len(calls) == 2 and all(call.args[0] == dataset.id for call in calls)
 
 
 async def test_failure_retains_baseline_and_val_only_change_cannot_retry_gpu(
@@ -631,7 +650,7 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
 
 
 async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, dataset_dispatcher
 ):
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from tests.factory import create_project
@@ -661,7 +680,7 @@ async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
     monkeypatch.setattr(service, "check_policy", check)
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     for _ in range(3):
-        await service.tick(factory)
+        await service.tick(factory, dispatcher=dataset_dispatcher)
     assert set(seen) == set(identities)
 
 

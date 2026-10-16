@@ -74,6 +74,10 @@ last_reviewed: 2026-10-16
    - 媒体：`app/services/media_job_dispatch.py::MediaJobDispatcher` →
      `app/deps.py::get_media_job_dispatcher` 装配 `app/workers/media_dispatch.py`；
      数据集入库、视频缓存和资产重试共用该端口，连接器导入 worker 自行装配。
+   - 训练数据集：`app/services/training_dataset_dispatch.py::TrainingDatasetDispatcher` →
+     HTTP 的 `app/deps.py::get_training_dataset_dispatcher` 或周期策略 worker →
+     `app/workers/training_dataset_dispatch.py::CeleryTrainingDatasetDispatcher`；
+     领域保留 version/job/attempt 与派发失败竞态处理，适配器保留线程卸载。
 6. 异步处理：Celery 信号兜底在 `app/workers/signals.py`
    （`task_failure` / `task_revoked` → 连接 → 查作业 → 通用终态 → 领域回填 → 通知 → 提交 → 释放）；
    领域终态差异（`partial` / `rollback_failed` / `cancelled`）由

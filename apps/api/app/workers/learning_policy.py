@@ -6,12 +6,16 @@ from sqlalchemy.pool import NullPool
 from app.config import settings
 from app.services.learning_policies import tick
 from app.workers.celery_app import celery_app
+from app.workers.training_dataset_dispatch import CeleryTrainingDatasetDispatcher
 
 
 async def _tick():
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     try:
-        await tick(async_sessionmaker(engine, expire_on_commit=False))
+        await tick(
+            async_sessionmaker(engine, expire_on_commit=False),
+            dispatcher=CeleryTrainingDatasetDispatcher(),
+        )
     finally:
         await engine.dispose()
 

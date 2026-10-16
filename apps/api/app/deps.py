@@ -13,6 +13,7 @@ from app.core.token_blacklist import is_blacklisted, get_user_generation
 from app.services.project_access import ProjectAccess, resolve_project_access_by_id
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.media_job_dispatch import MediaJobDispatcher
+from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -51,6 +52,13 @@ def get_media_job_dispatcher() -> MediaJobDispatcher:
     from app.workers.media_dispatch import CeleryMediaJobDispatcher
 
     return CeleryMediaJobDispatcher()
+
+
+def get_training_dataset_dispatcher() -> TrainingDatasetDispatcher:
+    """Bind asynchronous training-dataset transport at the HTTP boundary."""
+    from app.workers.training_dataset_dispatch import CeleryTrainingDatasetDispatcher
+
+    return CeleryTrainingDatasetDispatcher()
 
 
 async def get_current_user(

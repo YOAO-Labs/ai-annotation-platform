@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from PIL import Image
 
+from app.deps import get_training_dataset_dispatcher
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -21,18 +22,23 @@ from tests.factory import create_membership, create_project, create_task
 dispatch_dataset = service.dispatch_dataset
 
 
+class _NoopDatasetDispatcher:
+    async def dispatch_dataset(self, *_args, **_kwargs):
+        pass
+
+
 @pytest.fixture
-def source_headers(monkeypatch):
+def source_headers(monkeypatch, app_module):
     monkeypatch.setattr(
         service,
         "capture_source_media",
         lambda sample: {"etag": '"original"', "size_bytes": 128, "version_id": None},
     )
-    monkeypatch.setattr(service, "dispatch_dataset", _no_dispatch)
-
-
-async def _no_dispatch(*args):
-    pass
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_training_dataset_dispatcher,
+        _NoopDatasetDispatcher,
+    )
 
 
 async def reviewed_project(db, owner):
@@ -387,19 +393,21 @@ async def test_cancel_reconciles_domain_and_execution_fences_deletion(
 
 @pytest.mark.parametrize("accepted_status", ["pending", "running", "ready"])
 async def test_dispatch_exception_never_overwrites_an_accepted_attempt(
-    db_session, super_admin, source_headers, monkeypatch, accepted_status
+    db_session, super_admin, source_headers, accepted_status
 ):
     owner, _ = super_admin
     project, _ = await reviewed_project(db_session, owner)
     version = await make_version(db_session, owner, project)
 
-    async def broker_response_lost(*args, **kwargs):
-        version.status = accepted_status
-        await db_session.commit()
-        raise OSError("broker response lost")
+    class BrokerResponseLostDispatcher:
+        async def dispatch_dataset(self, *_args, **_kwargs):
+            version.status = accepted_status
+            await db_session.commit()
+            raise OSError("broker response lost")
 
-    monkeypatch.setattr(service.asyncio, "to_thread", broker_response_lost)
-    await dispatch_dataset(db_session, version)
+    await dispatch_dataset(
+        db_session, version, dispatcher=BrokerResponseLostDispatcher()
+    )
     await db_session.refresh(version)
     assert version.status == (
         "failed" if accepted_status == "pending" else accepted_status

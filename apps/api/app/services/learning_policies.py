@@ -26,6 +26,7 @@ from app.services.training_dataset_bridge import (
 from app.services import training_initialization as initialization
 from app.services import project_task_dataset as task_datasets
 from app.services.training_dataset_insight_adapters import adapter_for
+from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
 CHECK_BATCH_SIZE = 100
@@ -493,7 +494,7 @@ async def check_policy(db, policy_id, *, force=False):
     )
 
 
-async def dispatch_pending(db, policy_id):
+async def dispatch_pending(db, policy_id, *, dispatcher: TrainingDatasetDispatcher):
     # Durable pending identity closes a crash between commit and broker publish.
     trigger = await db.scalar(
         select(LearningTrigger).where(
@@ -503,10 +504,16 @@ async def dispatch_pending(db, policy_id):
     if trigger:
         version = await db.get(TrainingDatasetVersion, trigger.dataset_id)
         if version and version.status == "pending":
-            await datasets.dispatch_dataset(db, version)
+            await datasets.dispatch_dataset(db, version, dispatcher=dispatcher)
 
 
-async def tick(session_factory, *, policy_id=None, force=False):
+async def tick(
+    session_factory,
+    *,
+    dispatcher: TrainingDatasetDispatcher,
+    policy_id=None,
+    force=False,
+):
     async with session_factory() as db:
         # Advance a durable fair ordering for active work as well as due scans.
         # A long/lost run must not pin the same first page indefinitely.
@@ -542,7 +549,7 @@ async def tick(session_factory, *, policy_id=None, force=False):
             try:
                 await check_policy(db, identity, force=force)
                 await db.commit()
-                await dispatch_pending(db, identity)
+                await dispatch_pending(db, identity, dispatcher=dispatcher)
             except Exception:
                 await db.rollback()
                 log.exception("Automatic learning policy check failed: %s", identity)

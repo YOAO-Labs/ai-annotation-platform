@@ -7,7 +7,13 @@ from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_training_dataset_dispatcher,
+    require_project_owner,
+    require_scopes,
+)
 from app.api.v1.training_datasets import lock_owner
 from app.schemas.learning_policy import (
     LearningPolicyOut,
@@ -19,6 +25,7 @@ from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import learning_policies as service, training_runs as runs
 from app.services import training_recipes as recipes
 from app.services import training_initialization as initialization
+from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
 router = APIRouter(
     prefix="/projects/{project_id}/learning-policy",
@@ -204,6 +211,9 @@ async def check_policy(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db=Depends(get_db),
+    dataset_dispatcher: TrainingDatasetDispatcher = Depends(
+        get_training_dataset_dispatcher
+    ),
 ):
     await service.project_lock(db, project.id)
     await lock_owner(db, user, project)
@@ -214,7 +224,7 @@ async def check_policy(
         raise HTTPException(status_code=404, detail="自动策略尚未配置")
     await service.check_policy(db, policy.id, force=True)
     await db.commit()
-    await service.dispatch_pending(db, policy.id)
+    await service.dispatch_pending(db, policy.id, dispatcher=dataset_dispatcher)
     await db.refresh(policy)
     return policy
 

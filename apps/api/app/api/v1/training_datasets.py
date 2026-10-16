@@ -14,7 +14,13 @@ from app.db.models.training_run import TrainingRun
 from app.db.models.training_preview import TrainingPreview
 from app.db.models.project_task_dataset import ProjectTaskDataset
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_training_dataset_dispatcher,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.training_dataset import (
     TrainingDatasetCreate,
     TrainingDatasetOut,
@@ -31,6 +37,7 @@ from app.services.project_write_guard import lock_actor_project_authority
 from app.services.project_access import resolve_project_access_by_id
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-datasets",
@@ -92,6 +99,9 @@ async def create_version(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    dataset_dispatcher: TrainingDatasetDispatcher = Depends(
+        get_training_dataset_dispatcher
+    ),
 ):
     request_digest = content_digest(body.canonical_payload())
     # Serialize before taking share locks, avoiding share-to-exclusive upgrades.
@@ -148,7 +158,7 @@ async def create_version(
         await task_datasets.ensure_membership(db, version, project_locked=True)
         await service.enqueue_dataset(db, version)
         await db.commit()
-        await service.dispatch_dataset(db, version)
+        await service.dispatch_dataset(db, version, dispatcher=dataset_dispatcher)
         await db.refresh(version)
         return await task_datasets.attach_read_metadata(db, version)
     except TrainingDatasetError as exc:
@@ -250,6 +260,9 @@ async def retry_version(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    dataset_dispatcher: TrainingDatasetDispatcher = Depends(
+        get_training_dataset_dispatcher
+    ),
 ):
     await lock_owner(db, user, project)
     try:
@@ -265,7 +278,7 @@ async def retry_version(
         fail(exc)
     await service.enqueue_dataset(db, version)
     await db.commit()
-    await service.dispatch_dataset(db, version)
+    await service.dispatch_dataset(db, version, dispatcher=dataset_dispatcher)
     await db.refresh(version)
     return await task_datasets.attach_read_metadata(db, version)
 

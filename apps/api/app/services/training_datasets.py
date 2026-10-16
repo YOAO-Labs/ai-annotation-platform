@@ -36,6 +36,7 @@ from training_contract.dataset import (
     DETECTION_CONTRACT,
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
+from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
 MAX_SAMPLES = 20000
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
@@ -384,9 +385,12 @@ async def enqueue_dataset(db: AsyncSession, version: TrainingDatasetVersion) -> 
     await db.flush()
 
 
-async def dispatch_dataset(db: AsyncSession, version: TrainingDatasetVersion) -> None:
-    from app.workers.training_dataset import run_training_dataset
-
+async def dispatch_dataset(
+    db: AsyncSession,
+    version: TrainingDatasetVersion,
+    *,
+    dispatcher: TrainingDatasetDispatcher,
+) -> None:
     task_id = str(uuid.uuid4())
     version_id, job_id, attempt_id = (
         version.id,
@@ -397,10 +401,8 @@ async def dispatch_dataset(db: AsyncSession, version: TrainingDatasetVersion) ->
     job.celery_task_id = task_id
     await db.commit()
     try:
-        await asyncio.to_thread(
-            run_training_dataset.apply_async,
-            args=[str(version_id), str(job_id), str(attempt_id)],
-            task_id=task_id,
+        await dispatcher.dispatch_dataset(
+            version_id, job_id, attempt_id, execution_id=task_id
         )
     except Exception:
         await db.rollback()
