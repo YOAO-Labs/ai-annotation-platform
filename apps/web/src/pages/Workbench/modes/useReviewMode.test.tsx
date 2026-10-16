@@ -341,6 +341,56 @@ describe("useReviewMode", () => {
     expect(mocks.approveMutate.mock.calls[1][0]).toBe("t2");
   });
 
+  it.each(["rejected", "completed"] as const)(
+    "retires the decision when the same task leaves review for %s and returns",
+    async (status) => {
+      const resumeTaskLock = vi.fn();
+      const { result, rerender, initialProps, pushToast, navigateTask } = renderReview(
+        "review",
+        {},
+        { resumeTaskLock },
+      );
+      await act(async () => {
+        void result.current.topbarActions.onApprove?.();
+      });
+      const oldCallbacks = mocks.approveMutate.mock.calls[0][1];
+      rerender({ ...initialProps, task: task({ status }) });
+      expect(result.current.topbarActions.isApproving).toBe(false);
+      act(() => oldCallbacks.onError());
+      expect(resumeTaskLock).not.toHaveBeenCalled();
+      expect(pushToast).not.toHaveBeenCalled();
+      rerender(initialProps);
+      expect(result.current.topbarActions.canApprove).toBe(true);
+      await act(async () => {
+        void result.current.topbarActions.onApprove?.();
+      });
+      act(() => {
+        oldCallbacks.onSuccess();
+        oldCallbacks.onError();
+      });
+      expect(result.current.topbarActions.isApproving).toBe(true);
+      expect(mocks.approveMutate).toHaveBeenCalledTimes(2);
+      expect(navigateTask).not.toHaveBeenCalled();
+      expect(resumeTaskLock).not.toHaveBeenCalled();
+      expect(pushToast).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves success navigation when completion is refreshed before the mutation callback", async () => {
+    const { result, rerender, initialProps, navigateTask, pushToast } = renderReview();
+    await act(async () => {
+      void result.current.topbarActions.onApprove?.();
+    });
+    const callbacks = mocks.approveMutate.mock.calls[0][1];
+    rerender({ ...initialProps, task: task({ status: "completed" }) });
+    act(() => callbacks.onSuccess());
+    expect(pushToast).toHaveBeenCalledWith({ msg: "任务已通过", kind: "success" });
+    expect(navigateTask).toHaveBeenCalledWith("next");
+    rerender(initialProps);
+    expect(result.current.topbarActions.canApprove).toBe(true);
+    expect(result.current.topbarActions.isApproving).toBe(false);
+  });
+
   it("abandons a pending lock release after unmount", async () => {
     let finishRelease!: () => void;
     const releasePending = new Promise<void>((resolve) => {

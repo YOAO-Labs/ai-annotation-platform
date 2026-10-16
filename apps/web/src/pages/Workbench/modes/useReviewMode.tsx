@@ -47,9 +47,18 @@ export function useReviewMode({
   currentTaskIdRef.current = taskId;
   const currentReviewContextRef = useRef({ taskId, status: task?.status, mode });
   currentReviewContextRef.current = { taskId, status: task?.status, mode };
-  const reviewSessionRef = useRef({ taskId, mode });
-  if (reviewSessionRef.current.taskId !== taskId || reviewSessionRef.current.mode !== mode) {
-    reviewSessionRef.current = { taskId, mode };
+  const reviewAvailable = mode === "review" && task?.status === "review";
+  const reviewSessionRef = useRef({ taskId, mode, available: reviewAvailable });
+  if (
+    reviewSessionRef.current.taskId !== taskId ||
+    reviewSessionRef.current.mode !== mode ||
+    (reviewAvailable && !reviewSessionRef.current.available)
+  ) {
+    reviewSessionRef.current = { taskId, mode, available: reviewAvailable };
+  } else {
+    // Completion may arrive before the mutation's success callback. Retire the session
+    // when review becomes available again, while allowing that success to navigate.
+    reviewSessionRef.current.available = reviewAvailable;
   }
   type Decision = { session: typeof reviewSessionRef.current; kind: "approve" | "reject" };
   const decisionRef = useRef<Decision | null>(null);
@@ -107,6 +116,7 @@ export function useReviewMode({
       const onError = () => {
         if (!owns()) return;
         clear();
+        if (!ownsReviewTask(ownerTaskId)) return;
         resumeTaskLock?.(ownerTaskId);
         pushToast({
           msg: kind === "approve" ? "通过失败，请重试" : "退回失败，请重试",
@@ -189,8 +199,9 @@ export function useReviewMode({
     return () => window.removeEventListener("keydown", handler);
   }, [mode, handleApproveTask, handleRejectTask]);
 
-  const pendingDecision = decision?.session === reviewSessionRef.current ? decision : null;
-  const reviewTaskAvailable = mode === "review" && task?.status === "review" && !pendingDecision;
+  const pendingDecision =
+    reviewAvailable && decision?.session === reviewSessionRef.current ? decision : null;
+  const reviewTaskAvailable = reviewAvailable && !pendingDecision;
   const topbarActions = useMemo(
     () => ({
       canApprove: reviewTaskAvailable,
