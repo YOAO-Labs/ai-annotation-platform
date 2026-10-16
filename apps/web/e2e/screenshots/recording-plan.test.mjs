@@ -12,6 +12,7 @@ import {
   marketingCaptureDriver,
   screenshotCatalogPath,
   assertRecordingMode,
+  recordingTimeout,
 } from "./recording-plan.mjs";
 
 test("selection scopes AI without changing capture quality or legacy catalog defaults", () => {
@@ -296,4 +297,11 @@ test("management recordings declare catalog-only dependencies without SAM infere
     assert.equal(recordingPlan([flow]).backendRequirements, "none");
     assert.equal(recordingInference(flow), "none");
   }
+});
+
+test("selected capture bodies preserve fixture and encoding budgets without changing regular E2E", () => {
+  assert.equal(recordingTimeout(120_000, 600_000, false), 120_000);
+  assert.equal(recordingTimeout(300_000, 600_000, true), 900_000);
+  assert.equal(recordingTimeout(300_000, 1_800_000, true), 1_800_000);
+  assert.equal(recordingTimeout(1_800_000, 900_000, true), 1_800_000);
 });
