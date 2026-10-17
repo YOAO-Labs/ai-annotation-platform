@@ -48,4 +48,4 @@ API 的 `tasks/_shared.py` 保留 FastAPI 依赖适配和尚未迁移的 HTTP �
 - 异步最终写入组合：`apps/api/app/services/project_write_guard.py::assert_phase_write_allowed`。
 - HTTP 依赖适配：`apps/api/app/api/v1/tasks/_shared.py::require_task_annotation_write` 及相邻依赖。
 - 验证：`apps/api/tests/test_task_access_binding.py`、`test_tracker_final_write_guard.py`、`test_review_evidence_guard.py`、`test_domain_package_architecture.py` 及相关路由/写入服务用例。
-- 实施记录：[后端模块解耦计划](../../plans/1792160873_backend-module-decoupling.md)。
+- 实施记录：[后端模块解耦计划](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/1792160873_backend-module-decoupling.md)。

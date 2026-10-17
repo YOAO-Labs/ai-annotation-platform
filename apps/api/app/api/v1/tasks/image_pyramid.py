@@ -37,6 +37,7 @@ from app.services.image_pyramid import (
     ImagePyramidError,
     generation_manifest,
     get_active_generation_for_task,
+    invalidate_ready_generation,
     manifest_etag,
     pyramid_eligible,
     pyramid_required,
@@ -69,36 +70,6 @@ async def _building_generation(
     if asset.building_generation is None:
         return None
     return await db.get(ImagePyramidGeneration, (asset.id, asset.building_generation))
-
-
-async def _invalidate_ready(
-    db: AsyncSession,
-    asset: ImagePyramidAsset,
-    generation: ImagePyramidGeneration,
-    error_code: str,
-) -> None:
-    locked_asset = (
-        await db.execute(
-            select(ImagePyramidAsset)
-            .where(ImagePyramidAsset.id == asset.id)
-            .with_for_update()
-        )
-    ).scalar_one()
-    locked_generation = (
-        await db.execute(
-            select(ImagePyramidGeneration)
-            .where(
-                ImagePyramidGeneration.asset_id == generation.asset_id,
-                ImagePyramidGeneration.generation == generation.generation,
-            )
-            .with_for_update()
-        )
-    ).scalar_one()
-    if locked_asset.active_generation == locked_generation.generation:
-        locked_asset.active_generation = None
-    locked_generation.status = "failed"
-    locked_generation.error_code = error_code
-    await db.commit()
 
 
 def _status_response(
@@ -199,7 +170,7 @@ async def get_image_pyramid(
         )
 
     if not source_matches_generation(owner, generation):
-        await _invalidate_ready(db, asset, generation, "source_changed")
+        await invalidate_ready_generation(db, asset, generation, "source_changed")
         if settings.image_pyramid_auto_generate:
             enqueue_image_pyramid(owner.kind, owner.id, force=True)
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
@@ -222,7 +193,7 @@ async def get_image_pyramid(
         ):
             raise ImagePyramidError("object_missing")
     except ImagePyramidError as exc:
-        await _invalidate_ready(db, asset, generation, exc.code)
+        await invalidate_ready_generation(db, asset, generation, exc.code)
         if settings.image_pyramid_auto_generate:
             enqueue_image_pyramid(owner.kind, owner.id, force=True)
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
@@ -310,7 +281,7 @@ async def create_image_pyramid_asset_urls(
         ).inc()
         raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
     if not source_matches_generation(owner, generation):
-        await _invalidate_ready(db, asset, generation, "source_changed")
+        await invalidate_ready_generation(db, asset, generation, "source_changed")
         raise HTTPException(
             status_code=409,
             detail={"reason": "stale_generation", "active_generation": None},
@@ -319,7 +290,7 @@ async def create_image_pyramid_asset_urls(
     try:
         manifest = generation_manifest(generation)
     except ImagePyramidError as exc:
-        await _invalidate_ready(db, asset, generation, exc.code)
+        await invalidate_ready_generation(db, asset, generation, exc.code)
         raise HTTPException(
             status_code=409, detail={"reason": "inconsistent_ready"}
         ) from exc
@@ -383,7 +354,7 @@ async def create_image_pyramid_asset_urls(
         if not storage_service.verify_upload(
             key, bucket=storage_service.media_cache_bucket
         ):
-            await _invalidate_ready(db, asset, generation, "object_missing")
+            await invalidate_ready_generation(db, asset, generation, "object_missing")
             IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
                 operation="asset_urls", outcome="object_missing"
             ).inc()
@@ -440,7 +411,7 @@ async def retry_image_pyramid(
         if source_matches_generation(owner, generation):
             raise HTTPException(status_code=409, detail={"reason": "already_ready"})
         if asset is not None:
-            await _invalidate_ready(db, asset, generation, "source_changed")
+            await invalidate_ready_generation(db, asset, generation, "source_changed")
             invalidated_stale = True
 
     if asset is not None:

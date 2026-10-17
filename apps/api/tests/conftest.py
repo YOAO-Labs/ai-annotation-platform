@@ -30,7 +30,7 @@ import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -197,6 +197,8 @@ def app_module():
 class _MediaJobDispatcherStub:
     def __init__(self) -> None:
         self.thumbnails: list[UUID] = []
+        self.task_thumbnails: list[UUID] = []
+        self.task_thumbnail_backfills: list[UUID] = []
         self.video_metadata: list[UUID] = []
         self.video_chunks: list[tuple[UUID, list[int]]] = []
         self.video_frames: list[tuple[UUID, list[VideoFrameRequest]]] = []
@@ -206,6 +208,13 @@ class _MediaJobDispatcherStub:
 
     def dispatch_video_metadata(self, item_id: UUID) -> None:
         self.video_metadata.append(item_id)
+
+    def dispatch_task_thumbnail(self, task_id: UUID) -> None:
+        self.task_thumbnails.append(task_id)
+
+    def dispatch_task_thumbnail_backfill(self, project_id: UUID) -> str:
+        self.task_thumbnail_backfills.append(project_id)
+        return str(uuid4())
 
     def dispatch_video_chunks(self, item_id: UUID, chunk_ids: list[int]) -> None:
         self.video_chunks.append((item_id, chunk_ids))

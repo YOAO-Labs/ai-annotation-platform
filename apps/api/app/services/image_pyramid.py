@@ -281,6 +281,36 @@ async def get_asset_for_owner(
     return (await db.execute(statement)).scalar_one_or_none()
 
 
+async def invalidate_ready_generation(
+    db: AsyncSession,
+    asset: ImagePyramidAsset,
+    generation: ImagePyramidGeneration,
+    error_code: str,
+) -> None:
+    locked_asset = (
+        await db.execute(
+            select(ImagePyramidAsset)
+            .where(ImagePyramidAsset.id == asset.id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    locked_generation = (
+        await db.execute(
+            select(ImagePyramidGeneration)
+            .where(
+                ImagePyramidGeneration.asset_id == generation.asset_id,
+                ImagePyramidGeneration.generation == generation.generation,
+            )
+            .with_for_update()
+        )
+    ).scalar_one()
+    if locked_asset.active_generation == locked_generation.generation:
+        locked_asset.active_generation = None
+    locked_generation.status = "failed"
+    locked_generation.error_code = error_code
+    await db.commit()
+
+
 async def prepare_generation(
     db: AsyncSession,
     owner: ImagePyramidOwner,

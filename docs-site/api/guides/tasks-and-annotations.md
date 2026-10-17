@@ -1,22 +1,34 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-18
 ---
 
 # 任务与标注
 
 ## 任务模型
 
-`tasks` 表的每行代表一条待标数据，可以是一张图片、一个视频任务，或其它项目类型的数据。它属于一个 batch，batch 属于 project。任务状态以 `pending / in_progress / completed / review` 为主，批次状态负责更高层的生产推进。
+`tasks` 表的每行代表一条待标数据，可以是一张图片、一个视频任务，或其它项目类型的数据。任务属于 project，可暂不分批。常规生产状态包括 `pending / in_progress / review / completed / rejected`；传统文件上传在准备阶段使用 `uploading`，确认对象存在后转为 `pending`。批次状态负责更高层的生产推进。
 
-```
-pending → in_progress → completed → review
-                 ↑          ↘ reviewer reject
-                 └────────────── pending
-```
+## 历史任务文件入口
+
+这组端点管理项目下直接上传的任务文件，不替代数据集上传与关联建题：
+
+| 端点                                                          | 当前准入                                       | 成功结果                              |
+| ------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------- |
+| `POST /api/v1/files/upload-init`                              | 请求项目的当前管理者                           | `task_id`、`upload_url`、`expires_in` |
+| `POST /api/v1/files/upload-complete/:task_id`                 | 任务所属项目的当前管理者                       | `status: ok`、`task_id`               |
+| `GET /api/v1/files/tasks/:task_id/file-url`                   | 当前任务可见性，非管理者也可读取有权访问的任务 | `url`、`expires_in`                   |
+| `POST /api/v1/files/projects/:project_id/backfill-thumbnails` | 当前项目管理者                                 | `status: queued`、`celery_task_id`    |
+
+初始化请求使用 `project_id`、`file_name` 和 `content_type`；文件类型按 MIME 推断。上传地址只针对本次项目/任务的对象键。客户端按返回地址上传对象，再确认完成；普通项目成员即使被指派该任务，也不能代替项目管理者完成这些管理操作。
+
+完成请求先核对当前管理权限和上传状态，再验证对象存在；存储验证期间不持有账号、项目或任务行锁。最终写入重新取得当前权限、批次和任务围栏，核对项目/批次、对象键、文件类型及 `uploading` 状态，不以先前快照作为权限许可，也不把已推进的任务改回 `pending`。
+
+不可访问的项目或任务返回 `404`，可见但无管理权返回 `403`，停用主体返回 `401`。对授权管理者，任务已不在上传状态或对象缺失返回 `400`；当前行锁繁忙或来源绑定变化返回 `409`。任务原图读取沿用完整任务可见性，不因同属一个项目就允许读取其他人的隐藏任务。
+
+初始化保留先提交任务、再返回签名地址的时点；完成保留先提交状态、再派发图片缩略图的时点。派发失败不会撤销已经提交的完成状态，管理者可使用项目回填入口；没有新增自动补偿、可靠投递或重复确认的幂等保证。权限变化会影响新请求，但不撤销已经签发、尚未按原规则到期的对象 URL。
 
 ## 拉取下一个任务
 

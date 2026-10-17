@@ -183,6 +183,9 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="labeling_tasks", legacy_facades=()),
     DomainSpec(package="labeling_assignment", legacy_facades=()),
     DomainSpec(
+        package="media_materialization", legacy_facades=(), allowed_app_imports=()
+    ),
+    DomainSpec(
         package="labeling_write_scope", legacy_facades=(), allowed_app_imports=()
     ),
     DomainSpec(package="labeling_write_guard", legacy_facades=()),

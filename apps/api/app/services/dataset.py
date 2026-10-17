@@ -6,13 +6,19 @@ import logging
 import mimetypes
 import os
 import uuid
-from typing import AsyncIterator, BinaryIO, Literal
+from typing import Any, AsyncIterator, BinaryIO, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
+from app.db.models.dataset import (
+    Dataset,
+    DatasetItem,
+    ProjectDataset,
+    Scene,
+    VideoFrameIndex,
+)
 from app.db.models.project import Project
 from app.services.display_id import next_display_id
 from app.services.dataset_task_facts import PreparedDatasetItem
@@ -541,6 +547,90 @@ class DatasetService:
                 dispatcher.dispatch_thumbnail(item_id)
             elif file_type == "video":
                 dispatcher.dispatch_video_metadata(item_id)
+
+    async def set_item_dimensions(
+        self, item_id: uuid.UUID, dimensions: tuple[int, int]
+    ) -> None:
+        item = await self.db.get(DatasetItem, item_id)
+        if item is not None:
+            item.width, item.height = dimensions
+
+    async def record_thumbnail_error(self, item_id: uuid.UUID, error: str) -> None:
+        item = await self.db.get(DatasetItem, item_id)
+        if item is not None:
+            metadata = dict(item.metadata_ or {})
+            metadata["thumbnail_error"] = error
+            item.metadata_ = metadata
+
+    async def set_item_thumbnail(
+        self, item_id: uuid.UUID, thumbnail_path: str, *, blurhash: str
+    ) -> None:
+        item = await self.db.get(DatasetItem, item_id)
+        if item is not None:
+            item.thumbnail_path = thumbnail_path
+            item.blurhash = blurhash
+
+    async def replace_video_frame_index(
+        self,
+        item_id: uuid.UUID,
+        frame_timetable: Sequence[Mapping[str, Any]],
+    ) -> None:
+        await self.db.execute(
+            delete(VideoFrameIndex).where(VideoFrameIndex.dataset_item_id == item_id)
+        )
+        self.db.add_all(
+            [
+                VideoFrameIndex(
+                    dataset_item_id=item_id,
+                    frame_index=entry["frame_index"],
+                    pts_ms=entry["pts_ms"],
+                    is_keyframe=entry["is_keyframe"],
+                    pict_type=entry.get("pict_type"),
+                    byte_offset=entry.get("byte_offset"),
+                )
+                for entry in frame_timetable
+            ]
+        )
+
+    async def set_video_dimensions(
+        self,
+        item_id: uuid.UUID,
+        *,
+        width: Any | None,
+        height: Any | None,
+    ) -> None:
+        item = await self.db.get(DatasetItem, item_id)
+        if item is None:
+            return
+        if width is not None:
+            item.width = int(width)
+        if height is not None:
+            item.height = int(height)
+
+    async def record_video_probe_error(
+        self, item_id: uuid.UUID, video_metadata: Mapping[str, Any]
+    ) -> None:
+        item = await self.db.get(DatasetItem, item_id)
+        if item is not None:
+            metadata = dict(item.metadata_ or {})
+            metadata["video"] = dict(video_metadata)
+            item.metadata_ = metadata
+
+    async def save_video_materialization(
+        self,
+        item_id: uuid.UUID,
+        video_metadata: Mapping[str, Any],
+        *,
+        thumbnail_path: str | None,
+    ) -> None:
+        item = await self.db.get(DatasetItem, item_id)
+        if item is None:
+            return
+        metadata = dict(item.metadata_ or {})
+        metadata["video"] = dict(video_metadata)
+        item.metadata_ = metadata
+        if thumbnail_path is not None:
+            item.thumbnail_path = thumbnail_path
 
     async def _find_by_file_path(
         self, dataset_id: uuid.UUID, file_path: str

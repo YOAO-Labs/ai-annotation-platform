@@ -106,6 +106,10 @@ services/
 
 媒体准备与视频缓存使用独立的 `services/media_job_dispatch.py::MediaJobDispatcher`，由 `deps.get_media_job_dispatcher()` 装配 `workers/media_dispatch.py::CeleryMediaJobDispatcher`。数据集扫描、上传完成、ZIP 入库、视频帧/分块和媒体资产重试的 HTTP 入口显式注入；连接器导入 worker 在自身入口构造适配器。数据集服务和视频帧服务只提交资源 ID 与帧请求，保留原有提交、缓存命中、过期重排和失败处理时序，不选择 Celery task。
 
+传统直接任务上传由 `application/legacy_file_upload.py::LegacyFileUploadWorkflow` 组合当前管理权限、存储验证与 labeling 写入。`LabelingTaskService` 持有上传任务创建、不可变 `LabelingUploadTarget` 读取及完成状态提交；来源快照只携带 UUID、批次、对象键、类型和状态。存储 I/O 前的管理检查不持有行锁，完成后复用 `application/task_workflow_locks.lock_current_task_target` 重新取权并锁定当前目标，再核对来源绑定。初始化/完成保留原提交时点与完成后缩略图派发，回填通过媒体端口发布，原图地址复用完整任务可见性；没有把 UUID/DTO 当权限票据。
+
+`services/media_materialization.py::MediaMaterializationWriter` 只定义 UUID、尺寸、缩略图/blurhash、视频 JSON 和帧时间表的写入端口。worker 的 `SqlAlchemyMediaMaterializationWriter` 在同一 Session 绑定 `DatasetService` 与 `LabelingTaskService`，由它们写素材/任务元信息与持久帧索引；codec、对象 I/O、视频帧/分块技术缓存仍由媒体执行适配器持有。保留视频尺寸和帧索引在海报 I/O 前的提交、最终元信息/海报提交及图片金字塔失效语义。端口不传二进制正文、ORM 或 Celery 对象，但当前绑定和跨域权威围栏仍是本地数据库实现，不是已交付的远程协议。
+
 视频追踪经纯端口 `video_tracking.dispatch.VideoTrackerJobDispatcher` 派发，只传作业 UUID 并返回执行 ID。HTTP 的 `deps.get_video_tracker_job_dispatcher()` 或 Mask 修复 worker 入口装配 `workers/video_tracker_dispatch.py`；领域 `jobs` 不再导入 Celery 或持有任务注册名。原 `gpu` 队列、单个字符串 UUID 参数、执行 ID 提交和失败补偿不变；仅仍为 queued 的行才被补偿为失败，`fail_closed` 保留 503，发布后数据库失败仍不能证明消息未入队。
 
 训练数据集使用异步端口 `services/training_dataset_dispatch.py::TrainingDatasetDispatcher`。HTTP 由 `deps.get_training_dataset_dispatcher()` 装配，周期学习策略 worker 在自身入口装配 `workers/training_dataset_dispatch.py::CeleryTrainingDatasetDispatcher`，经 `learning_policies.tick/dispatch_pending` 显式传递。领域服务保留 version/job/attempt 身份、执行 ID 落库和同 attempt 且仍 pending 时的失败回填；适配器保留原 task 及线程卸载，业务服务不再承担 Celery 或线程派发。

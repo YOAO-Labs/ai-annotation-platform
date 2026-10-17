@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.db.models.dataset import (
     DatasetItem,
@@ -22,6 +22,8 @@ from app.observability.metrics import (
     VIDEO_FRAME_EXTRACTION_SECONDS,
 )
 from app.schemas.task import VideoMetadata
+
+from app.services.media_materialization import MediaMaterializationWriter
 from app.services.video_frame_service import (
     cache_key_for_chunk,
     cache_key_for_frame,
@@ -30,6 +32,7 @@ from app.services.video_frame_service import (
     source_key_for_item,
 )
 from app.workers.celery_app import celery_app
+from app.workers.media_materialization import SqlAlchemyMediaMaterializationWriter
 from app.workers.media_probe import (
     FFPROBE_TIMEOUT_SECONDS as FFPROBE_TIMEOUT_SECONDS,
     _parse_frame_time_ms as _parse_frame_time_ms,
@@ -227,13 +230,14 @@ async def _generate_thumbnail(item_id: str) -> None:
         if not item or item.file_type != "image":
             return
 
+        writer: MediaMaterializationWriter = SqlAlchemyMediaMaterializationWriter(db)
         storage = StorageService()
         if item.width is None or item.height is None:
             dimensions = storage.read_image_dimensions(
                 item.file_path, bucket=storage.datasets_bucket
             )
             if dimensions:
-                item.width, item.height = dimensions
+                await writer.set_item_dimensions(item.id, dimensions)
                 await db.commit()
         from app.services.image_pyramid import pyramid_eligible
 
@@ -251,9 +255,7 @@ async def _generate_thumbnail(item_id: str) -> None:
             if int(head.get("ContentLength") or 0) > THUMBNAIL_MAX_SOURCE_BYTES:
                 raise RuntimeError("thumbnail_source_too_large")
         except Exception as exc:
-            meta = dict(item.metadata_ or {})
-            meta["thumbnail_error"] = str(exc)
-            item.metadata_ = meta
+            await writer.record_thumbnail_error(item.id, str(exc))
             await db.commit()
             return
 
@@ -268,9 +270,7 @@ async def _generate_thumbnail(item_id: str) -> None:
                     )
                 thumbnail_bytes, hash_str = _thumbnail_from_path(source_path)
         except Exception as exc:
-            meta = dict(item.metadata_ or {})
-            meta["thumbnail_error"] = str(exc)
-            item.metadata_ = meta
+            await writer.record_thumbnail_error(item.id, str(exc))
             await db.commit()
             return
 
@@ -284,14 +284,11 @@ async def _generate_thumbnail(item_id: str) -> None:
                 ContentType="image/webp",
             )
         except Exception as exc:
-            meta = dict(item.metadata_ or {})
-            meta["thumbnail_error"] = str(exc)
-            item.metadata_ = meta
+            await writer.record_thumbnail_error(item.id, str(exc))
             await db.commit()
             return
 
-        item.thumbnail_path = thumb_key
-        item.blurhash = hash_str
+        await writer.set_item_thumbnail(item.id, thumb_key, blurhash=hash_str)
         await db.commit()
 
     await engine.dispose()
@@ -316,9 +313,9 @@ async def _generate_video_metadata(item_id: str) -> None:
         if not item or item.file_type != "video":
             return
 
+        writer: MediaMaterializationWriter = SqlAlchemyMediaMaterializationWriter(db)
         storage = StorageService()
-        meta = dict(item.metadata_ or {})
-        video_meta = dict(meta.get("video") or {})
+        video_meta = dict((item.metadata_ or {}).get("video") or {})
 
         with tempfile.TemporaryDirectory(prefix="anno-video-") as tmp:
             suffix = Path(item.file_name).suffix or ".mp4"
@@ -334,8 +331,7 @@ async def _generate_video_metadata(item_id: str) -> None:
                     )
             except Exception as exc:
                 video_meta["probe_error"] = str(exc)
-                meta["video"] = video_meta
-                item.metadata_ = meta
+                await writer.record_video_probe_error(item.id, video_meta)
                 await db.commit()
                 return
 
@@ -352,24 +348,7 @@ async def _generate_video_metadata(item_id: str) -> None:
             if not video_meta.get("probe_error"):
                 try:
                     frame_timetable = probe_video_frame_timetable(input_path)
-                    await db.execute(
-                        delete(VideoFrameIndex).where(
-                            VideoFrameIndex.dataset_item_id == item.id
-                        )
-                    )
-                    db.add_all(
-                        [
-                            VideoFrameIndex(
-                                dataset_item_id=item.id,
-                                frame_index=entry["frame_index"],
-                                pts_ms=entry["pts_ms"],
-                                is_keyframe=entry["is_keyframe"],
-                                pict_type=entry.get("pict_type"),
-                                byte_offset=entry.get("byte_offset"),
-                            )
-                            for entry in frame_timetable
-                        ]
-                    )
+                    await writer.replace_video_frame_index(item.id, frame_timetable)
                     video_meta["frame_timetable_frame_count"] = len(frame_timetable)
                     video_meta.pop("frame_timetable_error", None)
                 except subprocess.TimeoutExpired:
@@ -378,11 +357,11 @@ async def _generate_video_metadata(item_id: str) -> None:
                     )
                 except Exception as exc:
                     video_meta["frame_timetable_error"] = str(exc)
-
-            if video_meta.get("width") is not None:
-                item.width = int(video_meta["width"])
-            if video_meta.get("height") is not None:
-                item.height = int(video_meta["height"])
+            await writer.set_video_dimensions(
+                item.id,
+                width=video_meta.get("width"),
+                height=video_meta.get("height"),
+            )
 
             if (
                 video_meta.get("codec")
@@ -409,6 +388,7 @@ async def _generate_video_metadata(item_id: str) -> None:
                     video_meta["playback_error"] = str(exc)
 
             poster_row = None
+            thumbnail_path = None
             start = time.perf_counter()
             try:
                 poster_row = await _get_or_create_frame_cache_row(
@@ -429,7 +409,7 @@ async def _generate_video_metadata(item_id: str) -> None:
                 VIDEO_FRAME_EXTRACTION_SECONDS.labels(
                     outcome="success", format="webp"
                 ).observe(time.perf_counter() - start)
-                item.thumbnail_path = poster_row.storage_key
+                thumbnail_path = poster_row.storage_key
                 video_meta["poster_frame_path"] = poster_row.storage_key
                 video_meta.pop("poster_error", None)
             except subprocess.TimeoutExpired:
@@ -451,8 +431,9 @@ async def _generate_video_metadata(item_id: str) -> None:
                     outcome="error", format="webp"
                 ).observe(time.perf_counter() - start)
 
-        meta["video"] = video_meta
-        item.metadata_ = meta
+        await writer.save_video_materialization(
+            item.id, video_meta, thumbnail_path=thumbnail_path
+        )
         await db.commit()
 
     await engine.dispose()
@@ -528,6 +509,8 @@ async def _generate_task_thumbnail(task_id: str) -> None:
         if not task or task.file_type != "image":
             return
 
+        writer: MediaMaterializationWriter = SqlAlchemyMediaMaterializationWriter(db)
+
         storage = StorageService()
         dimensions = storage.read_image_dimensions(
             task.file_path, bucket=storage.bucket
@@ -568,9 +551,7 @@ async def _generate_task_thumbnail(task_id: str) -> None:
         except Exception:
             return
 
-        task.thumbnail_path = thumb_key
-        task.blurhash = hash_str
-        await db.commit()
+        await writer.set_task_thumbnail(task.id, thumb_key, hash_str)
 
     await engine.dispose()
 

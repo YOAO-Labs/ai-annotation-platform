@@ -61,6 +61,12 @@ last_reviewed: 2026-10-16
 - 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
   持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
   `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。
+- 传统任务文件：`app/application/legacy_file_upload.py` 组合当前管理权威、存储验证与
+  `LabelingTaskService`；上传目标是不可变值快照，最终仍重取当前权限和任务锁。
+  原图地址用 `task_access.assert_task_visible`，不能只检查项目成员身份。
+- 媒体物化：`services/media_materialization.py::MediaMaterializationWriter` 定义结果写端口，
+  `workers/media_materialization.py` 绑定 assets/labeling 的元信息与帧索引所有者；
+  媒体执行器持有 codec、对象 I/O 和派生帧/分块技术缓存，不代写项目管理权限。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
   单项重试、放弃和恢复共享当前项目管理准入，不从 API 路由导入规则。
 - 贡献与审核事实：`app/services/annotation_evidence.py` 持有轮次、贡献者快照、

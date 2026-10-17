@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import delete, func, insert, select, text, update
@@ -16,8 +17,32 @@ from app.services.dataset_task_facts import (
     PreparedDatasetItem,
     PreparedPointCloudFrame,
 )
+
+from app.services.display_id import next_display_id
 from app.services.task_dataset_link import link_items
 from app.services.task_lock import TaskLockService
+
+
+class LabelingUploadTaskNotFound(LookupError):
+    pass
+
+
+class LabelingUploadTaskNotUploading(ValueError):
+    pass
+
+
+class LabelingUploadTargetChanged(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class LabelingUploadTarget:
+    task_id: uuid.UUID
+    project_id: uuid.UUID
+    batch_id: uuid.UUID | None
+    file_path: str
+    file_type: str
+    status: str
 
 
 class LabelingTaskService:
@@ -657,3 +682,68 @@ class LabelingTaskService:
             batch.total_tasks = counts.total
             batch.completed_tasks = counts.completed
             batch.review_tasks = counts.review
+
+    async def create_uploading_task(
+        self,
+        *,
+        task_id: uuid.UUID,
+        project_id: uuid.UUID,
+        file_name: str,
+        file_path: str,
+        file_type: str,
+    ) -> None:
+        task = Task(
+            id=task_id,
+            project_id=project_id,
+            display_id=await next_display_id(self.db, "tasks"),
+            file_name=file_name,
+            file_path=file_path,
+            file_type=file_type,
+            status="uploading",
+        )
+        self.db.add(task)
+        await self.db.commit()
+
+    async def read_upload_target(self, task_id: uuid.UUID) -> LabelingUploadTarget:
+        row = (
+            await self.db.execute(
+                select(
+                    Task.id,
+                    Task.project_id,
+                    Task.batch_id,
+                    Task.file_path,
+                    Task.file_type,
+                    Task.status,
+                ).where(Task.id == task_id)
+            )
+        ).one_or_none()
+        if row is None:
+            raise LabelingUploadTaskNotFound
+        return LabelingUploadTarget(*row)
+
+    async def mark_uploading_task_pending(self, target: LabelingUploadTarget) -> None:
+        """Commit after the workflow holds the canonical current task fence."""
+        task = await self.db.get(Task, target.task_id)
+        if task is None:
+            raise LabelingUploadTaskNotFound
+        if task.status != "uploading":
+            raise LabelingUploadTaskNotUploading
+        if (
+            task.project_id != target.project_id
+            or task.batch_id != target.batch_id
+            or task.file_path != target.file_path
+            or task.file_type != target.file_type
+        ):
+            raise LabelingUploadTargetChanged
+        task.status = "pending"
+        await self.db.commit()
+
+    async def set_task_thumbnail(
+        self, task_id: uuid.UUID, thumbnail_path: str, blurhash: str
+    ) -> None:
+        task = await self.db.get(Task, task_id)
+        if task is None:
+            return
+        task.thumbnail_path = thumbnail_path
+        task.blurhash = blurhash
+        await self.db.commit()

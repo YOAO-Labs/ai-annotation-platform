@@ -37,4 +37,4 @@ Mask QC、点云质检、视频轨迹质检、Mask 修复和格式导入的业�
 
 - [后端分层](../../../docs-site/dev/concepts/backend-layers.md)
 - [仓库地图](../../../docs-site/dev/concepts/repository-map.md)
-- [实施计划与验收证据](../../plans/1792160873_backend-module-decoupling.md)
+- [实施计划与验收证据](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/1792160873_backend-module-decoupling.md)
