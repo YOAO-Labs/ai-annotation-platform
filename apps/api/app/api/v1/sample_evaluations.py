@@ -27,6 +27,8 @@ from app.schemas.sample_evaluation import (
     SampleEvaluationOut,
 )
 from app.services import sample_evaluations as service, trained_models
+from app.services.active_learning_references import guard_source
+from app.services.sample_evaluation_sources import resolve_source
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 
 router = APIRouter(
@@ -459,7 +461,6 @@ async def source(
     spec = service.validate_spec(run)
     if not 0 <= ordinal < len(spec["samples"]):
         raise service.reject("sample_missing", "冻结样本不存在", 404)
-    from app.services.sample_evaluation_sources import resolve_source
 
     try:
         return await resolve_source(
@@ -485,7 +486,6 @@ async def delete(
 ):
     await lock_project_manager(db, user, project.id)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
-    from app.services.active_learning_pool import guard_source
 
     await guard_source(db, evaluation_id=run.id)
     if run.status not in service.TERMINAL:

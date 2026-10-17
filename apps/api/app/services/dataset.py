@@ -27,6 +27,7 @@ from app.services.project_kind import (
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
+from app.services.active_learning_references import guard_source
 
 _STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _IMAGE_HEAD_BYTES = 256 * 1024
@@ -244,7 +245,6 @@ class DatasetService:
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return None
-        from app.services.active_learning_pool import guard_source
 
         await guard_source(self.db, dataset_id=dataset_id)
         from app.db.models.image_pyramid import ImagePyramidAsset
@@ -379,7 +379,6 @@ class DatasetService:
         )
         if not item or (dataset_id is not None and item.dataset_id != dataset_id):
             return False
-        from app.services.active_learning_pool import guard_source
 
         await guard_source(self.db, item_ids=[item_id])
         ds = await self.db.get(Dataset, item.dataset_id)
@@ -802,7 +801,6 @@ class DatasetService:
             )
         ).all()
         target_task_ids: list[uuid.UUID] = [r[0] for r in target_rows]
-        from app.services.active_learning_pool import guard_source
 
         await guard_source(self.db, task_ids=target_task_ids)
         affected_batch_ids: set[uuid.UUID] = {

@@ -146,6 +146,7 @@ last_reviewed: 2026-10-16
 3. 执行器通信：`apps/training-executor` 通过 `/api/v1/internal/training` 拉取实验与任务凭据，以 OS flock 独占 GPU 文件锁，拉取不可变训练包并守护训练子进程；阶段耗时、资源采样与脱敏日志通过 `/observations` 上报。
 4. 产物与模型回流：`training_artifacts.py` 统一流式产物校验、观测摘要校验与有界 JSON 读取，执行终态、初始化和模型注册直接消费该所有者。训练完成后由执行器上传不可变权重与完整检查点；负责人核验最终评估后注册为 `TrainedModelVersion`；在已认证的 YOLO backend (`/managed-models`) 完成 CPU 加载与样本试用后发布（`ModelRelease`），最终接入 Workbench 与预标注流水线 (`model_id="project-release"`)。
 5. 谱系与决策：`app/services/model_lineage.py` 提供单跳追溯，`model_decisions` 记录负责人处置（发布、归档、说明追加）。详见[在线学习与训练体系](./training-datasets)。
+6. 评估与主动学习的共同下层：`sample_evaluation_sources.py` 负责当前标注切面与原图条件读取，直接消费纯引擎限制和存储；`active_learning_references.py` 持有版本/评估引用及删除保护。主动学习编排、评估清理和项目/素材/任务删除入口使用同一引用所有者，保留原 409 与事务顺序，不通过高层编排互相导入。
 
 ## 6. 测试层级与运行入口
 

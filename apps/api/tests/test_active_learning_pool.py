@@ -12,7 +12,9 @@ from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.active_learning import DecisionCreate
 from app.services import active_learning as service, active_learning_pool as pool
+from app.services import active_learning_references as references
 from app.services.training_dataset_bridge import content_digest
+from tests.sample_evaluation_fixtures import evaluation as create_evaluation
 from tests.active_learning_fixtures import complete, create, seed
 from tests.test_training_dataset_analysis import inputs
 
@@ -137,10 +139,10 @@ async def test_later_content_alias_membership_blocks_accept_and_retained_window_
     report = await complete(db_session, round, attempt)
     for task in world.tasks:
         with pytest.raises(HTTPException) as error:
-            await pool.guard_source(db_session, task_ids=[task.id])
+            await references.guard_source(db_session, task_ids=[task.id])
         assert error.value.detail["code"] == "active_learning_reference"
     with pytest.raises(HTTPException):
-        await pool.guard_source(db_session, version_id=world.dataset.id)
+        await references.guard_source(db_session, version_id=world.dataset.id)
     chosen = next(row for row in report["ranking"] if row["recommended"])
     frozen = round.spec["samples"][chosen["ordinal"]]
     snapshot, manifest = inputs(
@@ -178,6 +180,97 @@ async def test_later_content_alias_membership_blocks_accept_and_retained_window_
             ),
         )
     assert error.value.detail["code"] == "source_stale"
+
+
+async def test_held_out_evaluation_reference_blocks_evaluation_deletion(
+    db_session, super_admin, httpx_client, monkeypatch
+):
+    import io
+    import json
+    import zipfile
+
+    from PIL import Image
+
+    from app.services.training_dataset_bridge import detection_labels
+
+    owner, token = super_admin
+    world = await seed(db_session, owner, monkeypatch)
+    image = io.BytesIO()
+    Image.new("RGB", (16, 12), (241, 239, 237)).save(image, format="PNG")
+    raw = image.getvalue()
+    snapshot, manifest = inputs(
+        [
+            {
+                "content": "independent-held-out",
+                "split": "val",
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "size_bytes": len(raw),
+            }
+        ],
+        classes=["car", "person"],
+    )
+    package = io.BytesIO()
+    member = manifest["samples"][0]
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr(member["image_path"], raw)
+        archive.writestr(
+            member["label_path"],
+            detection_labels(
+                snapshot["samples"][0]["annotations"], manifest["classes"]
+            ),
+        )
+        archive.writestr("manifest.json", json.dumps(manifest))
+    package_raw = package.getvalue()
+    held_out = TrainingDatasetVersion(
+        project_id=world.project.id,
+        creator_id=owner.id,
+        request_id=uuid.uuid4(),
+        request_digest="f" * 64,
+        name="Independent held-out",
+        snapshot=snapshot,
+        snapshot_digest=content_digest(snapshot),
+        manifest=manifest,
+        status="ready",
+        package_key=f"held-out/{uuid.uuid4()}.zip",
+        package_sha256=hashlib.sha256(package_raw).hexdigest(),
+    )
+    db_session.add(held_out)
+    await db_session.flush()
+    world.objects.put_object(
+        Bucket=service.storage.training_bucket,
+        Key=held_out.package_key,
+        Body=package_raw,
+        ContentType="application/zip",
+    )
+    sample_id = manifest["samples"][0]["task_id"]
+    world.objects.put_object(
+        Bucket=service.storage.training_bucket,
+        Key=f"projects/{world.project.id}/datasets/{held_out.id}/media/{sample_id}",
+        Body=raw,
+        Metadata={
+            "snapshot-digest": held_out.snapshot_digest,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        },
+        ContentType="image/png",
+    )
+    world.body = world.body.model_copy(
+        update={
+            "dataset_id": held_out.id,
+            "sample_task_ids": [uuid.UUID(sample_id)],
+            "role": "held_out_test",
+            "held_out_confirmed": True,
+        }
+    )
+    run, _attempt = await create_evaluation(db_session, owner, world)
+    await create(db_session, owner, world)
+
+    response = await httpx_client.delete(
+        f"/api/v1/projects/{world.project.id}/sample-evaluations/{run.id}",
+        headers={"Authorization": "Bearer " + token},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "active_learning_reference"
 
 
 async def test_frozen_and_retained_evidence_digest_corruption_never_publishes_report(

@@ -16,7 +16,6 @@ from app.db.models.active_learning import (
     ActiveLearningCandidate as Candidate,
     ActiveLearningDecision as Decision,
     ActiveLearningPoolMember as Member,
-    ActiveLearningReference as Reference,
     ActiveLearningRound as Round,
 )
 from app.db.models.task import Task
@@ -26,6 +25,7 @@ from app.schemas.active_learning import RoundOut, Selection
 from app.schemas.batch import BatchCreate
 from app.schemas.sample_evaluation import DetectionPrediction, EvaluationProfile
 from app.services import (
+    active_learning_references as source_references,
     active_learning_engine as engine,
     active_learning_pool as pool,
     async_job as jobs,
@@ -171,34 +171,6 @@ def validate_spec(round):
     return spec
 
 
-async def retain_references(db, round, references):
-    existing = (
-        await db.scalars(select(Reference).where(Reference.round_id == round.id))
-    ).all()
-    ids = {
-        ("dataset", str(row.dataset_version_id))
-        if row.dataset_version_id
-        else ("evaluation", str(row.evaluation_id))
-        for row in existing
-    }
-    for ref in references:
-        if (ref["kind"], ref["id"]) in ids:
-            continue
-        db.add(
-            Reference(
-                round_id=round.id,
-                dataset_version_id=uuid.UUID(ref["id"])
-                if ref["kind"] == "dataset"
-                else None,
-                evaluation_id=uuid.UUID(ref["id"])
-                if ref["kind"] == "evaluation"
-                else None,
-                source_digest=ref["digest"],
-            )
-        )
-        ids.add((ref["kind"], ref["id"]))
-
-
 async def create_round(db, project, user, body, prepared, api_key_id=None):
     digest = content_digest(body.model_dump(mode="json"))
     await db.execute(
@@ -304,7 +276,9 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
                 request_id=uuid.uuid5(round.id, f"candidate:{sample['ordinal']}"),
             )
         )
-    await retain_references(db, round, spec["exclusions"]["references"])
+    await source_references.retain_references(
+        db, round, spec["exclusions"]["references"]
+    )
     await new_attempt(db, round)
     return round
 
@@ -803,7 +777,7 @@ async def decide(db, project, user, round_id, body, api_key_id=None):
         for old_id in batch_ids:
             await batches.recalculate_counters(old_id)
         round.accepted_tasks += len(ids)
-        await retain_references(db, round, history["references"])
+        await source_references.retain_references(db, round, history["references"])
     snapshot = {
         "round_id": str(round.id),
         "spec_digest": round.spec_digest,

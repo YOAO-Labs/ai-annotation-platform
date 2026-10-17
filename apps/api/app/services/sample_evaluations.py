@@ -31,6 +31,7 @@ from app.services import (
     async_job as jobs,
     sample_evaluation_engine as engine,
 )
+from app.services.active_learning_references import guard_source
 from app.services.async_job_notify import notify_job_terminal
 from app.services.managed_inference import (
     qualification as qualification,
@@ -689,7 +690,6 @@ async def purge_requested(db, run_id):
     run = await db.get(Run, run_id)
     if not run or not run.deletion_requested_at or run.status not in TERMINAL:
         return False
-    from app.services.active_learning_pool import guard_source
 
     await guard_source(db, evaluation_id=run.id)
     prefix = report_prefix(run)

@@ -72,6 +72,7 @@ from app.schemas.export import (
     LidarExportPreflightResponse,
 )
 from app.config import settings
+from app.services.active_learning_references import guard_source
 from app.services.display_id import next_display_id
 from app.services.pipeline_validation import (
     check_capability_violations,
@@ -3163,9 +3164,9 @@ async def cleanup_orphan_tasks(
     if not rows:
         return {"deleted_tasks": 0, "deleted_annotations": 0}
     orphan_count = len(rows)
+
     from sqlalchemy import select as source_select
     from app.db.models.task import Task as SourceTask
-    from app.services.active_learning_pool import guard_source
 
     orphan_ids = [row[0] for row in rows]
     await db.execute(

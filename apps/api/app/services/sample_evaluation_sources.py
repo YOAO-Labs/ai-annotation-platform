@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import io
 import uuid
+from datetime import datetime, timezone
 
 from PIL import Image
 from sqlalchemy import String, cast, func, select
@@ -11,7 +12,8 @@ from sqlalchemy import String, cast, func, select
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
-from app.services import sample_evaluations as service
+from app.services import sample_evaluation_engine as engine
+from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import detection_labels
 from app.services.training_datasets import assert_training_authority
 
@@ -37,7 +39,7 @@ async def current_snapshot(db, project_id, task_id):
             Annotation.was_cancelled.is_(False),
         )
         .order_by(Annotation.id)
-        .limit(service.engine.MAX_TRUTH_PER_IMAGE + 1)
+        .limit(engine.MAX_TRUTH_PER_IMAGE + 1)
         .correlate(Task)
         .subquery()
     )
@@ -77,9 +79,9 @@ async def current_snapshot(db, project_id, task_id):
         "project_id": str(task.project_id),
         "batch_id": str(task.batch_id) if task.batch_id else None,
         "dataset_item_id": str(task.dataset_item_id) if task.dataset_item_id else None,
-        "source_bucket": service.storage.datasets_bucket
+        "source_bucket": storage.datasets_bucket
         if task.dataset_item_id
-        else service.storage.bucket,
+        else storage.bucket,
         "source_key": task.file_path,
         "file_type": task.file_type,
         "version": task.version,
@@ -97,11 +99,11 @@ async def current_snapshot(db, project_id, task_id):
 def read_current_media(snapshot, *, include_raw=False):
     if snapshot["file_type"] != "image":
         raise ValueError("Current task is no longer an image")
-    client = service.storage.client
+    client = storage.client
     params = {"Bucket": snapshot["source_bucket"], "Key": snapshot["source_key"]}
     head = client.head_object(**params)
     size = head.get("ContentLength")
-    if type(size) is not int or not 0 < size <= service.engine.MAX_RAW_BYTES:
+    if type(size) is not int or not 0 < size <= engine.MAX_RAW_BYTES:
         raise ValueError("Current source exceeds byte budget")
     response = client.get_object(**params, IfMatch=head["ETag"])
     try:
@@ -112,7 +114,7 @@ def read_current_media(snapshot, *, include_raw=False):
         raise ValueError("Current source changed during read")
     with Image.open(io.BytesIO(raw)) as image:
         if (
-            image.width * image.height > service.engine.MAX_PIXELS
+            image.width * image.height > engine.MAX_PIXELS
             or getattr(image, "n_frames", 1) != 1
         ):
             raise ValueError("Current source exceeds pixel/frame budget")
@@ -145,7 +147,7 @@ def read_current_media(snapshot, *, include_raw=False):
 
 
 def classify_labels(snapshot, classes):
-    if len(snapshot["annotations"]) > service.engine.MAX_TRUTH_PER_IMAGE:
+    if len(snapshot["annotations"]) > engine.MAX_TRUTH_PER_IMAGE:
         return None
     try:
         return hashlib.sha256(
@@ -162,7 +164,7 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
         "evaluation_id": run.id,
         "attempt_id": attempt_id,
         "ordinal": ordinal,
-        "checked_at": service.now(),
+        "checked_at": datetime.now(timezone.utc),
         "source": "unavailable",
         "task_id": None,
         "project_id": None,

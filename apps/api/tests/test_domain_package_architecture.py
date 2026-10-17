@@ -208,6 +208,10 @@ DOMAIN_PACKAGES = (
         legacy_facades=(),
         allowed_app_imports=(),
     ),
+    DomainSpec(package="active_learning", legacy_facades=()),
+    DomainSpec(package="active_learning_pool", legacy_facades=()),
+    DomainSpec(package="active_learning_references", legacy_facades=()),
+    DomainSpec(package="sample_evaluation_sources", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -683,6 +687,11 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.secondary_inference",
         "app.services.task_discussion",
         "app.services.discussion_notifications",
+        "app.services.active_learning",
+        "app.services.active_learning_pool",
+        "app.services.active_learning_references",
+        "app.services.sample_evaluations",
+        "app.services.sample_evaluation_sources",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

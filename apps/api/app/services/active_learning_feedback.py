@@ -20,6 +20,7 @@ from app.db.models.task import Task
 from app.db.models.task_event import TaskEvent
 from app.services import active_learning as rounds, active_learning_pool as pool
 from app.services import sample_evaluations
+from app.services import active_learning_references as source_references
 from app.services.project_performance import _union_minutes
 from app.services.task_event_ingestion import validate_interval
 from app.services.training_dataset_bridge import content_digest
@@ -142,7 +143,7 @@ async def evaluation_facts(db, project, round, references):
                 "aggregate": report["aggregate"],
             }
         )
-        await rounds.retain_references(
+        await source_references.retain_references(
             db,
             round,
             [{"kind": "evaluation", "id": str(run.id), "digest": run.spec_digest}],

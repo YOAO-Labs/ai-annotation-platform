@@ -30,6 +30,7 @@ from app.schemas.training_dataset import (
     TrainingDatasetSummary,
 )
 from app.services import training_datasets as service
+from app.services.active_learning_references import guard_source
 from app.services import project_task_dataset as task_datasets
 from app.services import training_storage_cleanup as cleanup
 from aap_task_contract import VisualTask
@@ -321,7 +322,6 @@ async def delete_version(
     except TrainingDatasetError as exc:
         fail(exc)
     version = await load_version(db, project, version_id, lock=True)
-    from app.services.active_learning_pool import guard_source
 
     await guard_source(db, version_id=version.id)
     from app.db.models.learning_policy import LearningPolicy, LearningTrigger

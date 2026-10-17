@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.project_task_dataset import ProjectTaskDataset
+from app.services.active_learning_references import guard_source
 
 
 async def delete_project_records(db: AsyncSession, project: Project) -> None:
@@ -21,7 +22,6 @@ async def delete_project_records(db: AsyncSession, project: Project) -> None:
     await db.execute(
         select(Project.id).where(Project.id == project.id).with_for_update()
     )
-    from app.services.active_learning_pool import guard_source
 
     await guard_source(db, project_id=project.id)
     from app.db.models.trained_model import TrainedModelVersion
