@@ -100,6 +100,9 @@ last_reviewed: 2026-10-16
    - 失败预测重试：`app/services/prediction_retry.py::PredictionRetryDispatcher` →
      `app/deps.py::get_prediction_retry_dispatcher` 装配 `app/workers/prediction_retry_dispatch.py`；
      单项接收预选执行队列，批量失败项保留原默认路由，不用任务注册名充当接口。
+   - 视频追踪：`app/services/video_tracking/dispatch.py::VideoTrackerJobDispatcher` →
+     HTTP 的 `app/deps.py::get_video_tracker_job_dispatcher` 或 Mask 修复 worker 入口装配
+     `app/workers/video_tracker_dispatch.py`；领域只收作业 UUID，不携带 Celery 注册名和队列。
 6. 异步处理：`app/workers/signals.py` 将 `task_failure` / `task_revoked` 交给
    `app/application/job_terminal.py`，由工作流组合通用状态、领域回填及通知，
    信号适配器仍控制连接和提交。六类领域回填由各自服务的 `reconcile_job_terminal` 持有，

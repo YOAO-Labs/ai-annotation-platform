@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
     get_quality_job_dispatcher,
+    get_video_tracker_job_dispatcher,
     get_media_job_dispatcher,
     get_db,
     get_current_user,
@@ -94,6 +95,7 @@ from app.services.annotation_evidence import (
     task_contributor_snapshot,
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
+from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
 
 
@@ -1200,6 +1202,9 @@ async def create_video_mask_correction(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
+    tracker_dispatcher: VideoTrackerJobDispatcher = Depends(
+        get_video_tracker_job_dispatcher
+    ),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user, access=access)
@@ -1267,7 +1272,12 @@ async def create_video_mask_correction(
     )
     try:
         await db.commit()
-        enqueued = await enqueue_tracker_job(db, body.id, fail_closed=True)
+        enqueued = await enqueue_tracker_job(
+            db,
+            body.id,
+            dispatcher=tracker_dispatcher,
+            fail_closed=True,
+        )
     except HTTPException as exc:
         outcome = "conflict" if exc.status_code == 409 else "error"
         observe_mask_ai_phase(
@@ -1328,6 +1338,9 @@ async def propagate_video_track(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
+    tracker_dispatcher: VideoTrackerJobDispatcher = Depends(
+        get_video_tracker_job_dispatcher
+    ),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user, access=access)
@@ -1340,6 +1353,7 @@ async def propagate_video_track(
         annotation_id=annotation_id,
         payload=payload,
         user=current_user,
+        dispatcher=tracker_dispatcher,
     )
     await AuditService.log(
         db,
@@ -1376,6 +1390,9 @@ async def track_video(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
+    tracker_dispatcher: VideoTrackerJobDispatcher = Depends(
+        get_video_tracker_job_dispatcher
+    ),
 ):
     """v0.22.1 · B · 任务级追踪 (画布级入口): source_annotation_id 可选——给出即延展该轨迹,
     缺省则为无源检测 (文本/种子), 新建轨迹类别由 target_class_name 指定。旧的
@@ -1391,6 +1408,7 @@ async def track_video(
         annotation_id=payload.source_annotation_id,
         payload=payload,
         user=current_user,
+        dispatcher=tracker_dispatcher,
     )
     await AuditService.log(
         db,

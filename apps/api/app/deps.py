@@ -16,6 +16,7 @@ from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.job_execution_control import JobExecutionControl
 from app.services.prediction_retry import PredictionRetryDispatcher
+from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -75,6 +76,13 @@ def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:
     from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
 
     return CeleryPredictionRetryDispatcher()
+
+
+def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:
+    """Bind video tracker execution at the HTTP composition boundary."""
+    from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
+
+    return CeleryVideoTrackerJobDispatcher()
 
 
 async def get_current_user(

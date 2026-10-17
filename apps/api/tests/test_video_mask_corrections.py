@@ -135,8 +135,8 @@ async def _seed_mask_track(
     return task, backend, model_id, model_key, annotation, reference
 
 
-async def _passthrough_enqueue(db, row_id, *, fail_closed=False):
-    del fail_closed
+async def _passthrough_enqueue(db, row_id, *, dispatcher, fail_closed=False):
+    del dispatcher, fail_closed
     row = await db.get(VideoTrackerJob, row_id)
     assert row is not None
     return VideoTrackerJobOut.model_validate(row, from_attributes=True)

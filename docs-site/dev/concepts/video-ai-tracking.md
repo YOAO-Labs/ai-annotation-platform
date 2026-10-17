@@ -36,6 +36,7 @@ last_reviewed: 2026-09-05
 - 前端：`useWorkbenchShellModel.tsx` 组织范围、点 / 框种子和 job 审阅状态；顶部「发现目标」是画布级无源入口，选中卡 / 右键菜单的「延展此轨迹」是单源入口，多选卡的「批量延展」是多源入口。`VideoTrackerPropagateDialog` 首屏显示作用范围，并按作用范围过滤模型：文本发现只在画布级入口出现，单轨 / 多选只列种子驱动模型。
 - API：`POST /tasks/{task_id}/video/tracks/{annotation_id}:propagate`（延展选中轨迹）或 `POST /tasks/{task_id}/video:track`（源可选）创建 job。`video:track` 的源模式有三种：`source_annotation_id` 单源延展；`source_annotation_ids[]` 多选批量（一个 job 延展 N 条已有轨迹，各回填各自源）；两者皆缺省即无源检测（`target_class_name` 指定新轨迹类别）。
 - worker：`app.workers.video_tracker.run_video_tracker_job` 调用 `app.services.video_tracking.runner`。
+- 执行派发：`video_tracking.dispatch.VideoTrackerJobDispatcher` 是 UUID → 执行 ID 的纯端口；API 通过依赖装配、Mask 修复在 worker 入口装配具体 Celery 适配器。仍投递原注册任务至 `gpu`，任务参数和执行身份不变。领域 `jobs` 保留执行 ID 落库与 queued-only 失败补偿，发布回执不能提供数据库/broker 原子保证。
 - backend adapter：`app.services.video_tracking.adapters` 把平台 context 转为 ML Backend `/predict` 请求。
 - 决策：`POST /video-tracker-jobs/{job_id}/decisions` 处理目标 / 帧窗口；`accept|discard` 保留为整批兼容入口。
 

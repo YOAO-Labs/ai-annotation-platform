@@ -48,6 +48,8 @@ from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
     enqueue_tracker_job,
 )
+from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
+from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
 from app.workers.celery_app import celery_app
 
 
@@ -299,6 +301,7 @@ async def _run_tracker_candidate(
     *,
     item: dict[str, Any],
     actor: User,
+    dispatcher: VideoTrackerJobDispatcher,
 ) -> dict[str, Any]:
     task = await db.get(Task, uuid.UUID(str(item["task_id"])))
     annotation = await db.get(Annotation, uuid.UUID(str(item["annotation_id"])))
@@ -343,7 +346,7 @@ async def _run_tracker_candidate(
         user=actor,
     )
     await db.commit()
-    job = await enqueue_tracker_job(db, job.id, fail_closed=True)
+    job = await enqueue_tracker_job(db, job.id, dispatcher=dispatcher, fail_closed=True)
     return {
         "status": "completed",
         "kind": "rerun_tracker",
@@ -440,7 +443,12 @@ async def _stop_if_cancelled(
     return True
 
 
-async def _run_mask_repair(batch_id: str, celery_task_id: str | None) -> None:
+async def _run_mask_repair(
+    batch_id: str,
+    celery_task_id: str | None,
+    *,
+    tracker_dispatcher: VideoTrackerJobDispatcher,
+) -> None:
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
@@ -551,7 +559,10 @@ async def _run_mask_repair(batch_id: str, celery_task_id: str | None) -> None:
                         await db.commit()
                     else:
                         candidate_result = await _run_tracker_candidate(
-                            db, item=item, actor=actor
+                            db,
+                            item=item,
+                            actor=actor,
+                            dispatcher=tracker_dispatcher,
                         )
                     batch = await db.get(MaskRepairBatch, repair_id)
                     result = _result_copy(batch)
@@ -777,10 +788,12 @@ async def _rollback_mask_repair(batch_id: str, celery_task_id: str | None) -> No
 
 @celery_app.task(bind=True, name="app.workers.mask_repair.run_mask_repair")
 def run_mask_repair(self, batch_id: str) -> None:
+    tracker_dispatcher = CeleryVideoTrackerJobDispatcher()
     asyncio.run(
         _run_mask_repair(
             batch_id,
             getattr(getattr(self, "request", None), "id", None),
+            tracker_dispatcher=tracker_dispatcher,
         )
     )
 

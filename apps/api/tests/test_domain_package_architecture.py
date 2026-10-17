@@ -203,6 +203,11 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="secondary_inference", legacy_facades=()),
     DomainSpec(package="task_discussion", legacy_facades=()),
     DomainSpec(package="discussion_notifications", legacy_facades=()),
+    DomainSpec(
+        package="video_tracking.dispatch",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -682,8 +687,11 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
     }
 
     def is_guarded(module: str) -> bool:
-        return module.startswith("app.services.gpu_arbitration") or (
-            module in guarded_modules
+        return (
+            module.startswith(
+                ("app.services.gpu_arbitration", "app.services.video_tracking")
+            )
+            or module in guarded_modules
         )
 
     offenders = [

@@ -27,6 +27,14 @@ from app.services.video_tracking.runner import (
 )
 
 
+class _TrackerJobDispatcher:
+    def dispatch_tracker_job(self, job_id: uuid.UUID) -> str:
+        return "tracker-test-execution"
+
+
+_TRACKER_JOB_DISPATCHER = _TrackerJobDispatcher()
+
+
 # ── 纯函数: 按实例分组 ────────────────────────────────────────────────
 
 
@@ -467,7 +475,13 @@ async def test_create_tracker_job_sourceless_stores_target_category(
         target_tool_unit_id="bbox",
     )
     body = await create_tracker_job(
-        db_session, task=task, ctx=ctx, annotation_id=None, payload=payload, user=user
+        db_session,
+        task=task,
+        ctx=ctx,
+        annotation_id=None,
+        payload=payload,
+        user=user,
+        dispatcher=_TRACKER_JOB_DISPATCHER,
     )
     job = await db_session.get(VideoTrackerJob, body.id)
     assert job is not None
@@ -504,6 +518,7 @@ async def test_create_tracker_job_sourceless_rejects_invalid_target(
             annotation_id=None,
             payload=payload,
             user=user,
+            dispatcher=_TRACKER_JOB_DISPATCHER,
         )
     assert exc.value.status_code == 422
 
@@ -570,6 +585,7 @@ async def test_create_tracker_job_rejects_unavailable_real_model(
             annotation_id=None,
             payload=payload,
             user=user,
+            dispatcher=_TRACKER_JOB_DISPATCHER,
         )
 
     assert exc.value.status_code == 422
@@ -624,6 +640,7 @@ async def test_create_tracker_job_with_source_keeps_target_null(
         annotation_id=source_id,
         payload=payload,
         user=user,
+        dispatcher=_TRACKER_JOB_DISPATCHER,
     )
     job = await db_session.get(VideoTrackerJob, body.id)
     assert job.annotation_id == source_id
@@ -1214,7 +1231,13 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
         target_class_name="pedestrian",  # 多源时应被忽略 (各源继承自身 label)
     )
     body = await create_tracker_job(
-        db_session, task=task, ctx=ctx, annotation_id=None, payload=payload, user=user
+        db_session,
+        task=task,
+        ctx=ctx,
+        annotation_id=None,
+        payload=payload,
+        user=user,
+        dispatcher=_TRACKER_JOB_DISPATCHER,
     )
     job = await db_session.get(VideoTrackerJob, body.id)
     assert job is not None

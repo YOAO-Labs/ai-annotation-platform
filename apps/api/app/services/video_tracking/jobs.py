@@ -50,6 +50,7 @@ from app.services.video_context import VideoContext
 from app.services.video_segment_service import ensure_segments
 from app.services.video_tracking.adapters import registered_tracker_models
 from app.services.video_tracking import runner as _runner
+from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.services.video_tracks import (
     is_polyline_track,
     normalize_outside_ranges,
@@ -630,6 +631,7 @@ async def enqueue_tracker_job(
     db: AsyncSession,
     row_or_id: VideoTrackerJob | uuid.UUID,
     *,
+    dispatcher: VideoTrackerJobDispatcher,
     fail_closed: bool = False,
 ) -> VideoTrackerJobOut:
     row = (
@@ -641,14 +643,8 @@ async def enqueue_tracker_job(
         raise HTTPException(status_code=404, detail="Video tracker job not found")
     row_id = row.id
     try:
-        from celery import current_app
-
-        result = current_app.send_task(
-            "app.workers.video_tracker.run_video_tracker_job",
-            args=[str(row_id)],
-            queue="gpu",
-        )
-        row.celery_task_id = result.id
+        execution_id = dispatcher.dispatch_tracker_job(row_id)
+        row.celery_task_id = execution_id
         await db.commit()
         await db.refresh(row)
     except Exception as exc:
@@ -995,6 +991,7 @@ async def create_tracker_job(
     annotation_id: uuid.UUID | None,
     payload: VideoTrackerPropagateRequest,
     user: User,
+    dispatcher: VideoTrackerJobDispatcher,
 ) -> VideoTrackerJobOut:
     _assert_frame_range(ctx, payload.from_frame, payload.to_frame)
     known_models = set(registered_tracker_models()) | {"sam3_video_combo"}
@@ -1121,7 +1118,7 @@ async def create_tracker_job(
     await db.commit()
     await db.refresh(row)
 
-    await enqueue_tracker_job(db, row)
+    await enqueue_tracker_job(db, row, dispatcher=dispatcher)
 
     return _job_out(row)
 

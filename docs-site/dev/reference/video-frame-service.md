@@ -245,7 +245,7 @@ POST /api/v1/video-tracker-jobs/{job_id}/discard
 POST /api/v1/video-tracker-jobs/{job_id}/decisions
 ```
 
-创建 job 后会投递 `app.workers.video_tracker.run_video_tracker_job`。当前支持四类 `model_key`：
+创建 job 后由显式注入的 `VideoTrackerJobDispatcher` 派发，HTTP 依赖或 worker 入口装配 `CeleryVideoTrackerJobDispatcher`。具体适配器仍向 `gpu` 投递 `app.workers.video_tracker.run_video_tracker_job`，只传一个字符串 UUID 并保留返回的执行 ID；领域不消费 Celery 对象或注册名。当前支持四类 `model_key`：
 
 | model_key                | 用途                                                                                  |
 | ------------------------ | ------------------------------------------------------------------------------------- |
