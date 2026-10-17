@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # WebSocket 协议
@@ -33,6 +33,8 @@ last_reviewed: 2026-10-17
 | ML Backend Stats        | `/ws/ml-backend-stats?token=<jwt 或 ak_key>`  | JWT **或 `ak_` api_key**（query, `super_admin` / `project_admin`；SDK / TUI 可用 api_key） | `ml-backend-stats:global` (`ws.py:246`)                  | Celery beat 每 1s 拉取 backend `/health` 快照后 publish；通过 `ml-backend-stats:subscribers` INCR/DECR 计数门控 — 0 订阅者时 beat 跳过实拉 |
 
 base URL：`ws://<api-host>/ws/...` 或 `wss://...`。多数频道复用 `apps/web/src/hooks/useReconnectingWebSocket.ts`；用户通知为了 token refresh 使用 `useNotificationSocket.ts` 内的专用重连循环。浏览器中的 DEV 连接统一使用页面同源 `/ws` 代理，避免 LAN 或 SSH LocalForward 访问把浏览器自己的 localhost 误当成 API 主机。
+
+活动账号与共享凭据 helper 在 Session 关闭前返回 `IdentityActorFacts`（id/name/email/role/is_active）；全局角色来自当前数据库账号。共享 helper 保留 JWT 黑名单/凭据代际检查和现有 Redis 异常处理，API key 保留使用时间提交；ML stats 的 API key 分支继续独立处理。各通道的 JWT/API key 握手、共享认证及后续重验策略仍分别执行，项目/任务访问在各自 SQL 会话重新解析当前权威。流内身份事实只是当前读取结果，后续撤权仍按投递门禁生效。
 
 ---
 

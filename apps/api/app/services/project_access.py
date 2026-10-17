@@ -23,6 +23,7 @@ from app.services.workspace_contract import (
     platform_role_is_manager as _platform_role_is_manager,
     project_role_capabilities as _project_role_capabilities,
 )
+from app.services.identity_contracts import IdentityActorFacts
 from app.db.enums import (
     PLATFORM_ROLES,
     PROJECT_ROLES,
@@ -90,7 +91,7 @@ def is_privileged_for_project(user: User, project: Project) -> bool:
 async def resolve_project_access(
     db: AsyncSession,
     *,
-    user: User,
+    user: User | IdentityActorFacts,
     project: Project,
     lock_membership: bool = False,
 ) -> _ProjectAccess:
@@ -314,7 +315,7 @@ def restore_project_write_policy_failure(
 async def resolve_project_access_by_id(
     db: AsyncSession,
     *,
-    user: User,
+    user: User | IdentityActorFacts,
     project_id: uuid.UUID,
     lock_membership: bool = False,
 ) -> tuple[Project, _ProjectAccess]:
