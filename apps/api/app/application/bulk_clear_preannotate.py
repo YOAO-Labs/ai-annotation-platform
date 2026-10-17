@@ -27,7 +27,7 @@ async def bulk_clear_preannotate(
     batch_ids: list[uuid.UUID],
     mode: Literal["predictions_only", "reset_to_draft"],
     reason: str,
-    actor: User,
+    actor_id: uuid.UUID,
     origin: AuditOriginContext,
 ) -> dict[str, Any]:
     """Clear preannotation results within the selected mode's lifecycle boundary."""
@@ -38,10 +38,11 @@ async def bulk_clear_preannotate(
 
     project_ids = sorted({batch.project_id for batch in batches_by_id.values()})
     projects_by_id: dict[uuid.UUID, Project] = {}
+    actor: User | None = None
     for project_id in project_ids:
         try:
             actor, project = await lock_current_project_rows(
-                db, actor_id=actor.id, project_id=project_id
+                db, actor_id=actor_id, project_id=project_id
             )
         except HTTPException as exc:
             if exc.status_code == 404:
@@ -52,6 +53,10 @@ async def bulk_clear_preannotate(
         projects_by_id[project_id] = project
 
     batch_service = BatchService(db)
+    if actor is None:
+        actor = await db.get(User, actor_id)
+        if actor is None:
+            raise HTTPException(status_code=401, detail="账号已停用或不存在")
     is_super = actor.role == UserRole.SUPER_ADMIN
     succeeded: list[uuid.UUID] = []
     skipped: list[dict[str, Any]] = []
@@ -71,14 +76,14 @@ async def bulk_clear_preannotate(
         if project is None:
             skipped.append({"batch_id": batch_id, "reason": "project_missing"})
             continue
-        if not is_super and project.owner_id != actor.id:
+        if not is_super and project.owner_id != actor_id:
             skipped.append({"batch_id": batch_id, "reason": "forbidden"})
             continue
 
         try:
             if mode == "reset_to_draft":
                 _, _, cascade = await batch_service.reset_to_draft(
-                    batch_id, actor_id=actor.id
+                    batch_id, actor_id=actor_id
                 )
             else:
                 task_id_select = select(Task.id).where(Task.batch_id == batch_id)

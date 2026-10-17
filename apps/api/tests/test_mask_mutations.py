@@ -1994,7 +1994,7 @@ async def test_mask_commit_uses_current_task_after_lock(
             actor_a = await session_a.get(User, cleanup_ids["actor"])
             assert task_a is not None and actor_a is not None
             access = await resolve_task_access(
-                session_a, task_a, actor_a, lock_membership=True
+                session_a, task_a, actor_a.id, lock_membership=True
             )
             assert task_a.status == "in_progress"
             assert task_a.assignee_id == cleanup_ids["actor"]

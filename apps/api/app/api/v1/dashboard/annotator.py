@@ -61,7 +61,7 @@ async def annotator_project_onboarding(
     from app.services.project_access import resolve_project_access_by_id
 
     project, access = await resolve_project_access_by_id(
-        db, user=current_user, project_id=project_id
+        db, actor_id=current_user.id, project_id=project_id
     )
     assignment_scope = True
     if not access.is_manager:
@@ -72,7 +72,7 @@ async def annotator_project_onboarding(
                 select(TaskBatch.id)
                 .where(
                     task_visibility_clause(
-                        current_user, project_role=access.project_role
+                        current_user.id, project_role=access.project_role
                     )
                 )
                 .correlate_except(TaskBatch)

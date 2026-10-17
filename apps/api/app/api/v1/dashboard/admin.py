@@ -183,7 +183,7 @@ async def _resolve_people_scope(
             raise HTTPException(status_code=404, detail="项目不存在")
     elif pid is not None:
         # super_admin 指定项目：校验存在（对 super_admin 恒可见，无 member fallback 问题）。
-        await assert_project_visible(pid, db, current_user)
+        await assert_project_visible(pid, db, current_user.id)
     return pid
 
 

@@ -72,7 +72,7 @@ async def lock_current_batch_target(
         db, actor_id=actor_id, project_id=project_id
     )
     task_access.assert_access_binding(
-        expected_access, user=actor, project_id=project_id
+        expected_access, actor_id=actor.id, project_id=project_id
     )
     batch = await lock_row_nowait(
         db,
@@ -109,7 +109,7 @@ async def lock_current_task_target(
         db, actor_id=actor_id, project_id=project_id
     )
     task_access.assert_access_binding(
-        expected_access, user=actor, project_id=project_id
+        expected_access, actor_id=actor.id, project_id=project_id
     )
     if target_batch_id is not None:
         batch = await lock_row_nowait(

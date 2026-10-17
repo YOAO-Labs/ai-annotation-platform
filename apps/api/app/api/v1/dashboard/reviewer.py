@@ -59,7 +59,7 @@ def _reviewable_claim_clause(user: User):
     )
     visible_batch = Task.batch_id.in_(
         select(TaskBatch.id)
-        .where(batch_visibility_clause(user, project_role=REVIEWER_ROLE))
+        .where(batch_visibility_clause(user.id, project_role=REVIEWER_ROLE))
         .correlate(None)
     )
     collaborative_video = and_(

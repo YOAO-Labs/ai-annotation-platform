@@ -23,7 +23,6 @@ from app.services.workspace_contract import (
     platform_role_is_manager as _platform_role_is_manager,
     project_role_capabilities as _project_role_capabilities,
 )
-from app.services.identity_contracts import IdentityActorFacts
 from app.db.enums import (
     PLATFORM_ROLES,
     PROJECT_ROLES,
@@ -91,11 +90,11 @@ def is_privileged_for_project(user: User, project: Project) -> bool:
 async def resolve_project_access(
     db: AsyncSession,
     *,
-    user: User | IdentityActorFacts,
+    actor_id: uuid.UUID,
     project: Project,
     lock_membership: bool = False,
 ) -> _ProjectAccess:
-    """Resolve the immutable access context for ``user`` on ``project``.
+    """Resolve the immutable access context for ``actor_id`` on ``project``.
 
     Always re-reads current account and project state so a revoked account or a
     transferred project cannot authorize from a stale identity map entry.
@@ -110,11 +109,11 @@ async def resolve_project_access(
     """
     if lock_membership:
         _, _, access = await lock_current_project_access(
-            db, actor_id=user.id, project_id=project.id
+            db, actor_id=actor_id, project_id=project.id
         )
         return access
 
-    fresh_user = await db.get(User, user.id, populate_existing=True)
+    fresh_user = await db.get(User, actor_id, populate_existing=True)
     if fresh_user is None or not fresh_user.is_active:
         raise _invalid_account()
     fresh_project = await db.get(Project, project.id, populate_existing=True)
@@ -315,7 +314,7 @@ def restore_project_write_policy_failure(
 async def resolve_project_access_by_id(
     db: AsyncSession,
     *,
-    user: User | IdentityActorFacts,
+    actor_id: uuid.UUID,
     project_id: uuid.UUID,
     lock_membership: bool = False,
 ) -> tuple[Project, _ProjectAccess]:
@@ -323,7 +322,7 @@ async def resolve_project_access_by_id(
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
     access = await resolve_project_access(
-        db, user=user, project=project, lock_membership=lock_membership
+        db, actor_id=actor_id, project=project, lock_membership=lock_membership
     )
     return project, access
 

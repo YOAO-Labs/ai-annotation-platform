@@ -398,7 +398,9 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session, project_role="annotator")
+        result = await get_next_task(
+            user.id, p.id, db_session, project_role="annotator"
+        )
         assert result is not None
         assert result.batch_id == batch.id
 
@@ -419,7 +421,9 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session, project_role="annotator")
+        result = await get_next_task(
+            user.id, p.id, db_session, project_role="annotator"
+        )
         assert result is not None
         assert result.batch_id == batch.id
 
@@ -438,7 +442,9 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session, project_role="annotator")
+        result = await get_next_task(
+            user.id, p.id, db_session, project_role="annotator"
+        )
         assert result is None
 
     @pytest.mark.asyncio
@@ -457,7 +463,9 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session, project_role="annotator")
+        result = await get_next_task(
+            user.id, p.id, db_session, project_role="annotator"
+        )
         assert result is None
 
     @pytest.mark.asyncio
@@ -475,5 +483,7 @@ class TestGetNextTaskBatchFiltering:
         )
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session, project_role="annotator")
+        result = await get_next_task(
+            user.id, p.id, db_session, project_role="annotator"
+        )
         assert result is None

@@ -69,7 +69,7 @@ class WorkspaceConfigurationWorkflow:
         source_project: Project | None = None
         if source_project_id is not None:
             source_project, _access = await resolve_project_access_by_id(
-                self.db, user=actor, project_id=source_project_id
+                self.db, actor_id=actor.id, project_id=source_project_id
             )
         template: ProjectTemplate | None = None
         if template_id is not None:
@@ -200,7 +200,7 @@ class WorkspaceConfigurationWorkflow:
         payload = dict(payload)
         actor = await self._current_actor(actor_id)
         project, access = await resolve_project_access_by_id(
-            self.db, user=actor, project_id=project_id
+            self.db, actor_id=actor.id, project_id=project_id
         )
         self._assert_project_manager(access.is_manager)
 

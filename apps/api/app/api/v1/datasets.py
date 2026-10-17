@@ -867,7 +867,7 @@ async def link_project(
     # action, not a platform-catalog action.  A project administrator without
     # ownership of the target project receives no management authority.
     _project, access = await resolve_project_access_by_id(
-        db, user=current_user, project_id=data.project_id
+        db, actor_id=current_user.id, project_id=data.project_id
     )
     if not access.is_manager:
         raise HTTPException(

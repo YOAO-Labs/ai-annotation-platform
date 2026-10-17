@@ -119,7 +119,7 @@ class SqlPredictionRetry(PredictionRetryPort):
 
                 try:
                     access = await resolve_project_access(
-                        db, user=user, project=project
+                        db, actor_id=user.id, project=project
                     )
                 except HTTPException:
                     raise HTTPException(status_code=403, detail="not your job")

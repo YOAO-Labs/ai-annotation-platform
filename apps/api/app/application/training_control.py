@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.learning_policy import LearningTrigger
 from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
-from app.db.models.user import User
 from app.services import (
     learning_policies,
     training_claims,
@@ -28,7 +27,7 @@ async def resume_run(
     db: AsyncSession,
     project_id: uuid.UUID,
     run_id: uuid.UUID,
-    user: User,
+    actor_id: uuid.UUID,
     *,
     training_authority: TrainingAuthorityPort,
 ) -> TrainingRun:
@@ -68,7 +67,7 @@ async def resume_run(
             db, project_id, preliminary.study_id, lock=True
         )
     lease = await training_runs.lock_resource(db, preliminary.config["resource_id"])
-    await lock_project_manager(db, user.id, project_id)
+    await lock_project_manager(db, actor_id, project_id)
     run = await training_runs.load_run(db, project_id, run_id, lock=True)
     if (
         run.status not in {"failed", "cancelled"}
@@ -123,12 +122,12 @@ async def resume_run(
 
 
 async def delete_run(
-    db: AsyncSession, project_id: uuid.UUID, run_id: uuid.UUID, user: User
+    db: AsyncSession, project_id: uuid.UUID, run_id: uuid.UUID, actor_id: uuid.UUID
 ) -> None:
     preliminary = await training_runs.load_run(db, project_id, run_id)
     if preliminary.auto_trigger_id:
         await training_claims.project_lock(db, project_id)
-    await lock_project_manager(db, user.id, project_id)
+    await lock_project_manager(db, actor_id, project_id)
     run = await training_runs.load_run(db, project_id, run_id, lock=True)
     if run.status not in training_runs.TERMINAL:
         raise HTTPException(status_code=409, detail="训练尚未结束，不能删除")

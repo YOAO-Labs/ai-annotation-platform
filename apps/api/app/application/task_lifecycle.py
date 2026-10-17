@@ -47,9 +47,9 @@ class TaskLifecycleWorkflow:
             actor_id=actor_id,
             expected_access=access,
         )
-        await task_access.assert_task_visible(self.db, task, actor, access=access)
+        await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         task_access.assert_effective_task_assignee(
-            actor,
+            actor.id,
             await task_access.resolve_effective_task_assignee_id(self.db, task),
             action="skip",
             project_id=task.project_id,
@@ -61,7 +61,7 @@ class TaskLifecycleWorkflow:
                 409,
                 {"reason": "task_not_skippable", "status": task.status},
             )
-        task_access.assert_task_editable(task, actor, access=access)
+        task_access.assert_task_editable(task, actor.id, access=access)
 
         now = datetime.now(timezone.utc)
         review_round_id, inherited_assignee_id = await self.labeling.skip_task(
@@ -126,7 +126,7 @@ class TaskLifecycleWorkflow:
             expected_access=access,
         )
         task_access.assert_effective_task_assignee(
-            actor,
+            actor.id,
             await task_access.resolve_effective_task_assignee_id(self.db, task),
             action="withdraw",
             project_id=task.project_id,
@@ -181,7 +181,7 @@ class TaskLifecycleWorkflow:
         )
 
         task_access.assert_effective_task_assignee(
-            actor,
+            actor.id,
             await task_access.resolve_effective_task_assignee_id(self.db, task),
             action="reopen",
             project_id=task.project_id,
@@ -261,7 +261,7 @@ class TaskLifecycleWorkflow:
         )
 
         task_access.assert_effective_task_assignee(
-            actor,
+            actor.id,
             await task_access.resolve_effective_task_assignee_id(self.db, task),
             action="accept rejection",
             project_id=task.project_id,

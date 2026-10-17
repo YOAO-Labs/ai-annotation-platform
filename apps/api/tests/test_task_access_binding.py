@@ -38,7 +38,7 @@ def test_access_binding_rejects_other_project():
     with pytest.raises(HTTPException) as exc:
         task_access.assert_access_binding(
             access,
-            user=SimpleNamespace(id=user_id),
+            actor_id=user_id,
             project_id=uuid.uuid4(),
         )
     assert exc.value.status_code == 409
@@ -50,41 +50,41 @@ def test_access_binding_rejects_other_user():
     with pytest.raises(HTTPException) as exc:
         task_access.assert_access_binding(
             access,
-            user=SimpleNamespace(id=uuid.uuid4()),
+            actor_id=uuid.uuid4(),
             project_id=access.project_id,
         )
     assert exc.value.status_code == 409
 
 
 def test_task_editability_rejects_foreign_manager_context():
-    actor = SimpleNamespace(id=uuid.uuid4())
+    actor_id = uuid.uuid4()
     task = SimpleNamespace(project_id=uuid.uuid4(), status="review")
     access = replace(
-        _access(user_id=actor.id, project_id=uuid.uuid4()),
+        _access(user_id=actor_id, project_id=uuid.uuid4()),
         project_role=None,
         access_kind="owner",
         is_manager=True,
     )
 
     with pytest.raises(HTTPException) as exc:
-        task_access.assert_task_editable(task, actor, access=access)
+        task_access.assert_task_editable(task, actor_id, access=access)
 
     assert exc.value.status_code == 409
     assert exc.value.detail == {"reason": "access_context_mismatch"}
 
 
 def test_completed_task_remains_locked_for_its_manager():
-    actor = SimpleNamespace(id=uuid.uuid4())
+    actor_id = uuid.uuid4()
     task = SimpleNamespace(project_id=uuid.uuid4(), status="completed")
     access = replace(
-        _access(user_id=actor.id, project_id=task.project_id),
+        _access(user_id=actor_id, project_id=task.project_id),
         project_role=None,
         access_kind="owner",
         is_manager=True,
     )
 
     with pytest.raises(HTTPException) as exc:
-        task_access.assert_task_editable(task, actor, access=access)
+        task_access.assert_task_editable(task, actor_id, access=access)
 
     assert exc.value.status_code == 409
     assert exc.value.detail == {"reason": "task_locked", "status": "completed"}

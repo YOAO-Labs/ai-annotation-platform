@@ -90,9 +90,9 @@ async def _accessible_active_user_ids(
             continue
         try:
             await resolve_project_access_by_id(
-                db, user=candidate, project_id=task.project_id
+                db, actor_id=candidate.id, project_id=task.project_id
             )
-            await task_access.assert_task_visible(db, task, candidate)
+            await task_access.assert_task_visible(db, task, candidate.id)
         except HTTPException:
             # A transferred/hidden task is not a notification destination.  Keep
             # the same 404-hiding behavior as the regular discussion read routes.

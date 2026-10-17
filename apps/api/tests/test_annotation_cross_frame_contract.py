@@ -34,7 +34,7 @@ async def test_wrong_cross_frame_binding_rejects_before_sql_or_side_effects(
         db_session, project_id=project.id, status="in_progress"
     )
     original_total_annotations = source_task.total_annotations
-    access = await resolve_task_access(db_session, source_task, actor)
+    access = await resolve_task_access(db_session, source_task, actor.id)
     adapter = _AnnotationCrossFrameSqlAdapter(
         db_session,
         source_task=source_task,

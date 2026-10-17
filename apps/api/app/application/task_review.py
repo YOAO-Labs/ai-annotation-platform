@@ -56,7 +56,7 @@ class TaskReviewWorkflow:
             expected_access=access,
         )
         assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
-        await task_access.assert_task_visible(self.db, task, actor, access=access)
+        await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         return task, actor, project, access
 
     async def _assert_review_evidence_allowed(
@@ -78,7 +78,7 @@ class TaskReviewWorkflow:
         project: Project,
     ) -> Project:
         task_access.assert_access_binding(
-            access, user=actor, project_id=task.project_id
+            access, actor_id=actor.id, project_id=task.project_id
         )
         if access.is_manager:
             return project

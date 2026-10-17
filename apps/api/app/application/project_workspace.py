@@ -37,7 +37,7 @@ async def read_managed_project(
             headers={"WWW-Authenticate": "Bearer"},
         )
     project, access = await resolve_project_access_by_id(
-        db, user=actor, project_id=project_id
+        db, actor_id=actor.id, project_id=project_id
     )
     _assert_project_manager(access)
     return project

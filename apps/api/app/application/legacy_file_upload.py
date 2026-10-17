@@ -93,7 +93,7 @@ class LegacyFileUploadWorkflow:
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             _, access = await resolve_project_access_by_id(
-                self.db, user=actor, project_id=project_id
+                self.db, actor_id=actor.id, project_id=project_id
             )
         if not access.is_manager:
             raise HTTPException(

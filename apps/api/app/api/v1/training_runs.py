@@ -21,6 +21,7 @@ from app.db.models.training_run import (
 from app.db.models.user import User
 from app.deps import (
     get_current_user,
+    get_current_user_id,
     get_db,
     get_training_authority,
     require_project_owner,
@@ -318,12 +319,12 @@ async def cancel_run(
 async def resume_run(
     run_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     run = await training_control.resume_run(
-        db, project.id, run_id, user, training_authority=training_authority
+        db, project.id, run_id, actor_id, training_authority=training_authority
     )
     await db.commit()
     return run
@@ -394,10 +395,10 @@ async def download_artifact(
 async def delete_run(
     run_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
-    await training_control.delete_run(db, project.id, run_id, user)
+    await training_control.delete_run(db, project.id, run_id, actor_id)
 
 
 @executor_router.post(

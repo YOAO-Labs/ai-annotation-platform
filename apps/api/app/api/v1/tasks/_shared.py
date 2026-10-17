@@ -119,7 +119,9 @@ async def _has_current_project_membership_role(
 async def _assert_current_project_member(db: AsyncSession, project, user: User) -> None:
     """Assert the account has any valid access (manager or member)."""
 
-    await resolve_project_access(db, user=user, project=project, lock_membership=True)
+    await resolve_project_access(
+        db, actor_id=user.id, project=project, lock_membership=True
+    )
 
 
 async def require_task_annotation_write(
@@ -136,9 +138,11 @@ async def require_task_annotation_write(
     """
 
     task = await _load_task_or_404(db, task_id)
-    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(
+        db, task, user.id, lock_membership=True
+    )
     task_access.assert_annotation_write_allowed(task, access)
-    await task_access.assert_review_adjustment_evidence(db, task, user, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user.id, access)
     return access
 
 
@@ -150,11 +154,13 @@ async def require_task_annotation_write_strict(
     """Annotation write authority without the reviewer review-adjustment path."""
 
     task = await _load_task_or_404(db, task_id)
-    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(
+        db, task, user.id, lock_membership=True
+    )
     task_access.assert_annotation_write_allowed(
         task, access, allow_review_adjustment=False
     )
-    await task_access.assert_review_adjustment_evidence(db, task, user, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user.id, access)
     return access
 
 
@@ -172,7 +178,9 @@ async def require_task_annotation_write_lifecycle(
     """
 
     task = await _load_task_or_404(db, task_id)
-    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(
+        db, task, user.id, lock_membership=True
+    )
     task_access.assert_annotation_write_allowed(task, access)
     return access
 
@@ -185,7 +193,9 @@ async def require_task_review_write(
     """FastAPI dependency: review write authority for ``task_id``."""
 
     task = await _load_task_or_404(db, task_id)
-    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(
+        db, task, user.id, lock_membership=True
+    )
     if not (
         access.is_manager or ProjectCapability.REVIEW_WRITE.value in access.capabilities
     ):

@@ -39,7 +39,7 @@ async def _sql_visible(
         .where(
             Task.project_id == project_id,
             Task.id == task_id,
-            task_visibility_clause(viewer, project_role="viewer"),
+            task_visibility_clause(viewer.id, project_role="viewer"),
         )
     )
     return (await db.scalar(stmt)) is not None
@@ -47,7 +47,7 @@ async def _sql_visible(
 
 async def _object_visible(db: AsyncSession, task: Task, viewer: User) -> bool:
     try:
-        await task_access.assert_task_visible(db, task, viewer)
+        await task_access.assert_task_visible(db, task, viewer.id)
         return True
     except HTTPException:
         return False
@@ -89,7 +89,7 @@ async def test_viewer_unbatched_assignment_is_denied_in_sql_and_object(
     )
     assert await _object_visible(db_session, task, viewer) is False
     assert (
-        await task_access.visible_task_ids(db_session, project, viewer, [task.id])
+        await task_access.visible_task_ids(db_session, project, viewer.id, [task.id])
         == set()
     )
 

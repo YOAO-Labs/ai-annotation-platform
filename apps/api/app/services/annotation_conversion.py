@@ -1110,11 +1110,11 @@ class AnnotationConversionService:
 
         if access is None:
             access = await task_access.resolve_task_access(
-                self.db, task, actor, lock_membership=True
+                self.db, task, actor.id, lock_membership=True
             )
         task_access.assert_annotation_write_allowed(task, access)
         await task_access.assert_review_adjustment_evidence(
-            self.db, task, actor, access
+            self.db, task, actor.id, access
         )
         is_review_adjuster = bool(
             access is not None

@@ -963,7 +963,7 @@ async def get_project_access(
     membership identity/version and fixed capability set.
     """
 
-    access = await resolve_project_access(db, user=current_user, project=project)
+    access = await resolve_project_access(db, actor_id=current_user.id, project=project)
     return ProjectAccessOut(
         project_id=access.project_id,
         user_id=access.user_id,

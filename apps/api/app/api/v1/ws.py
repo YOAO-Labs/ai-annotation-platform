@@ -195,7 +195,7 @@ async def _revalidate_project_access(project_id: uuid.UUID, user_id: str) -> boo
         if project is None or user is None:
             return False
         try:
-            await resolve_project_access(db, user=user, project=project)
+            await resolve_project_access(db, actor_id=user.id, project=project)
         except Exception:
             return False
         return True
@@ -214,7 +214,7 @@ async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
         if task is None:
             return False
         try:
-            await task_access.assert_task_visible(db, task, user)
+            await task_access.assert_task_visible(db, task, user.id)
         except Exception:
             return False
         return True
@@ -508,7 +508,7 @@ async def video_tracker_job_socket(
             task = await db.get(Task, job.task_id) if job is not None else None
             if user is None or not user.is_active or job is None or task is None:
                 raise ValueError("tracker job not visible")
-            await task_access.assert_task_visible(db, task, user)
+            await task_access.assert_task_visible(db, task, user.id)
             task_id_for_revalidate = task.id
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

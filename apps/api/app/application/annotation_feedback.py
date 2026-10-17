@@ -195,10 +195,10 @@ class AnnotationFeedbackWorkflow:
                 if issue_task is None:
                     raise TaskWorkflowError(404, "3D Quality issue not found")
                 _, issue_access = await resolve_project_access_by_id(
-                    self.db, user=actor, project_id=issue_task.project_id
+                    self.db, actor_id=actor.id, project_id=issue_task.project_id
                 )
                 await task_access.assert_task_visible(
-                    self.db, issue_task, actor, access=issue_access
+                    self.db, issue_task, actor.id, access=issue_access
                 )
             locator = issue.locator or {}
             if (
@@ -287,7 +287,7 @@ class AnnotationFeedbackWorkflow:
         await NotificationService(self.db).publish_committed(pending_notifications)
         await self.db.refresh(entry)
         _project, output_access = await resolve_project_access_by_id(
-            self.db, user=actor, project_id=entry.project_id
+            self.db, actor_id=actor.id, project_id=entry.project_id
         )
         return FeedbackMutationResult(
             entry=entry,
@@ -498,7 +498,7 @@ class AnnotationFeedbackWorkflow:
         await NotificationService(self.db).publish_committed(pending_notifications)
         await self.db.refresh(reply)
         _project, output_access = await resolve_project_access_by_id(
-            self.db, user=actor, project_id=root.project_id
+            self.db, actor_id=actor.id, project_id=root.project_id
         )
         return FeedbackMutationResult(
             entry=reply,
@@ -518,14 +518,16 @@ class AnnotationFeedbackWorkflow:
         if actor is None:
             raise TaskWorkflowError(401, "Authentication required")
         _project, access = await resolve_project_access_by_id(
-            self.db, user=actor, project_id=root_snapshot.project_id
+            self.db, actor_id=actor.id, project_id=root_snapshot.project_id
         )
         task = None
         if root_snapshot.task_id is not None:
             task = await self._read_task_fresh(root_snapshot.task_id)
             if task is None or task.project_id != root_snapshot.project_id:
                 raise TaskWorkflowError(404, _FEEDBACK_UNAVAILABLE)
-            await task_access.assert_task_visible(self.db, task, actor, access=access)
+            await task_access.assert_task_visible(
+                self.db, task, actor.id, access=access
+            )
         await self._read_annotation_scope(
             root_snapshot.annotation_id,
             project_id=root_snapshot.project_id,
@@ -644,7 +646,7 @@ class AnnotationFeedbackWorkflow:
             raise TaskWorkflowError(404, missing_detail)
         if task.batch_id != target_batch_id:
             raise TaskWorkflowError(409, {"reason": "task_target_changed"})
-        await task_access.assert_task_visible(self.db, task, actor, access=access)
+        await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         return task
 
     async def _lock_annotation(
@@ -850,10 +852,10 @@ class AnnotationFeedbackWorkflow:
                 )
             if task is None or issue_task.id != task.id:
                 _project, access = await resolve_project_access_by_id(
-                    self.db, user=actor, project_id=issue_task.project_id
+                    self.db, actor_id=actor.id, project_id=issue_task.project_id
                 )
                 await task_access.assert_task_visible(
-                    self.db, issue_task, actor, access=access
+                    self.db, issue_task, actor.id, access=access
                 )
             if await refresh_issue_staleness(self.db, issue):
                 raise TaskWorkflowError(

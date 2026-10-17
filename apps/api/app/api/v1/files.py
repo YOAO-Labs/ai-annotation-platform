@@ -77,7 +77,7 @@ async def get_file_url(
     task = await db.get(Task, task_id, populate_existing=True)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
 
     url = storage_service.generate_download_url(task.file_path)
     return TaskFileUrlResponse(url=url, expires_in=3600)

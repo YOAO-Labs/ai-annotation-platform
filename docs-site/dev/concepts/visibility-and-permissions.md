@@ -46,6 +46,8 @@ last_reviewed: 2026-10-18
 
 统一解析在 `apps/api/app/services/project_access.py`：`resolve_project_access()` 产出不可变上下文（平台角色、项目角色、membership ID/version、管理者分类）与固定能力集 `project.read` / `project.manage` / `member.read` / `member.manage` / `task.read` / `annotation.write` / `review.write` / `export.annotations` / `performance.read`。未知角色 fail closed，请求上下文与资源项目不一致直接拒绝。能力是**必要非充分**条件：任务级指派覆盖、批次默认、开放池、预留审核、管理员锁、乐观版本、Mask QC 与视频边界检查全部保留。API key scope 只做附加交集，`*` 不授予项目访问；Socket 与异步作业在各自边界重新解析当前权限。
 
+项目解析器、`deps.assert_project_visible`、任务准入/可见集合和调度 helper 的主体输入统一为 `actor_id` UUID。当前账号、项目和成员仍由原 SQL 所有者在原位置读取；改传 ID 不会让缓存身份成为许可，也不会把同事务行锁变成可跨进程传递的能力。
+
 上下文类型 `ProjectAccess`、`ProjectCapability` 与标量角色/能力规则由 `services/workspace_contract.py` 持有，仅依赖标准库与既有纯角色枚举。schema 和消费者读取这些值不再载入 SQL/FastAPI；解析、HTTP 错误映射和事务锁仍留在 `project_access.py`。
 
 项目访问还有两个**纯函数**真值，供已持有 ORM 行的调用方复用，避免各处自行拼装 owner / 平台角色判断：
@@ -66,6 +68,8 @@ last_reviewed: 2026-10-18
 WebSocket 身份 helper 返回在原会话内取得的 `IdentityActorFacts`，各流用其 ID/当前全局角色完成原握手流程。项目与任务重验仍重新读取账号、项目和成员状态；即使先前事实中的账号仍为 active，随后停用也会阻止投递。JWT/API key 的通道差异和 API key 使用时间提交位置保留，身份事实不能跨重验窗口充当许可。
 
 评论的十个入口和历史的两个入口也只把主体 UUID 交给业务读取/命令。评论仍先检查原平台角色，历史不增加角色门槛；共享认证和 Session 不重复创建。创建评论的作者名与 mention 通知取锁后身份事实，最终权限仍由同事务的当前账号、项目、成员和资源围栏决定。
+
+反馈列表、线程、创建、修改、删除和回复六个处理器也只接收 UUID，原角色和活跃账号依赖继续执行并共享一次认证与 Session。作者动作只比较主体 ID；创建/修改的角色、姓名和授权仍取最终事务内的当前行。API key 使用时间在原认证边界独立提交，随后反馈资源缺失或业务回滚不撤销这次使用记录。
 
 成员输出 `ProjectMemberOut` 是**扁平**的：`role` 是项目角色，另有独立的 `platform_role`；邀请 HTTP 字段仍叫 `project_member_role`，映射到数据库 `project_role`。项目列表 / 详情带 `my_project_role`，列表按 `project_role` 过滤。
 

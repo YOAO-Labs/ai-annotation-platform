@@ -162,7 +162,7 @@ async def _load_visible_job_task_row(
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    await task_access.assert_task_visible(db, task, user)
+    await task_access.assert_task_visible(db, task, user.id)
     return task, row
 
 
@@ -198,12 +198,14 @@ async def _lock_visible_job_task_row(
     task = await db.get(Task, row.task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(
+        db, task, user.id, lock_membership=True
+    )
     task = await _lock_task_nowait(db, row.task_id)
     if require_annotation_write:
         task_access.assert_annotation_write_allowed(task, access)
-        await task_access.assert_review_adjustment_evidence(db, task, user, access)
-    await task_access.assert_task_visible(db, task, user, access=access)
+        await task_access.assert_review_adjustment_evidence(db, task, user.id, access)
+    await task_access.assert_task_visible(db, task, user.id, access=access)
     return task, row, access
 
 
@@ -693,7 +695,7 @@ async def get_video_tracker_job_preview(
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     return VideoTrackerJobPreview.model_validate(await tracker_job_preview(db, row))
 
 
@@ -711,7 +713,7 @@ async def get_video_tracker_mask_content(
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     reference = next(
         (
             (result.get("geometry") or {}).get("mask")

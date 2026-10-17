@@ -612,7 +612,7 @@ async def test_post_revocation_access_and_handoff_are_atomic(test_engine):
             member_user = await check.get(User, fixture["member_user"])
             project = await check.get(Project, fixture["project"])
             access = await resolve_project_access(
-                check, user=member_user, project=project
+                check, actor_id=member_user.id, project=project
             )
             assert access.project_role == "viewer"
             assert ProjectCapability.ANNOTATION_WRITE.value not in access.capabilities

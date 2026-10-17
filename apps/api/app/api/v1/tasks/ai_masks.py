@@ -64,8 +64,8 @@ async def accept_native_ai_mask_candidate(
     """
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     await assert_video_annotation_write_scope(
         db,
         task=task,

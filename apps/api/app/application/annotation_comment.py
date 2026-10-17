@@ -64,7 +64,7 @@ class AnnotationCommentWorkflow:
             actor_id,
             require_active=True,
         )
-        expected_access = await task_access.resolve_task_access(self.db, task, actor)
+        expected_access = await task_access.resolve_task_access(self.db, task, actor.id)
         await self.comments.validate_mentions(
             task.project_id, [mention.user_id for mention in data.mentions]
         )
@@ -233,7 +233,7 @@ class AnnotationCommentWorkflow:
         annotation, task = await require_visible_annotation(
             self.db, comment.annotation_id, actor_id
         )
-        access = await task_access.resolve_task_access(self.db, task, actor)
+        access = await task_access.resolve_task_access(self.db, task, actor.id)
         self._assert_action(comment, actor, access, operation=operation)
         return comment, annotation, task, actor, access
 
@@ -254,7 +254,9 @@ class AnnotationCommentWorkflow:
                 actor_id=actor.id,
                 expected_access=expected_access,
             )
-            await task_access.assert_task_visible(self.db, task, actor, access=access)
+            await task_access.assert_task_visible(
+                self.db, task, actor.id, access=access
+            )
             annotation = await lock_row_nowait(
                 self.db,
                 select(Annotation)

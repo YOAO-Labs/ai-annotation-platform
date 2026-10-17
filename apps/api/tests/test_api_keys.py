@@ -263,8 +263,9 @@ async def test_patch_key(httpx_client, super_admin):
 
 
 @pytest.mark.asyncio
-async def test_api_key_management_reuses_auth_and_commits_last_used_independently(
-    test_engine, app_module, monkeypatch
+@pytest.mark.parametrize("target", ["api_keys", "feedback_list", "feedback_patch"])
+async def test_actor_routes_reuse_auth_and_commit_last_used_independently(
+    target, test_engine, app_module, monkeypatch
 ):
     import httpx
     from sqlalchemy import delete
@@ -326,13 +327,30 @@ async def test_api_key_management_reuses_auth_and_commits_last_used_independentl
         async with httpx.AsyncClient(
             transport=transport, base_url="http://test"
         ) as client:
-            response = await client.get(
-                "/api/v1/me/api-keys",
-                headers={"Authorization": f"Bearer {plaintext}"},
-            )
+            headers = {"Authorization": f"Bearer {plaintext}"}
+            if target == "api_keys":
+                response = await client.get("/api/v1/me/api-keys", headers=headers)
+            elif target == "feedback_list":
+                response = await client.get(
+                    "/api/v1/feedbacks",
+                    params={"project_id": str(uuid.uuid4())},
+                    headers=headers,
+                )
+            else:
+                response = await client.patch(
+                    f"/api/v1/feedbacks/{uuid.uuid4()}",
+                    json={"body": "missing feedback"},
+                    headers=headers,
+                )
 
-        assert response.status_code == 200, response.text
-        assert [row["id"] for row in response.json()] == [str(key_id)]
+        if target == "api_keys":
+            assert response.status_code == 200, response.text
+            assert [row["id"] for row in response.json()] == [str(key_id)]
+        else:
+            assert response.status_code == 404, response.text
+            assert response.json()["detail"] == (
+                "项目不存在" if target == "feedback_list" else "feedback not found"
+            )
         assert resolve_count == 1
         assert session_count == 1
         async with maker() as db:

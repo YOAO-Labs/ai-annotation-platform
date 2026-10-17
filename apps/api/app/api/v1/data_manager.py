@@ -293,7 +293,7 @@ async def get_data_manager_schema(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
+    project = await assert_project_visible(project_id, db, user.id)
     return build_data_manager_schema(project, entity_scope)
 
 
@@ -307,8 +307,8 @@ async def get_data_manager_summary(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
-    access = await resolve_project_access(db, user=user, project=project)
+    project = await assert_project_visible(project_id, db, user.id)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     validate_filter(payload.filter_json, project=project, user=user)
     return await DataManagerService(db).summary(
         project_id=project_id,
@@ -330,8 +330,8 @@ async def get_data_manager_matches(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
-    access = await resolve_project_access(db, user=user, project=project)
+    project = await assert_project_visible(project_id, db, user.id)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     validate_filter(payload.filter_json, project=project, user=user)
     return await DataManagerService(db).matches(
         project_id=project_id,
@@ -355,8 +355,8 @@ async def query_data_manager_objects(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
-    access = await resolve_project_access(db, user=user, project=project)
+    project = await assert_project_visible(project_id, db, user.id)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     validate_entity_view(
         entity_scope="objects",
         filter_json=payload.filter_json,
@@ -383,7 +383,7 @@ async def get_data_manager_object_location(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
+    project = await assert_project_visible(project_id, db, user.id)
     return await DataManagerObjectService(db).location(
         project_id=project_id,
         annotation_id=annotation_id,
@@ -402,8 +402,8 @@ async def get_data_manager_object_detail(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
-    access = await resolve_project_access(db, user=user, project=project)
+    project = await assert_project_visible(project_id, db, user.id)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     return await DataManagerObjectService(db).detail(
         project_id=project_id,
         annotation_id=annotation_id,
@@ -423,8 +423,8 @@ async def query_data_manager_tracks(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
-    access = await resolve_project_access(db, user=user, project=project)
+    project = await assert_project_visible(project_id, db, user.id)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     validate_entity_view(
         entity_scope="tracks",
         filter_json=payload.filter_json,
@@ -451,8 +451,8 @@ async def get_data_manager_track_detail(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
-    access = await resolve_project_access(db, user=user, project=project)
+    project = await assert_project_visible(project_id, db, user.id)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     return await DataManagerTrackService(db).detail(
         project_id=project_id,
         track_ref=track_ref,

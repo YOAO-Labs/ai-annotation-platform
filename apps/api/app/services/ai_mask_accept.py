@@ -460,10 +460,12 @@ async def accept_ai_mask_candidate(
 
     if access is None:
         access = await task_access.resolve_task_access(
-            db, task, current_user, lock_membership=True
+            db, task, current_user.id, lock_membership=True
         )
     task_access.assert_annotation_write_allowed(task, access)
-    await task_access.assert_review_adjustment_evidence(db, task, current_user, access)
+    await task_access.assert_review_adjustment_evidence(
+        db, task, current_user.id, access
+    )
     try:
         await TaskLockService(db).assert_write_allowed(task_id, current_user.id)
     except TaskLockConflictError as exc:

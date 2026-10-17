@@ -135,7 +135,7 @@ async def _load_visible_mask_annotation(
     task = await db.get(Task, annotation.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    await task_access.assert_task_visible(db, task, user)
+    await task_access.assert_task_visible(db, task, user.id)
     geometry = annotation.geometry or {}
     if geometry.get("type") == "raster_mask" and not settings.raster_mask_read_enabled:
         raise HTTPException(
@@ -292,11 +292,13 @@ async def upload_task_mask_content(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
+    access = await task_access.resolve_task_access(
+        db, task, user.id, lock_membership=True
+    )
     task_access.assert_annotation_write_allowed(task, access)
-    await task_access.assert_review_adjustment_evidence(db, task, user, access)
-    await task_access.assert_task_visible(db, task, user, access=access)
-    task_access.assert_task_editable(task, user, access=access)
+    await task_access.assert_review_adjustment_evidence(db, task, user.id, access)
+    await task_access.assert_task_visible(db, task, user.id, access=access)
+    task_access.assert_task_editable(task, user.id, access=access)
     if (
         access.project_role == "annotator"
         and task.assignee_id is not None

@@ -105,7 +105,7 @@ class VideoChapterWorkflow:
             raise HTTPException(status_code=404, detail="Video not found")
 
         await task_access.assert_task_visible(
-            self.db, task, actor, access=current_access
+            self.db, task, actor.id, access=current_access
         )
         if not current_access.is_manager:
             raise HTTPException(

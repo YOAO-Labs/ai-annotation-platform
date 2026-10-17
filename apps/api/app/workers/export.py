@@ -516,7 +516,7 @@ async def _assert_export_task_scope(
     from app.services.project_access import resolve_project_access
 
     try:
-        access = await resolve_project_access(db, user=actor, project=project)
+        access = await resolve_project_access(db, actor_id=actor.id, project=project)
     except Exception as exc:  # noqa: BLE001 - fail the durable job, not the request
         raise ValueError("export project access is no longer valid") from exc
     if ProjectCapability.EXPORT_ANNOTATIONS.value not in access.capabilities:

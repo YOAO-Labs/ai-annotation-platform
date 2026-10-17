@@ -58,7 +58,7 @@ def validate_saved_pipeline(stages) -> list[dict] | None:
 async def _assert_project_visible(
     db: AsyncSession, project_id: uuid.UUID, user: User
 ) -> None:
-    await resolve_project_access_by_id(db, user=user, project_id=project_id)
+    await resolve_project_access_by_id(db, actor_id=user.id, project_id=project_id)
 
 
 async def assert_pipeline_visible(

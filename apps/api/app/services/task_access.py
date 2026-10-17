@@ -17,9 +17,7 @@ from app.db.enums import ProjectRole
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
 from app.services.annotation_evidence import assert_review_evidence_current
-from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
@@ -37,12 +35,12 @@ _LOCKED_STATUSES = {"review", "completed"}
 def assert_access_binding(
     access: ProjectAccess,
     *,
-    user: User | IdentityActorFacts,
+    actor_id: uuid.UUID,
     project_id: uuid.UUID,
 ) -> None:
     """Fail closed when the resolved access does not match user and resource."""
 
-    if access.user_id != user.id or access.project_id != project_id:
+    if access.user_id != actor_id or access.project_id != project_id:
         raise HTTPException(
             status_code=409,
             detail={"reason": "access_context_mismatch"},
@@ -51,7 +49,7 @@ def assert_access_binding(
 
 def assert_task_editable(
     task: Task,
-    user: User | IdentityActorFacts | None = None,
+    actor_id: uuid.UUID | None = None,
     *,
     access: ProjectAccess | None = None,
 ) -> None:
@@ -61,24 +59,24 @@ def assert_task_editable(
     membership must not bypass task assignment or review checks. A non-manager
     without matching access fails closed; the global role is never a fallback.
     """
-    if user is not None and access is not None:
-        assert_access_binding(access, user=user, project_id=task.project_id)
+    if actor_id is not None and access is not None:
+        assert_access_binding(access, actor_id=actor_id, project_id=task.project_id)
 
     is_manager = bool(access is not None and access.is_manager)
-    if user is not None and not is_manager:
+    if actor_id is not None and not is_manager:
         if access is None:
             raise HTTPException(status_code=403, detail="缺少项目权限上下文")
         if (
             access.project_role == ProjectRole.ANNOTATOR.value
             and task.assignee_id is not None
-            and task.assignee_id != user.id
+            and task.assignee_id != actor_id
         ):
             raise HTTPException(
                 status_code=403, detail="Task belongs to another annotator"
             )
     if task.status not in _LOCKED_STATUSES:
         return
-    if task.status == "review" and user is not None:
+    if task.status == "review" and actor_id is not None:
         if is_manager or (
             access is not None and access.project_role == ProjectRole.REVIEWER.value
         ):
@@ -97,7 +95,7 @@ async def resolve_effective_task_assignee_id(
 
 
 def assert_effective_task_assignee(
-    user: User | IdentityActorFacts,
+    actor_id: uuid.UUID,
     effective_assignee_id: uuid.UUID | None,
     *,
     action: str,
@@ -112,11 +110,11 @@ def assert_effective_task_assignee(
     """
 
     if access is not None:
-        assert_access_binding(access, user=user, project_id=project_id)
+        assert_access_binding(access, actor_id=actor_id, project_id=project_id)
         if access.is_manager:
             return
         if access.project_role == ProjectRole.ANNOTATOR.value and (
-            effective_assignee_id == user.id
+            effective_assignee_id == actor_id
             or (allow_open_pool and effective_assignee_id is None)
         ):
             return
@@ -150,7 +148,7 @@ def _task_write_allowed(
 async def resolve_task_access(
     db: AsyncSession,
     task: Task,
-    user: User,
+    actor_id: uuid.UUID,
     *,
     lock_membership: bool = False,
 ) -> ProjectAccess:
@@ -160,7 +158,7 @@ async def resolve_task_access(
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return await resolve_project_access(
-        db, user=user, project=project, lock_membership=lock_membership
+        db, actor_id=actor_id, project=project, lock_membership=lock_membership
     )
 
 
@@ -181,7 +179,7 @@ def assert_annotation_write_allowed(
 async def assert_review_adjustment_evidence(
     db: AsyncSession,
     task: Task,
-    user: User,
+    actor_id: uuid.UUID,
     access: ProjectAccess,
 ) -> None:
     """Require current, complete, non-self frozen evidence for review edits.
@@ -197,14 +195,14 @@ async def assert_review_adjustment_evidence(
         return
     effective_annotator_id = await resolve_effective_task_assignee_id(db, task)
     assert_review_evidence_current(
-        task, user.id, effective_annotator_id=effective_annotator_id
+        task, actor_id, effective_annotator_id=effective_annotator_id
     )
 
 
 async def assert_task_visible(
     db: AsyncSession,
     task: Task,
-    user: User | IdentityActorFacts,
+    actor_id: uuid.UUID,
     *,
     access: ProjectAccess | None = None,
 ) -> None:
@@ -214,8 +212,8 @@ async def assert_task_visible(
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     if access is None:
-        access = await resolve_project_access(db, user=user, project=project)
-    assert_access_binding(access, user=user, project_id=task.project_id)
+        access = await resolve_project_access(db, actor_id=actor_id, project=project)
+    assert_access_binding(access, actor_id=actor_id, project_id=task.project_id)
     if access.is_manager:
         return
     project_role = access.project_role
@@ -225,9 +223,9 @@ async def assert_task_visible(
         return
     if task.batch_id is None:
         if (
-            project_role == ProjectRole.ANNOTATOR.value and task.assignee_id == user.id
+            project_role == ProjectRole.ANNOTATOR.value and task.assignee_id == actor_id
         ) or (
-            project_role == ProjectRole.REVIEWER.value and task.reviewer_id == user.id
+            project_role == ProjectRole.REVIEWER.value and task.reviewer_id == actor_id
         ):
             return
         raise HTTPException(status_code=404, detail="Task not found")
@@ -237,15 +235,15 @@ async def assert_task_visible(
 
     visible_statuses = visible_batch_statuses_for_project_role(project_role)
     if batch.status not in visible_statuses and not annotator_can_rework_task(
-        user, batch, task.status, task.assignee_id, project_role=project_role
+        actor_id, batch, task.status, task.assignee_id, project_role=project_role
     ):
         raise HTTPException(status_code=404, detail="Task not found")
 
     if project_role == ProjectRole.REVIEWER.value:
         return
 
-    is_task_assigned = task.assignee_id is not None and task.assignee_id == user.id
-    is_batch_assigned = task.assignee_id is None and batch.annotator_id == user.id
+    is_task_assigned = task.assignee_id is not None and task.assignee_id == actor_id
+    is_batch_assigned = task.assignee_id is None and batch.annotator_id == actor_id
     is_assigned = is_task_assigned or is_batch_assigned
     if batch.status == "rejected" and not is_assigned:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -258,7 +256,7 @@ async def assert_task_visible(
 async def visible_task_ids(
     db: AsyncSession,
     project,
-    user: User,
+    actor_id: uuid.UUID,
     task_ids: list[uuid.UUID],
     *,
     access: ProjectAccess | None = None,
@@ -269,10 +267,12 @@ async def visible_task_ids(
         return set()
     try:
         if access is None:
-            access = await resolve_project_access(db, user=user, project=project)
+            access = await resolve_project_access(
+                db, actor_id=actor_id, project=project
+            )
     except HTTPException:
         return set()
-    assert_access_binding(access, user=user, project_id=project.id)
+    assert_access_binding(access, actor_id=actor_id, project_id=project.id)
     if access.is_manager:
         result = await db.execute(
             select(Task.id).where(
@@ -307,10 +307,10 @@ async def visible_task_ids(
         if bid is None:
             if (
                 project_role == ProjectRole.ANNOTATOR.value
-                and task_assignee_id == user.id
+                and task_assignee_id == actor_id
             ) or (
                 project_role == ProjectRole.REVIEWER.value
-                and task_reviewer_id == user.id
+                and task_reviewer_id == actor_id
             ):
                 visible.add(tid)
             continue
@@ -318,15 +318,19 @@ async def visible_task_ids(
         if batch is None or (
             batch.status not in visible_statuses
             and not annotator_can_rework_task(
-                user, batch, task_status, task_assignee_id, project_role=project_role
+                actor_id,
+                batch,
+                task_status,
+                task_assignee_id,
+                project_role=project_role,
             )
         ):
             continue
         if is_reviewer:
             visible.add(tid)
             continue
-        is_task_assigned = task_assignee_id is not None and task_assignee_id == user.id
-        is_batch_assigned = task_assignee_id is None and batch.annotator_id == user.id
+        is_task_assigned = task_assignee_id is not None and task_assignee_id == actor_id
+        is_batch_assigned = task_assignee_id is None and batch.annotator_id == actor_id
         is_assigned = is_task_assigned or is_batch_assigned
         if batch.status == "rejected" and not is_assigned:
             continue

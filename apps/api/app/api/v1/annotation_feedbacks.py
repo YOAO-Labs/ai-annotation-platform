@@ -22,6 +22,7 @@ from app.application.task_workflow_errors import TaskWorkflowError
 from app.deps import (
     assert_project_visible,
     get_db,
+    get_current_user_id,
     require_roles,
     require_active_task_actor,
 )
@@ -29,7 +30,6 @@ from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.task import Task
-from app.db.models.user import User
 from app.schemas.annotation_feedback import (
     AnnotationFeedbackCreate,
     AnnotationFeedbackListPage,
@@ -65,7 +65,7 @@ async def _to_out(
     db: AsyncSession,
     entry: AnnotationFeedback,
     *,
-    user: User | None = None,
+    actor_id: uuid.UUID | None = None,
     project_role: str | None = None,
     is_manager: bool = False,
     is_accessible: bool = True,
@@ -78,7 +78,7 @@ async def _to_out(
     actions = discussion_actions(
         "feedback",
         entry.kind,
-        is_author=user is not None and entry.author_id == user.id,
+        is_author=actor_id is not None and entry.author_id == actor_id,
         is_admin=is_manager,
         is_reviewer=project_role == ProjectRole.REVIEWER.value,
         is_accessible=is_accessible and entry.is_active,
@@ -112,7 +112,7 @@ async def _to_out(
 
 
 async def _project_action_context(
-    db: AsyncSession, project_id: uuid.UUID, user: User
+    db: AsyncSession, project_id: uuid.UUID, actor_id: uuid.UUID
 ) -> tuple[bool, str | None]:
     """Return ``(is_manager, project_role)`` from current project access.
 
@@ -121,7 +121,7 @@ async def _project_action_context(
     """
 
     _project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=actor_id, project_id=project_id
     )
     return access.is_manager, access.project_role
 
@@ -130,6 +130,7 @@ async def _project_action_context(
     "/feedbacks",
     response_model=AnnotationFeedbackListPage,
     response_model_exclude_unset=True,
+    dependencies=[Depends(require_roles(*_ALL))],
 )
 async def list_feedbacks(
     project_id: uuid.UUID = Query(...),
@@ -143,17 +144,17 @@ async def list_feedbacks(
     root_only: bool = Query(False),
     include_counts: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ALL)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=actor_id, project_id=project_id
     )
     if task_id is not None:
         task = await db.get(Task, task_id)
         if task is None or task.project_id != project_id:
             raise HTTPException(status_code=404, detail="Task not found")
-        await assert_project_visible(task.project_id, db, user)
-        await task_access.assert_task_visible(db, task, user)
+        await assert_project_visible(task.project_id, db, actor_id)
+        await task_access.assert_task_visible(db, task, actor_id)
     if annotation_id is not None:
         annotation = await db.get(Annotation, annotation_id)
         if (
@@ -166,8 +167,8 @@ async def list_feedbacks(
             task = await db.get(Task, annotation.task_id)
             if task is None or task.project_id != project_id:
                 raise HTTPException(status_code=404, detail="Annotation not found")
-            await assert_project_visible(task.project_id, db, user)
-            await task_access.assert_task_visible(db, task, user)
+            await assert_project_visible(task.project_id, db, actor_id)
+            await task_access.assert_task_visible(db, task, actor_id)
     allowed_task_ids: set[uuid.UUID] | None = None
     if not access.is_manager:
         project_task_ids = list(
@@ -176,7 +177,7 @@ async def list_feedbacks(
             ).scalars()
         )
         allowed_task_ids = await task_access.visible_task_ids(
-            db, project, user, project_task_ids
+            db, project, actor_id, project_task_ids
         )
     svc = FeedbackService(db)
     rows, next_cursor = await svc.list_paged(
@@ -247,7 +248,7 @@ async def list_feedbacks(
                 actions=discussion_actions(
                     "feedback",
                     r.kind,
-                    is_author=r.author_id == user.id,
+                    is_author=r.author_id == actor_id,
                     is_admin=access.is_manager,
                     is_reviewer=access.project_role == ProjectRole.REVIEWER.value,
                     is_accessible=True,
@@ -268,13 +269,14 @@ async def list_feedbacks(
     "/feedbacks/{root_feedback_id}/thread",
     response_model=AnnotationFeedbackThreadPage,
     response_model_exclude_unset=True,
+    dependencies=[Depends(require_roles(*_ALL))],
 )
 async def get_feedback_thread(
     root_feedback_id: uuid.UUID,
     cursor: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ALL)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     root_entry = await db.get(
         AnnotationFeedback, root_feedback_id, populate_existing=True
@@ -289,7 +291,7 @@ async def get_feedback_thread(
         raise HTTPException(status_code=404, detail="feedback thread is unavailable")
     workflow = AnnotationFeedbackWorkflow(db)
     try:
-        await workflow.assert_feedback_scope(root_entry.id, actor_id=user.id)
+        await workflow.assert_feedback_scope(root_entry.id, actor_id=actor_id)
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
     svc = FeedbackService(db)
@@ -301,12 +303,12 @@ async def get_feedback_thread(
     author_ids = {root.author_id, *(reply.author_id for reply in replies)}
     briefs = await resolve_briefs(db, author_ids)
     thread_is_manager, thread_project_role = await _project_action_context(
-        db, root.project_id, user
+        db, root.project_id, actor_id
     )
     root_out = await _to_out(
         db,
         root,
-        user=user,
+        actor_id=actor_id,
         project_role=thread_project_role,
         is_manager=thread_is_manager,
         can_reply=(
@@ -318,7 +320,7 @@ async def get_feedback_thread(
         await _to_out(
             db,
             reply,
-            user=user,
+            actor_id=actor_id,
             project_role=thread_project_role,
             is_manager=thread_is_manager,
             can_reply=(
@@ -337,17 +339,21 @@ async def get_feedback_thread(
     )
 
 
-@router.post("/feedbacks", response_model=AnnotationFeedbackOut)
+@router.post(
+    "/feedbacks",
+    response_model=AnnotationFeedbackOut,
+    dependencies=[Depends(require_roles(*_ALL))],
+)
 async def create_feedback(
     payload: AnnotationFeedbackCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ALL)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
         result = await AnnotationFeedbackWorkflow(db).create(
             payload,
-            actor_id=user.id,
+            actor_id=actor_id,
             origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
@@ -355,26 +361,30 @@ async def create_feedback(
     return await _to_out(
         db,
         result.entry,
-        user=user,
+        actor_id=actor_id,
         project_role=result.project_role,
         is_manager=result.is_manager,
         can_reply=result.can_reply,
     )
 
 
-@router.patch("/feedbacks/{feedback_id}", response_model=AnnotationFeedbackOut)
+@router.patch(
+    "/feedbacks/{feedback_id}",
+    response_model=AnnotationFeedbackOut,
+    dependencies=[Depends(require_roles(*_ALL))],
+)
 async def patch_feedback(
     feedback_id: uuid.UUID,
     payload: AnnotationFeedbackPatch,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ALL)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
         result = await AnnotationFeedbackWorkflow(db).patch(
             feedback_id,
             payload,
-            actor_id=user.id,
+            actor_id=actor_id,
             origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
@@ -382,43 +392,51 @@ async def patch_feedback(
     return await _to_out(
         db,
         result.entry,
-        user=user,
+        actor_id=actor_id,
         project_role=result.project_role,
         is_manager=result.is_manager,
         can_reply=result.can_reply,
     )
 
 
-@router.delete("/feedbacks/{feedback_id}", status_code=204)
+@router.delete(
+    "/feedbacks/{feedback_id}",
+    status_code=204,
+    dependencies=[Depends(require_roles(*_ALL))],
+)
 async def delete_feedback(
     feedback_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ALL)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
         await AnnotationFeedbackWorkflow(db).soft_delete(
             feedback_id,
-            actor_id=user.id,
+            actor_id=actor_id,
             origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
 
 
-@router.post("/feedbacks/{feedback_id}/replies", response_model=AnnotationFeedbackOut)
+@router.post(
+    "/feedbacks/{feedback_id}/replies",
+    response_model=AnnotationFeedbackOut,
+    dependencies=[Depends(require_roles(*_ALL))],
+)
 async def reply_feedback(
     feedback_id: uuid.UUID,
     payload: AnnotationFeedbackReply,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_ALL)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
         result = await AnnotationFeedbackWorkflow(db).reply(
             feedback_id,
             payload,
-            actor_id=user.id,
+            actor_id=actor_id,
             origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
@@ -426,7 +444,7 @@ async def reply_feedback(
     return await _to_out(
         db,
         result.entry,
-        user=user,
+        actor_id=actor_id,
         project_role=result.project_role,
         is_manager=result.is_manager,
         can_reply=result.can_reply,

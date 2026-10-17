@@ -75,11 +75,13 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 actor_id=self._actor.id,
                 expected_access=self._access,
             )
-            await task_access.assert_task_visible(self._db, task, actor, access=access)
+            await task_access.assert_task_visible(
+                self._db, task, actor.id, access=access
+            )
             task_access.assert_annotation_write_allowed(task, access)
-            task_access.assert_task_editable(task, actor, access=access)
+            task_access.assert_task_editable(task, actor.id, access=access)
             await task_access.assert_review_adjustment_evidence(
-                self._db, task, actor, access
+                self._db, task, actor.id, access
             )
             await TaskLockService(self._db).assert_final_write_available(
                 task.id, actor.id, allow_own=True
@@ -90,12 +92,14 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
     async def _target_task_for_write(self, target_task_id: UUID) -> Task:
         target_task = await _load_task_or_404(self._db, target_task_id)
         target_access = await task_access.resolve_task_access(
-            self._db, target_task, self._actor
+            self._db, target_task, self._actor.id
         )
         await task_access.assert_task_visible(
-            self._db, target_task, self._actor, access=target_access
+            self._db, target_task, self._actor.id, access=target_access
         )
-        task_access.assert_task_editable(target_task, self._actor, access=target_access)
+        task_access.assert_task_editable(
+            target_task, self._actor.id, access=target_access
+        )
         return target_task
 
     async def propagate(
@@ -249,14 +253,14 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 await task_access.assert_task_visible(
                     self._db,
                     task,
-                    self._actor,
+                    self._actor.id,
                     access=self._access,
                 )
 
             def assert_middle_task_editable(task: Task) -> None:
                 task_access.assert_task_editable(
                     task,
-                    self._actor,
+                    self._actor.id,
                     access=self._access,
                 )
 

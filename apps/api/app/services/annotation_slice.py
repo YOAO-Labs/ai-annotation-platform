@@ -52,7 +52,7 @@ class AnnotationSliceService:
         self, task: Task, actor: User, *, access: Any = None
     ) -> None:
 
-        task_access.assert_task_editable(task, actor, access=access)
+        task_access.assert_task_editable(task, actor.id, access=access)
         if task.file_type != "image":
             raise _AnnotationSliceError(422, "unsupported_media", "切割仅支持图片任务")
         try:
@@ -76,12 +76,12 @@ class AnnotationSliceService:
             raise _AnnotationSliceError(404, "task_not_found", "任务不存在")
         if access is None:
             access = await task_access.resolve_task_access(
-                self.db, task, actor, lock_membership=True
+                self.db, task, actor.id, lock_membership=True
             )
-        await task_access.assert_task_visible(self.db, task, actor, access=access)
+        await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         task_access.assert_annotation_write_allowed(task, access)
         await task_access.assert_review_adjustment_evidence(
-            self.db, task, actor, access
+            self.db, task, actor.id, access
         )
         return task, access
 

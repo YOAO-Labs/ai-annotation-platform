@@ -112,8 +112,8 @@ async def dry_run_annotation_conversion(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     try:
         result = await AnnotationConversionService(db).dry_run(
             task=task,
@@ -143,8 +143,8 @@ async def execute_annotation_conversion(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     try:
         result = await AnnotationConversionService(db).execute(
             task_id=task_id,
@@ -192,7 +192,7 @@ async def get_neighbor_annotations(
     )
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
 
     try:
         neighbors = await get_neighbors_for_task(db, task_id=task_id, k=k)
@@ -217,7 +217,7 @@ async def get_neighbor_annotations(
 
     project = await db.get(Project, task.project_id)
     visible_ids = await task_access.visible_task_ids(
-        db, project, current_user, list(frame_by_task.keys())
+        db, project, current_user.id, list(frame_by_task.keys())
     )
 
     svc = AnnotationService(db)
@@ -260,7 +260,7 @@ async def get_annotations(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     project = await db.get(Project, task.project_id)
     if collaboration_enabled(project) and video_segment_id is None:
         raise HTTPException(
@@ -290,7 +290,7 @@ async def get_annotations_paged(
     from uuid import UUID as _UUID
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     project = await db.get(Project, task.project_id)
     if collaboration_enabled(project) and video_segment_id is None:
         raise HTTPException(
@@ -357,8 +357,8 @@ async def create_annotation(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     await assert_video_annotation_write_scope(
         db,
         task=task,
@@ -419,8 +419,8 @@ async def secondary_inference(
     审核员调用返回 403; 人工审核修改仍使用普通标注接口。
     """
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
 
     annotation = await db.get(Annotation, annotation_id)
     if annotation is None or annotation.task_id != task_id or not annotation.is_active:
@@ -544,8 +544,10 @@ async def propagate_annotation_to_task(
     取目标 dataset 的 axis_convention(详 service.propagate)。
     """
     source_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, source_task, current_user, access=access)
-    task_access.assert_task_editable(source_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, source_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(source_task, current_user.id, access=access)
 
     try:
         return await _AnnotationCrossFrameSqlAdapter(
@@ -585,8 +587,10 @@ async def propagate_annotations_batch(
     运动补偿 propagate 到目标 task。整批一个事务,任一失败全部回滚。
     """
     source_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, source_task, current_user, access=access)
-    task_access.assert_task_editable(source_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, source_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(source_task, current_user.id, access=access)
 
     try:
         return await _AnnotationCrossFrameSqlAdapter(
@@ -627,8 +631,8 @@ async def interpolate_annotations_range(
     v0.21.2 · ADR-0045 · 按 track_id 标识跨帧链。
     """
     from_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, from_task, current_user, access=access)
-    task_access.assert_task_editable(from_task, current_user, access=access)
+    await task_access.assert_task_visible(db, from_task, current_user.id, access=access)
+    task_access.assert_task_editable(from_task, current_user.id, access=access)
 
     try:
         return await _AnnotationCrossFrameSqlAdapter(
@@ -677,8 +681,8 @@ async def update_annotation(
     ).scalar_one_or_none()
     if _task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await task_access.assert_task_visible(db, _task, current_user, access=access)
-    task_access.assert_task_editable(_task, current_user, access=access)
+    await task_access.assert_task_visible(db, _task, current_user.id, access=access)
+    task_access.assert_task_editable(_task, current_user.id, access=access)
     try:
         annotation = await _AnnotationMutationSqlAdapter(
             db,
@@ -718,8 +722,8 @@ async def compose_video_tracks(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     if not data.annotation_ids:
         raise HTTPException(status_code=400, detail="annotation_ids is required")
     if len(set(data.annotation_ids)) != len(data.annotation_ids):
@@ -806,8 +810,8 @@ async def convert_video_track_to_bboxes(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     annotation = await db.get(Annotation, annotation_id)
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
@@ -912,8 +916,8 @@ async def delete_annotation(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     try:
         deleted = await _AnnotationMutationSqlAdapter(
             db,

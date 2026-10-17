@@ -107,7 +107,7 @@ async def list_task_views(
     user: User = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     build_data_manager_schema(project, entity_scope)
     svc = TaskViewService(db)
@@ -200,7 +200,7 @@ async def create_task_view(
     user: User = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     if payload.visibility == "project" and not _can_manage_project(access):
         raise HTTPException(
@@ -242,7 +242,7 @@ async def get_task_view(
     user: User = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     svc = TaskViewService(db)
     view = await svc.get_view(project_id, view_id, user.id)
@@ -288,7 +288,7 @@ async def update_task_view(
     user: User = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     svc = TaskViewService(db)
     view = await svc.get_view(project_id, view_id, user.id)
@@ -332,7 +332,7 @@ async def delete_task_view(
     user: User = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     svc = TaskViewService(db)
     view = await svc.get_view(project_id, view_id, user.id)
@@ -366,7 +366,7 @@ async def copy_task_view(
     user: User = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     svc = TaskViewService(db)
     source = await svc.get_view(project_id, view_id, user.id)
@@ -410,7 +410,7 @@ async def query_project_tasks(
     user: User = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     validate_filter(payload.filter_json, project=project, user=user)
     validate_sort(_sort_to_json(payload.sort_json))
@@ -528,7 +528,7 @@ async def query_task_view_tasks(
     user: User = Depends(get_current_user),
 ):
     _project, _access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=user.id, project_id=project_id
     )
     svc = TaskViewService(db)
     view = await svc.get_view(project_id, view_id, user.id)

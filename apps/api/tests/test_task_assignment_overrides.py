@@ -278,12 +278,12 @@ async def test_prioritized_batch_precedes_assigned_unbatched_work(
         display_id=f"T-PRIORITY-{uuid.uuid4().hex[:8]}",
     )
     result = await get_next_task(
-        actor, project.id, db_session, project_role="annotator"
+        actor.id, project.id, db_session, project_role="annotator"
     )
     assert result is not None and result.id == prioritized.id
     prioritized.is_labeled = True
     await db_session.flush()
     result = await get_next_task(
-        actor, project.id, db_session, project_role="annotator"
+        actor.id, project.id, db_session, project_role="annotator"
     )
     assert result is not None and result.id == unbatched.id

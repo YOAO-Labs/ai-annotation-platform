@@ -89,7 +89,7 @@ async def _visible_video_task_for_item(
     ).scalars()
     for task in tasks:
         try:
-            await task_access.assert_task_visible(db, task, user)
+            await task_access.assert_task_visible(db, task, user.id)
             return task
         except HTTPException:
             continue
@@ -100,7 +100,7 @@ async def _video_chapter_target_context(
     db: AsyncSession, dataset_item_id: uuid.UUID, user: User
 ) -> tuple[uuid.UUID, ProjectAccess]:
     task = await _visible_video_task_for_item(db, dataset_item_id, user)
-    access = await task_access.resolve_task_access(db, task, user)
+    access = await task_access.resolve_task_access(db, task, user.id)
     return task.id, access
 
 

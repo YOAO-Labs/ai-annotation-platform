@@ -62,6 +62,9 @@ async def committed_record(request, test_engine):
         record=record,
         prefix=f"projects/{project.id}/{kind}/{record.id}/",
         endpoint=delete_version if kind == "datasets" else delete_run,
+        actor_argument={"user": owner}
+        if kind == "datasets"
+        else {"actor_id": owner.id},
     )
     try:
         yield world
@@ -100,7 +103,7 @@ async def test_commit_failure_never_purges_training_storage(
         )
         with pytest.raises(RuntimeError):
             await world.endpoint(
-                world.record.id, project=world.project, user=world.owner, db=db
+                world.record.id, project=world.project, db=db, **world.actor_argument
             )
     assert objects == {"artifact": b"original"}
     async with world.factory() as db:
@@ -199,7 +202,7 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
 
         monkeypatch.setattr(db, "commit", fail_acknowledgement)
         await world.endpoint(
-            world.record.id, project=world.project, user=world.owner, db=db
+            world.record.id, project=world.project, db=db, **world.actor_argument
         )
     # The first cleanup commit precedes IO; the second acknowledges its result.
     assert objects == ({"artifact": b"original"} if failed_commit == 2 else {})

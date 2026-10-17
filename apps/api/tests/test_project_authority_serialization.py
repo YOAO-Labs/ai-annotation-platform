@@ -60,7 +60,7 @@ async def test_final_project_authority_serializes_with_revocation(
             actor = await writer.get(User, actor_id)
             target = await writer.get(Project, project_id)
             access = await resolve_project_access(
-                writer, user=actor, project=target, lock_membership=True
+                writer, actor_id=actor.id, project=target, lock_membership=True
             )
             assert access.has("annotation.write")
             async with maker() as revoker:
@@ -80,7 +80,7 @@ async def test_final_project_authority_serializes_with_revocation(
                 await revoker.commit()
             if revocation == "changed_member_role":
                 refreshed = await resolve_project_access(
-                    writer, user=actor, project=target, lock_membership=True
+                    writer, actor_id=actor.id, project=target, lock_membership=True
                 )
                 assert (
                     not refreshed.has("annotation.write")
@@ -89,7 +89,7 @@ async def test_final_project_authority_serializes_with_revocation(
             else:
                 with pytest.raises(HTTPException) as denied:
                     await resolve_project_access(
-                        writer, user=actor, project=target, lock_membership=True
+                        writer, actor_id=actor.id, project=target, lock_membership=True
                     )
                 assert denied.value.status_code == (
                     401 if revocation == "disabled_account" else 404

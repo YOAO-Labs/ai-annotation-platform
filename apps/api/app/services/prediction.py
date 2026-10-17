@@ -82,7 +82,7 @@ async def assert_can_manage_failed_prediction(
     project = await db.get(Project, fp.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    access = await resolve_project_access(db, user=user, project=project)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     if access.is_manager:
         return
     raise HTTPException(

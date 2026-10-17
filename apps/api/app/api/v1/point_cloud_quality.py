@@ -127,7 +127,7 @@ async def _assert_request_visible(
     if {row.id for row in tasks} != task_ids:
         raise HTTPException(status_code=404, detail="Task not found")
     for task in tasks:
-        await task_access.assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user.id, access=access)
 
 
 async def _assert_issue_visible(
@@ -137,7 +137,7 @@ async def _assert_issue_visible(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(
-        db, user=user, project=project, lock_membership=lock
+        db, actor_id=user.id, project=project, lock_membership=lock
     )
     if access.is_manager:
         return project, access
@@ -146,7 +146,7 @@ async def _assert_issue_visible(
     task = await db.get(Task, issue.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await task_access.assert_task_visible(db, task, user, access=access)
+    await task_access.assert_task_visible(db, task, user.id, access=access)
     return project, access
 
 
@@ -189,7 +189,7 @@ async def create_run(
     # Re-resolve current authority under a membership lock for the write path and
     # re-assert the capability on the fresh access.
     access = await resolve_project_access(
-        db, user=current_user, project=project, lock_membership=True
+        db, actor_id=current_user.id, project=project, lock_membership=True
     )
     assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
     await _assert_request_visible(
@@ -243,7 +243,7 @@ async def get_run(
     if not access.is_manager:
         task_ids = [uuid.UUID(value) for value in run.scope_json.get("task_ids", [])]
         if await task_access.visible_task_ids(
-            db, project, current_user, task_ids, access=access
+            db, project, current_user.id, task_ids, access=access
         ) != set(task_ids):
             raise HTTPException(status_code=403, detail="Quality run not visible")
     return _run_out(run)
@@ -283,7 +283,7 @@ async def get_issues(
             ).scalars()
         )
         allowed_task_ids = await task_access.visible_task_ids(
-            db, project, current_user, all_task_ids, access=access
+            db, project, current_user.id, all_task_ids, access=access
         )
     rows, total = await list_issues(
         db,
@@ -424,7 +424,7 @@ async def create_project_evaluation(
     ),
 ):
     fresh_access = await resolve_project_access(
-        db, user=current_user, project=project, lock_membership=True
+        db, actor_id=current_user.id, project=project, lock_membership=True
     )
     assert_capability(fresh_access, ProjectCapability.PROJECT_MANAGE.value)
     try:
@@ -510,7 +510,7 @@ async def promote_project_evaluation(
     ),
 ):
     fresh_access = await resolve_project_access(
-        db, user=current_user, project=project, lock_membership=True
+        db, actor_id=current_user.id, project=project, lock_membership=True
     )
     assert_capability(fresh_access, ProjectCapability.PROJECT_MANAGE.value)
     try:

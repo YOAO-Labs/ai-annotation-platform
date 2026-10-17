@@ -301,7 +301,7 @@ class LabelingTaskAssignmentService:
         actor: User,
     ) -> DataManagerTaskAssignmentResponse:
         _, access = await resolve_project_access_by_id(
-            self.db, user=actor, project_id=project_id
+            self.db, actor_id=actor.id, project_id=project_id
         )
         if not access.is_manager:
             raise HTTPException(status_code=403, detail="项目管理权限已变化")

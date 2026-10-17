@@ -17,7 +17,13 @@ from app.db.models.trained_model import (
     TrainedModelVersion,
 )
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_current_user_id,
+    get_db,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.trained_model import (
     ModelDeploymentCreate,
     ModelDeploymentOut,
@@ -148,11 +154,11 @@ async def deploy_model(
     version_id: uuid.UUID,
     body: ModelDeploymentCreate,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     return await trained_model_deployment.deploy_model(
-        db, project, user, version_id, body.registry_id
+        db, project, actor_id, version_id, body.registry_id
     )
 
 

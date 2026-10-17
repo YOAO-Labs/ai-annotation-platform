@@ -45,7 +45,7 @@ async def _can_access_job(
     if project is None:
         return False
     try:
-        access = await resolve_project_access(db, user=user, project=project)
+        access = await resolve_project_access(db, actor_id=user.id, project=project)
     except HTTPException:
         return False
     if access.is_manager:
@@ -68,6 +68,6 @@ async def _can_access_job(
         return False
     if not task_ids:
         return False
-    return await task_access.visible_task_ids(db, project, user, task_ids) == set(
+    return await task_access.visible_task_ids(db, project, user.id, task_ids) == set(
         task_ids
     )

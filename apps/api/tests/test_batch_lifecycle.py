@@ -1294,7 +1294,9 @@ class TestAdminLock:
         batch.admin_lock_reason = "locked"
         await db_session.commit()
 
-        result = await get_next_task(user, p.id, db_session, project_role="annotator")
+        result = await get_next_task(
+            user.id, p.id, db_session, project_role="annotator"
+        )
         assert result is None
 
     @pytest.mark.asyncio
@@ -1662,7 +1664,9 @@ class TestBatchSubmitReview:
             task_status="pending",
         )
         await db_session.commit()
-        access = await resolve_project_access(db_session, user=actor, project=project)
+        access = await resolve_project_access(
+            db_session, actor_id=actor.id, project=project
+        )
         initial_email = actor.email
         initial_name = actor.name
         current_email = f"batch-submitter-current-{uuid.uuid4()}@test.local"

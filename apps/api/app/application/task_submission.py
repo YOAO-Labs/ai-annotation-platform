@@ -154,9 +154,9 @@ class TaskSubmissionWorkflow:
             actor_id=actor_id,
             expected_access=access,
         )
-        await task_access.assert_task_visible(self.db, task, actor, access=access)
+        await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         task_access.assert_effective_task_assignee(
-            actor,
+            actor.id,
             await task_access.resolve_effective_task_assignee_id(self.db, task),
             action="submit",
             project_id=task.project_id,
@@ -168,7 +168,7 @@ class TaskSubmissionWorkflow:
                 409,
                 {"reason": "task_not_submittable", "status": task.status},
             )
-        task_access.assert_task_editable(task, actor, access=access)
+        task_access.assert_task_editable(task, actor.id, access=access)
 
         result = await _prepare_submission(
             self.db, task, actor=actor, now=datetime.now(timezone.utc)

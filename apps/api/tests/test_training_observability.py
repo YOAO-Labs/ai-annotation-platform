@@ -819,7 +819,7 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
         nonlocal delete_pid
         async with maker() as db:
             delete_pid = await db.scalar(text("select pg_backend_pid()"))
-            await delete_run(run.id, project, owner, db)
+            await delete_run(run.id, project, owner.id, db)
 
     read_task = asyncio.create_task(reading())
     delete_task = None

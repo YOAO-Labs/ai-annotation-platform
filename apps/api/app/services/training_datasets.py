@@ -125,7 +125,9 @@ class SqlTrainingAuthority(TrainingAuthorityPort):
                 "authority_revoked", "项目或创建者已不存在", status_code=403
             )
         try:
-            access = await resolve_project_access(self._db, user=actor, project=project)
+            access = await resolve_project_access(
+                self._db, actor_id=actor.id, project=project
+            )
         except HTTPException as exc:
             raise TrainingDatasetError(
                 "authority_revoked", "数据版本创建权限已撤销", status_code=403

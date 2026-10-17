@@ -134,7 +134,9 @@ async def test_membership_refresh_beats_stale_identity_map(
         assigned_by=admin.id,
     )
 
-    first = await resolve_project_access(db_session, user=employee, project=project)
+    first = await resolve_project_access(
+        db_session, actor_id=employee.id, project=project
+    )
     assert first.project_role == "annotator"
     assert first.membership_version == 1
 
@@ -148,7 +150,7 @@ async def test_membership_refresh_beats_stale_identity_map(
     await db_session.flush()
 
     refreshed = await resolve_project_access(
-        db_session, user=employee, project=project, lock_membership=True
+        db_session, actor_id=employee.id, project=project, lock_membership=True
     )
     assert refreshed.project_role == "reviewer"
     assert refreshed.membership_version == 2

@@ -52,7 +52,7 @@ async def get_task_scene_timeline(
         )
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     window = await get_scene_timeline_window(
         db, task=task, start_frame=start_frame, end_frame=end_frame
     )
@@ -64,7 +64,7 @@ async def get_task_scene_timeline(
         raise HTTPException(status_code=404, detail="Task not found")
     all_task_ids = {entry.task_id for entry in window.frame_tasks.values()}
     visible_task_ids = await task_access.visible_task_ids(
-        db, project, current_user, list(all_task_ids)
+        db, project, current_user.id, list(all_task_ids)
     )
     annotation_summaries = await get_scene_timeline_annotation_summaries(
         db, task_ids=visible_task_ids, track_id=track_id

@@ -240,3 +240,24 @@ async def test_video_feedback_uses_real_batch_permission_for_create_list_and_rep
     )
     assert listed.status_code == 200, listed.text
     assert len(listed.json()["items"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_feedback_routes_keep_the_platform_role_gate(
+    httpx_client, db_session, video_feedback_data
+):
+    data = video_feedback_data
+    data["owner"].role = "annotator"
+    await db_session.flush()
+
+    response = await httpx_client.get(
+        "/api/v1/feedbacks",
+        params={"project_id": str(data["project"].id)},
+        headers=data["headers"],
+    )
+
+    assert response.status_code == 403, response.text
+    assert (
+        response.json()["detail"]
+        == "需要角色权限: super_admin或project_admin或employee"
+    )

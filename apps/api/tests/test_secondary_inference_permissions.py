@@ -101,7 +101,7 @@ async def test_secondary_inference_capability_gate_precedes_inference(
     async def _load_task(db, task_id):
         return task
 
-    async def _resolve(db, *, user, project, lock_membership=False):
+    async def _resolve(db, *, actor_id, project, lock_membership=False):
         return access
 
     # Stub the dependency's DB lookups so the real predicate runs on the

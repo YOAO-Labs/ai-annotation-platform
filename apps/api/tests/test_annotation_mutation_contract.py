@@ -29,7 +29,9 @@ async def test_wrong_mutation_binding_rejects_before_sql_or_side_effects(
         db_session,
         task=task,
         actor=actor,
-        access=await resolve_project_access(db_session, user=actor, project=project),
+        access=await resolve_project_access(
+            db_session, actor_id=actor.id, project=project
+        ),
     )
     origin = AuditOriginContext(method="PATCH", path="/test", ip="127.0.0.1")
     statements: list[str] = []

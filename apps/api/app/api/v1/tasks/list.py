@@ -64,7 +64,7 @@ def _build_task_query(
     # B-16: retain the scheduler's exact non-privileged batch visibility policy.
     if not access.is_manager:
         query = query.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
-            task_visibility_clause(user, project_role=access.project_role)
+            task_visibility_clause(user.id, project_role=access.project_role)
         )
 
     if status:
@@ -105,8 +105,8 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, user)
-    access = await resolve_project_access(db, user=user, project=project)
+    project = await assert_project_visible(project_id, db, user.id)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
     filtered = _build_task_query(
         project_id=project_id,
         project=project,
@@ -188,14 +188,14 @@ async def next_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = await assert_project_visible(project_id, db, current_user)
-    access = await resolve_project_access(db, user=current_user, project=project)
+    project = await assert_project_visible(project_id, db, current_user.id)
+    access = await resolve_project_access(db, actor_id=current_user.id, project=project)
     if not access.is_manager and not access.has(
         ProjectCapability.ANNOTATION_WRITE.value
     ):
         raise HTTPException(status_code=403, detail="缺少项目权限: annotation.write")
     task = await get_next_task(
-        current_user,
+        current_user.id,
         project_id,
         db,
         batch_id=batch_id,
@@ -229,7 +229,7 @@ async def get_task(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
     dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     pyramids = await _attach_image_pyramids_batch(
@@ -269,7 +269,7 @@ async def get_task_neighbors(
     )
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
 
     try:
         result = await get_neighbors_for_task(db, task_id=task_id, k=k)

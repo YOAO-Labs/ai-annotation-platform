@@ -164,7 +164,7 @@ async def lock_labeling_write(
             or task.batch_id != scope.expected_batch_id
         ):
             raise _conflict("prediction_task_scope_changed")
-        await task_access.assert_task_visible(db, task, actor, access=access)
+        await task_access.assert_task_visible(db, task, actor.id, access=access)
         if scope.operation == "preannotation":
             if scope.execution_scope not in {"bulk", "workbench"}:
                 raise _conflict("labeling_write_scope_unknown")
@@ -183,11 +183,13 @@ async def lock_labeling_write(
                 access,
                 allow_review_adjustment=scope.operation != "secondary_inference",
             )
-            task_access.assert_task_editable(task, actor, access=access)
-            await task_access.assert_review_adjustment_evidence(db, task, actor, access)
+            task_access.assert_task_editable(task, actor.id, access=access)
+            await task_access.assert_review_adjustment_evidence(
+                db, task, actor.id, access
+            )
             if task.status != "review":
                 task_access.assert_effective_task_assignee(
-                    actor,
+                    actor.id,
                     await task_access.resolve_effective_task_assignee_id(db, task),
                     action="write",
                     project_id=task.project_id,

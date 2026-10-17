@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-09-14
+last_reviewed: 2026-10-18
 ---
 
 # Scheduler 与派题
@@ -78,7 +77,7 @@ last_reviewed: 2026-09-14
 
 ### 4. 叠加角色与可见性过滤
 
-如果不是 `super_admin` 或项目 owner，还要叠加 `task_visibility_clause(user)`。这个 helper 的通用“可见范围”比 scheduler 的基础候选更宽，有批次的任务在 `/tasks/next` 中会与 `active / annotating` 取交集：
+如果不是 `super_admin` 或项目 owner，还要叠加 `task_visibility_clause(actor_id)`。主体 ID 与当前项目职责共同构造范围，helper 不接收 User；原管理者谓词所需的账号仍在原 Session 内读取或复用。这个 helper 的通用“可见范围”比 scheduler 的基础候选更宽，有批次的任务在 `/tasks/next` 中会与 `active / annotating` 取交集：
 
 当前规则：
 

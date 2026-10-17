@@ -81,7 +81,7 @@ async def global_search(
                 and_(
                     ProjectMember.role == role,
                     or_(
-                        task_visibility_clause(user, project_role=role),
+                        task_visibility_clause(user.id, project_role=role),
                         and_(
                             Task.file_type == "video",
                             Project.video_collaboration["enabled"]

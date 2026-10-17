@@ -8,7 +8,6 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.services import trained_model_backend as backend_io
 from app.services import trained_models as learning
 from app.services.trained_model_reference_contract import FrozenModelReferenceFacts
@@ -19,13 +18,13 @@ from app.services.training_claims import project_lock
 async def deploy_model(
     db: AsyncSession,
     project: Project,
-    user: User,
+    actor_id: uuid.UUID,
     version_id: uuid.UUID,
     registry_id: uuid.UUID,
 ):
     """Persist a fenced check, install/trial, then publish its matching result."""
     await project_lock(db, project.id)
-    await lock_project_manager(db, user.id, project.id)
+    await lock_project_manager(db, actor_id, project.id)
     version = await learning.load_version(db, project.id, version_id)
     learning.validate_bindings(project, version.classes, version.bindings)
     backend = await learning.enabled_backend(db, project.id, registry_id)
@@ -72,7 +71,7 @@ async def deploy_model(
         error = f"加载或样本试用未通过（{type(exc).__name__}）"
 
     await project_lock(db, project.id)
-    await lock_project_manager(db, user.id, project.id)
+    await lock_project_manager(db, actor_id, project.id)
     deployment = await learning.complete_deployment_check(
         db,
         deployment_id,

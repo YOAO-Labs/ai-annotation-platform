@@ -28,7 +28,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
-from app.deps import get_db, require_roles
+from app.deps import get_current_user_id, get_db, require_roles
 from app.application.bulk_clear_preannotate import (
     bulk_clear_preannotate as run_bulk_clear_preannotate,
 )
@@ -167,12 +167,16 @@ class BulkClearResponse(BaseModel):
     failed: list[BulkClearItem] = []
 
 
-@router.post("/admin/preannotate-queue/bulk-clear", response_model=BulkClearResponse)
+@router.post(
+    "/admin/preannotate-queue/bulk-clear",
+    response_model=BulkClearResponse,
+    dependencies=[Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN))],
+)
 async def bulk_clear_preannotate(
     payload: BulkClearRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ) -> BulkClearResponse:
     """v0.9.12 B-16 · 批量清理 /ai-pre 已就绪卡片.
 
@@ -187,7 +191,7 @@ async def bulk_clear_preannotate(
         batch_ids=payload.batch_ids,
         mode=payload.mode,
         reason=payload.reason,
-        actor=admin,
+        actor_id=actor_id,
         origin=audit_origin_from_request(request),
     )
     return BulkClearResponse(**result)

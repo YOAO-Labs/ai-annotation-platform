@@ -199,8 +199,8 @@ async def require_visible_task(
     # Task visibility applies batch/status and assignment rules, but it is
     # intentionally usable by a few cross-project task flows and does not establish
     # project membership.  Discussion routes must require both checks.
-    await resolve_project_access_by_id(db, user=user, project_id=task.project_id)
-    await task_access.assert_task_visible(db, task, user)
+    await resolve_project_access_by_id(db, actor_id=user.id, project_id=task.project_id)
+    await task_access.assert_task_visible(db, task, user.id)
     return task
 
 
@@ -499,7 +499,7 @@ async def list_task_discussion(
     from app.services.project_access import resolve_project_access
 
     project = await db.get(Project, task.project_id)
-    access = await resolve_project_access(db, user=user, project=project)
+    access = await resolve_project_access(db, actor_id=user.id, project=project)
 
     items: list[TaskDiscussionItem] = []
     for row in page_identifiers:

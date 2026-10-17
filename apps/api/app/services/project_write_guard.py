@@ -171,12 +171,12 @@ async def assert_phase_write_allowed(
         raise HTTPException(status_code=404, detail="task_missing")
     try:
         access = await resolve_project_access(
-            db, user=actor, project=project, lock_membership=lock_membership
+            db, actor_id=actor.id, project=project, lock_membership=lock_membership
         )
     except HTTPException as exc:
         raise HTTPException(status_code=403, detail="permission_changed") from exc
 
-    task_access.assert_task_editable(task, actor, access=access)
+    task_access.assert_task_editable(task, actor.id, access=access)
     effective_annotator_id = await task_access.resolve_effective_task_assignee_id(
         db, task
     )
@@ -186,7 +186,7 @@ async def assert_phase_write_allowed(
         )
         return
     task_access.assert_effective_task_assignee(
-        actor,
+        actor.id,
         effective_annotator_id,
         action=action,
         project_id=task.project_id,

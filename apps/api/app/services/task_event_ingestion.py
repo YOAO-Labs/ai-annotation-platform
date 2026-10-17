@@ -171,7 +171,7 @@ async def assert_task_event_access(
     # an authority source; an anomalous non-administrative owner is rejected
     # because resolve_project_access fails closed without a valid membership.
     access = await resolve_project_access(
-        db, user=user, project=project, lock_membership=True
+        db, actor_id=user.id, project=project, lock_membership=True
     )
     required_capability = (
         ProjectCapability.REVIEW_WRITE.value
@@ -182,7 +182,7 @@ async def assert_task_event_access(
         raise _reject("work_type_not_allowed", status_code=403)
 
     try:
-        await task_access.assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user.id, access=access)
     except HTTPException as exc:
         can_close_submitted = (
             kind == "annotate"

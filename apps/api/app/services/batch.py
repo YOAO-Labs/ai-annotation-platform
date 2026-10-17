@@ -1329,7 +1329,7 @@ class BatchService:
             if project is None:
                 raise HTTPException(status_code=404, detail="Batch not found")
             access = await resolve_project_access(
-                self.db, user=actor, project=project, lock_membership=True
+                self.db, actor_id=actor.id, project=project, lock_membership=True
             )
             if not (
                 access.is_manager or access.has(ProjectCapability.REVIEW_WRITE.value)

@@ -68,7 +68,9 @@ async def test_stale_access_cannot_accept_rejection_after_authority_change(
 
     task = await create_task(db_session, project_id=project.id, status="rejected")
     task.assignee_id = actor.id
-    stale_access = await resolve_project_access(db_session, user=actor, project=project)
+    stale_access = await resolve_project_access(
+        db_session, actor_id=actor.id, project=project
+    )
 
     if revocation == "membership":
         assert member is not None
@@ -115,7 +117,9 @@ async def test_review_claim_rechecks_current_capability_after_role_change(
     task.review_round_id = uuid.uuid4()
     task.review_contributor_ids = [str(owner.id)]
     task.review_submitter_id = owner.id
-    stale_access = await resolve_project_access(db_session, user=actor, project=project)
+    stale_access = await resolve_project_access(
+        db_session, actor_id=actor.id, project=project
+    )
     member.role = "annotator"
     member.version += 1
     await db_session.commit()
@@ -156,7 +160,9 @@ async def test_review_audits_and_notifies_from_the_locked_actor_profile(
     task.review_contributor_ids = [str(owner.id)]
     task.review_submitter_id = owner.id
     project.review_tasks = 1
-    access = await resolve_project_access(db_session, user=actor, project=project)
+    access = await resolve_project_access(
+        db_session, actor_id=actor.id, project=project
+    )
 
     current_name = "Current Reviewer"
     current_email = f"reviewer-current-{uuid.uuid4()}@test.local"

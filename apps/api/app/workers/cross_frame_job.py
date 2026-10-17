@@ -42,7 +42,7 @@ async def _resolve_task_access(
         raise HTTPException(status_code=404, detail="task_missing")
     try:
         return await resolve_project_access(
-            db, user=actor, project=project, lock_membership=lock
+            db, actor_id=actor.id, project=project, lock_membership=lock
         )
     except HTTPException as exc:
         raise HTTPException(status_code=403, detail="permission_changed") from exc
@@ -296,8 +296,8 @@ async def execute_cross_frame_job(
             if source_task is None or target_task is None:
                 raise RuntimeError("task_missing")
             try:
-                await task_access.assert_task_visible(db, source_task, actor)
-                await task_access.assert_task_visible(db, target_task, actor)
+                await task_access.assert_task_visible(db, source_task, actor.id)
+                await task_access.assert_task_visible(db, target_task, actor.id)
             except HTTPException as exc:
                 raise RuntimeError("permission_changed") from exc
             if source_task.status == "completed":

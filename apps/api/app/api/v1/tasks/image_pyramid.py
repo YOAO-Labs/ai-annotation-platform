@@ -38,7 +38,7 @@ async def get_image_pyramid(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     response.headers["Cache-Control"] = "private, no-store"
     image_pyramid = bind_image_pyramid_api(db)
     try:
@@ -103,7 +103,7 @@ async def create_image_pyramid_asset_urls(
             },
         )
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     image_pyramid = bind_image_pyramid_api(db)
     try:
         result = await image_pyramid.asset_urls(
@@ -139,7 +139,7 @@ async def retry_image_pyramid(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     image_pyramid = bind_image_pyramid_api(db)
     try:
         plan = await image_pyramid.retry(_image_pyramid_task_source(task))

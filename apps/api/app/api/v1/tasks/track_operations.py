@@ -101,7 +101,7 @@ async def _filter_visible_operations(
     }
     all_task_ids = set().union(*operation_tasks.values()) if operation_tasks else set()
     visible_task_ids = await task_access.visible_task_ids(
-        db, project, current_user, list(all_task_ids), access=access
+        db, project, current_user.id, list(all_task_ids), access=access
     )
     return [
         operation
@@ -122,7 +122,7 @@ async def get_scene_track_detail(
     current_user: User = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user)
+    await task_access.assert_task_visible(db, anchor_task, current_user.id)
     context = await resolve_scene_track_context(db, anchor_task)
     track = (
         await db.execute(
@@ -261,14 +261,14 @@ async def get_scene_track_diagnostics(
     current_user: User = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user)
+    await task_access.assert_task_visible(db, anchor_task, current_user.id)
     context = await resolve_scene_track_context(db, anchor_task)
     project = await db.get(Project, anchor_task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     scene_task_ids = set(context.task_to_frame)
     visible_task_ids = await task_access.visible_task_ids(
-        db, project, current_user, list(scene_task_ids)
+        db, project, current_user.id, list(scene_task_ids)
     )
     if not scene_task_ids.issubset(visible_task_ids):
         raise _track_error(
@@ -316,7 +316,7 @@ async def _task_access_map(
     )
     by_id = {row.id: row for row in rows}
     visible_ids = await task_access.visible_task_ids(
-        db, project, current_user, list(task_ids), access=access
+        db, project, current_user.id, list(task_ids), access=access
     )
     return {task_id: task for task_id, task in by_id.items() if task_id in visible_ids}
 
@@ -333,7 +333,7 @@ def _tasks_are_editable(
     try:
         for task_id in sorted(task_ids, key=str):
             task_access.assert_task_editable(
-                tasks[task_id], current_user, access=access
+                tasks[task_id], current_user.id, access=access
             )
     except HTTPException:
         return False
@@ -408,8 +408,10 @@ async def preview_scene_track_command(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user, access=access)
-    task_access.assert_task_editable(anchor_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, anchor_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(anchor_task, current_user.id, access=access)
     prepared = await prepare_scene_track_command(
         db,
         anchor_task=anchor_task,
@@ -438,8 +440,10 @@ async def execute_scene_track_command(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user, access=access)
-    task_access.assert_task_editable(anchor_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, anchor_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(anchor_task, current_user.id, access=access)
     command = SceneTrackCommandRequest.model_validate(
         data.model_dump(exclude={"snapshot_token", "idempotency_key"})
     )
@@ -524,7 +528,7 @@ async def list_scene_track_operations(
     current_user: User = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user)
+    await task_access.assert_task_visible(db, anchor_task, current_user.id)
     context = await resolve_scene_track_context(db, anchor_task)
     project = await db.get(Project, anchor_task.project_id)
     if project is None:
@@ -577,8 +581,10 @@ async def revert_scene_track_command(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user, access=access)
-    task_access.assert_task_editable(anchor_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, anchor_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(anchor_task, current_user.id, access=access)
     context = await resolve_scene_track_context(db, anchor_task)
     operation = (
         await db.execute(
@@ -651,8 +657,10 @@ async def list_track_operation_candidates(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user, access=access)
-    task_access.assert_task_editable(anchor_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, anchor_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(anchor_task, current_user.id, access=access)
     _, structural = await list_structural_merge_candidates(
         db,
         anchor_task=anchor_task,
@@ -717,8 +725,10 @@ async def preview_track_operation(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user, access=access)
-    task_access.assert_task_editable(anchor_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, anchor_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(anchor_task, current_user.id, access=access)
     prepared = await prepare_track_operation(
         db,
         anchor_task=anchor_task,
@@ -764,8 +774,10 @@ async def execute_track_operation(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, anchor_task, current_user, access=access)
-    task_access.assert_task_editable(anchor_task, current_user, access=access)
+    await task_access.assert_task_visible(
+        db, anchor_task, current_user.id, access=access
+    )
+    task_access.assert_task_editable(anchor_task, current_user.id, access=access)
     operation = TrackOperationRequest.model_validate(
         data.model_dump(exclude={"snapshot_token"})
     )

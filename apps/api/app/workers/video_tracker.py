@@ -56,7 +56,9 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                     try:
                         if actor is None or not actor.is_active or project is None:
                             raise HTTPException(status_code=403, detail="revoked")
-                        await resolve_project_access(db, user=actor, project=project)
+                        await resolve_project_access(
+                            db, actor_id=actor.id, project=project
+                        )
                     except HTTPException:
                         job.status = VideoTrackerJobStatus.FAILED.value
                         job.error_message = "permission_revoked"

@@ -294,7 +294,7 @@ def require_scopes(*needed: str) -> Callable:
 async def assert_project_visible(
     project_id: uuid.UUID,
     db: AsyncSession,
-    user: User,
+    actor_id: uuid.UUID,
 ) -> Project:
     """
     统一可见性：超级管理员、合法的管理型负责人，或校验通过的成员。
@@ -302,7 +302,7 @@ async def assert_project_visible(
     按成员可见性处理（不获得管理权）。不可见则 404 隐藏存在性。
     """
     project, _access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=actor_id, project_id=project_id
     )
     return project
 
@@ -310,15 +310,15 @@ async def assert_project_visible(
 async def require_project_visible(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ) -> Project:
-    return await assert_project_visible(project_id, db, user)
+    return await assert_project_visible(project_id, db, actor_id)
 
 
 async def require_project_owner(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ) -> Project:
     """super_admin 或具备合法管理身份的负责人可执行写操作。
 
@@ -326,7 +326,7 @@ async def require_project_owner(
     仅凭旧字段获得管理权。
     """
     project, access = await resolve_project_access_by_id(
-        db, user=user, project_id=project_id
+        db, actor_id=actor_id, project_id=project_id
     )
     if not access.is_manager:
         raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可执行")
@@ -336,7 +336,7 @@ async def require_project_owner(
 async def project_access_for_path(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ) -> ProjectAccess:
     """Resolve the immutable project access context for the path project.
 
@@ -344,7 +344,9 @@ async def project_access_for_path(
     of re-deriving authority from a global role.
     """
 
-    _, access = await resolve_project_access_by_id(db, user=user, project_id=project_id)
+    _, access = await resolve_project_access_by_id(
+        db, actor_id=actor_id, project_id=project_id
+    )
     return access
 
 

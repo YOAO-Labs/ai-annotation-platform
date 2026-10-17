@@ -1106,7 +1106,7 @@ def apply_task_visibility(
     """
     if not is_privileged_for_project(user, project):
         stmt = stmt.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
-            task_visibility_clause(user, project_role=project_role)
+            task_visibility_clause(user.id, project_role=project_role)
         )
     return stmt
 

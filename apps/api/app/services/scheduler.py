@@ -15,7 +15,6 @@ from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import is_privileged_for_project
 from app.services.scene import resolve_primary_item_id
 from app.services.task_lock import TaskLockService, assert_task_user_active
@@ -51,7 +50,7 @@ REVIEWER_VISIBLE_BATCH_STATUSES = ["active", "annotating", "reviewing"]
 WORKBENCH_VISIBLE_BATCH_STATUSES = ["active", "annotating"]
 
 
-def batch_visibility_clause(user: User, *, project_role: str | None = None):
+def batch_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = None):
     """返回应用到 TaskBatch 的可见性 WHERE 子句，按**项目职责**分支：
 
     - reviewer：active / annotating / reviewing，**不**受 annotator 约束
@@ -72,7 +71,7 @@ def batch_visibility_clause(user: User, *, project_role: str | None = None):
     ):
         return false()
 
-    is_self = TaskBatch.annotator_id == user.id
+    is_self = TaskBatch.annotator_id == actor_id
     return or_(
         and_(
             TaskBatch.status.in_(["active", "annotating"]),
@@ -83,7 +82,7 @@ def batch_visibility_clause(user: User, *, project_role: str | None = None):
     )
 
 
-def _task_assigned_to_user(user: User):
+def _task_assigned_to_user(actor_id: uuid.UUID):
     """Match an explicit task assignee, falling back to its batch assignee.
 
     ``Task.assignee_id`` is the task-level override used by Data Manager
@@ -93,11 +92,11 @@ def _task_assigned_to_user(user: User):
     reviewing work visible to every annotator.
     """
     return or_(
-        Task.assignee_id == user.id,
+        Task.assignee_id == actor_id,
         and_(
             Task.assignee_id.is_(None),
             Task.batch_id.is_not(None),
-            TaskBatch.annotator_id == user.id,
+            TaskBatch.annotator_id == actor_id,
         ),
     )
 
@@ -134,7 +133,7 @@ def effective_task_reviewer_expr():
     return func.coalesce(Task.reviewer_id, TaskBatch.reviewer_id)
 
 
-def task_assignment_clause(user: User):
+def task_assignment_clause(actor_id: uuid.UUID):
     """Return the SQL scope for an annotator's effective task assignment.
 
     Explicit task assignments take precedence over a batch assignment.  A
@@ -143,7 +142,7 @@ def task_assignment_clause(user: User):
     Callers must join ``TaskBatch`` with an outer join.
     """
     return or_(
-        _task_assigned_to_user(user),
+        _task_assigned_to_user(actor_id),
         and_(
             Task.batch_id.is_not(None),
             Task.assignee_id.is_(None),
@@ -152,20 +151,8 @@ def task_assignment_clause(user: User):
     )
 
 
-def visible_batch_statuses_for(
-    user: User, *, project_role: str | None = None
-) -> list[str]:
-    """非 SQL 路径用：给定**项目职责**返回扁平 status 白名单。
-
-    ``project_role`` is the resolved membership role; missing/unknown fails
-    closed.  ``user`` is kept for call-site compatibility but plays no part in
-    the decision.
-    """
-    return visible_batch_statuses_for_project_role(project_role)
-
-
 def annotator_can_rework_task(
-    user: User | IdentityActorFacts,
+    actor_id: uuid.UUID,
     batch: TaskBatch,
     task_status: str,
     task_assignee_id: uuid.UUID | None = None,
@@ -184,13 +171,13 @@ def annotator_can_rework_task(
     )
     return (
         is_annotator
-        and (task_assignee_id or batch.annotator_id) == user.id
+        and (task_assignee_id or batch.annotator_id) == actor_id
         and batch.status == "reviewing"
         and task_status in {"rejected", "in_progress"}
     )
 
 
-def task_visibility_clause(user: User, *, project_role: str | None = None):
+def task_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = None):
     """Return the canonical visibility scope for a ``Task`` query.
 
     Branches on the resolved ``project_role`` (missing/unknown fails closed).
@@ -203,10 +190,10 @@ def task_visibility_clause(user: User, *, project_role: str | None = None):
     """
     if project_role == ProjectRole.REVIEWER.value:
         return or_(
-            and_(Task.batch_id.is_(None), Task.reviewer_id == user.id),
+            and_(Task.batch_id.is_(None), Task.reviewer_id == actor_id),
             and_(
                 Task.batch_id.is_not(None),
-                batch_visibility_clause(user, project_role=project_role),
+                batch_visibility_clause(actor_id, project_role=project_role),
             ),
         )
     if project_role not in (
@@ -215,7 +202,7 @@ def task_visibility_clause(user: User, *, project_role: str | None = None):
     ):
         return false()
     is_annotator = project_role == ProjectRole.ANNOTATOR.value
-    assigned = _task_assigned_to_user(user)
+    assigned = _task_assigned_to_user(actor_id)
     arms = [
         # Keep the existing active/annotating open-pool behavior, while an
         # explicit task assignee narrows a normally batch-scoped task.  This
@@ -223,7 +210,7 @@ def task_visibility_clause(user: User, *, project_role: str | None = None):
         and_(
             Task.batch_id.is_not(None),
             TaskBatch.status.in_(["active", "annotating"]),
-            task_assignment_clause(user),
+            task_assignment_clause(actor_id),
         ),
         # Rejected work is visible only to its effective assignee.
         and_(
@@ -236,7 +223,7 @@ def task_visibility_clause(user: User, *, project_role: str | None = None):
         arms.append(
             # An explicitly assigned unbatched task has no batch status to gate
             # it; only an annotator may see it.
-            and_(Task.batch_id.is_(None), Task.assignee_id == user.id)
+            and_(Task.batch_id.is_(None), Task.assignee_id == actor_id)
         )
         arms.append(
             # A rejected/in-progress task can be resumed during batch review by
@@ -251,13 +238,9 @@ def task_visibility_clause(user: User, *, project_role: str | None = None):
     return or_(*arms)
 
 
-# 兼容别名
-assigned_user_ids_clause = task_visibility_clause
-
-
 async def _filter_assignable_task_ids(
     db: AsyncSession,
-    user: User,
+    actor_id: uuid.UUID,
     project: Project,
     batch_id: uuid.UUID | None,
     task_ids: list[uuid.UUID],
@@ -270,7 +253,7 @@ async def _filter_assignable_task_ids(
         select(Annotation.id)
         .where(
             Annotation.task_id == Task.id,
-            Annotation.user_id == user.id,
+            Annotation.user_id == actor_id,
             Annotation.is_active.is_(True),
         )
         .correlate(Task)
@@ -281,7 +264,7 @@ async def _filter_assignable_task_ids(
         select(TaskLock.id)
         .where(
             TaskLock.task_id == Task.id,
-            TaskLock.user_id != user.id,
+            TaskLock.user_id != actor_id,
             TaskLock.expire_at > now,
         )
         .correlate(Task)
@@ -307,8 +290,9 @@ async def _filter_assignable_task_ids(
     )
     if batch_id:
         q = q.where(Task.batch_id == batch_id)
-    if not is_privileged_for_project(user, project):
-        q = q.where(assigned_user_ids_clause(user, project_role=project_role))
+    actor = await db.get(User, actor_id)
+    if actor is None or not is_privileged_for_project(actor, project):
+        q = q.where(task_visibility_clause(actor_id, project_role=project_role))
     if project.maximum_annotations > 1:
         q = q.where(Task.total_annotations < project.maximum_annotations)
     rows = (await db.execute(q)).scalars().all()
@@ -318,7 +302,7 @@ async def _filter_assignable_task_ids(
 async def _next_same_scene_task(
     db: AsyncSession,
     *,
-    user: User,
+    actor_id: uuid.UUID,
     project: Project,
     batch_id: uuid.UUID | None,
     project_role: str | None = None,
@@ -336,7 +320,7 @@ async def _next_same_scene_task(
         await db.execute(
             select(Annotation.task_id)
             .where(
-                Annotation.user_id == user.id,
+                Annotation.user_id == actor_id,
                 Annotation.project_id == project.id,
                 Annotation.is_active.is_(True),
                 Annotation.created_at >= cutoff,
@@ -408,7 +392,7 @@ async def _next_same_scene_task(
 
     valid = await _filter_assignable_task_ids(
         db,
-        user,
+        actor_id,
         project,
         batch_id,
         ordered_task_ids,
@@ -421,14 +405,14 @@ async def _next_same_scene_task(
 
 
 async def get_next_task(
-    user: User,
+    actor_id: uuid.UUID,
     project_id: uuid.UUID,
     db: AsyncSession,
     batch_id: uuid.UUID | None = None,
     *,
     project_role: str | None = None,
 ) -> Task | None:
-    user_id = user.id
+    user_id = actor_id
     # Authentication may have completed before an administrator suspended the
     # account. Take the same User share lock used by TaskLockService before
     # returning an already-held lock or attempting to claim a new task.
@@ -461,7 +445,7 @@ async def get_next_task(
     if project.prefer_same_scene_continuation:
         scene_task = await _next_same_scene_task(
             db,
-            user=user,
+            actor_id=actor_id,
             project=project,
             batch_id=batch_id,
             project_role=project_role,
@@ -514,9 +498,10 @@ async def get_next_task(
 
     # Assignment filtering: super_admin / 项目 owner 越权放行（可代标注员补刀），
     # 其他角色无论是否显式指定 batch_id，都必须命中 assigned_user_ids（或批次未分派）。
-    if not is_privileged_for_project(user, project):
+    actor = await db.get(User, actor_id)
+    if actor is None or not is_privileged_for_project(actor, project):
         candidates = candidates.where(
-            assigned_user_ids_clause(user, project_role=project_role)
+            task_visibility_clause(actor_id, project_role=project_role)
         )
 
     # 4. Multi-annotator overlap

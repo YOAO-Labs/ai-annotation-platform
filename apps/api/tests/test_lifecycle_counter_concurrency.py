@@ -74,7 +74,7 @@ async def test_concurrent_task_approvals_keep_both_project_deltas(
             actor = await db.get(User, reviewer_id)
             current_project = await db.get(Project, project_id)
             access = await resolve_project_access(
-                db, user=actor, project=current_project
+                db, actor_id=actor.id, project=current_project
             )
             return await TaskReviewWorkflow(db).approve_task(
                 task_id,

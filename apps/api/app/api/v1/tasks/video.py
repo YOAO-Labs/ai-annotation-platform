@@ -132,7 +132,7 @@ async def get_reviewable_video_tracker_jobs(
 ):
     """恢复当前任务仍待接受/丢弃的服务端候选。"""
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if task.file_type != "video":
         raise HTTPException(status_code=400, detail="Task is not a video task")
     return await list_reviewable_tracker_jobs(db, task=task, user=current_user)
@@ -149,7 +149,7 @@ async def get_active_video_tracker_jobs(
 ):
     """恢复当前任务仍在运行 (queued/running) 的追踪任务, 供刷新后重连 WebSocket。"""
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if task.file_type != "video":
         raise HTTPException(status_code=400, detail="Task is not a video task")
     return await list_active_tracker_jobs(db, task=task, user=current_user)
@@ -162,7 +162,7 @@ async def get_video_manifest(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if task.file_type != "video":
         raise HTTPException(status_code=400, detail="Task is not a video task")
 
@@ -288,7 +288,7 @@ async def get_point_cloud_manifest(
     from app.db.models.project import Project
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
 
     project = await db.get(Project, task.project_id)
     if project is None or project.data_type != "lidar":
@@ -329,7 +329,7 @@ async def get_video_frame_timetable(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if task.file_type != "video":
         raise HTTPException(status_code=400, detail="Task is not a video task")
     response.headers["Cache-Control"] = "private, max-age=3600"
@@ -399,7 +399,7 @@ async def get_video_manifest_v2(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -416,7 +416,7 @@ async def get_video_segments(
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -439,7 +439,7 @@ async def claim_video_segment(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -478,7 +478,7 @@ async def heartbeat_video_segment(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -519,7 +519,7 @@ async def release_video_segment(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -575,7 +575,7 @@ async def submit_video_segment(
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -688,7 +688,7 @@ async def reopen_video_segment(
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
     ctx = await _VideoContextSqlAdapter(db).from_task(
@@ -715,7 +715,7 @@ async def unassign_video_segment(
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
     ctx = await _VideoContextSqlAdapter(db).from_task(
@@ -742,7 +742,7 @@ async def list_video_track_quality(
     from app.db.models.video_track_quality import VideoTrackQualityRun
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     runs = list(
         (
             await db.execute(
@@ -773,7 +773,7 @@ async def run_video_track_quality_now(
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
     try:
@@ -813,7 +813,7 @@ async def get_video_track_quality(
     )
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     run = await db.get(VideoTrackQualityRun, run_id)
     if run is None or run.task_id != task.id:
         raise HTTPException(status_code=404, detail="Track quality run not found")
@@ -856,7 +856,7 @@ async def accept_video_track_quality(
     from app.db.models.video_track_quality import VideoTrackQualityRun
 
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
     run = (
@@ -892,7 +892,7 @@ async def get_video_chunks(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -924,7 +924,7 @@ async def get_video_chunk(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -960,7 +960,7 @@ async def get_video_frame(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -991,7 +991,7 @@ async def prefetch_video_frame_assets(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -1021,7 +1021,7 @@ async def retry_video_frame_assets(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -1065,8 +1065,8 @@ async def save_video_mask_correction_keyframe(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     raw_if_match = request.headers.get("If-Match", "").strip()
     if not raw_if_match:
         raise HTTPException(status_code=428, detail={"reason": "if_match_required"})
@@ -1133,8 +1133,8 @@ async def operate_video_mask_correction_keyframe(
     ).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     raw_if_match = request.headers.get("If-Match", "").strip()
     if not raw_if_match:
         raise HTTPException(status_code=428, detail={"reason": "if_match_required"})
@@ -1201,8 +1201,8 @@ async def create_video_mask_correction(
     ),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -1342,8 +1342,8 @@ async def propagate_video_track(
     ),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,
@@ -1402,8 +1402,8 @@ async def track_video(
     缺省则为无源检测 (文本/种子), 新建轨迹类别由 target_class_name 指定。旧的
     /tracks/{annotation_id}:propagate 仍保留 (延展快捷路径)。"""
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     ctx = await _VideoContextSqlAdapter(db).from_task(
         task_id=task.id,
         project_id=task.project_id,

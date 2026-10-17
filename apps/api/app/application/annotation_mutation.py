@@ -107,16 +107,16 @@ class _AnnotationBulkUpdateSqlAdapter(AnnotationBulkUpdatePort):
         payload = command.payload
         task = await _load_single_task_for_ids(self._db, payload.ids)
         access = await task_access.resolve_task_access(
-            self._db, task, self._actor, lock_membership=True
+            self._db, task, self._actor.id, lock_membership=True
         )
         task_access.assert_annotation_write_allowed(task, access)
         await task_access.assert_review_adjustment_evidence(
-            self._db, task, self._actor, access
+            self._db, task, self._actor.id, access
         )
         await task_access.assert_task_visible(
-            self._db, task, self._actor, access=access
+            self._db, task, self._actor.id, access=access
         )
-        task_access.assert_task_editable(task, self._actor, access=access)
+        task_access.assert_task_editable(task, self._actor.id, access=access)
 
         await record_annotation_actor(self._db, task, self._actor.id)
         updated = await AnnotationService(self._db).bulk_update(

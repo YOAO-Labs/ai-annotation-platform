@@ -104,7 +104,7 @@ async def _resolve_task_review_access(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(
-        db, user=user, project=project, lock_membership=lock
+        db, actor_id=user.id, project=project, lock_membership=lock
     )
     _assert_review_authority(access)
     return project, access
@@ -235,7 +235,7 @@ async def _assert_run_scope_visible(
     if {task.id for task in rows} != task_ids:
         raise HTTPException(status_code=404, detail="Task not found")
     for task in rows:
-        await task_access.assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user.id, access=access)
 
 
 @router.post(
@@ -307,7 +307,7 @@ async def get_project_issues(
         task = await db.get(Task, task_id)
         if task is None or task.project_id != project.id:
             raise HTTPException(status_code=404, detail="Task not found")
-        await task_access.assert_task_visible(db, task, current_user, access=access)
+        await task_access.assert_task_visible(db, task, current_user.id, access=access)
     elif not access.is_manager:
         all_task_ids = list(
             (
@@ -315,7 +315,7 @@ async def get_project_issues(
             ).scalars()
         )
         allowed_task_ids = await task_access.visible_task_ids(
-            db, project, current_user, all_task_ids, access=access
+            db, project, current_user.id, all_task_ids, access=access
         )
 
     try:
@@ -363,7 +363,7 @@ async def get_task_summary(
     project, access = await _resolve_task_review_access(
         db, task=task, user=current_user
     )
-    await task_access.assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
     return TaskMaskQCSummary.model_validate(
         await task_qc_summary(db, task=task, project=project)
     )
@@ -506,7 +506,7 @@ async def get_issue(
     _project, access = await _resolve_task_review_access(
         db, task=task, user=current_user
     )
-    await task_access.assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
     return await _issue_out(db, issue)
 
 
@@ -544,7 +544,7 @@ async def patch_issue(
                 status_code=409, detail={"reason": "mask_qc_issue_busy"}
             ) from exc
         raise
-    await task_access.assert_task_visible(db, task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
     try:
         await decide_issue(
             db,
@@ -583,7 +583,7 @@ async def _assert_repair_issues_visible(
         (await db.execute(select(Task).where(Task.id.in_(task_ids)))).scalars()
     )
     for task in tasks:
-        await task_access.assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user.id, access=access)
 
 
 async def _load_visible_repair_batch(
@@ -600,7 +600,7 @@ async def _load_visible_repair_batch(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(
-        db, user=user, project=project, lock_membership=lock
+        db, actor_id=user.id, project=project, lock_membership=lock
     )
     _assert_review_authority(access)
     task_ids = {
@@ -614,7 +614,7 @@ async def _load_visible_repair_batch(
     if len(tasks) != len(task_ids):
         raise HTTPException(status_code=404, detail="Mask repair task not found")
     for task in tasks:
-        await task_access.assert_task_visible(db, task, user, access=access)
+        await task_access.assert_task_visible(db, task, user.id, access=access)
     return batch
 
 
@@ -719,7 +719,7 @@ async def execute_mask_repairs(
     # the capability on that fresh access (a downgrade after the dependency
     # resolved must not proceed).
     fresh_access = await resolve_project_access(
-        db, user=current_user, project=project, lock_membership=True
+        db, actor_id=current_user.id, project=project, lock_membership=True
     )
     assert_capability(fresh_access, ProjectCapability.REVIEW_WRITE.value)
     try:

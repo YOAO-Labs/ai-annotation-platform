@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 后端分层
@@ -110,6 +110,8 @@ services/
 
 `services/workspace_contract.py` 单独持有 `ProjectAccess`、能力枚举与标量角色规则，schema/API/服务消费者直接读取纯值所有者；冷加载只需标准库和既有角色枚举。`services/project_access.py` 保留当前权限解析、同事务锁和消费已加载 User/Project 的管理者谓词，不重导出旧纯符号。访问值不能跨事务代替最终授权，REST 身份依赖、JWT/API key 和 WebSocket 的现行语义也未因类型搬迁改变。
 
+项目解析器、任务可见性/编辑性/审核证据 helper 及调度的主体参数统一为 `actor_id` UUID；HTTP、WebSocket、工作流与 worker 的真实消费者不再为这些入口传 User 或身份事实对象。`get_next_task` 在原 SQL Session 内复用认证缓存的 User，仅供原管理者谓词；批量清理同样保留锁后 User 的角色与审计投影。训练恢复/删除和模型部署的本地主体输入也只传 UUID。项目配置、实际锁定行和事务组合仍由原所有者持有，这不是可远程调用的授权协议。
+
 仅需访问决策的写入通过 `ProjectWritePolicyResolver.resolve(ProjectWritePolicyRequest)` 传 actor/project UUID；SQL 适配器绑定原 Session，复用原账号→项目→成员锁，只返回 `ProjectAccess`。管理围栏、预测导入和传统上传的锁定分支不再接收授权来源 ORM；管理围栏全部调用点传 actor ID。端口将原 401/403/404/409 的 status/detail/headers 投影为纯错误，在原消费者处恢复 HTTP 语义；各自 manager 拒绝正文、提交窗口和行锁所有权保持不变。真正需要行的 workspace/任务工作流仍使用原本地 helper。
 
 审核认领/通过/退回、跳过/撤回/重开/接受退回，以及单题/整批送审的三个工作流都只接收 actor UUID。`application/task_workflow_locks` 保留当前账号→项目→成员及批次/任务锁，在原访问绑定和目标复核后投影 `identity_contracts.IdentityActorFacts`；用例继续检查各自能力与可见性，并用这些事实填入审计和通知姓名。事实只含 id/name/email/全局 role/is_active，不含 ORM 或凭据；项目授权仍由单独的 `ProjectAccess` 决定。整批送审每个后续分块及最终回填都重新取权并投影当前账号，不能复用前一个提交前的事实。认证依赖与完整 profile 所有者路径保留，初始请求身份和历史访问值不替代这次事务内的重读。
@@ -213,6 +215,8 @@ Task 列表/详情、Data Manager、视频清单/时间表及轨迹转换的素�
 软删评论附件的候选筛选和附件行清空由 `AnnotationCommentService` 持有：仅选 inactive 且 `updated_at` 严格早于当前时刻减 7 天的最多 500 条，不指定顺序，空附件也占候选名额。cleanup worker 保留 `storage_key` 解释、MinIO 删除与日志，并在所有行命令后只提交一次；存储删除失败仍清空附件行，数据库提交失败会回滚行但无法恢复此前已删除的对象。这里没有重试或 outbox，也没有把 SQL 与 MinIO 描述成原子事务。
 
 `application/annotation_feedback.py::AnnotationFeedbackWorkflow` 持有反馈创建、修改、软删与回复的准入和事务组合，`FeedbackService` 仍是反馈行所有者。项目级反馈重取当前权威；任务级反馈额外锁定真实批次/任务/标注，再以确定 ID 顺序锁定并刷新线程祖先和目标，核对根、父与作用域漂移后重算动作及内容约束。原生任务绘图/提及、通用创建与专用回复差异、QC 定位与过期判断、字段缺失/null、审核员状态专用规则、resolver 及各路径审计/通知顺序保留。返回的 ORM 装配结果仅为本地适配器，不是跨语言 wire DTO。
+
+反馈的六个 HTTP 处理器只消费缓存认证的主体 UUID，原平台角色检查和 router 活跃账号检查保留。列表/线程的当前权限读取与作者动作投影不增加账号重载，API key 的认证提交仍先于业务处理，业务拒绝不会回滚已提交的使用时间。
 
 `application/video_chapters.py::VideoChapterWorkflow` 组合当前管理权威与实际任务/素材/章节围栏，`services/video_chapter_service.py` 持有章节创建、范围/元数据更新及删除。命令只以稳定 ID 和当前访问解析定位，锁定并刷新视频任务来源与章节，不把传入 Task/User 当许可；HTTP 保留审计、提交、更新后 refresh 和响应构造。章节仍由素材条目拥有，不改成 Task 私有数据，也不增加任务可编辑或 segment 领取规则。
 

@@ -68,7 +68,7 @@ async def get_predictions(
     按 shape 置信度 desc 跨 Prediction 排序、截取 [offset, offset+limit]，再回到原 Prediction 容器。
     """
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     svc = PredictionService(db)
     predictions = await svc.list_by_task(task_id, model_version=model_version)
 
@@ -172,7 +172,7 @@ async def get_prediction_mask_content_frame(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user)
+    await task_access.assert_task_visible(db, task, current_user.id)
     prediction = (
         await db.execute(select(Prediction).where(Prediction.id == prediction_id))
     ).scalar_one_or_none()
@@ -257,8 +257,8 @@ async def accept_prediction(
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     await assert_video_annotation_write_scope(
         db,
         task=task,
@@ -324,8 +324,8 @@ async def reject_prediction(
     驳回是软操作: prediction 行仍在库中, 仅在该数组追加被拒下标 (去重).
     """
     task = await _load_task_or_404(db, task_id)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
-    task_access.assert_task_editable(task, current_user, access=access)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_task_editable(task, current_user.id, access=access)
     write_scope = capture_labeling_write_scope(
         task,
         actor_id=current_user.id,

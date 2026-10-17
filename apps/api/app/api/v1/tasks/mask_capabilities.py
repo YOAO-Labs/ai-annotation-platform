@@ -35,8 +35,8 @@ async def get_mask_capabilities(
     current_user: User = Depends(get_current_user),
 ) -> TaskMaskCapabilitiesResponse:
     task = await _load_task_or_404(db, task_id)
-    access = await task_access.resolve_task_access(db, task, current_user)
-    await task_access.assert_task_visible(db, task, current_user, access=access)
+    access = await task_access.resolve_task_access(db, task, current_user.id)
+    await task_access.assert_task_visible(db, task, current_user.id, access=access)
 
     project = await db.get(Project, task.project_id)
     if project is None:
@@ -47,7 +47,7 @@ async def get_mask_capabilities(
     legacy_polygon_commit_enabled = capabilities.legacy_polygon_commit_enabled
     reason = capabilities.reason
     try:
-        task_access.assert_task_editable(task, current_user, access=access)
+        task_access.assert_task_editable(task, current_user.id, access=access)
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         if exc.status_code != 409 or detail.get("reason") != "task_locked":
