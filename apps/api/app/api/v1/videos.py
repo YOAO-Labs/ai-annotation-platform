@@ -5,12 +5,11 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
+from app.services.project_access import ProjectAccess
 from app.db.models.dataset import VideoChunk, VideoFrameIndex
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_chapter import VideoChapter
@@ -29,7 +28,6 @@ from app.schemas.video_chapter import (
     VideoChapterList,
     VideoChapterOut,
     VideoChapterUpdate,
-    merge_chapter_metadata,
 )
 from app.schemas.video_frame_service import (
     VideoChunkOut,
@@ -43,9 +41,10 @@ from app.schemas.video_frame_service import (
     VideoManifestV2Response,
     VideoSegmentsResponse,
 )
+from app.application.task_workflow_errors import TaskWorkflowError
+from app.application.video_chapters import VideoChapterWorkflow
 from app.services.audit import AuditAction, AuditService
 from app.services.media_job_dispatch import MediaJobDispatcher
-from app.services.project_access import resolve_project_access
 from app.services.video_frame_service import (
     build_context_from_dataset_item,
     get_chunk as get_video_chunk_asset,
@@ -77,15 +76,6 @@ def _chapter_out(row: VideoChapter) -> VideoChapterOut:
     )
 
 
-async def _assert_chapter_editor(db: AsyncSession, task: Task, user: User) -> None:
-    project = await db.get(Project, task.project_id)
-    if project is not None:
-        access = await resolve_project_access(db, user=user, project=project)
-        if access.is_manager:
-            return
-    raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可管理章节")
-
-
 async def _visible_video_task_for_item(
     db: AsyncSession, dataset_item_id: uuid.UUID, user: User
 ) -> Task:
@@ -104,6 +94,18 @@ async def _visible_video_task_for_item(
         except HTTPException:
             continue
     raise HTTPException(status_code=404, detail="Video not found")
+
+
+async def _video_chapter_target_context(
+    db: AsyncSession, dataset_item_id: uuid.UUID, user: User
+) -> tuple[uuid.UUID, ProjectAccess]:
+    task = await _visible_video_task_for_item(db, dataset_item_id, user)
+    access = await task_access.resolve_task_access(db, task, user)
+    return task.id, access
+
+
+def _raise_task_workflow_error(error: TaskWorkflowError) -> None:
+    raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 
 
 @router.get("/{dataset_item_id}/manifest", response_model=VideoManifestV2Response)
@@ -360,31 +362,19 @@ async def create_video_chapter(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    await _assert_chapter_editor(db, task, current_user)
-    chapter = VideoChapter(
-        dataset_item_id=dataset_item_id,
-        start_frame=payload.start_frame,
-        end_frame=payload.end_frame,
-        title=payload.title,
-        color=payload.color,
-        # frame_step / source 落进 chapter_metadata 约定键 (不新增数据库列)。
-        chapter_metadata=merge_chapter_metadata(
-            payload.metadata,
-            frame_step=payload.frame_step,
-            source=payload.source,
-        ),
-        created_by=current_user.id,
+    task_id, expected_access = await _video_chapter_target_context(
+        db, dataset_item_id, current_user
     )
-    db.add(chapter)
     try:
-        await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="章节起止帧与现有章节重复",
+        chapter = await VideoChapterWorkflow(db).create(
+            dataset_item_id=dataset_item_id,
+            task_id=task_id,
+            actor_id=current_user.id,
+            expected_access=expected_access,
+            payload=payload,
         )
+    except TaskWorkflowError as exc:
+        _raise_task_workflow_error(exc)
     body = _chapter_out(chapter)
     await AuditService.log(
         db,
@@ -417,54 +407,20 @@ async def update_video_chapter(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    await _assert_chapter_editor(db, task, current_user)
-    chapter = await db.get(VideoChapter, chapter_id)
-    if chapter is None or chapter.dataset_item_id != dataset_item_id:
-        raise HTTPException(status_code=404, detail="章节不存在")
-
-    changes: dict[str, object] = {}
-    if payload.start_frame is not None:
-        chapter.start_frame = payload.start_frame
-        changes["start_frame"] = payload.start_frame
-    if payload.end_frame is not None:
-        chapter.end_frame = payload.end_frame
-        changes["end_frame"] = payload.end_frame
-    if chapter.end_frame < chapter.start_frame:
-        raise HTTPException(status_code=422, detail="end_frame 必须 >= start_frame")
-    if payload.title is not None:
-        chapter.title = payload.title
-        changes["title"] = payload.title
-    if payload.color is not None:
-        chapter.color = payload.color
-        changes["color"] = payload.color
-    # metadata / frame_step / source 都写进 chapter_metadata: 给出 metadata 时以它为基底,
-    # 否则在现有值上叠加; frame_step / source 显式给出时覆盖对应键。
-    if (
-        payload.metadata is not None
-        or payload.frame_step is not None
-        or payload.source is not None
-    ):
-        base = (
-            payload.metadata
-            if payload.metadata is not None
-            else chapter.chapter_metadata
-        )
-        chapter.chapter_metadata = merge_chapter_metadata(
-            base,
-            frame_step=payload.frame_step,
-            source=payload.source,
-        )
-        changes["metadata"] = True
-
+    task_id, expected_access = await _video_chapter_target_context(
+        db, dataset_item_id, current_user
+    )
     try:
-        await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="章节起止帧与现有章节重复",
+        chapter, changes = await VideoChapterWorkflow(db).update(
+            dataset_item_id=dataset_item_id,
+            task_id=task_id,
+            actor_id=current_user.id,
+            expected_access=expected_access,
+            chapter_id=chapter_id,
+            payload=payload,
         )
+    except TaskWorkflowError as exc:
+        _raise_task_workflow_error(exc)
     # onupdate=func.now() 令 updated_at 在 flush 后被 expire; 若不 refresh, _chapter_out 读取它
     # 会触发异步上下文外的惰性加载 (MissingGreenlet → 500)。显式 refresh 在 greenlet 内取回新值。
     await db.refresh(chapter)
@@ -497,17 +453,19 @@ async def delete_video_chapter(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    await _assert_chapter_editor(db, task, current_user)
-    chapter = await db.get(VideoChapter, chapter_id)
-    if chapter is None or chapter.dataset_item_id != dataset_item_id:
-        raise HTTPException(status_code=404, detail="章节不存在")
-    snapshot = {
-        "start_frame": chapter.start_frame,
-        "end_frame": chapter.end_frame,
-        "title": chapter.title,
-    }
-    await db.delete(chapter)
+    task_id, expected_access = await _video_chapter_target_context(
+        db, dataset_item_id, current_user
+    )
+    try:
+        snapshot = await VideoChapterWorkflow(db).delete(
+            dataset_item_id=dataset_item_id,
+            task_id=task_id,
+            actor_id=current_user.id,
+            expected_access=expected_access,
+            chapter_id=chapter_id,
+        )
+    except TaskWorkflowError as exc:
+        _raise_task_workflow_error(exc)
     await AuditService.log(
         db,
         actor=current_user,

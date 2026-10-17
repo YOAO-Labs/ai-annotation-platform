@@ -143,6 +143,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 评论、问题与回复在提交前重新确认当前权限和真实任务／线程范围，资源争用返回冲突；通知同事务保存、提交后尽力推送。接口与原评论／反馈镜像的独立性见[任务讨论与问题线程](./docs-site/api/guides/tasks-and-annotations.md#任务讨论与问题线程)。
 
+视频章节按当前可见任务的真实项目权限管理，修改前刷新来源绑定与章节记录；写入争用返回冲突。角色与元数据语义见[视频章节 API](./docs-site/api/guides/tasks-and-annotations.md#视频章节)。
+
 ## 架构
 
 <table>

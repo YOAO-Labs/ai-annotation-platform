@@ -274,6 +274,14 @@ DOMAIN_PACKAGES = (
             "app.db.models.user",
         ),
     ),
+    DomainSpec(
+        package="video_chapter_service",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.db.models.video_chapter",
+            "app.schemas.video_chapter",
+        ),
+    ),
 )
 
 # Absolute module roots a service domain must never depend on.

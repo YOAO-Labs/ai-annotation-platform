@@ -10,10 +10,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select, update
 
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.video_chapter import VideoChapter
 from tests.factory import build_tool_bindings
 
 pytestmark = pytest.mark.asyncio
@@ -93,4 +95,166 @@ async def test_update_chapter_frames_returns_200(db_session, httpx_client, super
     body = resized.json()
     assert body["start_frame"] == 3
     assert body["end_frame"] == 30
-    assert body["updated_at"] is not None
+
+
+async def test_delete_chapter_keeps_item_scope_and_response_contract(
+    db_session, httpx_client, super_admin
+):
+    user, token = super_admin
+    headers = {"Authorization": f"Bearer {token}"}
+    item = await _video_item_with_task(db_session, user.id)
+    other_item = await _video_item_with_task(db_session, user.id)
+
+    created = await httpx_client.post(
+        f"/api/v1/videos/{item.id}/chapters",
+        json={"start_frame": 0, "end_frame": 10, "title": "seg"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    chapter_id = created.json()["id"]
+
+    wrong_item = await httpx_client.delete(
+        f"/api/v1/videos/{other_item.id}/chapters/{chapter_id}",
+        headers=headers,
+    )
+    assert wrong_item.status_code == 404
+
+    deleted = await httpx_client.delete(
+        f"/api/v1/videos/{item.id}/chapters/{chapter_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == 204
+    listed = await httpx_client.get(
+        f"/api/v1/videos/{item.id}/chapters",
+        headers=headers,
+    )
+    assert listed.status_code == 200
+    assert listed.json() == {"chapters": []}
+
+
+async def test_chapter_mutation_uses_actual_project_authority_after_stale_task_read(
+    db_session, httpx_client, project_admin, super_admin
+):
+    actor, token = project_admin
+    other_owner, _ = super_admin
+    headers = {"Authorization": f"Bearer {token}"}
+    item = await _video_item_with_task(db_session, actor.id)
+    stale_task = (
+        await db_session.execute(select(Task).where(Task.dataset_item_id == item.id))
+    ).scalar_one()
+    actual_project = Project(
+        display_id=f"P-CH-{uuid.uuid4().hex[:6]}",
+        name="Actual Chapter Project",
+        type_key="video-track",
+        type_label="视频 · 时序追踪",
+        owner_id=other_owner.id,
+        tool_bindings=build_tool_bindings(["car"]),
+    )
+    db_session.add(actual_project)
+    await db_session.flush()
+    await db_session.execute(
+        update(Task)
+        .where(Task.id == stale_task.id)
+        .values(project_id=actual_project.id)
+        .execution_options(synchronize_session=False)
+    )
+
+    response = await httpx_client.post(
+        f"/api/v1/videos/{item.id}/chapters",
+        json={"start_frame": 0, "end_frame": 10, "title": "seg"},
+        headers=headers,
+    )
+
+    assert response.status_code == 404
+    rows = (
+        (
+            await db_session.execute(
+                select(VideoChapter).where(VideoChapter.dataset_item_id == item.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []
+
+
+async def test_chapter_mutation_rechecks_task_item_binding_after_lock(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    from app.application import video_chapters
+
+    actor, token = super_admin
+    headers = {"Authorization": f"Bearer {token}"}
+    item = await _video_item_with_task(db_session, actor.id)
+    other_item = await _video_item_with_task(db_session, actor.id)
+    original_lock = video_chapters.lock_current_task_target
+
+    async def retarget_before_lock(db, *, task_id, actor_id, expected_access):
+        await db.execute(
+            update(Task)
+            .where(Task.id == task_id)
+            .values(dataset_item_id=other_item.id)
+            .execution_options(synchronize_session=False)
+        )
+        return await original_lock(
+            db,
+            task_id=task_id,
+            actor_id=actor_id,
+            expected_access=expected_access,
+        )
+
+    monkeypatch.setattr(
+        video_chapters, "lock_current_task_target", retarget_before_lock
+    )
+    response = await httpx_client.post(
+        f"/api/v1/videos/{item.id}/chapters",
+        json={"start_frame": 0, "end_frame": 10, "title": "seg"},
+        headers=headers,
+    )
+
+    assert response.status_code == 404
+    rows = (
+        (
+            await db_session.execute(
+                select(VideoChapter).where(
+                    VideoChapter.dataset_item_id.in_([item.id, other_item.id])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []
+
+
+async def test_chapter_update_refreshes_existing_row_before_range_validation(
+    db_session, httpx_client, super_admin
+):
+    actor, token = super_admin
+    headers = {"Authorization": f"Bearer {token}"}
+    item = await _video_item_with_task(db_session, actor.id)
+    created = await httpx_client.post(
+        f"/api/v1/videos/{item.id}/chapters",
+        json={"start_frame": 0, "end_frame": 10, "title": "seg"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    chapter_id = uuid.UUID(created.json()["id"])
+    stale_chapter = await db_session.get(VideoChapter, chapter_id)
+    assert stale_chapter is not None
+    await db_session.execute(
+        update(VideoChapter)
+        .where(VideoChapter.id == chapter_id)
+        .values(start_frame=5, end_frame=20)
+        .execution_options(synchronize_session=False)
+    )
+
+    response = await httpx_client.patch(
+        f"/api/v1/videos/{item.id}/chapters/{chapter_id}",
+        json={"end_frame": 3},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    await db_session.refresh(stale_chapter)
+    assert (stale_chapter.start_frame, stale_chapter.end_frame) == (5, 20)

@@ -70,6 +70,9 @@ last_reviewed: 2026-10-16
 - 反馈命令：`application/annotation_feedback.py::AnnotationFeedbackWorkflow` 持有四类
   写入准入与事务组合，`FeedbackService` 写反馈行；实际项目/任务和刷新后的线程祖先
   决定权限与动作，不信任旧 `actions`、缓存正文支持或反规范化项目身份。
+- 视频章节：`application/video_chapters.py::VideoChapterWorkflow` 组合当前权威与
+  视频任务/素材/章节围栏，`services/video_chapter_service.py` 写素材级章节；
+  `api/v1/videos.py` 保留审计、提交及响应 refresh，不改变协作分段账本。
 - 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
   持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
   `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。

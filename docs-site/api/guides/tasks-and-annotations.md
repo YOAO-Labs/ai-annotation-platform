@@ -150,6 +150,23 @@ GET /api/v1/feedbacks/:root_id/thread?limit=50
 - `type` 必须是已知类型，否则 `400`；`in_app` 与 `toast` 同时缺省返回 `400`；显式传 `null` 校验失败。
 - 写入成功返回 `{"ok": true}` 并发布 `notifications.sync reason=preferences`，其它会话据此刷新偏好；该事件不产生通知，也不改未读数。
 
+## 视频章节
+
+```http
+GET    /api/v1/videos/:dataset_item_id/chapters
+POST   /api/v1/videos/:dataset_item_id/chapters
+PATCH  /api/v1/videos/:dataset_item_id/chapters/:chapter_id
+DELETE /api/v1/videos/:dataset_item_id/chapters/:chapter_id
+```
+
+章节归视频素材条目 `dataset_item_id`，读取要求能访问其对应视频任务；创建、修改和删除只允许该任务真实项目的当前负责人或超级管理员，非管理成员写入返回 403。创建返回 201，修改返回 200，删除返回 204。不新增任务可编辑状态、标注编辑锁或协作分段 claim 要求。
+
+命令按当前账号、项目、成员、批次和任务取得围栏，再核对视频类型及素材绑定，锁定当前素材和已有章节。资源争用返回 409，来源换绑或章节不属于目标素材返回 404；旧任务、权限或章节缓存不能代替最终许可。章节仍是素材级数据，不改成项目私有副本。
+
+起止帧须非负且 `end_frame >= start_frame`，相同素材的重复起止帧返回 409。PATCH 省略或显式 null 的字段均不修改旧值；提供非 null 的 `metadata`（包括 `{}`）以该字典为新基底，随后由非 null 的 `frame_step` / `source` 覆盖对应键，否则在现存元数据上合并。`frame_step` 至少为 1，`source` 为 `manual` 或 `sampled`；这些字段继续存于原 JSONB，不新增列。
+
+章节变更与业务审计同事务提交；修改保留序列化前 refresh，删除审计保留被删章节的起止帧和标题。章节不会改变 `video_segments` 的分片或领取状态。
+
 ## 视频问题反馈
 
 `POST /api/v1/feedbacks` 复用像素锚点合同保存视频问题，`anchor_position.frame` 为从 0 开始的源视频帧号，x/y 为画面内 0–1 相对坐标：
