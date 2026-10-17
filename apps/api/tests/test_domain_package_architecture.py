@@ -152,6 +152,14 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(
+        package="candidate_decision_contract",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.schemas.annotation",
+            "app.services.labeling_write_scope",
+        ),
+    ),
+    DomainSpec(
         package="audit_origin_contract",
         legacy_facades=(),
         allowed_app_imports=(),

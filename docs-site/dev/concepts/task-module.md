@@ -51,6 +51,8 @@ Task 是系统中的最小工作单元，一条数据最终总是落实到一条
 | `apps/api/app/services/annotation.py`                                                  | annotation 写入对 task 的状态回写                                      |
 | `apps/api/app/services/annotation_mutation_contract.py`                                | 手工 PATCH/DELETE、批量编辑的数据命令、结果及预期错误                  |
 | `apps/api/app/application/annotation_mutation.py`                                      | 绑定原 Task/actor/Session，组合单条与批量标注修改、删除、审计和提交    |
+| `apps/api/app/services/candidate_decision_contract.py`                                 | 人工候选接受/驳回的数据命令、结果及预期错误                            |
+| `apps/api/app/application/candidate_decision.py`                                       | 绑定原 Task/actor/Session，组合候选决策、视频范围和提交                |
 | `apps/web/src/api/tasks.ts`                                                            | 前端 task API wrapper                                                  |
 | `apps/web/src/hooks/useTaskLock.ts`                                                    | 前端 task lock 生命周期                                                |
 | `apps/web/src/pages/Workbench/`                                                        | 工作台主消费方                                                         |

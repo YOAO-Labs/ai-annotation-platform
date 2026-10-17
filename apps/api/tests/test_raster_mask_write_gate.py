@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.config import settings
+from app.application.candidate_decision import bind_candidate_decision_port
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.prediction import Prediction
@@ -14,6 +15,10 @@ from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.services.annotation import AnnotationService
+from app.services.candidate_decision_contract import (
+    CandidateAcceptCommand,
+    CandidateDecisionError,
+)
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
     ApplyPredictionResultRequest,
@@ -22,7 +27,6 @@ from app.services.labeling_prediction_contract import (
 from app.services.prediction import PredictionService
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.raster_mask_storage import (
-    RasterMaskContractError,
     build_rle_reference,
 )
 
@@ -70,6 +74,19 @@ def _accept_write_scope(task, actor_id):
         execution_scope_known=True,
         job_id=None,
         job_id_known=True,
+    )
+
+
+async def _accept_candidate(db, task, actor, prediction_id):
+    return await bind_candidate_decision_port(db, task=task, actor=actor).accept(
+        CandidateAcceptCommand(
+            write_scope=_accept_write_scope(task, actor.id),
+            prediction_id=prediction_id,
+            shape_index=None,
+            override_class_name=None,
+            attribute_overrides=None,
+            video_segment_id=None,
+        )
     )
 
 
@@ -335,14 +352,15 @@ async def test_accept_prediction_gate_on_validates_links_and_flushes_annotation(
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
-    annotations = await AnnotationService(db_session).accept_prediction(
-        prediction.id, write_scope=_accept_write_scope(task, user.id)
-    )
+    annotations = await _accept_candidate(db_session, task, user, prediction.id)
 
     await db_session.refresh(upload)
     assert annotations is not None
     assert len(annotations) == 1
-    assert annotations[0].geometry == {"type": "raster_mask", "mask": reference}
+    assert annotations[0].geometry.model_dump(mode="json", exclude_unset=True) == {
+        "type": "raster_mask",
+        "mask": reference,
+    }
     assert upload.linked_at is not None
     load.assert_awaited_once_with(reference)
 
@@ -360,10 +378,8 @@ async def test_accept_prediction_gate_on_validation_failure_leaves_no_annotation
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
-    with pytest.raises(RasterMaskContractError) as exc_info:
-        await AnnotationService(db_session).accept_prediction(
-            prediction.id, write_scope=_accept_write_scope(task, user.id)
-        )
+    with pytest.raises(CandidateDecisionError) as exc_info:
+        await _accept_candidate(db_session, task, user, prediction.id)
 
     assert exc_info.value.detail["reason"] == "raster_mask_empty_foreground"
     assert await _count_for_task(db_session, Annotation, task.id) == 0

@@ -217,7 +217,7 @@ worker 会按三种模式选任务：
   - `body.attribute_overrides: dict | None` —— 按属性键覆盖 shape 自带 attributes 落库(内部键 `_shape_index` 等不受影响);为 `None` 时沿用候选原值
   - **返回**:`list[AnnotationOut]`,**仅**本次新建的 annotation(单 shape 一条,多 shape 一次多条)。prediction 不存在或 `shape_index` 越界 → **404** `"Prediction not found or shape_index out of range"`。历史实现返回整题全量并被前端误当作"刚新建"回写属性,污染人工标注——现在收窄成"新建即返回"契约,前端不再需要 diff。
 
-实现:[apps/api/app/api/v1/tasks/predictions.py:135](../../../apps/api/app/api/v1/tasks/predictions.py)、`AnnotationService.accept_prediction` 内对 select 字段做软校验(值不在 options 内只告警、不阻断,避免 backend 枚举与项目配置漂移时丢数据)。
+实现：[候选路由](../../../apps/api/app/api/v1/tasks/predictions.py) 调用 `CandidateDecisionPort.accept`，由 [事务装配](../../../apps/api/app/application/candidate_decision.py) 绑定原 Session；私有 SQL 步骤 `AnnotationService._accept_prediction` 对 select 字段做软校验（值不在 options 内只告警、不阻断，避免 backend 枚举与项目配置漂移时丢数据）。
 
 只要出现有效 annotation，`AnnotationService._update_task_stats()` 就会把：
 

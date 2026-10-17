@@ -149,7 +149,7 @@ async def test_prediction_accept_rejects_foreign_task_before_write_or_heartbeat(
     db_session.add_all([foreign_prediction, local_prediction])
     await db_session.flush()
 
-    from app.api.v1.tasks import predictions as predictions_api
+    from app.application import candidate_decision
 
     heartbeat_calls = []
 
@@ -157,7 +157,7 @@ async def test_prediction_accept_rejects_foreign_task_before_write_or_heartbeat(
         heartbeat_calls.append((task.id, user_id))
 
     monkeypatch.setattr(
-        predictions_api, "heartbeat_task_lock_for_legacy_video", _record_heartbeat
+        candidate_decision, "heartbeat_task_lock_for_legacy_video", _record_heartbeat
     )
     headers = {"Authorization": f"Bearer {token}"}
     wrong_parent = await httpx_client.post(

@@ -16,8 +16,13 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
 
+from app.application.candidate_decision import bind_candidate_decision_port
 from app.db.models.prediction import Prediction
 from app.db.models.task import Task
+from app.services.candidate_decision_contract import (
+    CandidateAcceptCommand,
+    CandidateDecisionError,
+)
 from app.services.annotation import AnnotationService
 from tests.factory import create_project, create_task
 from app.services.labeling_write_scope import capture_labeling_write_scope
@@ -43,6 +48,26 @@ def _accept_scope(task, actor_id):
         execution_scope_known=True,
         job_id=None,
         job_id_known=True,
+    )
+
+
+async def _accept_candidate(
+    db,
+    task,
+    actor,
+    prediction_id,
+    *,
+    override_class_name=None,
+):
+    return await bind_candidate_decision_port(db, task=task, actor=actor).accept(
+        CandidateAcceptCommand(
+            write_scope=_accept_scope(task, actor.id),
+            prediction_id=prediction_id,
+            shape_index=None,
+            override_class_name=override_class_name,
+            attribute_overrides=None,
+            video_segment_id=None,
+        )
     )
 
 
@@ -200,11 +225,7 @@ async def test_accept_prediction_alias_scoped_to_prediction_unit(
         ],
     )
 
-    svc = AnnotationService(db_session)
-    # v0.20.22 · accept_prediction 现返回 list[Annotation] | None
-    anns = await svc.accept_prediction(
-        pred.id, write_scope=_accept_scope(task, user.id)
-    )
+    anns = await _accept_candidate(db_session, task, user, pred.id)
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.class_name == "person"
@@ -236,9 +257,8 @@ async def test_accept_prediction_raises_when_class_not_in_unit(db_session, super
         ],
     )
 
-    svc = AnnotationService(db_session)
-    with pytest.raises(HTTPException) as exc_info:
-        await svc.accept_prediction(pred.id, write_scope=_accept_scope(task, user.id))
+    with pytest.raises(CandidateDecisionError) as exc_info:
+        await _accept_candidate(db_session, task, user, pred.id)
     assert exc_info.value.status_code == 422
     assert "ghost" in exc_info.value.detail
 
@@ -270,11 +290,8 @@ async def test_accept_prediction_override_class_name_lands_project_label(
         ],
     )
 
-    svc = AnnotationService(db_session)
-    anns = await svc.accept_prediction(
-        pred.id,
-        override_class_name="行人",
-        write_scope=_accept_scope(task, user.id),
+    anns = await _accept_candidate(
+        db_session, task, user, pred.id, override_class_name="行人"
     )
     assert anns is not None and len(anns) == 1
     ann = anns[0]
@@ -307,12 +324,9 @@ async def test_accept_prediction_override_not_in_allowed_raises_422(
         ],
     )
 
-    svc = AnnotationService(db_session)
-    with pytest.raises(HTTPException) as exc_info:
-        await svc.accept_prediction(
-            pred.id,
-            override_class_name="车",
-            write_scope=_accept_scope(task, user.id),
+    with pytest.raises(CandidateDecisionError) as exc_info:
+        await _accept_candidate(
+            db_session, task, user, pred.id, override_class_name="车"
         )
     assert exc_info.value.status_code == 422
 
@@ -343,10 +357,7 @@ async def test_accept_prediction_no_match_pass_through_class_name(
         ],
     )
 
-    svc = AnnotationService(db_session)
-    anns = await svc.accept_prediction(
-        pred.id, write_scope=_accept_scope(task, user.id)
-    )
+    anns = await _accept_candidate(db_session, task, user, pred.id)
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.class_name == "person"

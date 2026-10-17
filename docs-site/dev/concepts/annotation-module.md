@@ -470,7 +470,8 @@ AI 采纳入口：
 
 - `GET /tasks/{task_id}/predictions`
 - `POST /tasks/{task_id}/predictions/{prediction_id}/accept`
-- `AnnotationService.accept_prediction()`
+- `POST /tasks/{task_id}/predictions/{prediction_id}/reject`
+- `CandidateDecisionPort.accept()` / `.reject()`，由 `application/candidate_decision.py` 绑定原事务
 
 采纳与拒绝必须携带 `LabelingWriteScope`，并将 Prediction 的实际 task/project 与 URL 目标逐项比较；不允许用一个可编辑任务的 URL 操作另一个任务的候选。最终准入和当前编辑锁检查由标注所有者执行，错误绑定返回 404，之前的输入转换不构成授权。
 
@@ -489,11 +490,11 @@ AI 采纳入口：
 
 ### alias 映射
 
-`accept_prediction()` 按 `prediction.tool_unit_id` 读取 `project.tool_bindings` 中对应 unit 的 classes(`lookup_classes_for_tool_unit`),把 ML backend 写入的英文 alias 映射回项目真实类目名。生成的 annotation `tool_unit_id` 沿用 `prediction.tool_unit_id`。
+`CandidateDecisionPort.accept()` 的 SQL 实现按 `prediction.tool_unit_id` 读取 `project.tool_bindings` 中对应 unit 的 classes，把 ML backend 写入的英文 alias 映射回项目真实类目名。生成的 annotation `tool_unit_id` 沿用 `prediction.tool_unit_id`。
 
 所以如果你改类目别名逻辑,要一起看:
 
-- `annotation.py:accept_prediction`
+- `annotation.py:_accept_prediction` 和 `application/candidate_decision.py`
 - `project.tool_bindings`（唯一存储真值；`classes_config` 是响应兼容视图，不是独立写入源）
 - 前端 predictions 渲染与 class badge
 

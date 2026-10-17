@@ -426,7 +426,7 @@ class AnnotationService:
             )
         )
 
-    async def accept_prediction(
+    async def _accept_prediction(
         self,
         prediction_id: uuid.UUID,
         shape_index: int | None = None,
@@ -776,7 +776,7 @@ class AnnotationService:
             await self.db.flush()
         return annotation, children
 
-    async def reject_prediction(
+    async def _reject_prediction(
         self,
         prediction_id: uuid.UUID,
         *,

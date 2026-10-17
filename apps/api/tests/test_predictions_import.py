@@ -27,12 +27,13 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.application.candidate_decision import bind_candidate_decision_port
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.audit_log import AuditLog
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services.annotation import AnnotationService
+from app.services.candidate_decision_contract import CandidateAcceptCommand
 from app.services.exporting.packaging import _rotated_corners_norm
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.prediction import PredictionService, to_internal_shape
@@ -699,22 +700,29 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
         for outside in geometry.get("outside", []):
             assert outside["source"] == "prediction"
 
-    service = AnnotationService(db_session)
+    decisions = bind_candidate_decision_port(db_session, task=task, actor=user)
     accepted = []
     for prediction in predictions:
+        write_scope = capture_labeling_write_scope(
+            task,
+            actor_id=user.id,
+            actor_known=True,
+            operation="candidate_accept",
+            execution_scope=None,
+            execution_scope_known=True,
+            job_id=None,
+            job_id_known=True,
+        )
         accepted.extend(
-            await service.accept_prediction(
-                prediction.id,
-                write_scope=capture_labeling_write_scope(
-                    task,
-                    actor_id=user.id,
-                    actor_known=True,
-                    operation="candidate_accept",
-                    execution_scope=None,
-                    execution_scope_known=True,
-                    job_id=None,
-                    job_id_known=True,
-                ),
+            await decisions.accept(
+                CandidateAcceptCommand(
+                    write_scope=write_scope,
+                    prediction_id=prediction.id,
+                    shape_index=None,
+                    override_class_name=None,
+                    attribute_overrides=None,
+                    video_segment_id=None,
+                )
             )
         )
     assert {annotation.annotation_type for annotation in accepted} == set(geometries)
@@ -728,7 +736,12 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
     imported_by_type = {shape["geometry"]["type"]: shape for shape in imported_shapes}
     for annotation in accepted:
         source = imported_by_type[annotation.annotation_type]
-        assert annotation.geometry == source["geometry"]
+        assert (
+            annotation.geometry.model_dump(
+                mode="json", by_alias=True, exclude_unset=True
+            )
+            == source["geometry"]
+        )
         assert annotation.confidence == source["confidence"]
 
 

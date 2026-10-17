@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 import pytest
 
 from app.db.models.prediction import Prediction, PredictionMeta
+from app.application.candidate_decision import bind_candidate_decision_port
+from app.services.candidate_decision_contract import CandidateAcceptCommand
 from app.services.annotation import AnnotationService, _sync_attributes_meta
 from tests.factory import create_project, create_task
 from app.services.labeling_write_scope import capture_labeling_write_scope
@@ -74,6 +76,21 @@ def _accept_scope(task, actor_id):
     )
 
 
+async def _accept_candidate(
+    db, task, actor, prediction_id, *, attribute_overrides=None
+):
+    return await bind_candidate_decision_port(db, task=task, actor=actor).accept(
+        CandidateAcceptCommand(
+            write_scope=_accept_scope(task, actor.id),
+            prediction_id=prediction_id,
+            shape_index=None,
+            override_class_name=None,
+            attribute_overrides=attribute_overrides,
+            video_segment_id=None,
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_accept_prediction_marks_ai_attributes(db_session, super_admin):
     user, _ = super_admin
@@ -99,11 +116,7 @@ async def test_accept_prediction_marks_ai_attributes(db_session, super_admin):
         ],
     )
 
-    svc = AnnotationService(db_session)
-    # v0.20.22 · accept_prediction 现返回 list[Annotation] | None
-    anns = await svc.accept_prediction(
-        pred.id, write_scope=_accept_scope(task, user.id)
-    )
+    anns = await _accept_candidate(db_session, task, user, pred.id)
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.attributes_meta["color"]["origin"] == "ai"
@@ -141,10 +154,7 @@ async def test_accept_prediction_label_prefix(db_session, super_admin):
         ],
     )
 
-    svc = AnnotationService(db_session)
-    anns = await svc.accept_prediction(
-        pred.id, write_scope=_accept_scope(task, user.id)
-    )
+    anns = await _accept_candidate(db_session, task, user, pred.id)
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.attributes_meta["sub_color"]["origin"] == "ai"
@@ -175,12 +185,9 @@ async def test_accept_prediction_human_override_not_ai(db_session, super_admin):
         ],
     )
 
-    svc = AnnotationService(db_session)
     # 采纳前人工把 color 改成 white → color 视为 human 认领, 不标 ai
-    anns = await svc.accept_prediction(
-        pred.id,
-        attribute_overrides={"color": "white"},
-        write_scope=_accept_scope(task, user.id),
+    anns = await _accept_candidate(
+        db_session, task, user, pred.id, attribute_overrides={"color": "white"}
     )
     assert anns is not None and len(anns) == 1
     ann = anns[0]
@@ -203,10 +210,7 @@ async def test_accept_prediction_no_pipeline_no_meta(db_session, super_admin):
         stages=None,  # 无 PredictionMeta
     )
 
-    svc = AnnotationService(db_session)
-    anns = await svc.accept_prediction(
-        pred.id, write_scope=_accept_scope(task, user.id)
-    )
+    anns = await _accept_candidate(db_session, task, user, pred.id)
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.attributes_meta == {}

@@ -639,7 +639,8 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
     httpx_client,
     controlled_artifacts,
 ):
-    from app.services.annotation import AnnotationService
+    from app.application.candidate_decision import bind_candidate_decision_port
+    from app.services.candidate_decision_contract import CandidateAcceptCommand
 
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
@@ -695,8 +696,17 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
         select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
     )
     assert meta.extra["trained_model"] == ref
-    accepted = await AnnotationService(db_session).accept_prediction(
-        prediction.id, write_scope=accept_scope
+    accepted = await bind_candidate_decision_port(
+        db_session, task=task, actor=owner
+    ).accept(
+        CandidateAcceptCommand(
+            write_scope=accept_scope,
+            prediction_id=prediction.id,
+            shape_index=None,
+            override_class_name=None,
+            attribute_overrides=None,
+            video_segment_id=None,
+        )
     )
     assert accepted and accepted[0].class_name == "car"
 

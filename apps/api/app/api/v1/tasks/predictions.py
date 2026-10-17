@@ -4,6 +4,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.candidate_decision import bind_candidate_decision_port
 from app.deps import (
     get_db,
     get_current_user,
@@ -19,8 +20,12 @@ from app.schemas.annotation import (
 )
 from app.schemas._jsonb_types import CocoRleContent
 from app.schemas.prediction import PredictionOut
-from app.services.annotation import AnnotationService
 from app.services.prediction import PredictionService
+from app.services.candidate_decision_contract import (
+    CandidateAcceptCommand,
+    CandidateDecisionError,
+    CandidateRejectCommand,
+)
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     classify_raster_mask_content_error,
@@ -31,7 +36,6 @@ from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.video_tracks import resolve_track_at_frame
 from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
-    heartbeat_task_lock_for_legacy_video,
 )
 
 
@@ -272,18 +276,24 @@ async def accept_prediction(
         job_id=None,
         job_id_known=True,
     )
-    svc = AnnotationService(db)
+    decisions = bind_candidate_decision_port(db, task=task, actor=current_user)
     try:
-        anns = await svc.accept_prediction(
-            prediction_id,
-            shape_index=shape_index,
-            override_class_name=override_class_name,
-            attribute_overrides=attribute_overrides,
-            video_segment_id=video_segment_id,
-            write_scope=write_scope,
+        anns = await decisions.accept(
+            CandidateAcceptCommand(
+                write_scope=write_scope,
+                prediction_id=prediction_id,
+                shape_index=shape_index,
+                override_class_name=override_class_name,
+                attribute_overrides=attribute_overrides,
+                video_segment_id=video_segment_id,
+            )
         )
-    except RasterMaskContractError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except CandidateDecisionError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
     # v0.20.22 · 契约: None → 404 (prediction 不存在 / shape_index 越界); 成功 →
     # 仅返回本次新建的 annotation 列表。原实现另跑 list_by_task 返回整题全量,
     # 前端把全量当"刚新建"逐条 PATCH 合并 AI 候选属性 → 污染人工标注 (改动 1 根因)。
@@ -292,16 +302,6 @@ async def accept_prediction(
             status_code=404,
             detail="Prediction not found or shape_index out of range",
         )
-    for annotation in anns:
-        await assert_video_annotation_write_scope(
-            db,
-            task=task,
-            user=current_user,
-            segment_id=annotation.video_segment_id,
-            geometry=annotation.geometry,
-        )
-    await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
-    await db.commit()
     return anns
 
 
@@ -336,10 +336,19 @@ async def reject_prediction(
         job_id=None,
         job_id_known=True,
     )
-    await AnnotationService(db).reject_prediction(
-        prediction_id,
-        shape_index=shape_index,
-        write_scope=write_scope,
-    )
-    await db.commit()
+    decisions = bind_candidate_decision_port(db, task=task, actor=current_user)
+    try:
+        await decisions.reject(
+            CandidateRejectCommand(
+                write_scope=write_scope,
+                prediction_id=prediction_id,
+                shape_index=shape_index,
+            )
+        )
+    except CandidateDecisionError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
     return None

@@ -86,7 +86,7 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
   - `rectanglelabels` → `bbox`; 若 `value.rotation` 字段存在 → `rotated_bbox`
   - `keypointlabels` → `keypoint`; 其它未知 LS type → `bbox` 占位
 - `to_internal_shape()` 出参也带 `tool_unit_id`, 供前端候选层 / AAP JSON 导出消费
-- `accept_prediction()` 创建的 annotation 沿用 prediction 的 `tool_unit_id` (与项目 `tool_bindings[unit].classes` 软校验保一致)
+- `CandidateDecisionPort.accept()` 创建的 annotation 沿用 prediction 的 `tool_unit_id` (与项目 `tool_bindings[unit].classes` 软校验保一致)
 
 详见 [annotation-module · 工具单位](./annotation-module#工具单位tool_unit维度) 与 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
