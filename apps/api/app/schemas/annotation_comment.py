@@ -55,7 +55,7 @@ class AnnotationCommentCreate(BaseModel):
 
 class AnnotationCommentUpdate(BaseModel):
     # body 与 create 口径对齐：字段级不再强制 min_length=1（None=不改、""=清空正文）。
-    # 「清空后整条评论不能为空」的不变式由 patch_comment 端点结合现有附件/画布批注校验。
+    # 内容不变式由 AnnotationCommentService 结合锁定后的附件/画布批注校验。
     body: str | None = Field(default=None, max_length=4000)
     is_resolved: bool | None = None
 

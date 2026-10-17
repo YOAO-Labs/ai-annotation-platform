@@ -13,24 +13,6 @@ from app.db.models.annotation_feedback import AnnotationFeedback
 from tests.factory import create_project, create_task
 
 
-def test_root_only_query_does_not_traverse_unrelated_project_replies():
-    from app.services.feedback import FeedbackService
-
-    query = FeedbackService(None)._scoped_query(
-        project_id=uuid4(),
-        task_id=uuid4(),
-        annotation_id=None,
-        kind="issue",
-        anchor_type=None,
-        status="open",
-        allowed_task_ids=None,
-        root_only=True,
-    )
-    sql = str(query)
-    assert "feedback_lineage" not in sql
-    assert "thread_parent_id IS NULL" in sql
-
-
 def _feedback(
     *,
     author_id,

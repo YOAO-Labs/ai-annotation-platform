@@ -1,0 +1,300 @@
+from __future__ import annotations
+
+import uuid
+from typing import Literal
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.application.task_workflow_errors import TaskWorkflowError
+from app.application.task_workflow_locks import (
+    lock_current_task_target,
+    lock_row_nowait,
+)
+from app.db.enums import ProjectRole
+from app.db.models.annotation import Annotation
+from app.db.models.annotation_comment import AnnotationComment
+from app.db.models.task import Task
+from app.db.models.user import User
+from app.schemas.annotation_comment import (
+    AnnotationCommentCreate,
+    AnnotationCommentUpdate,
+)
+from app.services.annotation_comment import AnnotationCommentService
+from app.services import task_access
+from app.services.discussion_actions import discussion_actions
+from app.services.audit import AuditAction, AuditOriginContext, AuditService
+from app.services.discussion_notifications import (
+    prepare_annotation_comment_mention_notifications,
+)
+from app.services.feedback import FeedbackService
+from app.services.notification import NotificationService
+from app.services.project_access import ProjectAccess
+from app.services.task_discussion import require_visible_annotation
+
+
+class AnnotationCommentWorkflow:
+    """Compose legacy annotation-comment writes with their atomic side effects."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+        self.comments = AnnotationCommentService(db)
+
+    async def create(
+        self,
+        annotation_id: uuid.UUID,
+        actor: User,
+        data: AnnotationCommentCreate,
+        *,
+        origin: AuditOriginContext,
+    ) -> AnnotationComment:
+        annotation, task = await require_visible_annotation(
+            self.db,
+            annotation_id,
+            actor,
+            require_active=True,
+        )
+        expected_access = await task_access.resolve_task_access(self.db, task, actor)
+        await self.comments.validate_mentions(
+            task.project_id, [mention.user_id for mention in data.mentions]
+        )
+        annotation, task, actor, _ = await self._lock_annotation_target(
+            annotation,
+            task,
+            actor,
+            expected_access=expected_access,
+            require_active=True,
+        )
+
+        comment = await self.comments.create(
+            annotation_id=annotation.id,
+            project_id=task.project_id,
+            author_id=actor.id,
+            body=data.body,
+            mentions=[
+                mention.model_dump(by_alias=True, mode="json")
+                for mention in data.mentions
+            ],
+            attachments=[
+                attachment.model_dump(by_alias=True, mode="json")
+                for attachment in data.attachments
+            ],
+            canvas_drawing=(
+                data.canvas_drawing.model_dump(by_alias=True, mode="json")
+                if data.canvas_drawing
+                else None
+            ),
+            anchor=(
+                data.anchor.model_dump(by_alias=True, mode="json")
+                if data.anchor
+                else None
+            ),
+        )
+        if task.project_id is not None:
+            await FeedbackService(self.db).mirror_annotation_comment(
+                comment, task_id=task.id
+            )
+        await AuditService.log(
+            self.db,
+            actor=actor,
+            action=AuditAction.ANNOTATION_COMMENT_ADD,
+            target_type="annotation",
+            target_id=str(annotation_id),
+            origin=origin,
+            status_code=201,
+            detail={
+                "project_id": str(task.project_id),
+                "comment_id": str(comment.id),
+                "preview": data.body[:120],
+                "mention_count": len(data.mentions),
+                "attachment_count": len(data.attachments),
+                "has_canvas_drawing": data.canvas_drawing is not None,
+                "has_anchor": data.anchor is not None,
+            },
+        )
+        pending_notifications = await prepare_annotation_comment_mention_notifications(
+            self.db,
+            comment=comment,
+            task=task,
+            actor=actor,
+            mentioned_user_ids=[mention.user_id for mention in data.mentions],
+        )
+        await self.db.commit()
+        await NotificationService(self.db).publish_committed(pending_notifications)
+        await self.db.refresh(comment)
+        return comment
+
+    async def update(
+        self,
+        comment_id: uuid.UUID,
+        actor: User,
+        data: AnnotationCommentUpdate,
+    ) -> AnnotationComment:
+        comment, annotation, task, expected_access = await self._read_comment(
+            comment_id, actor, operation="edit"
+        )
+        comment, actor = await self._lock_comment(
+            comment,
+            annotation,
+            task,
+            actor,
+            expected_access=expected_access,
+            operation="edit",
+        )
+        self.comments.update(comment, body=data.body, is_resolved=data.is_resolved)
+        await self.db.commit()
+        await self.db.refresh(comment)
+        return comment
+
+    async def delete(
+        self,
+        comment_id: uuid.UUID,
+        actor: User,
+        *,
+        origin: AuditOriginContext,
+    ) -> None:
+        comment, annotation, task, expected_access = await self._read_comment(
+            comment_id, actor, operation="delete"
+        )
+        comment, actor = await self._lock_comment(
+            comment,
+            annotation,
+            task,
+            actor,
+            expected_access=expected_access,
+            operation="delete",
+        )
+        self.comments.soft_delete(comment)
+        await AuditService.log(
+            self.db,
+            actor=actor,
+            action=AuditAction.ANNOTATION_COMMENT_DELETE,
+            target_type="annotation",
+            target_id=str(comment.annotation_id),
+            origin=origin,
+            status_code=204,
+            detail={
+                "comment_id": str(comment_id),
+                "preview": (comment.body or "")[:120],
+            },
+        )
+        await self.db.commit()
+
+    def _assert_action(
+        self,
+        comment: AnnotationComment,
+        actor: User,
+        access: ProjectAccess,
+        *,
+        operation: Literal["edit", "delete"],
+    ) -> None:
+        actions = discussion_actions(
+            "annotation_comment",
+            "comment",
+            is_author=comment.author_id == actor.id,
+            is_admin=access.is_manager,
+            is_reviewer=access.project_role == ProjectRole.REVIEWER.value,
+            is_accessible=True,
+            can_reply=False,
+        )
+        allowed = actions.edit if operation == "edit" else actions.delete
+        if not allowed:
+            raise HTTPException(
+                status_code=403, detail=f"Only the author can {operation} this comment"
+            )
+
+    async def _read_comment(
+        self,
+        comment_id: uuid.UUID,
+        actor: User,
+        *,
+        operation: Literal["edit", "delete"],
+    ) -> tuple[AnnotationComment, Annotation, Task, ProjectAccess]:
+        comment = await self.db.get(AnnotationComment, comment_id)
+        if comment is None or not comment.is_active:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        annotation, task = await require_visible_annotation(
+            self.db, comment.annotation_id, actor
+        )
+        access = await task_access.resolve_task_access(self.db, task, actor)
+        self._assert_action(comment, actor, access, operation=operation)
+        return comment, annotation, task, access
+
+    async def _lock_annotation_target(
+        self,
+        annotation: Annotation,
+        task: Task,
+        actor: User,
+        *,
+        expected_access: ProjectAccess,
+        require_active: bool,
+    ) -> tuple[Annotation, Task, User, ProjectAccess]:
+        annotation_id, task_id = annotation.id, task.id
+        try:
+            task, actor, _, access = await lock_current_task_target(
+                self.db,
+                task_id=task_id,
+                actor_id=actor.id,
+                expected_access=expected_access,
+            )
+            await task_access.assert_task_visible(self.db, task, actor, access=access)
+            annotation = await lock_row_nowait(
+                self.db,
+                select(Annotation)
+                .where(Annotation.id == annotation_id)
+                .with_for_update(nowait=True)
+                .execution_options(populate_existing=True),
+                reason="annotation_busy",
+            )
+        except TaskWorkflowError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        if annotation is None:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+        if annotation.task_id != task_id:
+            raise HTTPException(
+                status_code=409, detail={"reason": "annotation_target_changed"}
+            )
+        if require_active and (
+            not annotation.is_active or bool(annotation.was_cancelled)
+        ):
+            raise HTTPException(status_code=404, detail="Annotation not found")
+        return annotation, task, actor, access
+
+    async def _lock_comment(
+        self,
+        comment: AnnotationComment,
+        annotation: Annotation,
+        task: Task,
+        actor: User,
+        *,
+        expected_access: ProjectAccess,
+        operation: Literal["edit", "delete"],
+    ) -> tuple[AnnotationComment, User]:
+        comment_id = comment.id
+        annotation, _, actor, access = await self._lock_annotation_target(
+            annotation,
+            task,
+            actor,
+            expected_access=expected_access,
+            require_active=False,
+        )
+        try:
+            comment = await lock_row_nowait(
+                self.db,
+                select(AnnotationComment)
+                .where(AnnotationComment.id == comment_id)
+                .with_for_update(nowait=True)
+                .execution_options(populate_existing=True),
+                reason="comment_busy",
+            )
+        except TaskWorkflowError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        if comment is None or not comment.is_active:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        if comment.annotation_id != annotation.id:
+            raise HTTPException(
+                status_code=409, detail={"reason": "comment_target_changed"}
+            )
+        self._assert_action(comment, actor, access, operation=operation)
+        return comment, actor

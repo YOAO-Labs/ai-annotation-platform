@@ -18,7 +18,7 @@
 
 保留 `anchor_type=pixel`、顶层 `task_id/annotation_id` 和 `anchor_position.x/y/frame`，在 `anchor_position` 中新增可选 `video_context`。现有 JSONB 与 pixel CHECK 允许此扩展，**不新增列、不要求历史回填、不需要数据库迁移**。
 
-写入时仅允许视频任务的 pixel 锚携带 `video_context`，且必须同时提供旧 `frame`。新嵌套模型拒绝未知字段和非有限数；任务媒体类型由反馈 service 校验，`annotation_feedbacks.py` 的 `_serialize_anchor` 与创建路由一起更新。旧锚的输入和读取保持兼容。
+写入时仅允许视频任务的 pixel 锚携带 `video_context`，且必须同时提供旧 `frame`。新嵌套模型拒绝未知字段和非有限数；任务媒体类型由反馈 service 校验，锚点 JSON 由 `schemas/annotation_feedback.py::serialize_feedback_anchor` 编码，应用反馈命令负责创建。旧锚的输入和读取保持兼容。
 
 | 字段                              | 明确语义                                                                    |
 | --------------------------------- | --------------------------------------------------------------------------- |

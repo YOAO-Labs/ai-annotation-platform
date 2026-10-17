@@ -263,6 +263,17 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="guide_asset_contracts", legacy_facades=(), allowed_app_imports=()
     ),
+    DomainSpec(
+        package="annotation_comment",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.db.enums",
+            "app.db.models.annotation_comment",
+            "app.db.models.project",
+            "app.db.models.project_member",
+            "app.db.models.user",
+        ),
+    ),
 )
 
 # Absolute module roots a service domain must never depend on.

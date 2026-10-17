@@ -64,6 +64,12 @@ last_reviewed: 2026-10-16
 - 指引图片：`application/project_guide_assets.py` 组合当前授权与存储，
   `services/project_workspace.py` 持有 key/登记规则，纯值限制在 `guide_asset_contracts.py`。
   HEAD 后再次取权并刷新登记，DELETE 保持当前围栏；HTTP 持有提交。
+- 原标注评论：`application/annotation_comment.py::AnnotationCommentWorkflow` 组合
+  `services/annotation_comment.py`、反馈镜像、审计和通知；当前权威与真实任务/标注/评论行
+  在修改前重取并锁定。创建保留单事务及提交后发布，原评论与反馈镜像不做双向同步。
+- 反馈命令：`application/annotation_feedback.py::AnnotationFeedbackWorkflow` 持有四类
+  写入准入与事务组合，`FeedbackService` 写反馈行；实际项目/任务和刷新后的线程祖先
+  决定权限与动作，不信任旧 `actions`、缓存正文支持或反规范化项目身份。
 - 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
   持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
   `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。

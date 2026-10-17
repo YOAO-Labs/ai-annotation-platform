@@ -308,3 +308,39 @@ class AnnotationFeedbackThreadPage(BaseModel):
     items: list[AnnotationFeedbackOut]
     next_cursor: str | None = None
     total: int
+
+
+def serialize_feedback_anchor(
+    payload: AnnotationFeedbackCreate,
+) -> dict[str, Any] | None:
+    """Encode public anchor keys while preserving legacy omission rules."""
+    anchor = payload.anchor_position
+    if anchor is None:
+        return None
+    value = anchor.model_dump(mode="json", by_alias=True)
+    if anchor.video_context is None:
+        value.pop("video_context", None)
+    else:
+        value["video_context"] = anchor.video_context.model_dump(
+            mode="json", by_alias=True, exclude_none=True
+        )
+    if payload.anchor_type == "pixel":
+        for key in (
+            "point_cloud_quality_issue_id",
+            "scene_id",
+            "scene_track_id",
+            "auxiliary_layers",
+        ):
+            value.pop(key, None)
+    elif payload.anchor_type == "point_cloud":
+        value = {
+            key: value[key]
+            for key in (
+                "frame",
+                "point_cloud_quality_issue_id",
+                "scene_id",
+                "scene_track_id",
+                "auxiliary_layers",
+            )
+        }
+    return value

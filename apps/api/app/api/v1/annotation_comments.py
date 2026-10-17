@@ -18,15 +18,15 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.annotation_comment import AnnotationCommentWorkflow
 from app.deps import (
     get_db,
     require_roles,
     require_active_task_actor,
 )
-from app.db.enums import MANAGER_PLATFORM_ROLES, PlatformRole, ProjectRole
+from app.db.enums import PlatformRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
-from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.schemas.annotation_comment import (
     ATTACHMENT_KEY_PREFIX,
@@ -39,12 +39,7 @@ from app.schemas.annotation_comment import (
     CommentAttachmentUploadInitResponse,
     TaskDiscussionPage,
 )
-from app.services.audit import AuditAction, AuditService
-from app.services.discussion_notifications import (
-    prepare_annotation_comment_mention_notifications,
-)
-from app.services.discussion_actions import discussion_actions
-from app.services.notification import NotificationService
+from app.services.audit import AuditOriginContext
 from app.services.storage import storage_service
 from app.services.task_discussion import (
     list_task_discussion,
@@ -62,16 +57,6 @@ _ALL_ANNOTATORS = (
     PlatformRole.PROJECT_ADMIN,
     PlatformRole.EMPLOYEE,
 )
-
-
-async def _resolve_task_access(db: AsyncSession, task, user: User):
-    """Resolve current project access for a task's actual project."""
-
-    from app.db.models.project import Project
-    from app.services.project_access import resolve_project_access
-
-    project = await db.get(Project, task.project_id)
-    return await resolve_project_access(db, user=user, project=project)
 
 
 def _to_out(
@@ -93,57 +78,6 @@ def _to_out(
         created_at=c.created_at,
         updated_at=c.updated_at,
     )
-
-
-async def _validate_project_members(
-    db: AsyncSession,
-    project_id: uuid.UUID,
-    user_ids: list[uuid.UUID],
-) -> None:
-    """mentions[].userId 必须是该项目的成员（含 owner / project_admin / super_admin 不强制走 project_members 表）。
-    出于简化，仅校验 user 存在且是该项目 project_members 表成员；超管不在表里时也允许。"""
-    if not user_ids:
-        return
-    rows = (
-        await db.execute(
-            select(ProjectMember.user_id).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id.in_(user_ids),
-            )
-        )
-    ).all()
-    found = {r[0] for r in rows}
-    # 超管 / 合法项目负责人 也允许（不一定在 project_members 表中）。
-    # 平台 project_admin 仅在其拥有该项目时才算负责人，不与成员身份混淆。
-    from app.db.models.project import Project
-
-    manager_rows = (
-        await db.execute(
-            select(User.id)
-            .join(Project, Project.owner_id == User.id)
-            .where(
-                Project.id == project_id,
-                User.id.in_(user_ids),
-                User.role.in_(sorted(MANAGER_PLATFORM_ROLES)),
-            )
-        )
-    ).all()
-    super_rows = (
-        await db.execute(
-            select(User.id).where(
-                User.id.in_(user_ids),
-                User.role == PlatformRole.SUPER_ADMIN.value,
-            )
-        )
-    ).all()
-    found |= {r[0] for r in manager_rows}
-    found |= {r[0] for r in super_rows}
-    missing = [str(uid) for uid in user_ids if uid not in found]
-    if missing:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "mentions_invalid", "non_member_user_ids": missing},
-        )
 
 
 @router.get(
@@ -375,71 +309,12 @@ async def create_comment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
 ):
-    _ann, task = await require_visible_annotation(
-        db,
+    comment = await AnnotationCommentWorkflow(db).create(
         annotation_id,
         current_user,
-        require_active=True,
+        data,
+        origin=AuditOriginContext.from_request(request),
     )
-
-    # mentions 必须是项目成员
-    if data.mentions:
-        await _validate_project_members(
-            db, task.project_id, [m.user_id for m in data.mentions]
-        )
-
-    comment = AnnotationComment(
-        id=uuid.uuid4(),
-        annotation_id=annotation_id,
-        project_id=task.project_id,
-        author_id=current_user.id,
-        body=data.body,
-        mentions=[m.model_dump(by_alias=True, mode="json") for m in data.mentions],
-        attachments=[
-            a.model_dump(by_alias=True, mode="json") for a in data.attachments
-        ],
-        canvas_drawing=data.canvas_drawing.model_dump(by_alias=True, mode="json")
-        if data.canvas_drawing
-        else None,
-        anchor=data.anchor.model_dump(by_alias=True, mode="json")
-        if data.anchor
-        else None,
-    )
-    db.add(comment)
-    await db.flush()
-    # ADR-0027 第二段 · 双写到 annotation_feedbacks (kind=comment, anchor=annotation)
-    if task.project_id is not None:
-        from app.services.feedback import FeedbackService
-
-        await FeedbackService(db).mirror_annotation_comment(comment, task_id=task.id)
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_COMMENT_ADD,
-        target_type="annotation",
-        target_id=str(annotation_id),
-        request=request,
-        status_code=201,
-        detail={
-            "project_id": str(task.project_id),
-            "comment_id": str(comment.id),
-            "preview": data.body[:120],
-            "mention_count": len(data.mentions),
-            "attachment_count": len(data.attachments),
-            "has_canvas_drawing": data.canvas_drawing is not None,
-            "has_anchor": data.anchor is not None,
-        },
-    )
-    pending_notifications = await prepare_annotation_comment_mention_notifications(
-        db,
-        comment=comment,
-        task=task,
-        actor=current_user,
-        mentioned_user_ids=[mention.user_id for mention in data.mentions],
-    )
-    await db.commit()
-    await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(comment)
     return _to_out(comment, current_user.name)
 
 
@@ -450,41 +325,8 @@ async def patch_comment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
 ):
-    c = await db.get(AnnotationComment, comment_id)
-    if not c or not c.is_active:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    _ann, task = await require_visible_annotation(db, c.annotation_id, current_user)
-    access = await _resolve_task_access(db, task, current_user)
-    actions = discussion_actions(
-        "annotation_comment",
-        "comment",
-        is_author=c.author_id == current_user.id,
-        is_admin=access.is_manager,
-        is_reviewer=access.project_role == ProjectRole.REVIEWER.value,
-        is_accessible=True,
-        can_reply=False,
-    )
-    if not actions.edit:
-        raise HTTPException(
-            status_code=403, detail="Only the author can edit this comment"
-        )
-    if data.body is not None:
-        # 清空正文需保证评论仍有附件 / 画布批注（与 create 的 _require_content 同口径）。
-        if not data.body.strip():
-            has_drawing = bool(
-                c.canvas_drawing and (c.canvas_drawing.get("shapes") or [])
-            )
-            if not c.attachments and not has_drawing:
-                raise HTTPException(
-                    status_code=422,
-                    detail="评论需至少包含正文、附件或画布批注之一",
-                )
-        c.body = data.body
-    if data.is_resolved is not None:
-        c.is_resolved = data.is_resolved
-    await db.commit()
-    await db.refresh(c)
-    return _to_out(c)
+    comment = await AnnotationCommentWorkflow(db).update(comment_id, current_user, data)
+    return _to_out(comment)
 
 
 @router.delete("/comments/{comment_id}", status_code=204)
@@ -494,38 +336,11 @@ async def delete_comment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
 ):
-    c = await db.get(AnnotationComment, comment_id)
-    if not c or not c.is_active:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    _ann, task = await require_visible_annotation(db, c.annotation_id, current_user)
-    access = await _resolve_task_access(db, task, current_user)
-    actions = discussion_actions(
-        "annotation_comment",
-        "comment",
-        is_author=c.author_id == current_user.id,
-        is_admin=access.is_manager,
-        is_reviewer=access.project_role == ProjectRole.REVIEWER.value,
-        is_accessible=True,
-        can_reply=False,
+    await AnnotationCommentWorkflow(db).delete(
+        comment_id,
+        current_user,
+        origin=AuditOriginContext.from_request(request),
     )
-    if not actions.delete:
-        raise HTTPException(
-            status_code=403, detail="Only the author can delete this comment"
-        )
-    c.is_active = False
-    # v0.7.2 · annotation 编辑历史可追溯
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_COMMENT_DELETE,
-        target_type="annotation",
-        target_id=str(c.annotation_id),
-        request=request,
-        status_code=204,
-        detail={"comment_id": str(comment_id), "preview": (c.body or "")[:120]},
-    )
-    await db.commit()
-    return
 
 
 @router.post(

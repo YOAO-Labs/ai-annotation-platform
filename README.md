@@ -141,6 +141,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 平台把**账号身份（平台角色）**与**项目职责（项目角色）**分开：同一个员工可以在 A 项目标注、B 项目质检、C 项目只读，无须切换账号。项目访问与写入由项目成员关系和固定能力集决定，全项目导出收紧到质检员 / 负责人、自审按持久贡献者证据拒绝。设计见 [ADR-0075](./docs/adr/0075-platform-identity-vs-project-authority.md)，迁移、回滚与已签发 URL 限制见[员工项目角色迁移与回滚 runbook](./docs-site/ops/runbooks/project-role-migration.md)。
 
+评论、问题与回复在提交前重新确认当前权限和真实任务／线程范围，资源争用返回冲突；通知同事务保存、提交后尽力推送。接口与原评论／反馈镜像的独立性见[任务讨论与问题线程](./docs-site/api/guides/tasks-and-annotations.md#任务讨论与问题线程)。
+
 ## 架构
 
 <table>

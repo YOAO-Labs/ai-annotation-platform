@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import update
 
 from app.db.models.annotation_feedback import AnnotationFeedback
 from tests.factory import create_membership, create_batch, create_project, create_task
@@ -255,3 +256,101 @@ async def test_native_feedback_replies_and_pixel_reply_text_guards(
     )
     assert attached_blank.status_code == 200, attached_blank.text
     assert attached_blank.json()["attachments"] == [{"key": "discussion/pixel.txt"}]
+
+
+@pytest.mark.asyncio
+async def test_feedback_patch_rejects_stale_identity_map_active_state(
+    httpx_client, db_session, super_admin
+):
+    owner, token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    task = await create_task(db_session, project_id=project.id)
+    headers = {"Authorization": f"Bearer {token}"}
+    created = await httpx_client.post(
+        "/api/v1/feedbacks",
+        json={
+            "kind": "issue",
+            "anchor_type": "task",
+            "project_id": str(project.id),
+            "task_id": str(task.id),
+            "body": "original",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    feedback_id = created.json()["id"]
+    cached_entry = await db_session.get(AnnotationFeedback, feedback_id)
+    assert cached_entry is not None
+
+    await db_session.execute(
+        update(AnnotationFeedback)
+        .where(AnnotationFeedback.id == feedback_id)
+        .values(is_active=False)
+        .execution_options(synchronize_session=False)
+    )
+
+    rejected = await httpx_client.patch(
+        f"/api/v1/feedbacks/{feedback_id}",
+        json={"body": "must not write"},
+        headers=headers,
+    )
+    assert rejected.status_code == 404, rejected.text
+    await db_session.refresh(cached_entry)
+    assert not cached_entry.is_active
+    assert cached_entry.body == "original"
+
+
+@pytest.mark.asyncio
+async def test_feedback_patch_uses_fresh_attachments_for_empty_body(
+    httpx_client, db_session, super_admin
+):
+    owner, token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    task = await create_task(db_session, project_id=project.id)
+    headers = {"Authorization": f"Bearer {token}"}
+    created = await httpx_client.post(
+        "/api/v1/feedbacks",
+        json={
+            "kind": "comment",
+            "anchor_type": "task",
+            "project_id": str(project.id),
+            "task_id": str(task.id),
+            "body": "original",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    feedback_id = created.json()["id"]
+    cached_entry = await db_session.get(AnnotationFeedback, feedback_id)
+    assert cached_entry is not None
+
+    await db_session.execute(
+        update(AnnotationFeedback)
+        .where(AnnotationFeedback.id == feedback_id)
+        .values(attachments=[{"key": "discussion/support.txt"}])
+        .execution_options(synchronize_session=False)
+    )
+    allowed = await httpx_client.patch(
+        f"/api/v1/feedbacks/{feedback_id}",
+        json={"body": ""},
+        headers=headers,
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["body"] == ""
+    assert allowed.json()["attachments"] == [{"key": "discussion/support.txt"}]
+
+    await db_session.execute(
+        update(AnnotationFeedback)
+        .where(AnnotationFeedback.id == feedback_id)
+        .values(attachments=[])
+        .execution_options(synchronize_session=False)
+    )
+    rejected = await httpx_client.patch(
+        f"/api/v1/feedbacks/{feedback_id}",
+        json={"body": ""},
+        headers=headers,
+    )
+    assert rejected.status_code == 422, rejected.text
+    await db_session.refresh(cached_entry)
+    assert cached_entry.attachments == []
+    assert cached_entry.body == ""

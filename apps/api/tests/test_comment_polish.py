@@ -12,9 +12,19 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.application.annotation_comment import AnnotationCommentWorkflow
+from app.db.models.annotation_comment import AnnotationComment
+from app.db.models.user import User
+from app.schemas.annotation_comment import (
+    AnnotationCommentCreate,
+    AnnotationCommentUpdate,
+)
+from app.services.audit import AuditOriginContext
 from app.db.models.project import Project
 from tests.factory import build_tool_bindings
 
@@ -274,6 +284,44 @@ async def test_video_comment_anchor_roundtrips(httpx_client, db_session, super_a
 
 
 @pytest.mark.asyncio
+async def test_legacy_comment_create_keeps_feedback_mirror(
+    httpx_client, db_session, super_admin
+):
+    from sqlalchemy import select
+
+    from app.db.models.annotation_comment import AnnotationComment
+    from app.db.models.annotation_feedback import AnnotationFeedback
+
+    user, token = super_admin
+    _, annotation = await _seed_project_with_annotation(db_session, user.id)
+    response = await httpx_client.post(
+        f"/api/v1/annotations/{annotation.id}/comments",
+        json={"body": "legacy comment", "mentions": [], "attachments": []},
+        headers=_bearer(token),
+    )
+    assert response.status_code == 201, response.text
+
+    comment_id = uuid.UUID(response.json()["id"])
+    comment = await db_session.get(AnnotationComment, comment_id)
+    assert comment is not None
+    assert comment.body == "legacy comment"
+    mirror = (
+        await db_session.execute(
+            select(AnnotationFeedback).where(
+                AnnotationFeedback.kind == "comment",
+                AnnotationFeedback.anchor_type == "annotation",
+                AnnotationFeedback.annotation_id == annotation.id,
+                AnnotationFeedback.task_id == annotation.task_id,
+                AnnotationFeedback.author_id == user.id,
+                AnnotationFeedback.body == comment.body,
+            )
+        )
+    ).scalar_one()
+    assert mirror.attachments == []
+    assert mirror.mentions == []
+
+
+@pytest.mark.asyncio
 async def test_download_wrong_prefix_rejected(httpx_client, db_session, super_admin):
     sa_user, sa_token = super_admin
     _, ann = await _seed_project_with_annotation(db_session, sa_user.id)
@@ -306,3 +354,170 @@ async def test_download_non_member_404(
     )
     # annotator 不是项目成员（也不是 owner）→ 404 隐藏存在性
     assert r.status_code == 404, r.text
+
+
+async def _seed_existing_comment(db, owner_id):
+    project, annotation = await _seed_project_with_annotation(db, owner_id)
+    comment = AnnotationComment(
+        annotation_id=annotation.id,
+        project_id=project.id,
+        author_id=owner_id,
+        body="original comment",
+        attachments=[],
+        mentions=[],
+    )
+    db.add(comment)
+    await db.commit()
+    return project, annotation, comment
+
+
+@pytest.mark.parametrize("operation", ["create", "update", "delete"])
+@pytest.mark.parametrize(
+    ("change", "expected_status"), [("owner_transferred", 404), ("actor_disabled", 401)]
+)
+async def test_legacy_comment_commands_recheck_current_authority(
+    db_session, project_admin, super_admin, operation, change, expected_status
+):
+    owner, _ = project_admin
+    successor, _ = super_admin
+    project, annotation, comment = await _seed_existing_comment(db_session, owner.id)
+    mutation = (
+        update(Project).where(Project.id == project.id).values(owner_id=successor.id)
+        if change == "owner_transferred"
+        else update(User).where(User.id == owner.id).values(is_active=False)
+    )
+    await db_session.execute(mutation.execution_options(synchronize_session=False))
+    await db_session.commit()
+
+    workflow = AnnotationCommentWorkflow(db_session)
+    origin = AuditOriginContext(method="POST", path="/comment-boundary", ip="127.0.0.1")
+    with pytest.raises(HTTPException) as caught:
+        if operation == "create":
+            await workflow.create(
+                annotation.id,
+                owner,
+                AnnotationCommentCreate(body="unauthorized new comment"),
+                origin=origin,
+            )
+        elif operation == "update":
+            await workflow.update(
+                comment.id, owner, AnnotationCommentUpdate(body="unauthorized edit")
+            )
+        else:
+            await workflow.delete(comment.id, owner, origin=origin)
+    assert caught.value.status_code == expected_status
+    rows = (
+        await db_session.execute(
+            select(
+                AnnotationComment.id,
+                AnnotationComment.body,
+                AnnotationComment.is_active,
+            ).where(AnnotationComment.annotation_id == annotation.id)
+        )
+    ).all()
+    assert rows == [(comment.id, "original comment", True)]
+
+
+async def test_legacy_comment_update_refreshes_concurrent_deactivation(
+    db_session, super_admin
+):
+    owner, _ = super_admin
+    _, _, comment = await _seed_existing_comment(db_session, owner.id)
+    await db_session.execute(
+        update(AnnotationComment)
+        .where(AnnotationComment.id == comment.id)
+        .values(is_active=False)
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.commit()
+    with pytest.raises(HTTPException) as caught:
+        await AnnotationCommentWorkflow(db_session).update(
+            comment.id, owner, AnnotationCommentUpdate(body="stale edit")
+        )
+    assert caught.value.status_code == 404
+    body = await db_session.scalar(
+        select(AnnotationComment.body).where(AnnotationComment.id == comment.id)
+    )
+    assert body == "original comment"
+
+
+async def test_legacy_comment_body_clear_uses_current_content_support(
+    db_session, super_admin
+):
+    owner, _ = super_admin
+    _, _, comment = await _seed_existing_comment(db_session, owner.id)
+    comment.attachments = [{"storageKey": "comment-attachments/retained"}]
+    await db_session.commit()
+    await db_session.execute(
+        update(AnnotationComment)
+        .where(AnnotationComment.id == comment.id)
+        .values(attachments=[])
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.commit()
+    with pytest.raises(HTTPException) as caught:
+        await AnnotationCommentWorkflow(db_session).update(
+            comment.id, owner, AnnotationCommentUpdate(body="")
+        )
+    assert caught.value.status_code == 422
+    body = await db_session.scalar(
+        select(AnnotationComment.body).where(AnnotationComment.id == comment.id)
+    )
+    assert body == "original comment"
+
+
+@pytest.mark.parametrize("operation", ["update", "delete"])
+async def test_existing_comment_mutation_allows_inactive_cancelled_annotation(
+    httpx_client, db_session, super_admin, operation
+):
+    owner, token = super_admin
+    _, annotation, comment = await _seed_existing_comment(db_session, owner.id)
+    annotation.is_active = False
+    annotation.was_cancelled = True
+    await db_session.commit()
+
+    path = f"/api/v1/comments/{comment.id}"
+    if operation == "update":
+        response = await httpx_client.patch(
+            path, headers=_bearer(token), json={"body": "historical discussion updated"}
+        )
+        expected = ("historical discussion updated", True)
+    else:
+        response = await httpx_client.delete(path, headers=_bearer(token))
+        expected = ("original comment", False)
+    assert response.status_code == (200 if operation == "update" else 204)
+    persisted = (
+        await db_session.execute(
+            select(AnnotationComment.body, AnnotationComment.is_active).where(
+                AnnotationComment.id == comment.id
+            )
+        )
+    ).one()
+    assert persisted == expected
+
+
+async def test_legacy_comment_body_clear_accepts_newly_added_content_support(
+    db_session, super_admin
+):
+    owner, _ = super_admin
+    _, _, comment = await _seed_existing_comment(db_session, owner.id)
+    attachment = {
+        "storageKey": f"comment-attachments/{uuid.uuid4()}/hint.png",
+        "fileName": "hint.png",
+        "mimeType": "image/png",
+        "size": 10,
+    }
+    await db_session.execute(
+        update(AnnotationComment)
+        .where(AnnotationComment.id == comment.id)
+        .values(attachments=[attachment])
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.commit()
+    await AnnotationCommentWorkflow(db_session).update(
+        comment.id, owner, AnnotationCommentUpdate(body="")
+    )
+    body = await db_session.scalar(
+        select(AnnotationComment.body).where(AnnotationComment.id == comment.id)
+    )
+    assert body == ""
