@@ -193,6 +193,10 @@ class RoutedMLBackendClient:
         max_response_bytes: int | None = None,
     ) -> list[Any]:
         from app.services import trained_models
+        from app.services.trained_model_reference_contract import (
+            FreezeModelReferenceError,
+            ValidateFrozenModelReferenceRequest,
+        )
 
         model_id = (context or {}).get("model_id") or ""
         ref = (context or {}).get("frozen_model_ref")
@@ -208,9 +212,17 @@ class RoutedMLBackendClient:
                 raise ValueError(
                     "Controlled prediction requires a frozen model identity"
                 )
-            required_instance_id = await trained_models.validate_frozen_reference(
-                self.db, self.project_id, ref
-            )
+            try:
+                required_instance_id = await trained_models.bind_frozen_model_reference(
+                    self.db
+                ).validate(
+                    ValidateFrozenModelReferenceRequest(
+                        project_id=self.project_id,
+                        reference=ref,
+                    )
+                )
+            except FreezeModelReferenceError as exc:
+                trained_models.raise_frozen_model_reference_error(exc)
             if self.requested_registry_id != required_instance_id:
                 raise ValueError(
                     "Requested registry differs from the frozen deployment"

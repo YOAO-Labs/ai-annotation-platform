@@ -124,7 +124,20 @@ async def create(
             is None
         ):
             raise service.reject("reference_missing", "冻结引用已不可用", 404)
-    await trained_models.validate_frozen_reference(db, project.id, ref)
+    from app.services.trained_model_reference_contract import (
+        FreezeModelReferenceError,
+        ValidateFrozenModelReferenceRequest,
+    )
+
+    try:
+        await trained_models.bind_frozen_model_reference(db).validate(
+            ValidateFrozenModelReferenceRequest(
+                project_id=project.id,
+                reference=ref,
+            )
+        )
+    except FreezeModelReferenceError as exc:
+        trained_models.raise_frozen_model_reference_error(exc)
     identity = uuid.uuid4()
     try:
         spec = await service.frozen_spec(db, project, body, identity, ref, profile)

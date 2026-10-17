@@ -9,6 +9,7 @@ import asyncio
 import math
 import uuid
 from datetime import datetime, timezone
+from typing import NoReturn
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -29,6 +30,15 @@ from app.services.training_dataset_bridge import content_digest
 from app.services.training_runs import internal_download
 from app.services import training_artifacts as artifact_service
 from app.services.training_evaluations import parse_evaluation
+from app.services.trained_model_reference_contract import (
+    FreezeModelReferenceError,
+    FreezeModelReferencePort,
+    FreezeModelReferenceRequest,
+    FrozenModelReference,
+    FrozenModelReferenceFacts,
+    ValidateFrozenModelReferenceRequest,
+    build_frozen_model_reference,
+)
 
 
 async def assert_no_project_models(db, project_id: uuid.UUID) -> None:
@@ -50,7 +60,10 @@ def project_classes(project):
 
 
 def validate_bindings(project, classes, bindings):
-    allowed = project_classes(project)
+    validate_project_class_bindings(project_classes(project), classes, bindings)
+
+
+def validate_project_class_bindings(allowed, classes, bindings):
     if (
         not classes
         or len(bindings) != len(classes)
@@ -313,22 +326,24 @@ def download_url(key):
     return storage.rewrite_host_for_ml_backend(internal_download(key))
 
 
-def frozen_reference(version, deployment, release=None):
-    ref = {
-        **expected_receipt(version),
-        "project_id": str(version.project_id),
-        "registry_id": str(deployment.registry_id),
-        "deployment_id": str(deployment.id),
-        "binding_digest": version.binding_digest,
-        "bindings": version.bindings,
-        "provenance": version.provenance,
-        "release_id": str(release.id) if release else None,
-        "release_generation": release.generation if release else None,
-    }
-    return {**ref, "reference_digest": content_digest(ref)}
+def _frozen_model_reference(version, deployment, release=None) -> FrozenModelReference:
+    receipt = expected_receipt(version)
+    return build_frozen_model_reference(
+        FrozenModelReferenceFacts(
+            project_id=version.project_id,
+            registry_id=deployment.registry_id,
+            deployment_id=deployment.id,
+            binding_digest=version.binding_digest,
+            bindings=version.bindings,
+            provenance=version.provenance,
+            release_id=release.id if release else None,
+            release_generation=release.generation if release else None,
+        ),
+        receipt,
+    )
 
 
-def wire_context(ref, params=None):
+def wire_context(ref: FrozenModelReference, params=None):
     return {
         "task": "detect",
         "model_id": f"trained:{ref['model_version_id']}",
@@ -395,7 +410,7 @@ def assert_image_scope(
             )
 
 
-def validate_and_map_results(results, ref):
+def validate_and_map_results(results, ref: FrozenModelReference):
     identity = {k: ref[k] for k in ("model_version_id", "sha256", "classes_digest")}
     for result in results:
         if (result.meta or {}).get("trained_model") != identity:
@@ -453,72 +468,182 @@ def validate_and_map_results(results, ref):
         result.model_version = f"trained:{ref['model_version_id']}"
 
 
-async def resolve_reference(db, project, model_id, registry_id):
-    if not model_id or not (
-        model_id.startswith("trained:") or model_id == "project-release"
-    ):
-        return None
-    release = None
-    if model_id == "project-release":
-        selection = await db.get(ProjectModelSelection, project.id)
+def _reference_http_error(code: str, exc: HTTPException) -> FreezeModelReferenceError:
+    return FreezeModelReferenceError(
+        code,
+        str(exc.detail),
+        status_code=exc.status_code,
+        detail=exc.detail,
+        headers=exc.headers,
+    )
+
+
+def raise_frozen_model_reference_error(exc: FreezeModelReferenceError) -> NoReturn:
+    """Restore this operation's existing HTTPException/ValueError projection."""
+    if exc.status_code is not None:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
+    raise ValueError(str(exc)) from exc
+
+
+class _SqlFreezeModelReferencePort:
+    """Learning-owned SQL adapter bound to the caller's current transaction."""
+
+    def __init__(self, db) -> None:
+        self.db = db
+
+    async def freeze(
+        self, request: FreezeModelReferenceRequest
+    ) -> FrozenModelReference | None:
+        model_id = request.model_id
+        if not model_id or not (
+            model_id.startswith("trained:") or model_id == "project-release"
+        ):
+            return None
+        release = None
+        if model_id == "project-release":
+            selection = await self.db.get(ProjectModelSelection, request.project_id)
+            release = (
+                await self.db.get(ModelRelease, selection.release_id)
+                if selection and selection.release_id
+                else None
+            )
+            if not release or not release.model_version_id:
+                raise FreezeModelReferenceError(
+                    "release_not_selected",
+                    "项目尚未启用受控模型发布",
+                    status_code=409,
+                    detail="项目尚未启用受控模型发布",
+                )
+            version_id = release.model_version_id
+        else:
+            try:
+                version_id = uuid.UUID(model_id.removeprefix("trained:"))
+            except ValueError as exc:
+                detail = "模型版本标识无效"
+                raise FreezeModelReferenceError(
+                    "model_version_id_invalid",
+                    detail,
+                    status_code=422,
+                    detail=detail,
+                ) from exc
+        try:
+            version = await load_version(self.db, request.project_id, version_id)
+        except HTTPException as exc:
+            raise _reference_http_error("model_version_unavailable", exc) from exc
+        try:
+            validate_project_class_bindings(
+                request.project_classes, version.classes, version.bindings
+            )
+        except HTTPException as exc:
+            raise _reference_http_error("model_bindings_invalid", exc) from exc
+        deployment = await self.db.scalar(
+            select(ModelDeployment).where(
+                ModelDeployment.model_version_id == version.id,
+                ModelDeployment.registry_id == request.registry_id,
+                ModelDeployment.status == "ready",
+            )
+        )
+        if not deployment or (release and release.deployment_id != deployment.id):
+            detail = "所选实例没有该模型版本的就绪部署"
+            raise FreezeModelReferenceError(
+                "deployment_not_ready",
+                detail,
+                status_code=409,
+                detail=detail,
+            )
+        try:
+            check_receipt(version, deployment.receipt)
+        except HTTPException as exc:
+            raise _reference_http_error("deployment_receipt_mismatch", exc) from exc
+        try:
+            await enabled_backend(self.db, request.project_id, request.registry_id)
+        except HTTPException as exc:
+            raise _reference_http_error("backend_unavailable", exc) from exc
+        try:
+            await assert_routable_backend(
+                self.db, request.project_id, request.registry_id
+            )
+        except HTTPException as exc:
+            raise _reference_http_error("deployment_not_routable", exc) from exc
+        try:
+            return _frozen_model_reference(version, deployment, release)
+        except HTTPException as exc:
+            raise _reference_http_error("model_receipt_invalid", exc) from exc
+
+    async def validate(self, request: ValidateFrozenModelReferenceRequest) -> uuid.UUID:
+        from app.db.models.project import Project
+
+        project_id, ref = request.project_id, request.reference
+        project = await self.db.get(Project, project_id)
+        try:
+            assert_image_scope(project)
+        except HTTPException as exc:
+            raise _reference_http_error("project_scope_invalid", exc) from exc
+        if not isinstance(ref, dict) or ref.get("project_id") != str(project_id):
+            message = "Controlled model project identity mismatch"
+            raise FreezeModelReferenceError("project_identity_mismatch", message)
+        payload = {
+            key: value for key, value in ref.items() if key != "reference_digest"
+        }
+        if content_digest(payload) != ref.get("reference_digest"):
+            message = "Controlled model reference digest mismatch"
+            raise FreezeModelReferenceError("reference_digest_mismatch", message)
+        try:
+            version_id = uuid.UUID(ref["model_version_id"])
+        except ValueError as exc:
+            raise FreezeModelReferenceError(
+                "model_version_id_invalid", str(exc)
+            ) from exc
+        try:
+            version = await load_version(self.db, project_id, version_id)
+        except HTTPException as exc:
+            raise _reference_http_error("model_version_unavailable", exc) from exc
+        try:
+            validate_bindings(project, version.classes, version.bindings)
+        except HTTPException as exc:
+            raise _reference_http_error("model_bindings_invalid", exc) from exc
+        try:
+            deployment_id = uuid.UUID(ref["deployment_id"])
+        except ValueError as exc:
+            raise FreezeModelReferenceError("deployment_id_invalid", str(exc)) from exc
+        deployment = await self.db.get(ModelDeployment, deployment_id)
+        if (
+            not deployment
+            or deployment.model_version_id != version.id
+            or deployment.status != "ready"
+        ):
+            message = "Controlled deployment is unavailable"
+            raise FreezeModelReferenceError("deployment_unavailable", message)
+        try:
+            release_id = uuid.UUID(ref["release_id"]) if ref.get("release_id") else None
+        except ValueError as exc:
+            raise FreezeModelReferenceError("release_id_invalid", str(exc)) from exc
         release = (
-            await db.get(ModelRelease, selection.release_id)
-            if selection and selection.release_id
+            await self.db.get(ModelRelease, release_id)
+            if release_id is not None
             else None
         )
-        if not release or not release.model_version_id:
-            raise HTTPException(status_code=409, detail="项目尚未启用受控模型发布")
-        version_id = release.model_version_id
-    else:
         try:
-            version_id = uuid.UUID(model_id.removeprefix("trained:"))
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail="模型版本标识无效") from exc
-    version = await load_version(db, project.id, version_id)
-    validate_bindings(project, version.classes, version.bindings)
-    deployment = await db.scalar(
-        select(ModelDeployment).where(
-            ModelDeployment.model_version_id == version.id,
-            ModelDeployment.registry_id == registry_id,
-            ModelDeployment.status == "ready",
-        )
-    )
-    if not deployment or (release and release.deployment_id != deployment.id):
-        raise HTTPException(status_code=409, detail="所选实例没有该模型版本的就绪部署")
-    check_receipt(version, deployment.receipt)
-    await enabled_backend(db, project.id, registry_id)
-    await assert_routable_backend(db, project.id, registry_id)
-    return frozen_reference(version, deployment, release)
+            current = _frozen_model_reference(version, deployment, release)
+        except HTTPException as exc:
+            raise _reference_http_error("model_receipt_invalid", exc) from exc
+        if current != ref:
+            message = "Controlled model reference changed"
+            raise FreezeModelReferenceError("reference_changed", message)
+        try:
+            await enabled_backend(self.db, project_id, deployment.registry_id)
+        except HTTPException as exc:
+            raise _reference_http_error("backend_unavailable", exc) from exc
+        return deployment.registry_id
 
 
-async def validate_frozen_reference(db, project_id, ref):
-    from app.db.models.project import Project
-
-    project = await db.get(Project, project_id)
-    assert_image_scope(project)
-    if not isinstance(ref, dict) or ref.get("project_id") != str(project_id):
-        raise ValueError("Controlled model project identity mismatch")
-    payload = {k: v for k, v in ref.items() if k != "reference_digest"}
-    if content_digest(payload) != ref.get("reference_digest"):
-        raise ValueError("Controlled model reference digest mismatch")
-    version = await load_version(db, project_id, uuid.UUID(ref["model_version_id"]))
-    validate_bindings(project, version.classes, version.bindings)
-    deployment = await db.get(ModelDeployment, uuid.UUID(ref["deployment_id"]))
-    if (
-        not deployment
-        or deployment.model_version_id != version.id
-        or deployment.status != "ready"
-    ):
-        raise ValueError("Controlled deployment is unavailable")
-    release = (
-        await db.get(ModelRelease, uuid.UUID(ref["release_id"]))
-        if ref.get("release_id")
-        else None
-    )
-    if frozen_reference(version, deployment, release) != ref:
-        raise ValueError("Controlled model reference changed")
-    await enabled_backend(db, project_id, deployment.registry_id)
-    return deployment.registry_id
+def bind_frozen_model_reference(db) -> FreezeModelReferencePort:
+    """Bind the typed reference operations to the caller-owned SQL transaction."""
+    return _SqlFreezeModelReferencePort(db)
 
 
 async def publish(db, project, user, body):
@@ -587,7 +712,7 @@ async def publish(db, project, user, body):
     db.add(release)
     await db.flush()
     if version:
-        release.snapshot = frozen_reference(version, deployment, release)
+        release.snapshot = _frozen_model_reference(version, deployment, release)
     selection.release_id = release.id
     selection.generation = release.generation
     return release

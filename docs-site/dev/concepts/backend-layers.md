@@ -81,6 +81,8 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 `application/trained_model_deployment.py` 组合模型检查、实例安装/固定验证样本试用与检查结果发布。检查行与 `check_id` 由 `trained_models` 持有，安装/试用及 ready 回执复查 HTTP 归 `trained_model_backend`；需要安装时先提交 checking，I/O 后重新取得项目管理权威和检查行，只有同一检查可以发布结果。项目 advisory 复用 `training_claims.project_lock`，注册、候选决策和发布入口也使用该所有者，不复制锁键或等待策略。该本地多阶段工作流不是数据库与模型实例间的原子事务。
 
+`trained_model_reference_contract.FreezeModelReferencePort` 定义冻结与验证引用的进程内契约，参数只含项目/实例 ID、当前类别事实和原冻结 JSON；`trained_models.bind_frozen_model_reference` 为调用者原 Session 绑定 SQL 实现。排队后继续校验原发布及部署身份，不把后续发布选择覆盖到旧作业。引用保留显式空发布字段、框架专属资格字段和原 canonical 摘要，验证不丢弃未知字段；ML wire 仍只发送模型 UUID、权重 SHA 与类别摘要。固定试用使用已加载行的普通事实构建引用，保持 checking 状态可试用；不借 ready 解析器改变原准入。错误以纯 code/status/detail 交付，当前消费者在原位置还原 HTTP/ValueError 语义。嵌套 JSON 沿用原引用，没有额外全量序列化或深复制。
+
 ## 服务（services）
 
 - 业务逻辑核心：状态机、规则、跨表事务

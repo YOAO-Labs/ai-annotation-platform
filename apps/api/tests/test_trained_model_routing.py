@@ -6,10 +6,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.ml_routing.contracts import RejectionReason, RouterMode, RoutingError
 from app.services.ml_routing.router import MLBackendRouter
+from app.services.trained_model_reference_contract import FreezeModelReferenceError
 from tests.factory import create_project
 from tests.test_ml_routing_router import _seed_pool_with_two_members
 
@@ -116,8 +118,11 @@ async def test_controlled_response_must_match_requested_task_identities(
     client = RoutedMLBackendClient(
         None, target, project_id=uuid.uuid4(), owner="test", operation="predict"
     )
+    reference_port = SimpleNamespace(validate=AsyncMock(return_value=target))
     monkeypatch.setattr(
-        trained_models, "validate_frozen_reference", AsyncMock(return_value=target)
+        trained_models,
+        "bind_frozen_model_reference",
+        lambda _db: reference_port,
     )
 
     @asynccontextmanager
@@ -138,3 +143,36 @@ async def test_controlled_response_must_match_requested_task_identities(
                 "frozen_model_ref": ref,
             },
         )
+
+
+async def test_frozen_reference_forbidden_error_keeps_http_projection(monkeypatch):
+    from app.services import trained_models
+
+    target = uuid.uuid4()
+    client = RoutedMLBackendClient(
+        None, target, project_id=uuid.uuid4(), owner="test", operation="predict"
+    )
+    error = FreezeModelReferenceError(
+        "project_access_changed",
+        "permission changed",
+        status_code=403,
+        detail={"reason": "permission_changed"},
+    )
+    reference_port = SimpleNamespace(validate=AsyncMock(side_effect=error))
+    monkeypatch.setattr(
+        trained_models,
+        "bind_frozen_model_reference",
+        lambda _db: reference_port,
+    )
+
+    with pytest.raises(HTTPException) as failure:
+        await client.predict(
+            [{"id": "wanted"}],
+            context={
+                "model_id": "trained:version",
+                "frozen_model_ref": {"model_version_id": "version"},
+            },
+        )
+
+    assert failure.value.status_code == 403
+    assert failure.value.detail == {"reason": "permission_changed"}

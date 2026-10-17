@@ -160,8 +160,11 @@ async def test_controlled_route_forwards_only_qualified_context_and_byte_budget(
         owner="evaluation",
         operation="sample_evaluation",
     )
+    reference_port = SimpleNamespace(validate=AsyncMock(return_value=target))
     monkeypatch.setattr(
-        trained_models, "validate_frozen_reference", AsyncMock(return_value=target)
+        trained_models,
+        "bind_frozen_model_reference",
+        lambda _db: reference_port,
     )
 
     @asynccontextmanager

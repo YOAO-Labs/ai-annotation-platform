@@ -15,6 +15,10 @@ from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_fac
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.training_dataset_bridge import content_digest
+from app.services.trained_model_reference_contract import (
+    FreezeModelReferenceError,
+    FreezeModelReferenceRequest,
+)
 
 
 class RemoteUncertain(Exception):
@@ -29,9 +33,17 @@ async def qualification(db, project, model_id, deployment_id):
     deployment = await db.get(ModelDeployment, deployment_id)
     if not deployment or deployment.model_version_id != model_id:
         raise reject("deployment_unavailable", "受控部署不存在", 404)
-    ref = await trained_models.resolve_reference(
-        db, project, f"trained:{model_id}", deployment.registry_id
-    )
+    try:
+        ref = await trained_models.bind_frozen_model_reference(db).freeze(
+            FreezeModelReferenceRequest(
+                project_id=project.id,
+                project_classes=trained_models.project_classes(project),
+                model_id=f"trained:{model_id}",
+                registry_id=deployment.registry_id,
+            )
+        )
+    except FreezeModelReferenceError as exc:
+        trained_models.raise_frozen_model_reference_error(exc)
     if ref["deployment_id"] != str(deployment_id):
         raise reject("deployment_changed", "受控部署身份已变化")
     if ref["framework"] != "ultralytics":

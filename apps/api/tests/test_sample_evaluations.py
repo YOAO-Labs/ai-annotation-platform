@@ -2,6 +2,7 @@
 
 import copy
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -31,8 +32,11 @@ async def test_shared_qualification_rejects_libre_before_any_profile_request(
     owner, _token = super_admin
     world = await seed(db_session, owner, objects)
     ref = {**world.ref, "framework": "libreyolo"}
+    reference_port = SimpleNamespace(freeze=AsyncMock(return_value=ref))
     monkeypatch.setattr(
-        trained_models, "resolve_reference", AsyncMock(return_value=ref)
+        trained_models,
+        "bind_frozen_model_reference",
+        lambda _db: reference_port,
     )
     profile = AsyncMock()
     monkeypatch.setattr(MLBackendClient, "managed_evaluation_request", profile)

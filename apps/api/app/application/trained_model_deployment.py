@@ -11,6 +11,7 @@ from app.db.models.project import Project
 from app.db.models.user import User
 from app.services import trained_model_backend as backend_io
 from app.services import trained_models as learning
+from app.services.trained_model_reference_contract import FrozenModelReferenceFacts
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_claims import project_lock
 
@@ -55,8 +56,16 @@ async def deploy_model(
 
     error = None
     try:
+        reference_facts = FrozenModelReferenceFacts(
+            project_id=version.project_id,
+            registry_id=deployment.registry_id,
+            deployment_id=deployment.id,
+            binding_digest=version.binding_digest,
+            bindings=version.bindings,
+            provenance=version.provenance,
+        )
         receipt, trial = await backend_io.install_and_trial(
-            db, project, version, deployment
+            db, project, version, deployment, reference_facts=reference_facts
         )
     except Exception as exc:
         receipt, trial = {}, {}

@@ -1368,6 +1368,13 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 真实 HTTP 回归覆盖空领取、分配响应丢失后的原身份重放、失联恢复、心跳、上传、取消后停止及结束重放，并通过真实完成路径校验成功报告。隔离 PostgreSQL 首轮 19 passed、1 个新增夹具把 UUID 直接传给 JSON 编码而失败；改用原 ExecutorFence JSON 投影后该项复验通过，20 项均获验证。独立预览执行器 31 passed，没有安装或运行原生训练框架。
 - OpenAPI 一次性核对确认十个训练/预览私有操作均有非空成功响应 schema。SDK 契约/离线目录 35 passed，目录与本地 Web client 已重新生成；这些私有操作仍不属于普通 SDK 能力。未增加端点或变更版本，没有启动真实执行器或采用 Go。
 
+### 模型冻结引用的进程内契约
+
+- `FreezeModelReferencePort` 的 freeze/validate 只接受类型化 ID、当前类别事实和原冻结 JSON，返回原引用或精确部署实例 UUID；SQL 适配器绑定调用方原 Session。全部生产消费者与夹具已迁移，旧 `frozen_reference`、`resolve_reference`、`validate_frozen_reference` 公开入口移除；所有者内构建函数保持私有。
+- 保留发布 ID/generation 的显式 null、LibreYOLO 专属资格事实、canonical 摘要、未知/缺失字段拒绝和三字段 ML wire。固定试用在原 checking 状态与原安装/固定样本顺序构建，不借 ready 解析器增加准入或查询。纯错误在原调用点还原 HTTPException/ValueError，当前绑定/后端/部署校验与排队后发布变化语义不变；嵌套 JSON 不额外复制。
+- 同一隔离 PostgreSQL 的模型/部署/发布、推理路由、谱系、评估、主动学习及预标注消费者 116 passed，无跳过；新回归覆盖新发布后旧排队引用仍有效、显式 null/缺失/未知字段及 403 映射。合同冷加载不装配 FastAPI、SQLAlchemy 或 Celery；架构 195 passed、83 skipped，公开 OpenAPI check 通过。
+- 与 `ca9f6262d` 实际旧函数对照，同一已加载请求 Session、一个模型/两个类别、无发布选择；预热后交错三轮，freeze 均八条 SQL，Python 堆峰值 314,295 / 314,719 B、9.625 / 11.052 ms；validate 均三条 SQL，292,526 / 294,068 B、4.699 / 4.347 ms。两侧每次 SQL 顺序完全相同，返回引用/实例一致；夹具同事务回滚。范围不含授权、HTTP/模型/对象 I/O、commit 或 RSS，不作为性能提升结论。原始记录 `.worktree/model-reference-budget.json`。
+
 ### 剩余范围
 
 已识别的 Python 依赖方向、写入所有权与完整台账有逐片验收记录；这不等于所有模块都已具备独立部署合同。后续遗留按以下条件推进：

@@ -177,6 +177,11 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(),
     ),
     DomainSpec(package="trained_model_backend", legacy_facades=()),
+    DomainSpec(
+        package="trained_model_reference_contract",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.training_dataset_bridge",),
+    ),
     DomainSpec(package="video_context", legacy_facades=()),
     DomainSpec(package="video_segment_service", legacy_facades=()),
     DomainSpec(package="video_collaboration", legacy_facades=()),
@@ -606,7 +611,7 @@ def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
         spec
         for spec in DOMAIN_PACKAGES
         if spec.allowed_app_imports == ()
-        or spec.package == "labeling_prediction_contract"
+        or spec.package.endswith(("_contract", "_contracts"))
     ],
     ids=lambda spec: spec.package,
 )

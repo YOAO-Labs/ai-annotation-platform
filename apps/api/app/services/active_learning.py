@@ -205,9 +205,20 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
             is None
         ):
             raise reject("model_missing", "固定模型或部署已不可用")
-    await trained_models.validate_frozen_reference(
-        db, project.id, prepared["model_ref"]
+    from app.services.trained_model_reference_contract import (
+        FreezeModelReferenceError,
+        ValidateFrozenModelReferenceRequest,
     )
+
+    try:
+        await trained_models.bind_frozen_model_reference(db).validate(
+            ValidateFrozenModelReferenceRequest(
+                project_id=project.id,
+                reference=prepared["model_ref"],
+            )
+        )
+    except FreezeModelReferenceError as exc:
+        trained_models.raise_frozen_model_reference_error(exc)
     ids = body.sample_task_ids
     await db.execute(
         select(Task.id)

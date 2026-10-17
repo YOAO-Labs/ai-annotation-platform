@@ -11,6 +11,11 @@ from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import trained_models as models
 from app.services.ml_client import MLBackendClient
+from app.services.trained_model_reference_contract import (
+    FrozenModelReference,
+    FrozenModelReferenceFacts,
+    build_frozen_model_reference,
+)
 
 
 async def live_receipt(backend, model_version_id: str) -> dict:
@@ -19,7 +24,12 @@ async def live_receipt(backend, model_version_id: str) -> dict:
 
 
 async def install_and_trial(
-    db, project: Project, version: TrainedModelVersion, deployment: ModelDeployment
+    db,
+    project: Project,
+    version: TrainedModelVersion,
+    deployment: ModelDeployment,
+    *,
+    reference_facts: FrozenModelReferenceFacts,
 ):
     """Install the frozen artifact and run its fixed validation-image trial."""
     backend = await models.enabled_backend(db, project.id, deployment.registry_id)
@@ -39,7 +49,9 @@ async def install_and_trial(
     sample = next((s for s in dataset.manifest["samples"] if s["split"] == "val"), None)
     if not sample:
         raise HTTPException(status_code=409, detail="缺少固定验证样本")
-    ref = models.frozen_reference(version, deployment)
+    frozen_reference: FrozenModelReference = build_frozen_model_reference(
+        reference_facts, models.expected_receipt(version)
+    )
     results = await client.predict(
         [
             {
@@ -49,11 +61,11 @@ async def install_and_trial(
                 ),
             },
         ],
-        context=models.wire_context(ref, {"conf": 0.01}),
+        context=models.wire_context(frozen_reference, {"conf": 0.01}),
     )
     if len(results) != 1 or str(results[0].task_id) != sample["task_id"]:
         raise HTTPException(status_code=422, detail="样本试用返回的任务身份不匹配")
-    models.validate_and_map_results(results, ref)
+    models.validate_and_map_results(results, frozen_reference)
     return receipt, {
         "task_id": sample["task_id"],
         "validation_digest": version.provenance["validation_digest"],

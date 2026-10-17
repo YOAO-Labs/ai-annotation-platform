@@ -632,6 +632,10 @@ async def _execute_preannotation(
                 if locked_by_other:
                     raise ValueError("preannotation task scope is locked for editing")
         from app.services import trained_models
+        from app.services.trained_model_reference_contract import (
+            FreezeModelReferenceError,
+            ValidateFrozenModelReferenceRequest,
+        )
 
         visual_task = resolve_model_task(backend, model_id, visual_task)
         controlled = (
@@ -656,9 +660,15 @@ async def _execute_preannotation(
                 raise ValueError(
                     "Controlled preannotation is missing its frozen identity"
                 )
-            await trained_models.validate_frozen_reference(
-                db, project_uuid, frozen_model_ref
-            )
+            try:
+                await trained_models.bind_frozen_model_reference(db).validate(
+                    ValidateFrozenModelReferenceRequest(
+                        project_id=project_uuid,
+                        reference=frozen_model_ref,
+                    )
+                )
+            except FreezeModelReferenceError as exc:
+                trained_models.raise_frozen_model_reference_error(exc)
             model_id = f"trained:{frozen_model_ref['model_version_id']}"
         context = prediction_context.build_predict_context(
             prompt=prompt,

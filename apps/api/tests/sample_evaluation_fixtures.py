@@ -13,11 +13,12 @@ from app.db.models.sample_evaluation import SampleEvaluationAttempt as Attempt
 from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.sample_evaluation import SampleEvaluationCreate
-from app.services import sample_evaluations as service, trained_models
+from app.services import sample_evaluations as service
 from app.services.ml_client import PredictionResult
 from app.services.training_dataset_bridge import content_digest
 from tests.test_trained_models import ready_deployment, seed_source
 from tests.test_training_dataset_analysis import inputs
+from tests.trained_model_reference_fixtures import build_reference
 
 
 class Body(io.BytesIO):
@@ -160,7 +161,7 @@ async def seed(db, owner, objects, *, count=2):
     db.add(model)
     await db.flush()
     backend, deployment = await ready_deployment(db, project, model)
-    ref = trained_models.frozen_reference(model, deployment)
+    ref = build_reference(model, deployment)
     qualified = profile()
     body = SampleEvaluationCreate(
         request_id=uuid.uuid4(),

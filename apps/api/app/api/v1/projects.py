@@ -1986,9 +1986,22 @@ async def trigger_preannotation(
             raise HTTPException(status_code=422, detail="所选任务包含非图片素材")
 
     async def freeze_controlled_model():
-        ref = await trained_models.resolve_reference(
-            db, project, body.model_id, source_backend_id
+        from app.services.trained_model_reference_contract import (
+            FreezeModelReferenceError,
+            FreezeModelReferenceRequest,
         )
+
+        try:
+            ref = await trained_models.bind_frozen_model_reference(db).freeze(
+                FreezeModelReferenceRequest(
+                    project_id=project.id,
+                    project_classes=trained_models.project_classes(project),
+                    model_id=body.model_id,
+                    registry_id=source_backend_id,
+                )
+            )
+        except FreezeModelReferenceError as exc:
+            trained_models.raise_frozen_model_reference_error(exc)
         checked = build_predict_context(
             prompt=body.prompt,
             output_mode=body.output_mode,

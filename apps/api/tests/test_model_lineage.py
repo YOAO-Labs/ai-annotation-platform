@@ -27,6 +27,7 @@ from app.db.models.user import User
 from app.schemas.model_lineage import ModelDecisionCreate
 from app.schemas.trained_model import TrainedModelCreate, ModelReleaseCreate
 from app.services import model_lineage as service, trained_models
+from tests.trained_model_reference_fixtures import build_reference
 from app.application.project_deletion import (
     delete_project as delete_project_transaction,
 )
@@ -338,7 +339,7 @@ async def release_row(db, project, model, deployment, generation, **extra):
     db.add(row)
     await db.flush()
     if model:
-        row.snapshot = trained_models.frozen_reference(model, deployment, row)
+        row.snapshot = build_reference(model, deployment, row)
     return row
 
 
@@ -575,7 +576,7 @@ async def test_retained_prediction_counts_require_full_controlled_identity(
     project, _, _, model = await seed(db_session, owner)
     _, deployment = await ready_deployment(db_session, project, model)
     task = await create_task(db_session, project_id=project.id)
-    ref = trained_models.frozen_reference(model, deployment)
+    ref = build_reference(model, deployment)
     for mutation in (
         None,
         {"sha256": "wrong"},

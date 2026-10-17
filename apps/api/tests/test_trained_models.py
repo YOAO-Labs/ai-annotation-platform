@@ -21,8 +21,14 @@ from app.services.labeling_prediction_contract import ApplyPredictionResultReque
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
 from app.services.labeling_write_scope import capture_labeling_write_scope
+from app.services.trained_model_reference_contract import (
+    FreezeModelReferenceError,
+    ValidateFrozenModelReferenceRequest,
+)
+from app.services.training_dataset_bridge import content_digest
 from tests.conftest import create_registry_with_pool
 from tests.factory import create_membership, create_project, create_task
+from tests.trained_model_reference_fixtures import build_reference
 
 
 def headers(token):
@@ -425,7 +431,7 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     await db_session.flush()
     task = await create_task(db_session, project_id=project.id)
     mock_live_receipts(monkeypatch, db_session)
-    await publish(httpx_client, token, project, v1, d1, 0)
+    r1, _ = await publish(httpx_client, token, project, v1, d1, 0)
     dispatch = Mock(
         side_effect=lambda request, **_options: (
             request.async_job_id or str(uuid.uuid4())
@@ -452,7 +458,17 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
 
     assert dispatch.call_args.kwargs["queue"] == settings.preannotate_cpu_queue
     assert original_ref["model_version_id"] == first["id"]
+    assert original_ref["release_id"] == r1["id"]
+    assert original_ref["release_generation"] == r1["generation"]
     await publish(httpx_client, token, project, v2, d2, 1)
+    assert (
+        await service.bind_frozen_model_reference(db_session).validate(
+            ValidateFrozenModelReferenceRequest(
+                project_id=project.id, reference=original_ref
+            )
+        )
+        == backend.id
+    )
     replay = await httpx_client.post(endpoint, headers=request_headers, json=body)
     assert replay.status_code == 200 and replay.json()["job_id"] == str(job.id)
     assert dispatch.call_args.args[0].frozen_model_ref == original_ref
@@ -478,7 +494,7 @@ async def test_ready_deployment_retry_does_not_interrupt_existing_predictions(
     install = AsyncMock()
     monkeypatch.setattr(backend_io, "install_and_trial", install)
     mock_live_receipts(monkeypatch, db_session)
-    ref = service.frozen_reference(version, deployment)
+    ref = build_reference(version, deployment)
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/trained-models/{version.id}/deploy",
         headers=headers(token),
@@ -487,7 +503,9 @@ async def test_ready_deployment_retry_does_not_interrupt_existing_predictions(
     assert response.status_code == 200 and response.json()["status"] == "ready"
     install.assert_not_awaited()
     assert (
-        await service.validate_frozen_reference(db_session, project.id, ref)
+        await service.bind_frozen_model_reference(db_session).validate(
+            ValidateFrozenModelReferenceRequest(project_id=project.id, reference=ref)
+        )
         == backend.id
     )
 
@@ -517,9 +535,15 @@ async def test_ready_deployment_restores_a_missing_backend_installation(
             else HTTPException(status_code=409, detail="missing installation")
         ),
     )
-    install = AsyncMock(
-        return_value=(service.expected_receipt(version), {"result": []})
-    )
+
+    observed = {}
+
+    async def install_trial(_db, _project, model, checking, *, reference_facts):
+        observed["status"] = checking.status
+        observed["facts"] = reference_facts
+        return service.expected_receipt(model), {"result": []}
+
+    install = AsyncMock(side_effect=install_trial)
     monkeypatch.setattr(backend_io, "install_and_trial", install)
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/trained-models/{version.id}/deploy",
@@ -533,6 +557,9 @@ async def test_ready_deployment_restores_a_missing_backend_installation(
         return
     assert response.status_code == 200 and response.json()["status"] == "ready"
     install.assert_awaited_once()
+    assert observed["status"] == "checking"
+    assert observed["facts"].project_id == project.id
+    assert observed["facts"].deployment_id == deployment.id
     assert response.json()["id"] == str(deployment.id)
 
 
@@ -552,7 +579,10 @@ async def test_stale_deployment_check_cannot_publish_older_trial(
     await db_session.flush()
     newer_check_id = uuid.uuid4()
 
-    async def supersede_during_backend_io(db, _project, model, current):
+    async def supersede_during_backend_io(
+        db, _project, model, current, *, reference_facts
+    ):
+        assert reference_facts.deployment_id == current.id
         await db.execute(
             update(ModelDeployment)
             .where(ModelDeployment.id == current.id)
@@ -619,7 +649,7 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
     data, _ = await register(httpx_client, token, project, run, attempt)
     version = await db_session.get(TrainedModelVersion, uuid.UUID(data["id"]))
     _, deployment = await ready_deployment(db_session, project, version)
-    ref = service.frozen_reference(version, deployment)
+    ref = build_reference(version, deployment)
     result = prediction_result(
         ref,
         geometry={"type": "bbox", "x": 0.5, "y": 0.5, "w": 0.5, "h": 0.5},
@@ -752,14 +782,51 @@ async def test_frozen_model_revalidates_current_project_bindings(
     httpx_client,
     controlled_artifacts,
 ):
-    from fastapi import HTTPException
-
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
     data, _ = await register(httpx_client, token, project, run, attempt)
     version = await db_session.get(TrainedModelVersion, uuid.UUID(data["id"]))
     _, deployment = await ready_deployment(db_session, project, version)
-    ref = service.frozen_reference(version, deployment)
+    ref = build_reference(version, deployment)
+    port = service.bind_frozen_model_reference(db_session)
+    assert ref["release_id"] is None and ref["release_generation"] is None
+    request = ValidateFrozenModelReferenceRequest(project_id=project.id, reference=ref)
+    assert await port.validate(request) == deployment.registry_id
+
+    extra_field = {**ref, "future_identity": "preserve-and-reject"}
+    extra_field["reference_digest"] = content_digest(
+        {key: value for key, value in extra_field.items() if key != "reference_digest"}
+    )
+    with pytest.raises(FreezeModelReferenceError) as unknown:
+        await port.validate(
+            ValidateFrozenModelReferenceRequest(
+                project_id=project.id, reference=extra_field
+            )
+        )
+    assert unknown.value.code == "reference_changed"
+
+    absent_release_fields = {
+        key: value
+        for key, value in ref.items()
+        if key not in {"release_id", "release_generation"}
+    }
+    absent_release_fields["reference_digest"] = content_digest(
+        {
+            key: value
+            for key, value in absent_release_fields.items()
+            if key != "reference_digest"
+        }
+    )
+    with pytest.raises(FreezeModelReferenceError) as missing:
+        await port.validate(
+            ValidateFrozenModelReferenceRequest(
+                project_id=project.id, reference=absent_release_fields
+            )
+        )
+    assert missing.value.code == "reference_changed"
+
     project.tool_bindings = {"bbox": {"classes": [{"name": "different"}]}}
-    with pytest.raises(HTTPException):
-        await service.validate_frozen_reference(db_session, project.id, ref)
+    with pytest.raises(FreezeModelReferenceError) as failure:
+        await port.validate(request)
+    assert failure.value.status_code == 422
+    assert failure.value.detail == "须为每个原生类别绑定当前项目的矩形框类别"

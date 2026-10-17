@@ -3,6 +3,7 @@
 import copy
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -35,10 +36,13 @@ async def test_preview_rejects_libre_through_real_shared_qualification(
     monkeypatch.setattr(
         active_learning_pool, "qualification", managed_inference.qualification
     )
+    reference_port = SimpleNamespace(
+        freeze=AsyncMock(return_value={**world.ref, "framework": "libreyolo"})
+    )
     monkeypatch.setattr(
         trained_models,
-        "resolve_reference",
-        AsyncMock(return_value={**world.ref, "framework": "libreyolo"}),
+        "bind_frozen_model_reference",
+        lambda _db: reference_port,
     )
     profile = AsyncMock()
     monkeypatch.setattr(MLBackendClient, "managed_evaluation_request", profile)
