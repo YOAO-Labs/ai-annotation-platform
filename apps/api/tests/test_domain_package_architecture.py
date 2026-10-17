@@ -181,6 +181,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="sample_evaluations", legacy_facades=()),
     DomainSpec(package="prediction_retry", legacy_facades=(), allowed_app_imports=()),
     DomainSpec(package="labeling_tasks", legacy_facades=()),
+    DomainSpec(package="labeling_assignment", legacy_facades=()),
     DomainSpec(
         package="labeling_write_scope", legacy_facades=(), allowed_app_imports=()
     ),

@@ -198,7 +198,7 @@ async def _assignment_plan(db, project_id, batch_id, data, *, lock=False):
         only_unassigned=False,
         single_batch_id=batch_id,
         clear_unselected=True,
-        validate_targets=svc._lock_and_validate_assignment_targets,
+        validate_targets=svc.lock_and_validate_assignment_targets,
         lock_batches=lock,
     )
 
@@ -497,7 +497,7 @@ async def preview_distribution_in_project(
         reviewer_ids=data.reviewer_ids,
         only_unassigned=data.only_unassigned,
         batch_ids=data.batch_ids,
-        validate_targets=svc._lock_and_validate_assignment_targets,
+        validate_targets=svc.lock_and_validate_assignment_targets,
     )
 
 

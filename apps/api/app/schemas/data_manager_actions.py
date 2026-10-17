@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -21,51 +20,6 @@ class DataManagerTaskSelection(BaseModel):
     def canonicalize_task_ids(self) -> DataManagerTaskSelection:
         self.task_ids = sorted(set(self.task_ids), key=str)
         return self
-
-
-class DataManagerTaskAssignmentRequest(DataManagerTaskSelection):
-    annotator_id: UUID | None = None
-    reviewer_id: UUID | None = None
-
-    @model_validator(mode="after")
-    def require_assignment_field(self) -> DataManagerTaskAssignmentRequest:
-        if not {"annotator_id", "reviewer_id"}.intersection(self.model_fields_set):
-            raise ValueError("annotator_id or reviewer_id required")
-        return self
-
-
-class DataManagerTaskAssignmentApplyRequest(DataManagerTaskAssignmentRequest):
-    preview_version: str = Field(min_length=64, max_length=64)
-
-
-class DataManagerTaskAssignmentItem(BaseModel):
-    task_id: UUID
-    task_display_id: str | None = None
-    batch_id: UUID | None = None
-    status: str | None = None
-    task_updated_at: datetime | None = None
-    before_annotator_id: UUID | None = None
-    after_annotator_id: UUID | None = None
-    before_reviewer_id: UUID | None = None
-    after_reviewer_id: UUID | None = None
-    # Raw task columns remain available for compatibility; these fields show
-    # the effective owner after a NULL task override falls back to its batch.
-    effective_before_annotator_id: UUID | None = None
-    effective_after_annotator_id: UUID | None = None
-    effective_before_reviewer_id: UUID | None = None
-    effective_after_reviewer_id: UUID | None = None
-    will_change: bool = False
-    reason: str | None = None
-
-
-class DataManagerTaskAssignmentResponse(BaseModel):
-    task_ids: list[UUID]
-    preview_version: str
-    eligible_count: int = 0
-    skipped_count: int = 0
-    failed_count: int = 0
-    succeeded: list[UUID] = Field(default_factory=list)
-    items: list[DataManagerTaskAssignmentItem] = Field(default_factory=list)
 
 
 class DataManagerTaskExportRequest(ExportRequestBody, DataManagerTaskSelection):

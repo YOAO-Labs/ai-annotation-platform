@@ -58,6 +58,9 @@ last_reviewed: 2026-10-16
   `services/{user_lifecycle,identity_commands,account_groups}.py`，
   成员行在 `services/project_membership.py`，任务/批次交接在 `BatchService`，
   GDPR 审计历史脱敏在 `AuditService`。预览/CAS、传统删除与离职、SQL/Redis 时序不混同。
+- 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
+  持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
+  `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
   单项重试、放弃和恢复共享当前项目管理准入，不从 API 路由导入规则。
 - 贡献与审核事实：`app/services/annotation_evidence.py` 持有轮次、贡献者快照、

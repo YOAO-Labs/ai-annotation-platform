@@ -34,25 +34,25 @@ from app.schemas.data_manager import (
     DataManagerTrackDetailResponse,
     DataManagerTrackQueryResponse,
 )
-from app.schemas.data_manager_actions import (
+from app.schemas.labeling_assignment import (
     DataManagerTaskAssignmentApplyRequest,
     DataManagerTaskAssignmentRequest,
     DataManagerTaskAssignmentResponse,
-    DataManagerTaskExportRequest,
 )
+from app.schemas.data_manager_actions import DataManagerTaskExportRequest
 from app.db.models.async_job import AsyncJobKind
 from app.services.data_management.service import (
     DataManagerService,
     build_data_manager_schema,
 )
 from app.services.data_management.actions import (
-    DataManagerTaskActionService,
     assert_idempotent_request_matches,
     find_idempotent_job,
     lock_idempotency_key,
     normalize_idempotency_key,
     request_digest,
 )
+from app.services.labeling_assignment import LabelingTaskAssignmentService
 from app.services.data_management.entities import DataManagerObjectService
 from app.services.data_management.entity_filters import validate_entity_view
 from app.services.data_management.views import validate_filter
@@ -79,7 +79,7 @@ async def preview_data_manager_task_assignment(
     actor: User = Depends(get_current_user),
 ):
     del project
-    return await DataManagerTaskActionService(db).preview_assignment(
+    return await LabelingTaskAssignmentService(db).preview_assignment(
         project_id,
         payload,
         actor=actor,
@@ -99,7 +99,7 @@ async def apply_data_manager_task_assignment(
     actor: User = Depends(get_current_user),
 ):
     del project
-    result = await DataManagerTaskActionService(db).apply_assignment(
+    result = await LabelingTaskAssignmentService(db).apply_assignment(
         project_id,
         payload,
         actor=actor,

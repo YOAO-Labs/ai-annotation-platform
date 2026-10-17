@@ -80,7 +80,7 @@ class BatchService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _lock_and_validate_assignment_targets(
+    async def lock_and_validate_assignment_targets(
         self,
         project_id: uuid.UUID,
         targets: list[tuple[str, uuid.UUID]],
@@ -230,7 +230,7 @@ class BatchService:
             assignment_targets.append(("annotator", data.annotator_id))
         if data.reviewer_id is not None:
             assignment_targets.append(("reviewer", data.reviewer_id))
-        await self._lock_and_validate_assignment_targets(project_id, assignment_targets)
+        await self.lock_and_validate_assignment_targets(project_id, assignment_targets)
         batch = TaskBatch(
             project_id=project_id,
             dataset_id=data.dataset_id,
@@ -269,7 +269,7 @@ class BatchService:
                 if probe is None:
                     raise HTTPException(status_code=404, detail="Batch not found")
                 project_id = probe.project_id
-            await self._lock_and_validate_assignment_targets(
+            await self.lock_and_validate_assignment_targets(
                 project_id, assignment_targets
             )
             stmt = (
@@ -693,7 +693,7 @@ class BatchService:
             assignment_targets.append(("annotator", data.annotator_id))
         if data.reviewer_id is not None:
             assignment_targets.append(("reviewer", data.reviewer_id))
-        await self._lock_and_validate_assignment_targets(project_id, assignment_targets)
+        await self.lock_and_validate_assignment_targets(project_id, assignment_targets)
         # scene 模式项目分包只能按 scene:同一 scene 的连续帧必须落同一批次,random/顺序
         # 切分会把连续帧拆散给不同标注员。前端已只暴露 by_scene 入口,这里再加一道后端门
         # 防御直发 API 的越权策略。
@@ -1019,7 +1019,7 @@ class BatchService:
             annotator_ids=annotator_ids,
             reviewer_ids=reviewer_ids,
             only_unassigned=only_unassigned,
-            validate_targets=self._lock_and_validate_assignment_targets,
+            validate_targets=self.lock_and_validate_assignment_targets,
             lock_batches=True,
             batch_ids=batch_ids,
         )
@@ -1869,7 +1869,7 @@ class BatchService:
             assignment_targets.append(("annotator", annotator_id))
         if reviewer_set and reviewer_id is not None:
             assignment_targets.append(("reviewer", reviewer_id))
-        await self._lock_and_validate_assignment_targets(project_id, assignment_targets)
+        await self.lock_and_validate_assignment_targets(project_id, assignment_targets)
         loaded = await self._list_batches_in_project(
             project_id, batch_ids, for_update=True
         )

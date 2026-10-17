@@ -2,7 +2,7 @@
 audience: [developer]
 type: reference
 status: stable
-last_reviewed: 2026-09-14
+last_reviewed: 2026-10-17
 ---
 
 # Data Manager 查询与聚合
@@ -27,6 +27,18 @@ Data Manager 的数据查询使用项目范围内的只读 read model，提供 t
 | `/projects/{id}/task-views`                                        | 保存和共享 filter/sort/columns 配置                                              |
 
 `schema` 是前端字段和操作符的唯一真值，并返回 `available_entity_scopes`。项目 profile 由 `data_type × scene_mode × enabled tool_bindings × attribute_schema` 组成；`type_key` 只提供 preset，不应作为唯一分流依据。对象对所有项目可用；轨迹只在视频轨迹能力或 Scene 模式成立时可用。
+
+## 选定任务分派边界
+
+`POST /projects/{id}/data-manager/tasks/assignment-preview` 和 `assignment-apply` 调用标注所有者 `services/labeling_assignment.py::LabelingTaskAssignmentService`，不再通过 `data_management` 写 Task。请求/响应模型由 `schemas/labeling_assignment.py` 持有，保留既有 `DataManagerTaskAssignment*` 公开 schema 名称；查询与保存视图仍属于 read model 及其配置，不取得任务写入权。
+
+- 请求数组上限 200，UUID 去重并稳定排序。角色字段缺失表示保留，显式 null 表示清除任务覆盖并恢复批次默认；未分批任务恢复为未指派。raw 与 effective 前后值、预览摘要和逐项数量保持原合同。
+- 预览读取当前管理权限；确认在接收人校验前取得当前账号/项目管理围栏，复用 `BatchService.lock_and_validate_assignment_targets` 校验并锁定启用账号及对应成员职责。旧主体、旧 owner 或旧预览不能提供写权限。
+- 确认按批次→任务锁定并刷新当前事实，核对等待后的批次归属，再比较预览摘要；归属、状态、锁定或分派变化返回既有 `data_manager_assignment_preview_stale`。锁定行交给同一计划继续写入，不重新装载另一组目标。
+- 最终编辑检查复用非阻塞 `TaskLockService.assert_final_write_available(allow_own=False)`；包括本人编辑锁在内的不可用目标保留 `task_locked` 逐项失败。只转换已知编辑繁忙冲突，其他数据库/权限错误不伪装为成功。
+- 仅审核态可指定非空审核员；显式审核员变更保留领取时间重置。所有者只 flush，由 HTTP 在同一事务记录审计并提交，保留成功、跳过和失败的部分结果，不强制改派同批其他任务。
+
+这些仍是本地 Session/ORM 持久化适配器，不是已实现的跨语言命令协议。
 
 ## Filter DSL
 

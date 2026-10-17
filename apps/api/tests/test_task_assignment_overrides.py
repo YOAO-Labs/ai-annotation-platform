@@ -8,12 +8,12 @@ import pytest
 
 from app.db.models.task_batch import TaskBatch
 from app.schemas.batch import BatchUpdate
-from app.schemas.data_manager_actions import (
+from app.schemas.labeling_assignment import (
     DataManagerTaskAssignmentApplyRequest,
     DataManagerTaskAssignmentRequest,
 )
 from app.services.batch import BatchService
-from app.services.data_management.actions import DataManagerTaskActionService
+from app.services.labeling_assignment import LabelingTaskAssignmentService
 from app.services.scheduler import get_next_task
 from tests.factory import create_membership, create_project, create_user
 from tests.test_task_assignment_visibility import _task
@@ -89,7 +89,7 @@ async def test_selected_assignments_survive_batch_reassignment(
     )
     chosen_annotator = old_annotator if pin_current_default else selected_annotator
     chosen_reviewer = old_reviewer if pin_current_default else selected_reviewer
-    actions = DataManagerTaskActionService(db_session)
+    actions = LabelingTaskAssignmentService(db_session)
 
     async def assign_selected(annotator_id, reviewer_id):
         payload = DataManagerTaskAssignmentRequest(
@@ -192,7 +192,7 @@ async def test_new_review_round_releases_previous_reviewer_override(
         display_id=f"T-ROUND-{uuid.uuid4().hex[:8]}",
     )
     task.status = "review"
-    actions = DataManagerTaskActionService(db_session)
+    actions = LabelingTaskAssignmentService(db_session)
     payload = DataManagerTaskAssignmentRequest(
         task_ids=[task.id],
         reviewer_id=pinned_reviewer.id,
