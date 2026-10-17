@@ -29,8 +29,10 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.deps import get_db, require_roles
-from app.services.audit import AuditAction, AuditService
-from app.services.batch import BatchService
+from app.application.bulk_clear_preannotate import (
+    bulk_clear_preannotate as run_bulk_clear_preannotate,
+)
+from app.services.audit import AuditOriginContext
 from app.services.batch_permissions import bulk_preannotation_eligible_condition
 
 router = APIRouter()
@@ -178,123 +180,15 @@ async def bulk_clear_preannotate(
 
     project_admin 只能处理自己 owned 项目下的 batch; 跨项目越权进 skipped.
     """
-    from sqlalchemy import text
-
-    svc = BatchService(db)
-    response = BulkClearResponse()
-    is_super = admin.role == UserRole.SUPER_ADMIN
-
-    bres = await db.execute(
-        select(TaskBatch).where(TaskBatch.id.in_(payload.batch_ids))
-    )
-    batches_by_id = {b.id: b for b in bres.scalars().all()}
-
-    project_ids = list({b.project_id for b in batches_by_id.values()})
-    pres = await db.execute(select(Project).where(Project.id.in_(project_ids)))
-    projects_by_id = {p.id: p for p in pres.scalars().all()}
-
-    aggregate_cascade = {
-        "predictions": 0,
-        "failed_predictions": 0,
-        "prediction_jobs": 0,
-    }
-
-    for bid in payload.batch_ids:
-        batch = batches_by_id.get(bid)
-        if not batch:
-            response.skipped.append(BulkClearItem(batch_id=bid, reason="not_found"))
-            continue
-        proj = projects_by_id.get(batch.project_id)
-        if not proj:
-            response.skipped.append(
-                BulkClearItem(batch_id=bid, reason="project_missing")
-            )
-            continue
-        if not is_super and proj.owner_id != admin.id:
-            response.skipped.append(BulkClearItem(batch_id=bid, reason="forbidden"))
-            continue
-
-        try:
-            if payload.mode == "reset_to_draft":
-                _, _, cascade = await svc.reset_to_draft(bid, actor_id=admin.id)
-            else:
-                # predictions_only: 复用 reset_to_draft 的级联 SQL 但保留 task / lock 状态.
-                # 实现上先记录 batch 当前 status, 再调 reset_to_draft, 最后状态回 ACTIVE.
-                # 简化版: 直接拷贝级联清理 SQL; 不动 task / batch 其他字段.
-                from app.db.models.annotation import Annotation
-                from app.db.models.prediction import Prediction, FailedPrediction
-                from sqlalchemy import delete, update
-
-                task_ids_subq = select(Task.id).where(Task.batch_id == bid)
-                await db.execute(
-                    update(Annotation)
-                    .where(Annotation.task_id.in_(task_ids_subq))
-                    .values(parent_prediction_id=None)
-                )
-                await db.execute(
-                    text(
-                        "DELETE FROM prediction_metas WHERE prediction_id IN "
-                        "(SELECT id FROM predictions WHERE task_id IN "
-                        "(SELECT id FROM tasks WHERE batch_id = :bid)) "
-                        "OR failed_prediction_id IN "
-                        "(SELECT id FROM failed_predictions WHERE task_id IN "
-                        "(SELECT id FROM tasks WHERE batch_id = :bid))"
-                    ),
-                    {"bid": str(bid)},
-                )
-                pred_r = await db.execute(
-                    delete(Prediction).where(Prediction.task_id.in_(task_ids_subq))
-                )
-                fail_r = await db.execute(
-                    delete(FailedPrediction).where(
-                        FailedPrediction.task_id.in_(task_ids_subq)
-                    )
-                )
-                # v0.10.49 · prediction_jobs 已收敛进 async_jobs（按 payload.batch_id 清）
-                job_r = await db.execute(
-                    delete(AsyncJob).where(
-                        AsyncJob.kind == "batch_predict",
-                        AsyncJob.payload["batch_id"].astext == str(bid),
-                    )
-                )
-                cascade = {
-                    "predictions": pred_r.rowcount or 0,
-                    "failed_predictions": fail_r.rowcount or 0,
-                    "prediction_jobs": job_r.rowcount or 0,
-                }
-                if batch.status == BatchStatus.PRE_ANNOTATED:
-                    batch.status = BatchStatus.ACTIVE
-
-            await db.flush()
-            for k in aggregate_cascade:
-                aggregate_cascade[k] += cascade.get(k, 0)
-            response.succeeded.append(bid)
-        except Exception as exc:  # noqa: BLE001
-            response.failed.append(
-                BulkClearItem(batch_id=bid, reason=f"{type(exc).__name__}: {exc}")
-            )
-
-    await AuditService.log(
+    result = await run_bulk_clear_preannotate(
         db,
+        batch_ids=payload.batch_ids,
+        mode=payload.mode,
+        reason=payload.reason,
         actor=admin,
-        action=AuditAction.PREANNOTATE_BULK_CLEAR,
-        target_type="batch",
-        target_id=str(response.succeeded[0]) if response.succeeded else "none",
-        request=request,
-        status_code=200,
-        detail={
-            "mode": payload.mode,
-            "reason": payload.reason,
-            "requested": len(payload.batch_ids),
-            "succeeded_ids": [str(i) for i in response.succeeded],
-            "succeeded": len(response.succeeded),
-            "skipped": len(response.skipped),
-            "failed": len(response.failed),
-            "cascade": aggregate_cascade,
-        },
+        origin=AuditOriginContext.from_request(request),
     )
-    await db.commit()
-    return response
+    return BulkClearResponse(**result)
 
 
 # ── v0.9.12 BUG B-17 · /ai-pre 项目卡片网格的聚合数据源 ─────────────────────────

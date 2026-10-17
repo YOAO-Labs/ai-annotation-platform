@@ -7,8 +7,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import Select
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
@@ -507,6 +508,31 @@ def _remap_track_ids(result: list[dict]) -> list[dict]:
 class PredictionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def delete_for_tasks(self, task_id_select: Select) -> dict[str, int]:
+        """Delete predictions and metadata for task IDs, preserving FK order."""
+        pred_ids = select(Prediction.id).where(Prediction.task_id.in_(task_id_select))
+        failed_ids = select(FailedPrediction.id).where(
+            FailedPrediction.task_id.in_(task_id_select)
+        )
+        await self.db.execute(
+            delete(PredictionMeta).where(
+                or_(
+                    PredictionMeta.prediction_id.in_(pred_ids),
+                    PredictionMeta.failed_prediction_id.in_(failed_ids),
+                )
+            )
+        )
+        prediction_result = await self.db.execute(
+            delete(Prediction).where(Prediction.task_id.in_(task_id_select))
+        )
+        failed_result = await self.db.execute(
+            delete(FailedPrediction).where(FailedPrediction.task_id.in_(task_id_select))
+        )
+        return {
+            "predictions": prediction_result.rowcount or 0,
+            "failed_predictions": failed_result.rowcount or 0,
+        }
 
     async def create_from_ml_result(
         self,

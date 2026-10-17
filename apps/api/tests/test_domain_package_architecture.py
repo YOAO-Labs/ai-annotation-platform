@@ -231,6 +231,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="active_learning_pool", legacy_facades=()),
     DomainSpec(package="active_learning_references", legacy_facades=()),
     DomainSpec(package="sample_evaluation_sources", legacy_facades=()),
+    DomainSpec(package="annotation_cleanup", legacy_facades=()),
     DomainSpec(
         package="annotation_slice_contracts",
         legacy_facades=(),

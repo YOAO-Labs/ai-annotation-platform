@@ -1500,6 +1500,11 @@ class BatchService:
         await self.recalculate_counters(batch_id)
         return batch, affected, counts
 
+    def reactivate_preannotated_after_prediction_clear(self, batch: TaskBatch) -> None:
+        """Move a cleared, ready batch back to active without resetting its tasks."""
+        if batch.status == BatchStatus.PRE_ANNOTATED:
+            batch.status = BatchStatus.ACTIVE
+
     async def _reset_and_clean_batch_tasks(
         self, batch_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
     ) -> dict[str, int]:
@@ -1517,7 +1522,7 @@ class BatchService:
         """
         from app.db.models.project_member import ProjectMember
         from app.db.models.task_lock import TaskLock
-        from app.db.models.async_job import AsyncJob
+        from app.services.async_job import delete_batch_predict_jobs
 
         result = await self.db.execute(
             update(Task)
@@ -1573,13 +1578,8 @@ class BatchService:
             )
         )
 
-        # v0.10.49 · prediction_jobs 已收敛进 async_jobs；按 payload.batch_id 清本批 job 历史
-        job_result = await self.db.execute(
-            delete(AsyncJob).where(
-                AsyncJob.kind == "batch_predict",
-                AsyncJob.payload["batch_id"].astext == str(batch_id),
-            )
-        )
+        # Batch prediction history belongs to the generic async-job owner.
+        job_count = await delete_batch_predict_jobs(self.db, batch_id)
 
         task_ids = [
             r[0]
@@ -1591,7 +1591,7 @@ class BatchService:
 
         return {
             "tasks_reset": tasks_reset,
-            "prediction_jobs": job_result.rowcount or 0,
+            "prediction_jobs": job_count,
             **pred_counts,
         }
 
@@ -1616,16 +1616,16 @@ class BatchService:
 
         Returns: {"predictions": N, "failed_predictions": N, "ai_annotations_deactivated": N}
         """
-        from app.db.models.prediction import (
-            Prediction,
-            FailedPrediction,
-            PredictionMeta,
-        )
         from app.db.models.annotation import Annotation
+        from app.services.annotation_cleanup import (
+            deactivate_prediction_annotations_for_tasks,
+            detach_prediction_parents_for_tasks,
+        )
         from app.services.annotation_evidence import (
             lock_tasks_for_evidence,
             record_annotation_actors_for_tasks,
         )
+        from app.services.prediction import PredictionService
         from sqlalchemy import text, bindparam
 
         if not task_ids:
@@ -1668,42 +1668,16 @@ class BatchService:
                 )
 
         # B-33 · 软删 AI 采纳的 annotation. 保留 source='manual' 的人工标注 (不丢工作量).
-        ai_anno_result = await self.db.execute(
-            update(Annotation)
-            .where(
-                Annotation.task_id.in_(task_ids),
-                Annotation.source == "prediction_based",
-                Annotation.is_active.is_(True),
-            )
-            .values(is_active=False)
+        ai_annotations_deactivated = await deactivate_prediction_annotations_for_tasks(
+            self.db, task_ids
         )
 
-        # annotations.parent_prediction_id FK 无 ondelete; 必须先 NULL 才能 DELETE predictions
-        await self.db.execute(
-            update(Annotation)
-            .where(Annotation.task_id.in_(task_ids))
-            .values(parent_prediction_id=None)
-        )
-
-        # prediction_metas FK 无 ondelete; 先删
-        pred_ids = select(Prediction.id).where(Prediction.task_id.in_(task_ids))
-        failed_ids = select(FailedPrediction.id).where(
-            FailedPrediction.task_id.in_(task_ids)
-        )
-        await self.db.execute(
-            delete(PredictionMeta).where(
-                or_(
-                    PredictionMeta.prediction_id.in_(pred_ids),
-                    PredictionMeta.failed_prediction_id.in_(failed_ids),
-                )
-            )
-        )
-
-        pred_result = await self.db.execute(
-            delete(Prediction).where(Prediction.task_id.in_(task_ids))
-        )
-        failed_result = await self.db.execute(
-            delete(FailedPrediction).where(FailedPrediction.task_id.in_(task_ids))
+        # Annotations own the soft reference; detach it before PredictionService removes
+        # partitioned prediction rows and their metadata.
+        task_id_select = select(Task.id).where(Task.id.in_(task_ids))
+        await detach_prediction_parents_for_tasks(self.db, task_id_select)
+        prediction_counts = await PredictionService(self.db).delete_for_tasks(
+            task_id_select
         )
 
         # B-33 · 同步 task 物化字段: total_predictions 归 0, total_annotations / is_labeled
@@ -1730,9 +1704,8 @@ class BatchService:
         await self.db.execute(stmt, {"tids": task_ids})
 
         return {
-            "predictions": pred_result.rowcount or 0,
-            "failed_predictions": failed_result.rowcount or 0,
-            "ai_annotations_deactivated": ai_anno_result.rowcount or 0,
+            **prediction_counts,
+            "ai_annotations_deactivated": ai_annotations_deactivated,
         }
 
     # ── Bulk operations (v0.7.3) ───────────────────────────────────────────

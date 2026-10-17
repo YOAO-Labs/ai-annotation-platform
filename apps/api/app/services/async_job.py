@@ -15,10 +15,10 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,17 @@ async def create_job(
     db.add(job)
     await db.flush()
     return job
+
+
+async def delete_batch_predict_jobs(db: AsyncSession, batch_id: uuid.UUID) -> int:
+    """Remove batch_predict history for a batch; the caller owns the transaction."""
+    result = await db.execute(
+        delete(AsyncJob).where(
+            AsyncJob.kind == AsyncJobKind.BATCH_PREDICT.value,
+            AsyncJob.payload["batch_id"].astext == str(batch_id),
+        )
+    )
+    return int(result.rowcount or 0)
 
 
 async def mark_running(

@@ -268,7 +268,7 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 
 ### `_reset_and_clean_batch_tasks` 级联清理
 
-这是 `reset_to_draft`（v0.7.6）与 `delete` / `bulk_delete`（v0.11.23）共用的级联清理核心，返回各项清理计数：
+这是 `reset_to_draft` 与 `delete` / `bulk_delete` 共用的调用方事务内级联清理核心，返回各项清理计数：
 
 - 非 `pending` task → `pending`
 - 删除该批次 task 的 `TaskLock`
@@ -278,13 +278,15 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 
 ### `clean_task_predictions`
 
-`clean_task_predictions(task_ids)` 是 task 维度的"清 AI 预标产物"原子操作，被 `_reset_and_clean_batch_tasks` 与 `batch_predict` 的 `overwrite` 模式（v0.11.24）共用：
+`clean_task_predictions(task_ids)` 是 task 维度的清理命令，被 `_reset_and_clean_batch_tasks` 与 `batch_predict` 的 `overwrite` 模式共用；它不自行提交：
 
-- 软删除 `source != "manual"`（即 prediction 派生）的 annotation；手工标注保留
+- 仅软删除 `source="prediction_based"` 的有效标注；人工及其他来源保留
 - 把残留 annotation 的 `parent_prediction_id` 置空
 - 删除 `prediction_metas` / `predictions` / `failed_predictions`
 - `Task.total_predictions` 归零，重算 `total_annotations` / `is_labeled`
 - `task_ids` 为空时是 no-op
+
+标注行修改由下层 `annotation_cleanup` 持有，预测与 Meta 删除由 `PredictionService.delete_for_tasks()` 持有；`BatchService` 保留任务围栏、实际内容删除者的贡献证据及任务计数写入，避免反向调用高层 `AnnotationService` 形成循环。父预测解绑只是元数据修改，不冒充人工编辑；系统无主体清理将受影响任务贡献置为未知。批次预标作业删除统一交给通用 `async_job` 所有者。
 
 ### `reject_batch`
 

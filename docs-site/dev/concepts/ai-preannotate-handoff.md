@@ -251,6 +251,10 @@ worker 会按三种模式选任务：
 2. `reset_to_draft`
    复用 `BatchService.reset_to_draft()` 做彻底重置
 
+模式编排与最终审计提交在 `application/bulk_clear_preannotate.py`；标注引用/AI 软删、预测及 Meta、通用作业、批次状态分别由 `annotation_cleanup`、`PredictionService`、`async_job` 和 `BatchService` 持有。当前账号/项目围栏先于清理，保留平台管理员或当前负责人策略及逐项 `forbidden`；普通成员可见性不是这个管理命令的授权。
+
+请求中的重复 ID 不去重；结果保留输入顺序，第二次处理已删除产物不重复累计行数。入口只在最后提交，没有逐项 savepoint；事务级 SQL 故障或提交失败会回滚已处理批次和汇总业务审计，不承诺任意 Python 异常的条目级原子性。
+
 ## 失败与回滚路径
 
 ### 单条失败
@@ -278,6 +282,8 @@ ML backend 对某题失败时，不会中断整批；worker 会写：
 
 - `pre_annotated → active`
 
+所有标注的父预测引用会解绑，但人工及已采纳 AI 标注的有效性、几何和版本保持不变；任务状态、物化计数、贡献/审核证据、分派及编辑锁不重置。这里只删数据库产物，不直接删存储字节。
+
 ### 彻底回到草稿
 
 如果整批要推倒重来，走：
@@ -289,6 +295,9 @@ ML backend 对某题失败时，不会中断整批；worker 会写：
 - 清 task lock
 - task 非 `pending` 全回 `pending`
 - 清 batch review 元数据
+- 软删 `source="prediction_based"` 的已采纳标注，保留人工标注；重算有效标注数与 `is_labeled`，预测数归零
+- 清当前审核贡献/提交者证据，记录实际内容删除者；无主体的系统清理把受影响任务贡献证据保守置为未知
+- 已失效成员的继承分派清空，显式任务覆盖保留
 
 ## 常见误解
 

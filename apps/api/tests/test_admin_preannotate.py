@@ -189,6 +189,183 @@ async def test_bulk_clear_predictions_only_resets_to_active(
 
 
 @pytest.mark.asyncio
+async def test_bulk_clear_predictions_only_preserves_manual_work(
+    httpx_client, db_session, super_admin
+):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import or_
+
+    from app.db.models.annotation import Annotation
+    from app.db.models.async_job import AsyncJob
+    from app.db.models.audit_log import AuditLog
+    from app.db.models.prediction import (
+        FailedPrediction,
+        Prediction,
+        PredictionMeta,
+    )
+    from app.db.models.task import Task
+    from app.db.models.task_batch import TaskBatch
+    from app.db.models.task_lock import TaskLock
+    from app.services.audit import AuditAction
+
+    user, token = super_admin
+    project = await create_project(
+        db_session, owner_id=user.id, name="bulk-clear-preservation"
+    )
+    batch, backend = await _seed_batch_with_predictions(db_session, project.id)
+    task = (
+        await db_session.execute(select(Task).where(Task.batch_id == batch.id))
+    ).scalar_one()
+    prediction = (
+        await db_session.execute(
+            select(Prediction).where(Prediction.task_id == task.id)
+        )
+    ).scalar_one()
+    task.status = "in_progress"
+    task.total_predictions = 1
+    manual = Annotation(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        project_id=project.id,
+        user_id=user.id,
+        source="manual",
+        class_name="cat",
+        geometry={"type": "bbox", "x": 1, "y": 1, "w": 2, "h": 2},
+        parent_prediction_id=prediction.id,
+        is_active=True,
+    )
+    failed = FailedPrediction(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        project_id=project.id,
+        ml_backend_id=backend.id,
+        error_type="TIMEOUT",
+        message="boom",
+    )
+    db_session.add_all(
+        [
+            manual,
+            failed,
+            TaskLock(
+                task_id=task.id,
+                user_id=user.id,
+                expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            ),
+        ]
+    )
+    await db_session.flush()
+    db_session.add_all(
+        [
+            PredictionMeta(
+                id=uuid.uuid4(),
+                prediction_id=prediction.id,
+                prediction_created_at=prediction.created_at,
+            ),
+            PredictionMeta(
+                id=uuid.uuid4(),
+                failed_prediction_id=failed.id,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/admin/preannotate-queue/bulk-clear",
+        json={
+            "batch_ids": [str(batch.id), str(batch.id)],
+            "mode": "predictions_only",
+            "reason": "Preserve manual task work",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["succeeded"] == [str(batch.id), str(batch.id)]
+    assert body["skipped"] == []
+    assert body["failed"] == []
+
+    await db_session.refresh(task)
+    await db_session.refresh(manual)
+    stored_batch = await db_session.get(TaskBatch, batch.id)
+    stored_lock = (
+        await db_session.execute(select(TaskLock).where(TaskLock.task_id == task.id))
+    ).scalar_one_or_none()
+    assert stored_batch.status == "active"
+    assert task.status == "in_progress"
+    assert task.total_predictions == 1
+    assert stored_lock is not None
+    assert manual.source == "manual"
+    assert manual.is_active is True
+    assert manual.parent_prediction_id is None
+
+    predictions = (
+        (
+            await db_session.execute(
+                select(Prediction).where(Prediction.id == prediction.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    failed_predictions = (
+        (
+            await db_session.execute(
+                select(FailedPrediction).where(FailedPrediction.id == failed.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    metas = (
+        (
+            await db_session.execute(
+                select(PredictionMeta).where(
+                    or_(
+                        PredictionMeta.prediction_id == prediction.id,
+                        PredictionMeta.failed_prediction_id == failed.id,
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    jobs = (
+        (
+            await db_session.execute(
+                select(AsyncJob).where(
+                    AsyncJob.kind == "batch_predict",
+                    AsyncJob.payload["batch_id"].astext == str(batch.id),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert predictions == []
+    assert failed_predictions == []
+    assert metas == []
+    assert jobs == []
+
+    audit = (
+        await db_session.execute(
+            select(AuditLog).where(
+                AuditLog.action == AuditAction.PREANNOTATE_BULK_CLEAR.value,
+                AuditLog.target_id == str(batch.id),
+            )
+        )
+    ).scalar_one()
+    assert audit.detail_json["succeeded_ids"] == [str(batch.id), str(batch.id)]
+    assert audit.detail_json["cascade"] == {
+        "predictions": 1,
+        "failed_predictions": 1,
+        "prediction_jobs": 1,
+    }
+
+
+@pytest.mark.asyncio
 async def test_bulk_clear_skips_other_owners_batches_for_project_admin(
     httpx_client, db_session, super_admin, project_admin
 ):
@@ -215,6 +392,51 @@ async def test_bulk_clear_skips_other_owners_batches_for_project_admin(
     assert body["succeeded"] == []
     assert len(body["skipped"]) == 1
     assert body["skipped"][0]["reason"] == "forbidden"
+
+
+@pytest.mark.asyncio
+async def test_bulk_clear_rechecks_current_project_owner(
+    httpx_client, db_session, super_admin, project_admin
+):
+    from sqlalchemy import update
+
+    from app.db.models.prediction import Prediction
+    from app.db.models.project import Project
+
+    owner, token = project_admin
+    receiver, _ = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    batch, _ = await _seed_batch_with_predictions(db_session, project.id)
+    await db_session.commit()
+    prediction_id = (await db_session.execute(select(Prediction.id))).scalar_one()
+    batch_id = batch.id
+    await db_session.execute(
+        update(Project)
+        .where(Project.id == project.id)
+        .values(owner_id=receiver.id)
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/admin/preannotate-queue/bulk-clear",
+        json={
+            "batch_ids": [str(batch_id)],
+            "mode": "predictions_only",
+            "reason": "Refuse stale project ownership",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "succeeded": [],
+        "skipped": [{"batch_id": str(batch_id), "reason": "forbidden"}],
+        "failed": [],
+    }
+    assert (await db_session.execute(select(Prediction.id))).scalars().all() == [
+        prediction_id
+    ]
 
 
 # ── v0.9.12 · /admin/preannotate-summary (B-17) ──────────────────────────────

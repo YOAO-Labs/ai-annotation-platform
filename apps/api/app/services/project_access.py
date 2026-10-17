@@ -351,16 +351,10 @@ async def _locked_access_row(db: AsyncSession, statement, *, busy_reason: str):
         raise
 
 
-async def lock_current_project_access(
+async def lock_current_project_rows(
     db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
-) -> tuple[User, Project, ProjectAccess]:
-    """Resolve current authority under account -> project -> membership share locks.
-
-    All locks are bounded and retained until the caller commits or rolls back.
-    Project KEY SHARE fences explicit ownership/deletion FOR UPDATE locks while
-    allowing ordinary counter deltas without a SHARE-to-UPDATE upgrade cycle.
-    This is a local database admission boundary, not a portable authority token.
-    """
+) -> tuple[User, Project]:
+    """Refresh and fence account/project rows without granting project visibility."""
     with db.no_autoflush:
         user = await _locked_access_row(
             db,
@@ -382,6 +376,23 @@ async def lock_current_project_access(
         )
         if project is None:
             raise HTTPException(status_code=404, detail="项目不存在")
+    return user, project
+
+
+async def lock_current_project_access(
+    db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
+) -> tuple[User, Project, ProjectAccess]:
+    """Resolve authority under account -> project -> membership share locks.
+
+    Locks are bounded and retained until the caller commits or rolls back.
+    Project KEY SHARE fences explicit ownership/deletion FOR UPDATE locks while
+    allowing ordinary counter deltas without a SHARE-to-UPDATE upgrade cycle.
+    This is a local database admission boundary, not a portable authority token.
+    """
+    user, project = await lock_current_project_rows(
+        db, actor_id=actor_id, project_id=project_id
+    )
+    with db.no_autoflush:
         access = await _resolve_current_project_access(
             db, user=user, project=project, lock_membership=True, nowait=True
         )

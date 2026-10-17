@@ -187,6 +187,10 @@ last_reviewed: 2026-10-16
    `prediction_roi.py` 负责裁剪和回映，`prediction_progress.py` 发布现有项目/全局进度。
    HTTP、同步二次推理、批量及逐帧 worker 直接导入下层所有者；
    原执行编排与结果写入事务不变，没有增加语言替换所需的远程协议。
+6. 预标批量清空：`app/application/bulk_clear_preannotate.py` 组合模式、当前账号/项目围栏、
+   逐项结果及单次审计提交。标注软删和父预测解绑在 `services/annotation_cleanup.py`，
+   分区预测与 Meta 删除在 `PredictionService.delete_for_tasks()`，
+   预标作业删除在 `services/async_job.py`；批次/任务状态与计数仍归 `BatchService`。
 
 ## 5. 在线学习与模型训练调用链
 

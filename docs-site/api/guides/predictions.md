@@ -51,6 +51,13 @@ GET /api/v1/admin/preannotate-queue?project_id=&status=
 
 只看当前 `pre_annotated` 批次（与 jobs 历史区分）。批量清理预标队列仍走 `/admin/preannotate-queue/bulk-clear`。
 
+批量清空接收 1–50 个 `batch_ids`、`mode` 和 10–500 字符的 `reason`。重复 ID 保留输入次序并重复记入 `succeeded`，级联计数仅累计实际删除行；不存在的批次进入 `skipped/not_found`，非当前负责人且非平台管理员的目标进入 `skipped/forbidden`。执行前刷新并锁定当前账号和项目，项目转移与清空并发时返回冲突，不沿用缓存负责人权限。
+
+- `predictions_only`：解绑标注父预测引用，再删除预测 Meta、成功/失败预测及该批次的 `batch_predict` 作业；仅 `pre_annotated` 批次回到 `active`。人工与已采纳 AI 标注保持有效，任务状态、物化计数、贡献证据和编辑锁不变。
+- `reset_to_draft`：额外软删 `prediction_based` 标注、重算任务标注/预测计数、将任务回到 `pending`、清编辑锁及审核证据/批次审核元数据，并回到 `draft`；人工标注保留，显式任务分派覆盖不因成员失效被抹掉。
+
+领域清理不提交；该入口最后提交业务行与一条汇总审计，没有逐项 savepoint。领域锁竞争若回滚整个事务，立即保留原 409 并停止，不继续使用已经释放的权限围栏；数据库语句使事务失败或最终提交失败时，整次业务写入回滚。不能把此前内存中的成功列表视为已经持久化的部分成功。此清理不直接删除对象存储字节。
+
 ## 查询任务预测
 
 ```http
