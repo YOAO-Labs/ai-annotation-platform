@@ -552,6 +552,7 @@ async def _generate_task_thumbnail(task_id: str) -> None:
             return
 
         await writer.set_task_thumbnail(task.id, thumb_key, hash_str)
+        await db.commit()
 
     await engine.dispose()
 

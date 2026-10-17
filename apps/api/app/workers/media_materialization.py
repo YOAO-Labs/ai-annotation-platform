@@ -64,6 +64,6 @@ class SqlAlchemyMediaMaterializationWriter:
         )
 
     async def set_task_thumbnail(
-        self, task_id: UUID, thumbnail_path: str, blurhash: str
+        self, task_id: UUID, thumbnail_path: str, blurhash: str | None
     ) -> None:
         await self.labeling_tasks.set_task_thumbnail(task_id, thumbnail_path, blurhash)

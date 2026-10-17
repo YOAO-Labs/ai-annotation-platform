@@ -66,6 +66,20 @@ def _metadata_ready(metadata: VideoMetadata) -> None:
         raise HTTPException(status_code=503, detail="Video metadata not ready")
 
 
+def reset_chunk_retry_state(row: VideoChunk) -> None:
+    """Reset generated fields without changing the chunk's locator or payload."""
+    row.status = "pending"
+    row.error = None
+    row.generation_mode = None
+    row.diagnostics = {}
+
+
+def reset_frame_retry_state(row: VideoFrameCache) -> None:
+    """Reset a cached frame failure while preserving its locator and payload."""
+    row.status = "pending"
+    row.error = None
+
+
 def _safe_frame_range(
     metadata: VideoMetadata, from_frame: int | None, to_frame: int | None
 ) -> tuple[int, int]:

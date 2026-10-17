@@ -62,6 +62,7 @@ from app.services.image_pyramid import (
 )
 from app.services.storage import StorageService
 from app.workers.celery_app import celery_app
+from app.workers.media_materialization import SqlAlchemyMediaMaterializationWriter
 
 logger = logging.getLogger(__name__)
 _ORPHAN_KEY_RE = re.compile(
@@ -543,6 +544,7 @@ async def _run_image_pyramid(
                 overview_digest=result.overview_digest,
                 tile_count=result.tile_count,
                 retained_bytes=result.retained_bytes,
+                task_thumbnail_writer=SqlAlchemyMediaMaterializationWriter(db),
             )
             await db.commit()
         if not published:

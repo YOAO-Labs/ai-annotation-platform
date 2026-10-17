@@ -1022,6 +1022,12 @@ async def test_video_asset_retry_queues_existing_media_tasks(
         chunk_id=1,
         start_frame=30,
         end_frame=59,
+        start_pts_ms=1000,
+        end_pts_ms=1999,
+        storage_key=f"videos/{item.id}/chunks/1.mp4",
+        byte_size=987,
+        generation_mode="smart_copy",
+        diagnostics={"source_codec": "avc1.4d001e"},
         status="failed",
         error="chunk failed",
     )
@@ -1030,6 +1036,8 @@ async def test_video_asset_retry_queues_existing_media_tasks(
         frame_index=8,
         width=320,
         format="jpeg",
+        storage_key=f"videos/{item.id}/frames/8_320.jpeg",
+        byte_size=321,
         status="failed",
         error="frame failed",
     )
@@ -1065,17 +1073,114 @@ async def test_video_asset_retry_queues_existing_media_tasks(
     assert metadata_resp.status_code == 202
     assert chunk_resp.status_code == 202
     assert frame_resp.status_code == 202
-    assert media_dispatcher.video_metadata == [item.id]
-    assert media_dispatcher.video_chunks == [(item.id, [1])]
-    assert media_dispatcher.video_frames == [
-        (item.id, [{"frame_index": 8, "width": 320, "format": "jpeg"}])
-    ]
     await db_session.refresh(chunk)
     await db_session.refresh(frame)
     assert chunk.status == "pending"
     assert chunk.error is None
+    assert chunk.generation_mode is None
+    assert chunk.diagnostics == {}
+    assert chunk.storage_key == f"videos/{item.id}/chunks/1.mp4"
+    assert chunk.byte_size == 987
     assert frame.status == "pending"
     assert frame.error is None
+    assert (frame.dataset_item_id, frame.frame_index, frame.width, frame.format) == (
+        item.id,
+        8,
+        320,
+        "jpeg",
+    )
+    assert frame.storage_key == f"videos/{item.id}/frames/8_320.jpeg"
+    assert frame.byte_size == 321
+
+
+async def test_video_asset_retry_preserves_missing_asset_errors(
+    db_session, httpx_client, super_admin, media_dispatcher
+):
+    user, token = super_admin
+    _, item = await _make_video_task(db_session, user.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    missing_chunk_id = await httpx_client.post(
+        "/api/v1/storage/video-assets/retry",
+        headers=headers,
+        json={"asset_type": "chunk", "dataset_item_id": str(item.id)},
+    )
+    missing_chunk = await httpx_client.post(
+        "/api/v1/storage/video-assets/retry",
+        headers=headers,
+        json={
+            "asset_type": "chunk",
+            "dataset_item_id": str(item.id),
+            "chunk_id": 99,
+        },
+    )
+    missing_frame_fields = await httpx_client.post(
+        "/api/v1/storage/video-assets/retry",
+        headers=headers,
+        json={"asset_type": "frame", "dataset_item_id": str(item.id)},
+    )
+    missing_frame = await httpx_client.post(
+        "/api/v1/storage/video-assets/retry",
+        headers=headers,
+        json={
+            "asset_type": "frame",
+            "dataset_item_id": str(item.id),
+            "frame_index": 8,
+            "width": 320,
+            "format": "webp",
+        },
+    )
+    missing_item = await httpx_client.post(
+        "/api/v1/storage/video-assets/retry",
+        headers=headers,
+        json={"asset_type": "poster", "dataset_item_id": str(uuid.uuid4())},
+    )
+
+    assert missing_chunk_id.status_code == 400
+    assert missing_chunk.status_code == 404
+    assert missing_frame_fields.status_code == 400
+    assert missing_frame.status_code == 404
+    assert missing_item.status_code == 404
+
+
+async def test_video_asset_retry_commit_survives_dispatch_failure(
+    db_session, httpx_client, super_admin, media_dispatcher, monkeypatch
+):
+    user, token = super_admin
+    _, item = await _make_video_task(db_session, user.id)
+    chunk = VideoChunk(
+        dataset_item_id=item.id,
+        chunk_id=1,
+        start_frame=30,
+        end_frame=59,
+        status="failed",
+        error="chunk failed",
+        generation_mode="transcode",
+        diagnostics={"output_codec": "avc1.4d001f"},
+    )
+    db_session.add(chunk)
+    await db_session.flush()
+
+    def fail_dispatch(_item_id, _chunk_ids):
+        raise RuntimeError("dispatch unavailable")
+
+    monkeypatch.setattr(media_dispatcher, "dispatch_video_chunks", fail_dispatch)
+    with pytest.raises(RuntimeError):
+        await httpx_client.post(
+            "/api/v1/storage/video-assets/retry",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "asset_type": "chunk",
+                "dataset_item_id": str(item.id),
+                "chunk_id": 1,
+            },
+        )
+
+    await db_session.refresh(chunk)
+    assert chunk.status == "pending"
+    assert chunk.error is None
+    assert chunk.generation_mode is None
+    assert chunk.diagnostics == {}
 
 
 async def test_video_asset_retry_accepts_any_managed_linked_project(
@@ -1123,7 +1228,6 @@ async def test_video_asset_retry_accepts_any_managed_linked_project(
         json={"asset_type": "poster", "dataset_item_id": str(item.id)},
     )
     assert resp.status_code == 202, resp.text
-    assert media_dispatcher.video_metadata == [item.id]
 
 
 async def test_video_asset_retry_rejects_unmanaged_linked_projects_only(

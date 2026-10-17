@@ -53,6 +53,7 @@ pending → building → ready
 同一 asset 同时最多有一个 pending/building generation。Worker 在所有对象上传和校验成功后，才在事务中
 更新 `active_generation`。同源重建时旧 active 可继续提供服务；源被替换后旧 active 立即失效，避免旧像素
 与新坐标叠加。
+只有当前 asset 与 generation 行通过 `FOR UPDATE` 持有匹配 lease 的发布才能修改缩略图投影。DatasetItem 缩略图仍由 assets 在发布事务中写入；Task 的 overview 路径经 `MediaMaterializationWriter` 交给 `LabelingTaskService`，由 image-pyramid worker 与代次状态一起提交。失去 lease 时两类缩略图投影都不会写入。
 
 对象布局是服务端实现细节：
 

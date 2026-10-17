@@ -20,6 +20,10 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import storage_service
+from app.services.video_frame_service import (
+    reset_chunk_retry_state,
+    reset_frame_retry_state,
+)
 from app.schemas.storage import BucketSummary, BucketsResponse
 
 router = APIRouter()
@@ -313,10 +317,7 @@ async def retry_video_asset(
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="Video chunk not found")
-        row.status = "pending"
-        row.error = None
-        row.generation_mode = None
-        row.diagnostics = {}
+        reset_chunk_retry_state(row)
         await db.commit()
         media_dispatcher.dispatch_video_chunks(item.id, [payload.chunk_id])
         return VideoAssetRetryResponse(
@@ -340,8 +341,7 @@ async def retry_video_asset(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Video frame cache row not found")
-    row.status = "pending"
-    row.error = None
+    reset_frame_retry_state(row)
     await db.commit()
     media_dispatcher.dispatch_video_frames(
         item.id,

@@ -157,6 +157,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="media_job_dispatch", legacy_facades=()),
     DomainSpec(package="dataset", legacy_facades=()),
     DomainSpec(package="video_frame_service", legacy_facades=()),
+    DomainSpec(package="image_pyramid", legacy_facades=()),
     DomainSpec(package="training_dataset_dispatch", legacy_facades=()),
     DomainSpec(package="training_datasets", legacy_facades=()),
     DomainSpec(package="learning_policies", legacy_facades=()),

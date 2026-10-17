@@ -20,12 +20,14 @@ from app.services.image_pyramid import (
     expected_tile_dimensions,
     get_asset_for_owner,
     owner_for_dataset_item,
+    publish_generation,
     prepare_generation,
     pyramid_levels,
     sha256_digest,
 )
 from app.services.storage import StorageService
 from app.workers import image_pyramid as image_pyramid_worker
+from app.workers.media_materialization import SqlAlchemyMediaMaterializationWriter
 from tests.factory import build_tool_bindings
 
 
@@ -69,6 +71,110 @@ async def _make_image_task(db_session, owner_id, *, width=8193, height=6145):
     db_session.add(task)
     await db_session.flush()
     return task, item
+
+
+async def test_publish_generation_projects_task_thumbnail_only_for_winning_lease(
+    db_session, super_admin
+):
+    user, _ = super_admin
+    task, item = await _make_image_task(db_session, user.id)
+    task.thumbnail_path = "thumbnails/original.webp"
+    task.blurhash = "existing-blurhash"
+    asset = ImagePyramidAsset(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        profile_version="pyramid-v1",
+        building_generation=1,
+    )
+    winning_token = uuid.uuid4()
+    generation = ImagePyramidGeneration(
+        asset_id=asset.id,
+        generation=1,
+        source_identity="etag:image:bytes:1234",
+        status="building",
+        lease_token=winning_token,
+        normalization_version="exif-autorotate-srgb-v1",
+    )
+    db_session.add_all([asset, generation])
+    await db_session.flush()
+
+    publication = {
+        "source_fingerprint": "sha256:source",
+        "width": item.width,
+        "height": item.height,
+        "max_level": 0,
+        "manifest_storage_key": f"image-pyramids/{asset.id}/g1/manifest.json",
+        "manifest_digest": "sha256:manifest",
+        "overview_storage_key": f"image-pyramids/{asset.id}/g1/overview.webp",
+        "overview_width": 512,
+        "overview_height": 384,
+        "overview_digest": "sha256:overview",
+        "tile_count": 1,
+        "retained_bytes": 2048,
+        "task_thumbnail_writer": SqlAlchemyMediaMaterializationWriter(db_session),
+    }
+
+    staged = await db_session.begin_nested()
+    published = await publish_generation(
+        db_session,
+        asset_id=asset.id,
+        generation_number=1,
+        lease_token=winning_token,
+        **publication,
+    )
+    assert published is True
+    await staged.rollback()
+    for row in (task, asset, generation):
+        await db_session.refresh(row)
+    assert task.thumbnail_path == "thumbnails/original.webp"
+    assert task.blurhash == "existing-blurhash"
+    assert asset.active_generation is None
+    assert asset.building_generation == 1
+    assert generation.status == "building"
+
+    published = await publish_generation(
+        db_session,
+        asset_id=asset.id,
+        generation_number=1,
+        lease_token=winning_token,
+        **publication,
+    )
+
+    assert published is True
+    assert asset.active_generation == 1
+    assert asset.building_generation is None
+    assert generation.status == "ready"
+    assert task.thumbnail_path == publication["overview_storage_key"]
+    assert task.blurhash == "existing-blurhash"
+    await db_session.commit()
+
+    task.thumbnail_path = "thumbnails/before-losing-lease.webp"
+    asset.building_generation = 2
+    losing_generation_token = uuid.uuid4()
+    db_session.add(
+        ImagePyramidGeneration(
+            asset_id=asset.id,
+            generation=2,
+            source_identity="etag:image:bytes:1234",
+            status="building",
+            lease_token=losing_generation_token,
+            normalization_version="exif-autorotate-srgb-v1",
+        )
+    )
+    await db_session.flush()
+
+    published = await publish_generation(
+        db_session,
+        asset_id=asset.id,
+        generation_number=2,
+        lease_token=winning_token,
+        **publication,
+    )
+
+    assert published is False
+    assert task.thumbnail_path == "thumbnails/before-losing-lease.webp"
+    assert asset.active_generation == 1
+    assert asset.building_generation == 2
 
 
 def test_levels_and_overlap_are_full_resolution_first():

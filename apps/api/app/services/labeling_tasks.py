@@ -751,11 +751,12 @@ class LabelingTaskService:
         await self.db.commit()
 
     async def set_task_thumbnail(
-        self, task_id: uuid.UUID, thumbnail_path: str, blurhash: str
+        self, task_id: uuid.UUID, thumbnail_path: str, blurhash: str | None
     ) -> None:
+        """Set task thumbnail fields within the caller's transaction."""
         task = await self.db.get(Task, task_id)
         if task is None:
             return
         task.thumbnail_path = thumbnail_path
-        task.blurhash = blurhash
-        await self.db.commit()
+        if blurhash is not None:
+            task.blurhash = blurhash

@@ -20,6 +20,7 @@ from app.db.models.image_pyramid import (
 )
 from app.db.models.task import Task
 from app.services.storage import StorageService, storage_service
+from app.services.media_materialization import MediaMaterializationWriter
 from app.schemas.image_pyramid import ImagePyramidSummary
 
 PYRAMID_SCHEMA = "aap-image-pyramid/v1"
@@ -452,6 +453,7 @@ async def publish_generation(
     overview_digest: str,
     tile_count: int,
     retained_bytes: int,
+    task_thumbnail_writer: MediaMaterializationWriter,
 ) -> bool:
     asset = (
         await db.execute(
@@ -502,9 +504,9 @@ async def publish_generation(
         if owner_item is not None:
             owner_item.thumbnail_path = overview_storage_key
     elif asset.task_id is not None:
-        owner_task = await db.get(Task, asset.task_id)
-        if owner_task is not None:
-            owner_task.thumbnail_path = overview_storage_key
+        await task_thumbnail_writer.set_task_thumbnail(
+            asset.task_id, overview_storage_key, None
+        )
     await db.flush()
     return True
 

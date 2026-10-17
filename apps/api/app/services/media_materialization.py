@@ -1,4 +1,4 @@
-"""Write port for media results owned by assets and labeling tasks."""
+"""Write port for asset and labeling media; task thumbnails use caller transactions."""
 
 from __future__ import annotations
 
@@ -44,5 +44,7 @@ class MediaMaterializationWriter(Protocol):
     ) -> None: ...
 
     async def set_task_thumbnail(
-        self, task_id: UUID, thumbnail_path: str, blurhash: str
-    ) -> None: ...
+        self, task_id: UUID, thumbnail_path: str, blurhash: str | None
+    ) -> None:
+        """A ``None`` blurhash preserves the task's existing value."""
+        ...

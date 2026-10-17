@@ -926,6 +926,32 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 主线仅补验六个受影响行为：运行/Study 幂等准入、有效目录镜像变化后的旧预检拒绝、排队取消、Study 预算再保留与禁用策略的显式续训，均通过。初次从仓库根目录调用 pytest 未找到相对 `alembic.ini`，六项都停在 setup；改用 `uv --directory apps/api` 后完成，不与隔离验收重复累计。删除在假 commit 内主动 rollback 的循环论证用例；提交失败原子性仍以真实 deferred constraint / 新 PG 事务证据为准。Ruff 0.15.22 对十个变更 Python 文件通过，精确 OpenAPI 检查通过；两个临时主线探针已移除，原始观察保留。
 - 正式开发说明更新在 `docs-site/dev/concepts/backend-layers.md`。纯边界迁移未改 schema、公开 API/OpenAPI、依赖、配置或版本，不增加 CHANGELOG；仍未做语言替换。
 
+### 视频素材重试与金字塔任务投影
+
+- `storage` 保留角色/项目准入、校验、错误状态与提交后派发，将 VideoChunk / VideoFrameCache 重置委托给 `video_frame_service`。分块清空生成模式和诊断，帧只重置状态/错误；两者都保留既有 locator 与缓存字节数。`LabelingTaskService.set_task_thumbnail` 改为调用方事务内暂存，普通媒体 worker 在原位置显式提交；金字塔在 generation lease 核对后经 `MediaMaterializationWriter` 投影 Task overview，并与代次状态一起提交。DatasetItem 投影仍归 assets，不增协议、队列或重试。
+- 隔离四文件首轮出现新增夹具未设主键的 setup error；修正后只重跑该用例，未把两次结果累计为全量通过。隔离 Ruff 0.15.22 对十一个 Python 文件的格式/check、精确 OpenAPI 和冷导入/任务注册检查通过；原始细分在 `/tmp/aap-assets-evidence/backend-assets-boundary-runtime.json` 的 `checks`。
+- 隔离实际 ASGI/JWT 与新 PG 事务：非管理员拒绝后行不变，授权分块/帧重试提交 reset 与保留字段；停止其拥有的 Redis 后入队失败，reset 仍可见。新构建的真实 Celery consumer 通过其拥有的 Redis/PostgreSQL/MinIO 生成下列产物，均回读校验；金字塔 manifest 和十四个 tiles 已解码/核对摘要，旧 lease 不改 Task 投影，也没有 generation 2 对象。
+
+| 验证入口           | 产物             | 格式 |  字节 | 尺寸    |
+| ------------------ | ---------------- | ---- | ----: | ------- |
+| 隔离 Celery worker | 视频分块         | H264 | 7,947 | 160×120 |
+| 隔离 Celery worker | 视频帧           | WEBP |   758 | 64×48   |
+| 隔离 Celery worker | 金字塔 overview  | WEBP | 1,614 | 512×384 |
+| 主线实际缩略图例程 | 普通 Task 缩略图 | WEBP |   168 | 256×192 |
+
+- 主线默认 `get_db` / ASGI/JWT 重试两类缓存，提交后的新 PG 事务读到完整 reset 和保留字段；实际 Redis 消息维持 `app.workers.media.ensure_video_chunks` / `extract_video_frames` 名称。只移除探针新建且已核对目标 UUID 的两条消息，不消费或清空原队列。新 Python 进程执行实际 `_generate_task_thumbnail`，独立事务和 MinIO 回读确认其显式提交没有丢失；未启动宽队列 consumer。
+- 主线发布命令使用明确的代次事务元数据夹具：匹配 lease 的 publication 暂存成功后调用方 rollback，Task 路径/blurhash 与 asset/generation 状态均在新 PG 事务中保持原值；错误 lease 拒绝且不改投影。这不代表主线重跑完整金字塔生成。原始观察保留于 `.worktree/media-boundary-main-smoke.json`，临时脚本已移除。
+- 命令预算各侧预热后交错采样三次；before 是原内联字段/Task 投影的临时复现，current 是实际 helper/writer，包含行加载、flush、commit 与样本间状态恢复，不是历史函数 AST 对照：
+
+| 命令             | SQL 每次（前） | SQL 每次（后） | 堆峰值中位数（前，字节） | 堆峰值中位数（后，字节） |
+| ---------------- | -------------: | -------------: | -----------------------: | -----------------------: |
+| 分块 reset       |              2 |              2 |                  292,451 |                  292,571 |
+| 帧 reset         |              2 |              2 |                  285,630 |                  285,494 |
+| Task publication |              6 |              6 |                  297,163 |                  298,667 |
+
+- 所有预算样本的范围内对象 API 调用为零，不含 HTTP/JWT、队列、codec 或对象 I/O；不据此声称整请求性能或优化。原始样本与范围在 `/tmp/aap-assets-evidence/backend-assets-boundary-budget.json`。正式说明同步后端分层、图片金字塔和视频帧服务文档；未改公开 schema、依赖、配置或版本，纯边界迁移不增加 CHANGELOG。
+- 主线五个受影响回归通过，新增调用方 rollback 后 Task/代次状态整体保持的断言，并保留有效发布、失效 lease、缓存身份与权限边界。移除 mock 派发参数回声、自由错误文案和异常文案固定断言；实际队列名称以原生消息观察验证。主线十一个 Python 文件的 Ruff 格式/check 与精确 OpenAPI 均通过。
+
 ### 剩余范围
 
-- 剩余写入切片为媒体重试/金字塔任务投影、标注幂等收据、邀请接受的成员写入、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余写入切片为标注幂等收据、邀请接受的成员写入、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

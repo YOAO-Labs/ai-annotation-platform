@@ -188,9 +188,9 @@ POST /api/v1/storage/video-assets/retry
 | `chunk`           | `video_chunks.status = "failed"`                           | `ensure_video_chunks`     |
 | `frame`           | `video_frame_cache.status = "failed"`                      | `extract_video_frames`    |
 
-`probe` / `poster` / `frame_timetable` 共用 metadata 任务，因此重试任一项都会重新跑视频 metadata 生成链路。`chunk` / `frame` 重试会先把对应行恢复到 `pending` 并清空 `error`，再投递 media 队列。
+`probe` / `poster` / `frame_timetable` 共用 metadata 任务，因此重试任一项都会重新跑视频 metadata 生成链路。`chunk` / `frame` 重试由 `video_frame_service` 重置对应行的状态、错误，再由存储 API 在提交后投递 media 队列；派发失败不会回滚已提交的 `pending` 状态，也没有隐式补偿。
 
-chunk 重试会清空旧的 `generation_mode` / `diagnostics`，下一次 worker 会重新判断 smart-copy eligibility。
+chunk 重试还会清空旧的 `generation_mode` / `diagnostics`，下一次 worker 会重新判断 smart-copy eligibility。frame 重试保留 `frame_index`、`width`、`format` 及已有 `storage_key` / `byte_size`。
 
 ## Timetable 重建
 
