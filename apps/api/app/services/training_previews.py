@@ -701,6 +701,11 @@ async def cancel(db, preview):
         await jobs.request_cancel(db, preview.async_job_id)
 
 
+async def expire(db, preview):
+    preview.expires_at = now()
+    await cancel(db, preview)
+
+
 async def output(preview):
     expired = preview.expires_at <= now()
     report = None

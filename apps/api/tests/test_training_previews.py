@@ -16,6 +16,7 @@ from training_contract import definition
 from training_contract.catalog import supported_identities
 from training_contract.preview import POLICY, POLICY_DIGEST, closed_mosaic
 
+from app.db.models.async_job import AsyncJob
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
 from app.db.models.training_run import TrainingResourceLease
 from app.schemas.training_preview import PreviewClaim, PreviewFinish, PreviewUploads
@@ -465,6 +466,77 @@ async def test_deadline_and_revocation_stop_without_releasing_unknown_process(
         PreviewFinish(**fence(claim, assignment), status="failed", process_exited=True),
     )
     assert done.status == "cancelled" and lease.preview_id is None
+
+
+@pytest.mark.asyncio
+async def test_api_expiry_keeps_queued_terminal_cancellation(
+    db_session, super_admin, httpx_client, training_config
+):
+    row, path, headers, _ = await preview(db_session, httpx_client, super_admin)
+    original_expiry = row.expires_at
+
+    response = await httpx_client.delete(f"{path}/{row.id}", headers=headers)
+
+    assert response.status_code == 204
+    await db_session.refresh(row)
+    job = await db_session.get(AsyncJob, row.async_job_id)
+    await db_session.refresh(job)
+    assert row.expires_at <= service.now() < original_expiry
+    assert (row.status, job.status) == ("cancelled", "cancelled")
+    assert job.completed_at is not None
+    result = await httpx_client.get(f"{path}/{row.id}", headers=headers)
+    assert result.json()["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_api_expiry_requests_running_cancellation_without_releasing_cpu(
+    db_session, super_admin, httpx_client, training_config
+):
+    row, path, headers, _ = await preview(db_session, httpx_client, super_admin)
+    claim, assignment = await claimed(db_session, row)
+
+    response = await httpx_client.delete(f"{path}/{row.id}", headers=headers)
+
+    assert response.status_code == 204
+    await db_session.refresh(row)
+    job = await db_session.get(AsyncJob, row.async_job_id)
+    await db_session.refresh(job)
+    lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
+    assert row.expires_at <= service.now()
+    assert row.status == "cancelling"
+    assert job.payload["cancel_requested"] is True
+    assert job.payload["cancel_requested_at"]
+    assert lease.preview_id == row.id
+    result = await httpx_client.get(f"{path}/{row.id}", headers=headers)
+    assert result.json()["status"] == "expired"
+    assert (
+        await service.heartbeat(
+            db_session, row.id, ExecutorFence(**fence(claim, assignment))
+        )
+    )["stop"]
+
+
+@pytest.mark.asyncio
+async def test_expiry_and_terminal_cancellation_roll_back_together(
+    db_session, super_admin, httpx_client, training_config
+):
+    row, *_ = await preview(db_session, httpx_client, super_admin)
+    row_id, job_id = row.id, row.async_job_id
+    original_expiry = row.expires_at
+    original_payload = copy.deepcopy((await db_session.get(AsyncJob, job_id)).payload)
+    savepoint = await db_session.begin_nested()
+
+    await service.expire(db_session, row)
+
+    assert row.status == "cancelled"
+    assert (await db_session.get(AsyncJob, job_id)).status == "cancelled"
+    await savepoint.rollback()
+    db_session.expire_all()
+    restored = await db_session.get(TrainingPreview, row_id)
+    job = await db_session.get(AsyncJob, job_id)
+    assert restored.expires_at == original_expiry
+    assert restored.status == "queued"
+    assert job.status == "pending" and job.payload == original_payload
 
 
 async def test_expiry_hides_results_and_cleanup_waits_for_put_window(

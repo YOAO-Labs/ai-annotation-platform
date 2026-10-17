@@ -1139,6 +1139,16 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 既有回归保留提交失败不删对象、两段清理提交故障保留可恢复意图，以及确切目标桶不随配置变化等消费者状态；删除日志文字、调用参数/次数回声和无意义返回值固定，维护测试直接运行存储所有者，不扫描或派发无关评估。正式分层和训练存储说明同步；无 API/schema、依赖、配置、版本或任务签名变更，纯结构迁移不增加 CHANGELOG。
 - 主线定向存储故障/提交窗口、版本/运行/Study 删除保护、SCC 及精确 OpenAPI 合跑：179 passed、77 skipped、零失败/错误；JUnit 为 `/tmp/aap-training-deletion-owner-main.xml`。六个 Python 文件固定 Ruff 格式/check 通过；临时原生探针已移除。
 
+### 训练预览过期写入归属
+
+- `DELETE .../training-previews/{id}` 仍由 API 保留原项目/预览权威读取、行锁、单次提交和 `204` 响应；仅将 `expires_at` 写入移动到 `services.training_previews.expire`。该命令按原顺序先设置 `preview.expires_at = now()`，再委托现有 `cancel`，不把过期等同于清理或物理删除。
+- 语义保持：排队中的预览仍与 AsyncJob 一起成为终态 `cancelled`；正在运行的预览变为 `cancelling`，作业保留 `running` 并记录协作取消请求，资源租约不释放。读取投影仍因 `expires_at` 返回 `expired`。增加的现有服务/路由回归分别覆盖这两条路径及终态取消和过期在事务回滚后的原子恢复。
+- 本地回归：`tests/test_training_previews.py` 定向文件执行至 `[100%]`、零失败（pytest 输出未提供显式测试总数）。实际 Uvicorn HTTP smoke 使用默认 JWT、数据库和授权依赖：两条 DELETE 均返回 `204`，随后 GET 均投影为 `expired`。服务停止后，由新的 `async_session` 观察到排队行/作业均为 `cancelled` 并有 `completed_at`；运行中行是 `cancelling`、作业仍 `running` 且 `cancel_requested=true`，原资源租约仍持有该预览。数据库终态变更在 savepoint 内可见，rollback 后新连接读回原 `queued`/`pending`、未请求取消且原到期时间不变。
+- 预算对照以 `4f3f26541` 路由内联写入的明确转录为历史侧，同等已加载排队预览各预热一次、三轮交错采样，测量命令到 flush；两侧中位数均为 3 条 SQL，Python `tracemalloc` 峰值分别为 290,589 B（历史）与 290,957 B（当前）。范围不含授权、HTTP、行读取、commit 或执行器工作，不据小样本声称性能变化；该预算进程的 S3 `before-call` 次数为 0。
+- Ruff 0.15.22 `format --check`（3 个变更 Python 文件）与 `ruff check` 均通过。同步更新后端分层、仓库地图及训练数据集开发概念页；未改变 API schema、数据库 schema、依赖、运行配置或 CHANGELOG。
+- 原始实际运行观察：`/tmp/aap-preview-expiry-evidence/http.json` 与 `/tmp/aap-preview-expiry-evidence/postgres.json`。活动租约是持久化夹具，没有启动 executor/worker；Smoke 不覆盖预览创建或原生 ML 执行，预算的零 S3 观测仅限其狭窄命令范围。
+- 主线四项过期/取消、回滚和 PUT 清理窗口消费者回归通过，三文件固定 Ruff 格式/check 通过；未重复隔离 Uvicorn 验收。预算夹具的 Job 没有通知 owner，因此预算也不包含通知行和 Redis 发布；真实 HTTP 夹具有 owner，范围不同。隔离 dev/test 以精确 `5d15ac1bb2790770:dev` / `5d15ac1bb2790770:test` 确认销毁。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图及训练记录删除组合事务已收口；仍有训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共七组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务及训练预览过期已收口；仍有分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共六组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

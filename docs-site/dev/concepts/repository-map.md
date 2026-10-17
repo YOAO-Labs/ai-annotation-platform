@@ -162,6 +162,7 @@ last_reviewed: 2026-10-17
      复用冻结选择和 `project_task_dataset.ensure_membership`；配方创建/追加修订的摘要重放、
      head CAS 与写入由 `services/training_recipes.write_revision` 持有；
      归档由同模块 `archive_recipe` 保持管理/行锁围栏及 head CAS，HTTP 保留提交和响应适配。
+   - 原生训练预览过期：`app/api/v1/training_previews.py` 保留当前管理权、预览行锁、提交及 204 响应；`app/services/training_previews.py::expire` 设置过期时间并委托既有 `cancel`。排队记录即时终态取消，活动执行只请求停止并保留 CPU 租约；结果查询可显示 expired，周期 cleanup 的 PUT 宽限与物理删除仍由服务单独处理。
    - 执行取消：`app/services/job_execution_control.py::JobExecutionControl` →
      `app/deps.py::get_job_execution_control` 装配 `app/workers/job_execution_control.py`；
      只请求非强制撤销，不把请求回执当作已停止证明。

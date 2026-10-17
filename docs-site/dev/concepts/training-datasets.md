@@ -134,6 +134,8 @@ stdout/stderr 由独立管道线程持续读取。整行上限 8192 原始字节
 
 产物位于 `projects/{project}/previews/{preview}/`。签名 PUT 固定清单、长度和预览／输入／SHA 元数据。发布前验证报告和完整 PNG；授权读取持预览共享行锁直至读取完成，前端以认证 Blob 展示并释放 URL。结果 24 小时过期，最后一次 PUT 授权关闭后才能删除前缀和引用。每分钟 cleanup 先在短事务中处理 CPU 租约／活跃记录，再只锁过期 queued／terminal 行执行存储删除，避免无关清理阻塞心跳。
 
+负责人 DELETE 与周期清理不是同一命令：HTTP 先按原顺序取得当前项目管理权和预览行锁，再由 `training_previews.expire` 记录当前时刻并调用既有取消规则。排队记录及 AsyncJob 在同一事务中进入 cancelled；活动执行只写取消请求并保留 CPU 租约，直至 finish 确认进程退出。读取可按到期时间呈现 expired，但这不表示预览记录已物理删除；周期 cleanup 仍等待最后一次 PUT 授权窗口后独立删除对象和记录。
+
 部署需应用预览迁移、重建受控执行器并更新实际镜像摘要、刷新包含 cleanup 注册的 worker 与 beat。旧执行器没有匹配协议／策略时，能力接口保持不可用，训练入口继续可用。完整取舍见 [原生预览 CPU 所有权](../adr/archive/0077-native-augmentation-preview-cpu-ownership)。
 
 ## 冻结和物化

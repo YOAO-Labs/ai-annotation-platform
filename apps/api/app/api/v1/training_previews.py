@@ -132,8 +132,7 @@ async def expire(
 ):
     await lock_project_manager(db, user, project.id)
     preview = await load(db, project.id, preview_id, lock=True)
-    preview.expires_at = service.now()
-    await service.cancel(db, preview)
+    await service.expire(db, preview)
     await db.commit()
 
 
