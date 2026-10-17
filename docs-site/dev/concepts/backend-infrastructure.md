@@ -103,6 +103,14 @@ docker compose down -v
   mc du local/local       # 看 bucket 占用
   ```
 
+### audit-summary · 无状态月报归并
+
+- **构建**：`apps/audit-summary/Dockerfile`，非 root scratch 镜像运行 Go 静态二进制。
+- **端口**：内部 8091，开发宿主仅发布到 `127.0.0.1:8091`；生产 API 使用 `http://audit-summary:8091`。
+- **权限与状态**：没有数据库、Redis、对象存储凭据、业务卷或任务账本，只处理请求中的分组事实。
+- **健康检查**：二进制 `-healthcheck`；停止不需回迁业务状态。故障只影响月报归并，API 返回 503。
+- **工作树**：启动器使用当前 checkout 与独立保留端口，注入 URL 并在退出时关闭进程组。
+
 ### celery-worker · 后台任务消费者
 
 - **构建**：`infra/docker/Dockerfile.api`（与 api 同镜像，仅启动命令不同）

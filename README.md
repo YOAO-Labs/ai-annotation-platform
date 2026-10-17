@@ -168,14 +168,15 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 ### 前置依赖
 
-| 依赖           | 版本                       |
-| -------------- | -------------------------- |
-| Node.js        | `>= 22`                    |
-| pnpm           | `>= 10`                    |
-| Python         | `>= 3.11`                  |
-| uv             | Python 包管理              |
-| Docker Compose | 本地数据库、队列、对象存储 |
-| pre-commit     | 可选，但推荐               |
+| 依赖           | 版本                                              |
+| -------------- | ------------------------------------------------- |
+| Node.js        | `>= 22`                                           |
+| pnpm           | `>= 10`                                           |
+| Python         | `>= 3.11`                                         |
+| Go             | `>= 1.25`（本机运行／测试审计月报及工作树启动器） |
+| uv             | Python 包管理                                     |
+| Docker Compose | 本地数据库、队列、对象存储                        |
+| pre-commit     | 可选，但推荐                                      |
 
 ### 本地启动
 
@@ -189,7 +190,7 @@ pnpm codegen
 pre-commit install
 
 # 2. 启动基础设施
-docker compose up -d postgres redis minio mailpit
+docker compose up -d postgres redis minio mailpit audit-summary
 
 # 3. 初始化数据库
 cd apps/api && uv run alembic upgrade head && cd ../..
@@ -203,7 +204,7 @@ pnpm dev:worktree   # 独立数据库/Redis/bucket，自动选择端口并配置
 ```
 
 `dev:worktree` 为每个工作树的 `dev/test/e2e` 模式管理独立数据库、Redis、八个 bucket
-及本地文件；共享本机 PostgreSQL/MinIO 实例，不修改共享数据库。默认从 API `8100`
+及本地文件；共享本机 PostgreSQL/MinIO 实例，不修改共享数据库。启动器也管理当前 checkout 的独立 Go 审计月报进程，自动注入地址并在退出时关闭。默认从 API `8100`
 和 Web `3100` 寻找空闲端口，可用 `--with-worker` 启动本工作树的后台任务消费者。
 `doctor` 诊断、`stop` 停止、带精确确认值的 `reset/destroy` 重建或清理环境。
 首次启动不复制已有账号和项目。详见[独立工作树开发环境](docs-site/dev/how-to/worktree-environments.md)。

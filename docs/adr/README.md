@@ -133,3 +133,4 @@
 - [0087](archive/0087-project-task-dataset-streams.md) — 项目按任务派生版本流，管理关联与冻结身份分离
 - [0088](archive/0088-service-owned-task-admission.md) — 任务可见性与写入准入由服务层统一持有
 - [0089](archive/0089-injected-quality-job-dispatch.md) — 质量执行通过领域端口注入 Celery 派发适配器
+- [0090](0090-module-languages-and-audit-summary-process.md) — 按模块选择语言，以只读审计月报验证 Go 进程边界

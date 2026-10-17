@@ -29,11 +29,9 @@ from app.schemas.audit import (
     AuditLogList,
     AuditLogOut,
     AuditMonthlySummary,
-    AuditSummaryBucket,
-    AuditSummaryDailyPoint,
-    AuditSummaryTotals,
 )
 from app.services.audit_partition_service import AuditPartitionService
+from app.services.audit_summary import AuditSummaryUnavailable, monthly_audit_summary
 
 router = APIRouter()
 
@@ -56,14 +54,6 @@ def _shift_month(start: date, delta: int) -> date:
     month_index = start.year * 12 + start.month - 1 + delta
     year, zero_month = divmod(month_index, 12)
     return date(year, zero_month + 1, 1)
-
-
-def _rank_buckets(values: dict[str, int], *, limit: int | None = None):
-    ranked = [
-        AuditSummaryBucket(key=key, event_count=count)
-        for key, count in sorted(values.items(), key=lambda item: (-item[1], item[0]))
-    ]
-    return ranked[:limit] if limit is not None else ranked
 
 
 async def _load_monthly_summary_rows(
@@ -137,55 +127,6 @@ async def _load_monthly_summary_rows(
             ).all()
         )
     return materialized_through, rows
-
-
-def _build_monthly_summary(
-    *,
-    month: str,
-    month_start: date,
-    month_end: date,
-    materialized_through: date | None,
-    rows: list[tuple],
-) -> AuditMonthlySummary:
-    daily = {
-        day: {"event_count": 0, "error_count": 0}
-        for day in (
-            month_start + timedelta(days=offset)
-            for offset in range((month_end - month_start).days)
-        )
-    }
-    actions: dict[str, int] = {}
-    target_types: dict[str, int] = {}
-    actor_roles: dict[str, int] = {}
-    event_count = 0
-    error_count = 0
-
-    for row in rows:
-        row_count = int(row.event_count)
-        is_error = int(row.status_family) in (4, 5)
-        event_count += row_count
-        error_count += row_count if is_error else 0
-        daily[row.day]["event_count"] += row_count
-        daily[row.day]["error_count"] += row_count if is_error else 0
-        actions[row.action] = actions.get(row.action, 0) + row_count
-        target_types[row.target_type] = target_types.get(row.target_type, 0) + row_count
-        actor_roles[row.actor_role] = actor_roles.get(row.actor_role, 0) + row_count
-
-    return AuditMonthlySummary(
-        month=month,
-        materialized_through=materialized_through,
-        totals=AuditSummaryTotals(
-            event_count=event_count,
-            error_count=error_count,
-            action_kind_count=len(actions),
-        ),
-        daily=[
-            AuditSummaryDailyPoint(day=day, **counts) for day, counts in daily.items()
-        ],
-        top_actions=_rank_buckets(actions, limit=10),
-        target_types=_rank_buckets(target_types),
-        actor_roles=_rank_buckets(actor_roles),
-    )
 
 
 def _build_base_query(
@@ -436,13 +377,18 @@ async def list_audit_logs(
     )
 
 
-@router.get("/monthly-summary", response_model=AuditMonthlySummary)
+@router.get(
+    "/monthly-summary",
+    response_model=AuditMonthlySummary,
+    responses={503: {"description": "审计月报计算服务暂不可用"}},
+)
 async def get_monthly_audit_summary(
     month: str = Query(..., description="UTC 自然月，格式 YYYY-MM"),
     business_only: bool = Query(True, description="排除 http.* 中间件元数据行"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
+    """Return authorized monthly aggregates computed by the isolated reducer."""
     month_start, month_end = _month_bounds(month)
     current_month = datetime.now(timezone.utc).date().replace(day=1)
     retention_start = _shift_month(current_month, -settings.audit_retention_months)
@@ -458,13 +404,12 @@ async def get_monthly_audit_summary(
         month_end=month_end,
         business_only=business_only,
     )
-    return _build_monthly_summary(
-        month=month,
-        month_start=month_start,
-        month_end=month_end,
-        materialized_through=materialized_through,
-        rows=rows,
-    )
+    try:
+        return await monthly_audit_summary(
+            month=month, materialized_through=materialized_through, rows=rows
+        )
+    except AuditSummaryUnavailable as exc:
+        raise HTTPException(status_code=503, detail={"reason": str(exc)}) from None
 
 
 @router.get("/archives", response_model=list[AuditArchiveOut])

@@ -140,6 +140,11 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="user_lifecycle", legacy_facades=()),
     DomainSpec(package="identity_commands", legacy_facades=()),
     DomainSpec(
+        package="audit_summary",
+        legacy_facades=(),
+        allowed_app_imports=("app.config", "app.schemas.audit"),
+    ),
+    DomainSpec(
         package="notification_preferences_command",
         legacy_facades=(),
         allowed_app_imports=(

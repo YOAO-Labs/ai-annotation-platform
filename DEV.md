@@ -480,6 +480,10 @@ docker compose --env-file .env.production \
 
 ## 测试与文档
 
+审计月报需要独立 Go 服务。宿主开发运行 `docker compose up -d --build audit-summary`；或在 `apps/audit-summary` 运行 `go run . -listen 127.0.0.1:8091`。API 使用 `AUDIT_SUMMARY_URL`，没有本地算法回退。`dev:worktree up/exec` 自动管理当前 checkout 的 Go 进程、独立端口及 URL，退出时清理；本机需 Go ≥1.25 和可写 build cache。
+
+`cd apps/audit-summary && go test -race ./... && go vet ./...` 检查 Go 契约与并发行为。API 的 `tests/test_audit_summary_process.py` 在干净环境变量下启动 Go 二进制，覆盖精确响应、丢失响应、在途关闭与同端口重启；原月报 API 测试经工作树启动的真实服务执行。
+
 ```bash
 # 全仓格式与静态检查
 pnpm format:check                # Ruff + Prettier，只读校验

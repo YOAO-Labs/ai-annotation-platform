@@ -16,7 +16,7 @@ For a container build:
 
 ```sh
 docker build -t audit-summary .
-docker run --rm -p 8091:8091 audit-summary
+docker run --rm -p 127.0.0.1:8091:8091 audit-summary
 ```
 
 The container listens on `0.0.0.0:8091`; the executable defaults to `127.0.0.1:8091` when run directly.

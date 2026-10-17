@@ -137,7 +137,7 @@ jobs:
       - name: Start audit summary for API tests
         run: |
           go build -o "$RUNNER_TEMP/audit-summary" ./apps/audit-summary
-          nohup "$RUNNER_TEMP/audit-summary" -listen 127.0.0.1:8091 > "$RUNNER_TEMP/audit-summary.log" 2>&1 &
+          nohup env -i "$RUNNER_TEMP/audit-summary" -listen 127.0.0.1:8091 > "$RUNNER_TEMP/audit-summary.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/audit-summary.pid"
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:8091/health; then
