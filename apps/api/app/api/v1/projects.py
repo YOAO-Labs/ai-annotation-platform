@@ -101,6 +101,7 @@ from app.application.project_deletion import (
     delete_project as delete_project_transaction,
 )
 from app.application.project_task_cleanup import (
+    cleanup_annotation_orphans as cleanup_project_annotation_orphans,
     delete_source_less_tasks as cleanup_source_less_tasks,
 )
 from app.application.project_class_rename import rename_project_class
@@ -1326,106 +1327,15 @@ async def cleanup_annotation_orphans(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from app.db.models.annotation import Annotation
-    from app.db.models.task import Task
-    from app.services.project import (
-        derive_attribute_keys,
-        derive_classes_list,
-        orphan_user_attribute_keys,
-        prune_orphan_user_attributes,
-    )
-
     dry_run = True if body is None else body.dry_run
-    class_names = set(derive_classes_list(project.tool_bindings))
-    attribute_keys = derive_attribute_keys(project.tool_bindings)
-
-    annotations = list(
-        (
-            await db.execute(
-                select(Annotation).where(
-                    Annotation.project_id == project.id,
-                    Annotation.is_active.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
+    result = await cleanup_project_annotation_orphans(
+        db,
+        project=project,
+        actor_id=current_user.id,
+        dry_run=dry_run,
     )
-
-    orphan_annotations = 0
-    orphan_attribute_keys: Counter[str] = Counter()
-    mutation_annotation_ids: set[uuid.UUID] = set()
-    mutation_task_ids: set[uuid.UUID] = set()
-
-    for ann in annotations:
-        if ann.class_name not in class_names:
-            orphan_annotations += 1
-            if not dry_run:
-                mutation_annotation_ids.add(ann.id)
-                mutation_task_ids.add(ann.task_id)
-            continue
-
-        orphan_keys = orphan_user_attribute_keys(ann.attributes, attribute_keys)
-        if not orphan_keys:
-            continue
-        orphan_attribute_keys.update(orphan_keys)
-        if not dry_run:
-            mutation_annotation_ids.add(ann.id)
-            mutation_task_ids.add(ann.task_id)
 
     if not dry_run:
-        # Keep the global writer order used by Mask mutations and PATCH:
-        # stable Task locks first, then stable Annotation locks.
-        if mutation_task_ids:
-            await db.execute(
-                select(Task.id)
-                .where(Task.id.in_(mutation_task_ids))
-                .order_by(Task.id)
-                .with_for_update()
-            )
-        locked_annotations = []
-        if mutation_annotation_ids:
-            locked_annotations = list(
-                (
-                    await db.execute(
-                        select(Annotation)
-                        .where(Annotation.id.in_(mutation_annotation_ids))
-                        .order_by(Annotation.id)
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-        deactivated_task_ids: set[uuid.UUID] = set()
-        for ann in locked_annotations:
-            if ann.class_name not in class_names:
-                ann.is_active = False
-                deactivated_task_ids.add(ann.task_id)
-                continue
-            ann.attributes = prune_orphan_user_attributes(
-                ann.attributes,
-                attribute_keys,
-            )
-        await db.flush()
-        if mutation_task_ids:
-            from app.services.annotation_evidence import (
-                record_annotation_actors_for_tasks,
-            )
-
-            # A2 · this cleanup writes annotation attributes / deactivations under
-            # task locks already held above, so accumulate the actor here too.
-            await record_annotation_actors_for_tasks(
-                db, mutation_task_ids, current_user.id
-            )
-        if deactivated_task_ids:
-            from app.services.annotation import AnnotationService
-
-            annotation_svc = AnnotationService(db)
-            for task_id in sorted(deactivated_task_ids):
-                await annotation_svc._update_task_stats(task_id)
-
         from app.services.audit import AuditService
 
         await AuditService.log(
@@ -1436,17 +1346,11 @@ async def cleanup_annotation_orphans(
             target_id=str(project.id),
             request=request,
             status_code=200,
-            detail={
-                "orphan_annotations": orphan_annotations,
-                "orphan_attribute_keys": dict(orphan_attribute_keys),
-            },
+            detail=result,
         )
         await db.commit()
 
-    return ProjectCleanupOrphansOut(
-        orphan_annotations=orphan_annotations,
-        orphan_attribute_keys=dict(orphan_attribute_keys),
-    )
+    return ProjectCleanupOrphansOut(**result)
 
 
 @router.post("/{project_id}/transfer", response_model=ProjectOut)

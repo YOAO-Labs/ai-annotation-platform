@@ -82,7 +82,9 @@ POST /api/v1/projects/:id/cleanup-orphans
 ```
 
 - `class-usage` 返回 `{ classes: {name: count}, attributes: {key: count} }`，用于删除确认。
-- `cleanup-orphans` 默认 `dry_run=true`，返回 `{ orphan_annotations, orphan_attribute_keys }`；`dry_run=false` 时软删孤儿类别标注，并移除有效类别标注中不在当前 attribute schema 内的用户属性 key。
+- `cleanup-orphans` 默认 `dry_run=true`，只返回 `{ orphan_annotations, orphan_attribute_keys }`；预览不修改数据、不写审计记录，也不提交事务。
+- 由项目负责人或超管执行 `dry_run=false` 时，会在当前管理权及项目配置锁内复核目标，再按批次 → 任务 → 标注顺序锁定和刷新待处理记录；锁忙或目标已改向时返回 `409`。
+- 执行会软删类别已不存在的标注，并仅从类别仍有效的标注移除 schema 外用户属性 key；保留 `_` 系统元数据、标注几何与来源，不删除对象存储内容。标注修改、贡献证据、任务计数与审计在同一事务提交。
 
 ## 标注指引图片
 

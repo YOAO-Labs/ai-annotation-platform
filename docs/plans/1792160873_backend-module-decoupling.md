@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行与问题决策已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
+> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行、问题决策及 Schema 清理已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
 >
 > 创建日期：2026-10-16。
 >
@@ -722,6 +722,24 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 正式开发文档：后端分层、仓库地图、标注模块与点云数据模型。纯结构切片不增加 CHANGELOG；未修改 DB schema、API schema、依赖、配置或版本。
 - 主线集成后以真实 ASGI/JWT 和独立 PostgreSQL 连接验证 Mask resolve/reopen 为 200/200，来源版本改变后为原 reason-only 409，拒绝决定未持久化，重开完整清空 resolver/time。最初夹具遗漏 RLE encoding 被现有校验拒绝，补齐合法输入后才验上述路径；未改生产校验。此主线探针没有执行扫描、对象 I/O 或模型。
 
+### Schema 孤儿标注清理
+
+- 公开的 `class-usage` / `cleanup-orphans` 路径、默认 `dry_run=true`、响应字段均不变。`application/project_task_cleanup.py` 先重读并持有账号与当前项目管理权，再排他锁定项目并从锁内 schema 派生目标；`AnnotationService` 独占孤儿标注软删、有效类别属性 key 修剪、贡献证据和任务统计 DML。写锁顺序为账号 → 项目 → 批次 → 任务 → 标注，逐层刷新并校验当前 project / batch / task / annotation 身份；忙锁和目标改向返回 `409`。默认预览无 DML、审计或事务提交；真实标注、证据、统计与 HTTP 审计同事务提交。
+- 保留 manual / AI 来源、几何和 `_` 元数据；仅软删类别孤儿、仅从有效类别标注摘除 schema 外用户属性 key，维持未知 `None` 贡献者语义。无对象存储删除，也未扩宽清理范围。
+- `pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest tests/test_project_orphan_cleanup.py tests/test_project_orphan_cleanup_transactions.py tests/test_domain_package_architecture.py -q'` 退出码 0；该选择集 242 项，168 通过、74 项因没有 lazy-root 规则而按现有测试声明跳过。覆盖默认预览无 SQL DML / commit 且行和审计不变、执行内容 / counts / evidence / audit、禁用账号和转移 owner 后重新授权、annotation/task 改向、真实 task NOWAIT 冲突，以及延迟约束触发器造成的 commit 故障原子回滚。
+- 精确契约检查 `pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python ../../scripts/export_openapi.py --check'` 通过，snapshot 与当前路由一致。新鲜 Python 进程仅导入 `app.services.annotation` 后确认 `sys.modules` 无 `app.api*` / `app.workers*`；架构套件内 forbidden imports、模块内局部环、SCC 检测均通过。固定 Ruff `0.15.22` 对四个变更 Python 文件格式化（3 个重排，1 个未改），对应 `ruff check` 全过。
+- 由 `dev:worktree` 启动隔离 test-mode Uvicorn，真实 JWT HTTP 对 `/api/v1/projects/{id}/cleanup-orphans` 的预览 / 执行均返回 `200` 和相同 `{orphan_annotations: 1, orphan_attribute_keys: {legacy: 1}}`。独立 PG 会话核对：有效 manual 标注、几何、`_mask_root` 保留，legacy key 删除；AI 类别孤儿只软删并保留来源 / `_model_run`；task 数量 `2 → 1`、未知贡献者 `None` 原样，只有一条相同响应的审计。证据：`/tmp/aap-schema-cleanup-evidence/live_http_evidence.json`、`live_evidence.json`。健康端点报告 degraded / `503` 的唯一详情是没有启动 Celery worker；此切片不改 worker，实际 cleanup HTTP 路径已通过。
+- 同一冻结 PostgreSQL 的 2,048 个 active annotations、同一 schema，各预热一次后采样五次，对比旧 owner 的只读扫描/计数算法参考与当前 `AnnotationService` dry-run；两侧返回均为 128 个类别孤儿及 128 个有效类别 `legacy` key：
+
+| 采样指标                    | 历史算法参考 | 当前 owner |
+| --------------------------- | -----------: | ---------: |
+| SQL 语句数（每次）          |            1 |          1 |
+| Python 堆峰值中位数（字节） |    9,091,658 |  9,074,946 |
+
+- 初次预算仅保存中位数，补充采样保留十组原始 SQL/heap/result，见 `/tmp/aap-schema-cleanup-evidence/schema_cleanup_budget_samples.json`；没有重跑已接受的测试或 HTTP 清理。该窄预算只包含只读扫描、SQLAlchemy 行物化及方法内 Python 分配，不包含 HTTP/认证、管理权与写锁、commit、PG 原生内存或进程 RSS，不据此宣称优化或修改命令吞吐。
+- 实际 HTTP smoke 的不可变审计行拒绝了 fixture `DELETE`，未修改该记录；先清理项目/任务/标注，按审计外键保留 actor，再由 `doctor` 确认无活动会话并以专属确认销毁 `480ade4267685159:test` 的 test DB/Redis/九个桶。补充预算使用同一自有槽并再次销毁，临时程序已移除。公开字段、OpenAPI 与版本不变；当前管理权/目标围栏的用户影响记录于 Security。
+- 主线冷进程导入标注 owner 未加载 API/worker；默认数据库依赖的真实 ASGI/JWT 预览与执行均为 200。独立连接确认预览不更改行/审计，执行软删类别孤儿、修剪有效标注 legacy key 并保留 `_proof`，任务计数为 1、已知贡献者记录当前 actor，业务审计恰好一条。该主线探针没有对象 I/O、worker 或模型执行。
+
 ### 剩余范围
 
-- 全入口复核的剩余写入切片为项目/模板配置、Schema 孤儿标注清理、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 全入口复核的剩余写入切片为项目/模板配置、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

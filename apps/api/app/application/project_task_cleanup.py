@@ -6,11 +6,14 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import FromClause
 
+from app.application.project_workspace import lock_managed_project
+from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.active_learning_references import guard_source
+from app.services.annotation import AnnotationService
 from app.services.bug_report import BugReportService
 from app.services.labeling_tasks import LabelingTaskService
-
+from app.services.project import derive_attribute_keys, derive_classes_list
 
 _ORPHAN_TASK_IDS_SQL = """
     SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN (
@@ -55,3 +58,29 @@ async def delete_source_less_tasks(
         "deleted_tasks": len(task_ids),
         "deleted_annotations": annotation_count,
     }
+
+
+async def cleanup_annotation_orphans(
+    db: AsyncSession,
+    *,
+    project: Project,
+    actor_id: uuid.UUID,
+    dry_run: bool,
+) -> dict[str, int | dict[str, int]]:
+    current_project = (
+        project
+        if dry_run
+        else await lock_managed_project(
+            db,
+            actor_id=actor_id,
+            project_id=project.id,
+        )
+    )
+
+    return await AnnotationService(db).cleanup_schema_orphan_annotations(
+        project_id=current_project.id,
+        class_names=set(derive_classes_list(current_project.tool_bindings)),
+        attribute_keys=derive_attribute_keys(current_project.tool_bindings),
+        actor_id=actor_id,
+        dry_run=dry_run,
+    )
