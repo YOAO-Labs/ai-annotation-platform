@@ -251,6 +251,8 @@ execute 必须同时提交原 receipt 和 canonical plan digest，重放同一�
 SAM / Tracker 重跑项只创建候选，不越过候选审阅直接改写 annotation。回滚按原分片逆序执行，先确认全部对象仍处于记录的 after version，
 再恢复 before geometry；任一版本不等时整片失败。收据与回滚保留期内的 before refs 都是 Raster GC live roots。
 
+执行编排由 `application/mask_repair_execution.py` 持有，`services/mask_repair.py` 持有批次、分片日志及回滚状态变更。SAM 候选先保存为真实 Prediction/PredictionMeta 与栅格对象，再登记候选结果；该写入事务在批次日志锁之前提交，避免取消方的 AsyncJob→Batch 锁序与执行方形成反向等待。回滚失败时，批次 `rollback_failed` 与通用作业失败在同一事务落库。
+
 Mask QC 问题的人工 PATCH (`/api/v1/mask-qc/issues/{issue_id}`) 由
 `services/mask_qc/service.py::decide_issue` 持有状态与 resolver/time 写入，并先校验
 Issue 的 Task 绑定和冻结源版本的 effective-stale 状态；过期问题拒绝处置。API 保留

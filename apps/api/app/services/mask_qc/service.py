@@ -976,3 +976,18 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
         run.status = "failed"
         run.error_message = (terminal.error or "")[:4000]
     run.completed_at = datetime.now(timezone.utc)
+
+
+async def resolve_repair_issue(
+    db: AsyncSession,
+    *,
+    issue_id: uuid.UUID,
+    actor_id: uuid.UUID,
+) -> None:
+    """Resolve a QC issue atomically with its accepted repair mutation."""
+    issue = await db.get(MaskQCIssue, issue_id)
+    if issue is None:
+        return
+    issue.status = "resolved"
+    issue.resolved_by_id = actor_id
+    issue.resolved_at = datetime.now(timezone.utc)

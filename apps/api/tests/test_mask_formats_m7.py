@@ -39,7 +39,7 @@ from app.services.mask_formats.image_export import (
     write_binary_png_export,
     write_indexed_png_export,
 )
-from app.services.raster_mask_storage import build_rle_reference
+from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
 
 
@@ -217,6 +217,7 @@ async def test_coco_annotation_adapter_round_trip_and_unknown_mapping(
     super_admin,
     monkeypatch,
     tmp_path,
+    request,
 ) -> None:
     user, _token = super_admin
     project, task, _item = await _seed_image_project(db_session, user.id)
@@ -261,9 +262,10 @@ async def test_coco_annotation_adapter_round_trip_and_unknown_mapping(
     assert plan.items[0].task_id == task.id
 
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
-    store = AsyncMock()
-    monkeypatch.setattr(
-        "app.services.annotations_import.store_mask_reference_objects", store
+    from app.services.storage import storage_service
+
+    request.addfinalizer(
+        lambda: storage_service.delete_object(build_rle_reference(rle)["object_key"])
     )
     result = await adapter.execute_import_item(
         db_session,
@@ -284,11 +286,8 @@ async def test_coco_annotation_adapter_round_trip_and_unknown_mapping(
     assert annotation.class_name == "car"
     assert annotation.geometry["type"] == "raster_mask"
     assert annotation.geometry["mask"]["sha256"] == build_rle_reference(rle)["sha256"]
-    assert store.await_count == 1
+    assert await load_coco_rle(annotation.geometry["mask"]) == rle
 
-    monkeypatch.setattr(
-        "app.services.exporting.service.load_coco_rle", AsyncMock(return_value=rle)
-    )
     exported = json.loads(await ExportService(db_session).export_coco(project.id))
     exported_ann = exported["annotations"][0]
     assert isinstance(exported_ann["segmentation"]["counts"], str)

@@ -26,7 +26,7 @@ from app.services.mask_formats.image_codecs import (
     compress_coco_rle,
     normalize_coco_segmentation_rle,
 )
-from app.services.raster_mask_storage import build_rle_reference
+from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
 
 
@@ -116,8 +116,8 @@ def test_video_registry_exposes_only_verified_round_trip_adapters() -> None:
 async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
     db_session,
     super_admin,
-    monkeypatch,
     tmp_path,
+    request,
 ) -> None:
     user, _token = super_admin
     project, task, _item = await _seed_video_project(db_session, user.id)
@@ -167,12 +167,15 @@ async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
     assert plan.loss_class == "lossless"
     assert plan.items[0].task_id == task.id
     assert plan.frame_mapping["clip-a"] == {"1": 0, "2": 1, "3": 2}
+    from app.services.storage import storage_service
 
-    store = AsyncMock()
-    monkeypatch.setattr(
-        "app.services.annotations_import.store_mask_reference_objects",
-        store,
+    request.addfinalizer(
+        lambda: storage_service.delete_object(build_rle_reference(first)["object_key"])
     )
+    request.addfinalizer(
+        lambda: storage_service.delete_object(build_rle_reference(last)["object_key"])
+    )
+
     result = await adapter.execute_import_item(
         db_session,
         project=project,
@@ -194,7 +197,8 @@ async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
     assert [row["frame_index"] for row in annotation.geometry["keyframes"]] == [0, 2]
     assert annotation.geometry["keyframes"][1]["occluded"] is True
     assert annotation.geometry["outside"] == [{"from": 1, "to": 1, "source": "manual"}]
-    assert store.await_count == 1
+    assert await load_coco_rle(annotation.geometry["keyframes"][0]["mask"]) == first
+    assert await load_coco_rle(annotation.geometry["keyframes"][1]["mask"]) == last
 
     for annotation_row in payload["annotations"]:
         annotation_row["attributes"] = {}
@@ -216,8 +220,8 @@ async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
 async def test_coco_frames_import_does_not_mark_unsampled_frames_outside(
     db_session,
     super_admin,
-    monkeypatch,
     tmp_path,
+    request,
 ) -> None:
     user, _token = super_admin
     project, task, _item = await _seed_video_project(db_session, user.id)
@@ -255,10 +259,17 @@ async def test_coco_frames_import_does_not_mark_unsampled_frames_outside(
         mapping={},
         options={"frame_base": 0},
     )
-    store = AsyncMock()
-    monkeypatch.setattr(
-        "app.services.annotations_import.store_mask_reference_objects",
-        store,
+    from app.services.storage import storage_service
+
+    request.addfinalizer(
+        lambda: storage_service.delete_object(
+            build_rle_reference(_mask(0))["object_key"]
+        )
+    )
+    request.addfinalizer(
+        lambda: storage_service.delete_object(
+            build_rle_reference(_mask(8))["object_key"]
+        )
     )
     await adapter.execute_import_item(
         db_session,
@@ -277,6 +288,8 @@ async def test_coco_frames_import_does_not_mark_unsampled_frames_outside(
     ).scalar_one()
     assert annotation.geometry["outside"] == []
     assert [row["frame_index"] for row in annotation.geometry["keyframes"]] == [0, 2]
+    assert await load_coco_rle(annotation.geometry["keyframes"][0]["mask"]) == _mask(0)
+    assert await load_coco_rle(annotation.geometry["keyframes"][1]["mask"]) == _mask(8)
 
 
 @pytest.mark.asyncio

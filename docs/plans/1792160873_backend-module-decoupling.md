@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行、问题决策、Schema 清理及项目配置/模板行命令已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
+> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行/决策、Schema 清理、项目配置/模板行命令与 Mask 修复/导入执行已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
 >
 > 创建日期：2026-10-16。
 >
@@ -757,6 +757,27 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 以独立 owner 事务持有真实模板 `FOR UPDATE` 并从默认 ASGI/JWT 路径以 outsider 请求：修复前私有模板 PATCH/DELETE/duplicate 均返回 `409 template_busy`，随机缺失 ID 返回 404；修复后 PATCH/DELETE/duplicate 及 apply 私有模板均为 404。新独立 PG 回归同时验证公开模板对非创建者的编辑/删除仍为 403、允许的 duplicate/apply 遇锁仍为 409，且所有模板和项目行无副作用。原始脱敏响应分别见 `/tmp/aap-workspace-config-evidence/template-lock-before.log` 与 `template-lock-after.log`；回归用例为 `test_locked_private_template_operations_remain_concealed`。
 - 项目配置路由移除无 Python 调用方的 `_CLONEABLE_PROJECT_FIELDS` 重导出；其他模板和项目 helper 调用保持现有服务归属。
 
+### Mask 修复与格式导入执行
+
+- 修复与导入的实际工作流现由 `application/mask_repair_execution.py::run_mask_repair`、`application/mask_format_import.py::run_mask_format_import` 持有；services 留在批次/分片/回滚和格式导入 ledger、准入、派发补偿及数据/对象存储 helper 所有权。worker 保持原注册名、参数、`media` 队列及应用入口调用方式。
+- 修复路径恢复项目特权检查依赖及 SAM RLE 引用构建。SAM 在预测与候选对象持久化后、登记批次候选前提交预测事务，释放 AsyncJob 行锁后才竞争 Batch 锁，消除取消方 job→batch 与 worker batch←job 的锁序反转；其它提交/发布时点不变。
+- 回滚失败将 `MaskRepairBatch.rollback_failed` 与通用 AsyncJob failed 同事务提交。API 派发失败补偿在 rollback 前缓存 batch/job ID，rollback 后用稳定 ID 持久化失败并返回原 HTTP 错误。
+- 格式导入在应用工作流逐项执行，保留现有账本提交/取消点。Celery broker 发布与数据库不是原子操作；受理提交后、任务 ID 登记前进程崩溃的窗口仍存在。本次未新增 outbox、自动重试或 exactly-once。
+- 真实 test-mode PostgreSQL/MinIO/`media` Celery 消费者曾执行修复成功及完整回滚、版本冲突的部分回滚、SAM 候选持久化/取消锁序、格式导入成功/部分失败/取消和 HTTP 503 派发补偿重试。组合 JUnit 当次 330 项、78 项跳过、1 项失败；唯一失败是视频 fixture 漏设 `region_mask_ref`，返回 `region_unavailable`，已补齐 fixture 并仅重跑该视频 case，最终 1 项通过（`/tmp/aap-mask-video-final.xml`）。组合 JUnit 原件为 `/tmp/aap-mask-boundary-runtime.xml`，其中格式 schema-only test 后来删除，故不把组合运行宣称为删除后的全套最终通过。组合运行的 exact OpenAPI、架构与 facade 用例未失败。
+- 组合命令（运行时还包含后来删除的 schema-only migration test）：`pnpm dev:worktree -- exec --mode test --with-worker -- sh -c 'cd apps/api && .venv/bin/python -m pytest -q -o junit_family=legacy --junitxml=/tmp/aap-mask-boundary-runtime.xml tests/test_mask_execution_runtime.py tests/test_mask_repair_m5.py tests/test_mask_formats_m6.py tests/test_mask_formats_m7.py tests/test_mask_formats_m8.py tests/test_migration_0147_mask_format_imports.py tests/test_domain_package_architecture.py tests/test_compat_facades.py tests/test_openapi_contract.py'`；其 XML 为失败修复前记录，未重跑删除后的组合套件。
+- 修复后只重跑视频 case：`pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest -q --junitxml=/tmp/aap-mask-video-final.xml tests/test_mask_execution_runtime.py::test_video_dry_run_reaches_privileged_segment_authorization'`；预算命令：`pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest -q -s tests/test_mask_budget_tmp.py'`（临时 probe 已删除，原始结果保存在 JSON）。
+- 组合运行记录的实际 AsyncJob IDs：修复批次 `50d8e4ce-1e75-44f8-b392-591279115270` / 作业 `19a9d4fa-3ec7-4c2e-a99f-57bff3c02e7f` / 回滚 `daf58138-28c8-43e2-b896-c9029847d131`；部分回滚 `93b64e9b-3d63-45e6-bdb7-936a3a268237` / 执行 `07a114ca-dcd9-4851-b741-51a89330eb5f` / 回滚 `6f7ed32b-bf4f-4852-87e7-008b226c83ed`；SAM 控制面 `2b833cbf-3b1f-4de4-a9ef-b5c8216ac5e0` / 作业 `e02f9154-4256-41df-a8e8-3ffeb17ee4bc`；格式成功 `fd52f52c-fb6d-4877-85c2-3c57ea8ce911` / `d41d4f96-81a6-4506-930f-3ba8ec3e629e`，部分失败 `6cc4d833-aa09-413d-8135-016ef80306a9` / `4cd17f69-dcbd-4dcf-aaf1-7e580d70a3d3`，取消 `bc28f7cc-830a-4bab-bcfe-9b8a920508cd` / `1fa6207d-8618-4c01-a93d-b3fc0373a2d5`；派发失败/重试批次 `672b5518-793b-4ba0-b497-5597d4c4ba4b`，修复作业 `96e9aa97-d5f6-4398-8d9d-7e4be7dc9add`→`6cc5a12e-6843-4762-a0fa-b996bd7a6ba6`，格式批次 `434ef888-99f2-4ac8-a0b0-5b3c9f2ba220`，作业 `493198b5-e3f4-4a6d-aa42-6496183347c2`→`06b8cf92-b288-435f-a276-c3bbf2dd009a`。这些是 AsyncJob UUID，不冒充 Celery task ID。SAM 用本地协议 HTTP fixture，真实数据库 Prediction/PredictionMeta 与 RLE 对象已写入；仅证明控制面/持久化及锁序，不证明模型或 GPU。
+- 窄预算使用冻结的一项 AAP JSON mask、同 shape/RLE 与独立任务，先分别对 checkpoint `538268465` 的原 worker 函数和当前应用函数各做一次未计样本预热，再各采一条样本；SQL 事件计数、对真实 MinIO client 的 HEAD/GET/PUT 包装计数与 `tracemalloc` 只包围单个 worker 函数调用：
+
+| 单项导入采样（预热后，单样本） | checkpoint 538268465 |      当前 |
+| ------------------------------ | -------------------: | --------: |
+| SQL statements                 |                   39 |        39 |
+| MinIO HEAD / GET / PUT         |            2 / 2 / 0 | 2 / 2 / 0 |
+| Python 堆峰值（字节）          |              440,123 |   439,229 |
+
+- 原始预算证据为 `/tmp/aap-mask-boundary-budget.json`。此采样在同一进程、同一数据库/对象存储客户端中执行，预热为每版本一项且测量顺序为旧后新；仅一条样本，不是中位数、统计显著性或优化结论。`tracemalloc` 只覆盖应用函数的 Python 分配，不包括 worker 进程、进程 RSS、驱动/原生内存、GPU、并发吞吐或完整 HTTP/派发路径；MinIO 调用计数不覆盖网络重试或服务端工作量。
+- 主线冷进程导入格式导入装配未加载 API/worker；默认 DB 依赖的 ASGI/JWT 上传初始化/预检为 200，执行受理为 202。启动消费者前读取真实 Redis `media` 消息，注册名为 `app.workers.mask_format_import.run_mask_format_import`、唯一位置参数为 batch UUID，执行 ID 与持久 AsyncJob 一致；随后启动本工作树真实 Celery solo 消费者并核对注册与 `media` 订阅。作业和批次均 completed、Celery SUCCESS，独立连接读到 committed item，MinIO 的 5×3 RLE 及解码像素与来源完全一致。原始执行 ID 为 `a0ab649d-a009-4945-b519-bb36e27e7ecb`；消费者已温和关闭，不包含模型或 GPU。为采集消息而先入队后开消费者，不据此宣称消除了已记录的发布/登记窗口。
+
 ### 剩余范围
 
-- 全入口复核的剩余写入切片为 Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 全入口复核的剩余写入切片为 Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

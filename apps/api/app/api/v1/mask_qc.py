@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.project import Project
@@ -67,7 +66,6 @@ from app.services.mask_qc.service import (
     list_issues,
     task_qc_summary,
 )
-from app.services import async_job as async_job_svc
 from app.services.audit import AuditAction, AuditService
 from app.services.mask_repair import (
     MaskRepairError,
@@ -75,6 +73,8 @@ from app.services.mask_repair import (
     create_repair_plan,
     dispatch_repair_batch,
     execute_repair_plan,
+    fail_repair_dispatch,
+    record_repair_dispatch_task,
     request_repair_rollback,
     resume_repair_batch,
 )
@@ -623,28 +623,31 @@ async def _dispatch_repair_or_fail(
     rollback: bool,
     dispatcher: QualityJobDispatcher,
 ) -> None:
+    batch_id = batch.id
     job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
     assert job_id is not None
     try:
         celery_task_id = await dispatch_repair_batch(
-            batch.id, rollback=rollback, dispatcher=dispatcher
+            batch_id, rollback=rollback, dispatcher=dispatcher
         )
     except MaskRepairError as exc:
         await db.rollback()
-        locked = (
-            await db.execute(
-                select(MaskRepairBatch)
-                .where(MaskRepairBatch.id == batch.id)
-                .with_for_update()
-            )
-        ).scalar_one()
-        locked.status = "rollback_failed" if rollback else "failed"
-        await async_job_svc.mark_failed(db, job_id, error=str(exc))
+        await fail_repair_dispatch(
+            db,
+            batch_id=batch_id,
+            async_job_id=job_id,
+            rollback=rollback,
+            error=str(exc),
+        )
         await db.commit()
         _raise_mask_repair_error(exc)
-    job = await db.get(AsyncJob, job_id)
-    if job is not None:
-        job.celery_task_id = celery_task_id
+    await record_repair_dispatch_task(
+        db,
+        batch_id=batch_id,
+        async_job_id=job_id,
+        rollback=rollback,
+        celery_task_id=celery_task_id,
+    )
     await db.commit()
 
 

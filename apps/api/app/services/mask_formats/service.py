@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.async_job import AsyncJobKind
+from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
 from app.schemas.mask_format import (
@@ -436,3 +436,45 @@ async def request_job_cancel(
         return "cancelled"
     await async_job_svc.request_cancel(db, job_id)
     return "cancel_requested"
+
+
+async def record_import_dispatch_task(
+    db: AsyncSession,
+    *,
+    batch_id: uuid.UUID,
+    async_job_id: uuid.UUID,
+    celery_task_id: str,
+) -> None:
+    batch = (
+        await db.execute(
+            select(MaskFormatImport)
+            .where(MaskFormatImport.id == batch_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if batch is None or batch.async_job_id != async_job_id:
+        return
+    job = await db.get(AsyncJob, async_job_id)
+    if job is not None:
+        job.celery_task_id = celery_task_id
+
+
+async def fail_import_dispatch(
+    db: AsyncSession,
+    *,
+    batch_id: uuid.UUID,
+    async_job_id: uuid.UUID,
+    error: str,
+) -> None:
+    batch = (
+        await db.execute(
+            select(MaskFormatImport)
+            .where(MaskFormatImport.id == batch_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    if batch.async_job_id != async_job_id:
+        return
+    batch.status = "failed"
+    await async_job_svc.mark_failed(db, async_job_id, error=error)
+    await notify_job_terminal(db, job_id=async_job_id)

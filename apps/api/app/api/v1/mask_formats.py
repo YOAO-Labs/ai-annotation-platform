@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.async_job import AsyncJob
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -31,8 +30,6 @@ from app.schemas.mask_format import (
     MaskFormatUploadInitRequest,
     MaskFormatUploadInitResponse,
 )
-from app.services import async_job as async_job_svc
-from app.services.async_job_notify import notify_job_terminal
 from app.services.audit import AuditAction, AuditService
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest
@@ -41,7 +38,9 @@ from app.services.mask_formats.service import (
     batch_out,
     dispatch_import,
     execute_import,
+    fail_import_dispatch,
     preflight_import,
+    record_import_dispatch_task,
     resume_import,
     staged_prefix,
 )
@@ -229,28 +228,27 @@ async def _dispatch_or_fail(
     batch: MaskFormatImport,
     dispatcher: QualityJobDispatcher,
 ) -> None:
+    batch_id = batch.id
+    async_job_id = batch.async_job_id
+    assert async_job_id is not None
     try:
-        celery_task_id = await dispatch_import(batch.id, dispatcher=dispatcher)
+        celery_task_id = await dispatch_import(batch_id, dispatcher=dispatcher)
     except MaskFormatError as exc:
         await db.rollback()
-        locked = (
-            await db.execute(
-                select(MaskFormatImport)
-                .where(MaskFormatImport.id == batch.id)
-                .with_for_update()
-            )
-        ).scalar_one()
-        locked.status = "failed"
-        if locked.async_job_id is not None:
-            await async_job_svc.mark_failed(db, locked.async_job_id, error=exc.message)
-            await notify_job_terminal(db, job_id=locked.async_job_id)
+        await fail_import_dispatch(
+            db,
+            batch_id=batch_id,
+            async_job_id=async_job_id,
+            error=exc.message,
+        )
         await db.commit()
         _raise_format_error(exc)
-    locked = await db.get(MaskFormatImport, batch.id)
-    if locked is not None and locked.async_job_id is not None:
-        job = await db.get(AsyncJob, locked.async_job_id)
-        if job is not None:
-            job.celery_task_id = celery_task_id
+    await record_import_dispatch_task(
+        db,
+        batch_id=batch_id,
+        async_job_id=async_job_id,
+        celery_task_id=celery_task_id,
+    )
     await db.commit()
 
 

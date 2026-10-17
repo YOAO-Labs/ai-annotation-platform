@@ -17,10 +17,13 @@ from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.mask_qc.topology import rle_and_not, rle_or
-from app.services.mask_repair import canonical_digest
+from app.services.mask_repair import (
+    canonical_digest,
+    execute_repair_shard,
+    rollback_repair_shard,
+)
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import coco_rle_area, encode_coco_rle
-from app.workers.mask_repair import _execute_shard, _rollback_shard
 from tests.factory import create_user
 
 
@@ -378,15 +381,16 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     async def no_store(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("app.workers.mask_repair._store_result_rle", no_store)
+    monkeypatch.setattr("app.services.mask_repair.store_repair_result_rle", no_store)
     monkeypatch.setattr(
         "app.services.mask_mutation.prepare_mask_payload_for_write", no_store
     )
-    shard_result = await _execute_shard(
+    shard_result = await execute_repair_shard(
         db_session,
-        batch=batch,
+        batch_id=batch.id,
         shard=batch.plan_json["shards"][0],
         actor=user,
+        async_job_id=batch.async_job_id,
     )
     assert shard_result["status"] == "completed"
     assert shard_result["items"][0]["changed_pixels"] == 1
@@ -396,7 +400,7 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     annotation.version = shard_result["items"][0]["after_version"] + 1
     await db_session.flush()
     with pytest.raises(RuntimeError, match="rollback_version_conflict"):
-        await _rollback_shard(
+        await rollback_repair_shard(
             db_session,
             plan_items=batch.plan_json["items"],
             shard_result=shard_result,
