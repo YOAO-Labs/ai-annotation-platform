@@ -265,6 +265,8 @@ Project / Scene / Task / Annotation scope
 
 Project / Scene scope 冻结完整 Scene 成员，可以执行逐框和轨迹规则。Task / Annotation scope 只执行所选标注可独立判定的逐框规则；轨迹规则记录 `track_rules:scope_incomplete` skip，避免用成员片段制造整轨缺口、跳变或身份漂移。worker 每个标注/轨迹边界直接读取最新取消状态，并只缓存当前帧的解析点云。
 
+`app/services/point_cloud_quality/execution.py::execute_run` 持有逐框/轨迹规则、skip/issue 写入和 Run 终态；`app/application/quality_execution.py` 将服务端 `QualityJobLifecycle` 绑定到通用作业状态及终态通知。原 Celery worker 的注册名、单个 Run ID 参数与 `media` 路由不变；领域 `Run`、`Issue` 和 `AsyncJob` 的本地事务检查点也不因此转成远程接口。
+
 `PointCloudQualityIssue` 持久化规则 code/version、class、severity/status、frame 区间、metric/threshold/evidence、标注版本、SceneTrack revision、稳定 dedupe key 和可恢复 locator。locator 可同时指向 Scene、帧、任务、标注、SceneTrack、相机与辅助层。人工决策由 `services/point_cloud_quality/service.py::decide_issue` 校验当前 Task 绑定与源新鲜度，再更新状态、trim 后的 reason/note、resolver 和 verdict/reviewer 字段；重开清除 resolution 与 review 字段。API 保留当前范围/角色检查、锁定获取、审计、提交与响应 refresh 顺序。Issue 和源身份仍归点云质检，不由反馈锚接管；处置不执行 `suggested_command`。
 
 规则内核将 PCD 源坐标按 Dataset `axis_convention` 归一到 ISO 平台坐标，再执行框内点数、局部地面、尺寸稳健异常和轨迹时序检查。无法解析的 PCD 或不足的地面样本进入 run skip，不产生猜测 issue，也不会批量将同 Scene 的既有问题标为 stale。

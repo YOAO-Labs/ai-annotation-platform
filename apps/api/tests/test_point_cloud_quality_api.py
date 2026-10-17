@@ -6,6 +6,7 @@ import uuid
 import numpy as np
 from sqlalchemy import select, update
 
+from app.application.quality_execution import execute_point_cloud_quality
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
@@ -17,7 +18,6 @@ from app.schemas.point_cloud_quality import (
     PointCloudQualityConfig,
     PointCloudQualityRunRequest,
 )
-from app.services import async_job as async_job_svc
 from app.services.point_cloud_quality.service import (
     create_quality_run,
     list_issues,
@@ -25,10 +25,9 @@ from app.services.point_cloud_quality.service import (
 )
 from app.services.sensor_calibration import calibration_digest
 from app.services.task_dataset_link import link_items
-from app.workers.point_cloud_quality import (
+from app.services.point_cloud_quality.execution import (
     _cancel_requested,
     _normalize_points,
-    execute_scan,
 )
 from tests.factory import create_membership, create_project
 
@@ -214,12 +213,12 @@ async def test_projection_residual_scan_and_staleness(
     )
     assert created is True and job is not None
     monkeypatch.setattr(
-        "app.workers.point_cloud_quality._read_pointcloud",
+        "app.services.point_cloud_quality.execution._read_pointcloud",
         lambda _key: np.asarray([(100.0, 0.0, 0.0)], dtype=np.float32),
     )
-    run.status = "running"
-    await async_job_svc.mark_running(db_session, job.id)
-    await execute_scan(db_session, run)
+    await execute_point_cloud_quality(
+        db_session, run_id=run.id, celery_task_id=job.celery_task_id
+    )
 
     issue = (
         await db_session.execute(
@@ -320,11 +319,13 @@ async def test_quality_run_singleflight_and_worker_track_findings(
         dtype=np.float32,
     )
     monkeypatch.setattr(
-        "app.workers.point_cloud_quality._read_pointcloud", lambda _key: ground
+        "app.services.point_cloud_quality.execution._read_pointcloud",
+        lambda _key: ground,
     )
-    first.status = "running"
-    await async_job_svc.mark_running(db_session, job.id)
-    summary = await execute_scan(db_session, first)
+    await execute_point_cloud_quality(
+        db_session, run_id=first.id, celery_task_id=job.celery_task_id
+    )
+    summary = first.summary
     codes = set(
         (
             await db_session.execute(
@@ -663,16 +664,18 @@ async def test_task_scope_skips_incomplete_track_rules_without_staling_scene_iss
     )
     points = np.zeros((32, 3), dtype=np.float32)
     monkeypatch.setattr(
-        "app.workers.point_cloud_quality._read_pointcloud", lambda _key: points
+        "app.services.point_cloud_quality.execution._read_pointcloud",
+        lambda _key: points,
     )
-
     scene_run, _scene_job, _created = await create_quality_run(
         db_session,
         project=project,
         actor_id=user.id,
         request=PointCloudQualityRunRequest(scope="scene_ids", scene_ids=[scene.id]),
     )
-    await execute_scan(db_session, scene_run)
+    await execute_point_cloud_quality(
+        db_session, run_id=scene_run.id, celery_task_id=None
+    )
     gap = (
         await db_session.execute(
             select(PointCloudQualityIssue).where(
@@ -688,7 +691,10 @@ async def test_task_scope_skips_incomplete_track_rules_without_staling_scene_iss
         actor_id=user.id,
         request=PointCloudQualityRunRequest(scope="task_ids", task_ids=[tasks[0].id]),
     )
-    summary = await execute_scan(db_session, task_run)
+    await execute_point_cloud_quality(
+        db_session, run_id=task_run.id, celery_task_id=None
+    )
+    summary = task_run.summary
     await db_session.refresh(gap)
     assert summary["skips"]["track_rules:scope_incomplete"] == 1
     assert gap.last_seen_run_id == scene_run.id

@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema 及质检问题决策已分片迁移；其余业务域、完整数据所有权与跨语言替换尚未实施。
+> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行与问题决策已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
 >
 > 创建日期：2026-10-16。
 >
@@ -258,6 +258,25 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 实际运行：隔离测试库、真实 Uvicorn、普通/维护 Celery worker 及 MinIO 下，Mask QC、点云质检和视频轨迹质检完成并保留执行 ID；Mask 修复把面积从 4 改为 3，回滚恢复为 4。回滚夹具先补齐生产所需的原始 Mask 上传归属记录，未弱化生产校验。
 - 导入验证最初暴露独立问题：真实导入已派发并记录执行 ID，但 Worker 以 `format_plan_digest_conflict` 失败。该问题已作为下一独立进度修复，未混入派发解耦；预检夹具暂存对象已纠正到 `import_bucket`。
 - 提交：`70b9ec938`；正式文档为后端分层、仓库地图及 [ADR-0089](../adr/archive/0089-injected-quality-job-dispatch.md)。纯内部结构迁移，未添加 CHANGELOG 条目。
+
+### 质检执行状态机装配
+
+- 已实施切片：本地服务端口 `services/quality_job_lifecycle.py::QualityJobLifecycle` 定义通用作业生命周期操作；`application/quality_execution.py` 将其绑定到 `services.async_job` 状态写入和 `notify_job_terminal`。Mask QC / 点云质检的执行状态机分别归入 `services/mask_qc/execution.py`、`services/point_cloud_quality/execution.py`；视频轨迹质检继续由 `services/video_track_quality.py::execute_run` 持有。三个 worker 只保留原 task 注册名、单个 Run ID 参数和 Session 适配，仍路由到 `media`，服务端无 application/worker 反向依赖或新增 SCC。端口仍携带 `AsyncSession`，不是已可跨语言调用的 wire 契约。
+- 保真范围：沿用各领域既有 Run/Issue、取消探针（仅 Mask QC 与点云质检有此执行合同）、AsyncJob 更新、事务检查点、失败/取消/陈旧终态和通知顺序。视频轨迹质检仍可得到 `completed`、`empty_overlap`、`stale`、`failed`，不添加视频取消合同；不改变公开 schema、task 参数或队列。
+- 本地验证：相关行为与完整服务架构套件 275 项，201 passed、74 skipped、0 failed；跳过项均为该所有者未声明 lazy-root 规则。Ruff 0.15.22 与精确 OpenAPI 快照检查通过。
+- 实际运行：独立 PostgreSQL/MinIO fixtures 与刷新后的真实 `media` Celery consumer 完成 Mask QC 两次合法扫描（3 个 Issue 稳定去重且第二次推进 `last_seen_run_id`）、真实 RLE issue-region 读取和已提交工作后的取消（3 个先前 Issue 保留）；缺失 RLE 的 Mask 失败保留前一任务 findings。点云实际 PCD/track/projection 扫描完成并写入 4 个 Issue，非数值 legacy box center 失败且保留先前 finding。相邻视频 segment/track fixture 分别得到 `completed`/`empty_overlap`；源变更得 `stale`，缺失 mask source 得 `failed` 且无部分 Issue。数据库 ledger 与原始 HTTP/worker 证据保留在 `/tmp/aap-boundary-quality-final-evidence/`。不声称浏览器、GPU、模型或自然年龄资格。
+- 补充真实运行先提交独立 Issue-region，再仅删除来源 RLE 对象；实际 region-content 入口仍为 200，8×8 RLE 及解码像素与删除前完全相同，来源/region key 不同。这证明所测持久 Issue 读取不再依赖来源对象，不等同于自然年龄或全 GC 保留期验收。
+- 取历史 `3b6d3cb1e` worker 与当前 worker 生命周期，在独立等形 PostgreSQL/MinIO 夹具上各直接执行一次；来源字节相同，每次开始前 region 对象都不存在，两侧均完成并持久化 3 个 Issue，SQL 顺序摘要一致：
+
+| 采样指标                              |  历史实现 |  当前实现 |
+| ------------------------------------- | --------: | --------: |
+| SQL 语句数                            |        23 |        23 |
+| S3 GetObject / HeadObject / PutObject | 1 / 3 / 1 | 1 / 3 / 1 |
+| Python 堆峰值增量（字节）             | 1,504,486 | 1,063,132 |
+
+- 该对照每侧仅一次，非预热后中位数；直接调用生命周期，不包含 broker 排队，堆指标不代表 RSS、原生内存或性能优化。原始 SQL/object-call/heap 数据在 `quality-probes/budget-pair-measurements.json`；追加探针完成后已停止并销毁唯一自有运行环境。
+- 主线冷进程导入应用装配时未加载 API/worker；真实主线 PostgreSQL/MinIO 直接执行新装配，独立连接读到 Run/AsyncJob 均 completed/100、三类实际 Issue，且持久 region RLE 与来源一致。此探针不经过 broker 或模型，不重复隔离环境的消费者资格验收。
+- 本片纯内部结构迁移，未新增用户可见行为，不添加 CHANGELOG 条目。
 
 ### 导入计划摘要一致性
 
@@ -705,4 +724,4 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 ### 剩余范围
 
-- 剩余主写入切片为三类质检执行。全入口复核另确认项目/模板配置、Schema 孤儿标注清理、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入仍需完成，已单独跟踪。完整入口/数据/对象前缀台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 全入口复核的剩余写入切片为项目/模板配置、Schema 孤儿标注清理、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

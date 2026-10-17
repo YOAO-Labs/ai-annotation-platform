@@ -82,6 +82,7 @@ last_reviewed: 2026-10-17
   组合四类领域过期命令与八类引用投影；`services/raster_mask_storage.py` 持有内容锁、
   reservation 两阶段提交和对象删除。`workers/cleanup.py` 只装配 job-local Session；
   dry-run 仍提交过期记录，原宽限、处理上限及存储失败语义见 [存储桶布局](../reference/storage-buckets#raster-mask-引用与清理)。
+- 质检执行：`app/application/quality_execution.py` 将 `app/services/quality_job_lifecycle.py::QualityJobLifecycle` 绑定到通用 `async_job` 和终态通知；Mask QC / 点云质检执行分别由 `services/mask_qc/execution.py`、`services/point_cloud_quality/execution.py` 持有，视频轨迹质检仍由 `services/video_track_quality.py::execute_run` 持有。原三个 Celery task 名、单个 run ID 参数和 `media` 路由保留；worker 仅负责 Session 与应用调用，领域服务不反向导入 application / worker。
 - 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
   持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
   `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。

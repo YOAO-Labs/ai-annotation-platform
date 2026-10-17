@@ -31,7 +31,7 @@ last_reviewed: 2026-07-29
 - 标注写入：`apps/api/app/api/v1/tasks/annotations.py`、`apps/api/app/services/annotation.py`
 - 提交：`apps/api/app/api/v1/tasks/lifecycle.py:submit_task`
 - 审计：`apps/api/app/services/audit.py:AuditAction.TASK_SUBMIT`
-- 条件 Mask QC：`apps/api/app/services/mask_qc/service.py`、`apps/api/app/workers/mask_qc.py`
+- 条件 Mask QC：`app/services/mask_qc/service.py` 创建冻结 Run；Celery consumer 调用 `app/application/quality_execution.py` → `app/services/mask_qc/execution.py`，`app/workers/mask_qc.py` 仅保留原任务名/参数的 Session 适配。
 
 ---
 

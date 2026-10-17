@@ -14,8 +14,8 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.raster_mask_storage import build_rle_reference
+from app.services.mask_qc.execution import _region_bbox_xyxy
 from app.utils.raster_mask_rle import encode_coco_rle
-from app.workers.mask_qc import _region_bbox_xyxy
 
 
 def _bearer(token: str) -> dict[str, str]:

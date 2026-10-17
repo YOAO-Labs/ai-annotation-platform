@@ -212,3 +212,5 @@ Grounded-SAM2 与 SAM3 PVS 可消费 `CorrectionFramePrompt.mask_prompt`。SAM3 
 - 修改 job 状态或接受语义：同步 Pydantic / OpenAPI / 前端生成类型、WS 文档、用户候选审阅流程和 runbook。
 - 修改环境变量：改 `.env.example` 和运行容器透传，再运行 env 文档生成器；不要只改生成后的 `env-vars.md`。
 - 计划文档可以记录 spike 和阶段选择，但当前行为以本页、reference 和代码为准。
+
+- 跨片段轨迹质检使用独立 `VideoTrackQualityRun`，不等同于 `VideoTrackerJob` 的模型推理：评估、Issue 替换与领域终态仍由 `services/video_track_quality.py::execute_run` 持有，`application/quality_execution.py` 绑定通用作业生命周期，`workers/video_track_quality.py` 保留原 task/Session 适配及 `media` 路由。它没有视频质检取消合同，不应套用 `VideoTrackerJob` 的取消语义。

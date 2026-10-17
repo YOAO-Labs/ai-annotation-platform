@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy import func, select, text
 
+from app.application.quality_execution import execute_mask_qc
 from app.application.raster_mask_retention import referenced_raster_mask_keys
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJobStatus
@@ -15,7 +16,6 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.schemas.mask_qc import MaskQCConfig, MaskQCRunRequest
-from app.services import async_job as async_job_svc
 from app.services.mask_qc.config import mask_qc_config_digest
 from app.services.mask_qc.service import (
     canonical_digest,
@@ -26,7 +26,7 @@ from app.services.mask_qc.service import (
 )
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import encode_coco_rle
-from app.workers.mask_qc import _execute_scan
+
 from tests.factory import create_membership
 
 
@@ -198,7 +198,7 @@ async def test_mask_qc_run_singleflight_uses_resolved_versions(db_session, super
 
 
 @pytest.mark.asyncio
-async def test_mask_qc_worker_dedupes_findings_and_advances_last_seen(
+async def test_mask_qc_execution_dedupes_findings_and_advances_last_seen(
     db_session, super_admin, monkeypatch
 ):
     user, _token = super_admin
@@ -212,8 +212,8 @@ async def test_mask_qc_worker_dedupes_findings_and_advances_last_seen(
     async def fake_store(value):
         return build_rle_reference(value)
 
-    monkeypatch.setattr("app.workers.mask_qc.load_coco_rle", fake_load)
-    monkeypatch.setattr("app.workers.mask_qc.store_coco_rle", fake_store)
+    monkeypatch.setattr("app.services.mask_qc.execution.load_coco_rle", fake_load)
+    monkeypatch.setattr("app.services.mask_qc.execution.store_coco_rle", fake_store)
 
     first, first_job, _created = await create_mask_qc_run(
         db_session,
@@ -222,9 +222,9 @@ async def test_mask_qc_worker_dedupes_findings_and_advances_last_seen(
         request=MaskQCRunRequest(scope="project"),
     )
     assert first_job is not None
-    first.status = "running"
-    await async_job_svc.mark_running(db_session, first_job.id)
-    await _execute_scan(db_session, first)
+    await execute_mask_qc(
+        db_session, run_id=first.id, celery_task_id=first_job.celery_task_id
+    )
     await db_session.refresh(first)
     assert first.status == "completed"
     assert first.progress_pct == 100
@@ -243,9 +243,9 @@ async def test_mask_qc_worker_dedupes_findings_and_advances_last_seen(
     )
     assert created is True
     assert second_job is not None
-    second.status = "running"
-    await async_job_svc.mark_running(db_session, second_job.id)
-    await _execute_scan(db_session, second)
+    await execute_mask_qc(
+        db_session, run_id=second.id, celery_task_id=second_job.celery_task_id
+    )
 
     second_count = int(
         (

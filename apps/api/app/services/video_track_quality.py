@@ -20,11 +20,12 @@ from app.db.models.video_track_quality import (
     VideoTrackQualityIssue,
     VideoTrackQualityRun,
 )
-from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
 from app.services.async_job import create_job
 from app.services.mask_formats.image_codecs import rasterize_normalized_polygon
 from app.services.mask_qc.service import canonical_digest
+from app.services.quality_job_dispatch import QualityJobDispatcher
+from app.services.quality_job_lifecycle import QualityJobLifecycle
 from app.services.mask_qc.topology import compare_rles
 from app.services.raster_mask_storage import load_coco_rle
 from app.services.video_collaboration import (
@@ -936,3 +937,65 @@ async def mark_boundary_runs_stale(db: AsyncSession, segment_id: uuid.UUID) -> N
     for run in runs:
         run.status = "stale"
         run.stale_at = now
+
+
+async def execute_run(
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    celery_task_id: str | None,
+    job_lifecycle: QualityJobLifecycle,
+) -> None:
+    run = await db.get(VideoTrackQualityRun, run_id)
+    if run is None or run.status != "pending":
+        return
+
+    now = datetime.now(timezone.utc)
+    run.status = "running"
+    run.started_at = now
+    run.progress_pct = 5
+    if run.async_job_id:
+        await job_lifecycle.mark_running(
+            db, run.async_job_id, celery_task_id=celery_task_id
+        )
+    await db.commit()
+    try:
+        metrics, pairs, issues = await evaluate_run(db, run)
+        await replace_issues(db, run, issues)
+        run.metrics = metrics
+        run.pairs = pairs
+        run.progress_pct = 100
+        run.status = (
+            "empty_overlap"
+            if not pairs
+            and not any(issue["code"] == "unsupported_geometry" for issue in issues)
+            and not any(int(metrics.get(key, 0)) for key in ("IDTP", "IDFN", "IDFP"))
+            else "completed"
+        )
+        run.completed_at = datetime.now(timezone.utc)
+        if run.async_job_id:
+            await job_lifecycle.mark_complete(
+                db,
+                run.async_job_id,
+                result={"run_id": str(run.id), "status": run.status},
+            )
+    except VideoTrackQualityError as exc:
+        run.status = (
+            "stale" if exc.detail["reason"] == "video_track_quality_stale" else "failed"
+        )
+        run.stale_at = datetime.now(timezone.utc) if run.status == "stale" else None
+        run.error_message = str(exc.detail)[:4000]
+        run.completed_at = datetime.now(timezone.utc)
+        if run.async_job_id:
+            await job_lifecycle.mark_failed(db, run.async_job_id, error=str(exc.detail))
+    except Exception as exc:
+        run.status = "failed"
+        run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
+        run.completed_at = datetime.now(timezone.utc)
+        if run.async_job_id:
+            await job_lifecycle.mark_failed(
+                db, run.async_job_id, error=run.error_message
+            )
+    if run.async_job_id:
+        await job_lifecycle.notify_terminal(db, job_id=run.async_job_id)
+    await db.commit()
