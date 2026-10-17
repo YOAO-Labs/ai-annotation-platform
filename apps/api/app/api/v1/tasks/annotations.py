@@ -45,6 +45,9 @@ from app.schemas.annotation_conversion import (
 from app.application.annotation_create import _AnnotationCreateSqlAdapter
 from app.application.annotation_cross_frame import _AnnotationCrossFrameSqlAdapter
 from app.application.annotation_mutation import _AnnotationMutationSqlAdapter
+from app.application.annotation_secondary_inference import (
+    _AnnotationSecondaryInferenceSqlAdapter,
+)
 from app.services.annotation import AnnotationService
 from app.services.annotation_create_contract import (
     AnnotationCreateCommand,
@@ -54,6 +57,9 @@ from app.services.annotation_mutation_contract import (
     AnnotationDeleteCommand,
     AnnotationMutationError,
     AnnotationUpdateCommand,
+)
+from app.services.annotation_secondary_inference_contract import (
+    SecondaryInferenceWritePort,
 )
 from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.annotation_conversion import (
@@ -494,41 +500,27 @@ async def secondary_inference(
         shadow_session_factory=shadow_session_factory,
         dispatch_context_factory=dispatch_context_factory,
     )
-    updated, children = await AnnotationService(db).apply_secondary_inference(
+    write_port: SecondaryInferenceWritePort = _AnnotationSecondaryInferenceSqlAdapter(
+        db,
         task=task,
         annotation=annotation,
-        result=inference_result,
-        write_scope=write_scope,
-    )
-    await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
-    await AuditService.log(
-        db,
         actor=current_user,
-        action=AuditAction.ANNOTATION_UPDATE,
-        target_type="annotation",
-        target_id=str(annotation_id),
-        request=request,
-        status_code=201,
-        detail={
-            "task_id": str(task_id),
-            "secondary_inference": True,
-            "ml_backend_id": str(data.ml_backend_id),
-            # v0.23.3 ADR-0050 §5.4 · audit 记 pool + instance 双 ID。
-            "ml_backend_pool_id": str(
-                await ml_svc.pool_id_for_registry(data.ml_backend_id)
-            ),
-            "write_target": data.write_target,
-            "created_children": len(children),
-        },
+        ml_service=ml_svc,
     )
-    await db.commit()
-    await db.refresh(updated)
-    for c in children:
-        await db.refresh(c)
-    return SecondaryInferenceResponse(
-        annotation=AnnotationOut.model_validate(updated),
-        created_children=[AnnotationOut.model_validate(c) for c in children],
-    )
+    try:
+        return await write_port.apply_secondary_inference(
+            write_scope=write_scope,
+            result=inference_result,
+            ml_backend_id=data.ml_backend_id,
+            write_target=data.write_target,
+            audit_origin=audit_origin_from_request(request),
+        )
+    except AnnotationMutationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
 
 
 @router.post(

@@ -74,7 +74,7 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 
 重试消息携带当前帧的推理结果、后端／池与计费来源、原始 `labeling_write_scope`、剩余帧和累计段统计，采用现有 Kombu JSON 序列化保留 UUID。恢复先保存已有结果，不重复推理，也不以新任务状态重建写入授权；每次保存仍执行完整准入检查。段结束才累计一次 Redis 进度，重试不重复计数；延迟派发前续期 Redis chord 的已完成兄弟段结果与帧进度键。权限、范围或编辑锁拒绝仍按真实失败记录；终态作业不再接收迟到结果。恢复入口观察协作取消请求并跳过剩余帧，最终回调锁定作业后写入 `cancelled`，不覆盖已有终态。队列、注册名、模型冻结身份、分区 Meta 的时间键和原逐帧提交保持。
 
-`Task.version` 不是所有 Annotation 编辑的全局修订号；ROI 结果必须另外核对实际源 Annotation 版本。二次推理引擎仅返回 `secondary_inference_result.SecondaryInferenceResult` 不可变事实，由 `AnnotationService.apply_secondary_inference()` 在最终准入后写属性/子框、贡献证据及实际属性变更的 Annotation 版本；引擎不再写标注 ORM。人工属性优先级、来源和原 HTTP 审计/提交语义不变。
+`Task.version` 不是所有 Annotation 编辑的全局修订号；ROI 结果必须另外核对实际源 Annotation 版本。二次推理引擎仅返回 `secondary_inference_result.SecondaryInferenceResult` 不可变事实，`SecondaryInferenceWritePort` 将原作用域和产物交给同事务 SQL 实现；私有 `AnnotationService._apply_secondary_inference()` 在最终准入后写属性/子框、贡献证据及实际属性变更的 Annotation 版本。端口返回原 `SecondaryInferenceResponse`，不外传 ORM；人工属性优先级、来源、原心跳/审计/提交与刷新顺序不变，审计模型池查询仍在写应用之后。引擎的媒体/ML I/O 和长推理前的只读提交保持原组合。
 
 ## 工具单位（tool_unit）维度
 

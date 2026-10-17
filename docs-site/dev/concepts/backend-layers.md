@@ -176,6 +176,8 @@ Task 列表/详情、Data Manager、视频清单/时间表及轨迹转换的素�
 
 `secondary_inference_result` 是只依赖标准库的不可变产物事实，引擎不再代写标注；实际属性写入推进标注版本并保留人工来源。`test_seed_access` 单独持有无主体夹具的环境/真实数据库准入，不能用它绕过普通写入的 actor 要求。传输、公开 schema 与协作取消边界不变；这些持久化准入仍绑定本地 Session、ORM 和 HTTP 错误，不宣称已经可直接远程提取。
 
+二次推理的最终写入消费 `annotation_secondary_inference_contract.SecondaryInferenceWritePort`：只传原 `LabelingWriteScope`、不可变产物、模型 UUID、原写入目标和审计来源，返回原响应。应用适配器绑定原 Session/Task/Annotation/actor/ML 服务，保留写入→heartbeat→审计中的模型池查询→提交→全部 refresh→响应投影；预期 HTTP 拒绝通过纯标注错误还原。SQL owner 方法为私有，长推理前的准入、只读提交和实际推理调用仍在原位置，没有额外逐子框查询。
+
 `services/labeling_assignment.py::LabelingTaskAssignmentService` 持有选定任务分派预览与写入，`schemas/labeling_assignment.py` 持有原公开请求/响应模型；Data Manager 的查询及保存视图不再代写 Task。确认使用当前管理围栏、共享批次接收人校验和非阻塞编辑围栏，复用已经锁定的批次/任务计划；领域只 flush，HTTP 保留审计与提交。缺失/null、任务覆盖/批次默认、审核态限制、预览摘要与逐项失败语义见 [Data Manager 查询与聚合](../reference/data-manager-query)。
 
 身份与责任交接由 `application/user_lifecycle.py`、`legacy_user_lifecycle.py`、`project_membership.py` 和 `project_workspace.py` 组合。`services/user_lifecycle.py` 持有账号锁、停用/恢复元数据与凭据代际；`identity_commands.py` 持有认证/自助资料、密码、在线状态、偏好及用户数据组投影，`account_groups.py` 持有数据组目录和成员投影。成员行写入留在 `services/project_membership.py`，任务/批次交接与编辑锁释放交给 `BatchService`，项目所有权由 workspace 写入，GDPR 审计历史脱敏由 `AuditService` 完成。

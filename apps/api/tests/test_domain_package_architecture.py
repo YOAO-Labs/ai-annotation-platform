@@ -160,6 +160,16 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(
+        package="annotation_secondary_inference_contract",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.schemas.annotation",
+            "app.services.audit_origin_contract",
+            "app.services.labeling_write_scope",
+            "app.services.secondary_inference_result",
+        ),
+    ),
+    DomainSpec(
         package="candidate_decision_contract",
         legacy_facades=(),
         allowed_app_imports=(

@@ -304,7 +304,7 @@ refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC
 
 ### 选中框二次推理（single-box secondary inference）
 
-选中一个已落库的框 → 在它的 bbox ROI（crop）上同步跑一个能力（子物检测 / 属性分类 / OCR）。端点 `POST /tasks/{task_id}/annotations/{annotation_id}/secondary-inference`；`run_secondary_inference`（`app/services/secondary_inference.py`）只返回不可变产物事实，`AnnotationService.apply_secondary_inference()` 持有最终标注写入。
+选中一个已落库的框 → 在它的 bbox ROI（crop）上同步跑一个能力（子物检测 / 属性分类 / OCR）。端点 `POST /tasks/{task_id}/annotations/{annotation_id}/secondary-inference`；`run_secondary_inference`（`app/services/secondary_inference.py`）只返回不可变产物事实。`SecondaryInferenceWritePort` 接收原作用域、产物、模型 UUID、写入目标及纯审计来源；`application/annotation_secondary_inference.py` 绑定原事务，委托 `AnnotationService._apply_secondary_inference()` 最终落库，再按原顺序心跳、审计、提交、刷新并返回原响应。长推理前的只读提交和 ML I/O 仍由原入口持有。
 
 - **与批量二次推理同一套投递**：直接消费 `services/prediction_context.py::build_predict_context` 与 `services/prediction_roi.py` 的 `crop_inputs_from_boxes`（裁 ROI + presigned 上传）、`merge_classify_attributes` / `remap_geometry_to_image`，不导入 worker 助手。区别只是「源」是选中的现成框而非检测阶段，且**同步执行、不走 worker**（单框秒回）。
 - **产物归位**：`write_target="attributes"` → 分类 / OCR 属性 union 回原框，写入键标 `attributes_meta.origin=ai`；`write_target="geometry"` → crop 检出几何回映回原图坐标后建**子框**（`parent_annotation_id=选中框`，`source=prediction_based`）。子检出类名不在项目标签集时回落 `__unknown`（不丢框，NG6 平台不做类映射）。

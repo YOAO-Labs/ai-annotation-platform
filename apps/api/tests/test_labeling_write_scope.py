@@ -207,7 +207,7 @@ async def test_secondary_result_rejects_changed_roi_and_versions_actual_ai_write
     await service.update(annotation.id, geometry=new_geometry)
 
     with pytest.raises(HTTPException) as failure:
-        await service.apply_secondary_inference(
+        await service._apply_secondary_inference(
             task=task, annotation=annotation, result=result, write_scope=delayed_scope
         )
     assert failure.value.status_code == 409
@@ -215,7 +215,7 @@ async def test_secondary_result_rejects_changed_roi_and_versions_actual_ai_write
     assert annotation.geometry == new_geometry and "color" not in annotation.attributes
 
     previous_version = annotation.version
-    updated, _ = await service.apply_secondary_inference(
+    updated, _ = await service._apply_secondary_inference(
         task=task, annotation=annotation, result=result, write_scope=capture()
     )
     await db_session.commit()

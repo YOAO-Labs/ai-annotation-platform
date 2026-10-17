@@ -682,7 +682,7 @@ class AnnotationService:
         await self._update_task_stats(prediction.task_id)
         return anns
 
-    async def apply_secondary_inference(
+    async def _apply_secondary_inference(
         self,
         *,
         task: Task,

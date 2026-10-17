@@ -89,7 +89,7 @@ async def _run_and_apply_secondary_result(
     facts = await run_secondary_inference(
         db, task=task, annotation=annotation, **inference_args
     )
-    return await AnnotationService(db).apply_secondary_inference(
+    return await AnnotationService(db)._apply_secondary_inference(
         task=task,
         annotation=annotation,
         result=facts,
@@ -147,7 +147,7 @@ async def test_attributes_written_back_with_ai_origin(
         pad=0.08,
     )
     assert box.attributes == {}
-    updated, children = await AnnotationService(db_session).apply_secondary_inference(
+    updated, children = await AnnotationService(db_session)._apply_secondary_inference(
         task=task,
         annotation=box,
         result=inference_result,
