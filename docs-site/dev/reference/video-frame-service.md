@@ -203,7 +203,9 @@ uv run python -m app.cli.video.rebuild_timetable --dataset-id <uuid> --keep-goin
 uv run python -m app.cli.video.rebuild_timetable --all --limit 100
 ```
 
-命令会下载源视频或 playback 视频，调用 `ffprobe -show_frames`，替换该视频的 `video_frame_indices` 行，并更新 `metadata.video.frame_timetable_frame_count`。失败时写入 `metadata.video.frame_timetable_error`。
+`application/video_timetable_rebuild.py::VideoTimetableRebuildWorkflow` 读取 `source_key_for_item` 选定的原始来源对象并沿用既有 `StorageService.bucket_for_cache_key` 桶选择，再调用 `services/media_probe.py::probe_video_frame_timetable`。`DatasetService` 替换索引、记录源帧总数，并只清除或更新 `frame_timetable_error`；失败时 CLI 回滚当前项后保存错误，成功项仍逐项提交。`--dry-run` 会执行下载与探测但不写数据库。源 key 与桶前缀匹配行为保持原样。
+
+单项失败保留其旧索引并记录错误；使用 `--keep-going` 时，CLI 从已保存的 UUID 和刷新后的行继续后续项，不复用回滚后过期的 ORM 属性。成功项仍逐项提交，最终只要有失败就返回非零退出码；继续处理不等于重试失败项。
 
 ### Sparse timetable（长视频）
 

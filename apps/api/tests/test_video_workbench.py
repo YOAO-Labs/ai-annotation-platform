@@ -24,16 +24,18 @@ from app.workers.media import (
     FFMPEG_CHUNK_TIMEOUT_SECONDS,
     FFMPEG_POSTER_TIMEOUT_SECONDS,
     FFMPEG_TRANSCODE_TIMEOUT_SECONDS,
-    FFPROBE_TIMEOUT_SECONDS,
     _store_frame_cache_image,
     _store_video_chunk,
     extract_video_chunk_smart_copy,
     extract_video_poster,
+    transcode_video_for_browser,
+)
+from app.services.media_probe import (
+    FFPROBE_TIMEOUT_SECONDS,
     parse_ffprobe_video_metadata,
     parse_ffprobe_frame_timetable,
     probe_video_file,
     probe_video_frame_timetable,
-    transcode_video_for_browser,
 )
 from tests.factory import create_membership, build_tool_bindings
 

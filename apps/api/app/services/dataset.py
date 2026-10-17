@@ -819,6 +819,33 @@ class DatasetService:
             ]
         )
 
+    async def replace_video_frame_timetable(
+        self,
+        item: DatasetItem,
+        frame_timetable: Sequence[Mapping[str, Any]],
+        *,
+        total_frames: int,
+    ) -> None:
+        await self.replace_video_frame_index(item.id, frame_timetable)
+        metadata = dict(item.metadata_ or {})
+        video_metadata = dict(metadata.get("video") or {})
+        video_metadata["frame_timetable_frame_count"] = total_frames
+        video_metadata.pop("frame_timetable_error", None)
+        metadata["video"] = video_metadata
+        item.metadata_ = metadata
+
+    async def record_video_frame_timetable_error(
+        self, item_id: uuid.UUID, error: str
+    ) -> None:
+        item = await self.db.get(DatasetItem, item_id)
+        if item is None:
+            return
+        metadata = dict(item.metadata_ or {})
+        video_metadata = dict(metadata.get("video") or {})
+        video_metadata["frame_timetable_error"] = error
+        metadata["video"] = video_metadata
+        item.metadata_ = metadata
+
     async def set_video_dimensions(
         self,
         item_id: uuid.UUID,

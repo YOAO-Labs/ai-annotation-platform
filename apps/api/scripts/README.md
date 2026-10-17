@@ -117,7 +117,8 @@ dataset 按 DS-NU-<name> 复用;同名 scene 已存在则跳过。详见脚本�
 - `seed_pointcloud.py`:nuScenes mini scene-0061 → 固定 dev 点云项目，并按 scene 建包（截图 profile 不建包）
 - `seed_scale.py`:大规模压测夹具种子
 - `import_images.py`:批量导入本地图片到 dataset
-- `bootstrap_admin.py`:从 ENV 建超管
+- `bootstrap_admin.py`:从 ENV 读取首次超管信息，提交由 CLI 持有；用户创建归 `IdentityCommandService`，`application/bootstrap_admin.py` 组合 `AuditService` 写入同事务审计。已存在邮箱不改资料、不追加审计。
+- `backfill_task_datasets.py`:`--dry-run` / `--verify` 使用 PostgreSQL 只读事务，`--apply` 按批提交；`application/task_dataset_backfill.py` 负责扫描/报告并委托 `project_task_dataset.ensure_membership` 写入，不改冻结版本内容。
 - `reset_datasets.py`:清空 datasets + 关联表
 - `dump-openapi.py`:导出 openapi.snapshot.json
 

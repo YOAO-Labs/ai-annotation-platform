@@ -105,6 +105,33 @@ class IdentityCommandService:
         await self.db.flush()
         return admin
 
+    async def create_bootstrap_super_admin(
+        self,
+        *,
+        email: str,
+        name: str,
+        password: str,
+        now: datetime,
+    ) -> User | None:
+        """Create the first privileged account, leaving an existing email unchanged."""
+        existing = await self.db.scalar(select(User).where(User.email == email))
+        if existing is not None:
+            return None
+
+        admin = User(
+            email=email,
+            name=name,
+            password_hash=hash_password(password),
+            role=UserRole.SUPER_ADMIN.value,
+            group_name=None,
+            status="online",
+            is_active=True,
+            email_verified_at=now,
+        )
+        self.db.add(admin)
+        await self.db.flush()
+        return admin
+
     @staticmethod
     def record_login_for_locked_user(user: User, now: datetime) -> None:
         user.last_login_at = now

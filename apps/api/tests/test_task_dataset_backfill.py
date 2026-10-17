@@ -13,13 +13,9 @@ from app.db.models.project_task_dataset import (
     ProjectTaskDataset,
     TaskDatasetVersionMembership,
 )
+from app.application.task_dataset_backfill import backfill_batch, verify_high_water
 from app.services.project_task_dataset import ensure_membership
-from scripts.backfill_task_datasets import (
-    backfill_batch,
-    parser,
-    run,
-    verify_high_water,
-)
+from scripts.backfill_task_datasets import parser, run
 from scripts import backfill_task_datasets as command
 from tests.factory import create_project
 from tests.test_project_task_datasets import add_version

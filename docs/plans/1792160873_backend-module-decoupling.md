@@ -952,6 +952,24 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 所有预算样本的范围内对象 API 调用为零，不含 HTTP/JWT、队列、codec 或对象 I/O；不据此声称整请求性能或优化。原始样本与范围在 `/tmp/aap-assets-evidence/backend-assets-boundary-budget.json`。正式说明同步后端分层、图片金字塔和视频帧服务文档；未改公开 schema、依赖、配置或版本，纯边界迁移不增加 CHANGELOG。
 - 主线五个受影响回归通过，新增调用方 rollback 后 Task/代次状态整体保持的断言，并保留有效发布、失效 lease、缓存身份与权限边界。移除 mock 派发参数回声、自由错误文案和异常文案固定断言；实际队列名称以原生消息观察验证。主线十一个 Python 文件的 Ruff 格式/check 与精确 OpenAPI 均通过。
 
+### 运维 CLI 的身份、任务数据集与视频时间表写入
+
+- `application/bootstrap_admin.py` 组合身份命令与审计；用户创建、口令哈希和既有邮箱判断归 `IdentityCommandService`，CLI 持有最终提交。`application/task_dataset_backfill.py` 持有有界枚举、核查与报告，membership 继续由 `project_task_dataset` 写入；CLI 保留只读模式、逐批提交和 JSON Lines 输出，不改冻结内容。
+- `VideoTimetableRebuildWorkflow` 组合原来源对象读取、纯 ffprobe 与稀疏锚点，`DatasetService` 写索引、总帧数与时间表错误字段。按项提交、失败项回滚、其它视频 metadata 保留；源 key 和既有桶前缀路由未改。探测实现迁到 canonical `services/media_probe.py`，旧 worker 模块与解析重导出不保留。
+- 隔离真实 CLI / owned PostgreSQL、MinIO、Redis worker 已观察 bootstrap 创建与重放、backfill 只读/逐批应用/第二批 SQL 失败回滚与后续恢复，以及真实 H264 的稀疏时间表、只读探测和触发器失败后的旧索引保持。普通 metadata Celery 任务实际持久化十二行索引；它不是浏览器或精确视频 renderer 资格。原始 CLI 输出与新连接观察保留在 `/tmp/aap-ops-evidence/ops-smoke.json`、`ops-smoke-commands.json`。
+- 主线双视频原生复现确认：首项源对象缺失后的 rollback 使整批已选 ORM 行过期，只缓存当前项 ID 仍会在下一项抛 `MissingGreenlet`。CLI 现先保存选择项 UUID，并在发生 rollback 后显式刷新后续项，不吞异常、不添加重试。修正后仍以非零退出码报告首项失败，但第二项完成；新 PG 事务见失败项旧索引保持、后续锚点为 `[0, 3, 6, 9, 11]`、源总帧数十二，原有 metadata 保留。该用户可见修复已记入 Unreleased。
+- 主线还复现了遗漏 packet-sample 消费者的实际 `ImportError`；现直接导入 canonical service，旧模块不可导入，历史 Markdown 路径也已迁移。没有通过恢复旧别名掩盖未迁移调用方。
+- 主线真实 bootstrap CLI 创建后，将其自有夹具设为停用普通账号再重放：角色、活动状态、名字和口令哈希均不变，bootstrap 审计不重复。回填真实 dry-run 没有新 membership，按批应用与重放后的关联序号及冻结快照保持正确；这些是版本元数据夹具，不是数据构建器执行。双视频、bootstrap 和回填的完整主线观察保留于 `.worktree/ops-boundary-main-smoke.json`，两个临时脚本已移除。
+- 冻结一项目/一版本，以 `cb2051461` 历史脚本函数和当前 application helper 对照，各预热一次后交错采样三次：
+
+| 采样指标                    | 历史 CLI helper | 当前 application helper |
+| --------------------------- | --------------: | ----------------------: |
+| SQL 语句数                  |               9 |                       9 |
+| Python 堆峰值中位数（字节） |         440,883 |                 440,844 |
+
+- 预算包含 helper、owner 锁/查询、membership 写入和 flush，排除提交/回滚、夹具、session checkout、CLI 报告、MinIO、auth 和 HTTP；不代表整条 CLI、故障路径、吞吐或 RSS 优化。完整样本在 `/tmp/aap-ops-evidence/ops-budget.json`。隔离九个定向文件合跑及冷导入已通过；未与本轮主线补验重复累计。未改数据库/API schema、依赖、配置或版本，保留 Main 已验的 seed SQL 提交后旧对象清理。
+- 主线十六个定向消费者回归通过，覆盖凭据重放保持、时间表只读/稀疏替换、双项失败后继续，以及 packet/codec 样本行为；十七个变更 Python 文件的 Ruff 格式/check 和精确 OpenAPI 通过。移除初始化状态/时间戳/字段回声及固定错误文案断言，保留身份、审计、索引、metadata 合并和事务状态不变量。
+
 ### 剩余范围
 
-- 剩余写入切片为标注幂等收据、邀请接受的成员写入、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余写入切片为标注幂等收据、邀请接受的成员写入及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

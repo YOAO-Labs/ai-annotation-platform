@@ -12,16 +12,10 @@
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone
-
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.application.bootstrap_admin import bootstrap_admin
 from app.config import settings
-from app.core.security import hash_password
-from app.db.enums import UserRole
-from app.db.models.audit_log import AuditLog
-from app.db.models.user import User
 
 
 def _require_env(key: str) -> str:
@@ -41,42 +35,11 @@ async def _bootstrap() -> int:
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with Session() as db:
-        existing = await db.execute(select(User).where(User.email == email))
-        if existing.scalar_one_or_none() is not None:
+        created = await bootstrap_admin(db, email=email, name=name, password=password)
+        if not created:
             print(f"[bootstrap_admin] user {email} already exists, skip")
             return 0
 
-        admin = User(
-            email=email,
-            name=name,
-            password_hash=hash_password(password),
-            role=UserRole.SUPER_ADMIN.value,
-            group_name=None,
-            status="online",
-            is_active=True,
-            # 不变量：邀请注册 / 管理员建号恒视为已验证（见 user.py 注释、
-            # invitation.py:160）。否则 production 默认开启邮箱验证时，day-0
-            # bootstrap 出的 super_admin email_verified_at=NULL 会被登录 gate 拦 400。
-            email_verified_at=datetime.now(timezone.utc),
-        )
-        db.add(admin)
-        await db.flush()
-
-        db.add(
-            AuditLog(
-                actor_id=admin.id,
-                actor_email=admin.email,
-                actor_role=admin.role,
-                action="system.bootstrap_admin",
-                target_type="user",
-                target_id=str(admin.id),
-                method=None,
-                path=None,
-                status_code=None,
-                ip=None,
-                detail_json={"email": admin.email},
-            )
-        )
         await db.commit()
         print(f"[bootstrap_admin] created super_admin {email}")
         return 0

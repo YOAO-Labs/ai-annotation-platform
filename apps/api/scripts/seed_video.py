@@ -110,7 +110,7 @@ async def seed_video(
     from app.db.models.project import Project
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
-    from app.workers.media import probe_video_file, probe_video_frame_timetable
+    from app.services.media_probe import probe_video_file, probe_video_frame_timetable
 
     existing = await db.scalar(
         select(Project).where(Project.display_id == PROJECT_DISPLAY_ID)

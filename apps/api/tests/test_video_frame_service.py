@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from types import SimpleNamespace
 import uuid
 import pytest
 from sqlalchemy import select, text, update
@@ -17,7 +20,8 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.video_tracker_job import VideoTrackerJob
-from app.cli.video.rebuild_timetable import rebuild_item_timetable
+from app.application.video_timetable_rebuild import VideoTimetableRebuildWorkflow
+from app.cli.video import rebuild_timetable as timetable_cli
 from app.services.system_settings_service import SystemSettingsService
 from tests.factory import build_tool_bindings
 from app.services.video_frame_service import (
@@ -1297,9 +1301,7 @@ async def test_video_asset_retry_rejects_unmanaged_linked_projects_only(
     assert resp.status_code == 403
 
 
-async def test_rebuild_timetable_cli_helper_replaces_rows(
-    db_session, super_admin, monkeypatch
-):
+async def test_timetable_workflow_replaces_rows(db_session, super_admin, monkeypatch):
     user, _ = super_admin
     _, item = await _make_video_task(db_session, user.id)
     db_session.add(
@@ -1310,6 +1312,10 @@ async def test_rebuild_timetable_cli_helper_replaces_rows(
             is_keyframe=False,
         )
     )
+    await db_session.flush()
+    video_metadata = dict(item.metadata_["video"])
+    video_metadata.update({"probe_error": "keep", "frame_timetable_error": "previous"})
+    item.metadata_ = {**item.metadata_, "video": video_metadata}
     await db_session.flush()
 
     class FakeClient:
@@ -1334,13 +1340,13 @@ async def test_rebuild_timetable_cli_helper_replaces_rows(
             return default or self.datasets_bucket
 
     monkeypatch.setattr(
-        "app.cli.video.rebuild_timetable.probe_video_frame_timetable",
+        "app.application.video_timetable_rebuild.probe_video_frame_timetable",
         lambda path: [
             {
                 "frame_index": 0,
                 "pts_ms": 0,
-                "is_keyframe": True,
-                "pict_type": "I",
+                "is_keyframe": False,
+                "pict_type": "P",
                 "byte_offset": 10,
             },
             {
@@ -1350,11 +1356,38 @@ async def test_rebuild_timetable_cli_helper_replaces_rows(
                 "pict_type": "P",
                 "byte_offset": 20,
             },
+            {
+                "frame_index": 2,
+                "pts_ms": 66,
+                "is_keyframe": True,
+                "pict_type": "I",
+                "byte_offset": 30,
+            },
+            {
+                "frame_index": 3,
+                "pts_ms": 99,
+                "is_keyframe": False,
+                "pict_type": "P",
+                "byte_offset": 40,
+            },
         ],
     )
 
-    count = await rebuild_item_timetable(db_session, item, storage=FakeStorage())
+    workflow = VideoTimetableRebuildWorkflow(db_session, storage=FakeStorage())
+    dry_count = await workflow.rebuild_item(item, dry_run=True, sparse_stride=3)
+    assert dry_count == 3
+    assert (
+        await db_session.scalar(
+            select(VideoFrameIndex.pts_ms).where(
+                VideoFrameIndex.dataset_item_id == item.id,
+                VideoFrameIndex.frame_index == 0,
+            )
+        )
+        == 999
+    )
+    assert item.metadata_["video"]["frame_timetable_error"] == "previous"
 
+    count = await workflow.rebuild_item(item, sparse_stride=3)
     rows = (
         await db_session.execute(
             VideoFrameIndex.__table__.select()
@@ -1364,9 +1397,128 @@ async def test_rebuild_timetable_cli_helper_replaces_rows(
     ).all()
     await db_session.refresh(item)
 
-    assert count == 2
-    assert [row.pts_ms for row in rows] == [0, 33]
-    assert item.metadata_["video"]["frame_timetable_frame_count"] == 2
+    assert count == 3
+    assert [row.frame_index for row in rows] == [0, 2, 3]
+    assert [row.pts_ms for row in rows] == [0, 66, 99]
+    assert item.metadata_["video"]["frame_timetable_frame_count"] == 4
+    assert item.metadata_["video"]["probe_error"] == "keep"
+    assert "frame_timetable_error" not in item.metadata_["video"]
+
+
+async def test_timetable_workflow_records_error_without_losing_video_metadata(
+    db_session, super_admin
+):
+    user, _ = super_admin
+    _, item = await _make_video_task(db_session, user.id)
+    video_metadata = dict(item.metadata_["video"])
+    video_metadata["probe_error"] = "metadata failure"
+    item.metadata_ = {**item.metadata_, "video": video_metadata}
+    await db_session.flush()
+
+    workflow = VideoTimetableRebuildWorkflow(db_session)
+    await workflow.record_item_error(item.id, "ffprobe frame timetable failed")
+    await db_session.flush()
+    await db_session.refresh(item)
+
+    assert item.metadata_["video"]["probe_error"] == "metadata failure"
+    assert item.metadata_["video"]["playback_path"] == "playback/clip.mp4"
+
+
+async def test_rebuild_timetable_cli_records_failure_after_rollback(
+    db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    _, failed = await _make_video_task(db_session, user.id)
+    _, following = await _make_video_task(db_session, user.id)
+    following.created_at = failed.created_at + timedelta(seconds=1)
+    failed.file_path = "missing.mp4"
+    following.file_path = "valid.mp4"
+    original_video = dict(failed.metadata_["video"])
+    failed_id, following_id = str(failed.id), str(following.id)
+    db_session.add(
+        VideoFrameIndex(
+            dataset_item_id=failed.id,
+            frame_index=0,
+            pts_ms=999,
+            is_keyframe=True,
+        )
+    )
+    await db_session.commit()
+
+    class FakeClient:
+        def download_fileobj(self, *, Bucket, Key, Fileobj):
+            if Key == "missing.mp4":
+                raise OSError("source unavailable")
+            Fileobj.write(b"video fixture")
+
+    class FakeStorage:
+        client = FakeClient()
+
+        def bucket_for_cache_key(self, key, *, default=None):
+            return "datasets"
+
+    @asynccontextmanager
+    async def use_test_session():
+        yield db_session
+
+    async def dispose_engine():
+        return None
+
+    monkeypatch.setattr(timetable_cli, "async_session", use_test_session)
+    monkeypatch.setattr(
+        timetable_cli, "engine", SimpleNamespace(dispose=dispose_engine)
+    )
+    monkeypatch.setattr(
+        "app.application.video_timetable_rebuild.StorageService", FakeStorage
+    )
+    monkeypatch.setattr(
+        "app.application.video_timetable_rebuild.probe_video_frame_timetable",
+        lambda path: [
+            {"frame_index": 0, "pts_ms": 0, "is_keyframe": False},
+            {"frame_index": 1, "pts_ms": 33, "is_keyframe": False},
+            {"frame_index": 2, "pts_ms": 66, "is_keyframe": True},
+            {"frame_index": 3, "pts_ms": 99, "is_keyframe": False},
+        ],
+    )
+
+    assert (
+        await timetable_cli.async_main(
+            [
+                "--dataset-item-id",
+                failed_id,
+                "--dataset-item-id",
+                following_id,
+                "--keep-going",
+                "--sparse-stride",
+                "3",
+            ]
+        )
+        == 1
+    )
+    await db_session.refresh(failed)
+    await db_session.refresh(following)
+    failed_pts = list(
+        await db_session.scalars(
+            select(VideoFrameIndex.pts_ms).where(
+                VideoFrameIndex.dataset_item_id == failed.id
+            )
+        )
+    )
+    following_frames = list(
+        await db_session.scalars(
+            select(VideoFrameIndex.frame_index)
+            .where(VideoFrameIndex.dataset_item_id == following.id)
+            .order_by(VideoFrameIndex.frame_index)
+        )
+    )
+    assert failed_pts == [999]
+    assert following_frames == [0, 2, 3]
+    assert following.metadata_["video"]["frame_timetable_frame_count"] == 4
+    assert {
+        key: value
+        for key, value in failed.metadata_["video"].items()
+        if key != "frame_timetable_error"
+    } == original_video
 
 
 async def test_video_tracker_job_create_get_cancel(
