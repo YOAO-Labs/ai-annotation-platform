@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -71,6 +71,20 @@ from app.utils.raster_mask_rle import MAX_DENSE_MASK_PIXELS
 CONVERSION_PLAN_TTL_SECONDS = 600
 MAX_CONVERSION_MASK_OBJECTS_PER_TASK = 256
 MAX_CONVERSION_RASTER_PIXELS = 32 * 1024 * 1024
+
+
+async def expire_conversion_plans(
+    db: AsyncSession, *, now: datetime | None = None
+) -> int:
+    """Delete conversion plans whose own expiration deadline has elapsed."""
+    result = await db.execute(
+        delete(AnnotationConversionPlan)
+        .where(
+            AnnotationConversionPlan.expires_at <= (now or datetime.now(timezone.utc))
+        )
+        .returning(AnnotationConversionPlan.id)
+    )
+    return len(result.scalars().all())
 
 
 class AnnotationConversionError(RuntimeError):

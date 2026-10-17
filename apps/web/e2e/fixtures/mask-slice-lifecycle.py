@@ -101,7 +101,7 @@ async def main():
     from app.workers._db import task_session
     from app.services.storage import storage_service
     from app.services.raster_mask_storage import store_coco_rle
-    from app.workers.cleanup import _purge_unreferenced_raster_masks_async
+    from app.application.raster_mask_retention import RasterMaskRetentionWorkflow
 
     assert storage_service.bucket == bucket
     assert_owned_disposable_bucket(
@@ -184,7 +184,10 @@ async def main():
         for item in original_list(*args, **kwargs)
     ]
     try:
-        result = await _purge_unreferenced_raster_masks_async(dry_run=False)
+        async with task_session() as db:
+            result = await RasterMaskRetentionWorkflow(
+                db
+            ).purge_unreferenced_raster_masks(dry_run=False)
     finally:
         storage_service.list_objects = original_list
     remaining = {row["key"] for row in original_list("raster-masks/sha256/")}

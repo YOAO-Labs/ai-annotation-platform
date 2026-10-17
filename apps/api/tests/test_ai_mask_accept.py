@@ -392,16 +392,16 @@ async def test_image_accept_is_atomic_and_replays_exact_result(
 
     # A live decision protects its replay-only content reference from GC; once
     # expired, the same snapshot no longer participates in the reference scan.
-    from app.workers import cleanup
+    from app.application.raster_mask_retention import referenced_raster_mask_keys
 
     decision = (await db_session.execute(select(AiMaskAcceptDecision))).scalar_one()
     replay_only_key = f"raster-masks/sha256/ff/ff/{'f' * 64}.json"
     decision.response_json = {"replay_only": {"object_key": replay_only_key}}
     await db_session.flush()
-    assert replay_only_key in await cleanup._referenced_raster_mask_keys(db_session)
+    assert replay_only_key in await referenced_raster_mask_keys(db_session)
     decision.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
     await db_session.flush()
-    assert replay_only_key not in await cleanup._referenced_raster_mask_keys(db_session)
+    assert replay_only_key not in await referenced_raster_mask_keys(db_session)
 
     expired = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/ai-mask-candidates/accept",

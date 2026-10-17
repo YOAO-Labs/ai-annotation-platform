@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Awaitable
+import logging
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
+from datetime import datetime
 from typing import Any, TypeVar
 
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import DatasetItem
@@ -48,6 +50,7 @@ _ACTIVE_CONTENT_OPERATION: ContextVar[str | None] = ContextVar(
     default=None,
 )
 _T = TypeVar("_T")
+_log = logging.getLogger(__name__)
 
 
 class RasterMaskContractError(ValueError):
@@ -338,6 +341,86 @@ async def reserve_raster_mask_upload(
     db.add(RasterMaskUpload(task_id=task_id, object_key=object_key))
     await db.flush()
     return current + 1
+
+
+def _eligible_raster_mask_objects(
+    candidates: list[dict], referenced: set[str], cutoff: datetime
+) -> list[dict]:
+    return [
+        item
+        for item in candidates
+        if item["key"] not in referenced
+        and item.get("last_modified") is not None
+        and item["last_modified"] < cutoff
+    ][:1000]
+
+
+async def purge_unreferenced_raster_mask_objects(
+    db: AsyncSession,
+    referenced: set[str],
+    cutoff: datetime,
+    *,
+    is_referenced: Callable[[AsyncSession, str], Awaitable[bool]],
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """Collect unreferenced objects while preserving upload/reference lock ordering."""
+    candidates = await asyncio.to_thread(
+        storage_service.list_objects, f"{RLE_OBJECT_PREFIX}/"
+    )
+    deletable = _eligible_raster_mask_objects(candidates, referenced, cutoff)
+    deleted = 0
+    errors = 0
+    if not dry_run:
+        for item in deletable:
+            key = item["key"]
+            try:
+                await lock_raster_mask_references(
+                    db,
+                    {"object_key": key},
+                    verify=False,
+                )
+                if not await is_referenced(db, key):
+                    await db.execute(
+                        delete(RasterMaskUpload).where(
+                            RasterMaskUpload.object_key == key
+                        )
+                    )
+                    # Commit the recoverable database state first. If the process
+                    # stops before object deletion, the next pass sees an orphan.
+                    await db.commit()
+                    # A same-key upload may start after that commit. Reacquire the
+                    # content lock and recheck references and reservations.
+                    await lock_raster_mask_references(
+                        db,
+                        {"object_key": key},
+                        verify=False,
+                    )
+                    upload_exists = (
+                        await db.execute(
+                            select(RasterMaskUpload.id)
+                            .where(RasterMaskUpload.object_key == key)
+                            .limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if upload_exists is None and not await is_referenced(db, key):
+                        await asyncio.to_thread(storage_service.delete_object, key)
+                        deleted += 1
+                    await db.commit()
+                    continue
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001 - retain on storage/DB failure
+                await db.rollback()
+                errors += 1
+                _log.warning(
+                    "delete unreferenced raster mask failed; error_type=%s",
+                    type(exc).__name__,
+                )
+    return {
+        "scanned": len(candidates),
+        "eligible": len(deletable),
+        "deleted": deleted,
+        "errors": errors,
+    }
 
 
 async def validate_mask_geometry_for_task(

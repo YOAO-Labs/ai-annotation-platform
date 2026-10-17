@@ -73,6 +73,10 @@ last_reviewed: 2026-10-16
 - 视频章节：`application/video_chapters.py::VideoChapterWorkflow` 组合当前权威与
   视频任务/素材/章节围栏，`services/video_chapter_service.py` 写素材级章节；
   `api/v1/videos.py` 保留审计、提交及响应 refresh，不改变协作分段账本。
+- Mask 保留清理：`application/raster_mask_retention.py::RasterMaskRetentionWorkflow`
+  组合四类领域过期命令与八类引用投影；`services/raster_mask_storage.py` 持有内容锁、
+  reservation 两阶段提交和对象删除。`workers/cleanup.py` 只装配 job-local Session；
+  dry-run 仍提交过期记录，原宽限、处理上限及存储失败语义见 [存储桶布局](../reference/storage-buckets#raster-mask-引用与清理)。
 - 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
   持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
   `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。

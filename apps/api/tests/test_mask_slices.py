@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import delete, func, select, text, update
 
+from app.application.raster_mask_retention import is_raster_mask_key_referenced
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_operation import AnnotationOperation
@@ -26,12 +27,11 @@ from app.services.mask_mutation import (
     _AlgebraBudget,
 )
 from app.services.mask_slice import slice_mask_rle
-from app.services.mask_slice_restore import protect_mask_slice_versions
-from app.services.raster_mask_storage import build_rle_reference
-from app.workers.cleanup import (
-    _expire_mask_annotation_revisions,
-    _is_raster_mask_key_referenced,
+from app.services.mask_slice_restore import (
+    expire_mask_annotation_revisions,
+    protect_mask_slice_versions,
 )
+from app.services.raster_mask_storage import build_rle_reference
 from tests.test_mask_mutations import _payload, _scope, _seed_image_task
 
 
@@ -319,10 +319,10 @@ async def test_undo_gc_redo_and_reference_retention(
     ).all()
     assert retained and all(row.protected for row in retained)
     assert any(row.forever for row in retained if row.annotation_id == new.id)
-    assert await _expire_mask_annotation_revisions(db_session) == 0
+    assert await expire_mask_annotation_revisions(db_session) == 0
     for snapshot in operation.report["after"].values():
         assert "annotation_version" in snapshot
-    assert await _is_raster_mask_key_referenced(
+    assert await is_raster_mask_key_referenced(
         db_session, new.geometry["mask"]["object_key"]
     )
     await AnnotationSliceService(db_session).restore(

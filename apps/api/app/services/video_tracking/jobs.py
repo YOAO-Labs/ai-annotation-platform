@@ -4,12 +4,12 @@ import logging
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,6 +84,48 @@ _ACTIVE_CORRECTION_STATUSES = {
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+VIDEO_TRACKER_STAGED_TTL = timedelta(hours=24)
+
+
+async def expire_stale_tracker_candidates(
+    db: AsyncSession, *, now: datetime | None = None
+) -> int:
+    """Release abandoned staged Mask refs and correction track leases after 24h."""
+    cutoff = (now or _now()) - VIDEO_TRACKER_STAGED_TTL
+    expirable = (
+        VideoTrackerJobStatus.PENDING_REVIEW.value,
+        VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
+        VideoTrackerJobStatus.CANCELLED.value,
+    )
+    result = await db.execute(
+        update(VideoTrackerJob)
+        .where(
+            VideoTrackerJob.staged_result.is_not(None),
+            VideoTrackerJob.status.in_(expirable),
+            VideoTrackerJob.completed_at.is_not(None),
+            VideoTrackerJob.completed_at <= cutoff,
+        )
+        .values(
+            staged_result=None,
+            status=case(
+                (
+                    VideoTrackerJob.status.in_(
+                        (
+                            VideoTrackerJobStatus.PENDING_REVIEW.value,
+                            VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
+                        )
+                    ),
+                    VideoTrackerJobStatus.DISCARDED.value,
+                ),
+                else_=VideoTrackerJob.status,
+            ),
+            revision=VideoTrackerJob.revision + 1,
+        )
+        .returning(VideoTrackerJob.id)
+    )
+    return len(result.scalars().all())
 
 
 def _assert_frame_range(ctx: VideoContext, from_frame: int, to_frame: int) -> None:

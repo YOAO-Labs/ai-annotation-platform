@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
+from app.application.raster_mask_retention import referenced_raster_mask_keys
 from app.deps import get_quality_job_dispatcher
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem
@@ -403,17 +404,32 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
         )
 
 
-def test_fill_holes_union_is_exact_and_gc_queries_cover_repair_ledger():
+@pytest.mark.asyncio
+async def test_fill_holes_union_is_exact_and_live_repair_ledger_is_a_gc_root(
+    db_session, super_admin
+):
     source = _rle(["###", "#.#", "###"])
     hole = _rle(["...", ".#.", "..."])
     assert coco_rle_area(rle_or(source, hole)) == 9
 
-    from app.workers.cleanup import (
-        _MASK_REFERENCE_EXISTS_QUERIES,
-        _MASK_REFERENCE_QUERIES,
+    user, _token = super_admin
+    project, *_ = await _seed_repair_issue(db_session, owner_id=user.id)
+    object_key = build_rle_reference(_rle(["#"]))["object_key"]
+    batch = MaskRepairBatch(
+        project_id=project.id,
+        requested_by_id=user.id,
+        token_hash=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
+        status="planned",
+        plan_digest="a" * 64,
+        request_json={},
+        plan_json={"snapshot": {"mask": {"object_key": object_key}}},
+        result_json={},
+        receipt_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
+    db_session.add(batch)
+    await db_session.flush()
 
-    assert any("mask_repair_batches" in query for query in _MASK_REFERENCE_QUERIES)
-    assert any(
-        "mask_repair_batches" in query for query in _MASK_REFERENCE_EXISTS_QUERIES
-    )
+    assert object_key in await referenced_raster_mask_keys(db_session)
+    batch.status = "failed"
+    await db_session.flush()
+    assert object_key not in await referenced_raster_mask_keys(db_session)

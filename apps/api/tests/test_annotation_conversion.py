@@ -214,9 +214,9 @@ async def test_polygon_mask_dry_run_does_not_store_or_reserve_content(
     )
     plans[0].expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     await db_session.flush()
-    from app.workers.cleanup import _expire_annotation_conversion_plans
+    from app.services.annotation_conversion import expire_conversion_plans
 
-    assert await _expire_annotation_conversion_plans(db_session) == 1
+    assert await expire_conversion_plans(db_session) == 1
     assert await db_session.scalar(select(func.count(AnnotationConversionPlan.id))) == 1
 
 

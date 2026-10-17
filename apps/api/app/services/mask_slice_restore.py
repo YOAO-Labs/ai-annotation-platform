@@ -6,7 +6,7 @@ import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select, tuple_, update
+from sqlalchemy import delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -20,6 +20,18 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     prepare_mask_payload_for_write,
 )
+
+
+async def expire_mask_annotation_revisions(
+    db: AsyncSession, *, now: datetime | None = None
+) -> int:
+    """Delete snapshots only after their stored retention deadline has elapsed."""
+    result = await db.execute(
+        delete(MaskAnnotationRevision)
+        .where(MaskAnnotationRevision.expires_at <= (now or datetime.now(timezone.utc)))
+        .returning(MaskAnnotationRevision.id)
+    )
+    return len(result.scalars().all())
 
 
 def mask_version_snapshot(

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aap_protocol_v2 import native_mask_candidate_id
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
@@ -85,6 +85,17 @@ async def _find_decision(
             )
         )
     ).scalar_one_or_none()
+
+
+async def expire_accept_decisions(
+    db: AsyncSession, *, now: datetime | None = None
+) -> None:
+    """Delete idempotency snapshots whose 24-hour retention has elapsed."""
+    await db.execute(
+        delete(AiMaskAcceptDecision).where(
+            AiMaskAcceptDecision.expires_at <= (now or datetime.now(timezone.utc))
+        )
+    )
 
 
 def _validate_replay(
@@ -732,4 +743,5 @@ __all__ = [
     "AiMaskAcceptError",
     "accept_ai_mask_candidate",
     "ai_mask_accept_request_digest",
+    "expire_accept_decisions",
 ]

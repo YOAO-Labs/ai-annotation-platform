@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy import func, select, text
 
+from app.application.raster_mask_retention import referenced_raster_mask_keys
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
@@ -26,7 +27,6 @@ from app.services.mask_qc.service import (
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.workers.mask_qc import _execute_scan
-from app.workers.cleanup import _referenced_raster_mask_keys
 from tests.factory import create_membership
 
 
@@ -699,7 +699,7 @@ async def test_mask_qc_source_and_issue_regions_are_gc_roots(db_session, super_a
     db_session.add(issue)
     await db_session.flush()
 
-    roots = await _referenced_raster_mask_keys(db_session)
+    roots = await referenced_raster_mask_keys(db_session)
     assert source_reference["object_key"] in roots
     assert region_reference["object_key"] in roots
 

@@ -5,15 +5,15 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import delete, func, select, text, update
 
+from app.application.raster_mask_retention import (
+    is_raster_mask_key_referenced,
+    referenced_raster_mask_keys,
+)
 from app.db.models.annotation import Annotation
 from app.db.models.mask_annotation_revision import MaskAnnotationRevision
 from app.services.annotation import AnnotationService
+from app.services.mask_slice_restore import expire_mask_annotation_revisions
 from app.services.raster_mask_storage import build_rle_reference
-from app.workers.cleanup import (
-    _expire_mask_annotation_revisions,
-    _is_raster_mask_key_referenced,
-    _referenced_raster_mask_keys,
-)
 from tests.test_raster_mask_write_gate import _seed_image_task
 
 
@@ -232,8 +232,8 @@ async def test_unexpired_revision_is_present_in_both_gc_reference_checks(
     annotation.version += 1
     await db_session.flush()
 
-    assert old_key in await _referenced_raster_mask_keys(db_session)
-    assert await _is_raster_mask_key_referenced(db_session, old_key) is True
+    assert old_key in await referenced_raster_mask_keys(db_session)
+    assert await is_raster_mask_key_referenced(db_session, old_key) is True
 
     revision = await db_session.scalar(
         select(MaskAnnotationRevision).where(
@@ -245,9 +245,9 @@ async def test_unexpired_revision_is_present_in_both_gc_reference_checks(
     revision.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     await db_session.flush()
 
-    assert old_key not in await _referenced_raster_mask_keys(db_session)
-    assert await _is_raster_mask_key_referenced(db_session, old_key) is False
-    assert await _expire_mask_annotation_revisions(db_session) == 1
+    assert old_key not in await referenced_raster_mask_keys(db_session)
+    assert await is_raster_mask_key_referenced(db_session, old_key) is False
+    assert await expire_mask_annotation_revisions(db_session) == 1
 
 
 @pytest.mark.asyncio
