@@ -9,6 +9,7 @@ import uuid
 from app.config import settings
 from app.services import prediction_retry
 from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
     ApplyPredictionResultPort,
     ApplyPredictionResultRequest,
 )
@@ -1130,7 +1131,7 @@ async def _run_batch(
             except Exception as exc:
                 authority_denied = (
                     final_write_started
-                    and isinstance(exc, HTTPException)
+                    and isinstance(exc, (HTTPException, ApplyPredictionResultError))
                     and exc.status_code in {401, 403}
                 )
                 await db.rollback()

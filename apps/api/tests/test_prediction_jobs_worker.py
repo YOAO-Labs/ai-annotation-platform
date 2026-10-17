@@ -528,8 +528,9 @@ async def test_run_batch_stops_on_cooperative_cancel(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("denial", ["actor_disabled", "write_denied"])
 async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
-    db_session: AsyncSession, monkeypatch, super_admin
+    db_session: AsyncSession, monkeypatch, super_admin, denial
 ):
     """推理是长耗时操作：账号在推理期间被停用时，本条任务的 Prediction
     写入必须被回滚，job 以 preannotation_actor_revoked 终止，不再继续后续任务。"""
@@ -537,6 +538,8 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     from app.db.models.task import Task
     from app.db.models.user import User
     from app.services.ml_client import PredictionResult
+    from app.services.labeling_prediction_contract import ApplyPredictionResultError
+    from app.services.prediction import PredictionService
     from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
@@ -565,7 +568,7 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
 
         async def predict(self, tasks_payload, context=None):
             self.__class__.calls += 1
-            if self.__class__.calls == 1:
+            if self.__class__.calls == 1 and denial == "actor_disabled":
                 # Mid-inference revocation: disable the initiating account.
                 row = await db_session.get(User, user.id)
                 row.is_active = False
@@ -585,6 +588,16 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     monkeypatch.setattr(
         "app.services.ml_client.MLBackendClient", _StubClient, raising=True
     )
+    if denial == "write_denied":
+
+        async def reject_write(_self, _request):
+            raise ApplyPredictionResultError(
+                code="labeling_permission_changed",
+                status_code=403,
+                detail="项目写入权限已变化",
+            )
+
+        monkeypatch.setattr(PredictionService, "apply_prediction_result", reject_write)
 
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
