@@ -244,30 +244,16 @@ test("isolated exec reserves distinct Playwright ports and preserves exit status
     const code = await launcher.runIsolatedCommand([
       process.execPath,
       "-e",
-      `import { writeFileSync } from 'node:fs';
-      const response = await fetch(process.env.AUDIT_SUMMARY_URL + '/health');
-      const health = await response.json();
-      writeFileSync(${JSON.stringify(output)}, JSON.stringify({
+      `require('node:fs').writeFileSync(${JSON.stringify(output)}, JSON.stringify({
         api: process.env.PLAYWRIGHT_ISOLATED_API_PORT,
-        web: process.env.PLAYWRIGHT_ISOLATED_WEB_PORT,
-        auditSummaryUrl: process.env.AUDIT_SUMMARY_URL,
-        health,
-      }));
-      process.exitCode = 4;`,
+        web: process.env.PLAYWRIGHT_ISOLATED_WEB_PORT
+      })); process.exitCode = 4;`,
     ]);
     assert.equal(code, 4);
     const child = JSON.parse(await readFile(output, "utf8"));
     assert.notEqual(child.api, child.web);
     assert.ok(Number(child.api) > 0);
     assert.ok(Number(child.web) > 0);
-    assert.equal(child.health.service, "audit-summary");
-    assert.equal(child.health.protocol, 1);
-    assert.equal(new URL(child.auditSummaryUrl).hostname, "127.0.0.1");
-    const released = await reserveAvailablePort({
-      startPort: Number(new URL(child.auditSummaryUrl).port),
-    });
-    assert.equal(released.port, Number(new URL(child.auditSummaryUrl).port));
-    await released.release();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

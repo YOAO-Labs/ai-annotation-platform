@@ -53,7 +53,6 @@ services:
     environment:
       GPU_LIFECYCLE_SIGNING_KEYS_FILE: /run/secrets/gpu_lifecycle_signing_keys
       GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
-      AUDIT_SUMMARY_URL: http://audit-summary:8091
     volumes:
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
       - type: bind
@@ -72,8 +71,6 @@ services:
       redis:
         condition: service_healthy
       minio:
-        condition: service_healthy
-      audit-summary:
         condition: service_healthy
     healthcheck:
       test:

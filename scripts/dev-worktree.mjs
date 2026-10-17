@@ -14,7 +14,6 @@ const repositoryRoot = realpathSync(resolve(dirname(scriptPath), ".."));
 const host = "127.0.0.1";
 const defaultApiPort = 8100;
 const defaultWebPort = 3100;
-const defaultAuditSummaryPort = 8091;
 const defaultScanLimit = 512;
 const defaultLockRoot = join(homedir(), ".cache", "aap-dev-ports");
 
@@ -208,7 +207,6 @@ function printHelp() {
   console.log(`用法：pnpm dev:worktree -- [选项]
 
 同时启动当前 checkout 的 API 和 Web，并从指定起始值向上选取未使用端口。
-API 使用当前 checkout 的 audit-summary 服务。
 
 选项：
   --api-port <port>      API 扫描起始端口（默认 ${defaultApiPort}）
@@ -288,24 +286,6 @@ async function waitForHttp(managed, url) {
   throw new Error(`${managed.label} 未在 60 秒内通过 HTTP 就绪检查`);
 }
 
-function goBuildEnvironment() {
-  return {
-    ...Object.fromEntries(
-      ["PATH", "HOME", "TMPDIR", "GOCACHE"]
-        .map((name) => [name, process.env[name]])
-        .filter(([, value]) => value),
-    ),
-    GOPROXY: "off",
-  };
-}
-
-function startAuditSummary(children, port) {
-  return spawnManaged(children, "audit-summary", "go", ["run", ".", "-listen", `${host}:${port}`], {
-    cwd: join(repositoryRoot, "apps/audit-summary"),
-    env: goBuildEnvironment(),
-  });
-}
-
 export async function runDevWorktree(
   argv = process.argv.slice(2),
   { statePath, apiEnvironment, acceptancePath } = {},
@@ -351,25 +331,12 @@ export async function runDevWorktree(
       worktree: repositoryRoot,
     });
     reservations.push(webReservation);
-    const auditSummaryReservation = await reserveAvailablePort({
-      startPort: defaultAuditSummaryPort,
-      worktree: repositoryRoot,
-    });
-    reservations.push(auditSummaryReservation);
     if (shutdownRequested) return;
 
     const apiPort = apiReservation.port;
     const webPort = webReservation.port;
-    const auditSummaryPort = auditSummaryReservation.port;
     const apiTarget = `http://${host}:${apiPort}`;
-    const auditSummaryTarget = `http://${host}:${auditSummaryPort}`;
-    console.log(
-      `[dev:worktree] ${basename(repositoryRoot)} 已分配 API ${apiPort}、Web ${webPort}、audit-summary ${auditSummaryPort}`,
-    );
-
-    const auditSummary = startAuditSummary(children, auditSummaryPort);
-    await waitForHttp(auditSummary, `${auditSummaryTarget}/health`);
-    if (shutdownRequested) return;
+    console.log(`[dev:worktree] ${basename(repositoryRoot)} 已分配 API ${apiPort}、Web ${webPort}`);
 
     const api = spawnManaged(
       children,
@@ -393,7 +360,6 @@ export async function runDevWorktree(
         env: {
           ...apiEnvironment,
           MIGRATION_DATABASE_URL: "",
-          AUDIT_SUMMARY_URL: auditSummaryTarget,
           FRONTEND_BASE_URL: `http://${host}:${webPort}`,
         },
       },
@@ -434,17 +400,16 @@ export async function runDevWorktree(
     console.log(`\n[dev:worktree] 已就绪
   Web:      http://${host}:${webPort}
   API docs: ${apiTarget}/docs
-  audit-summary: ${auditSummaryTarget}
   代理:     /api 和 /ws -> ${apiTarget}
 
-按 Ctrl+C 同时停止所有服务。\n`);
+按 Ctrl+C 同时停止两个服务。\n`);
 
     if (acceptancePath) {
       const { guide } = JSON.parse(await readFile(acceptancePath, "utf8"));
       console.log(formatAcceptanceGuide(guide, `http://${host}:${webPort}`));
     }
 
-    const exited = await Promise.race([api.completion, web.completion, auditSummary.completion]);
+    const exited = await Promise.race([api.completion, web.completion]);
     if (!shutdownRequested) {
       const detail = exited.error?.message ?? exited.signal ?? exited.code;
       throw new Error(`${exited.label} 意外退出：${detail}`);
@@ -496,31 +461,17 @@ export async function runIsolatedCommand(
   try {
     reservations.push(await reserveAvailablePort({ startPort: apiPort }));
     reservations.push(await reserveAvailablePort({ startPort: webPort }));
-    reservations.push(await reserveAvailablePort({ startPort: defaultAuditSummaryPort }));
-    const auditSummaryPort = reservations[2].port;
-    const auditSummaryTarget = `http://${host}:${auditSummaryPort}`;
-    const auditSummary = startAuditSummary(children, auditSummaryPort);
-    await waitForHttp(auditSummary, `${auditSummaryTarget}/health`);
     const child = spawnManaged(children, "隔离命令", command[0], command.slice(1), {
       cwd: repositoryRoot,
       env: {
         ...process.env,
         PLAYWRIGHT_ISOLATED_API_PORT: String(reservations[0].port),
         PLAYWRIGHT_ISOLATED_WEB_PORT: String(reservations[1].port),
-        AUDIT_SUMMARY_URL: auditSummaryTarget,
       },
     });
-    const completed = await Promise.race([
-      child.completion.then((result) => ({ label: "command", result })),
-      auditSummary.completion.then((result) => ({ label: "audit-summary", result })),
-    ]);
-    if (completed.label === "audit-summary") {
-      const detail =
-        completed.result.error?.message ?? completed.result.signal ?? completed.result.code;
-      throw new Error(`audit-summary 意外退出：${detail}`);
-    }
-    if (completed.result.error) throw completed.result.error;
-    return completed.result.code ?? 1;
+    const result = await child.completion;
+    if (result.error) throw result.error;
+    return result.code ?? 1;
   } finally {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);

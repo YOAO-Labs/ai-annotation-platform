@@ -1,0 +1,32 @@
+name: Backend audit experiment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit-summary-experiment:
+    name: Backend audit experiment validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/audit-summary/go.mod
+          cache: false
+      - name: Go experiment tests and vet
+        working-directory: apps/audit-summary
+        run: |
+          go test -race ./...
+          go vet ./...
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: API experiment transport tests
+        working-directory: apps/api
+        run: |
+          uv sync --extra test
+          uv run pytest -q experiments/tests

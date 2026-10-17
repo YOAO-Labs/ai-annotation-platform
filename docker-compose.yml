@@ -28,18 +28,6 @@ services:
       timeout: 5s
       retries: 5
 
-  audit-summary:
-    build:
-      context: ./apps/audit-summary
-      dockerfile: Dockerfile
-    ports:
-      - "127.0.0.1:8091:8091"
-    healthcheck:
-      test: ["CMD", "/audit-summary", "-healthcheck"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   minio:
     # Quay 社区镜像已下架；IBM 镜像保留相同 digest，与 CI 固定为同一版本。
     # https://www.ibm.com/support/pages/node/7289585

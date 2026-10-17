@@ -40,3 +40,5 @@ outputs/
 **/test-results/
 **/playwright-report/
 apps/*-backend/
+apps/audit-summary/
+apps/api/experiments/

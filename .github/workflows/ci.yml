@@ -63,21 +63,11 @@ jobs:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: annotations
-      AUDIT_SUMMARY_URL: http://127.0.0.1:8091
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/audit-summary/go.mod
-          cache: false
-      - name: Audit summary Go tests
-        working-directory: apps/audit-summary
-        run: |
-          go test -race ./...
-          go vet ./...
       - name: Install video fixture tools
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install uv
@@ -134,30 +124,11 @@ jobs:
             echo "::error::OpenAPI snapshot drift. 请在 apps/api 下运行 'uv run python ../../scripts/export_openapi.py' 重生 snapshot 并提交（建议本地装 pre-commit 让它自动跑）。"
             exit 1
           fi
-      - name: Start audit summary for API tests
-        run: |
-          go build -o "$RUNNER_TEMP/audit-summary" ./apps/audit-summary
-          nohup env -i "$RUNNER_TEMP/audit-summary" -listen 127.0.0.1:8091 > "$RUNNER_TEMP/audit-summary.log" 2>&1 &
-          echo "$!" > "$RUNNER_TEMP/audit-summary.pid"
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:8091/health; then
-              exit 0
-            fi
-            sleep 1
-          done
-          cat "$RUNNER_TEMP/audit-summary.log"
-          exit 1
       - name: pytest with coverage
         working-directory: apps/api
         run: >-
           uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
           --durations=30 --junitxml=pytest-results.xml
-      - name: Stop audit summary
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/audit-summary.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/audit-summary.pid")" 2>/dev/null || true
-          fi
       # P6 交接：migration policy 纯规则测试（scripts/ 下不被 apps/api pytest
       # 收集），在此以同一 venv 显式运行。
       - name: Migration policy pure tests
@@ -261,10 +232,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/audit-summary/go.mod
-          cache: false
       - uses: pnpm/action-setup@v4
       - name: pnpm install
         run: pnpm install --frozen-lockfile

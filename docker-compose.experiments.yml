@@ -1,0 +1,17 @@
+name: aap-audit-summary-experiment
+
+# Experimental only. This service is intentionally separate from the default
+# development and production Compose files.
+services:
+  audit-summary:
+    profiles: ["audit-summary-experiment"]
+    build:
+      context: ./apps/audit-summary
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8091:8091"
+    healthcheck:
+      test: ["CMD", "/audit-summary", "-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
