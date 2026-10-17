@@ -131,6 +131,7 @@ last_reviewed: 2026-10-17
    视频共享上下文和采样在 `app/services/video_context.py`；帧服务负责构建，
    片段、协作、导出、追踪与质检单向依赖该下层所有者。
    上下文只含媒体/任务标量与 `VideoMetadata`，回滚后仍可直接消费；片段提交/重开另收调用方已有的 Task，保留原锁和写入。质检及 Mask 关键帧验证显式复用已读媒体事实。
+   Task 列表/详情、Data Manager、视频清单/时间表与转换的素材摘要使用 `assets_media_summary_contract.TaskMediaSummaryReader`；`assets_media_summary.SqlAlchemyTaskMediaSummaryReader` 持有单条/批量/帧数读取，HTTP helper 只组合 Task 回退。
    点云清单经 `app/application/point_cloud_manifest.py` 组合 `labeling_point_cloud_manifest_contract` 的链接引用与 `assets_point_cloud_manifest_contract` 的素材/标定/Scene/位姿事实；HTTP 保留当前可见性，SQL 适配器使用同一 Session，签名引用沿用原桶与时效。
 4. 编辑与提交：Workbench 装配在
    `apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx` +

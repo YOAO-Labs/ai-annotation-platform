@@ -195,6 +195,12 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="dataset", legacy_facades=()),
     DomainSpec(package="video_frame_service", legacy_facades=()),
     DomainSpec(package="assets_point_cloud_manifest", legacy_facades=()),
+    DomainSpec(package="assets_media_summary", legacy_facades=()),
+    DomainSpec(
+        package="assets_media_summary_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
     DomainSpec(
         package="assets_point_cloud_manifest_contract",
         legacy_facades=(),

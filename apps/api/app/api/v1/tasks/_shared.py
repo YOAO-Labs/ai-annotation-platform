@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.models.task import Task
-from app.db.models.dataset import DatasetItem
 from app.schemas.task import (
     TaskOut,
     VideoMetadata,
@@ -25,6 +24,8 @@ from app.services.workspace_contract import (
 from app.services.project_access import resolve_project_access
 from app.services.storage import storage_service
 from app.db.models.project_member import ProjectMember
+from app.services.assets_media_summary import SqlAlchemyTaskMediaSummaryReader
+from app.services.assets_media_summary_contract import TaskMediaSummary
 
 logger = logging.getLogger(__name__)
 VIDEO_MANIFEST_URL_EXPIRES_IN = 3600
@@ -284,79 +285,31 @@ def _task_with_url(
 async def _attach_dimensions(
     db: AsyncSession,
     task: Task,
-) -> tuple[int | None, int | None, str | None, str | None, dict | None]:
+) -> TaskMediaSummary:
     if task.dataset_item_id:
-        from app.db.models.dataset import DatasetItem
-
-        item = await db.get(DatasetItem, task.dataset_item_id)
-        if item:
-            video_metadata = (
-                dict((item.metadata_ or {}).get("video") or {})
-                if item.file_type == "video"
-                else None
-            )
-            return (
-                item.width,
-                item.height,
-                item.thumbnail_path,
-                item.blurhash,
-                video_metadata,
-            )
+        summary = await SqlAlchemyTaskMediaSummaryReader(db).one(task.dataset_item_id)
+        if summary is not None:
+            return summary
     return None, None, task.thumbnail_path, task.blurhash, None
 
 
 async def _video_frame_count(db: AsyncSession, task: Task) -> int | None:
     if not task.dataset_item_id:
         return None
-    item = await db.get(DatasetItem, task.dataset_item_id)
-    if not item:
-        return None
-    video = (item.metadata_ or {}).get("video")
-    if not isinstance(video, dict):
-        return None
-    frame_count = video.get("frame_count")
-    try:
-        return int(frame_count) if frame_count is not None else None
-    except (TypeError, ValueError):
-        return None
+    return await SqlAlchemyTaskMediaSummaryReader(db).video_frame_count(
+        task.dataset_item_id
+    )
 
 
 async def _attach_dimensions_batch(
     db: AsyncSession,
     tasks: list[Task],
-) -> dict[
-    uuid.UUID, tuple[int | None, int | None, str | None, str | None, dict | None]
-]:
-    result: dict[
-        uuid.UUID,
-        tuple[int | None, int | None, str | None, str | None, dict | None],
-    ] = {}
+) -> dict[uuid.UUID, TaskMediaSummary]:
+    result: dict[uuid.UUID, TaskMediaSummary] = {}
 
     item_ids = [t.dataset_item_id for t in tasks if t.dataset_item_id]
     if item_ids:
-        from app.db.models.dataset import DatasetItem
-
-        rows = await db.execute(
-            select(
-                DatasetItem.id,
-                DatasetItem.width,
-                DatasetItem.height,
-                DatasetItem.thumbnail_path,
-                DatasetItem.blurhash,
-                DatasetItem.file_type,
-                DatasetItem.metadata_,
-            ).where(DatasetItem.id.in_(item_ids))
-        )
-        item_data = {
-            row[0]: (
-                row[1],
-                row[2],
-                row[3],
-                row[4],
-                dict((row[6] or {}).get("video") or {}) if row[5] == "video" else None,
-            )
-            for row in rows
-        }
+        item_data = await SqlAlchemyTaskMediaSummaryReader(db).many(tuple(item_ids))
         for t in tasks:
             if t.dataset_item_id:
                 result[t.id] = item_data.get(

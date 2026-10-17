@@ -136,7 +136,9 @@ services/
 
 片段提交/重开显式接收调用方已有的同一个本地 Task；不匹配的绑定在 SQL 前拒绝，证据刷新/Task 锁仍先于片段锁，末段送审、贡献者冻结和重开清理保持原事务。自动邻段质检复用已有 metadata 计算两侧范围及采样；Mask 关键帧校验复用同源事实，保留素材顶层宽高优先于视频 JSON 的规则。这些显式值替代原 ORM 强引用造成的缓存命中，避免普通用例的重复来源查询；上下文不携带权限或远程提交保证。
 
-点云清单通过 `application/point_cloud_manifest.build_point_cloud_manifest` 组合两个值端口：Labeling 的 `TaskDatasetItemLinksReader` 返回原顺序的素材 ID/role，Assets 的 `PointCloudManifestAssetsReader` 返回素材、相机标定及主点云的坐标约定/Scene/帧数/位姿事实。HTTP 保留任务可见性和项目类型检查，再传 UUID、回退对象键及签名能力；两个 SQL 适配器绑定原 Session，已加载素材 ORM 只留在 Assets 内。主点云和相机签名、逐相机标定降级、最后的 Scene/位姿读取顺序保持，位姿的自由 JSON 单独复制以脱离 ORM；不读取对象正文。此端口仅覆盖点云清单，视频清单、Task 媒体摘要及含 ORM 的视频上下文仍有各自边界。
+点云清单通过 `application/point_cloud_manifest.build_point_cloud_manifest` 组合两个值端口：Labeling 的 `TaskDatasetItemLinksReader` 返回原顺序的素材 ID/role，Assets 的 `PointCloudManifestAssetsReader` 返回素材、相机标定及主点云的坐标约定/Scene/帧数/位姿事实。HTTP 保留任务可见性和项目类型检查，再传 UUID、回退对象键及签名能力；两个 SQL 适配器绑定原 Session，已加载素材 ORM 只留在 Assets 内。主点云和相机签名、逐相机标定降级、最后的 Scene/位姿读取顺序保持，位姿的自由 JSON 单独复制以脱离 ORM；不读取对象正文。此端口仅覆盖点云清单，视频清单、Task 媒体摘要和视频上下文使用各自事实。
+
+Task 列表/详情、Data Manager、视频清单/时间表及轨迹转换的素材摘要通过 `assets_media_summary_contract.TaskMediaSummaryReader` 读取。输入只有素材 UUID，结果保留宽高、缩略图、blurhash、原视频 JSON 的五元组，单条沿用 `db.get`，批量沿用七列的一条查询；视频 JSON 单独复制以脱离来源，未知字段及原转换异常保留，不复制素材正文。HTTP 的私有组合 helper 继续处理 Task 回退：单条缺素材回退 Task 缩略图/blurhash，批量已关联但缺素材返回空摘要，未关联时两者都回退。帧数读取沿用原类型转换，不能擅自按 file_type 过滤。
 
 `services/prediction_context.py` 持有规范化预测上下文、模型展示名及原图 RGB 读取；`services/prediction_roi.py` 持有裁剪、父框索引、属性合并和坐标回映；`services/prediction_progress.py` 持有原 Redis 频道与消息构造。HTTP、同步二次推理、批量和逐帧 worker 直接消费这些下层所有者，同步服务不再导入 worker，逐帧 worker 也不再反向导入批量 worker。上下文和 ROI 冷加载不引入 ORM、入口、Celery 或配置；原图读取仍在调用时使用对象存储，进度发布仍绑定现有 Redis/config。执行队列、fan-out、根作业身份、裁剪缓存、授权及提交边界未改，这些本地助手不是新的跨语言协议。
 
