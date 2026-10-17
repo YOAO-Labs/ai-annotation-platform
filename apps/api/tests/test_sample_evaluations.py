@@ -225,7 +225,7 @@ async def test_unavailable_retry_keeps_evaluation_rows_unchanged(
     run.status = attempt.status = "lost"
     attempt.claim_id = uuid.uuid4()
     if unavailable == "deletion":
-        run.deletion_requested_at = service.now()
+        service.request_deletion(run)
     elif unavailable == "expiry":
         run.spec = {**run.spec, "expires_at": 0}
     else:
@@ -656,3 +656,39 @@ async def test_async_job_cancel_preserves_evaluation_intent_and_current_attempt(
         assert run.status == current.status == "cancelling"
         assert current.error_code == "cancel_requested"
     assert job.status == "pending"
+
+
+async def test_delete_records_intent_before_storage_cleanup_failure(
+    db_session, super_admin, httpx_client, objects, monkeypatch
+):
+    owner, token = super_admin
+    world = await seed(db_session, owner, objects)
+    run, attempt = await evaluation(db_session, owner, world)
+    await service.mark_terminal(
+        db_session, run, attempt, "failed", code="sample_failed"
+    )
+    await db_session.flush()
+    monkeypatch.setattr(
+        service.storage,
+        "delete_prefix",
+        Mock(side_effect=RuntimeError("controlled storage failure")),
+    )
+
+    response = await httpx_client.delete(
+        f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "cleanup_pending"
+    await db_session.refresh(run)
+    assert run.deletion_requested_at is not None
+    requested_at = run.deletion_requested_at
+    repeated = await httpx_client.delete(
+        f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert repeated.status_code == 503
+    assert repeated.json()["detail"]["code"] == "cleanup_pending"
+    await db_session.refresh(run)
+    assert run.deletion_requested_at == requested_at

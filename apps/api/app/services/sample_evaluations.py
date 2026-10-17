@@ -638,6 +638,62 @@ async def read_report(db, run, attempt):
         ) from exc
 
 
+def claim_attempt(run, attempt, claim_id):
+    run.status = attempt.status = "running"
+    attempt.claim_id = claim_id
+    attempt.heartbeat_at = attempt.started_at = now()
+
+
+def heartbeat_attempt(attempt):
+    attempt.heartbeat_at = now()
+
+
+def checkpoint_sample(row, attempt, evidence, *, clear_errors: bool):
+    """Cancellation recovery preserves existing diagnostics."""
+    row.evidence, row.status, row.produced_attempt_id = (
+        evidence,
+        "succeeded",
+        attempt.id,
+    )
+    if clear_errors:
+        row.error_code = row.error_message = None
+
+
+def fail_sample(row, *, code, message):
+    row.status, row.error_code, row.error_message = "failed", code, message
+
+
+def mark_sample_inflight(row, request):
+    row.request, row.status = request, "inflight"
+
+
+def mark_lost(run, attempt, *, code, message):
+    run.status = attempt.status = "lost"
+    run.error_code = attempt.error_code = code
+    run.error_message = attempt.error_message = message
+
+
+def set_error(run, attempt, code, message):
+    run.error_code = attempt.error_code = code
+    run.error_message = attempt.error_message = message
+
+
+def release_claim(attempt):
+    attempt.claim_id = None
+
+
+def mark_dispatched(attempt):
+    attempt.dispatched_at = now()
+
+
+def mark_maintenance(attempt, timestamp):
+    attempt.maintenance_at = timestamp
+
+
+def request_deletion(run):
+    run.deletion_requested_at = run.deletion_requested_at or now()
+
+
 async def mark_terminal(
     db, run, attempt, status, *, code=None, message=None, report=None
 ):
@@ -688,14 +744,15 @@ async def signal_interrupted(db, job, *, cancelled):
     if cancelled or run.status == "cancelling":
         await request_cancel(db, run)
     else:
-        run.status = attempt.status = "lost"
-        run.error_code = attempt.error_code = "execution_lost"
-        run.error_message = attempt.error_message = (
-            "评估执行失联；恢复前会核对旧请求收据"
+        mark_lost(
+            run,
+            attempt,
+            code="execution_lost",
+            message="评估执行失联；恢复前会核对旧请求收据",
         )
         await jobs.mark_failed(db, attempt.async_job_id, error=run.error_message)
         await notify_job_terminal(db, job_id=attempt.async_job_id)
-    attempt.claim_id = None
+    release_claim(attempt)
 
 
 async def output(db, run):

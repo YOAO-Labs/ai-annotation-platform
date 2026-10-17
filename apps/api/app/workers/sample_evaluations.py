@@ -70,8 +70,7 @@ async def claim(factory, attempt_id, celery_task_id):
             run = await service.load_run(db, run.project_id, run.id, lock=True)
             if run.current_attempt_id == attempt_id and run.status == "queued":
                 await service.request_cancel(db, run)
-                run.error_code = attempt.error_code = exc.code
-                run.error_message = attempt.error_message = str(exc)[:1000]
+                service.set_error(run, attempt, exc.code, str(exc)[:1000])
                 await db.commit()
             return None
         run = await service.load_run(db, run.project_id, run.id, lock=True)
@@ -84,9 +83,7 @@ async def claim(factory, attempt_id, celery_task_id):
         ):
             return None
         claim_id = uuid.uuid4()
-        run.status = attempt.status = "running"
-        attempt.claim_id = claim_id
-        attempt.heartbeat_at = attempt.started_at = service.now()
+        service.claim_attempt(run, attempt, claim_id)
         await jobs.mark_running(db, attempt.async_job_id, celery_task_id=celery_task_id)
         await db.commit()
         return claim_id
@@ -102,7 +99,7 @@ async def heartbeat(factory, attempt_id, claim_id, stop):
         try:
             async with factory() as db:
                 _run, attempt = await fenced(db, attempt_id, claim_id)
-                attempt.heartbeat_at = service.now()
+                service.heartbeat_attempt(attempt)
                 await db.commit()
         except FencedOut:
             return
@@ -185,12 +182,7 @@ async def checkpoint(factory, attempt_id, claim_id, ordinal, result):
         if row.evidence:
             return
         evidence = service.successful_evidence(run, attempt, row, result)
-        row.evidence, row.status, row.produced_attempt_id = (
-            evidence,
-            "succeeded",
-            attempt.id,
-        )
-        row.error_code = row.error_message = None
+        service.checkpoint_sample(row, attempt, evidence, clear_errors=True)
         rows = await service.sample_rows(db, run)
         await jobs.update_progress(
             db,
@@ -205,12 +197,11 @@ async def mark_lost(factory, attempt_id, claim_id):
         run, attempt = await fenced(db, attempt_id, claim_id)
         if run.status == "cancelling":
             return
-        run.status = attempt.status = "lost"
-        run.error_code = attempt.error_code = "remote_execution_uncertain"
-        run.error_message = attempt.error_message = (
-            "推理结果或退出状态尚未确认；恢复时会先读取同一请求的收据"
+        message = "推理结果或退出状态尚未确认；恢复时会先读取同一请求的收据"
+        service.mark_lost(
+            run, attempt, code="remote_execution_uncertain", message=message
         )
-        attempt.claim_id = None
+        service.release_claim(attempt)
         await jobs.mark_failed(db, attempt.async_job_id, error=run.error_message)
         await service.notify_job_terminal(db, job_id=attempt.async_job_id)
         await db.commit()
@@ -323,10 +314,10 @@ async def execute(factory, attempt_id, celery_task_id=None):
                     row = await db.get(Sample, (current.id, frozen["ordinal"]))
                     if row.request:
                         raise RemoteUncertain
-                    row.status, row.error_code, row.error_message = (
-                        "failed",
-                        "frozen_input_unavailable",
-                        "冻结图片未通过完整性、尺寸或解码检查；未运行推理",
+                    service.fail_sample(
+                        row,
+                        code="frozen_input_unavailable",
+                        message="冻结图片未通过完整性、尺寸或解码检查；未运行推理",
                     )
                     await db.commit()
                 continue
@@ -340,7 +331,7 @@ async def execute(factory, attempt_id, celery_task_id=None):
                 request = service.request_identity(spec, row, preprocessing)
                 if row.request and row.request != request:
                     raise RemoteUncertain
-                row.request, row.status = request, "inflight"
+                service.mark_sample_inflight(row, request)
                 await db.commit()
             result = await obtain_result(factory, run, row, png, attempt_id, claim_id)
             await checkpoint(factory, attempt_id, claim_id, frozen["ordinal"], result)
@@ -352,8 +343,7 @@ async def execute(factory, attempt_id, celery_task_id=None):
             try:
                 run, attempt = await fenced(db, attempt_id, claim_id)
                 await service.request_cancel(db, run)
-                run.error_code = attempt.error_code = exc.code
-                run.error_message = attempt.error_message = str(exc)[:1000]
+                service.set_error(run, attempt, exc.code, str(exc)[:1000])
                 await db.commit()
             except FencedOut:
                 pass
@@ -405,11 +395,7 @@ async def settle_cancel(factory, run_id):
         for ordinal, evidence in recovered.items() if authorized else []:
             row = await db.get(Sample, (run.id, ordinal))
             if not row.evidence:
-                row.evidence, row.status, row.produced_attempt_id = (
-                    evidence,
-                    "succeeded",
-                    attempt.id,
-                )
+                service.checkpoint_sample(row, attempt, evidence, clear_errors=False)
         attempt = await db.get(Attempt, attempt.id, populate_existing=True)
         status = (
             "failed"
@@ -456,7 +442,7 @@ async def settle_cancel(factory, run_id):
                 message=current.error_message,
                 report=artifact,
             )
-            attempt.claim_id = None
+            service.release_claim(attempt)
             await db.commit()
             return True
     finally:
@@ -469,7 +455,7 @@ async def dispatch(db, run):
     if run.status != "queued" or not attempt or attempt.claim_id:
         return
     task_id = str(uuid.uuid4())
-    attempt.dispatched_at = service.now()
+    service.mark_dispatched(attempt)
     job = await db.get(AsyncJob, attempt.async_job_id)
     if job:
         jobs.bind_execution_id(job, task_id)
@@ -526,7 +512,7 @@ async def maintain(factory):
             if not run:
                 continue
             attempt = await db.get(Attempt, run.current_attempt_id)
-            attempt.maintenance_at = cutoff
+            service.mark_maintenance(attempt, cutoff)
             if run.deletion_requested_at:
                 await db.commit()
                 try:
@@ -538,12 +524,9 @@ async def maintain(factory):
                 not attempt.heartbeat_at
                 or attempt.heartbeat_at < service.now() - timedelta(seconds=45)
             ):
-                run.status = attempt.status = "lost"
-                run.error_code = attempt.error_code = "execution_lost"
-                run.error_message = attempt.error_message = (
-                    "执行心跳超时；旧请求可能仍在运行，恢复将核对收据"
-                )
-                attempt.claim_id = None
+                message = "执行心跳超时；旧请求可能仍在运行，恢复将核对收据"
+                service.mark_lost(run, attempt, code="execution_lost", message=message)
+                service.release_claim(attempt)
                 await jobs.mark_failed(
                     db, attempt.async_job_id, error=run.error_message
                 )

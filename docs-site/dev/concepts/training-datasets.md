@@ -96,6 +96,8 @@ last_reviewed: 2026-10-17
 
 现有 `ml.cpu` 队列 worker 在短事务内领取和提交，网络工作不持领域锁。每分钟维护器通过当前尝试关联及轮转维护时间处理未派发、失联、取消中和删除中记录；迟到 worker 不能覆盖新尝试。候选推理使用 `RoutedMLBackendClient` 与原 GPU 准入，固定部署实例和有界响应，收据读取不新申请或释放不确定租约。
 
+Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkpoint、lost/cancel 状态以及 dispatch/maintenance 时间戳，连同 HTTP `deletion_requested_at`，均由 `sample_evaluations` 的命令写入。worker 仍保留围栏、authority 重查、推理/收据与报告 I/O、每个原始 commit 和先提交再派发的窗口；通用 AsyncJob 字段继续通过 `services.async_job` 更新。
+
 受控推理实例的持久 managed 根目录保存 storage UUID、固定数量的 flock 条带及有界请求绑定／收据。锁覆盖真实模型加载、原生预测和原子收据发布，包括加载超时与重复取消；TTL 清理不会删除锁文件。封存使用同一把锁并持久化墓碑，尚未到达的 POST 也不能在取消确认后开始。存储身份变化或请求身份冲突拒绝继续确认。
 
 完整 raw SHA 核验后，Pillow 全量解码、EXIF 校正和 RGB 无元数据 PNG 统一浏览器与推理坐标。固定阈值评估使用稳定置信度优先的同类一对一贪心匹配，不声称原生 COCO AP。报告发布与每次读取验证字节摘要、元数据、规格和可信 checkpoint，再重算匹配与聚合。部分失败不能发布成功整体指标。报告上传后若提交确认丢失，清理器先检查数据库已发布指针，避免删除已成功发布的对象。

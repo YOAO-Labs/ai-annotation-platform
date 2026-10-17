@@ -130,6 +130,29 @@ async def test_duplicate_delivery_has_one_claim_and_stale_writer_cannot_checkpoi
         assert (await db.get(Sample, (run.id, 0))).evidence is None
 
 
+async def test_heartbeat_commits_for_current_claim(world, monkeypatch):
+    claim_id = await worker.claim(world.factory, world.attempt.id, "heartbeat")
+    async with world.factory() as db:
+        before = (await db.get(Attempt, world.attempt.id)).heartbeat_at
+    stop = asyncio.Event()
+    timed_out = False
+
+    async def controlled_wait(awaitable, *, timeout):
+        nonlocal timed_out
+        if not timed_out:
+            timed_out = True
+            awaitable.close()
+            raise asyncio.TimeoutError
+        stop.set()
+        return await awaitable
+
+    monkeypatch.setattr(worker.asyncio, "wait_for", controlled_wait)
+    await worker.heartbeat(world.factory, world.attempt.id, claim_id, stop)
+    async with world.factory() as db:
+        attempt = await db.get(Attempt, world.attempt.id)
+        assert attempt.heartbeat_at > before and attempt.claim_id == claim_id
+
+
 async def test_execution_reuses_checkpoint_and_lost_remote_receipt_on_new_attempt(
     world, monkeypatch
 ):
@@ -176,6 +199,39 @@ async def test_execution_reuses_checkpoint_and_lost_remote_receipt_on_new_attemp
         report = await service.read_report(db, run, await db.get(Attempt, new.id))
         assert report["complete"] and report["aggregate"]["fn"] == 2
         assert (await db.get(Attempt, parent)).status == "lost"
+
+
+async def test_frozen_input_failures_checkpoint_partial_state_without_model_io(
+    world, monkeypatch
+):
+    def unavailable(*_args):
+        raise ValueError("controlled frozen input failure")
+
+    monkeypatch.setattr(service, "prepare_input", unavailable)
+    remote = AsyncMock(side_effect=AssertionError("input failure must skip inference"))
+    monkeypatch.setattr(worker, "obtain_result", remote)
+    await worker.execute(world.factory, world.attempt.id, "input-failure")
+
+    async with world.factory() as db:
+        run = await db.get(Run, world.run.id)
+        attempt = await db.get(Attempt, world.attempt.id)
+        rows = await service.sample_rows(db, run)
+        job = await db.get(AsyncJob, attempt.async_job_id)
+        assert run.status == attempt.status == "failed"
+        assert run.error_code == attempt.error_code == "sample_failed"
+        assert job.status == "failed"
+        assert len(rows) == 3
+        assert all(
+            row.status == "failed"
+            and row.error_code == "frozen_input_unavailable"
+            and row.request is None
+            and row.evidence is None
+            and row.produced_attempt_id is None
+            for row in rows
+        )
+        report = await service.read_report(db, run, attempt)
+        assert report["failed_samples"] == 3 and not report["complete"]
+    remote.assert_not_awaited()
 
 
 async def test_completed_receipt_is_recovered_without_routed_inference_or_new_grant(
@@ -257,6 +313,51 @@ async def test_cancel_stays_pending_while_native_busy_and_seals_before_late_post
     with pytest.raises(worker.FencedOut):
         async with world.factory() as db:
             await worker.fenced(db, world.attempt.id, claim_id)
+
+
+async def test_cancel_recovers_completed_receipt_preserving_sample_diagnostics(
+    world, monkeypatch
+):
+    claim_id = await worker.claim(world.factory, world.attempt.id, "cancel-receipt")
+    diagnostics = ("prior_diagnostic", "Retained sample diagnostic")
+    async with world.factory() as db:
+        run, _attempt = await worker.fenced(db, world.attempt.id, claim_id)
+        row = await db.get(Sample, (run.id, 0))
+        _png, preprocessing = service.prepare_input(
+            run, world.fixture.dataset, run.spec["samples"][0]
+        )
+        row.request = service.request_identity(run.spec, row, preprocessing)
+        row.status = "inflight"
+        row.error_code, row.error_message = diagnostics
+        await db.flush()
+        result = prediction(run, row)
+        response = {
+            "results": [
+                {"task": result.task_id, "result": result.result, "meta": result.meta}
+            ]
+        }
+        request_id = row.request_id
+        await service.request_cancel(db, run)
+        await db.commit()
+
+    async def completed_receipt(_client, _row, *, seal):
+        return {
+            "state": "completed",
+            "response": response,
+            "response_digest": content_digest(response),
+        }
+
+    monkeypatch.setattr(worker, "remote_receipt", completed_receipt)
+    assert await worker.settle_cancel(world.factory, run.id)
+    async with world.factory() as db:
+        current = await db.get(Run, run.id)
+        row = await db.get(Sample, (run.id, 0))
+        assert current.status == "cancelled"
+        assert row.status == "succeeded"
+        assert row.request_id == request_id
+        assert row.produced_attempt_id == world.attempt.id
+        assert row.evidence is not None
+        assert (row.error_code, row.error_message) == diagnostics
 
 
 async def test_lost_commit_acknowledgement_keeps_the_published_report(world):
@@ -371,7 +472,8 @@ async def test_deletion_intent_blocks_resurrection_and_purge_io_holds_no_domain_
             await db.get(Attempt, world.attempt.id),
         )
         run.status = attempt.status = "failed"
-        run.deletion_requested_at = service.now()
+        service.request_deletion(run)
+        requested_at = run.deletion_requested_at
         await db.commit()
     original = service.storage.delete_prefix
     monkeypatch.setattr(
@@ -383,7 +485,8 @@ async def test_deletion_intent_blocks_resurrection_and_purge_io_holds_no_domain_
         with pytest.raises(RuntimeError):
             await service.purge_requested(db, world.run.id)
     async with world.factory() as db:
-        assert (await db.get(Run, world.run.id)).deletion_requested_at
+        persisted = (await db.get(Run, world.run.id)).deletion_requested_at
+        assert persisted == requested_at
     monkeypatch.setattr(service.storage, "delete_prefix", original)
     active = None
 

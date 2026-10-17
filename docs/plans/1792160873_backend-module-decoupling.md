@@ -1106,6 +1106,24 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 后端分层、重试流程、仓库地图开发说明已同步；未改数据库/API schema、依赖、配置、版本或公开 OpenAPI，纯所有权迁移未增加 CHANGELOG。隔离运行时身份为 `56dc8583bc97f1bb`，dev/test 的 owner 校验均为本 worktree 且 session 数为 0 后，分别以精确确认 `56dc8583bc97f1bb:dev` / `56dc8583bc97f1bb:test` 销毁；未触碰 Main 的数据库、队列或对象桶。
 - 主线六项定向消费者回归通过，覆盖重复 dismiss/restore 的单次审计、普通/受控设备成功重试、后端失败计数和仲裁错误保留；四文件固定 Ruff 格式/check 通过。另以只读 doctor 核对隔离 dev/test 的数据库、Redis 与各九个桶均已不存在，退出码 1 是销毁后的预期状态；未重新初始化或重复其已完成原生验收。
 
+### 样本评估执行台账与删除意图
+
+- `services/sample_evaluations.py` 现统一持有 Run、Attempt、Sample 执行台账命令及 HTTP 删除意图写入；worker 保留轮询、传输/模型 I/O、权限权威复核、当前 attempt/job/claim 围栏和原提交/派发窗口，通用 AsyncJob 字段仍由 `services.async_job` 命令持有。请求、状态、证据、`produced_attempt_id`、错误与时间戳均沿用既有身份和状态语义；没有服务反向导入 worker/Celery/API，也未保留旧 helper 别名。
+- 隔离 owned PostgreSQL 及控制的 metadata/output 夹具观察了 claim、heartbeat、checkpoint、旧 claim stale attempt 拒写、取消、lost、冻结输入导致的 failed sample 部分状态，以及默认 ASGI/JWT DELETE 在对象清理失败时返回 503 并经新连接观察删除意图已提交；完整身份和字段快照见 `/tmp/aap-evaluation-ledger-evidence/postgresql-state-transitions.json`。该记录只含一次 HTTP 删除，不能据 setter 层时间保持推断 HTTP 重放；旧 attempt 拒写记录有效。未执行或宣称模型/GPU。
+- 定向回归 `tests/test_sample_evaluations.py`、`tests/test_sample_evaluation_worker.py`、`tests/test_async_jobs.py`、`tests/test_domain_package_architecture.py`、`tests/test_openapi_contract.py`：243 passed、77 skipped；含 SCC 边界守卫及精确 OpenAPI snapshot。五个 Python 文件的 Ruff 0.15.22 check 和 format check 通过。
+- 命令预算以冻结的 `ebe9234c7` 直接 worker claim 为旧路径、当前 service 命令为新路径，同项目/数据集、各侧预热一次后交错采样三次；包含权威复核、Run 锁/当前 Attempt 读取、通用 Job running 状态和 commit，不含夹具/独立观察。两侧每次均 14 条 SQL、0 次对象 I/O；Python 堆峰值增量中位数如下，不据此推断延迟、RSS、吞吐或优化：
+
+| 指标                            | 冻结直接写入 | service 命令 |
+| ------------------------------- | -----------: | -----------: |
+| SQL 语句数                      |           14 |           14 |
+| Python 堆峰值增量中位数（字节） |      349,536 |      349,455 |
+
+- 样本原生 PostgreSQL 状态阶段和精确预算采样分别保存在 `/tmp/aap-evaluation-ledger-evidence/postgresql-state-transitions.json`、`/tmp/aap-evaluation-ledger-evidence/claim-budget.json`；运行时清理前的 owned 资源核验与 teardown 记录分别为 `/tmp/aap-evaluation-ledger-evidence/runtime-before-destroy.json`、`/tmp/aap-evaluation-ledger-evidence/runtime-destroy.json`。已销毁仅由本 worktree 创建的 test 资源 `1cfa7885b8be9f03:test`，未触碰继承的 Main 资源。
+- 正式开发说明同步 `docs-site/dev/concepts/backend-layers.md` 与 `docs-site/dev/concepts/training-datasets.md`。未改变 OpenAPI/schema、依赖、配置或版本；纯结构迁移不增加 CHANGELOG。
+- 主线审查修正抽取时多写的样本错误字段：普通 checkpoint 仍清错，取消收据恢复仍只写证据/状态/producer，明确保留原有诊断。实际 `settle_cancel`、受控完成收据与新 PG 事务已观察 cancelled 运行/作业、succeeded 样本及原 request/attempt/诊断保持；新增消费者回归保护此区别，不为纯 setter 回声建测试。
+- 主线默认 ASGI/JWT/DB 的两次真实 DELETE 均为 503/cleanup_pending，各自的新 PG 事务读到相同删除时间和当前 attempt；恢复受控存储后通过既有 purge 命令完成 SQL 删除。原生观察在 `.worktree/evaluation-owner-main-smoke.json`，临时探针已移除。对象存储、收据和输出均为受控夹具，不声称 MinIO、模型、GPU 或 Celery consumer 资格。
+- 主线两项受影响测试文件合跑为 43 passed、零失败/错误；五文件固定 Ruff 格式/check 通过。保留真实 claim/attempt、收据、部分报告、删除意图与新事务状态断言，删除新增 setter 重放回声和自由错误文案固定；不与隔离组合重复累计。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行及失败预测处置/重试已收口；仍有训练记录删除组合事务（运行及数据版本两类调用）、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共九组剩余边界。通用存储 helper 同时删除两类 ORM 记录，须一起迁到各自所有者。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试及样本评估执行/删除意图已收口；仍有训练记录删除组合事务（运行及数据版本两类调用）、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共八组剩余边界。通用存储 helper 同时删除两类 ORM 记录，须一起迁到各自所有者。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

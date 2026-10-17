@@ -462,7 +462,7 @@ async def delete(
     await guard_source(db, evaluation_id=run.id)
     if run.status not in service.TERMINAL:
         raise service.reject("evaluation_active", "评估尚未确认结束，不能删除")
-    run.deletion_requested_at = run.deletion_requested_at or service.now()
+    service.request_deletion(run)
     await db.commit()
     try:
         await service.purge_requested(db, run.id)
