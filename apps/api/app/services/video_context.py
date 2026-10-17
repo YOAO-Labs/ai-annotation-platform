@@ -5,20 +5,19 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.task import Task
 from app.schemas.task import VideoMetadata
 
 
 @dataclass(frozen=True)
 class VideoContext:
-    item: DatasetItem
     metadata: VideoMetadata
-    task: Task | None = None
-
-    @property
-    def task_id(self) -> uuid.UUID | None:
-        return self.task.id if self.task else None
+    dataset_item_id: uuid.UUID
+    source_file_path: str
+    thumbnail_path: str | None
+    source_width: int | None
+    source_height: int | None
+    task_id: uuid.UUID | None
+    project_id: uuid.UUID | None
 
 
 def derive_step(source_fps: float | None, sampling: dict) -> int:

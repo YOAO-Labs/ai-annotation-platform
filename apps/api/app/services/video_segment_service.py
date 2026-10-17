@@ -4,12 +4,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.dataset import VideoSegment
+from app.db.models.task import Task
 from app.db.models.user import User
 from app.schemas.video_frame_service import VideoSegmentOut, VideoSegmentsResponse
 from app.services.video_context import VideoContext
@@ -67,7 +68,7 @@ async def ensure_segments(db: AsyncSession, ctx: VideoContext) -> list[VideoSegm
         (
             await db.execute(
                 select(VideoSegment)
-                .where(VideoSegment.dataset_item_id == ctx.item.id)
+                .where(VideoSegment.dataset_item_id == ctx.dataset_item_id)
                 .order_by(VideoSegment.segment_index.asc())
             )
         )
@@ -91,7 +92,7 @@ async def ensure_segments(db: AsyncSession, ctx: VideoContext) -> list[VideoSegm
             for segment_index in range(_segment_count(ctx)):
                 start, end = _segment_bounds(ctx, segment_index)
                 row = VideoSegment(
-                    dataset_item_id=ctx.item.id,
+                    dataset_item_id=ctx.dataset_item_id,
                     segment_index=segment_index,
                     start_frame=start,
                     end_frame=end,
@@ -106,7 +107,7 @@ async def ensure_segments(db: AsyncSession, ctx: VideoContext) -> list[VideoSegm
             (
                 await db.execute(
                     select(VideoSegment)
-                    .where(VideoSegment.dataset_item_id == ctx.item.id)
+                    .where(VideoSegment.dataset_item_id == ctx.dataset_item_id)
                     .order_by(VideoSegment.segment_index.asc())
                 )
             )
@@ -157,7 +158,7 @@ async def _segment_out_for_context(
 ) -> VideoSegmentOut:
     from app.db.models.project import Project
 
-    project = await db.get(Project, ctx.task.project_id) if ctx.task else None
+    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
     config = collaboration_config(project)
     return segment_out(
         row,
@@ -171,11 +172,11 @@ async def list_segments(db: AsyncSession, ctx: VideoContext) -> VideoSegmentsRes
     rows = await ensure_segments(db, ctx)
     from app.db.models.project import Project
 
-    project = await db.get(Project, ctx.task.project_id) if ctx.task else None
+    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
     config = collaboration_config(project)
     await db.commit()
     return VideoSegmentsResponse(
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
         segment_size_frames=max(1, settings.video_segment_size_frames),
         collaboration_enabled=config.enabled,
@@ -200,7 +201,7 @@ async def _load_segment_for_update(
             select(VideoSegment)
             .where(
                 VideoSegment.id == segment_id,
-                VideoSegment.dataset_item_id == ctx.item.id,
+                VideoSegment.dataset_item_id == ctx.dataset_item_id,
             )
             .with_for_update()
         )
@@ -212,7 +213,7 @@ async def _load_segment_for_update(
                 select(VideoSegment)
                 .where(
                     VideoSegment.id == segment_id,
-                    VideoSegment.dataset_item_id == ctx.item.id,
+                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
                 )
                 .with_for_update()
             )
@@ -228,6 +229,17 @@ def _assert_can_touch_lock(row: VideoSegment, user: User, privileged: bool) -> N
     raise HTTPException(
         status_code=403, detail="Video segment lock belongs to another user"
     )
+
+
+def _assert_context_task_binding(ctx: VideoContext, task: Task | None) -> None:
+    if task is None:
+        task_id = None
+    else:
+        state = inspect(task)
+        identity = state.identity
+        task_id = state.dict.get("id", identity[0] if identity else None)
+    if task_id != ctx.task_id or (task is not None and ctx.task_id is None):
+        raise ValueError("video context task binding mismatch")
 
 
 async def claim_segment(
@@ -318,13 +330,15 @@ async def submit_segment(
     user: User,
     *,
     privileged: bool,
+    task: Task | None = None,
 ) -> VideoSegmentOut:
-    if ctx.task is not None:
+    _assert_context_task_binding(ctx, task)
+    if task is not None:
         from app.services.annotation_evidence import refresh_task_evidence
 
         # A2 · lock the task (and refresh its evidence) before the segment lock
         # so the entry into review freezes under the same task lock.
-        await refresh_task_evidence(db, ctx.task)
+        await refresh_task_evidence(db, task)
     row = await _load_segment_for_update(db, ctx, segment_id)
     now = _now()
     _normalize_lock(row, now)
@@ -345,25 +359,25 @@ async def submit_segment(
                 status_code=409,
                 detail={"reason": "video_segment_lease_required"},
             )
-    if ctx.task is not None:
+    if task is not None:
         # A2 · every successful segment submitter is a contributor even when the
         # segment kept no surviving annotation. This uses the actual actor, not
         # the shared dataset-item segment assignee.
         from app.services.annotation_evidence import record_annotation_actor
 
-        await record_annotation_actor(db, ctx.task, user.id)
+        await record_annotation_actor(db, task, user.id)
     row.status = "completed"
     row.locked_by = None
     row.locked_at = None
     row.lock_expires_at = None
-    if ctx.task is not None:
+    if task is not None:
         remaining = int(
             (
                 await db.execute(
                     select(func.count())
                     .select_from(VideoSegment)
                     .where(
-                        VideoSegment.dataset_item_id == ctx.item.id,
+                        VideoSegment.dataset_item_id == ctx.dataset_item_id,
                         VideoSegment.id != row.id,
                         VideoSegment.status != "completed",
                     )
@@ -371,18 +385,18 @@ async def submit_segment(
             ).scalar_one()
         )
         if remaining == 0:
-            if ctx.task.status != "review":
-                ctx.task.review_round_id = uuid.uuid4()
-            ctx.task.status = "review"
-            ctx.task.submitted_at = now
-            ctx.task.reviewer_id = None
-            ctx.task.reviewer_is_override = False
-            ctx.task.reviewer_claimed_at = None
-            ctx.task.reviewed_at = None
+            if task.status != "review":
+                task.review_round_id = uuid.uuid4()
+            task.status = "review"
+            task.submitted_at = now
+            task.reviewer_id = None
+            task.reviewer_is_override = False
+            task.reviewer_claimed_at = None
+            task.reviewed_at = None
             # A2 · freeze the round evidence when the video task enters review.
-            contributor_ids = await task_contributor_snapshot(db, ctx.task)
+            contributor_ids = await task_contributor_snapshot(db, task)
             freeze_review_contributor_evidence(
-                ctx.task, submitter_id=user.id, contributor_ids=contributor_ids
+                task, submitter_id=user.id, contributor_ids=contributor_ids
             )
     await db.flush()
     return await _segment_out_for_context(db, ctx, row)
@@ -392,19 +406,22 @@ async def reopen_segment(
     db: AsyncSession,
     ctx: VideoContext,
     segment_id: uuid.UUID,
+    *,
+    task: Task | None = None,
 ) -> VideoSegmentOut:
-    if ctx.task is not None:
-        await refresh_task_evidence(db, ctx.task)
+    _assert_context_task_binding(ctx, task)
+    if task is not None:
+        await refresh_task_evidence(db, task)
     row = await _load_segment_for_update(db, ctx, segment_id)
     row.status = "assigned" if row.assignee_id else "open"
     row.locked_by = None
     row.locked_at = None
     row.lock_expires_at = None
-    if ctx.task is not None:
-        ctx.task.status = "in_progress"
-        ctx.task.submitted_at = None
-        ctx.task.reviewed_at = None
-        clear_review_contributor_evidence(ctx.task)
+    if task is not None:
+        task.status = "in_progress"
+        task.submitted_at = None
+        task.reviewed_at = None
+        clear_review_contributor_evidence(task)
     await db.flush()
     return await _segment_out_for_context(db, ctx, row)
 

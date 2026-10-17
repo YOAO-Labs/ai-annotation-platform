@@ -117,8 +117,8 @@ def _estimated_pts_ms(frame_index: int, metadata: VideoMetadata) -> int | None:
     return int(round((frame_index / metadata.fps) * 1000))
 
 
-def _source_key(item: DatasetItem, metadata: VideoMetadata) -> str:
-    return metadata.playback_path or item.file_path
+def _source_key(source_file_path: str, metadata: VideoMetadata) -> str:
+    return metadata.playback_path or source_file_path
 
 
 def _asset_url(key: str) -> str:
@@ -140,14 +140,32 @@ async def build_context_from_task(
     if task.file_type != "video" or not task.dataset_item_id:
         raise HTTPException(status_code=400, detail="Task is not a video task")
     item = _ensure_video_item(await db.get(DatasetItem, task.dataset_item_id))
-    return video_context.VideoContext(item=item, metadata=_video_meta(item), task=task)
+    return video_context.VideoContext(
+        metadata=_video_meta(item),
+        dataset_item_id=item.id,
+        source_file_path=item.file_path,
+        thumbnail_path=item.thumbnail_path,
+        source_width=item.width,
+        source_height=item.height,
+        task_id=task.id,
+        project_id=task.project_id,
+    )
 
 
 async def build_context_from_dataset_item(
     db: AsyncSession, dataset_item_id: uuid.UUID, task: Task | None = None
 ) -> video_context.VideoContext:
     item = _ensure_video_item(await db.get(DatasetItem, dataset_item_id))
-    return video_context.VideoContext(item=item, metadata=_video_meta(item), task=task)
+    return video_context.VideoContext(
+        metadata=_video_meta(item),
+        dataset_item_id=item.id,
+        source_file_path=item.file_path,
+        thumbnail_path=item.thumbnail_path,
+        source_width=item.width,
+        source_height=item.height,
+        task_id=task.id if task else None,
+        project_id=task.project_id if task else None,
+    )
 
 
 async def pts_ms_for_frame(
@@ -178,7 +196,7 @@ async def _ensure_chunk_rows(
         for row in (
             await db.execute(
                 select(VideoChunk).where(
-                    VideoChunk.dataset_item_id == ctx.item.id,
+                    VideoChunk.dataset_item_id == ctx.dataset_item_id,
                     VideoChunk.chunk_id.in_(chunk_ids),
                 )
             )
@@ -192,15 +210,17 @@ async def _ensure_chunk_rows(
         row = existing.get(chunk_id)
         if row is None:
             start, end = _chunk_bounds(chunk_id, ctx.metadata)
-            start_pts = await pts_ms_for_frame(db, ctx.item.id, start, ctx.metadata)
-            end_pts = await pts_ms_for_frame(db, ctx.item.id, end, ctx.metadata)
+            start_pts = await pts_ms_for_frame(
+                db, ctx.dataset_item_id, start, ctx.metadata
+            )
+            end_pts = await pts_ms_for_frame(db, ctx.dataset_item_id, end, ctx.metadata)
             # 并发安全: list_chunks 主请求 + warmup + 并发 scrub 可能同时为同一 chunk_id
             # insert, 撞 uq_video_chunks_item_chunk。用 SAVEPOINT 包 INSERT, 冲突时只回滚该
             # savepoint (不破坏本批已建的其它 chunk), 再 select 拿别的请求插入的行。
             try:
                 async with db.begin_nested():
                     row = VideoChunk(
-                        dataset_item_id=ctx.item.id,
+                        dataset_item_id=ctx.dataset_item_id,
                         chunk_id=chunk_id,
                         start_frame=start,
                         end_frame=end,
@@ -215,7 +235,7 @@ async def _ensure_chunk_rows(
                 row = (
                     await db.execute(
                         select(VideoChunk).where(
-                            VideoChunk.dataset_item_id == ctx.item.id,
+                            VideoChunk.dataset_item_id == ctx.dataset_item_id,
                             VideoChunk.chunk_id == chunk_id,
                         )
                     )
@@ -285,7 +305,7 @@ async def _warmup_neighbor_chunks(
     ]
     await db.commit()
     if to_warm:
-        dispatcher.dispatch_video_chunks(ctx.item.id, to_warm)
+        dispatcher.dispatch_video_chunks(ctx.dataset_item_id, to_warm)
 
 
 async def list_chunks(
@@ -306,15 +326,15 @@ async def list_chunks(
     await db.commit()
 
     if missing:
-        dispatcher.dispatch_video_chunks(ctx.item.id, missing)
+        dispatcher.dispatch_video_chunks(ctx.dataset_item_id, missing)
 
     # Freeze the primary response before optional I/O: a failed setting read
     # rolls back its transaction and expires ORM objects in this session.
     response = VideoChunksResponse(
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
         chunk_size_frames=settings.video_chunk_size_frames,
-        fallback_video_url=_asset_url(_source_key(ctx.item, ctx.metadata)),
+        fallback_video_url=_asset_url(_source_key(ctx.source_file_path, ctx.metadata)),
         chunks=[_chunk_out(row) for row in rows],
     )
     await _warmup_neighbor_chunks(db, ctx, requested_ids, dispatcher=dispatcher)
@@ -332,7 +352,7 @@ async def get_chunk(
     row = (
         await db.execute(
             select(VideoChunk).where(
-                VideoChunk.dataset_item_id == ctx.item.id,
+                VideoChunk.dataset_item_id == ctx.dataset_item_id,
                 VideoChunk.chunk_id == chunk_id,
             )
         )
@@ -343,7 +363,7 @@ async def get_chunk(
     row.last_accessed_at = _now()
     await db.commit()
     if row.status != "ready":
-        dispatcher.dispatch_video_chunks(ctx.item.id, [chunk_id])
+        dispatcher.dispatch_video_chunks(ctx.dataset_item_id, [chunk_id])
     response = _chunk_out(row)
     await _warmup_neighbor_chunks(db, ctx, [chunk_id], dispatcher=dispatcher)
     return response
@@ -358,7 +378,7 @@ async def _ensure_frame_row(
 ) -> tuple[VideoFrameCache, bool, bool]:
     _safe_frame_range(ctx.metadata, frame_index, frame_index)
     stmt = select(VideoFrameCache).where(
-        VideoFrameCache.dataset_item_id == ctx.item.id,
+        VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
         VideoFrameCache.frame_index == frame_index,
         VideoFrameCache.width == width,
         VideoFrameCache.format == format_,
@@ -380,7 +400,7 @@ async def _ensure_frame_row(
         try:
             async with db.begin_nested():
                 row = VideoFrameCache(
-                    dataset_item_id=ctx.item.id,
+                    dataset_item_id=ctx.dataset_item_id,
                     frame_index=frame_index,
                     width=width,
                     format=format_,
@@ -430,7 +450,7 @@ async def get_frame(
     await db.commit()
     if should_enqueue:
         dispatcher.dispatch_video_frames(
-            ctx.item.id,
+            ctx.dataset_item_id,
             [{"frame_index": frame_index, "width": width, "format": format_}],
         )
     return _frame_out(row)
@@ -457,9 +477,9 @@ async def prefetch_frames(
     ]
     await db.commit()
     if missing:
-        dispatcher.dispatch_video_frames(ctx.item.id, missing)
+        dispatcher.dispatch_video_frames(ctx.dataset_item_id, missing)
     return VideoFramePrefetchResponse(
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
         frames=[_frame_out(row) for row in rows],
     )
@@ -488,7 +508,7 @@ async def retry_frames(
                     await db.execute(
                         select(VideoFrameCache)
                         .where(
-                            VideoFrameCache.dataset_item_id == ctx.item.id,
+                            VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
                             VideoFrameCache.frame_index.in_(normalized),
                             VideoFrameCache.width == width,
                             VideoFrameCache.format == format_,
@@ -506,7 +526,7 @@ async def retry_frames(
                 await db.execute(
                     select(VideoFrameCache)
                     .where(
-                        VideoFrameCache.dataset_item_id == ctx.item.id,
+                        VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
                         VideoFrameCache.width == width,
                         VideoFrameCache.format == format_,
                         VideoFrameCache.status == "failed",
@@ -534,10 +554,10 @@ async def retry_frames(
     await db.commit()
 
     if requests:
-        dispatcher.dispatch_video_frames(ctx.item.id, requests)
+        dispatcher.dispatch_video_frames(ctx.dataset_item_id, requests)
 
     return VideoFramePrefetchResponse(
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
         frames=[_frame_out(row) for row in rows],
     )
@@ -552,7 +572,7 @@ async def manifest_v2(
     from app.services.video_collaboration import collaboration_config
 
     segment_rows = await ensure_segments(db, ctx)
-    project = await db.get(Project, ctx.task.project_id) if ctx.task else None
+    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
     collaboration = collaboration_config(project)
     await db.commit()
     base = base_url.rstrip("/")
@@ -562,16 +582,16 @@ async def manifest_v2(
         timetable_url = f"{service_base}/frame-timetable"
         frame_base = f"{service_base}/frames"
     else:
-        service_base = f"{base}/api/v1/videos/{ctx.item.id}"
+        service_base = f"{base}/api/v1/videos/{ctx.dataset_item_id}"
         chunks_url = f"{service_base}/chunks"
         timetable_url = f"{service_base}/frame-timetable"
         frame_base = f"{service_base}/frames"
 
-    poster_key = ctx.metadata.poster_frame_path or ctx.item.thumbnail_path
+    poster_key = ctx.metadata.poster_frame_path or ctx.thumbnail_path
     return VideoManifestV2Response(
         task_id=ctx.task_id,
-        dataset_item_id=ctx.item.id,
-        video_url=_asset_url(_source_key(ctx.item, ctx.metadata)),
+        dataset_item_id=ctx.dataset_item_id,
+        video_url=_asset_url(_source_key(ctx.source_file_path, ctx.metadata)),
         poster_url=_asset_url(poster_key) if poster_key else None,
         fps=ctx.metadata.fps,
         frame_count=ctx.metadata.frame_count,

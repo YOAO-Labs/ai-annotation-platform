@@ -20,6 +20,7 @@ from app.db.models.video_track_quality import (
     VideoTrackQualityIssue,
     VideoTrackQualityRun,
 )
+from app.schemas.task import VideoMetadata
 from app.services import async_job as async_job_svc
 from app.services.async_job import create_job
 from app.services.mask_formats.image_codecs import rasterize_normalized_polygon
@@ -70,6 +71,7 @@ async def _boundary(
     task: Task,
     left_segment_id: uuid.UUID,
     right_segment_id: uuid.UUID,
+    video_metadata: VideoMetadata | None = None,
 ) -> tuple[VideoSegment, VideoSegment, list[int]]:
     rows = list(
         (
@@ -101,14 +103,15 @@ async def _boundary(
             right_status=right.status,
         )
     left_start, left_end = await segment_work_bounds_for_task(
-        db, task=task, segment=left, project=project
+        db, task=task, segment=left, project=project, video_metadata=video_metadata
     )
     right_start, right_end = await segment_work_bounds_for_task(
-        db, task=task, segment=right, project=project
+        db, task=task, segment=right, project=project, video_metadata=video_metadata
     )
     start, end = max(left_start, right_start), min(left_end, right_end)
-    ctx = await build_context_from_task(db, task)
-    step = derive_step(ctx.metadata.fps, project.video_sampling or {})
+    if video_metadata is None:
+        video_metadata = (await build_context_from_task(db, task)).metadata
+    step = derive_step(video_metadata.fps, project.video_sampling or {})
     frames = [frame for frame in range(start, end + 1) if frame % step == 0]
     if not frames:
         raise VideoTrackQualityError(422, "video_boundary_sampling_empty")
@@ -159,12 +162,14 @@ async def create_quality_run(
     left_segment_id: uuid.UUID,
     right_segment_id: uuid.UUID,
     actor_id: uuid.UUID,
+    video_metadata: VideoMetadata | None = None,
 ) -> tuple[VideoTrackQualityRun, AsyncJob | None, bool]:
     left, right, frames = await _boundary(
         db,
         task=task,
         left_segment_id=left_segment_id,
         right_segment_id=right_segment_id,
+        video_metadata=video_metadata,
     )
     annotations = await _annotations(db, task.id, [left.id, right.id])
     snapshot = _snapshot(annotations)

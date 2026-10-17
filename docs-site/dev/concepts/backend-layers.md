@@ -132,7 +132,9 @@ services/
 
 `mask_formats.registry` 只定义登记、查询、过滤和版本快照原语，不在查询时导入或注册内置实现。`mask_formats.catalog.registry` 在明确的装配模块绑定原描述符及具体 adapter；HTTP、格式导入 worker 和导出消费者直接导入该实例。package root 不重导出或 eager-load catalog，adapter 也不反向导入 registry；格式 ID、能力、选项、版本和原有输入输出不变。
 
-`services/video_context.py` 持有共享 `VideoContext` 与源帧采样纯函数。帧服务负责上下文构建、缓存和 manifest 编排，片段与协作服务消费下层上下文/采样，不反向导入帧服务。导出、追踪与质检直接导入该新所有者；旧帧服务导出已移除，没有兼容别名。上下文仍包含 ORM 实体，不是已定义的跨语言 wire DTO。
+`services/video_context.py` 持有共享 `VideoContext` 与源帧采样纯函数。上下文只含经验证的 `VideoMetadata`、素材 UUID/源对象键/缩略图/顶层宽高和可选任务/项目 UUID；帧服务从原先已读行投影，消费者不再携带 DatasetItem/Task。回滚后上下文仍可供实际帧缓存查询使用，不触发隐式身份加载。导出、追踪、质检、HTTP 和逐帧 worker 都直接读取这些值，旧 ORM 属性没有兼容别名。
+
+片段提交/重开显式接收调用方已有的同一个本地 Task；不匹配的绑定在 SQL 前拒绝，证据刷新/Task 锁仍先于片段锁，末段送审、贡献者冻结和重开清理保持原事务。自动邻段质检复用已有 metadata 计算两侧范围及采样；Mask 关键帧校验复用同源事实，保留素材顶层宽高优先于视频 JSON 的规则。这些显式值替代原 ORM 强引用造成的缓存命中，避免普通用例的重复来源查询；上下文不携带权限或远程提交保证。
 
 点云清单通过 `application/point_cloud_manifest.build_point_cloud_manifest` 组合两个值端口：Labeling 的 `TaskDatasetItemLinksReader` 返回原顺序的素材 ID/role，Assets 的 `PointCloudManifestAssetsReader` 返回素材、相机标定及主点云的坐标约定/Scene/帧数/位姿事实。HTTP 保留任务可见性和项目类型检查，再传 UUID、回退对象键及签名能力；两个 SQL 适配器绑定原 Session，已加载素材 ORM 只留在 Assets 内。主点云和相机签名、逐相机标定降级、最后的 Scene/位姿读取顺序保持，位姿的自由 JSON 单独复制以脱离 ORM；不读取对象正文。此端口仅覆盖点云清单，视频清单、Task 媒体摘要及含 ORM 的视频上下文仍有各自边界。
 

@@ -174,7 +174,7 @@ async def _assert_segment_lock(
 ) -> uuid.UUID:
     await ensure_segments(db, ctx)
     now = _now()
-    project = await db.get(Project, ctx.task.project_id) if ctx.task else None
+    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
     collaboration = collaboration_config(project)
 
     if collaboration.enabled and payload.segment_id is None:
@@ -190,7 +190,7 @@ async def _assert_segment_lock(
                 await db.execute(
                     select(func.count())
                     .select_from(VideoSegment)
-                    .where(VideoSegment.dataset_item_id == ctx.item.id)
+                    .where(VideoSegment.dataset_item_id == ctx.dataset_item_id)
                 )
             ).scalar_one()
         )
@@ -209,7 +209,7 @@ async def _assert_segment_lock(
                 select(VideoSegment)
                 .where(
                     VideoSegment.id == payload.segment_id,
-                    VideoSegment.dataset_item_id == ctx.item.id,
+                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
                 )
                 .with_for_update()
             )
@@ -238,7 +238,7 @@ async def _assert_segment_lock(
             await db.execute(
                 select(VideoSegment)
                 .where(
-                    VideoSegment.dataset_item_id == ctx.item.id,
+                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
                     VideoSegment.start_frame <= payload.to_frame,
                     VideoSegment.end_frame >= payload.from_frame,
                 )
@@ -380,7 +380,9 @@ async def save_video_mask_keyframe(
         ),
     }
     try:
-        await validate_mask_geometry_for_task(db, task, next_geometry)
+        await validate_mask_geometry_for_task(
+            db, task, next_geometry, video_context=ctx
+        )
         await lock_raster_mask_references(
             db, next_geometry, task_id=task.id, require_raster_foreground=False
         )
@@ -933,7 +935,7 @@ async def create_video_mask_correction_job(
     }
     row = VideoTrackerJob(
         task_id=task.id,
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=ctx.dataset_item_id,
         annotation_id=annotation.id,
         segment_id=segment_id,
         created_by=user.id,
@@ -1113,7 +1115,7 @@ async def create_tracker_job(
     # v0.22.1 · B · 无源检测 (无单主且非多源) 才存显式目标类别; 有源延展 / 多源批量各自继承源。
     row = VideoTrackerJob(
         task_id=task.id,
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=ctx.dataset_item_id,
         annotation_id=annotation_id,
         target_class_name=payload.target_class_name if sourceless else None,
         target_tool_unit_id=payload.target_tool_unit_id if sourceless else None,

@@ -695,7 +695,7 @@ async def _extract_frames_for_video(
         {"frame_index": fi, "width": _FRAME_WIDTH, "format": _FRAME_FORMAT}
         for fi in frame_indices
     ]
-    await _extract_video_frames(str(ctx.item.id), requests)
+    await _extract_video_frames(str(ctx.dataset_item_id), requests)
     return await _read_frame_urls(db, ctx, frame_indices)
 
 
@@ -712,7 +712,7 @@ async def _read_frame_urls(db, ctx, frame_indices: list[int]) -> dict[int, str]:
     urls: dict[int, str] = {}
     rows = await db.execute(
         select(VideoFrameCache).where(
-            VideoFrameCache.dataset_item_id == ctx.item.id,
+            VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
             VideoFrameCache.frame_index.in_(frame_indices),
             VideoFrameCache.width == _FRAME_WIDTH,
             VideoFrameCache.format == _FRAME_FORMAT,

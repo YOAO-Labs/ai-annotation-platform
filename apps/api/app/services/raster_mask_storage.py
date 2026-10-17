@@ -20,6 +20,7 @@ from app.db.models.task import Task
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
 from app.services.storage import StorageService, storage_service
+from app.services.video_context import VideoContext
 from app.utils.raster_mask_gzip import (
     MAX_COMPRESSED_BYTES,
     MAX_EXPANSION_RATIO,
@@ -427,6 +428,8 @@ async def validate_mask_geometry_for_task(
     db: AsyncSession,
     task: Task,
     geometry: dict[str, Any],
+    *,
+    video_context: VideoContext | None = None,
 ) -> None:
     """验证掩码几何是否与任务数据集项匹配。
 
@@ -487,14 +490,24 @@ async def validate_mask_geometry_for_task(
     if geom_type in {"video_mask", "video_track_mask"}:
         if task.dataset_item_id is None:
             raise ValueError("video mask requires a primary dataset item")
-        item = await db.get(DatasetItem, task.dataset_item_id)
-        if item is None or item.file_type != "video":
-            raise ValueError("video mask requires a video dataset item")
-        video = (item.metadata_ or {}).get("video")
-        video = video if isinstance(video, dict) else {}
-        width = item.width or video.get("width")
-        height = item.height or video.get("height")
-        frame_count = video.get("frame_count")
+        if video_context is None:
+            item = await db.get(DatasetItem, task.dataset_item_id)
+            if item is None or item.file_type != "video":
+                raise ValueError("video mask requires a video dataset item")
+            video = (item.metadata_ or {}).get("video")
+            video = video if isinstance(video, dict) else {}
+            width = item.width or video.get("width")
+            height = item.height or video.get("height")
+            frame_count = video.get("frame_count")
+        else:
+            if (
+                video_context.task_id != task.id
+                or video_context.dataset_item_id != task.dataset_item_id
+            ):
+                raise ValueError("video context task binding mismatch")
+            width = video_context.source_width or video_context.metadata.width
+            height = video_context.source_height or video_context.metadata.height
+            frame_count = video_context.metadata.frame_count
         if not width or not height:
             raise ValueError(
                 "source video width / height metadata is required for masks"

@@ -15,6 +15,7 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.schemas.project import VideoCollaborationConfig
+from app.schemas.task import VideoMetadata
 from app.services.video_context import derive_step
 
 
@@ -83,6 +84,7 @@ async def segment_work_bounds_for_task(
     task: Task,
     segment: VideoSegment,
     project: Project | None = None,
+    video_metadata: VideoMetadata | None = None,
 ) -> tuple[int, int]:
     project = project or await db.get(Project, task.project_id)
     config = collaboration_config(project)
@@ -98,14 +100,18 @@ async def segment_work_bounds_for_task(
             )
         ).scalar_one()
     )
-    item = await db.get(DatasetItem, task.dataset_item_id)
-    video_metadata = ((item.metadata_ if item else {}) or {}).get("video") or {}
+    if video_metadata is None:
+        item = await db.get(DatasetItem, task.dataset_item_id)
+        stored_video = ((item.metadata_ if item else {}) or {}).get("video") or {}
+        frame_count = stored_video.get("frame_count")
+    else:
+        frame_count = video_metadata.frame_count
     return segment_work_bounds(
         start_frame=segment.start_frame,
         end_frame=segment.end_frame,
         segment_index=segment.segment_index,
         segment_count=max(1, segment_count),
-        frame_count=max(1, int(video_metadata.get("frame_count") or 1)),
+        frame_count=max(1, int(frame_count or 1)),
         overlap_frames=config.overlap_frames,
     )
 

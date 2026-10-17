@@ -8,6 +8,7 @@ from app.db.models.dataset import VideoSegment
 from app.db.models.project import Project
 from app.db.models.video_track_quality import VideoTrackQualityRun
 from app.services.quality_job_dispatch import QualityJobDispatcher
+from app.services.video_frame_service import build_context_from_task
 from app.services.video_track_quality import (
     VideoTrackQualityError,
     _annotations,
@@ -107,3 +108,42 @@ async def test_dispatch_failure_finishes_both_quality_run_and_async_job(
     assert persisted_run.completed_at is not None
     assert persisted_job.status == "failed"
     assert persisted_job.completed_at is not None
+
+
+async def test_existing_quality_run_reuses_supplied_video_facts(
+    db_session, test_engine, super_admin
+):
+    from sqlalchemy import event
+
+    owner, _ = super_admin
+    task, item, segments = await _boundary(db_session, owner.id)
+    arguments = {
+        "task": task,
+        "left_segment_id": segments[0].id,
+        "right_segment_id": segments[1].id,
+        "actor_id": owner.id,
+    }
+    run, _, created = await create_quality_run(db_session, **arguments)
+    assert created
+    ctx = await build_context_from_task(db_session, task)
+    project = await db_session.get(Project, task.project_id)
+    statements = []
+
+    def count_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", count_statement)
+    try:
+        await create_quality_run(db_session, **arguments)
+        loaded_row_statements = tuple(statements)
+        db_session.expunge(item)
+        statements.clear()
+        repeated, job, created = await create_quality_run(
+            db_session, **arguments, video_metadata=ctx.metadata
+        )
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", count_statement)
+
+    assert repeated.id == run.id and job is None and not created
+    assert project.id == task.project_id
+    assert tuple(statements) == loaded_row_statements

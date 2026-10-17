@@ -116,7 +116,7 @@ async def normalize_video_export_scope(
             raise ValueError("video export frame range exceeds source frame_count")
         return VideoExportScope(
             task_id=task.id,
-            dataset_item_id=ctx.item.id,
+            dataset_item_id=ctx.dataset_item_id,
             selection_kind="frames",
             from_frame=selection.from_frame,
             to_frame=selection.to_frame,
@@ -130,7 +130,7 @@ async def normalize_video_export_scope(
                     VideoSegment.id.in_(
                         [selection.start_segment_id, selection.end_segment_id]
                     ),
-                    VideoSegment.dataset_item_id == ctx.item.id,
+                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
                 )
             )
         )
@@ -150,7 +150,7 @@ async def normalize_video_export_scope(
             await db.execute(
                 select(VideoSegment)
                 .where(
-                    VideoSegment.dataset_item_id == ctx.item.id,
+                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
                     VideoSegment.segment_index >= start.segment_index,
                     VideoSegment.segment_index <= end.segment_index,
                 )
@@ -177,7 +177,7 @@ async def normalize_video_export_scope(
         raise ValueError("video export segment range exceeds source frame_count")
     return VideoExportScope(
         task_id=task.id,
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=ctx.dataset_item_id,
         selection_kind="segments",
         from_frame=from_frame,
         to_frame=to_frame,

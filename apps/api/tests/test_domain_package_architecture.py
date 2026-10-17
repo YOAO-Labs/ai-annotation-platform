@@ -238,7 +238,11 @@ DOMAIN_PACKAGES = (
         legacy_facades=(),
         allowed_app_imports=("app.services.training_dataset_bridge",),
     ),
-    DomainSpec(package="video_context", legacy_facades=()),
+    DomainSpec(
+        package="video_context",
+        legacy_facades=(),
+        allowed_app_imports=("app.schemas.task",),
+    ),
     DomainSpec(package="video_segment_service", legacy_facades=()),
     DomainSpec(package="video_collaboration", legacy_facades=()),
     DomainSpec(package="annotation_evidence", legacy_facades=()),

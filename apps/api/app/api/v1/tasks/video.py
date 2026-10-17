@@ -444,7 +444,7 @@ async def claim_video_segment(
         target_id=segment_id,
         request=request,
         status_code=200,
-        detail={"task_id": str(task.id), "dataset_item_id": str(ctx.item.id)},
+        detail={"task_id": str(task.id), "dataset_item_id": str(ctx.dataset_item_id)},
     )
     await db.commit()
     return body
@@ -480,7 +480,7 @@ async def heartbeat_video_segment(
         target_id=segment_id,
         request=request,
         status_code=200,
-        detail={"task_id": str(task.id), "dataset_item_id": str(ctx.item.id)},
+        detail={"task_id": str(task.id), "dataset_item_id": str(ctx.dataset_item_id)},
     )
     await db.commit()
     return body
@@ -516,7 +516,7 @@ async def release_video_segment(
         target_id=segment_id,
         request=request,
         status_code=200,
-        detail={"task_id": str(task.id), "dataset_item_id": str(ctx.item.id)},
+        detail={"task_id": str(task.id), "dataset_item_id": str(ctx.dataset_item_id)},
     )
     await db.commit()
     return body
@@ -559,6 +559,7 @@ async def submit_video_segment(
         segment_id,
         current_user,
         privileged=await _segment_privileged(db, task, current_user),
+        task=task,
     )
     from app.db.models.dataset import VideoSegment
 
@@ -566,7 +567,7 @@ async def submit_video_segment(
         (
             await db.execute(
                 select(VideoSegment).where(
-                    VideoSegment.dataset_item_id == ctx.item.id,
+                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
                     VideoSegment.segment_index.in_(
                         [body.segment_index - 1, body.segment_index + 1]
                     ),
@@ -591,6 +592,7 @@ async def submit_video_segment(
                 left_segment_id=left_id,
                 right_segment_id=right_id,
                 actor_id=current_user.id,
+                video_metadata=ctx.metadata,
             )
         except VideoTrackQualityError as exc:
             _raise_quality_error(exc)
@@ -660,7 +662,7 @@ async def reopen_video_segment(
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
     ctx = await build_context_from_task(db, task)
-    body = await reopen_segment(db, ctx, segment_id)
+    body = await reopen_segment(db, ctx, segment_id, task=task)
     await mark_boundary_runs_stale(db, segment_id)
     await db.commit()
     return body
@@ -1283,7 +1285,7 @@ async def propagate_video_track(
         detail={
             "task_id": str(task.id),
             "annotation_id": str(annotation_id),
-            "dataset_item_id": str(ctx.item.id),
+            "dataset_item_id": str(ctx.dataset_item_id),
             "segment_id": str(body.segment_id) if body.segment_id else None,
             "from_frame": body.from_frame,
             "to_frame": body.to_frame,
@@ -1344,7 +1346,7 @@ async def track_video(
             "source_annotation_ids": [str(a) for a in payload.source_annotation_ids]
             if payload.source_annotation_ids
             else None,
-            "dataset_item_id": str(ctx.item.id),
+            "dataset_item_id": str(ctx.dataset_item_id),
             "segment_id": str(body.segment_id) if body.segment_id else None,
             "from_frame": body.from_frame,
             "to_frame": body.to_frame,

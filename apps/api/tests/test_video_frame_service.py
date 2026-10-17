@@ -317,15 +317,223 @@ async def test_segment_evidence_retains_each_actual_submitter(
     segments = await ensure_segments(db_session, ctx)
     assert len(segments) == 2
 
-    await submit_segment(db_session, ctx, segments[0].id, owner, privileged=True)
+    await submit_segment(
+        db_session, ctx, segments[0].id, owner, privileged=True, task=task
+    )
     assert task.status != "review"
     assert task.annotation_contributor_ids == [str(owner.id)]
-    await submit_segment(db_session, ctx, segments[1].id, other, privileged=True)
+    await submit_segment(
+        db_session, ctx, segments[1].id, other, privileged=True, task=task
+    )
     await db_session.refresh(task)
     assert task.status == "review"
     assert task.review_round_id is not None
     assert task.review_submitter_id == other.id
     assert task.review_contributor_ids == sorted([str(owner.id), str(other.id)])
+
+
+@pytest.mark.parametrize("operation", ["submit", "reopen"])
+@pytest.mark.parametrize(
+    "binding",
+    ["different_task", "missing_task", "task_on_taskless", "transient_on_taskless"],
+)
+async def test_segment_task_binding_mismatch_fails_before_database_access(
+    db_session, test_engine, super_admin, operation, binding
+):
+    from sqlalchemy import event
+
+    from app.services.video_frame_service import build_context_from_task
+    from app.services.video_segment_service import reopen_segment, submit_segment
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    if binding in {"different_task", "missing_task"}:
+        ctx = await build_context_from_task(db_session, task)
+        bound_task = Task(
+            id=uuid.uuid4(),
+            project_id=task.project_id,
+            dataset_item_id=item.id,
+            display_id=f"T-VFS-{uuid.uuid4().hex[:6]}",
+            file_name="clip.mp4",
+            file_path="videos/clip.mp4",
+            file_type="video",
+            status="pending",
+        )
+        if binding == "missing_task":
+            bound_task = None
+    else:
+        ctx = await build_context_from_dataset_item(db_session, item.id)
+        bound_task = task
+        # The binding guard must inspect the loaded identity without triggering
+        # an async refresh when the Task's mapped id attribute has expired.
+        db_session.expire(bound_task, ["id"])
+        if binding == "transient_on_taskless":
+            bound_task = Task()
+
+    statements = []
+
+    def count_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", count_statement)
+    try:
+        with pytest.raises(ValueError):
+            if operation == "submit":
+                await submit_segment(
+                    db_session,
+                    ctx,
+                    uuid.uuid4(),
+                    user,
+                    privileged=True,
+                    task=bound_task,
+                )
+            else:
+                await reopen_segment(db_session, ctx, uuid.uuid4(), task=bound_task)
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", count_statement)
+
+    assert statements == []
+    assert task.status == "pending"
+    assert list(db_session.new) == []
+    assert list(db_session.dirty) == []
+
+
+async def test_video_context_values_survive_rollback_without_lazy_loads(
+    db_session, test_engine, super_admin, monkeypatch
+):
+    from sqlalchemy import event
+
+    from app.services.video_frame_service import (
+        _source_key,
+        build_context_from_task,
+    )
+    from app.workers import frame_preannotate
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    ctx = await build_context_from_task(db_session, task)
+    expected_item_id = item.id
+    expected_task_id = task.id
+    expected_project_id = task.project_id
+    db_session.add_all(
+        [
+            VideoFrameCache(
+                dataset_item_id=item.id,
+                frame_index=index,
+                width=frame_preannotate._FRAME_WIDTH,
+                format=frame_preannotate._FRAME_FORMAT,
+                status="ready" if index == 0 else "pending",
+                storage_key=f"videos/frames/{index}.webp" if index == 0 else None,
+            )
+            for index in (0, 1)
+        ]
+    )
+    await db_session.commit()
+    await db_session.execute(select(1))
+    monkeypatch.setattr(
+        "app.services.video_frame_service.storage_service.generate_download_url",
+        lambda key, **_kwargs: f"http://storage.local/{key}",
+    )
+
+    # Metadata is a scalar-only Pydantic snapshot, not a view into the JSONB dict.
+    item.metadata_["video"]["fps"] = 60
+    assert ctx.metadata.fps == 30
+
+    await db_session.rollback()
+    await db_session.connection()
+    statements = []
+
+    def count_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", count_statement)
+    try:
+        assert ctx.dataset_item_id == expected_item_id
+        assert ctx.task_id == expected_task_id
+        assert ctx.project_id == expected_project_id
+        assert ctx.source_file_path == "videos/clip.mp4"
+        assert ctx.thumbnail_path == "posters/clip.webp"
+        assert ctx.metadata.fps == 30
+        assert _source_key(ctx.source_file_path, ctx.metadata) == "playback/clip.mp4"
+        assert statements == []
+        urls = await frame_preannotate._read_frame_urls(db_session, ctx, [0, 1])
+        assert urls == {0: "http://storage.local/videos/frames/0.webp"}
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", count_statement)
+
+    assert len(statements) == 1
+
+
+async def test_taskless_video_context_keeps_taskless_segment_behavior(
+    db_session, super_admin
+):
+    from app.services.video_segment_service import ensure_segments, submit_segment
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    ctx = await build_context_from_dataset_item(db_session, item.id)
+    assert ctx.task_id is None
+    segments = await ensure_segments(db_session, ctx)
+
+    result = await submit_segment(
+        db_session, ctx, segments[0].id, user, privileged=True
+    )
+
+    assert result.status == "completed"
+    assert task.status == "pending"
+
+
+async def test_mask_validation_reuses_context_source_dimensions(
+    db_session, test_engine, super_admin
+):
+    from dataclasses import replace
+
+    from sqlalchemy import event
+
+    from app.services.raster_mask_storage import validate_mask_geometry_for_task
+    from app.services.video_frame_service import build_context_from_task
+
+    owner, _ = super_admin
+    task, item = await _make_video_task(db_session, owner.id)
+    item.width, item.height = 3, 2
+    item.metadata_ = {
+        **item.metadata_,
+        "video": {**item.metadata_["video"], "width": 99, "height": 99},
+    }
+    await db_session.flush()
+    ctx = await build_context_from_task(db_session, task)
+    db_session.expunge(item)
+    geometry = {
+        "type": "video_track_mask",
+        "keyframes": [{"frame_index": 0, "mask": {"size": [2, 3]}}],
+    }
+    statements = []
+
+    def count_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", count_statement)
+    try:
+        await validate_mask_geometry_for_task(
+            db_session, task, geometry, video_context=ctx
+        )
+        geometry["keyframes"][0]["mask"]["size"] = [99, 99]
+        with pytest.raises(ValueError):
+            await validate_mask_geometry_for_task(
+                db_session, task, geometry, video_context=ctx
+            )
+        geometry["keyframes"][0]["mask"]["size"] = [2, 3]
+        with pytest.raises(ValueError):
+            await validate_mask_geometry_for_task(
+                db_session,
+                task,
+                geometry,
+                video_context=replace(ctx, dataset_item_id=uuid.uuid4()),
+            )
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", count_statement)
+
+    assert statements == []
 
 
 async def test_video_collaboration_derives_overlap_work_ranges(
