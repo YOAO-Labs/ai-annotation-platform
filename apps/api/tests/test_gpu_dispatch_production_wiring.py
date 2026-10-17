@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 import uuid
 
 import pytest
@@ -10,6 +11,8 @@ from fastapi.params import Depends as DependsParam
 from app import deps
 from app.api.v1 import admin_ml_integrations, ml_backends
 from app.api.v1.tasks import annotations
+from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.db.models.task import Task
 from app.services import ml_backend as ml_backend_module
 from app.services.ml_backend import MLBackendService
 from app.services.gpu_arbitration.contracts import (
@@ -209,8 +212,8 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
     monkeypatch,
 ) -> None:
     authority_marker = object()
-    backend = object()
-    task = object()
+    backend = MLBackendRegistry(id=uuid.uuid4())
+    task = Task(id=uuid.uuid4(), project_id=uuid.uuid4(), version=1, status="pending")
     client_kwargs: list[dict] = []
     built_from: list[object] = []
 
@@ -224,7 +227,16 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
                 return backend
             if model.__name__ == "Task":
                 return task
+            if model.__name__ == "AsyncJob":
+                return SimpleNamespace(
+                    user_id=uuid.uuid4(),
+                    payload={"execution_scope": "bulk"},
+                    status="running",
+                )
             raise AssertionError(f"unexpected model: {model}")
+
+        async def rollback(self):
+            pass
 
     class FakeSessionFactory:
         def __call__(self):
@@ -248,12 +260,12 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
             assert received_backend is backend
             client_kwargs.append(kwargs)
 
+        async def predict(self, *_args, **_kwargs):
+            raise RuntimeError("stop after dispatch wiring is observed")
+
     async def build_frame_context(_db, received_task):
         assert received_task is task
         return object()
-
-    async def cancelled(_db, _job_id):
-        return True
 
     monkeypatch.setattr(
         "sqlalchemy.ext.asyncio.create_async_engine",
@@ -274,7 +286,18 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
         "app.services.video_frame_service.build_context_from_task",
         build_frame_context,
     )
-    monkeypatch.setattr(frame_preannotate, "_job_cancelled", cancelled)
+    monkeypatch.setattr(
+        frame_preannotate, "_job_cancelled", AsyncMock(return_value=False)
+    )
+    monkeypatch.setattr(
+        frame_preannotate, "_existing_frame_indices", AsyncMock(return_value=set())
+    )
+    monkeypatch.setattr(
+        frame_preannotate,
+        "_read_frame_urls",
+        AsyncMock(return_value={0: "http://frame/0"}),
+    )
+    monkeypatch.setattr(frame_preannotate, "_write_job_progress", AsyncMock())
 
     stats = await frame_preannotate._run_segment(
         segment={"task_id": str(uuid.uuid4()), "frame_indices": [0]},
@@ -295,8 +318,8 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
 
 @pytest.mark.asyncio
 async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> None:
-    backend = object()
-    task = SimpleNamespace(id=uuid.uuid4())
+    backend = MLBackendRegistry(id=uuid.uuid4())
+    task = Task(id=uuid.uuid4(), project_id=uuid.uuid4(), version=1, status="pending")
 
     class FakeEngine:
         async def dispose(self) -> None:
@@ -308,6 +331,12 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
                 return backend
             if model.__name__ == "Task":
                 return task
+            if model.__name__ == "AsyncJob":
+                return SimpleNamespace(
+                    user_id=uuid.uuid4(),
+                    payload={"execution_scope": "bulk"},
+                    status="running",
+                )
             raise AssertionError(f"unexpected model: {model}")
 
         async def rollback(self) -> None:
@@ -325,7 +354,7 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
             return SessionContext()
 
     class RejectedClient:
-        def __init__(self, _backend, **_kwargs) -> None:
+        def __init__(self, _db, _backend, **_kwargs) -> None:
             pass
 
         async def predict(self, inputs, context=None):
@@ -366,7 +395,9 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
         "app.services.gpu_arbitration.dispatch.build_gpu_dispatch_context_factory",
         lambda factory: object(),
     )
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient", RejectedClient)
+    monkeypatch.setattr(
+        "app.services.ml_routing.client.RoutedMLBackendClient", RejectedClient
+    )
     monkeypatch.setattr(
         "app.services.video_frame_service.build_context_from_task",
         build_frame_context,

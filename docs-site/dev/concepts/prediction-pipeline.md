@@ -66,7 +66,9 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 - 普通采纳/拒绝同时绑定实际 Prediction 的 task/project 与 URL 作用域，错题或跨项目 ID 返回 404。原生交互接受快照仍不能经普通采纳接口重复创建标注。
 - 专用 `create_test_seed_prediction()` 是唯一明确无主体的夹具命令：再次核对非 production、显式 E2E 开关及数据库实际名称的 `_e2e` / `_test` 后缀，保留不创建 Meta/不增加预测数的夹具语义；这不能授权普通候选命令。
 
-逐帧执行从持久作业恢复 actor、batch 和 `execution_scope`，冻结实际任务的批次；缺失范围不猜成默认 bulk。队列、注册名、模型冻结身份、分区 Meta 的时间键和原分块/逐题提交保持；没有新增自动重试、远程协议或数据库/broker 原子提交。
+逐帧执行从持久作业恢复 actor、batch 和 `execution_scope`，冻结实际任务的批次；缺失范围不猜成默认 bulk。最终写入遇到账号、项目、成员、批次、任务或作业的短暂锁竞争时，回滚后以带随机抖动的指数退避重试，含首次写入每轮最多 5 次。持续繁忙时由原 Celery 段任务进入 `RETRY`，按最长 30 秒的退避延迟重新派发，没有锁竞争重试次数上限；该帧不计失败，chord 保持等待。
+
+重试消息携带当前帧的推理结果、后端／池与计费来源、原始 `labeling_write_scope`、剩余帧和累计段统计，采用现有 Kombu JSON 序列化保留 UUID。恢复先保存已有结果，不重复推理，也不以新任务状态重建写入授权；每次保存仍执行完整准入检查。段结束才累计一次 Redis 进度，重试不重复计数；延迟派发前续期 Redis chord 的已完成兄弟段结果与帧进度键。权限、范围或编辑锁拒绝仍按真实失败记录；终态作业不再接收迟到结果。恢复入口观察协作取消请求并跳过剩余帧，最终回调锁定作业后写入 `cancelled`，不覆盖已有终态。队列、注册名、模型冻结身份、分区 Meta 的时间键和原逐帧提交保持。
 
 `Task.version` 不是所有 Annotation 编辑的全局修订号；ROI 结果必须另外核对实际源 Annotation 版本。二次推理引擎仅返回 `secondary_inference_result.SecondaryInferenceResult` 不可变事实，由 `AnnotationService.apply_secondary_inference()` 在最终准入后写属性/子框、贡献证据及实际属性变更的 Annotation 版本；引擎不再写标注 ORM。人工属性优先级、来源和原 HTTP 审计/提交语义不变。
 

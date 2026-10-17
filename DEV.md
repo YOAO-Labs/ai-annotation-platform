@@ -520,6 +520,14 @@ artifact 的 JUnit XML 中。测试用户工厂在进程内复用默认密码 `T
 哈希；自定义密码、生产密码哈希与验证逻辑保持原样。四角色 fixture 与 E2E 造数
 共用这一工厂，避免为每个测试账号重复计算默认密码哈希。
 
+逐帧保存的真实 Celery 调度验收需显式启用，在隔离测试库与 Redis 中启动临时 worker：
+
+```bash
+pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && AAP_FRAME_CELERY_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_frame_preannotate_celery.py'
+```
+
+该验收使用固定推理与缓存帧夹具，实际执行 `default → ml → RETRY → finalize`、PostgreSQL 行锁、Redis chord 与进度续期，覆盖连续多轮争锁后的恢复、取消和任务版本变化。普通 pytest 默认跳过该验收；测试结束关闭临时 worker，资源按工作树测试环境的正常流程保留或销毁。
+
 `seed.injectToken()` 用一次性的同源空文档写入身份，避免切换账号时先启动旧账号的
 首页请求。调用后需显式导航到测试页面；已有 localStorage 偏好会保留，真实请求
 错误检查不作放宽。

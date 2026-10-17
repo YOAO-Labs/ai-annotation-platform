@@ -362,8 +362,15 @@ class EvaluationSpec(_AAPModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
-class EvaluationSampleResult(FrozenEvaluationSample):
+class EvaluationSampleResult(_AAPModel):
+    ordinal: int
+    task_id: UUID
+    sha256: str
+    label_sha256: str
+    width: int
+    height: int
     status: Literal["pending", "succeeded", "failed"]
+    truth: list[dict[str, Any]]
     predictions: list[dict[str, Any]] = Field(default_factory=list)
     matching: dict[str, Any] | None = None
     derived_sha256: str | None = None

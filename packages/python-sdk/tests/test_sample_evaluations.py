@@ -133,7 +133,13 @@ def evaluation_json(status="queued", attempt_status="queued", attempt_id=ATTEMPT
 
 def sample_result_json():
     return {
-        **frozen_sample_json(),
+        "ordinal": 0,
+        "task_id": TASK_ID,
+        "sha256": "d" * 64,
+        "label_sha256": "e" * 64,
+        "width": 640,
+        "height": 480,
+        "truth": [],
         "status": "failed",
         "predictions": [],
         "matching": None,

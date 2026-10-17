@@ -41,6 +41,7 @@
 
 ### Fixed
 
+- 逐样本评估报告和非空样本列表按 API 实际响应解析，不再误要求仅冻结规格包含的 `size_bytes`、`split` 与 `explicit_negative`。
 - 无来源 tracker 事件保留空 annotation_id，兼容旧字符串空值；sdist 补齐测试支撑文件。
 
 - 事件流异常和 socket 日志隐藏 token，退出／取消释放连接；连接不隐式重试或刷新凭据，CLI 断线保留已输出事件。复用既有预测／RLE 类型并保持核心安装无 WebSocket 依赖。

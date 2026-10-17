@@ -30,10 +30,13 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import uuid
+from dataclasses import asdict
 from typing import cast
 
 import redis
+from fastapi import HTTPException
 
 from app.config import settings
 from app.workers.celery_app import celery_app
@@ -41,6 +44,23 @@ from app.workers.celery_app import celery_app
 # 逐帧抽帧的目标宽度 / 格式 (ML backend 拉取用)。jpeg 通用、体积小; 宽度够检测即可。
 _FRAME_WIDTH = 1280
 _FRAME_FORMAT = "jpeg"
+_WRITE_ATTEMPTS = 5
+_WRITE_BUSY_REASONS = frozenset(
+    {
+        "account_busy",
+        "project_busy",
+        "membership_busy",
+        "batch_busy",
+        "task_busy",
+        "job_busy",
+    }
+)
+
+
+class _FrameWriteDeferred(Exception):
+    def __init__(self, resume: dict):
+        super().__init__("Frame prediction is waiting for a write lock")
+        self.resume = resume
 
 
 # ── 纯函数: 段规划 (可单测, 不碰 IO) ────────────────────────────────────────
@@ -297,7 +317,7 @@ def launch_predict_phase(
 
 @celery_app.task(
     bind=True,
-    max_retries=2,
+    max_retries=None,
     default_retry_delay=30,
     soft_time_limit=settings.frame_preannotate_segment_soft_time_limit_seconds,
 )
@@ -310,21 +330,48 @@ def predict_video_segment(
     stage0: dict,
     job_id: str,
     celery_root_task_id: str | None = None,
+    resume: dict | None = None,
 ) -> dict:
     """处理一个段 (单 task 的一段帧号): 抽帧 → 逐帧 stage-0 predict → video_bbox 落库。
 
     返回段 stats ``{task_id, frames_done, boxes, failed, skipped}`` 供 chord 回调聚合。
     """
-    return asyncio.run(
-        _run_segment(
-            segment=segment,
-            project_id=project_id,
-            ml_backend_id=ml_backend_id,
-            stage0=stage0,
-            job_id=job_id,
-            celery_root_task_id=celery_root_task_id,
+    try:
+        return asyncio.run(
+            _run_segment(
+                segment=segment,
+                project_id=project_id,
+                ml_backend_id=ml_backend_id,
+                stage0=stage0,
+                job_id=job_id,
+                celery_root_task_id=celery_root_task_id,
+                resume=resume,
+            )
         )
-    )
+    except _FrameWriteDeferred as exc:
+        # RETRY does not refresh Redis chord keys; retain completed sibling results.
+        backend = self.app.backend
+        if self.request.group and backend.expires:
+            for suffix in (".j", ".s", ".t"):
+                backend.expire(
+                    backend.get_key_for_group(self.request.group, suffix),
+                    backend.expires,
+                )
+        with redis.from_url(settings.redis_url) as progress:
+            progress.expire(_progress_key(job_id), 86400)
+            progress.expire(_progress_total_key(job_id), 86400)
+        raise self.retry(
+            args=(segment,),
+            kwargs={
+                "project_id": project_id,
+                "ml_backend_id": ml_backend_id,
+                "stage0": stage0,
+                "job_id": job_id,
+                "celery_root_task_id": celery_root_task_id,
+                "resume": exc.resume,
+            },
+            countdown=random.uniform(1, min(30, 2 ** min(self.request.retries + 1, 5))),
+        ) from exc
 
 
 async def _run_segment(
@@ -335,6 +382,7 @@ async def _run_segment(
     stage0: dict,
     job_id: str,
     celery_root_task_id: str | None,
+    resume: dict | None = None,
 ) -> dict:
     from sqlalchemy import inspect
     from sqlalchemy.ext.asyncio import (
@@ -351,16 +399,20 @@ async def _run_segment(
     )
     from app.services.gpu_arbitration.contracts import (
         gpu_arbiter_failure_record,
-        summarize_gpu_arbiter_failures,
     )
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService, to_video_bbox_result
     from app.services.video_frame_service import build_context_from_task
     from app.services.prediction_context import build_predict_context
-    from app.services.labeling_write_scope import capture_labeling_write_scope
+    from app.services.labeling_write_scope import (
+        LabelingWriteScope,
+        capture_labeling_write_scope,
+    )
 
     task_id = segment["task_id"]
-    frame_indices: list[int] = list(segment["frame_indices"])
+    frame_indices: list[int] = list(
+        resume["frame_indices"] if resume is not None else segment["frame_indices"]
+    )
     box_cap = settings.frame_preannotate_max_boxes_per_frame
 
     engine = create_async_engine(settings.database_url, echo=False)
@@ -377,122 +429,179 @@ async def _run_segment(
         "skipped": 0,
     }
     gpu_arbiter_failures: list[dict] = []
+    pending_write = None
+    if resume is not None:
+        stats.update(resume["stats"])
+        gpu_arbiter_failures.extend(resume["gpu_arbiter_failures"])
+        pending_write = resume["pending_write"]
     try:
         async with SessionLocal() as db:
-            backend = await db.get(MLBackend, uuid.UUID(ml_backend_id))
-            task = await db.get(Task, uuid.UUID(task_id))
-            if backend is None or task is None:
-                return stats
             async_job = await db.get(AsyncJob, uuid.UUID(job_id))
-            payload = dict(async_job.payload or {}) if async_job is not None else {}
-            actor_id = async_job.user_id if async_job is not None else None
-            execution_scope = payload.get("execution_scope")
-            execution_scope_known = (
-                async_job is not None
-                and "execution_scope" in payload
-                and isinstance(execution_scope, str)
-            )
-            if not execution_scope_known:
-                execution_scope = None
-            write_scope = capture_labeling_write_scope(
-                task,
-                actor_id=actor_id,
-                actor_known=async_job is not None,
-                operation="preannotation",
-                execution_scope=execution_scope,
-                execution_scope_known=execution_scope_known,
-                job_id=uuid.UUID(job_id),
-                job_id_known=True,
-            )
-            # 预先解析 requested pool 用于失败前的溯源；实际逐帧派发由
-            # RoutedMLBackendClient 获取 route lease 并记录选中的物理实例。
-            from app.services.ml_backend import MLBackendService
-
-            try:
-                source_pool_id = await MLBackendService(db).pool_id_for_registry(
-                    getattr(backend, "id", None)
-                )
-            except Exception:
-                source_pool_id = None
-            ctx = await build_context_from_task(db, task)
-            client = RoutedMLBackendClient(
-                db,
-                backend,
-                project_id=uuid.UUID(project_id),
-                owner=f"frame:{job_id}:{task_id}",
-                operation="frame_predict",
-                shadow_session_factory=SessionLocal,
-                dispatch_context_factory=dispatch_context_factory,
-            )
-            context = build_predict_context(
-                prompt=None,
-                output_mode="box",
-                params=stage0.get("params"),
-                model_id=stage0.get("model_id"),
-                task=stage0.get("task"),
-                task_type=stage0.get("task_type"),
-                prompt_type=stage0.get("prompt_type"),
-                model_variants=stage0.get("model_variants"),
-                class_filter=stage0.get("class_filter"),
-                box_threshold=None,
-                text_threshold=None,
-            )
-            pred_svc = PredictionService(db)
-
             # cancel: 段边界粒度 (段小 ~chunk_size 帧, 已排队的段各自入口 no-op)。job 被取消
             # → 整段跳过, 不再抽帧/predict。
             if await _job_cancelled(db, job_id):
-                return stats
+                stats["skipped"] += len(frame_indices)
+                if async_job is None or async_job.status not in {"pending", "running"}:
+                    return stats
+                return await _finish_segment(
+                    stats, gpu_arbiter_failures, project_id=project_id, job_id=job_id
+                )
+
+            if resume is not None:
+                write_scope = LabelingWriteScope(**resume["write_scope"])
+            else:
+                task = await db.get(Task, uuid.UUID(task_id))
+                if task is None:
+                    stats["failed"] += len(frame_indices)
+                    return await _finish_segment(
+                        stats,
+                        gpu_arbiter_failures,
+                        project_id=project_id,
+                        job_id=job_id,
+                    )
+                payload = dict(async_job.payload or {})
+                execution_scope = payload.get("execution_scope")
+                execution_scope_known = isinstance(execution_scope, str)
+                write_scope = capture_labeling_write_scope(
+                    task,
+                    actor_id=async_job.user_id,
+                    actor_known=True,
+                    operation="preannotation",
+                    execution_scope=execution_scope if execution_scope_known else None,
+                    execution_scope_known=execution_scope_known,
+                    job_id=uuid.UUID(job_id),
+                    job_id_known=True,
+                )
+            pred_svc = PredictionService(db)
+            client = None
 
             # 段级幂等 (断点续跑): 该 task 已落库的 video_bbox 帧号, 跳过。
-            done_frames = await _existing_frame_indices(db, task.id)
+            done_frames = await _existing_frame_indices(db, write_scope.task_id)
 
-            # 帧已由阶段 A (extract_frames_task) 抽好, 段任务只读缓存 URL (不再下载)。
-            frame_urls = await _read_frame_urls(db, ctx, frame_indices)
-
-            for fi in frame_indices:
+            for index, fi in enumerate(frame_indices):
                 if fi in done_frames:
                     stats["skipped"] += 1
-                    continue
-                url = frame_urls.get(fi)
-                if not url:
-                    stats["failed"] += 1
+                    pending_write = None
                     continue
                 try:
-                    if inspect(backend).expired:
-                        await db.refresh(backend)
-                    results = await client.predict(
-                        [{"id": f"{task_id}:{fi}", "file_path": url}], context=context
-                    )
-                    raw = results[0].result if results else []
-                    video_items = to_video_bbox_result(
-                        raw if isinstance(raw, list) else [], fi
-                    )[:box_cap]
-                    await pred_svc.create_from_ml_result(
-                        task_id=write_scope.task_id,
-                        project_id=uuid.UUID(project_id),
-                        ml_backend_id=client.last_instance_id or backend.id,
-                        result=video_items,
-                        score=results[0].score if results else None,
-                        model_version=results[0].model_version if results else None,
-                        inference_time_ms=(
-                            results[0].inference_time_ms if results else None
-                        ),
-                        token_meta=results[0].meta if results else None,
-                        ml_backend_pool_id=client.pool_id or source_pool_id,
-                        write_scope=write_scope,
-                    )
-                    await db.commit()
+                    if pending_write is None:
+                        if client is None:
+                            from app.services.ml_backend import MLBackendService
+
+                            task = await db.get(Task, uuid.UUID(task_id))
+                            backend = await db.get(MLBackend, uuid.UUID(ml_backend_id))
+                            if task is None or backend is None:
+                                raise HTTPException(
+                                    status_code=404, detail="Task or backend not found"
+                                )
+                            try:
+                                source_pool_id = await MLBackendService(
+                                    db
+                                ).pool_id_for_registry(backend.id)
+                            except Exception:
+                                source_pool_id = None
+                            ctx = await build_context_from_task(db, task)
+                            frame_urls = await _read_frame_urls(db, ctx, frame_indices)
+                            context = build_predict_context(
+                                prompt=None,
+                                output_mode="box",
+                                params=stage0.get("params"),
+                                model_id=stage0.get("model_id"),
+                                task=stage0.get("task"),
+                                task_type=stage0.get("task_type"),
+                                prompt_type=stage0.get("prompt_type"),
+                                model_variants=stage0.get("model_variants"),
+                                class_filter=stage0.get("class_filter"),
+                                box_threshold=None,
+                                text_threshold=None,
+                            )
+                            client = RoutedMLBackendClient(
+                                db,
+                                backend,
+                                project_id=uuid.UUID(project_id),
+                                owner=f"frame:{job_id}:{task_id}",
+                                operation="frame_predict",
+                                shadow_session_factory=SessionLocal,
+                                dispatch_context_factory=dispatch_context_factory,
+                            )
+                        url = frame_urls.get(fi)
+                        if not url:
+                            stats["failed"] += 1
+                            continue
+                        if inspect(backend).expired:
+                            await db.refresh(backend)
+                        results = await client.predict(
+                            [{"id": f"{task_id}:{fi}", "file_path": url}],
+                            context=context,
+                        )
+                        raw = results[0].result if results else []
+                        pending_write = {
+                            "task_id": write_scope.task_id,
+                            "project_id": uuid.UUID(project_id),
+                            "ml_backend_id": client.last_instance_id or backend.id,
+                            "result": to_video_bbox_result(
+                                raw if isinstance(raw, list) else [], fi
+                            )[:box_cap],
+                            "score": results[0].score if results else None,
+                            "model_version": results[0].model_version
+                            if results
+                            else None,
+                            "inference_time_ms": (
+                                results[0].inference_time_ms if results else None
+                            ),
+                            "token_meta": results[0].meta if results else None,
+                            "ml_backend_pool_id": client.pool_id or source_pool_id,
+                        }
+                    for attempt in range(_WRITE_ATTEMPTS):
+                        try:
+                            await pred_svc.create_from_ml_result(
+                                **pending_write,
+                                write_scope=write_scope,
+                            )
+                            await db.commit()
+                            break
+                        except HTTPException as exc:
+                            if (
+                                exc.status_code != 409
+                                or not isinstance(exc.detail, dict)
+                                or exc.detail.get("reason") not in _WRITE_BUSY_REASONS
+                            ):
+                                raise
+                            await db.rollback()
+                            if attempt == _WRITE_ATTEMPTS - 1:
+                                raise _FrameWriteDeferred(
+                                    {
+                                        "frame_indices": frame_indices[index:],
+                                        "write_scope": asdict(write_scope),
+                                        "pending_write": pending_write,
+                                        "stats": stats,
+                                        "gpu_arbiter_failures": gpu_arbiter_failures,
+                                    }
+                                ) from exc
+                            await asyncio.sleep(random.uniform(0.05, 0.1) * 2**attempt)
                     stats["frames_done"] += 1
-                    stats["boxes"] += len(video_items)
+                    stats["boxes"] += len(pending_write["result"])
+                except _FrameWriteDeferred:
+                    raise
                 except Exception as exc:
                     await db.rollback()
                     stats["failed"] += 1
                     failure = gpu_arbiter_failure_record(exc)
                     if failure is not None:
                         gpu_arbiter_failures.append(failure)
+                pending_write = None
     finally:
         await engine.dispose()
+
+    return await _finish_segment(
+        stats, gpu_arbiter_failures, project_id=project_id, job_id=job_id
+    )
+
+
+async def _finish_segment(
+    stats: dict, gpu_arbiter_failures: list[dict], *, project_id: str, job_id: str
+) -> dict:
+    from app.services.gpu_arbitration.contracts import summarize_gpu_arbiter_failures
 
     if gpu_arbiter_failures:
         stats["gpu_arbiter_failures"] = summarize_gpu_arbiter_failures(
@@ -501,20 +610,13 @@ async def _run_segment(
 
     # 进度推进 (已处理帧 = 成功 + 跳过 + 失败): 让分母对齐规划总帧数。
     processed = stats["frames_done"] + stats["skipped"] + stats["failed"]
-    done, total = _bump_progress(job_id, processed)
-    _publish_frame_progress(project_id, done, total, status="running")
-    await _write_job_progress(job_id, done, total)
+    await _write_job_progress(job_id, processed, project_id)
     return stats
 
 
-async def _write_job_progress(job_id: str, done: int, total: int) -> None:
-    """把 Redis done/total → ``async_job.progress_pct`` (max 防回退, 跑中封顶 99 留 100 给 finalize)。
-
-    v0.21.8: 让读 DB 的 ``/ai-pre/jobs`` 列表跑中显真实进度 (此前只 SSE 有, DB 恒 0% 到点跳 100%)。
-    """
-    if total <= 0:
-        return
-    pct = int(done * 100 / total)
+async def _write_job_progress(job_id: str, done_delta: int, project_id: str) -> None:
+    """Publish completed segment progress while fencing terminal transitions."""
+    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
@@ -530,27 +632,34 @@ async def _write_job_progress(job_id: str, done: int, total: int) -> None:
     )
     try:
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, uuid.UUID(job_id))
-            if job is None:
+            job = await db.scalar(
+                select(AsyncJob)
+                .where(AsyncJob.id == uuid.UUID(job_id))
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if job is None or job.status not in {"pending", "running"}:
                 return
-            cur = int(job.progress_pct or 0)
-            new = min(99, max(cur, pct))
-            if new != cur:
-                await async_job_svc.update_progress(db, job.id, new)
-                await db.commit()
+            done, total = _bump_progress(job_id, done_delta)
+            if total > 0:
+                pct = min(99, max(int(job.progress_pct or 0), int(done * 100 / total)))
+                await async_job_svc.update_progress(db, job.id, pct)
+                await db.flush()
+            _publish_frame_progress(project_id, done, total, status="running")
+            await db.commit()
     finally:
         await engine.dispose()
 
 
 async def _job_cancelled(db, job_id: str) -> bool:
-    """job 是否被取消 (状态 CANCELLED 或 payload.cancel_requested), 与 tasks._cancel_requested 同源。"""
+    """Stop queued segments when their job is missing, terminal or cancelling."""
     from app.db.models.async_job import AsyncJob, AsyncJobStatus
 
     job = await db.get(AsyncJob, uuid.UUID(job_id))
     if job is None:
-        return False
+        return True
     await db.refresh(job)
-    if job.status == AsyncJobStatus.CANCELLED.value:
+    if job.status not in {AsyncJobStatus.PENDING.value, AsyncJobStatus.RUNNING.value}:
         return True
     return bool((job.payload or {}).get("cancel_requested"))
 
@@ -649,6 +758,7 @@ def finalize_frame_job(
 
 
 async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) -> None:
+    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
@@ -676,8 +786,15 @@ async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) 
     )
     try:
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, uuid.UUID(job_id))
-            merged = dict(job.result or {}) if job is not None else {}
+            job = await db.scalar(
+                select(AsyncJob)
+                .where(AsyncJob.id == uuid.UUID(job_id))
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if job is None or job.status not in {"pending", "running"}:
+                return
+            merged = dict(job.result or {})
             merged.update(
                 {
                     "frames_done": frames_done,
@@ -689,12 +806,20 @@ async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) 
             )
             if gpu_arbiter_failures:
                 merged["gpu_arbiter_failures"] = gpu_arbiter_failures
-            await async_job_svc.mark_complete(db, uuid.UUID(job_id), result=merged)
+            status = (
+                "cancelled"
+                if (job.payload or {}).get("cancel_requested")
+                else "completed"
+            )
+            if status == "cancelled":
+                await async_job_svc.mark_cancelled(db, job.id, result=merged)
+            else:
+                await async_job_svc.mark_complete(db, job.id, result=merged)
             await db.commit()
     finally:
         await engine.dispose()
 
     _, total = _bump_progress(job_id, 0)
     _publish_frame_progress(
-        project_id, total or (frames_done + skipped + failed), total, status="completed"
+        project_id, total or (frames_done + skipped + failed), total, status=status
     )
