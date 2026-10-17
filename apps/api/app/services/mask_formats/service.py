@@ -26,7 +26,7 @@ from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
-from app.services.mask_formats.registry import registry
+from app.services.mask_formats.catalog import registry
 from app.services.storage import storage_service
 
 

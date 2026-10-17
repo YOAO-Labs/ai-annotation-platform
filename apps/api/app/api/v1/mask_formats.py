@@ -34,7 +34,7 @@ from app.schemas.mask_format import (
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.audit import AuditAction, AuditService
-from app.services.mask_formats import registry
+from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest
 from app.services.mask_formats.service import (
     MaskFormatError,

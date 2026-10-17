@@ -43,7 +43,7 @@ from app.services.exporting.packaging import (
     build_export_zip,
 )
 from app.services.exporting.video_scope import VideoExportScope
-from app.services.mask_formats import registry as mask_format_registry
+from app.services.mask_formats.catalog import registry as mask_format_registry
 from app.services.mask_formats.contracts import canonical_digest
 from app.schemas.export import LidarExportOptions
 from app.db.models.notification import Notification

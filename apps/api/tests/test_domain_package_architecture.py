@@ -220,6 +220,19 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="annotation_slice", legacy_facades=()),
     DomainSpec(package="mask_slice_restore", legacy_facades=()),
     DomainSpec(package="mask_mutation", legacy_facades=()),
+    DomainSpec(
+        package="mask_formats",
+        legacy_facades=(),
+        lazy_roots=("mask_formats",),
+    ),
+    DomainSpec(
+        package="mask_formats.registry",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.schemas.mask_format",
+            "app.services.mask_formats.contracts",
+        ),
+    ),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -645,80 +658,13 @@ def test_scc_detector_finds_two_and_three_node_cycles() -> None:
     assert ("acyclic.b",) in components
 
 
-def test_services_graph_has_no_guarded_domain_cycle() -> None:
-    """No SCC may cross guarded GPU, task-admission or execution boundaries."""
+def test_services_graph_has_no_cycle() -> None:
+    """Every service module participates in the acyclic dependency contract."""
     graph = _service_import_graph()
-    guarded_modules = {
-        "app.services.ml_client",
-        "app.services.ml_backend",
-        "app.services.task_access",
-        "app.services.project_write_guard",
-        "app.services.quality_job_dispatch",
-        "app.services.media_job_dispatch",
-        "app.services.dataset",
-        "app.services.training_dataset_dispatch",
-        "app.services.training_datasets",
-        "app.services.mask_repair",
-        "app.services.mask_formats.service",
-        "app.services.mask_qc.service",
-        "app.services.point_cloud_quality.service",
-        "app.services.video_track_quality",
-        "app.services.video_context",
-        "app.services.video_frame_service",
-        "app.services.video_segment_service",
-        "app.services.video_collaboration",
-        "app.services.annotation_evidence",
-        "app.services.training_adapters",
-        "app.services.training_artifacts",
-        "app.services.training_claims",
-        "app.services.training_initialization",
-        "app.services.training_observability",
-        "app.services.training_recipes",
-        "app.services.training_runs",
-        "app.services.training_studies",
-        "app.services.learning_policies",
-        "app.services.async_job",
-        "app.services.async_job_terminal",
-        "app.services.async_job_access",
-        "app.services.job_execution_control",
-        "app.services.prediction",
-        "app.services.cross_frame_job",
-        "app.services.prediction_retry",
-        "app.services.labeling_tasks",
-        "app.services.dataset_task_facts",
-        "app.services.dataset_frame_grouping",
-        "app.services.pointcloud_import",
-        "app.services.scene_inference",
-        "app.services.prediction_context",
-        "app.services.prediction_progress",
-        "app.services.prediction_roi",
-        "app.services.secondary_inference",
-        "app.services.task_discussion",
-        "app.services.discussion_notifications",
-        "app.services.active_learning",
-        "app.services.active_learning_pool",
-        "app.services.active_learning_references",
-        "app.services.sample_evaluations",
-        "app.services.sample_evaluation_sources",
-        "app.services.annotation_slice_contracts",
-        "app.services.annotation_slice",
-        "app.services.mask_slice_restore",
-        "app.services.mask_mutation",
-        *DOMAIN_PACKAGES[0].legacy_facades,
-    }
-
-    def is_guarded(module: str) -> bool:
-        return (
-            module.startswith(
-                ("app.services.gpu_arbitration", "app.services.video_tracking")
-            )
-            or module in guarded_modules
-        )
-
     offenders = [
         component
         for component in _strongly_connected_components(graph)
-        if len(component) > 1 and any(is_guarded(node) for node in component)
+        if len(component) > 1
     ]
     details = []
     for component in offenders:

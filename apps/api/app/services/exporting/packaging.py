@@ -92,7 +92,7 @@ from app.services.project import (
 )
 from app.services.sensor_calibration import resolve_calibration_states
 from app.services.storage import storage_service
-from app.services.mask_formats import registry as mask_format_registry
+from app.services.mask_formats.catalog import registry as mask_format_registry
 from app.services.mask_formats.image_export import (
     write_binary_png_export,
     write_indexed_png_export,

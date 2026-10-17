@@ -9,14 +9,6 @@ from app.services.mask_formats.contracts import MaskFormatAdapter
 class MaskFormatRegistry:
     def __init__(self) -> None:
         self._adapters: dict[str, MaskFormatAdapter] = {}
-        self._builtins_loaded = False
-
-    def _ensure_builtins(self) -> None:
-        if self._builtins_loaded:
-            return
-        from app.services.mask_formats import adapters  # noqa: F401
-
-        self._builtins_loaded = True
 
     def register(self, adapter: MaskFormatAdapter) -> None:
         format_id = adapter.descriptor.format_id
@@ -25,7 +17,6 @@ class MaskFormatRegistry:
         self._adapters[format_id] = adapter
 
     def get(self, format_id: str) -> MaskFormatAdapter:
-        self._ensure_builtins()
         try:
             return self._adapters[format_id]
         except KeyError as exc:
@@ -38,7 +29,6 @@ class MaskFormatRegistry:
         direction: str | None = None,
         ui_only: bool = False,
     ) -> list[MaskFormatAdapter]:
-        self._ensure_builtins()
         rows: Iterable[MaskFormatAdapter] = self._adapters.values()
         if media_type is not None:
             rows = (row for row in rows if media_type in row.descriptor.media_types)
@@ -64,6 +54,3 @@ class MaskFormatRegistry:
             }
             for format_id in sorted(set(format_ids))
         }
-
-
-registry = MaskFormatRegistry()

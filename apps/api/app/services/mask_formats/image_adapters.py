@@ -30,6 +30,7 @@ from app.services.mask_formats.image_codecs import (
     rasterize_coco_polygons,
     rasterize_normalized_polygon,
 )
+from app.services.mask_formats.image_export import indexed_overlap_summary
 from app.services.mask_formats.safe_archive import (
     ArchiveLimits,
     SafeZipArchive,
@@ -40,6 +41,7 @@ from app.services.raster_mask_storage import build_rle_reference
 from app.services.task_matcher import resolve_task, resolve_task_by_file_stem
 from app.utils.raster_mask_rle import coco_rle_area, validate_coco_rle
 
+from .adapters import LegacyPackagingAdapter
 from .planning import _code, _plan, _worst_loss
 
 
@@ -741,15 +743,11 @@ class ImageMaskImportAdapter:
         scope: dict[str, Any],
         options: dict[str, Any],
     ) -> MaskFormatPlan:
-        from .adapters import LegacyPackagingAdapter
-
         base = await LegacyPackagingAdapter(self.descriptor).preflight_export(
             db, project=project, scope=scope, options=options
         )
         if self.descriptor.format_id != "indexed-png":
             return base
-
-        from app.services.mask_formats.image_export import indexed_overlap_summary
 
         overlap_policy = str(options.get("indexed_overlap_policy") or "error")
         if overlap_policy not in {"error", "z_order", "larger_area", "smaller_area"}:

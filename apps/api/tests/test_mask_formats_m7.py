@@ -21,7 +21,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.exporting.service import ExportService
 from app.services.exporting.packaging import build_export_zip
-from app.services.mask_formats import registry
+from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import StagedObject
 from app.services.mask_formats.image_codecs import (
     binary_png_bytes,

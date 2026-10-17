@@ -45,6 +45,7 @@ from app.services.exporting.video_scope import (
 )
 from app.utils.raster_mask_rle import coco_rle_area, validate_coco_rle
 
+from .adapters import LegacyPackagingAdapter
 from .planning import _code, _plan, _worst_loss
 
 
@@ -1094,8 +1095,6 @@ class VideoMaskFormatAdapter:
         scope: dict[str, Any],
         options: dict[str, Any],
     ) -> MaskFormatPlan:
-        from .adapters import LegacyPackagingAdapter
-
         base = await LegacyPackagingAdapter(self.descriptor).preflight_export(
             db,
             project=project,
