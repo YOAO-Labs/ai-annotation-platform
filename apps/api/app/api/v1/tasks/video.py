@@ -63,7 +63,7 @@ from app.services.labeling_point_cloud_manifest import (
     SqlAlchemyTaskDatasetItemLinksReader,
 )
 from app.services.video_frame_service import (
-    build_context_from_task,
+    _VideoContextSqlAdapter,
     get_chunk as get_video_chunk_asset,
     get_frame as get_video_frame_asset,
     list_chunks as list_video_chunks,
@@ -400,7 +400,12 @@ async def get_video_manifest_v2(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     return await build_video_manifest_v2(db, ctx, str(request.base_url))
 
 
@@ -412,7 +417,12 @@ async def get_video_segments(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     return await list_video_segments(db, ctx)
 
 
@@ -430,7 +440,12 @@ async def claim_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     from app.db.models.project import Project
 
     project = await db.get(Project, task.project_id)
@@ -464,7 +479,12 @@ async def heartbeat_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     from app.db.models.project import Project
 
     project = await db.get(Project, task.project_id)
@@ -500,7 +520,12 @@ async def release_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     from app.db.models.project import Project
 
     project = await db.get(Project, task.project_id)
@@ -551,7 +576,12 @@ async def submit_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     was_in_review = task.status == "review"
     body = await submit_segment(
         db,
@@ -661,7 +691,12 @@ async def reopen_video_segment(
     await task_access.assert_task_visible(db, task, current_user)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     body = await reopen_segment(db, ctx, segment_id, task=task)
     await mark_boundary_runs_stale(db, segment_id)
     await db.commit()
@@ -683,7 +718,12 @@ async def unassign_video_segment(
     await task_access.assert_task_visible(db, task, current_user)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     body = await unassign_segment(db, ctx, segment_id)
     await mark_boundary_runs_stale(db, segment_id)
     await db.commit()
@@ -853,7 +893,12 @@ async def get_video_chunks(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     return await list_video_chunks(
         db, ctx, from_frame, to_frame, dispatcher=media_dispatcher
     )
@@ -880,7 +925,12 @@ async def get_video_chunk(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     body = await get_video_chunk_asset(db, ctx, chunk_id, dispatcher=media_dispatcher)
     if body.status == "pending":
         response.status_code = 202
@@ -911,7 +961,12 @@ async def get_video_frame(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     body = await get_video_frame_asset(
         db, ctx, frame_index, w, format, dispatcher=media_dispatcher
     )
@@ -937,7 +992,12 @@ async def prefetch_video_frame_assets(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     return await prefetch_video_frames(
         db,
         ctx,
@@ -962,7 +1022,12 @@ async def retry_video_frame_assets(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     return await retry_video_frames(
         db,
         ctx,
@@ -1009,7 +1074,12 @@ async def save_video_mask_correction_keyframe(
         expected_version = int(raw_if_match.removeprefix('W/"').removesuffix('"'))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid If-Match format") from exc
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     annotation, audit_detail = await save_video_mask_keyframe(
         db,
         task=task,
@@ -1072,7 +1142,12 @@ async def operate_video_mask_correction_keyframe(
         expected_version = int(raw_if_match.removeprefix('W/"').removesuffix('"'))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid If-Match format") from exc
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     annotation, audit_detail = await operate_video_mask_keyframe(
         db,
         task=task,
@@ -1128,7 +1203,12 @@ async def create_video_mask_correction(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user, access=access)
     task_access.assert_task_editable(task, current_user, access=access)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     commit_started = time.monotonic()
     try:
         body = await create_video_mask_correction_job(
@@ -1264,7 +1344,12 @@ async def propagate_video_track(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user, access=access)
     task_access.assert_task_editable(task, current_user, access=access)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     body = await create_tracker_job(
         db,
         task=task,
@@ -1319,7 +1404,12 @@ async def track_video(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user, access=access)
     task_access.assert_task_editable(task, current_user, access=access)
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     body = await create_tracker_job(
         db,
         task=task,

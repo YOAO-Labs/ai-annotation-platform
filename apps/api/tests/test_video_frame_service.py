@@ -25,7 +25,7 @@ from app.cli.video import rebuild_timetable as timetable_cli
 from app.services.system_settings_service import SystemSettingsService
 from tests.factory import build_tool_bindings
 from app.services.video_frame_service import (
-    build_context_from_dataset_item,
+    _VideoContextSqlAdapter,
     list_chunks,
 )
 
@@ -79,6 +79,64 @@ async def _make_video_task(db_session, owner_id):
     db_session.add(task)
     await db_session.flush()
     return task, item
+
+
+async def _context_for_task(db, task):
+    return await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
+
+
+async def _context_for_item(db, dataset_item_id, task=None):
+    return await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        task_id=task.id if task is not None else None,
+        project_id=task.project_id if task is not None else None,
+    )
+
+
+async def test_video_context_reader_uses_one_item_read_and_keeps_stored_dimensions(
+    db_session, test_engine, super_admin
+):
+    from sqlalchemy import event
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    item.width, item.height = 640, 360
+    item.metadata_ = {
+        **item.metadata_,
+        "video": {**item.metadata_["video"], "width": 1920, "height": 1080},
+    }
+    await db_session.flush()
+    task_facts = {
+        "task_id": task.id,
+        "project_id": task.project_id,
+        "file_type": task.file_type,
+        "dataset_item_id": task.dataset_item_id,
+    }
+    db_session.expunge(task)
+    db_session.expunge(item)
+    statements = []
+
+    def capture_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement.lower())
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", capture_statement)
+    try:
+        ctx = await _VideoContextSqlAdapter(db_session).from_task(**task_facts)
+    finally:
+        event.remove(
+            test_engine.sync_engine, "before_cursor_execute", capture_statement
+        )
+
+    assert len(statements) == 1
+    assert "dataset_items" in statements[0]
+    assert "tasks" not in statements[0]
+    assert ctx.source_width == 640 and ctx.source_height == 360
+    assert ctx.metadata.width == 1920 and ctx.metadata.height == 1080
 
 
 async def test_video_manifest_v2_exposes_service_urls(
@@ -299,7 +357,6 @@ async def test_video_submit_does_not_credit_shared_item_segment_assignees(
 async def test_segment_evidence_retains_each_actual_submitter(
     db_session, super_admin, monkeypatch
 ):
-    from app.services.video_frame_service import build_context_from_task
     from app.services.video_segment_service import ensure_segments, submit_segment
     from tests.factory import create_user
 
@@ -313,7 +370,7 @@ async def test_segment_evidence_retains_each_actual_submitter(
     monkeypatch.setattr(
         "app.services.video_segment_service.settings.video_segment_size_frames", 45
     )
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _context_for_task(db_session, task)
     segments = await ensure_segments(db_session, ctx)
     assert len(segments) == 2
 
@@ -342,13 +399,12 @@ async def test_segment_task_binding_mismatch_fails_before_database_access(
 ):
     from sqlalchemy import event
 
-    from app.services.video_frame_service import build_context_from_task
     from app.services.video_segment_service import reopen_segment, submit_segment
 
     user, _ = super_admin
     task, item = await _make_video_task(db_session, user.id)
     if binding in {"different_task", "missing_task"}:
-        ctx = await build_context_from_task(db_session, task)
+        ctx = await _context_for_task(db_session, task)
         bound_task = Task(
             id=uuid.uuid4(),
             project_id=task.project_id,
@@ -362,7 +418,7 @@ async def test_segment_task_binding_mismatch_fails_before_database_access(
         if binding == "missing_task":
             bound_task = None
     else:
-        ctx = await build_context_from_dataset_item(db_session, item.id)
+        ctx = await _context_for_item(db_session, item.id)
         bound_task = task
         # The binding guard must inspect the loaded identity without triggering
         # an async refresh when the Task's mapped id attribute has expired.
@@ -405,13 +461,12 @@ async def test_video_context_values_survive_rollback_without_lazy_loads(
 
     from app.services.video_frame_service import (
         _source_key,
-        build_context_from_task,
     )
     from app.workers import frame_preannotate
 
     user, _ = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _context_for_task(db_session, task)
     expected_item_id = item.id
     expected_task_id = task.id
     expected_project_id = task.project_id
@@ -471,7 +526,7 @@ async def test_taskless_video_context_keeps_taskless_segment_behavior(
 
     user, _ = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    ctx = await build_context_from_dataset_item(db_session, item.id)
+    ctx = await _context_for_item(db_session, item.id)
     assert ctx.task_id is None
     segments = await ensure_segments(db_session, ctx)
 
@@ -491,7 +546,6 @@ async def test_mask_validation_reuses_context_source_dimensions(
     from sqlalchemy import event
 
     from app.services.raster_mask_storage import validate_mask_geometry_for_task
-    from app.services.video_frame_service import build_context_from_task
 
     owner, _ = super_admin
     task, item = await _make_video_task(db_session, owner.id)
@@ -501,7 +555,7 @@ async def test_mask_validation_reuses_context_source_dimensions(
         "video": {**item.metadata_["video"], "width": 99, "height": 99},
     }
     await db_session.flush()
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _context_for_task(db_session, task)
     db_session.expunge(item)
     geometry = {
         "type": "video_track_mask",
@@ -784,7 +838,7 @@ async def test_video_warmup_zero_skips_neighbor_enqueue(
     )
     await db_session.flush()
 
-    ctx = await build_context_from_dataset_item(db_session, item.id)
+    ctx = await _context_for_item(db_session, item.id)
     await list_chunks(db_session, ctx, 0, 0, dispatcher=media_dispatcher)
 
     assert media_dispatcher.video_chunks == [(item.id, [0])]
@@ -822,7 +876,7 @@ async def test_video_warmup_dispatches_new_or_failed_neighbors_only(
             )
         )
     await db_session.flush()
-    ctx = await build_context_from_dataset_item(db_session, item.id)
+    ctx = await _context_for_item(db_session, item.id)
 
     await list_chunks(db_session, ctx, 0, 0, dispatcher=media_dispatcher)
 
@@ -2050,7 +2104,6 @@ async def test_ensure_frame_row_concurrent_insert_does_not_raise(test_engine):
 
     from app.services.video_frame_service import (
         _ensure_frame_row,
-        build_context_from_dataset_item,
     )
 
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
@@ -2062,7 +2115,7 @@ async def test_ensure_frame_row_concurrent_insert_does_not_raise(test_engine):
 
         async def worker():
             async with maker() as s:
-                ctx = await build_context_from_dataset_item(s, item_id)
+                ctx = await _context_for_item(s, item_id)
                 await barrier.wait()
                 _, created, _ = await _ensure_frame_row(s, ctx, 5, 320, "webp")
                 await s.commit()
@@ -2102,7 +2155,6 @@ async def test_ensure_chunk_rows_concurrent_insert_does_not_raise(test_engine):
 
     from app.services.video_frame_service import (
         _ensure_chunk_rows,
-        build_context_from_dataset_item,
     )
 
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
@@ -2112,7 +2164,7 @@ async def test_ensure_chunk_rows_concurrent_insert_does_not_raise(test_engine):
 
         async def worker():
             async with maker() as s:
-                ctx = await build_context_from_dataset_item(s, item_id)
+                ctx = await _context_for_item(s, item_id)
                 await barrier.wait()
                 rows, created_chunk_ids = await _ensure_chunk_rows(s, ctx, [0])
                 await s.commit()
@@ -2152,7 +2204,6 @@ async def test_ensure_segments_concurrent_insert_does_not_raise(
     from sqlalchemy import select as sa_select
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from app.services.video_frame_service import build_context_from_dataset_item
     from app.services.video_segment_service import ensure_segments
 
     monkeypatch.setattr(
@@ -2167,7 +2218,7 @@ async def test_ensure_segments_concurrent_insert_does_not_raise(
 
         async def worker():
             async with maker() as s:
-                ctx = await build_context_from_dataset_item(s, item_id)
+                ctx = await _context_for_item(s, item_id)
                 await barrier.wait()
                 segs = await ensure_segments(s, ctx)
                 await s.commit()

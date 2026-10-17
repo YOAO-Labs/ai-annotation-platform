@@ -263,8 +263,13 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
         async def predict(self, *_args, **_kwargs):
             raise RuntimeError("stop after dispatch wiring is observed")
 
-    async def build_frame_context(_db, received_task):
-        assert received_task is task
+    async def build_frame_context(
+        _reader, *, task_id, project_id, file_type, dataset_item_id
+    ):
+        assert task_id == task.id
+        assert project_id == task.project_id
+        assert file_type == task.file_type
+        assert dataset_item_id == task.dataset_item_id
         return object()
 
     monkeypatch.setattr(
@@ -283,7 +288,7 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
         "app.services.ml_routing.client.RoutedMLBackendClient", FakeClient
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service.build_context_from_task",
+        "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
         build_frame_context,
     )
     monkeypatch.setattr(
@@ -375,8 +380,11 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
             frame_index: f"http://x/{frame_index}.jpg" for frame_index in frame_indices
         }
 
-    async def build_frame_context(_db, received_task):
-        assert received_task is task
+    async def build_frame_context(
+        _reader, *, task_id, project_id, file_type, dataset_item_id
+    ):
+        assert task_id == task.id and project_id == task.project_id
+        assert file_type == task.file_type and dataset_item_id == task.dataset_item_id
         return object()
 
     async def no_progress_write(*_args):
@@ -399,7 +407,7 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
         "app.services.ml_routing.client.RoutedMLBackendClient", RejectedClient
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service.build_context_from_task",
+        "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
         build_frame_context,
     )
     monkeypatch.setattr(frame_preannotate, "_job_cancelled", not_cancelled)

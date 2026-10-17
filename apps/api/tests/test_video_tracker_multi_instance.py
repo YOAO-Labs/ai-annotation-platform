@@ -25,6 +25,7 @@ from app.services.video_tracking.runner import (
     discard_tracker_job,
     run_tracker_job,
 )
+from app.services.video_frame_service import _VideoContextSqlAdapter
 
 
 class _TrackerJobDispatcher:
@@ -33,6 +34,15 @@ class _TrackerJobDispatcher:
 
 
 _TRACKER_JOB_DISPATCHER = _TrackerJobDispatcher()
+
+
+async def _video_context(db, task):
+    return await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
 
 
 # ── 纯函数: 按实例分组 ────────────────────────────────────────────────
@@ -460,12 +470,11 @@ async def test_create_tracker_job_sourceless_stores_target_category(
     """v0.22.1 · B · 无源发起 (source_annotation_id=None): job 建成且 annotation_id 为空,
     显式目标类别落到 target_class_name/target_tool_unit_id。"""
     from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
-    from app.services.video_frame_service import build_context_from_task
     from app.services.video_tracking.jobs import create_tracker_job
 
     user, _ = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _video_context(db_session, task)
     payload = VideoTrackerPropagateRequest(
         from_frame=0,
         to_frame=3,
@@ -496,12 +505,11 @@ async def test_create_tracker_job_sourceless_rejects_invalid_target(
     from fastapi import HTTPException
 
     from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
-    from app.services.video_frame_service import build_context_from_task
     from app.services.video_tracking.jobs import create_tracker_job
 
     user, _ = super_admin
     task, _item = await _make_video_task(db_session, user.id)
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _video_context(db_session, task)
     payload = VideoTrackerPropagateRequest(
         from_frame=0,
         to_frame=3,
@@ -563,12 +571,11 @@ async def test_create_tracker_job_rejects_unavailable_real_model(
     from fastapi import HTTPException
 
     from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
-    from app.services.video_frame_service import build_context_from_task
     from app.services.video_tracking.jobs import create_tracker_job
 
     user, _ = super_admin
     task, _item = await _make_video_task(db_session, user.id)
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _video_context(db_session, task)
     payload = VideoTrackerPropagateRequest(
         from_frame=0,
         to_frame=3,
@@ -597,7 +604,6 @@ async def test_create_tracker_job_with_source_keeps_target_null(
 ):
     """有源延展: source_annotation_id 给出时 target_* 留空 (继承源, 不写显式类别)。"""
     from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
-    from app.services.video_frame_service import build_context_from_task
     from app.services.video_tracking.jobs import create_tracker_job
 
     user, _ = super_admin
@@ -626,7 +632,7 @@ async def test_create_tracker_job_with_source_keeps_target_null(
     db_session.add(source)
     await db_session.flush()
     source_id = source.id
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _video_context(db_session, task)
     payload = VideoTrackerPropagateRequest(
         from_frame=0,
         to_frame=3,
@@ -1183,7 +1189,6 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
     """v0.22.2 · M · 多选批量: source_annotation_ids ≥1 → job.annotation_id 为 NULL,
     prompt.seeds 每源一条 (obj_id 1..N + source_annotation_id + from_frame 处几何)。"""
     from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
-    from app.services.video_frame_service import build_context_from_task
     from app.services.video_tracking.jobs import create_tracker_job
 
     user, _ = super_admin
@@ -1222,7 +1227,7 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
     db_session.add_all([src_a, src_b])
     await db_session.flush()
     source_ids = [src_a.id, src_b.id]
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _video_context(db_session, task)
     payload = VideoTrackerPropagateRequest(
         from_frame=0,
         to_frame=3,

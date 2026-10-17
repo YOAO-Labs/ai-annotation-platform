@@ -120,7 +120,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service.build_context_from_task",
+        "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
         AsyncMock(return_value=object()),
     )
     monkeypatch.setattr(
@@ -200,7 +200,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
                 await writer.commit()
                 context_read = AsyncMock(side_effect=RuntimeError("source unavailable"))
                 monkeypatch.setattr(
-                    "app.services.video_frame_service.build_context_from_task",
+                    "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
                     context_read,
                 )
                 cache_read = AsyncMock(side_effect=RuntimeError("cache unavailable"))

@@ -46,7 +46,7 @@ from app.application.video_chapters import VideoChapterWorkflow
 from app.services.audit import AuditAction, AuditService
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.video_frame_service import (
-    build_context_from_dataset_item,
+    _VideoContextSqlAdapter,
     get_chunk as get_video_chunk_asset,
     get_frame as get_video_frame_asset,
     list_chunks as list_video_chunks,
@@ -116,7 +116,9 @@ async def get_video_manifest(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     return await build_video_manifest_v2(db, ctx, str(request.base_url))
 
 
@@ -127,7 +129,9 @@ async def get_video_segments(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     return await list_video_segments(db, ctx)
 
 
@@ -144,7 +148,9 @@ async def get_video_frame_timetable(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     if not ctx.metadata.fps or not ctx.metadata.frame_count:
         raise HTTPException(status_code=503, detail="Video metadata not ready")
 
@@ -201,7 +207,9 @@ async def get_video_chunks(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     return await list_video_chunks(
         db, ctx, from_frame, to_frame, dispatcher=media_dispatcher
     )
@@ -227,7 +235,9 @@ async def get_video_chunk(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     body = await get_video_chunk_asset(db, ctx, chunk_id, dispatcher=media_dispatcher)
     if body.status == "pending":
         response.status_code = 202
@@ -246,7 +256,9 @@ async def get_video_chunk_samples(
     current_user: User = Depends(get_current_user),
 ) -> VideoChunkSamplesResponse:
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     row = await db.scalar(
         select(VideoChunk).where(
             VideoChunk.dataset_item_id == dataset_item_id,
@@ -289,7 +301,9 @@ async def get_video_frame(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     body = await get_video_frame_asset(
         db, ctx, frame_index, w, format, dispatcher=media_dispatcher
     )
@@ -314,7 +328,9 @@ async def prefetch_video_frame_assets(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     return await prefetch_video_frames(
         db,
         ctx,
@@ -337,7 +353,9 @@ async def retry_video_frame_assets(
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
+        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    )
     return await retry_video_frames(
         db,
         ctx,

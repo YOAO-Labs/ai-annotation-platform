@@ -34,7 +34,7 @@ from app.services.video_collaboration import (
     segment_work_bounds_for_task,
 )
 from app.services.video_context import derive_step
-from app.services.video_frame_service import build_context_from_task
+from app.services.video_frame_service import _VideoContextSqlAdapter
 from app.services.video_tracks import resolve_track_at_frame
 from app.vendor.trackeval_metrics import evaluate_sequence
 
@@ -110,7 +110,14 @@ async def _boundary(
     )
     start, end = max(left_start, right_start), min(left_end, right_end)
     if video_metadata is None:
-        video_metadata = (await build_context_from_task(db, task)).metadata
+        video_metadata = (
+            await _VideoContextSqlAdapter(db).from_task(
+                task_id=task.id,
+                project_id=task.project_id,
+                file_type=task.file_type,
+                dataset_item_id=task.dataset_item_id,
+            )
+        ).metadata
     step = derive_step(video_metadata.fps, project.video_sampling or {})
     frames = [frame for frame in range(start, end + 1) if frame % step == 0]
     if not frames:
@@ -529,7 +536,12 @@ async def evaluate_run(
         if geometry_family(row.geometry) in {"bbox", "polygon", "mask"}
     ]
     frames = [int(value) for value in (run.metrics or {}).get("sampling_frames") or []]
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     width, height = int(ctx.metadata.width or 1), int(ctx.metadata.height or 1)
     left_ids = {row.id: index for index, row in enumerate(left)}
     right_ids = {row.id: index for index, row in enumerate(right)}

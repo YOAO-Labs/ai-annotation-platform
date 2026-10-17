@@ -242,7 +242,7 @@ async def _run_extract(
     )
 
     from app.db.models.task import Task
-    from app.services.video_frame_service import build_context_from_task
+    from app.services.video_frame_service import _VideoContextSqlAdapter
 
     stats = {"task_id": task_id, "requested": len(frame_indices), "extracted": 0}
     engine = create_async_engine(settings.database_url, echo=False)
@@ -257,7 +257,12 @@ async def _run_extract(
             # job 已取消 → 不抽 (阶段 B 段任务也会各自 no-op)。
             if job_id and await _job_cancelled(db, job_id):
                 return stats
-            ctx = await build_context_from_task(db, task)
+            ctx = await _VideoContextSqlAdapter(db).from_task(
+                task_id=task.id,
+                project_id=task.project_id,
+                file_type=task.file_type,
+                dataset_item_id=task.dataset_item_id,
+            )
             urls = await _extract_frames_for_video(db, ctx, frame_indices)
             stats["extracted"] = len(urls)
     finally:
@@ -392,7 +397,7 @@ async def _run_segment(
     )
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService, to_video_bbox_result
-    from app.services.video_frame_service import build_context_from_task
+    from app.services.video_frame_service import _VideoContextSqlAdapter
     from app.services.prediction_context import build_predict_context
     from app.services.labeling_write_scope import (
         LabelingWriteScope,
@@ -490,7 +495,12 @@ async def _run_segment(
                                 ).pool_id_for_registry(backend.id)
                             except Exception:
                                 source_pool_id = None
-                            ctx = await build_context_from_task(db, task)
+                            ctx = await _VideoContextSqlAdapter(db).from_task(
+                                task_id=task.id,
+                                project_id=task.project_id,
+                                file_type=task.file_type,
+                                dataset_item_id=task.dataset_item_id,
+                            )
                             frame_urls = await _read_frame_urls(db, ctx, frame_indices)
                             context = build_predict_context(
                                 prompt=None,

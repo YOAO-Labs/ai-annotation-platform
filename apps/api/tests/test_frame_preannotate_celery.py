@@ -84,7 +84,7 @@ async def test_frame_chord_retains_results_across_real_retries(
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service.build_context_from_task",
+        "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
         AsyncMock(return_value=object()),
     )
     monkeypatch.setattr(

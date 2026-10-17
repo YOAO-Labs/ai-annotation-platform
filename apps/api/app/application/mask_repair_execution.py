@@ -43,7 +43,7 @@ from app.services.labeling_prediction_contract import (
 from app.services.prediction import PredictionService
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.storage import resolve_task_url
-from app.services.video_frame_service import build_context_from_task
+from app.services.video_frame_service import _VideoContextSqlAdapter
 from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
     enqueue_tracker_job,
@@ -225,7 +225,12 @@ async def _run_tracker_candidate(
         allow_bbox_fallback=bool(action.get("allow_bbox_fallback")),
         text=action.get("text"),
     )
-    context = await build_context_from_task(db, task)
+    context = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     job = await create_video_mask_correction_job(
         db,
         task=task,

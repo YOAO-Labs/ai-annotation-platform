@@ -8,7 +8,7 @@ from app.db.models.dataset import VideoSegment
 from app.db.models.project import Project
 from app.db.models.video_track_quality import VideoTrackQualityRun
 from app.services.quality_job_dispatch import QualityJobDispatcher
-from app.services.video_frame_service import build_context_from_task
+from app.services.video_frame_service import _VideoContextSqlAdapter
 from app.services.video_track_quality import (
     VideoTrackQualityError,
     _annotations,
@@ -125,7 +125,12 @@ async def test_existing_quality_run_reuses_supplied_video_facts(
     }
     run, _, created = await create_quality_run(db_session, **arguments)
     assert created
-    ctx = await build_context_from_task(db_session, task)
+    ctx = await _VideoContextSqlAdapter(db_session).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     project = await db_session.get(Project, task.project_id)
     statements = []
 

@@ -21,7 +21,6 @@ from app.db.models.dataset import (
     VideoFrameCache,
     VideoFrameIndex,
 )
-from app.db.models.task import Task
 from app.observability.metrics import (
     VIDEO_CHUNK_REQUESTS_TOTAL,
     VIDEO_FRAME_CACHE_TOTAL,
@@ -38,6 +37,7 @@ from app.services.media_job_dispatch import MediaJobDispatcher, VideoFrameReques
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
 from app.services import video_context
+from app.services.video_context_contract import VideoContextReader
 
 
 FrameFormat = Literal["webp", "jpeg"]
@@ -134,12 +134,12 @@ def _asset_url(key: str) -> str:
         ) from exc
 
 
-async def build_context_from_task(
-    db: AsyncSession, task: Task
+def _video_context_from_item(
+    item: DatasetItem,
+    *,
+    task_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
 ) -> video_context.VideoContext:
-    if task.file_type != "video" or not task.dataset_item_id:
-        raise HTTPException(status_code=400, detail="Task is not a video task")
-    item = _ensure_video_item(await db.get(DatasetItem, task.dataset_item_id))
     return video_context.VideoContext(
         metadata=_video_meta(item),
         dataset_item_id=item.id,
@@ -147,25 +147,39 @@ async def build_context_from_task(
         thumbnail_path=item.thumbnail_path,
         source_width=item.width,
         source_height=item.height,
-        task_id=task.id,
-        project_id=task.project_id,
+        task_id=task_id,
+        project_id=project_id,
     )
 
 
-async def build_context_from_dataset_item(
-    db: AsyncSession, dataset_item_id: uuid.UUID, task: Task | None = None
-) -> video_context.VideoContext:
-    item = _ensure_video_item(await db.get(DatasetItem, dataset_item_id))
-    return video_context.VideoContext(
-        metadata=_video_meta(item),
-        dataset_item_id=item.id,
-        source_file_path=item.file_path,
-        thumbnail_path=item.thumbnail_path,
-        source_width=item.width,
-        source_height=item.height,
-        task_id=task.id if task else None,
-        project_id=task.project_id if task else None,
-    )
+class _VideoContextSqlAdapter(VideoContextReader):
+    """Bind the value reader to the caller's existing database session."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def from_task(
+        self,
+        *,
+        task_id: uuid.UUID,
+        project_id: uuid.UUID,
+        file_type: str,
+        dataset_item_id: uuid.UUID | None,
+    ) -> video_context.VideoContext:
+        if file_type != "video" or not dataset_item_id:
+            raise HTTPException(status_code=400, detail="Task is not a video task")
+        item = _ensure_video_item(await self._db.get(DatasetItem, dataset_item_id))
+        return _video_context_from_item(item, task_id=task_id, project_id=project_id)
+
+    async def from_dataset_item(
+        self,
+        *,
+        dataset_item_id: uuid.UUID,
+        task_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
+    ) -> video_context.VideoContext:
+        item = _ensure_video_item(await self._db.get(DatasetItem, dataset_item_id))
+        return _video_context_from_item(item, task_id=task_id, project_id=project_id)
 
 
 async def pts_ms_for_frame(

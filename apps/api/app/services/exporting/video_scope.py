@@ -16,7 +16,7 @@ from app.schemas.export import (
     VideoExportScopeRequest,
     VideoExportSegmentSelection,
 )
-from app.services.video_frame_service import build_context_from_task
+from app.services.video_frame_service import _VideoContextSqlAdapter
 from app.services.video_tracks import normalize_outside_ranges, resolve_track_at_frame
 
 
@@ -105,7 +105,12 @@ async def normalize_video_export_scope(
     if batch_id is not None and task.batch_id != batch_id:
         raise ValueError("video export task does not belong to this batch")
 
-    ctx = await build_context_from_task(db, task)
+    ctx = await _VideoContextSqlAdapter(db).from_task(
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
     frame_count = int(ctx.metadata.frame_count or 0)
     if frame_count <= 0:
         raise ValueError("video metadata is not ready")
