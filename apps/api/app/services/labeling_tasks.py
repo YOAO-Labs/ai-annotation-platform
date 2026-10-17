@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import insert, select, text
+from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import FromClause
 
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -16,7 +17,7 @@ from app.services.task_dataset_link import link_items
 
 
 class LabelingTaskService:
-    """Own task-creation writes, media links, progress and project-total projections."""
+    """Own task writes, task-linked media, and labeling progress projections."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -215,3 +216,265 @@ class LabelingTaskService:
 
         await self.db.flush()
         return total_created
+
+    async def delete_unlinked_tasks(self, task_ids: list[uuid.UUID]) -> dict[str, int]:
+        """Delete the limited legacy child set used by dataset unlink."""
+        if not task_ids:
+            return {"deleted_tasks": 0, "deleted_annotations": 0}
+
+        from app.db.models.annotation import Annotation
+        from app.db.models.annotation_comment import AnnotationComment
+        from app.db.models.task_lock import TaskLock
+
+        annotation_ids = list(
+            (
+                await self.db.execute(
+                    select(Annotation.id).where(Annotation.task_id.in_(task_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if annotation_ids:
+            await self.db.execute(
+                delete(AnnotationComment).where(
+                    AnnotationComment.annotation_id.in_(annotation_ids)
+                )
+            )
+        await self.db.execute(
+            delete(Annotation).where(Annotation.task_id.in_(task_ids))
+        )
+        await self.db.execute(delete(TaskLock).where(TaskLock.task_id.in_(task_ids)))
+        await self.db.execute(delete(Task).where(Task.id.in_(task_ids)))
+        return {
+            "deleted_tasks": len(task_ids),
+            "deleted_annotations": len(annotation_ids),
+        }
+
+    async def recalculate_unlink_counters(
+        self, project_id: uuid.UUID, affected_batch_ids: set[uuid.UUID]
+    ) -> list[uuid.UUID]:
+        from app.db.models.task_batch import TaskBatch
+
+        project = await self.db.get(Project, project_id)
+        if project:
+            row = (
+                await self.db.execute(
+                    select(
+                        func.count().label("total"),
+                        func.count()
+                        .filter(Task.status == "completed")
+                        .label("completed"),
+                        func.count().filter(Task.status == "review").label("review"),
+                    ).where(Task.project_id == project_id)
+                )
+            ).one()
+            project.total_tasks = row.total
+            project.completed_tasks = row.completed
+            project.review_tasks = row.review
+
+        batches = (
+            (
+                await self.db.execute(
+                    select(TaskBatch).where(TaskBatch.project_id == project_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for batch in batches:
+            counts = (
+                await self.db.execute(
+                    select(
+                        func.count().label("total"),
+                        func.count()
+                        .filter(Task.status == "completed")
+                        .label("completed"),
+                        func.count().filter(Task.status == "review").label("review"),
+                    ).where(Task.batch_id == batch.id)
+                )
+            ).one()
+            batch.total_tasks = counts.total
+            batch.completed_tasks = counts.completed
+            batch.review_tasks = counts.review
+
+        deleted_batch_ids: list[uuid.UUID] = []
+        if affected_batch_ids:
+            for batch in batches:
+                if (
+                    batch.id in affected_batch_ids
+                    and batch.total_tasks == 0
+                    and batch.display_id != "B-DEFAULT"
+                ):
+                    await self.db.execute(
+                        delete(TaskBatch).where(TaskBatch.id == batch.id)
+                    )
+                    deleted_batch_ids.append(batch.id)
+        return deleted_batch_ids
+
+    async def delete_project_annotation_comments(self, project_id: uuid.UUID) -> None:
+        await self.db.execute(
+            text("DELETE FROM annotation_comments WHERE project_id = :pid"),
+            {"pid": str(project_id)},
+        )
+
+    async def delete_project_annotation_drafts(self, project_id: uuid.UUID) -> None:
+        await self.db.execute(
+            text(
+                "DELETE FROM annotation_drafts WHERE task_id IN "
+                "(SELECT id FROM tasks WHERE project_id = :pid)"
+            ),
+            {"pid": str(project_id)},
+        )
+
+    async def delete_project_prediction_metadata(self, project_id: uuid.UUID) -> None:
+        await self.db.execute(
+            text(
+                "DELETE FROM prediction_metas WHERE prediction_id IN "
+                "(SELECT id FROM predictions WHERE project_id = :pid) "
+                "OR failed_prediction_id IN "
+                "(SELECT id FROM failed_predictions WHERE project_id = :pid)"
+            ),
+            {"pid": str(project_id)},
+        )
+
+    async def clear_project_annotation_parents(self, project_id: uuid.UUID) -> None:
+        await self.db.execute(
+            text(
+                "UPDATE annotations SET parent_prediction_id = NULL, "
+                "parent_annotation_id = NULL WHERE project_id = :pid"
+            ),
+            {"pid": str(project_id)},
+        )
+
+    async def delete_project_annotations_and_predictions(
+        self, project_id: uuid.UUID
+    ) -> None:
+        params = {"pid": str(project_id)}
+        await self.db.execute(
+            text("DELETE FROM annotations WHERE project_id = :pid"), params
+        )
+        await self.db.execute(
+            text("DELETE FROM predictions WHERE project_id = :pid"), params
+        )
+        await self.db.execute(
+            text("DELETE FROM failed_predictions WHERE project_id = :pid"), params
+        )
+
+    async def delete_project_task_locks(self, project_id: uuid.UUID) -> None:
+        await self.db.execute(
+            text(
+                "DELETE FROM task_locks WHERE task_id IN "
+                "(SELECT id FROM tasks WHERE project_id = :pid)"
+            ),
+            {"pid": str(project_id)},
+        )
+
+    async def delete_project_tasks(self, project_id: uuid.UUID) -> None:
+        await self.db.execute(
+            text("DELETE FROM tasks WHERE project_id = :pid"),
+            {"pid": str(project_id)},
+        )
+
+    async def delete_source_less_task_children(self, task_ids: FromClause) -> int:
+        from app.db.models.annotation import Annotation
+        from app.db.models.annotation_comment import AnnotationComment
+        from app.db.models.task_lock import AnnotationDraft, TaskLock
+
+        task_id_select = select(task_ids.c.id)
+        annotation_ids = select(Annotation.id).where(
+            Annotation.task_id.in_(task_id_select)
+        )
+        annotation_count = (
+            await self.db.execute(
+                select(func.count(Annotation.id)).where(
+                    Annotation.task_id.in_(task_id_select)
+                )
+            )
+        ).scalar() or 0
+
+        await self.db.execute(
+            delete(AnnotationComment)
+            .where(AnnotationComment.annotation_id.in_(annotation_ids))
+            .execution_options(synchronize_session=False)
+        )
+        await self.db.execute(
+            delete(AnnotationDraft)
+            .where(AnnotationDraft.task_id.in_(task_id_select))
+            .execution_options(synchronize_session=False)
+        )
+        await self.db.execute(
+            update(Annotation)
+            .where(Annotation.task_id.in_(task_id_select))
+            .values(parent_prediction_id=None, parent_annotation_id=None)
+            .execution_options(synchronize_session=False)
+        )
+        await self.db.execute(
+            delete(Annotation)
+            .where(Annotation.task_id.in_(task_id_select))
+            .execution_options(synchronize_session=False)
+        )
+        await self.db.execute(
+            delete(TaskLock)
+            .where(TaskLock.task_id.in_(task_id_select))
+            .execution_options(synchronize_session=False)
+        )
+        return int(annotation_count)
+
+    async def delete_source_less_task_records(self, task_ids: FromClause) -> None:
+        await self.db.execute(
+            delete(Task)
+            .where(Task.id.in_(select(task_ids.c.id)))
+            .execution_options(synchronize_session=False)
+        )
+
+    async def recalculate_source_less_task_counters(
+        self, project_id: uuid.UUID
+    ) -> None:
+        from app.db.models.task_batch import TaskBatch
+
+        project = await self.db.get(Project, project_id)
+        if project:
+            row = (
+                await self.db.execute(
+                    select(
+                        func.count().label("total"),
+                        func.count()
+                        .filter(Task.status == "completed")
+                        .label("completed"),
+                        func.count().filter(Task.status == "review").label("review"),
+                        func.count()
+                        .filter(Task.status == "in_progress")
+                        .label("in_progress"),
+                    ).where(Task.project_id == project_id)
+                )
+            ).one()
+            project.total_tasks = row.total
+            project.completed_tasks = row.completed
+            project.review_tasks = row.review
+            project.in_progress_tasks = row.in_progress
+
+        batches = (
+            (
+                await self.db.execute(
+                    select(TaskBatch).where(TaskBatch.project_id == project_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for batch in batches:
+            counts = (
+                await self.db.execute(
+                    select(
+                        func.count().label("total"),
+                        func.count()
+                        .filter(Task.status == "completed")
+                        .label("completed"),
+                        func.count().filter(Task.status == "review").label("review"),
+                    ).where(Task.batch_id == batch.id)
+                )
+            ).one()
+            batch.total_tasks = counts.total
+            batch.completed_tasks = counts.completed
+            batch.review_tasks = counts.review

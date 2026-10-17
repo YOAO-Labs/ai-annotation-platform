@@ -29,6 +29,16 @@ from app.services.training_dataset_bridge import content_digest
 log = logging.getLogger(__name__)
 
 
+async def assert_no_project_studies(db, project_id: uuid.UUID) -> None:
+    if await db.scalar(
+        select(TrainingStudy.id).where(TrainingStudy.project_id == project_id).limit(1)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="项目包含保留的参数搜索计划与预算证据，不能删除",
+        )
+
+
 async def freeze_plan(db, project_id, body):
     keys = sorted(body.grid)
     cardinality = math.prod(len(body.grid[key]) for key in keys)

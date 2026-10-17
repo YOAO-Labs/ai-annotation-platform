@@ -27,7 +27,9 @@ from app.db.models.user import User
 from app.schemas.model_lineage import ModelDecisionCreate
 from app.schemas.trained_model import TrainedModelCreate, ModelReleaseCreate
 from app.services import model_lineage as service, trained_models
-from app.services.project_delete import delete_project_records
+from app.application.project_deletion import (
+    delete_project as delete_project_transaction,
+)
 from tests.conftest import _create_user
 from tests.factory import create_membership, create_task
 from tests.test_trained_models import (
@@ -540,7 +542,7 @@ async def test_candidate_decisions_protect_source_before_deletion(
         assert response.status_code == 409, response.text
     assert not delete_prefix.called
     with pytest.raises(Exception) as error:
-        await delete_project_records(db_session, project)
+        await delete_project_transaction(db_session, project)
     assert error.value.status_code == 409
 
 

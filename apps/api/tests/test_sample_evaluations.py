@@ -258,11 +258,13 @@ async def test_retained_references_block_storage_deletion_and_project_isolation(
     owner, token = super_admin
     world = await seed(db_session, owner, objects)
     run, _attempt = await evaluation(db_session, owner, world)
-    from app.services.project_delete import delete_project_records
+    from app.application.project_deletion import (
+        delete_project as delete_project_transaction,
+    )
     from app.services.ml_backend import MLBackendService
 
     with pytest.raises(HTTPException) as blocked:
-        await delete_project_records(db_session, world.project)
+        await delete_project_transaction(db_session, world.project)
     assert blocked.value.status_code == 409
     with pytest.raises(HTTPException) as blocked:
         await MLBackendService(db_session).validate_delete(world.backend.id)

@@ -42,6 +42,10 @@ from app.services.dataset import (
     ensure_dataset_storage_name_is_writable,
 )
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+from app.application.dataset_deletion import (
+    delete_dataset as delete_dataset_workflow,
+    unlink_dataset_from_project,
+)
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.mask_formats.safe_archive import (
     ArchiveLimits,
@@ -184,12 +188,11 @@ async def delete_dataset(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
-    svc = DatasetService(db)
-    cleanup = await svc.delete(dataset_id)
+    cleanup = await delete_dataset_workflow(db, dataset_id)
     if cleanup is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
     await db.commit()
-    await asyncio.to_thread(svc.cleanup_deleted_storage, cleanup)
+    await asyncio.to_thread(DatasetService.cleanup_deleted_storage, cleanup)
 
 
 # ── Items ───────────────────────────────────────────────────────────────────
@@ -985,8 +988,7 @@ async def unlink_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    info = await svc.unlink_project(dataset_id, project_id)
+    info = await unlink_dataset_from_project(db, dataset_id, project_id)
     if info is None:
         raise HTTPException(status_code=404, detail="Link not found")
     await AuditService.log(

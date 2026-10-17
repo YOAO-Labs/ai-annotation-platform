@@ -23,7 +23,9 @@ from app.services.annotation_evidence import (
     clear_review_contributor_evidence,
     freeze_review_contributor_evidence,
 )
-from app.services.project_delete import delete_project_records
+from app.application.project_deletion import (
+    delete_project as delete_project_transaction,
+)
 from app.services.screenshot_seed_spec import (
     PROJECT_SPECS,
     SEED_MANAGED_BY,
@@ -360,7 +362,7 @@ async def prepare_screenshot_seed(
                 if file_path:
                     storage_keys.add(file_path)
         if project is not None:
-            await delete_project_records(db, project)
+            await delete_project_transaction(db, project)
             purged_projects += 1
         if dataset is not None:
             await db.delete(dataset)

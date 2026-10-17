@@ -81,7 +81,10 @@ last_reviewed: 2026-10-16
    素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
    `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
    素材/帧传递使用 `services/dataset_task_facts`，共享分组在 `services/dataset_frame_grouping`。
-   分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务；解绑/删除尚未迁移。
+   分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
+   解绑/素材删除、项目删除和无源任务清理由 `application/dataset_deletion.py`、
+   `project_deletion.py`、`project_task_cleanup.py` 组合领域所有者；
+   保留原本地原子事务、不同清理子集、计数口径和提交后派生存储清理，不是远程删除协议。
 5. 领域执行派发：
    - 质量：`app/services/quality_job_dispatch.py::QualityJobDispatcher` →
      `app/deps.py::get_quality_job_dispatcher` 装配

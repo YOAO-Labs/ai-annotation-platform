@@ -58,6 +58,14 @@ TERMINAL = {"succeeded", "failed", "cancelled"}
 SCOPES = frozenset({"datasets:read", "datasets:write", "annotations:read"})
 
 
+async def assert_no_project_evaluations(db, project_id: uuid.UUID) -> None:
+    if await db.scalar(select(Run.id).where(Run.project_id == project_id).limit(1)):
+        raise HTTPException(
+            status_code=409,
+            detail="项目包含冻结样本评估，请先结束并删除评估",
+        )
+
+
 def now():
     return datetime.now(timezone.utc)
 

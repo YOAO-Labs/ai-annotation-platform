@@ -27,7 +27,9 @@ from app.db.models.project_task_dataset import (
 )
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
-from app.services.project_delete import delete_project_records
+from app.application.project_deletion import (
+    delete_project as delete_project_transaction,
+)
 from app.services import project_task_dataset as service
 from app.services import training_datasets as frozen_datasets
 from app.schemas.training_dataset import (
@@ -401,12 +403,12 @@ async def test_association_replay_deletion_high_water_and_frozen_bytes(
         and segment_membership.task_dataset_id != stream.id
     )
     with pytest.raises(HTTPException) as blocked:
-        await delete_project_records(db_session, project)
+        await delete_project_transaction(db_session, project)
     assert blocked.value.status_code == 409
     await db_session.delete(later)
     await db_session.delete(segmentation)
     await db_session.flush()
-    await delete_project_records(db_session, project)
+    await delete_project_transaction(db_session, project)
     assert await db_session.get(Project, project.id) is None
     assert (
         await db_session.scalar(

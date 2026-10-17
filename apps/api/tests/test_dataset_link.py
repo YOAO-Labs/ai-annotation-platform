@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services.dataset import DatasetService
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+from app.application.dataset_deletion import unlink_dataset_from_project
+from app.services.dataset import DatasetService
 
 
 async def _seed_dataset(db: AsyncSession, owner_id: uuid.UUID, n_items: int) -> Dataset:
@@ -239,7 +240,7 @@ async def test_unlink_project_hard_deletes_tasks(db_session: AsyncSession, super
     await db_session.refresh(project)
     assert project.total_tasks == 10
 
-    info = await DatasetService(db_session).unlink_project(ds.id, project.id)
+    info = await unlink_dataset_from_project(db_session, ds.id, project.id)
     assert info is not None
     assert info["deleted_tasks"] == 10
     assert info["soft"] is False
@@ -308,7 +309,7 @@ async def test_unlink_cascades_user_split_batches(
     db_session.add(manual_empty)
     await db_session.flush()
 
-    info = await DatasetService(db_session).unlink_project(ds.id, project.id)
+    info = await unlink_dataset_from_project(db_session, ds.id, project.id)
     assert info is not None
     deleted_ids = set(info["deleted_batch_ids"])
     assert str(sub_a.id) in deleted_ids
@@ -363,7 +364,7 @@ async def test_unlink_cascades_legacy_default_batch(
     )
     await db_session.flush()
 
-    info = await DatasetService(db_session).unlink_project(ds.id, project.id)
+    info = await unlink_dataset_from_project(db_session, ds.id, project.id)
     assert info is not None
     assert str(legacy_default.id) in info["deleted_batch_ids"]
 
@@ -417,9 +418,8 @@ async def test_link_unlink_relink_no_double_count(
     ds = await _seed_dataset(db_session, user.id, n_items=4)
     project = await _seed_project(db_session, user.id)
 
-    svc = DatasetService(db_session)
     await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
-    await svc.unlink_project(ds.id, project.id)
+    await unlink_dataset_from_project(db_session, ds.id, project.id)
     await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
 
     await db_session.refresh(project)

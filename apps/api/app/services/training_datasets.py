@@ -46,6 +46,19 @@ from app.services.job_execution_control import JobExecutionControl
 
 log = logging.getLogger(__name__)
 
+
+async def assert_no_project_versions(db, project_id: uuid.UUID) -> None:
+    if await db.scalar(
+        select(TrainingDatasetVersion.id)
+        .where(TrainingDatasetVersion.project_id == project_id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="项目包含训练数据版本，请先删除无引用的数据版本",
+        )
+
+
 MAX_SAMPLES = 20000
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
 MAX_DATASET_BYTES = 20 * 1024 * 1024 * 1024

@@ -641,6 +641,16 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
             "scripts.validate_gpu_arbitration",
         ),
     ),
+    FacadeSpec(
+        facade_module="app.services.project_delete",
+        public_module="app.application.project_deletion",
+        exports=(_exports("app.application.project_deletion", "delete_project"),),
+        consumer_modules=(
+            "app.api.v1.projects",
+            "scripts.seed_pointcloud",
+            "scripts.seed_screenshot_profile",
+        ),
+    ),
 )
 
 _EXPECTED_FACADES: set[str] = set()

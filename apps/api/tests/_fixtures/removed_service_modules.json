@@ -843,6 +843,22 @@
       ],
       "consumer_modules": ["app.api.v1.data_manager", "app.api.v1.task_views"],
       "frozen_symbols": ["DataManagerTrackService"]
+    },
+    {
+      "facade_module": "app.services.project_delete",
+      "public_module": "app.application.project_deletion",
+      "exports": [
+        {
+          "module": "app.application.project_deletion",
+          "names": ["delete_project"]
+        }
+      ],
+      "consumer_modules": [
+        "app.api.v1.projects",
+        "scripts.seed_pointcloud",
+        "scripts.seed_screenshot_profile"
+      ],
+      "frozen_symbols": ["delete_project_records"]
     }
   ]
 }

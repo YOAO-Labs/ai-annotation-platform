@@ -62,6 +62,7 @@ REMOVED_MODULES = (
     "app.services.gpu_membership_activation",
     "app.services.gpu_rollout_control",
     "app.workers.roi",
+    "app.services.project_delete",
 )
 
 _LEGACY_CALL_REFERENCE_ALLOWLIST: dict[tuple[str, str, str], str] = {}
@@ -232,6 +233,11 @@ DOMAIN_PACKAGES = (
             "app.schemas.mask_format",
             "app.services.mask_formats.contracts",
         ),
+    ),
+    DomainSpec(
+        package="project_workspace",
+        legacy_facades=(),
+        allowed_app_imports=("app.db.models.project",),
     ),
 )
 

@@ -60,7 +60,7 @@ async def test_dataset_delete_defers_storage_cleanup_until_database_commit(
     monkeypatch.setattr(storage_service, "delete_prefix", delete_prefix)
 
     with pytest.raises(RuntimeError, match="foreign key rejection"):
-        await DatasetService(db).delete(dataset.id)  # type: ignore[arg-type]
+        await DatasetService(db).delete_dataset_record(dataset)  # type: ignore[arg-type]
 
     assert db.deleted == [dataset]
     delete_object.assert_not_called()

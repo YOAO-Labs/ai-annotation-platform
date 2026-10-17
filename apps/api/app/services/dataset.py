@@ -14,8 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.services.display_id import next_display_id
 from app.services.dataset_task_facts import PreparedDatasetItem
 from app.services.project_kind import (
@@ -241,12 +239,7 @@ class DatasetService:
         await self.db.flush()
         return ds
 
-    async def delete(self, dataset_id: uuid.UUID) -> DatasetDeleteCleanup | None:
-        ds = await self.db.get(Dataset, dataset_id)
-        if not ds:
-            return None
-
-        await guard_source(self.db, dataset_id=dataset_id)
+    async def delete_dataset_record(self, ds: Dataset) -> DatasetDeleteCleanup:
         from app.db.models.image_pyramid import ImagePyramidAsset
 
         asset_ids = list(
@@ -257,7 +250,7 @@ class DatasetService:
                         DatasetItem,
                         DatasetItem.id == ImagePyramidAsset.dataset_item_id,
                     )
-                    .where(DatasetItem.dataset_id == dataset_id)
+                    .where(DatasetItem.dataset_id == ds.id)
                 )
             )
             .scalars()
@@ -724,6 +717,17 @@ class DatasetService:
             link=link, existing=False, item_count=item_count
         )
 
+    async def remove_project_association(
+        self, dataset_id: uuid.UUID, project_id: uuid.UUID
+    ) -> bool:
+        result = await self.db.execute(
+            delete(ProjectDataset).where(
+                ProjectDataset.dataset_id == dataset_id,
+                ProjectDataset.project_id == project_id,
+            )
+        )
+        return result.rowcount != 0
+
     async def linked_project_ids(self, dataset_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
         rows = await self.db.execute(
             select(ProjectDataset.project_id).where(
@@ -765,155 +769,6 @@ class DatasetService:
             return
         if not await dataset_has_scenes(self.db, dataset_id):
             raise ValueError("声明为时序数据集但未识别出任何 scene,请检查目录结构")
-
-    async def unlink_project(
-        self, dataset_id: uuid.UUID, project_id: uuid.UUID
-    ) -> dict | None:
-        """v0.6.7 二修 B-10：hard-unlink ——级联删除该 dataset 在该 project 下的所有 task
-        (含 annotations / comments / locks)，不再保留为孤儿。
-
-        理由：用户期望「取消关联 = 撤销 link 的全部副作用」，soft-unlink 留下进度永远停在历史值。
-        相关数据丢失（annotations / 子项）通过前端二次确认 + 数字提示让用户知情。
-
-        v0.7.3 fix：原实现只重算 batch 计数器，导致 link 自建的「默认包」/ 用户从该 dataset
-        task 切出去的 batch 在 task 全删后变成空壳挂在列表里。现在：删 task 前记下「即将失去 task 的
-        batch 集合」，重算后把 total_tasks==0 且非 B-DEFAULT 的批次也删掉。
-
-        返回：None 表示 link 不存在；否则
-            {"deleted_tasks": N, "deleted_annotations": M, "deleted_batches": K,
-             "deleted_batch_ids": [...], "soft": false}
-        """
-        from app.db.models.annotation import Annotation
-        from app.db.models.annotation_comment import AnnotationComment
-        from app.db.models.task_lock import TaskLock
-
-        # 1. 找出本次要删的 task ids 与所属 batch ids
-        target_rows = (
-            await self.db.execute(
-                select(Task.id, Task.batch_id)
-                .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-                .where(
-                    Task.project_id == project_id,
-                    DatasetItem.dataset_id == dataset_id,
-                )
-                .order_by(Task.id)
-                .with_for_update(of=Task)
-            )
-        ).all()
-        target_task_ids: list[uuid.UUID] = [r[0] for r in target_rows]
-
-        await guard_source(self.db, task_ids=target_task_ids)
-        affected_batch_ids: set[uuid.UUID] = {
-            r[1] for r in target_rows if r[1] is not None
-        }
-
-        # 2. 找出对应 annotation ids（用于 annotation_comments 级联）
-        ann_ids: list[uuid.UUID] = []
-        ann_count = 0
-        if target_task_ids:
-            ann_ids = list(
-                (
-                    await self.db.execute(
-                        select(Annotation.id).where(
-                            Annotation.task_id.in_(target_task_ids)
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            ann_count = len(ann_ids)
-
-        # 3. 级联删除（顺序关键：先 child 后 parent）
-        if ann_ids:
-            await self.db.execute(
-                delete(AnnotationComment).where(
-                    AnnotationComment.annotation_id.in_(ann_ids)
-                )
-            )
-        if target_task_ids:
-            await self.db.execute(
-                delete(Annotation).where(Annotation.task_id.in_(target_task_ids))
-            )
-            await self.db.execute(
-                delete(TaskLock).where(TaskLock.task_id.in_(target_task_ids))
-            )
-            await self.db.execute(delete(Task).where(Task.id.in_(target_task_ids)))
-
-        # 4. 删 ProjectDataset link
-        result = await self.db.execute(
-            delete(ProjectDataset).where(
-                ProjectDataset.dataset_id == dataset_id,
-                ProjectDataset.project_id == project_id,
-            )
-        )
-        if result.rowcount == 0:
-            return None
-
-        # 5. 重算 project 计数器
-        project = await self.db.get(Project, project_id)
-        if project:
-            row = (
-                await self.db.execute(
-                    select(
-                        func.count().label("total"),
-                        func.count()
-                        .filter(Task.status == "completed")
-                        .label("completed"),
-                        func.count().filter(Task.status == "review").label("review"),
-                    ).where(Task.project_id == project_id)
-                )
-            ).one()
-            project.total_tasks = row.total
-            project.completed_tasks = row.completed
-            project.review_tasks = row.review
-
-        # 6. 重算所有该 project 的 batch 计数器（被删 task 之前可能在某个 batch 里）
-        batches = (
-            (
-                await self.db.execute(
-                    select(TaskBatch).where(TaskBatch.project_id == project_id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for b in batches:
-            r = (
-                await self.db.execute(
-                    select(
-                        func.count().label("total"),
-                        func.count()
-                        .filter(Task.status == "completed")
-                        .label("completed"),
-                        func.count().filter(Task.status == "review").label("review"),
-                    ).where(Task.batch_id == b.id)
-                )
-            ).one()
-            b.total_tasks = r.total
-            b.completed_tasks = r.completed
-            b.review_tasks = r.review
-
-        # 7. 级联清理：失去 task 后变空壳的 batch 删除（B-DEFAULT 永远保留）
-        deleted_batch_ids: list[uuid.UUID] = []
-        if affected_batch_ids:
-            for b in batches:
-                if (
-                    b.id in affected_batch_ids
-                    and b.total_tasks == 0
-                    and b.display_id != "B-DEFAULT"
-                ):
-                    await self.db.execute(delete(TaskBatch).where(TaskBatch.id == b.id))
-                    deleted_batch_ids.append(b.id)
-
-        await self.db.flush()
-        return {
-            "deleted_tasks": len(target_task_ids),
-            "deleted_annotations": ann_count,
-            "deleted_batches": len(deleted_batch_ids),
-            "deleted_batch_ids": [str(bid) for bid in deleted_batch_ids],
-            "soft": False,
-        }
 
     async def get_linked_projects(self, dataset_id: uuid.UUID) -> list[Project]:
         result = await self.db.execute(

@@ -187,10 +187,10 @@ last_reviewed: 2026-07-29
 建题增量与删除重算分开：
 
 - `DatasetTaskCreationWorkflow` 调用 `LabelingTaskService` 建题并增量维护 `Project.total_tasks`；初始任务保留分块提交，追加任务仅 flush，不在每次入库时增加全量扫描。
-- `DatasetService.unlink_project()` 保留解绑删除后的 project / batch 重算。
-- `projects.cleanup_orphans` 保留清理后的计数同步。
+- `application/dataset_deletion.unlink_dataset_from_project()` 调用 `LabelingTaskService.recalculate_unlink_counters()`，重算项目及全部批次的 total / completed / review，仅删除本次失去任务且不是默认包的空批次。
+- `application/project_task_cleanup.delete_source_less_tasks()` 调用 `LabelingTaskService.recalculate_source_less_task_counters()`；项目另重算 in-progress，批次仍保持原字段集。
 
-后两条尚未迁出原资产/API 所有者；建题写入下沉不等于所有任务删除和计数写入都已解耦。
+两条清理用例都保留调用方事务；不统一原本不同的计数口径、清理子集和提交时点。项目整体删除另由应用工作流组合各领域所有者，不能通过删一个 ORM 项目对象替代完整保留检查和引用处理。
 
 ## Dashboard 为什么依赖这些字段
 

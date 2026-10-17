@@ -72,7 +72,6 @@ from app.schemas.export import (
     LidarExportPreflightResponse,
 )
 from app.config import settings
-from app.services.active_learning_references import guard_source
 from app.services.display_id import next_display_id
 from app.services.pipeline_validation import (
     check_capability_violations,
@@ -99,7 +98,12 @@ from app.services.project_clone import (
     CLONEABLE_PROJECT_FIELDS as _CLONEABLE_PROJECT_FIELDS,  # noqa: F401 (re-export)
     merge_from_source as _merge_from_source_project_impl,
 )
-from app.services.project_delete import delete_project_records
+from app.application.project_deletion import (
+    delete_project as delete_project_transaction,
+)
+from app.application.project_task_cleanup import (
+    delete_source_less_tasks as cleanup_source_less_tasks,
+)
 from app.schemas.project import VideoCollaborationConfig
 from app.services.video_collaboration import validate_project_collaboration_update
 
@@ -1263,7 +1267,7 @@ async def delete_project(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):
-    await delete_project_records(db, project)
+    await delete_project_transaction(db, project)
     await db.commit()
     return Response(status_code=204)
 
@@ -3150,120 +3154,9 @@ async def cleanup_orphan_tasks(
     适用场景：v0.6.0~v0.6.6 期间 link_project 写 dataset_item_id 但未持久化 batch 关系，
     后续数据集被 unlink / 删除留下的孤儿 task。
     """
-    pid = str(project.id)
-    # 用项目 delete 同款 raw SQL 但只针对孤儿 task ids
-    orphan_q = """
-        SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN (
-            SELECT t.id FROM tasks t
-            JOIN dataset_items di ON di.id = t.dataset_item_id
-            JOIN project_datasets pd ON pd.dataset_id = di.dataset_id AND pd.project_id = t.project_id
-            WHERE t.project_id = :pid
-        )
-    """
-    rows = (await db.execute(text(orphan_q), {"pid": pid})).all()
-    if not rows:
-        return {"deleted_tasks": 0, "deleted_annotations": 0}
-    orphan_count = len(rows)
-
-    from sqlalchemy import select as source_select
-    from app.db.models.task import Task as SourceTask
-
-    orphan_ids = [row[0] for row in rows]
-    await db.execute(
-        source_select(SourceTask.id)
-        .where(SourceTask.id.in_(orphan_ids))
-        .order_by(SourceTask.id)
-        .with_for_update()
-    )
-    await guard_source(db, task_ids=orphan_ids)
-
-    # v0.7.0：把 ANY(:ids) 序列化数组改为子查询联查，避免 10 万级孤儿场景下的 array overflow。
-    # 所有 DELETE / UPDATE 共用同一 orphan-id 子查询。
-    orphan_subq = (
-        "SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN ("
-        "  SELECT t.id FROM tasks t"
-        "  JOIN dataset_items di ON di.id = t.dataset_item_id"
-        "  JOIN project_datasets pd ON pd.dataset_id = di.dataset_id AND pd.project_id = t.project_id"
-        "  WHERE t.project_id = :pid"
-        ")"
-    )
-    ann_count = (
-        await db.execute(
-            text(f"SELECT COUNT(*) FROM annotations WHERE task_id IN ({orphan_subq})"),
-            {"pid": pid},
-        )
-    ).scalar() or 0
-
-    await db.execute(
-        text(
-            f"DELETE FROM annotation_comments WHERE annotation_id IN ("
-            f"  SELECT id FROM annotations WHERE task_id IN ({orphan_subq}))"
-        ),
-        {"pid": pid},
-    )
-    await db.execute(
-        text(f"DELETE FROM annotation_drafts WHERE task_id IN ({orphan_subq})"),
-        {"pid": pid},
-    )
-    await db.execute(
-        text(
-            f"UPDATE annotations SET parent_prediction_id = NULL, parent_annotation_id = NULL "
-            f"WHERE task_id IN ({orphan_subq})"
-        ),
-        {"pid": pid},
-    )
-    await db.execute(
-        text(f"DELETE FROM annotations WHERE task_id IN ({orphan_subq})"), {"pid": pid}
-    )
-    await db.execute(
-        text(f"DELETE FROM task_locks WHERE task_id IN ({orphan_subq})"), {"pid": pid}
-    )
-    await db.execute(
-        text(f"UPDATE bug_reports SET task_id = NULL WHERE task_id IN ({orphan_subq})"),
-        {"pid": pid},
-    )
-    await db.execute(
-        text(f"DELETE FROM tasks WHERE id IN ({orphan_subq})"), {"pid": pid}
-    )
-
-    # 重算 project + batch counters（v0.7.0：含 in_progress_tasks）
-    from sqlalchemy import select, func
-    from app.db.models.task import Task
-    from app.db.models.task_batch import TaskBatch
-
-    row = (
-        await db.execute(
-            select(
-                func.count().label("total"),
-                func.count().filter(Task.status == "completed").label("completed"),
-                func.count().filter(Task.status == "review").label("review"),
-                func.count().filter(Task.status == "in_progress").label("in_progress"),
-            ).where(Task.project_id == project.id)
-        )
-    ).one()
-    project.total_tasks = row.total
-    project.completed_tasks = row.completed
-    project.review_tasks = row.review
-    project.in_progress_tasks = row.in_progress
-
-    batches = (
-        (await db.execute(select(TaskBatch).where(TaskBatch.project_id == project.id)))
-        .scalars()
-        .all()
-    )
-    for b in batches:
-        r = (
-            await db.execute(
-                select(
-                    func.count().label("total"),
-                    func.count().filter(Task.status == "completed").label("completed"),
-                    func.count().filter(Task.status == "review").label("review"),
-                ).where(Task.batch_id == b.id)
-            )
-        ).one()
-        b.total_tasks = r.total
-        b.completed_tasks = r.completed
-        b.review_tasks = r.review
+    result = await cleanup_source_less_tasks(db, project.id)
+    if result["deleted_tasks"] == 0:
+        return result
 
     from app.services.audit import AuditService
 
@@ -3275,10 +3168,10 @@ async def cleanup_orphan_tasks(
         target_id=str(project.id),
         request=request,
         status_code=200,
-        detail={"deleted_tasks": orphan_count, "deleted_annotations": int(ann_count)},
+        detail=result,
     )
     await db.commit()
-    return {"deleted_tasks": orphan_count, "deleted_annotations": int(ann_count)}
+    return result
 
 
 # ── v0.7.3 · 项目侧关联数据集 ────────────────────────────────────────────

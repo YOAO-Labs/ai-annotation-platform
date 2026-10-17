@@ -202,7 +202,9 @@ async def _remove_legacy_dev_seed(db, *, owner_id: uuid.UUID) -> list[str]:
 
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.db.models.project import Project
-    from app.services.project_delete import delete_project_records
+    from app.application.project_deletion import (
+        delete_project as delete_project_transaction,
+    )
 
     project = await db.scalar(
         select(Project).where(Project.display_id == PROJECT_DISPLAY_ID)
@@ -257,7 +259,7 @@ async def _remove_legacy_dev_seed(db, *, owner_id: uuid.UUID) -> list[str]:
             )
         ).scalars()
     )
-    await delete_project_records(db, project)
+    await delete_project_transaction(db, project)
     await db.delete(dataset)
     await db.flush()
     return [key for key in storage_keys if key]
