@@ -6,7 +6,6 @@ import asyncio
 from contextlib import suppress
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, BinaryIO, Iterable
 
 from sqlalchemy import select
@@ -59,17 +58,16 @@ async def _finish_cancelled(
     *,
     result: dict,
 ) -> None:
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        return
-    if job.status in {
-        AsyncJobStatus.PENDING.value,
-        AsyncJobStatus.RUNNING.value,
-        AsyncJobStatus.CANCELLED.value,
-    }:
-        job.status = AsyncJobStatus.CANCELLED.value
-        job.completed_at = datetime.now(timezone.utc)
-        job.result = result
+    await async_job_svc.mark_cancelled(
+        db,
+        job_id,
+        result=result,
+        allowed_statuses={
+            AsyncJobStatus.PENDING.value,
+            AsyncJobStatus.RUNNING.value,
+            AsyncJobStatus.CANCELLED.value,
+        },
+    )
 
 
 async def _resolve_import_limits_snapshot(
@@ -94,7 +92,7 @@ async def _resolve_import_limits_snapshot(
         # Jobs created before request-time snapshots get exactly one first-
         # execution capture. Persist before enumeration so retries reuse it.
         snapshot = await SystemSettingsService.get_import_limits_snapshot(db)
-        job.payload = {**payload, "settings_snapshot": snapshot}
+        await async_job_svc.update_payload(db, job.id, {"settings_snapshot": snapshot})
         await db.commit()
     if not isinstance(snapshot, dict):
         raise ValueError("invalid dataset import settings snapshot")

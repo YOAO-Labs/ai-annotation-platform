@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -139,8 +138,7 @@ async def _persist_progress(
     if job is None:
         return
     if job.status != AsyncJobStatus.CANCELLED.value:
-        job.result = result
-        job.progress_pct = max(0, min(100, pct))
+        await async_job_svc.update_progress(db, job_id, pct, result=result)
     await db.commit()
 
 
@@ -150,13 +148,15 @@ async def _finish_cancelled(
     job_id: uuid.UUID,
     result: dict[str, Any],
 ) -> None:
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.mark_cancelled(
+        db,
+        job_id,
+        result=result,
+        allowed_statuses=None,
+        progress_pct=100,
+    )
     if job is None:
         return
-    job.status = AsyncJobStatus.CANCELLED.value
-    job.completed_at = datetime.now(timezone.utc)
-    job.progress_pct = 100
-    job.result = result
     await notify_job_terminal(db, job_id=job.id)
     await db.commit()
 

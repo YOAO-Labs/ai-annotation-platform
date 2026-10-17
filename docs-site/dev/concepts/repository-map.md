@@ -156,6 +156,10 @@ last_reviewed: 2026-10-16
    HTTP 取消经 `app/application/job_cancellation.py` 组合准入和领域 `request_job_cancel`，
    保留 pending 立即取消、running 协作取消、评估取消意图与数据版本当前尝试隔离；
    事务仍由路由提交，列表/明细/取消的外部协议未变。
+   通用行写入统一调用 `app/services/async_job.py`：payload 浅合并、result 整体替换，
+   取消状态策略由执行器明确传入。跨帧保留逐帧进度提交及取消后的 100；
+   连接器导入保留旧快照提交、逐文件事务和已经 cancelled 时的计数回填，不强制 100。
+   `workers/predictions_retry.py` 继续使用仅替换结果、不改变生命周期的 `replace_result`。
    失败项重试经 `app/application/prediction_retry.py`，先提交占用再派发；
    发布异常仅释放派发调用尚未返回成功的项，保留已返回成功项的排队标记。该多阶段事务不与取消用例混为一谈。
 7. 通知：`application/task_review.py` / `task_lifecycle.py` 保存审核/重开持久通知并 `commit()` 后调用

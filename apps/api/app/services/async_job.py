@@ -1,9 +1,9 @@
-"""v0.10.16 · async_jobs 服务层（ROADMAP §1.7）。
+"""Generic async-job row commands with caller-owned transactions.
 
-- create_job / mark_running / update_progress / mark_complete / mark_failed
-  五个原子方法，所有调用方手动控制 commit（与现有 service 风格一致）。
-- track_job 上下文管理器封装 mark_running + mark_complete/mark_failed，
-  适合短任务；长任务（batch_predict 等）应显式调用 update_progress。
+Payload updates merge shallowly; result projections replace. State writers do
+not commit or publish notices. Creation and track_job explicitly flush; other
+state writers do not. Default cancellation allows only pending/running;
+specialized workers supply their own precedence.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import uuid
+from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
@@ -59,23 +60,35 @@ async def mark_running(
         job.celery_task_id = celery_task_id
 
 
+def _merge_payload(job: AsyncJob, updates: dict) -> None:
+    job.payload = {**(job.payload or {}), **updates}
+
+
+async def update_payload(db: AsyncSession, job_id: uuid.UUID, updates: dict) -> None:
+    """Merge job-specific payload fields without committing."""
+    job = await db.get(AsyncJob, job_id)
+    if job is None:
+        return
+    _merge_payload(job, updates)
+
+
 async def update_progress(
     db: AsyncSession,
     job_id: uuid.UUID,
     pct: int,
     *,
     extra_payload: dict | None = None,
+    result: dict | None = None,
 ) -> None:
-    """v0.10.16 · 写入进度百分比（0-100），自动 clamp。
-
-    调用方可塞 extra_payload（仅 merge 到 job.payload；result 留到 mark_complete）。
-    """
+    """Write clamped progress, merge supplied payload, and replace supplied result."""
     job = await db.get(AsyncJob, job_id)
     if job is None:
         return
+    if result is not None:
+        job.result = result
     job.progress_pct = max(0, min(100, int(pct)))
     if extra_payload:
-        job.payload = {**(job.payload or {}), **extra_payload}
+        _merge_payload(job, extra_payload)
 
 
 async def replace_result(db: AsyncSession, job_id: uuid.UUID, *, result: dict) -> None:
@@ -132,17 +145,34 @@ async def mark_failed(
 
 
 async def mark_cancelled(
-    db: AsyncSession, job_id: uuid.UUID, *, result: dict | None = None
-) -> None:
-    """v0.10.16 · 标记取消（终态）。仅 pending/running 可取消。"""
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    result: dict | None = None,
+    allowed_statuses: Collection[str] | None = (
+        AsyncJobStatus.PENDING.value,
+        AsyncJobStatus.RUNNING.value,
+    ),
+    progress_pct: int | None = None,
+) -> AsyncJob | None:
+    """Write cancelled fields when the caller's status policy permits it.
+
+    By default, only pending/running jobs can be cancelled. Callers may pass a
+    different status collection, or ``None`` to write regardless of status.
+    The caller owns commit and any terminal notification.
+    """
     job = await db.get(AsyncJob, job_id)
     if job is None:
-        return
-    if job.status in {AsyncJobStatus.PENDING.value, AsyncJobStatus.RUNNING.value}:
-        job.status = AsyncJobStatus.CANCELLED.value
-        job.completed_at = datetime.now(timezone.utc)
-        if result is not None:
-            job.result = result
+        return None
+    if allowed_statuses is not None and job.status not in allowed_statuses:
+        return job
+    job.status = AsyncJobStatus.CANCELLED.value
+    job.completed_at = datetime.now(timezone.utc)
+    if progress_pct is not None:
+        job.progress_pct = max(0, min(100, int(progress_pct)))
+    if result is not None:
+        job.result = result
+    return job
 
 
 async def request_cancel(db: AsyncSession, job_id: uuid.UUID) -> None:

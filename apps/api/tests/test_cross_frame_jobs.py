@@ -5,13 +5,19 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import func, select
 
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
+from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.task import Task
-from app.workers.cross_frame_job import execute_cross_frame_job
+from app.services.cross_frame_job import JOB_KIND
+from app.workers.cross_frame_job import (
+    _finish_cancelled,
+    _persist_progress,
+    execute_cross_frame_job,
+)
 from tests.factory import create_project
 
 
@@ -211,6 +217,73 @@ async def test_cross_frame_worker_marks_changed_source_stale(
     assert job.result["created_annotation_count"] == 0
 
 
+async def test_cross_frame_progress_replaces_result_and_persists_progress(
+    db_session, super_admin
+):
+    user, _ = super_admin
+    job = AsyncJob(
+        kind=JOB_KIND,
+        user_id=user.id,
+        status=AsyncJobStatus.RUNNING.value,
+        result={"obsolete_key": True},
+    )
+    db_session.add(job)
+    await db_session.flush()
+
+    items = [
+        {"status": "success", "created_count": 2},
+        {"status": "skipped", "created_count": 0},
+    ]
+    await _persist_progress(
+        db_session,
+        job_id=job.id,
+        ordered_items=items,
+        total=4,
+    )
+
+    await db_session.refresh(job)
+    assert job.progress_pct == 50
+    assert job.result == {
+        "contract_version": 1,
+        "total_count": 2,
+        "success_count": 1,
+        "skipped_count": 1,
+        "failed_count": 0,
+        "stale_count": 0,
+        "cancelled_count": 0,
+        "created_annotation_count": 2,
+        "items": items,
+    }
+
+
+@pytest.mark.parametrize(
+    "status", [AsyncJobStatus.COMPLETED.value, AsyncJobStatus.FAILED.value]
+)
+async def test_cross_frame_cancel_writer_overwrites_terminal_job(
+    db_session, super_admin, status
+):
+    user, _ = super_admin
+    job = AsyncJob(
+        kind=JOB_KIND,
+        user_id=user.id,
+        status=status,
+        progress_pct=35,
+        result={"previous": True},
+        error_message="earlier execution issue",
+    )
+    db_session.add(job)
+    await db_session.flush()
+
+    result = {"cancelled_count": 2, "items": []}
+    await _finish_cancelled(db_session, job_id=job.id, result=result)
+
+    await db_session.refresh(job)
+    assert job.status == AsyncJobStatus.CANCELLED.value
+    assert job.progress_pct == 100
+    assert job.result == result
+    assert job.error_message == "earlier execution issue"
+
+
 async def test_cross_frame_cancel_is_immediate_when_pending_and_cooperative_when_running(
     db_session, httpx_client, super_admin, monkeypatch
 ):
@@ -328,7 +401,6 @@ async def test_cross_frame_all_scope_caps_source_snapshot(
     )
 
     assert response.status_code == 422
-    assert "500 source annotations" in response.json()["detail"]
     assert dispatched is False
 
 

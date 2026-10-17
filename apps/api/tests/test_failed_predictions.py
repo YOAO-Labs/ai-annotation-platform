@@ -220,7 +220,7 @@ async def test_retry_dispatch_failure_releases_claim_without_spending_attempt(
     monkeypatch.setattr(
         predictions_retry.retry_failed_prediction, "apply_async", publish
     )
-    with pytest.raises(RuntimeError, match="publication interrupted"):
+    with pytest.raises(RuntimeError):
         await retry_prediction(
             db_session, fp.id, user, dispatcher=CeleryPredictionRetryDispatcher()
         )

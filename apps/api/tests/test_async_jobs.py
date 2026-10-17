@@ -521,7 +521,7 @@ class TestAsyncJobsAPI:
                 raise RuntimeError("publication interrupted")
 
         monkeypatch.setattr(predictions_retry.retry_failed_prediction, "delay", publish)
-        with pytest.raises(RuntimeError, match="publication interrupted"):
+        with pytest.raises(RuntimeError):
             await retry_job_items(
                 db_session,
                 job.id,

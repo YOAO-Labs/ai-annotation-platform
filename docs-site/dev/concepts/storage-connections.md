@@ -115,6 +115,10 @@ flowchart TD
 
 原逐文件提交和取消检查不变。资产服务不再在 `ingest_one` 内代建 Task；素材行、追加任务和项目任务数仍绑定同一本地事务。连接器 worker 不自动推断 scene，时序数据集仍在原收尾位置校验；已提交文件不会因为后续校验失败自动回滚。
 
+通用作业行只由 `services/async_job.py` 写入。受理时的 `settings_snapshot` 固定该次导入预算；历史作业缺少快照时，worker 先以 `FOR UPDATE` / `populate_existing` 重读作业，在锁内捕获预算并通过 `update_payload` 浅合并，提交后才进入枚举。无关 payload 字段保留，后续部署或系统预算变化不改写已固定快照。
+
+取消仍在文件边界检查，不能中断已经开始的单个文件。HTTP 会立即将导入作业记为 cancelled；已投递 worker 仍可能先完成枚举及阶段进度，之后通过通用所有者为已经 cancelled 的行替换最终计数，不把进度强制改为 100。逐文件已提交素材与任务继续保留，尚未开始的文件计入 skipped。终态通知按既有去重规则保留一次，不承诺再次刷新 HTTP 取消时已经发布的计数；数据库提交、对象存储与 Celery 派发仍没有分布式原子性。
+
 请求参数：
 
 - `source_path`：导入起始路径，相对于连接器的 `base_prefix`（S3）/ `base_path`（SFTP）。

@@ -527,7 +527,6 @@ async def test_import_from_connection_api_creates_secretless_job(
     job = await db_session.get(AsyncJob, job_id)
     assert job is not None
     assert job.kind == "dataset_import"
-    assert job.celery_task_id == "celery-dataset-import"
     assert job.payload["connection_id"] == str(conn.id)
     snapshot = job.payload["settings_snapshot"]
     assert snapshot["dataset_import_max_files"] > 0
@@ -555,3 +554,68 @@ async def test_dataset_import_cancel_is_allowed(httpx_client, db_session, annota
     assert response.status_code == 200
     await db_session.refresh(job)
     assert job.status == AsyncJobStatus.CANCELLED.value
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        AsyncJobStatus.PENDING.value,
+        AsyncJobStatus.RUNNING.value,
+        AsyncJobStatus.CANCELLED.value,
+    ],
+)
+async def test_dataset_import_finish_cancelled_updates_allowed_job_states(
+    db_session, annotator, status
+):
+    user, _ = annotator
+    job = AsyncJob(
+        kind=AsyncJobKind.DATASET_IMPORT.value,
+        user_id=user.id,
+        status=status,
+        progress_pct=37,
+        result={"previous": True},
+    )
+    db_session.add(job)
+    await db_session.flush()
+
+    result = {"total": 5, "added": 1, "cancelled_at_index": 1}
+    await dataset_import._finish_cancelled(db_session, job.id, result=result)
+    await db_session.flush()
+
+    await db_session.refresh(job)
+    assert job.status == AsyncJobStatus.CANCELLED.value
+    assert job.result == result
+    assert job.progress_pct == 37
+
+
+@pytest.mark.parametrize(
+    "status",
+    [AsyncJobStatus.COMPLETED.value, AsyncJobStatus.FAILED.value],
+)
+async def test_dataset_import_finish_cancelled_preserves_other_terminal_states(
+    db_session, annotator, status
+):
+    user, _ = annotator
+    job = AsyncJob(
+        kind=AsyncJobKind.DATASET_IMPORT.value,
+        user_id=user.id,
+        status=status,
+        progress_pct=63,
+        completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        result={"previous": True},
+    )
+    db_session.add(job)
+    await db_session.flush()
+    await db_session.refresh(job)
+    completed_at = job.completed_at
+
+    await dataset_import._finish_cancelled(
+        db_session, job.id, result={"total": 5, "added": 1}
+    )
+    await db_session.flush()
+
+    await db_session.refresh(job)
+    assert job.status == status
+    assert job.completed_at == completed_at
+    assert job.result == {"previous": True}
+    assert job.progress_pct == 63

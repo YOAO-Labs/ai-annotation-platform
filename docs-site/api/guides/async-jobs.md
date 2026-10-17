@@ -17,16 +17,19 @@ last_reviewed: 2026-09-10
 
 ## kind 取值
 
-| kind                 | 触发位                                                                                   | 是否支持 cancel API                 |
-| -------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- |
-| `batch_predict`      | 项目 / 批次预标按钮（AIPreAnnotate 或 ProjectDetailPanel）                               | ✅（协作取消）                      |
-| `prediction_retry`   | 失败预测列表的重试按钮                                                                   | ❌                                  |
-| `video_tracker`      | 视频工作台 tracker 触发                                                                  | ❌（走 video tracker 自身取消接口） |
-| `audit_archive`      | Celery beat 每月 2 日 03:00 UTC                                                          | ✅                                  |
-| `predictions_import` | 外部 prediction 上传（[Import guide](./import)）                                         | ✅                                  |
-| `dataset_import`     | 数据集连接器导入文件                                                                     | ✅                                  |
-| `create_tasks`       | 数据集关联项目且 item 数 > `TASK_CREATE_SYNC_THRESHOLD`（默认 2000）时，建 task 转入后台 | ❌                                  |
-| `export`             | 项目 / 批次导出                                                                          | ❌                                  |
+下表列出常见类型与入口，其他领域作业还保留各自的执行和结果接口。
+
+| kind                      | 触发位                                                                                   | 是否支持 cancel API                 |
+| ------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- |
+| `batch_predict`           | 项目 / 批次预标按钮（AIPreAnnotate 或 ProjectDetailPanel）                               | ✅（协作取消）                      |
+| `prediction_retry`        | 失败预测列表的重试按钮                                                                   | ❌                                  |
+| `video_tracker`           | 视频工作台 tracker 触发                                                                  | ❌（走 video tracker 自身取消接口） |
+| `audit_archive`           | Celery beat 每月 2 日 03:00 UTC                                                          | ✅                                  |
+| `predictions_import`      | 外部 prediction 上传（[Import guide](./import)）                                         | ✅                                  |
+| `dataset_import`          | 数据集连接器导入文件                                                                     | ✅                                  |
+| `point_cloud_cross_frame` | 3D Scene 跨帧传播                                                                        | ✅（逐帧协作取消）                  |
+| `create_tasks`            | 数据集关联项目且 item 数 > `TASK_CREATE_SYNC_THRESHOLD`（默认 2000）时，建 task 转入后台 | ❌                                  |
+| `export`                  | 项目 / 批次导出                                                                          | ❌                                  |
 
 ## 端点
 
@@ -87,8 +90,12 @@ owner-scoped；非 owner（且非 super_admin）→ `403`，记录不存在返�
 
 ### `POST /api/v1/async-jobs/{id}/cancel`
 
-软取消。支持 `predictions_import` / `dataset_import` / `audit_archive` / `batch_predict`；其他 kind 调用返回
-`400 not cancellable`。已终态（`completed` / `failed` / `cancelled`）调用返回 `409`。
+软取消。当前支持 `predictions_import`、`dataset_import`、`audit_archive`、`batch_predict`、
+`point_cloud_cross_frame`、`point_cloud_quality`、`mask_qc`、`mask_repair`、
+`mask_format_import`、`training_dataset` 和 `sample_evaluation`；其他 kind 返回
+`400 not cancellable`。已终态（`completed` / `failed` / `cancelled`）调用返回 `409`，领域仍保留自身取消意图与终态策略。
+
+跨帧 pending 请求直接保存 cancelled 与完整目标计数，HTTP 不强制进度 100；消息可能被撤销而不执行。运行中的请求写入取消意图，在下一帧边界停止，保留此前成功写入；worker 完成取消收尾时推进至 100。连接器导入则由 HTTP 立即保存 cancelled，worker 在文件边界停止并为已取消行回填最终计数，保留阶段进度而不强制 100；取消检查之前仍可能先枚举源文件。
 
 `batch_predict` 使用协作取消：API 对 `pending` job 直接写 `cancelled`；对 `running` job 写
 `payload.cancel_requested=true`，并对 Celery task 执行 `revoke(..., terminate=False)`。worker 不会强杀
@@ -128,26 +135,29 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 以下 kind 在有 `user_id` 且进入终态后会通过 `notifications` 体系发站内通知：
 
-| kind                 | `completed`     | `failed`     | `cancelled`     |
-| -------------------- | --------------- | ------------ | --------------- |
-| `batch_predict`      | `job.completed` | `job.failed` | `job.cancelled` |
-| `prediction_retry`   | `job.completed` | `job.failed` | -               |
-| `video_tracker`      | `job.completed` | `job.failed` | `job.cancelled` |
-| `predictions_import` | `job.completed` | `job.failed` | `job.cancelled` |
-| `dataset_import`     | `job.completed` | `job.failed` | `job.cancelled` |
-| `create_tasks`       | `job.completed` | `job.failed` | -               |
-| `audit_archive`      | `job.completed` | `job.failed` | `job.cancelled` |
+| kind                      | `completed`     | `failed`     | `cancelled`     |
+| ------------------------- | --------------- | ------------ | --------------- |
+| `batch_predict`           | `job.completed` | `job.failed` | `job.cancelled` |
+| `prediction_retry`        | `job.completed` | `job.failed` | -               |
+| `video_tracker`           | `job.completed` | `job.failed` | `job.cancelled` |
+| `predictions_import`      | `job.completed` | `job.failed` | `job.cancelled` |
+| `dataset_import`          | `job.completed` | `job.failed` | `job.cancelled` |
+| `create_tasks`            | `job.completed` | `job.failed` | -               |
+| `audit_archive`           | `job.completed` | `job.failed` | `job.cancelled` |
+| `point_cloud_cross_frame` | `job.completed` | `job.failed` | `job.cancelled` |
 
 通知 payload 至少包含 `kind` / `status`，并会带上可展示字段（如 `batch_display_id`、
 `task_display_id`、`project_display_id`）和结果摘要（如 `success_count` / `failed_count` /
 `imported` / `error_count`）。`export` 不使用通用 `job.*`，继续发 `export.ready` / `export.failed`
 以保留下载链接。通用作业通知使用 `target_type=async_job`，导出通知使用 `target_type=export`；两者的 `target_id` 都是作业 ID，前端依据最新详情判断可执行操作。
 
+通用作业的 `notify_job_terminal` 仍在调用方提交前保存并发布，数据库与 Redis 不构成原子事务；WebSocket 侧的短暂可见性等待不等于统一改为提交后发布。同一用户、类型和作业的终态通知去重，后续取消计数回填不保证刷新已发送通知；详情应重新读取作业。
+
 ## 进度上报模型
 
-- **service 层显式**：`batch_predict` 等长任务在 worker 内显式调 `async_job_svc.update_progress(job_id, pct)`，每 5% 步长写一次，避免每条 task 都 DB write；`batch_predict` 额外在每条预测边界检查 `payload.cancel_requested`；
-- **Celery signals 兜底**：`task_failure` / `task_revoked` 信号回调按 `celery_task_id` 反查 `async_jobs` 行，翻 `failed` / `cancelled`，并补发终态通知，覆盖 worker crash / Celery revoke 等未被业务代码 except 接住的极端情况；
-- **失败兜底**：所有 async_jobs 写入都包 try/except，**专表写入失败不阻断主业务流程**（仅记日志）。
+- **所有者显式写入**：worker 调用 `async_job_svc.update_progress(db, job_id, pct, ...)`，进度裁剪到 0–100；`extra_payload` 浅合并，显式 `result` 整体替换。跨帧每个目标提交进度，连接器导入沿用阶段与百分比步长；各执行器的频率和取消边界不统一。
+- **Celery signals 兜底**：`task_failure` / `task_revoked` 按执行 ID 交给终态应用工作流，组合通用状态、各领域账本及通知，保留已完成保护、部分结果及领域状态机，不无条件覆盖所有作业。
+- **调用方事务**：状态写命令不自行提交或发送通知；异常是否继续、逐项回滚或使作业失败由具体执行器保留。不能把通用所有者理解为一律吞错或自动重试。
 
 ## Retention
 
