@@ -1186,7 +1186,23 @@ async def test_format_import_cancel_finishes_partial_after_committed_item(
                 {"cancelled", "completed", "failed"},
             )
             assert job.status == "cancelled"
+            assert job.result == {
+                "committed": 1,
+                "reason": "cancelled_by_user",
+            }
             async with sessions() as db:
+                notification_types = (
+                    (
+                        await db.execute(
+                            select(Notification.type).where(
+                                Notification.target_id == job_id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                assert notification_types == ["job.cancelled"]
                 annotation = (
                     await db.execute(
                         select(Annotation).where(

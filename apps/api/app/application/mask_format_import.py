@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -17,7 +16,14 @@ from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest
-from app.services.mask_formats.service import materialize_staged_object
+from app.services.mask_formats.service import (
+    cancel_import_execution,
+    complete_import_batch,
+    fail_import_batch,
+    mark_import_running,
+    materialize_staged_object,
+    record_import_item_result,
+)
 
 
 async def run_mask_format_import(
@@ -36,13 +42,7 @@ async def run_mask_format_import(
             (job.payload or {}).get("cancel_requested")
         ):
             return False
-        committed = sum(
-            1
-            for value in ((batch.result_json or {}).get("items") or {}).values()
-            if isinstance(value, dict) and value.get("status") == "committed"
-        )
-        batch.status = "partial" if committed else "cancelled"
-        batch.completed_at = datetime.now(timezone.utc)
+        committed = cancel_import_execution(batch)
         await async_job_svc.mark_cancelled(
             db,
             job.id,
@@ -76,7 +76,7 @@ async def run_mask_format_import(
                 return
             if await cancel_if_requested(db, batch=batch, job=job):
                 return
-            batch.status = "running"
+            mark_import_running(batch)
             await async_job_svc.mark_running(
                 db,
                 job.id,
@@ -176,10 +176,7 @@ async def run_mask_format_import(
                             mapping=mapping,
                             options=options,
                         )
-                        result = dict(batch.result_json or {})
-                        result["items"] = dict(result.get("items") or {})
-                        result["items"][key] = item_result
-                        batch.result_json = result
+                        record_import_item_result(batch, key, item_result)
                         await db.commit()
                         if item_result.get("status") == "committed":
                             completed += 1
@@ -196,13 +193,14 @@ async def run_mask_format_import(
                         ).scalar_one()
                         if batch.async_job_id != job_id:
                             return
-                        result = dict(batch.result_json or {})
-                        result["items"] = dict(result.get("items") or {})
-                        result["items"][key] = {
-                            "status": "failed",
-                            "reason": str(exc)[:500],
-                        }
-                        batch.result_json = result
+                        record_import_item_result(
+                            batch,
+                            key,
+                            {
+                                "status": "failed",
+                                "reason": str(exc)[:500],
+                            },
+                        )
                         await db.commit()
                         failed += 1
                 async with session_factory() as db:
@@ -223,12 +221,12 @@ async def run_mask_format_import(
             ).scalar_one()
             if batch.async_job_id != job_id:
                 return
-            batch.status = (
-                "partial"
-                if failed and (completed or skipped)
-                else ("failed" if failed else "completed")
+            batch_status = complete_import_batch(
+                batch,
+                failed=failed,
+                completed=completed,
+                skipped=skipped,
             )
-            batch.completed_at = datetime.now(timezone.utc)
             summary = {
                 "mask_format_import_id": str(batch.id),
                 "success_count": completed,
@@ -236,7 +234,7 @@ async def run_mask_format_import(
                 "skipped_count": skipped,
                 "result_digest": canonical_digest(batch.result_json or {}),
             }
-            if batch.status == "failed":
+            if batch_status == "failed":
                 await async_job_svc.mark_failed(
                     db,
                     job_id,
@@ -259,8 +257,7 @@ async def run_mask_format_import(
             if batch is not None and (
                 "job_id" not in locals() or batch.async_job_id == job_id
             ):
-                batch.status = "failed"
-                batch.completed_at = datetime.now(timezone.utc)
+                fail_import_batch(batch)
                 if batch.async_job_id is not None:
                     await async_job_svc.mark_failed(
                         db,

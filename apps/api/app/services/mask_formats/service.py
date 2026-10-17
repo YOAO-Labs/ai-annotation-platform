@@ -394,6 +394,55 @@ def _committed_import_items(batch: MaskFormatImport) -> int:
     )
 
 
+def _mark_import_terminal(batch: MaskFormatImport, status: str) -> None:
+    batch.status = status
+    batch.completed_at = datetime.now(timezone.utc)
+
+
+def mark_import_running(batch: MaskFormatImport) -> None:
+    """Move the domain batch into execution without committing its transaction."""
+    batch.status = "running"
+
+
+def record_import_item_result(
+    batch: MaskFormatImport, item_key: str, item_result: dict[str, Any]
+) -> None:
+    """Journal one result in the caller's existing per-item transaction."""
+    result = dict(batch.result_json or {})
+    result["items"] = dict(result.get("items") or {})
+    result["items"][item_key] = item_result
+    batch.result_json = result
+
+
+def cancel_import_execution(batch: MaskFormatImport) -> int:
+    """Set the cancelled/partial ledger state and return its committed-item count."""
+    committed = _committed_import_items(batch)
+    _mark_import_terminal(batch, "partial" if committed else "cancelled")
+    return committed
+
+
+def complete_import_batch(
+    batch: MaskFormatImport,
+    *,
+    failed: int,
+    completed: int,
+    skipped: int,
+) -> str:
+    """Set the final execution state while preserving partial-failure semantics."""
+    status = (
+        "partial"
+        if failed and (completed or skipped)
+        else ("failed" if failed else "completed")
+    )
+    _mark_import_terminal(batch, status)
+    return status
+
+
+def fail_import_batch(batch: MaskFormatImport) -> None:
+    """Mark an unexpected execution failure without committing the caller's work."""
+    _mark_import_terminal(batch, "failed")
+
+
 async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
     """Preserve partial imports when cancellation follows committed items."""
     batch = (

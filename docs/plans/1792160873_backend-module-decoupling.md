@@ -1066,6 +1066,29 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 - 隔离相关 Study/Run、领域 SCC 与 OpenAPI 测试组合中，新增 identity assertion 因测试解包遗漏 `project`/`dataset` 失败，其余用例完成且未报告失败；修正后仅重跑该行为用例通过，不把首次组合写成全绿。主线删除新增构造字段回声断言，保留原有幂等、取消、权威、预算及回执行为；六项定向消费者回归与四文件固定 Ruff 格式/check 通过，未重复隔离原生验收。纯所有权迁移不改 schema、公开合同、依赖、配置或 CHANGELOG。
 
+### Mask 格式导入执行账本
+
+- `application.mask_format_import.run_mask_format_import` 继续负责编排、格式适配器调用与 staged-object I/O；批次 running/terminal 状态、完成时间和逐项结果 journal 改由 `services.mask_formats.service` 的窄命令写入。命令不查询、不提交，调用方保留每项事务、失败回滚后重锁、提交后的进度更新、取消检查点与通用作业通知顺序。
+- 保留 batch/job 身份围栏、分派 execution ID 绑定和原来的状态优先级；不改变 API/OpenAPI、schema、Celery task/队列、错误、对象/SQL 次序，也未恢复 worker/API setter。该里程碑仅完成领域 ledger 所有权，不代表其它剩余边界或语言替换已完成。
+
+- 本隔离 worktree 的 `test` runtime 使用 root 派生 identity `84683bb06e1b1cde`、自有数据库 `aap_wt_84683bb06e1b1cde_test`、Redis 和九个带 owner 标签的 bucket，doctor 校验 healthy、迁移 head `0189` 且探测时 sessions 为 0。克隆来的 `10d326fc5132e320` 状态只保存在 worktree 外的隔离副本中；未使用、停止或销毁 Main 的数据库、Redis、bucket。
+- 新建 solo Celery consumer 分别订阅唯一隔离队列，读取当前 worktree 文件并注册原任务名/`(batch_id: str) -> None` 签名；像素导入、部分失败和提交后取消三项真实消费者场景通过。其中像素导入实际回读 S3/RLE，4 个前景像素与期望一致；后两项分别观察 journal `committed, failed, committed`，以及保留 `partial`、item `0`、AsyncJob 结果 `{committed: 1, reason: cancelled_by_user}` 和 `job.cancelled` 通知。dispatch failure 后修复/导入重试也由独立队列真实消费完成。只隔离 probe 队列，不是生产 `media` 路由复验，也没有模型/GPU 资格。原始身份、像素摘要和消费记录在 `/tmp/aap-mask-ledger-1792240740-evidence/{runtime-identity,mask-import-consumer,mask-import-dispatch-retry}.json`。
+- 独立唯一队列的真实 `mask_repair` 与 `rollback_mask_repair` consumer 复验 `test_repair_celery_consumer_commits_real_mask_and_rolls_back` 通过：S3/RLE 修复像素与预期一致，rollback 后恢复原始 RLE 且 ledger 为 `rolled_back`/`completed`，操作 kind 与 lineage 均保留。注册任务、签名、来源、队列、batch/job/rollback-job IDs 的原始 JSON 在 `/tmp/aap-mask-ledger-1792240740-evidence/mask-repair-rollback-consumer.json`；仍未复验生产 `media` queue、模型或 GPU。
+- 真实取消通知信号回归 1 项通过；领域取消请求参数化场景 8 项通过。域架构/SCC 文件整体为 165 passed、77 skipped、0 failures/errors，`test_services_graph_has_no_cycle` 与 SCC 负向图检测通过。精确 `tests/test_openapi_contract.py` 为 2 passed；三个受影响 Python 文件的固定 Ruff 0.15.22 format/check 均通过。
+- 收尾前 doctor 核实自有 owner 标签、全部九个 bucket 与数据库 sessions `0`；仅停止并以精确 confirmation `84683bb06e1b1cde:test` 销毁此 worktree `test` runtime。销毁成功；后置 doctor 检查的 database/Redis 与九个 bucket 均为 `null`，`healthy=false` 是资源已删除后的预期状态。前置及销毁后的原始 JSON 在 `/tmp/aap-mask-ledger-1792240740-evidence/runtime-post-tests.json` 和 `runtime-teardown.json`；保留 identity/lock 与隔离保存的克隆 `.worktree` 状态，不触及 Main 资源。
+- 与冻结 base `ebe9234c768ef92b02604a8f5cdc8fab6ca9d7bc` 的原内联赋值路径对照，单次均为同一 `MaskFormatImport SELECT FOR UPDATE`、一次字段写入及 caller commit；两侧各预热一次并按三轮交错采样。各样本 SQL 均为 2、范围内对象 I/O 均为 0，堆峰值中位数如下：
+
+| ledger 命令        | SQL（前） | SQL（后） | 堆峰值中位数（前，字节） | 堆峰值中位数（后，字节） |
+| ------------------ | --------: | --------: | -----------------------: | -----------------------: |
+| running            |         2 |         2 |                  290,467 |                  290,619 |
+| item result        |         2 |         2 |                  290,192 |                  290,264 |
+| cancellation       |         2 |         2 |                  290,212 |                  290,212 |
+| partial terminal   |         2 |         2 |                  289,791 |                  289,951 |
+| unexpected failure |         2 |         2 |                  289,951 |                  289,791 |
+
+- 命令预算只覆盖单行读取、Mutation/owner command 与提交；不含 AsyncJob/通知、adapter、HTTP、S3 或整条导入性能，不据此推断吞吐、RSS 或优化。完整 before/current 原始 SQL、对象调用计数及堆峰值样本在 `/tmp/aap-mask-ledger-1792240740-evidence/mask-import-budget.json`；其它逐阶段 pytest JSON/JUnit 亦保留在同一目录。
+- 主线移除新增 `record_property` 探针元数据与自由错误文案断言，保留真实像素、部分提交、取消结果及单次终态通知不变量；取消信号定向回归一项和三文件固定 Ruff 格式/check 通过。未重复已完成的隔离 S3/消费者资格，不将两侧记录累计成新测试总数。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败与 Study 子运行/尝试已收口；仍有 Mask 格式导入执行、训练运行删除、失败预测处置/重试、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，继续按十一个里程碑验收。不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试和 Mask 格式导入执行已收口；仍有训练记录删除组合事务（运行及数据版本两类调用）、失败预测处置/重试、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共十组剩余边界。通用存储 helper 同时删除两类 ORM 记录，后续须一起迁到各自所有者，不能只迁运行后留下数据版本入口。不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
