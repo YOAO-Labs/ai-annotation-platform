@@ -29,6 +29,9 @@ from app.schemas.sample_evaluation import (
 from app.services import sample_evaluations as service, trained_models
 from app.services.active_learning_references import guard_source
 from app.services.sample_evaluation_sources import resolve_source
+from app.services.labeling_evaluation_source import (
+    SqlAlchemyLabelingEvaluationSourceReader,
+)
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 
 router = APIRouter(
@@ -442,6 +445,7 @@ async def source(
             ordinal,
             user,
             getattr(request.state, "api_key_id", None),
+            source_reader=SqlAlchemyLabelingEvaluationSourceReader(db),
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc

@@ -234,7 +234,7 @@ last_reviewed: 2026-10-17
 3. 执行器通信：`apps/training-executor` 通过 `/api/v1/internal/training` 拉取实验与任务凭据，以 OS flock 独占 GPU 文件锁，拉取不可变训练包并守护训练子进程；阶段耗时、资源采样与脱敏日志通过 `/observations` 上报。
 4. 产物与模型回流：`training_artifacts.py` 统一流式产物校验与有界 JSON 读取。负责人注册不可变 `TrainedModelVersion` 后，`application/trained_model_deployment.py` 协调 `trained_models` 的检查账本和 `trained_model_backend` 的认证安装/固定样本试用；checking 先提交，结果需重取当前管理权限并通过同一 `check_id` 才能发布。注册、检查、候选决策和 `ModelRelease` 发布共用 `training_claims.project_lock`；原发布代次 CAS 与冻结预测身份保持不变。
 5. 谱系与决策：`app/services/model_lineage.py` 提供单跳追溯，`model_decisions` 记录负责人处置（发布、归档、说明追加）。详见[在线学习与训练体系](./training-datasets)。
-6. 评估与主动学习的共同下层：`sample_evaluation_sources.py` 负责当前标注切面与原图条件读取，直接消费纯引擎限制和存储；`active_learning_references.py` 持有版本/评估引用及删除保护。主动学习编排、评估清理和项目/素材/任务删除入口使用同一引用所有者，保留原 409 与事务顺序，不通过高层编排互相导入。
+6. 评估与主动学习的共同下层：`sample_evaluation_sources.py` 负责原图条件读取及评估前后核验，通过 `labeling_evaluation_source_contract.CurrentTaskSourceReader` 获取当前标注切面；请求路由绑定 `labeling_evaluation_source.SqlAlchemyLabelingEvaluationSourceReader` 到原 Session。主动学习自己的候选资格/锁查询保持独立；`active_learning_references.py` 持有版本/评估引用及删除保护。主动学习编排、评估清理和项目/素材/任务删除入口使用同一引用所有者，保留原 409 与事务顺序，不通过高层编排互相导入。
 
 ## 6. 测试层级与运行入口
 

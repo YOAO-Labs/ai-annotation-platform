@@ -13,6 +13,10 @@ from app.services import (
     sample_evaluations as service,
     sample_evaluation_sources as sources,
 )
+from app.services.labeling_evaluation_source import (
+    SqlAlchemyLabelingEvaluationSourceReader,
+)
+from app.services.labeling_evaluation_source_contract import CurrentTaskSourceRead
 from app.services.training_dataset_bridge import content_digest
 from tests.factory import create_membership
 from tests.sample_evaluation_fixtures import Objects, complete_rows, evaluation, seed
@@ -522,7 +526,16 @@ async def test_source_limits_annotation_projection_before_aggregation(
             )
         )
     await db_session.flush()
-    snapshot = await sources.current_snapshot(db_session, world.project.id, task.id)
+    snapshot = await SqlAlchemyLabelingEvaluationSourceReader(
+        db_session
+    ).read_current_task_source(
+        CurrentTaskSourceRead(
+            project_id=world.project.id,
+            task_id=task.id,
+            annotation_limit=service.engine.MAX_TRUTH_PER_IMAGE + 1,
+        )
+    )
+    assert snapshot is not None
     assert len(snapshot["annotations"]) == service.engine.MAX_TRUTH_PER_IMAGE + 1
     assert set(snapshot["annotations"][0]["geometry"]) == {"type", "x", "y", "w", "h"}
     assert sources.classify_labels(snapshot, ["car", "person"]) is None

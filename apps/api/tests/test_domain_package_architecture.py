@@ -170,6 +170,12 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="training_datasets", legacy_facades=()),
     DomainSpec(package="learning_policies", legacy_facades=()),
     DomainSpec(package="labeling_assets", legacy_facades=()),
+    DomainSpec(package="labeling_evaluation_source", legacy_facades=()),
+    DomainSpec(
+        package="labeling_evaluation_source_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
     DomainSpec(package="trained_model_backend", legacy_facades=()),
     DomainSpec(package="video_context", legacy_facades=()),
     DomainSpec(package="video_segment_service", legacy_facades=()),
