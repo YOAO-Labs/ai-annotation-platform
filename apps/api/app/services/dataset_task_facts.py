@@ -4,7 +4,40 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 import uuid
-from typing import TypeAlias
+from typing import Protocol, TypeAlias
+
+
+MAX_PROJECT_TASK_SOURCE_FACTS = 20_001
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTaskSourceRead:
+    """Bounded request for one project-scoped labeling source snapshot.
+
+    An empty ``task_ids`` means all tasks in the optional batch scope. ``batch_id=None``
+    means no batch restriction. Results are ordered by task UUID and limited to
+    ``limit``; missing or out-of-scope requested IDs are absent from the result for
+    the caller to classify. A no-match result has no tool bindings and no task facts.
+    """
+
+    project_id: uuid.UUID
+    tool_unit_id: str
+    batch_id: uuid.UUID | None = None
+    task_ids: tuple[uuid.UUID, ...] = ()
+    limit: int = MAX_PROJECT_TASK_SOURCE_FACTS
+
+    def __post_init__(self) -> None:
+        if not self.tool_unit_id:
+            raise ValueError("tool_unit_id must not be empty")
+        if (
+            type(self.limit) is not int
+            or not 1 <= self.limit <= MAX_PROJECT_TASK_SOURCE_FACTS
+        ):
+            raise ValueError(
+                f"limit must be between 1 and {MAX_PROJECT_TASK_SOURCE_FACTS}"
+            )
+        if self.task_ids and len(self.task_ids) > self.limit:
+            raise ValueError("limit must cover all requested task IDs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,3 +129,11 @@ class TaskLabelingSourceFact:
 class ProjectTaskSourceFacts:
     tool_bindings: JsonObject | None
     tasks: tuple[TaskLabelingSourceFact, ...]
+
+
+class ProjectTaskSourceReader(Protocol):
+    async def read_project_task_source_facts(
+        self, request: ProjectTaskSourceRead
+    ) -> ProjectTaskSourceFacts:
+        """Read all source facts in one consistent, bounded database statement."""
+        ...

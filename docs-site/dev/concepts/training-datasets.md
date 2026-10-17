@@ -146,7 +146,7 @@ stdout/stderr 由独立管道线程持续读取。整行上限 8192 原始字节
 
 镜像更新不改写冻结配置。修订 1 继续使用明确的历史镜像列表；修订 2 仅可通过目录 `compatible_config_images` 中「来源镜像 → 完整既有 schema identity 列表」授权已经实际验证续训的检测组合。不能只凭版本或框架名称放行。共享包变化需重建实际训练／推理镜像，并刷新相应 API、worker 和 beat。取舍见 [简单多边形实例训练](../adr/0085-qualified-polygon-instance-training)。
 
-`services/labeling_assets.py::read_project_task_source_facts` 用单条 PostgreSQL 语句固定当前工具配置、任务/素材引用及活跃标注；已审核、当前跳过不可用和已审核空样本资格也由该标注所有者判定。查询只聚合所选工具的几何，其他活跃工具只计数，不能因忽略其几何就把样本认定为空。结果经 `dataset_task_facts.py` 的标准库不可变 DTO 交付，嵌套 JSON 不携带 ORM 或可变引用。
+`dataset_task_facts.ProjectTaskSourceReader` 是不接收 Session 的来源查询端口；请求依赖和策略应用入口将 `labeling_assets.SqlAlchemyProjectTaskSourceReader` 绑定到原事务。它用单条 PostgreSQL 语句固定当前工具配置、任务/素材引用及活跃标注；已审核、当前跳过不可用和已审核空样本资格也由该标注所有者判定。结果按任务 UUID 排序且最多 20,001 项，显式任务选择缺失或越出项目/批次范围时由 learning 拒绝，不能用分页拼接不断变化的来源。查询只聚合所选工具的几何，其他活跃工具只计数，不能因忽略其几何就把样本认定为空。结果经 `dataset_task_facts.py` 的标准库不可变 DTO 交付，嵌套 JSON 不携带 ORM 或可变引用。
 
 `training_datasets.py` 不再查询生产任务/标注表或重算审核轮次资格；它消费固定事实，保留训练选择模式、显式空样本确认、类别/几何规范化、样本预算和摘要。随后记录 S3 ETag、版本和大小。空选择沿用原配置与准备错误；大文件复制在后续构建中完成，不延长此次来源查询的事务。
 

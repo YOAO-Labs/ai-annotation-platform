@@ -12,13 +12,24 @@ from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.services import learning_policies as service, training_runs as runs
+from app.application import learning_policy_execution
 from app.services import training_claims as claims
 from app.services.training_dataset_bridge import semantic_partitions
+from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
 from tests.test_training_runs import ready_dataset, executor_claim
 
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
+
+
+async def check_policy_with_db_reader(db, policy_id, *, force=False):
+    return await service.check_policy(
+        db,
+        policy_id,
+        source_reader=SqlAlchemyProjectTaskSourceReader(db),
+        force=force,
+    )
 
 
 async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effective_values(
@@ -152,7 +163,7 @@ async def setup_policy(db, client, owner, token, *, enabled=True, threshold=1):
 
 
 async def build_candidate(db, policy, value=None):
-    await service.check_policy(db, policy.id, force=True)
+    await check_policy_with_db_reader(db, policy.id, force=True)
     await db.flush()
     trigger = await db.scalar(
         select(LearningTrigger).where(
@@ -170,7 +181,7 @@ async def build_candidate(db, policy, value=None):
     )
     data.manifest = value or manifest()
     await db.flush()
-    await service.check_policy(db, policy.id, force=True)
+    await check_policy_with_db_reader(db, policy.id, force=True)
     await db.flush()
     run = await db.scalar(
         select(TrainingRun).where(TrainingRun.auto_trigger_id == trigger.id)
@@ -271,7 +282,7 @@ async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is
             )
         )
         try:
-            await service.check_policy(db_session, other_policy.id, force=True)
+            await check_policy_with_db_reader(db_session, other_policy.id, force=True)
             assert (
                 await db_session.scalar(
                     select(func.count()).select_from(LearningTrigger)
@@ -286,7 +297,7 @@ async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is
                     )
                 )
             )
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     trigger = await db_session.scalar(
         select(LearningTrigger).where(LearningTrigger.policy_id == policy.id)
@@ -294,7 +305,7 @@ async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is
     dataset = await db_session.get(TrainingDatasetVersion, trigger.dataset_id)
     attempt = dataset.attempt_id
     await service.dispatch_pending(db_session, policy.id, dispatcher=dataset_dispatcher)
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await service.dispatch_pending(db_session, policy.id, dispatcher=dataset_dispatcher)
     assert dataset.attempt_id == attempt
     assert (
@@ -319,7 +330,7 @@ async def test_failure_retains_baseline_and_val_only_change_cannot_retry_gpu(
     )
     run.status = "failed"
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert policy.baseline == saved and policy.blocked_train_digest == t.train_digest
     frozen_source["revision"] += 1
@@ -348,7 +359,7 @@ async def test_success_alone_advances_baseline_and_edits_during_training_survive
     )
     t, data, run = await build_candidate(db_session, policy)
     frozen_source["revision"] += 1
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert (
         await db_session.scalar(select(func.count()).select_from(LearningTrigger)) == 1
@@ -356,7 +367,7 @@ async def test_success_alone_advances_baseline_and_edits_during_training_survive
     assert policy.baseline == {}
     run.status = "succeeded"
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert (
         policy.baseline_dataset_id == data.id
@@ -450,7 +461,7 @@ async def test_current_authority_status_and_fixed_catalog_stop_future_runs(
             },
         )
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert not policy.enabled and policy.state == "suspended"
     assert not await db_session.scalar(select(LearningTrigger.id))
@@ -487,7 +498,7 @@ async def test_legacy_parent_with_unqualified_output_media_suspends_before_freez
     await db_session.flush()
     freeze = AsyncMock(side_effect=AssertionError("Unqualified parent must not freeze"))
     monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert not policy.enabled and policy.state == "suspended"
     freeze.assert_not_awaited()
@@ -508,7 +519,7 @@ async def test_identical_snapshot_is_not_packaged_again_and_policy_delete_keeps_
     )
     t, data, run = await build_candidate(db_session, policy)
     assert run is None
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert (
         await db_session.scalar(select(func.count()).select_from(LearningTrigger)) == 1
@@ -544,12 +555,12 @@ async def test_revoked_policy_still_reconciles_started_terminal_run(
     await db_session.flush()
     owner.is_active = False
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert trigger.status == "running" and not policy.enabled
     run.status = "failed"
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert trigger.status == "failed" and policy.state == "suspended"
     assert policy.baseline == {}
@@ -575,7 +586,7 @@ async def test_api_key_revocation_and_nonmanager_access_are_enforced(
     await db_session.flush()
     policy.authorization = {"api_key_id": str(key.id)}
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert not policy.enabled and policy.state == "suspended"
     r = await httpx_client.get(
@@ -617,10 +628,10 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
         },
     )
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     frozen_source["revision"] += 1
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     url = f"/api/v1/projects/{p.id}/training-runs/{run.id}/resume"
     r = await httpx_client.post(url, headers={"Authorization": "Bearer " + token})
@@ -664,11 +675,14 @@ async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
         policy = await db.get(LearningPolicy, identity)
         policy.last_checked_at = runs.now()
 
-    monkeypatch.setattr(service, "CHECK_BATCH_SIZE", 2)
+    monkeypatch.setattr(learning_policy_execution, "CHECK_BATCH_SIZE", 2)
     monkeypatch.setattr(service, "check_policy", check)
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     for _ in range(3):
-        await service.tick(factory, dispatcher=dataset_dispatcher)
+        await learning_policy_execution.tick(
+            factory,
+            dispatcher=dataset_dispatcher,
+        )
     assert set(seen) == set(identities)
 
 
@@ -682,9 +696,9 @@ async def test_success_parent_advance_without_source_change_does_not_repackage(
     trigger, data, run = await build_candidate(db_session, policy)
     run.status = "succeeded"
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert (
         await db_session.scalar(select(func.count()).select_from(LearningTrigger)) == 1
@@ -707,7 +721,7 @@ async def test_contract_upgrade_does_not_retry_same_failed_training_content(
     saved_digest = old.train_digest
     run.status = "failed"
     await db_session.flush()
-    await service.check_policy(db_session, policy.id, force=True)
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
     frozen_source["revision"] += 1
     current = {
         **manifest(val="corrected" if changed_validation else "v1"),

@@ -7,7 +7,8 @@ import uuid
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import delete as sql_delete, or_, select
+from sqlalchemy import delete as sql_delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -32,9 +33,9 @@ from app.services import training_recipes as recipes
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_insight_adapters import adapter_for
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.dataset_task_facts import ProjectTaskSourceReader
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
-CHECK_BATCH_SIZE = 100
 log = logging.getLogger(__name__)
 
 
@@ -473,7 +474,9 @@ async def reconcile(db, policy, trigger):
     )
 
 
-async def check_policy(db, policy_id, *, force=False):
+async def check_policy(
+    db, policy_id, *, source_reader: ProjectTaskSourceReader, force=False
+):
     preliminary = await db.get(LearningPolicy, policy_id, populate_existing=True)
     if preliminary is None or not await claims.project_lock(
         db, preliminary.project_id, wait=False
@@ -564,6 +567,7 @@ async def check_policy(db, policy_id, *, force=False):
         db,
         project,
         selection,
+        source_reader=source_reader,
         actor_id=policy.creator_id,
         api_key_id=policy.authorization.get("api_key_id"),
     )
@@ -608,7 +612,13 @@ async def check_policy(db, policy_id, *, force=False):
     )
 
 
-async def check_project(db, project: Project, user: User) -> LearningPolicy:
+async def check_project(
+    db: AsyncSession,
+    project: Project,
+    user: User,
+    *,
+    source_reader: ProjectTaskSourceReader,
+) -> LearningPolicy:
     await claims.project_lock(db, project.id)
     await lock_project_manager(db, user, project.id)
     policy = await db.scalar(
@@ -616,7 +626,7 @@ async def check_project(db, project: Project, user: User) -> LearningPolicy:
     )
     if not policy:
         raise HTTPException(status_code=404, detail="自动策略尚未配置")
-    await check_policy(db, policy.id, force=True)
+    await check_policy(db, policy.id, source_reader=source_reader, force=True)
     return policy
 
 
@@ -631,54 +641,6 @@ async def dispatch_pending(db, policy_id, *, dispatcher: TrainingDatasetDispatch
         version = await db.get(TrainingDatasetVersion, trigger.dataset_id)
         if version and version.status == "pending":
             await datasets.dispatch_dataset(db, version, dispatcher=dispatcher)
-
-
-async def tick(
-    session_factory,
-    *,
-    dispatcher: TrainingDatasetDispatcher,
-    policy_id=None,
-    force=False,
-):
-    async with session_factory() as db:
-        # Advance a durable fair ordering for active work as well as due scans.
-        # A long/lost run must not pin the same first page indefinitely.
-        ids = (
-            [policy_id]
-            if policy_id
-            else list(
-                await db.scalars(
-                    select(LearningPolicy.id)
-                    .where(
-                        or_(
-                            LearningPolicy.enabled.is_(True)
-                            & (
-                                LearningPolicy.next_check_at.is_(None)
-                                | (LearningPolicy.next_check_at <= runs.now())
-                            ),
-                            LearningPolicy.id.in_(
-                                select(LearningTrigger.policy_id).where(
-                                    LearningTrigger.status.in_(ACTIVE_TRIGGERS)
-                                )
-                            ),
-                        )
-                    )
-                    .order_by(
-                        LearningPolicy.last_checked_at.nullsfirst(), LearningPolicy.id
-                    )
-                    .limit(CHECK_BATCH_SIZE)
-                )
-            )
-        )
-    for identity in ids:
-        async with session_factory() as db:
-            try:
-                await check_policy(db, identity, force=force)
-                await db.commit()
-                await dispatch_pending(db, identity, dispatcher=dispatcher)
-            except Exception:
-                await db.rollback()
-                log.exception("Automatic learning policy check failed: %s", identity)
 
 
 async def requeue_after_manual_resume(db, trigger_id: uuid.UUID) -> None:

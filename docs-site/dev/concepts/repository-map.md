@@ -226,7 +226,7 @@ last_reviewed: 2026-10-17
 
 ## 5. 在线学习与模型训练调用链
 
-1. 数据版本化：`app/services/labeling_assets.py` 用单条 SQL 固定生产资格、目标工具标签及媒体/配置事实，经 `dataset_task_facts.py` 的不可变 DTO 交给 `training_datasets.py` 构建训练身份；其他工具只计数。Celery export worker (`app/workers/training_dataset.py`) 下载校验原图并物化数据包，上传至 MinIO `training` 桶。
+1. 数据版本化：`dataset_task_facts.ProjectTaskSourceReader` 接收有界选择并交付不可变事实，`deps.get_labeling_task_source_reader` 在请求内绑定 `labeling_assets.SqlAlchemyProjectTaskSourceReader`；该适配器用单条 SQL 固定生产资格、目标工具标签及媒体/配置事实，其他工具只计数。`training_datasets.py` 消费事实构建训练身份；周期策略由 `application/learning_policy_execution.py` 在每个策略的原 Session 内绑定同一 reader。Celery export worker (`app/workers/training_dataset.py`) 下载校验原图并物化数据包，上传至 MinIO `training` 桶。
 2. 执行调度与排队：`app/services/training_runs.py` / `training_studies.py` 管理训练实验与参数搜索计划，通过数据库资源锁和租约在多框架、多实验间排队。共同下层由 `training_adapters.py` 持有资源标识、配置目录与参数解析，`training_claims.py` 持有项目事务锁及策略/搜索的领取准入，不反向依赖编排服务。
 3. 执行器通信：`apps/training-executor` 通过 `/api/v1/internal/training` 拉取实验与任务凭据，以 OS flock 独占 GPU 文件锁，拉取不可变训练包并守护训练子进程；阶段耗时、资源采样与脱敏日志通过 `/observations` 上报。
 4. 产物与模型回流：`training_artifacts.py` 统一流式产物校验与有界 JSON 读取。负责人注册不可变 `TrainedModelVersion` 后，`application/trained_model_deployment.py` 协调 `trained_models` 的检查账本和 `trained_model_backend` 的认证安装/固定样本试用；checking 先提交，结果需重取当前管理权限并通过同一 `check_id` 才能发布。注册、检查、候选决策和 `ModelRelease` 发布共用 `training_claims.project_lock`；原发布代次 CAS 与冻结预测身份保持不变。

@@ -9,6 +9,7 @@ from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
+    get_labeling_task_source_reader,
     get_training_dataset_dispatcher,
     require_project_owner,
     require_scopes,
@@ -20,6 +21,7 @@ from app.schemas.learning_policy import (
     LearningTriggerPage,
 )
 from app.services import learning_policies as service
+from app.services.dataset_task_facts import ProjectTaskSourceReader
 
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
@@ -89,8 +91,9 @@ async def check_policy(
     dataset_dispatcher: TrainingDatasetDispatcher = Depends(
         get_training_dataset_dispatcher
     ),
+    source_reader: ProjectTaskSourceReader = Depends(get_labeling_task_source_reader),
 ):
-    policy = await service.check_project(db, project, user)
+    policy = await service.check_project(db, project, user, source_reader=source_reader)
     await db.commit()
     await service.dispatch_pending(db, policy.id, dispatcher=dataset_dispatcher)
     await db.refresh(policy)

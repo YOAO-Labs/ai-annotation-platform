@@ -4,7 +4,7 @@ import asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from app.config import settings
-from app.services.learning_policies import tick
+from app.application.learning_policy_execution import tick
 from app.workers.celery_app import celery_app
 from app.workers.training_dataset_dispatch import CeleryTrainingDatasetDispatcher
 

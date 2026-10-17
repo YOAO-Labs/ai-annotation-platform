@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from PIL import Image
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 
 from app.deps import get_training_dataset_dispatcher
 from app.db.models.annotation import Annotation
@@ -21,10 +21,21 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import training_datasets as service
 from app.services.training_dataset_bridge import TrainingDatasetError
-from app.services.labeling_assets import read_project_task_source_facts
-from tests.factory import create_membership, create_project, create_task
+from app.services.dataset_task_facts import ProjectTaskSourceRead
+from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
+from tests.factory import create_batch, create_membership, create_project, create_task
 
 dispatch_dataset = service.dispatch_dataset
+
+
+def source_reader(db):
+    return SqlAlchemyProjectTaskSourceReader(db)
+
+
+async def freeze_selection_with_db_reader(db, *args, **kwargs):
+    return await service.freeze_selection(
+        db, *args, source_reader=source_reader(db), **kwargs
+    )
 
 
 class _NoopDatasetDispatcher:
@@ -82,8 +93,13 @@ async def test_selection_refreshes_live_source_without_mutating_prior_cut(
         "source": {"points": [[1, 2]]},
     }
     await db_session.flush()
-    prior = await read_project_task_source_facts(
-        db_session, project.id, tool_unit_id="bbox", task_ids=[task.id], limit=2
+    prior = await source_reader(db_session).read_project_task_source_facts(
+        ProjectTaskSourceRead(
+            project_id=project.id,
+            tool_unit_id="bbox",
+            task_ids=(task.id,),
+            limit=2,
+        )
     )
     prior_annotation = prior.tasks[0].annotations[0]
     exported = prior_annotation.as_json()
@@ -122,7 +138,7 @@ async def test_selection_refreshes_live_source_without_mutating_prior_cut(
         )
         .execution_options(synchronize_session=False)
     )
-    excluded_snapshot, report = await service.freeze_selection(
+    excluded_snapshot, report = await freeze_selection_with_db_reader(
         db_session,
         project,
         TrainingDatasetSelection(task_ids=[task.id]),
@@ -130,7 +146,7 @@ async def test_selection_refreshes_live_source_without_mutating_prior_cut(
     )
     assert excluded_snapshot["samples"] == []
     assert report["excluded"] == [{"task_id": str(task.id), "code": "not_reviewed"}]
-    snapshot, _ = await service.freeze_selection(
+    snapshot, _ = await freeze_selection_with_db_reader(
         db_session,
         project,
         TrainingDatasetSelection(mode="manager_confirmed", task_ids=[task.id]),
@@ -152,6 +168,99 @@ async def test_selection_refreshes_live_source_without_mutating_prior_cut(
     assert prior.tasks[0].reviewed is True
     assert prior_annotation.class_name == "car"
     assert prior_annotation.geometry["x"] == 0.1
+
+
+async def test_labeling_source_reader_scopes_orders_limits_and_uses_one_query(
+    db_session, super_admin
+):
+    owner, _token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    foreign_project = await create_project(db_session, owner_id=owner.id)
+    batch = await create_batch(db_session, project_id=project.id)
+    other_batch = await create_batch(db_session, project_id=project.id)
+    scoped = [await create_task(db_session, project_id=project.id) for _ in range(3)]
+    other_batch_task = await create_task(db_session, project_id=project.id)
+    foreign_task = await create_task(db_session, project_id=foreign_project.id)
+    for task in scoped:
+        task.batch_id = batch.id
+    other_batch_task.batch_id = other_batch.id
+    await db_session.flush()
+
+    reader = source_reader(db_session)
+    engine = db_session.bind.sync_engine
+    statements = []
+
+    def count_statement(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", count_statement)
+    try:
+        limited = await reader.read_project_task_source_facts(
+            ProjectTaskSourceRead(
+                project_id=project.id,
+                tool_unit_id="bbox",
+                batch_id=batch.id,
+                limit=2,
+            )
+        )
+        assert len(statements) == 1
+        expected = sorted(scoped, key=lambda task: task.id)[:2]
+        assert [fact.task_id for fact in limited.tasks] == [
+            task.id for task in expected
+        ]
+        assert limited.tool_bindings is not None
+
+        statements.clear()
+        unrestricted = await reader.read_project_task_source_facts(
+            ProjectTaskSourceRead(
+                project_id=project.id,
+                tool_unit_id="bbox",
+                limit=4,
+            )
+        )
+        assert len(statements) == 1
+        assert [fact.task_id for fact in unrestricted.tasks] == sorted(
+            [task.id for task in scoped] + [other_batch_task.id]
+        )
+
+        statements.clear()
+        requested = await reader.read_project_task_source_facts(
+            ProjectTaskSourceRead(
+                project_id=project.id,
+                tool_unit_id="bbox",
+                batch_id=batch.id,
+                task_ids=(
+                    foreign_task.id,
+                    other_batch_task.id,
+                    scoped[2].id,
+                    scoped[0].id,
+                ),
+                limit=4,
+            )
+        )
+        assert len(statements) == 1
+        assert [fact.task_id for fact in requested.tasks] == sorted(
+            (scoped[0].id, scoped[2].id)
+        )
+
+        statements.clear()
+        empty = await reader.read_project_task_source_facts(
+            ProjectTaskSourceRead(
+                project_id=project.id,
+                tool_unit_id="bbox",
+                task_ids=(foreign_task.id, uuid.uuid4()),
+                limit=2,
+            )
+        )
+        assert len(statements) == 1
+        assert empty.tasks == () and empty.tool_bindings is None
+    finally:
+        event.remove(engine, "before_cursor_execute", count_statement)
+
+    with pytest.raises(ValueError, match="limit"):
+        ProjectTaskSourceRead(project_id=project.id, tool_unit_id="bbox", limit=0)
+    with pytest.raises(ValueError, match="limit"):
+        ProjectTaskSourceRead(project_id=project.id, tool_unit_id="bbox", limit=20_002)
 
 
 async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_list(
@@ -389,7 +498,7 @@ async def test_only_current_review_round_can_imply_negative(
     task.skipped_at = datetime.now(timezone.utc) - timedelta(days=1)
     task.submitted_at = datetime.now(timezone.utc)
     await db_session.flush()
-    snapshot, report = await service.freeze_selection(
+    snapshot, report = await freeze_selection_with_db_reader(
         db_session, project, TrainingDatasetSelection(), actor_id=owner.id
     )
     assert {"task_id": str(task.id), "code": "unconfirmed_negative"} in report[
@@ -397,7 +506,7 @@ async def test_only_current_review_round_can_imply_negative(
     ]
     task.skipped_at = task.submitted_at
     await db_session.flush()
-    snapshot, report = await service.freeze_selection(
+    snapshot, report = await freeze_selection_with_db_reader(
         db_session, project, TrainingDatasetSelection(), actor_id=owner.id
     )
     assert report["summary"]["negatives"] == 1
@@ -410,7 +519,7 @@ async def test_manager_confirmation_does_not_turn_unselected_empty_tasks_into_ne
     owner, _ = super_admin
     project, tasks = await reviewed_project(db_session, owner)
     blank = await create_task(db_session, project_id=project.id)
-    snapshot, report = await service.freeze_selection(
+    snapshot, report = await freeze_selection_with_db_reader(
         db_session,
         project,
         TrainingDatasetSelection(
@@ -471,7 +580,7 @@ async def test_foreign_parent_and_unknown_tasks_rejected(
     owner, _ = super_admin
     project, _ = await reviewed_project(db_session, owner)
     with pytest.raises(TrainingDatasetError) as error:
-        await service.freeze_selection(
+        await freeze_selection_with_db_reader(
             db_session,
             project,
             TrainingDatasetSelection(task_ids=[uuid.uuid4()]),
@@ -483,7 +592,7 @@ async def test_foreign_parent_and_unknown_tasks_rejected(
 async def test_revoked_creator_cannot_publish(db_session, super_admin, source_headers):
     owner, _ = super_admin
     project, _ = await reviewed_project(db_session, owner)
-    snapshot, report = await service.freeze_selection(
+    snapshot, report = await freeze_selection_with_db_reader(
         db_session, project, TrainingDatasetSelection(), actor_id=owner.id
     )
     version = TrainingDatasetVersion(
@@ -505,7 +614,7 @@ async def test_revoked_creator_cannot_publish(db_session, super_admin, source_he
 
 
 async def make_version(db, owner, project):
-    snapshot, report = await service.freeze_selection(
+    snapshot, report = await freeze_selection_with_db_reader(
         db, project, TrainingDatasetSelection(), actor_id=owner.id
     )
     version = TrainingDatasetVersion(
@@ -604,7 +713,7 @@ async def test_api_key_scopes_and_post_queue_revocation(
         path, headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 200
-    snapshot, report = await service.freeze_selection(
+    snapshot, report = await freeze_selection_with_db_reader(
         db_session,
         project,
         TrainingDatasetSelection(),
@@ -648,7 +757,7 @@ async def test_real_storage_materialization_retry_preserves_originals(
                 task.file_path, buffer.getvalue(), content_type="image/png"
             )
         await db_session.flush()
-        snapshot, report = await service.freeze_selection(
+        snapshot, report = await freeze_selection_with_db_reader(
             db_session, project, TrainingDatasetSelection(), actor_id=owner.id
         )
         assert report["ready"]
@@ -871,7 +980,7 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         polygons.append(ann)
         db_session.add(ann)
     await db_session.flush()
-    detect, report = await service.freeze_selection(
+    detect, report = await freeze_selection_with_db_reader(
         db_session, project, TrainingDatasetSelection(task="detect"), actor_id=owner.id
     )
     assert report["ready"]
@@ -886,7 +995,7 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         for sample in detect["samples"]
         for a in sample["annotations"]
     )
-    segment, report = await service.freeze_selection(
+    segment, report = await freeze_selection_with_db_reader(
         db_session,
         project,
         TrainingDatasetSelection(task="segmentation"),
@@ -911,14 +1020,14 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         "holes": [[[0.2, 0.2], [0.3, 0.2], [0.3, 0.3]]],
     }
     await db_session.flush()
-    _, report = await service.freeze_selection(
+    _, report = await freeze_selection_with_db_reader(
         db_session, project, TrainingDatasetSelection(task="segment"), actor_id=owner.id
     )
     assert (
         not report["ready"] and report["issues"][0]["code"] == "unsupported_annotation"
     )
     # The manager's negative confirmation is explicit and scoped to detect.
-    snapshot, report = await service.freeze_selection(
+    snapshot, report = await freeze_selection_with_db_reader(
         db_session,
         project,
         TrainingDatasetSelection(

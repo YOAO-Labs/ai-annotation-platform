@@ -14,6 +14,7 @@ from app.services.project_access import ProjectAccess, resolve_project_access_by
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.dataset_task_facts import ProjectTaskSourceReader
 from app.services.job_execution_control import JobExecutionControl
 from app.services.prediction_retry import PredictionRetryDispatcher
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
@@ -62,6 +63,15 @@ def get_training_dataset_dispatcher() -> TrainingDatasetDispatcher:
     from app.workers.training_dataset_dispatch import CeleryTrainingDatasetDispatcher
 
     return CeleryTrainingDatasetDispatcher()
+
+
+def get_labeling_task_source_reader(
+    db: AsyncSession = Depends(get_db),
+) -> ProjectTaskSourceReader:
+    """Bind labeling's source-read port to the request's transaction."""
+    from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
+
+    return SqlAlchemyProjectTaskSourceReader(db)
 
 
 def get_job_execution_control() -> JobExecutionControl:

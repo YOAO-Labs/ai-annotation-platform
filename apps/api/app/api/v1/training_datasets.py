@@ -17,6 +17,7 @@ from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
+    get_labeling_task_source_reader,
     get_training_dataset_dispatcher,
     require_project_owner,
     require_scopes,
@@ -38,6 +39,7 @@ from app.services.project_write_guard import lock_project_manager
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.dataset_task_facts import ProjectTaskSourceReader
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-datasets",
@@ -71,12 +73,14 @@ async def preflight(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    source_reader: ProjectTaskSourceReader = Depends(get_labeling_task_source_reader),
 ):
     try:
         _, report = await service.freeze_selection(
             db,
             project,
             body,
+            source_reader=source_reader,
             actor_id=user.id,
             api_key_id=getattr(request.state, "api_key_id", None),
         )
@@ -95,6 +99,7 @@ async def create_version(
     dataset_dispatcher: TrainingDatasetDispatcher = Depends(
         get_training_dataset_dispatcher
     ),
+    source_reader: ProjectTaskSourceReader = Depends(get_labeling_task_source_reader),
 ):
     try:
         return await service.create_version(
@@ -103,6 +108,7 @@ async def create_version(
             user,
             body,
             api_key_id=getattr(request.state, "api_key_id", None),
+            source_reader=source_reader,
             dispatcher=dataset_dispatcher,
         )
     except TrainingDatasetError as exc:

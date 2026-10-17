@@ -40,8 +40,11 @@ from training_contract.dataset import (
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
-from app.services.labeling_assets import read_project_task_source_facts
-from app.services.dataset_task_facts import thaw_source_json
+from app.services.dataset_task_facts import (
+    ProjectTaskSourceRead,
+    ProjectTaskSourceReader,
+    thaw_source_json,
+)
 from app.services.job_execution_control import JobExecutionControl
 
 log = logging.getLogger(__name__)
@@ -169,6 +172,7 @@ async def freeze_selection(
     project: Project,
     selection: TrainingDatasetSelection,
     *,
+    source_reader: ProjectTaskSourceReader,
     actor_id: uuid.UUID,
     api_key_id: str | None = None,
 ) -> tuple[dict, dict]:
@@ -201,13 +205,14 @@ async def freeze_selection(
         )
     segmentation = selection.task == SEGMENTATION
     tool_unit_id = "region" if segmentation else "bbox"
-    source_facts = await read_project_task_source_facts(
-        db,
-        project.id,
-        tool_unit_id=tool_unit_id,
-        batch_id=selection.batch_id,
-        task_ids=selection.task_ids,
-        limit=MAX_SAMPLES + 1,
+    source_facts = await source_reader.read_project_task_source_facts(
+        ProjectTaskSourceRead(
+            project_id=project.id,
+            tool_unit_id=tool_unit_id,
+            batch_id=selection.batch_id,
+            task_ids=tuple(selection.task_ids),
+            limit=MAX_SAMPLES + 1,
+        )
     )
     task_facts = source_facts.tasks
     selected_count = len(task_facts)
@@ -371,6 +376,7 @@ async def create_version(
     body: TrainingDatasetCreate,
     *,
     api_key_id: str | None,
+    source_reader: ProjectTaskSourceReader,
     dispatcher: TrainingDatasetDispatcher,
 ) -> TrainingDatasetVersion:
     request_digest = content_digest(body.canonical_payload())
@@ -400,6 +406,7 @@ async def create_version(
         db,
         project,
         selection_of(body),
+        source_reader=source_reader,
         actor_id=user.id,
         api_key_id=api_key_id,
     )
