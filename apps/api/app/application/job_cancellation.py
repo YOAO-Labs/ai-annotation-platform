@@ -17,6 +17,10 @@ from app.services.async_job_notify import notify_job_terminal
 from app.services.job_execution_control import JobExecutionControl
 from app.services.mask_formats import service as mask_formats
 from app.services.project_write_guard import lock_project_manager
+from app.services.training_dataset_cancellation_contract import (
+    TrainingDatasetCancellationFailure,
+    TrainingDatasetCancellationPort,
+)
 
 log = logging.getLogger(__name__)
 
@@ -72,9 +76,23 @@ async def cancel_job(
         return "cancel_requested"
 
     if job.kind == "training_dataset":
-        await training_datasets.request_job_cancel(
-            db, job, user, execution_control=execution_control
+        cancellation: TrainingDatasetCancellationPort = (
+            training_datasets.SqlTrainingDatasetCancellation(
+                db, execution_control=execution_control
+            )
         )
+        try:
+            await cancellation.request_cancel(
+                job_id=job.id,
+                project_id=job.project_id,
+                actor_id=user.id,
+            )
+        except TrainingDatasetCancellationFailure as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.detail,
+                headers=dict(exc.headers) if exc.headers is not None else None,
+            ) from exc
         return "cancelled"
 
     if job.kind in _REVOKE_KINDS and job.celery_task_id:

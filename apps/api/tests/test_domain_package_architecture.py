@@ -234,6 +234,11 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="image_pyramid", legacy_facades=()),
     DomainSpec(package="training_dataset_dispatch", legacy_facades=()),
     DomainSpec(package="training_datasets", legacy_facades=()),
+    DomainSpec(
+        package="training_dataset_cancellation_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
     DomainSpec(package="learning_policies", legacy_facades=()),
     DomainSpec(package="labeling_assets", legacy_facades=()),
     DomainSpec(package="labeling_active_learning_sources", legacy_facades=()),

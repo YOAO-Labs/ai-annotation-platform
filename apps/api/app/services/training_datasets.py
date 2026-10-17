@@ -46,6 +46,10 @@ from app.services.dataset_task_facts import (
     thaw_source_json,
 )
 from app.services.job_execution_control import JobExecutionControl
+from app.services.training_dataset_cancellation_contract import (
+    TrainingDatasetCancellationFailure,
+    TrainingDatasetCancellationPort,
+)
 
 log = logging.getLogger(__name__)
 
@@ -597,37 +601,60 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
         version.completed_at = datetime.now(timezone.utc)
 
 
-async def request_job_cancel(
-    db: AsyncSession,
-    job: AsyncJob,
-    user: User,
-    *,
-    execution_control: JobExecutionControl,
-) -> None:
-    """Fence dataset cancellation against a replaced or already-ended build."""
-    await lock_project_manager(
-        db, user.id, job.project_id, denial_detail="需要项目管理权限"
-    )
-    version = (
-        await db.execute(
-            select(TrainingDatasetVersion)
-            .where(TrainingDatasetVersion.async_job_id == job.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    await db.refresh(job)
-    if (
-        version is None
-        or version.status not in {"pending", "running"}
-        or job.status not in {"pending", "running"}
-    ):
-        raise HTTPException(status_code=409, detail="训练数据构建已结束")
-    if job.celery_task_id:
+class SqlTrainingDatasetCancellation(TrainingDatasetCancellationPort):
+    """Bind the public cancellation port to the caller-owned SQL transaction."""
+
+    def __init__(
+        self, db: AsyncSession, *, execution_control: JobExecutionControl
+    ) -> None:
+        self.__db = db
+        self.__execution_control = execution_control
+
+    async def request_cancel(
+        self,
+        *,
+        job_id: uuid.UUID,
+        project_id: uuid.UUID | None,
+        actor_id: uuid.UUID,
+    ) -> None:
         try:
-            execution_control.request_cancel(job.celery_task_id)
-        except Exception:
-            log.exception("Training dataset revoke failed job=%s", job.id)
-    await jobs.mark_cancelled(db, job.id)
-    await reconcile_job_terminal(db, JobTerminal(job.id, job.kind, cancelled=True))
-    await notify_job_terminal(db, job_id=job.id)
+            await lock_project_manager(
+                self.__db,
+                actor_id,
+                project_id,
+                denial_detail="需要项目管理权限",
+            )
+            version = (
+                await self.__db.execute(
+                    select(TrainingDatasetVersion)
+                    .where(TrainingDatasetVersion.async_job_id == job_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            # The central composer holds the initial job in this same session,
+            # so reacquiring it is an identity-map hit before the refresh.
+            job = await self.__db.get(AsyncJob, job_id)
+            await self.__db.refresh(job)
+            if (
+                version is None
+                or version.status not in {"pending", "running"}
+                or job.status not in {"pending", "running"}
+            ):
+                raise HTTPException(status_code=409, detail="训练数据构建已结束")
+            if job.celery_task_id:
+                try:
+                    self.__execution_control.request_cancel(job.celery_task_id)
+                except Exception:
+                    log.exception("Training dataset revoke failed job=%s", job.id)
+            await jobs.mark_cancelled(self.__db, job.id)
+            await reconcile_job_terminal(
+                self.__db, JobTerminal(job.id, job.kind, cancelled=True)
+            )
+            await notify_job_terminal(self.__db, job_id=job.id)
+        except HTTPException as exc:
+            raise TrainingDatasetCancellationFailure(
+                status_code=exc.status_code,
+                detail=exc.detail,
+                headers=exc.headers,
+            ) from exc

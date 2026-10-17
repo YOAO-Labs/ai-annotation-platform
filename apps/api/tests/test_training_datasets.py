@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from PIL import Image
-from sqlalchemy import event, select, update
+from sqlalchemy import delete, event, select, update
 
 from app.deps import get_training_dataset_dispatcher
 from app.db.models.annotation import Annotation
@@ -633,6 +633,32 @@ async def make_version(db, owner, project):
     return version
 
 
+async def make_minimal_cancel_target(db, owner):
+    from app.services import async_job as async_job_service
+
+    project = await create_project(db, owner_id=owner.id)
+    job = await async_job_service.create_job(
+        db,
+        kind="training_dataset",
+        user_id=owner.id,
+        project_id=project.id,
+        celery_task_id="stale-execution",
+    )
+    version = TrainingDatasetVersion(
+        project_id=project.id,
+        creator_id=owner.id,
+        async_job_id=job.id,
+        request_id=uuid.uuid4(),
+        request_digest="a" * 64,
+        snapshot_digest="b" * 64,
+        snapshot={"task": "detect", "classes": [], "samples": []},
+        name="Cancellation regression",
+    )
+    db.add(version)
+    await db.flush()
+    return project, job, version
+
+
 async def test_cancel_reconciles_domain_and_execution_fences_deletion(
     db_session, super_admin, httpx_client, source_headers, monkeypatch
 ):
@@ -671,6 +697,205 @@ async def test_cancel_reconciles_domain_and_execution_fences_deletion(
         finally:
             await execution.execute(select(func.pg_advisory_unlock(key)))
             await execution.commit()
+
+
+@pytest.mark.parametrize(
+    ("fresh_job_status", "version_status", "missing_version"),
+    [
+        ("running", "running", False),
+        ("completed", "running", False),
+        ("running", "ready", False),
+        ("running", None, True),
+    ],
+)
+async def test_training_dataset_cancellation_uses_fresh_job_and_version_state(
+    db_session,
+    super_admin,
+    monkeypatch,
+    fresh_job_status,
+    version_status,
+    missing_version,
+):
+    from app.db.models.notification import Notification
+    from app.services.training_dataset_cancellation_contract import (
+        TrainingDatasetCancellationFailure,
+    )
+    from app.services.training_datasets import SqlTrainingDatasetCancellation
+
+    owner, _ = super_admin
+    project, job, version = await make_minimal_cancel_target(db_session, owner)
+    assert job.status == "pending"
+    assert job.celery_task_id == "stale-execution"
+    assert version.status == "pending"
+
+    await db_session.execute(
+        update(AsyncJob)
+        .where(AsyncJob.id == job.id)
+        .values(status=fresh_job_status, celery_task_id="fresh-execution")
+        .execution_options(synchronize_session=False)
+    )
+    if missing_version:
+        await db_session.execute(
+            delete(TrainingDatasetVersion)
+            .where(TrainingDatasetVersion.id == version.id)
+            .execution_options(synchronize_session=False)
+        )
+    else:
+        await db_session.execute(
+            update(TrainingDatasetVersion)
+            .where(TrainingDatasetVersion.id == version.id)
+            .values(status=version_status)
+            .execution_options(synchronize_session=False)
+        )
+
+    # The identity-map rows stay stale until the cancellation owner re-reads them.
+    assert job.status == "pending"
+    assert job.celery_task_id == "stale-execution"
+    assert version.status == "pending"
+    execution_ids = []
+    published = []
+
+    class CaptureExecutionControl:
+        def request_cancel(self, execution_id):
+            execution_ids.append(execution_id)
+
+    async def capture_redis_publish(*, user_id, message):
+        published.append((user_id, message))
+
+    monkeypatch.setattr("app.services.notification._publish", capture_redis_publish)
+    cancellation = SqlTrainingDatasetCancellation(
+        db_session, execution_control=CaptureExecutionControl()
+    )
+
+    if fresh_job_status == "running" and version_status == "running":
+        await cancellation.request_cancel(
+            job_id=job.id, project_id=project.id, actor_id=owner.id
+        )
+        await db_session.commit()
+        await db_session.refresh(job)
+        await db_session.refresh(version)
+        assert execution_ids == ["fresh-execution"]
+        assert job.status == "cancelled"
+        assert version.status == "cancelled"
+        assert version.error_code == "cancelled"
+        assert version.error_message == "训练数据构建已取消"
+        assert version.completed_at is not None
+        notification = await db_session.scalar(
+            select(Notification).where(
+                Notification.user_id == owner.id,
+                Notification.type == "job.cancelled",
+                Notification.target_type == "async_job",
+                Notification.target_id == job.id,
+            )
+        )
+        assert notification is not None
+        assert len(published) == 1
+        assert published[0][0] == owner.id
+        assert published[0][1]["type"] == "job.cancelled"
+    else:
+        with pytest.raises(TrainingDatasetCancellationFailure) as exc:
+            await cancellation.request_cancel(
+                job_id=job.id, project_id=project.id, actor_id=owner.id
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail == "训练数据构建已结束"
+        assert execution_ids == []
+        await db_session.refresh(job)
+        assert job.status == fresh_job_status
+        assert job.celery_task_id == "fresh-execution"
+        if missing_version:
+            assert (
+                await db_session.scalar(
+                    select(TrainingDatasetVersion.id).where(
+                        TrainingDatasetVersion.id == version.id
+                    )
+                )
+                is None
+            )
+        else:
+            await db_session.refresh(version)
+            assert version.status == version_status
+        notification_id = await db_session.scalar(
+            select(Notification.id).where(
+                Notification.user_id == owner.id,
+                Notification.target_id == job.id,
+            )
+        )
+        assert notification_id is None
+        assert published == []
+
+
+async def test_training_dataset_cancellation_restores_current_account_rejection(
+    db_session, super_admin
+):
+    from fastapi import HTTPException
+
+    from app.application.job_cancellation import cancel_job
+    from app.db.models.user import User
+
+    owner, _ = super_admin
+    _project, job, version = await make_minimal_cancel_target(db_session, owner)
+    assert owner.is_active is True
+    await db_session.execute(
+        update(User)
+        .where(User.id == owner.id)
+        .values(is_active=False)
+        .execution_options(synchronize_session=False)
+    )
+    assert owner.is_active is True
+    execution_ids = []
+
+    class CaptureExecutionControl:
+        def request_cancel(self, execution_id):
+            execution_ids.append(execution_id)
+
+    with pytest.raises(HTTPException) as exc:
+        await cancel_job(
+            db_session,
+            job.id,
+            owner,
+            execution_control=CaptureExecutionControl(),
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "账号已停用或不存在"
+    assert exc.value.headers == {"WWW-Authenticate": "Bearer"}
+    assert execution_ids == []
+    assert job.status == "pending"
+    assert version.status == "pending"
+
+
+async def test_training_dataset_cancellation_preserves_unexpected_owner_exception(
+    db_session, super_admin, monkeypatch
+):
+    from app.application.job_cancellation import cancel_job
+
+    owner, _ = super_admin
+    _project, job, _version = await make_minimal_cancel_target(db_session, owner)
+    owner_failure = RuntimeError("owner dependency failed")
+
+    async def fail_project_manager(*_args, **_kwargs):
+        raise owner_failure
+
+    monkeypatch.setattr(
+        "app.services.training_datasets.lock_project_manager", fail_project_manager
+    )
+    execution_ids = []
+
+    class CaptureExecutionControl:
+        def request_cancel(self, execution_id):
+            execution_ids.append(execution_id)
+
+    with pytest.raises(RuntimeError) as exc:
+        await cancel_job(
+            db_session,
+            job.id,
+            owner,
+            execution_control=CaptureExecutionControl(),
+        )
+
+    assert exc.value is owner_failure
+    assert execution_ids == []
 
 
 @pytest.mark.parametrize("accepted_status", ["pending", "running", "ready"])
