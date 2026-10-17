@@ -33,7 +33,9 @@ from app.schemas.mask_mutation import (
 )
 from app.services.annotation import AnnotationService
 from app.services.annotation_evidence import record_annotation_actor
-from app.services.annotation_slice import SLICE_RESTORE_TTL
+from app.services.annotation_slice_contracts import (
+    SLICE_RESTORE_TTL as _SLICE_RESTORE_TTL,
+)
 from app.schemas.annotation_slice import AnnotationSliceResponse
 from app.services.mask_slice import slice_mask_rle
 from app.services.mask_slice_restore import (
@@ -1767,7 +1769,7 @@ class MaskMutationService:
                 result_versions=result_versions,
                 active_annotation_ids=[source.id, new.id],
                 target="after",
-                restore_expires_at=now + SLICE_RESTORE_TTL,
+                restore_expires_at=now + _SLICE_RESTORE_TTL,
             )
             await protect_mask_slice_versions(
                 self.db, operation_report, slice_receipt.restore_expires_at

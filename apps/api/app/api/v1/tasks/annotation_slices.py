@@ -12,7 +12,8 @@ from app.schemas.annotation_slice import (
     PolygonSliceCommitRequest,
 )
 from app.services.project_access import ProjectAccess
-from app.services.annotation_slice import AnnotationSliceError, AnnotationSliceService
+from app.services.annotation_slice import AnnotationSliceService
+from app.services.annotation_slice_contracts import AnnotationSliceError
 
 router = APIRouter()
 

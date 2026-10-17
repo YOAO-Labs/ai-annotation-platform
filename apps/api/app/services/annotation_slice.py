@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -27,6 +25,11 @@ from app.schemas.annotation_slice import (
 from app.services import task_access
 from app.services.annotation import AnnotationService
 from app.services.annotation_evidence import record_annotation_actor
+from app.services.annotation_slice_contracts import (
+    AnnotationSliceError as _AnnotationSliceError,
+    SLICE_RESTORE_TTL as _SLICE_RESTORE_TTL,
+    annotation_slice_digest as _annotation_slice_digest,
+)
 from app.services.audit import AuditAction, AuditService
 from app.services.polygon_slice import PolygonSliceGeometryError, slice_polygon
 from app.services.task_lock import TaskLockConflictError
@@ -34,23 +37,6 @@ from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
     heartbeat_task_lock_for_legacy_video,
 )
-
-SLICE_RESTORE_TTL = timedelta(days=30)
-
-
-class AnnotationSliceError(ValueError):
-    def __init__(self, status_code: int, reason: str, message: str):
-        super().__init__(message)
-        self.status_code = status_code
-        self.detail = {"reason": reason, "message": message}
-
-
-def _digest(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, sort_keys=True, separators=(",", ":"), allow_nan=False
-        ).encode()
-    ).hexdigest()
 
 
 def _snapshot(annotation: Annotation) -> dict:
@@ -67,11 +53,11 @@ class AnnotationSliceService:
 
         task_access.assert_task_editable(task, actor, access=access)
         if task.file_type != "image":
-            raise AnnotationSliceError(422, "unsupported_media", "切割仅支持图片任务")
+            raise _AnnotationSliceError(422, "unsupported_media", "切割仅支持图片任务")
         try:
             await assert_task_lock_for_legacy_video(self.db, task, actor.id)
         except TaskLockConflictError as exc:
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "task_lock_conflict", "任务正由其他用户编辑"
             ) from exc
 
@@ -86,7 +72,7 @@ class AnnotationSliceService:
             .execution_options(populate_existing=True)
         )
         if task is None:
-            raise AnnotationSliceError(404, "task_not_found", "任务不存在")
+            raise _AnnotationSliceError(404, "task_not_found", "任务不存在")
         if access is None:
             access = await task_access.resolve_task_access(
                 self.db, task, actor, lock_membership=True
@@ -114,7 +100,7 @@ class AnnotationSliceService:
             "slice_polygon",
             "restore_slice",
         }:
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "idempotency_conflict", "此幂等键已用于另一请求"
             )
         return AnnotationSliceResponse.model_validate(
@@ -139,14 +125,14 @@ class AnnotationSliceService:
             ).all()
         )
         if len(rows) != len(ids):
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "annotation_missing", "切割对象已不存在，请刷新任务"
             )
         if any(
             row.is_locked or row.was_cancelled or row.sensor_role is not None
             for row in rows
         ):
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "annotation_locked", "切割对象已锁定或不可编辑"
             )
         child = await self.db.scalar(
@@ -158,7 +144,7 @@ class AnnotationSliceService:
             .limit(1)
         )
         if child:
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "active_children", "有活动子对象的标注不能切割或恢复"
             )
         return {str(row.id): row for row in rows}
@@ -199,7 +185,9 @@ class AnnotationSliceService:
         access: Any = None,
     ) -> AnnotationSliceResponse:
         task, access = await self._lock_task(task_id, actor, access=access)
-        digest = _digest({"kind": "slice_polygon", **payload.model_dump(mode="json")})
+        digest = _annotation_slice_digest(
+            {"kind": "slice_polygon", **payload.model_dump(mode="json")}
+        )
         replay = await self._replay(task_id, actor, payload.idempotency_key, digest)
         if replay:
             return replay
@@ -207,11 +195,11 @@ class AnnotationSliceService:
         rows = await self._lock_annotations(task_id, [payload.annotation_id])
         source = rows[str(payload.annotation_id)]
         if not source.is_active or source.version != payload.expected_version:
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "version_mismatch", "来源对象已改变，请重新生成切割预览"
             )
         if source.annotation_type != "polygon":
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 422, "unsupported_geometry", "切割仅支持简单单外环多边形"
             )
         if source.parent_annotation_id is not None:
@@ -223,7 +211,7 @@ class AnnotationSliceService:
                 source.geometry, payload.cut_path
             )
         except PolygonSliceGeometryError as exc:
-            raise AnnotationSliceError(422, "invalid_cut", str(exc)) from exc
+            raise _AnnotationSliceError(422, "invalid_cut", str(exc)) from exc
         before = {str(source.id): _snapshot(source)}
         source.geometry = kept_geometry
         source.version += 1
@@ -263,7 +251,7 @@ class AnnotationSliceService:
             result_versions=versions,
             active_annotation_ids=[source.id, created.id],
             target="after",
-            restore_expires_at=now + SLICE_RESTORE_TTL,
+            restore_expires_at=now + _SLICE_RESTORE_TTL,
         )
         operation = AnnotationOperation(
             id=operation_id,
@@ -272,7 +260,7 @@ class AnnotationSliceService:
             kind="slice_polygon",
             idempotency_key=payload.idempotency_key,
             request_digest=digest,
-            scope_fingerprint=_digest(before),
+            scope_fingerprint=_annotation_slice_digest(before),
             source_versions={str(source.id): payload.expected_version},
             result_versions=versions,
             report={
@@ -320,7 +308,7 @@ class AnnotationSliceService:
         access: Any = None,
     ) -> AnnotationSliceResponse:
         task, access = await self._lock_task(task_id, actor, access=access)
-        digest = _digest(
+        digest = _annotation_slice_digest(
             {
                 "kind": "restore_slice",
                 "slice_operation_id": str(operation_id),
@@ -341,22 +329,24 @@ class AnnotationSliceService:
             .execution_options(populate_existing=True)
         )
         if original is None or original.kind not in {"slice_polygon", "slice_mask"}:
-            raise AnnotationSliceError(404, "slice_not_found", "此操作不是可恢复的切割")
-        expires_at = original.created_at + SLICE_RESTORE_TTL
+            raise _AnnotationSliceError(
+                404, "slice_not_found", "此操作不是可恢复的切割"
+            )
+        expires_at = original.created_at + _SLICE_RESTORE_TTL
         if datetime.now(timezone.utc) >= expires_at:
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 410, "restore_expired", "切割已超过 30 天恢复期限"
             )
         report = original.report
         is_mask = original.kind == "slice_mask"
         if report.get("slice_snapshot_schema") != (2 if is_mask else 1):
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "snapshot_unavailable", "切割恢复快照不可用"
             )
         expected = {str(key): value for key, value in payload.expected_versions.items()}
         recorded = report.get("current_versions")
         if expected != recorded:
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409,
                 "version_mismatch",
                 "恢复版本集不匹配；请保留原历史，不能覆盖后续修改",
@@ -373,12 +363,12 @@ class AnnotationSliceService:
         target = snapshots.get(payload.target, {})
         current = snapshots.get(report.get("current_side"), {})
         if set(target) != set(rows) or set(current) != set(rows):
-            raise AnnotationSliceError(
+            raise _AnnotationSliceError(
                 409, "snapshot_unavailable", "切割恢复快照不完整"
             )
         for key, row in rows.items():
             if row.version != expected[key] or _snapshot(row) != current[key]:
-                raise AnnotationSliceError(
+                raise _AnnotationSliceError(
                     409, "version_mismatch", "切割结果已被修改，不能撤销或重做"
                 )
             snapshot = target[key]
@@ -388,7 +378,7 @@ class AnnotationSliceService:
                 or snapshot["geometry"].get("type")
                 != ("raster_mask" if is_mask else "polygon")
             ):
-                raise AnnotationSliceError(
+                raise _AnnotationSliceError(
                     409, "snapshot_unavailable", "切割恢复快照类型不受支持"
                 )
         no_op = report["current_side"] == payload.target
@@ -422,7 +412,7 @@ class AnnotationSliceService:
             kind="restore_slice",
             idempotency_key=payload.idempotency_key,
             request_digest=digest,
-            scope_fingerprint=_digest(current),
+            scope_fingerprint=_annotation_slice_digest(current),
             source_versions=expected,
             result_versions=versions,
             report={

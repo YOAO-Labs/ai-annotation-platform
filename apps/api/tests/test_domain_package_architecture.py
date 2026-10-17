@@ -212,6 +212,14 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="active_learning_pool", legacy_facades=()),
     DomainSpec(package="active_learning_references", legacy_facades=()),
     DomainSpec(package="sample_evaluation_sources", legacy_facades=()),
+    DomainSpec(
+        package="annotation_slice_contracts",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
+    DomainSpec(package="annotation_slice", legacy_facades=()),
+    DomainSpec(package="mask_slice_restore", legacy_facades=()),
+    DomainSpec(package="mask_mutation", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
@@ -692,6 +700,10 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.active_learning_references",
         "app.services.sample_evaluations",
         "app.services.sample_evaluation_sources",
+        "app.services.annotation_slice_contracts",
+        "app.services.annotation_slice",
+        "app.services.mask_slice_restore",
+        "app.services.mask_mutation",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

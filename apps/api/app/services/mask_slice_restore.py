@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.annotation import Annotation
 from app.db.models.mask_annotation_revision import MaskAnnotationRevision
 from app.db.models.task import Task
-from app.services.annotation_slice import AnnotationSliceError, _digest
+from app.services.annotation_slice_contracts import (
+    AnnotationSliceError as _AnnotationSliceError,
+    annotation_slice_digest as _annotation_slice_digest,
+)
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     prepare_mask_payload_for_write,
@@ -24,7 +27,7 @@ def mask_version_snapshot(
 ) -> dict:
     return {
         "annotation_version": annotation.version,
-        "geometry_digest": _digest(annotation.geometry),
+        "geometry_digest": _annotation_slice_digest(annotation.geometry),
         "active": annotation.is_active if active is None else active,
     }
 
@@ -40,7 +43,7 @@ def _references(report: dict) -> dict[tuple[uuid.UUID, int], dict]:
                 or not isinstance(snapshot["active"], bool)
                 or not isinstance(snapshot["geometry_digest"], str)
             ):
-                raise AnnotationSliceError(
+                raise _AnnotationSliceError(
                     409, "snapshot_unavailable", "Mask 恢复引用无效"
                 )
             identity = (uuid.UUID(key), snapshot["annotation_version"])
@@ -49,7 +52,7 @@ def _references(report: dict) -> dict[tuple[uuid.UUID, int], dict]:
                 and references[identity]["geometry_digest"]
                 != snapshot["geometry_digest"]
             ):
-                raise AnnotationSliceError(
+                raise _AnnotationSliceError(
                     409, "snapshot_unavailable", "Mask 恢复引用不一致"
                 )
             references[identity] = snapshot
@@ -122,15 +125,15 @@ async def load_mask_slice_snapshots(
                 )
                 revision = await db.scalar(query.with_for_update() if locked else query)
                 if revision is None:
-                    raise AnnotationSliceError(
+                    raise _AnnotationSliceError(
                         409, "snapshot_unavailable", "Mask 恢复版本缺失或已过期"
                     )
                 geometry = revision.geometry
             if (
                 geometry.get("type") != "raster_mask"
-                or _digest(geometry) != snapshot["geometry_digest"]
+                or _annotation_slice_digest(geometry) != snapshot["geometry_digest"]
             ):
-                raise AnnotationSliceError(
+                raise _AnnotationSliceError(
                     409, "snapshot_unavailable", "Mask 恢复版本内容校验失败"
                 )
             result[(annotation_id, version)] = deepcopy(geometry)
@@ -140,7 +143,7 @@ async def load_mask_slice_snapshots(
     try:
         await prepare_mask_payload_for_write(db, task, list(first.values()))
     except RasterMaskContractError as exc:
-        raise AnnotationSliceError(
+        raise _AnnotationSliceError(
             exc.status_code, "snapshot_unavailable", "Mask 恢复资源不可用：" + str(exc)
         ) from exc
     verified = await resolve(locked=True)

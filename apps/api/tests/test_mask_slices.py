@@ -17,7 +17,8 @@ from app.db.models.mask_annotation_revision import MaskAnnotationRevision
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.schemas.annotation_slice import AnnotationSliceRestoreRequest
 from app.schemas.mask_mutation import MaskMutationCommitRequest
-from app.services.annotation_slice import AnnotationSliceError, AnnotationSliceService
+from app.services.annotation_slice import AnnotationSliceService
+from app.services.annotation_slice_contracts import AnnotationSliceError
 from app.services.audit import AuditService
 from app.services.mask_mutation import (
     MaskMutationError,

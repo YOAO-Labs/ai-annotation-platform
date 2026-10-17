@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # 标注模块
@@ -46,6 +46,9 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 | `apps/api/app/services/annotation.py`                                                        | create / update / delete / accept_prediction / draft |
 | `apps/api/app/db/models/annotation_operation.py`                                             | 原子多对象操作与 lineage 账本                        |
 | `apps/api/app/services/mask_mutation.py`                                                     | Mask split / copy / join / overlap 事务边界          |
+| `apps/api/app/services/annotation_slice.py`                                                  | Polygon 切割及共享受限恢复                           |
+| `apps/api/app/services/annotation_slice_contracts.py`                                        | 纯错误合同、规范摘要与固定恢复期限                   |
+| `apps/api/app/services/mask_slice_restore.py`                                                | Mask 版本引用校验及非缩短保留保护                    |
 | `apps/api/app/db/models/annotation_conversion_plan.py` · `services/annotation_conversion.py` | 短期转换计划与原子执行边界                           |
 | `apps/api/app/api/v1/tasks/annotations.py` · `predictions.py`                                | annotation 与 prediction 相关 HTTP 入口              |
 | `apps/api/app/api/v1/tasks/mask_mutations.py`                                                | 任务级 Mask 原子 mutation 入口                       |
@@ -54,6 +57,12 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 | `apps/web/src/hooks/useTasks.ts`                                                             | React Query mutation 与 optimistic update            |
 | `apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts`                     | 图片工作台 annotation action 主消费方                |
 | `apps/web/src/pages/Workbench/stages/video/useVideoAnnotationActions.ts`                     | 视频工作台 annotation action 主消费方                |
+
+## 切割与受限恢复
+
+`annotation_slice_contracts` 是 Polygon 切割、Mask mutation 和 Mask 恢复的共同下层，只依赖标准库；错误携带原 `status_code` / `reason` / `message`，摘要保留原 JSON 编码和非有限数拒绝规则，恢复期限固定为原切割后 30 天。
+
+`AnnotationSliceService` 组合受限恢复，`mask_slice_restore` 校验版本内容并保护 revision，不反向导入切割编排。HTTP 只将共享错误映射为原状态码和响应体。Mask 账本继续只存版本及摘要引用，不复制 RLE 正文或对象 key；撤销/重做保留对象 ID、单调版本、完整结果版本集、原截止时间及同键重放语义。
 
 ## 数据模型
 

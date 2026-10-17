@@ -30,7 +30,8 @@ from app.schemas.annotation_slice import (
     PolygonSliceCommitRequest,
 )
 from app.services.annotation import AnnotationService
-from app.services.annotation_slice import AnnotationSliceError, AnnotationSliceService
+from app.services.annotation_slice import AnnotationSliceService
+from app.services.annotation_slice_contracts import AnnotationSliceError
 from app.services.audit import AuditService
 from app.services.polygon_slice import (
     PolygonSliceGeometryError,
