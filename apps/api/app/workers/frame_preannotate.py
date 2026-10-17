@@ -522,6 +522,7 @@ async def _write_job_progress(job_id: str, done: int, total: int) -> None:
     )
 
     from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -535,7 +536,7 @@ async def _write_job_progress(job_id: str, done: int, total: int) -> None:
             cur = int(job.progress_pct or 0)
             new = min(99, max(cur, pct))
             if new != cur:
-                job.progress_pct = new
+                await async_job_svc.update_progress(db, job.id, new)
                 await db.commit()
     finally:
         await engine.dispose()

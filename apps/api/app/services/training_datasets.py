@@ -482,7 +482,7 @@ async def dispatch_dataset(
         version.attempt_id,
     )
     job = await db.get(AsyncJob, version.async_job_id)
-    job.celery_task_id = task_id
+    jobs.bind_execution_id(job, task_id)
     await db.commit()
     try:
         await dispatcher.dispatch_dataset(

@@ -304,7 +304,7 @@ async def import_from_connection(
     await db.commit()
 
     task = run_dataset_import.delay(str(job.id))
-    job.celery_task_id = task.id
+    async_job_svc.bind_execution_id(job, task.id)
     await db.commit()
     return DatasetImportFromConnectionResponse(job_id=job.id)
 

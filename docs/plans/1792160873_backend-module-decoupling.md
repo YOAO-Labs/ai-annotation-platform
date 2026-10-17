@@ -1003,6 +1003,25 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 - 两份原始样本在 `/tmp/aap-invitation-evidence/{budget,register-budget}.json`；主线补充了账号所有者调用帧，不将该冻结候选的堆数字宣称为主线复测结果，也不推断优化、RSS 或吞吐。后端分层及仓库地图已同步；纯边界迁移不改 schema、依赖、配置、版本或 CHANGELOG，仍是本地 Session 事务而非远程协议。
 
+### 通用 AsyncJob 剩余写入
+
+- `services/async_job.py` 持有执行 ID、payload、进度、生命周期和删除命令。`bind_execution_id` 不查询、flush 或提交，允许 `None` 清空预分配 ID；调用方保留缺行判断、条件优先级、预分配/回传 ID 的选择和提交/派发顺序。批量预测浅合并 payload，帧进度仍为 `min(99, max(cur, pct))`，保留原提交点。
+- 主线迁移训练数据、评估/主动学习、批量预测、导出、连接器导入、项目预标和跨帧绑定；保留此前迁入 Mask services 的两类派发命令，并补齐 `begin_repair_execution` 在取消判断之前的第三处条件绑定。未恢复旧 HTTP setter。终态删除仍是严格 cutoff、原状态集合及调用方提交，返回 UUID 只用于计数。
+- 主线真实 PostgreSQL 两连接已断言 commit 可见性、未提交替换不可见与 rollback 保持；数值 PID 未在探针后段失败前保存，不补造 PID。实际 `_run_batch(None)` 到批次范围拒绝前已提交清空执行 ID，且未进入模型调用；浅合并保留其它键并整体替换嵌套对象。帧 helper 的真实序列为 40、40、99；六行旧时间夹具验证终态/严格截止选择及整体 rollback 后，再提交删除三行，保留 pending/running/等于截止三行，最后只清理夹具 ID。
+- 默认依赖 ASGI/JWT 导出返回 202，真实 Redis 和新建 export-only Celery solo consumer 完成，持久 ID 与作业 UUID 不同、状态 completed/进度 100。MinIO 回读 3552 B ZIP，与已提交 size 完全相等，CRC 和四份 JSON 解析通过，保留规范媒体路径；实际 schema 不含原始 file_name 字面值，探针修正自身断言后只恢复观察，没有重跑已完成工作或改生产导出。独立 ml.cpu 队列中的未资格评估任务仍在。完整主线事实及局限在 `.worktree/generic-job-main-smoke.json`。
+- 主线组合首次为 232 passed、77 skipped，两项需要外部 media consumer 的旧场景因本次未启动该消费者而超时，不能称整组全绿。随后把同两场景的现有 dispatcher 端口绑定到唯一测试队列，以真实 Redis/Celery/S3 新消费者完成派发失败后恢复及回滚版本冲突/已完成分片保留；预期冲突仍抛错并形成领域终态，没有吞异常。只移除首轮捕获到的两张自有 batch 对应孤儿消息，不消费其它 media 队列消息。该补验不是生产 media 路由复验，记录在 `.worktree/generic-mask-consumer-smoke.json`。
+- 定向组合包含 SCC 和精确 OpenAPI；十五个 Python 文件的固定 Ruff 格式/check 通过。独立只读审查确认 nullable ID、进度上限、删除条件/提交与 Mask 前取消绑定不变；静态扫描未再发现 owner 外的生产 AsyncJob 写入。删除 setter 字段回声和 mock 派发计数断言；保留 payload 浅合并、保留边界和预分配身份行为。永久保留测试用固定旧年份，避免筛选其它现存作业。
+- 隔离交付记录的命令预算各侧预热一次、三轮交错采样，范围内每次一条 SQL、零对象客户端调用；不是本轮主线重新采样：
+
+| 命令     | SQL（前） | SQL（后） | Python 堆峰值中位数（前，字节） | Python 堆峰值中位数（后，字节） |
+| -------- | --------: | --------: | ------------------------------: | ------------------------------: |
+| 执行 ID  |         1 |         1 |                         281,201 |                         281,169 |
+| payload  |         1 |         1 |                         281,609 |                         281,841 |
+| progress |         1 |         1 |                         281,097 |                         281,385 |
+| 终态删除 |         1 |         1 |                         296,836 |                         296,988 |
+
+- 隔离记录在 `/tmp/aap-boundary-job-bindings-evidence/results.txt`，包含另一次真实 export consumer 与独立连接观察；其 363 passed、75 skipped 不与主线重复累计。不从小样本推断 RSS、吞吐或优化。未改公开/数据库 schema、依赖、配置或版本；纯所有权迁移不增加 CHANGELOG。
+
 ### 剩余范围
 
-- 剩余写入切片为通用作业直写，继续迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 全入口写入复核另确认十六处剩余，按十四个里程碑跟踪：Mask 格式导入执行；Study 子运行/尝试及训练运行删除；素材上传完成；失败预测处置/重试；点云质检派发失败；样本评估执行/删除意图；训练预览过期；分析样本媒体观测；金字塔访问元数据；审计输出投影；在线状态维护；训练数据构建；主动学习执行。它们尚未验收，不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

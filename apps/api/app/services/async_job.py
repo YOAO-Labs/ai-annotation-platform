@@ -1,9 +1,10 @@
 """Generic async-job row commands with caller-owned transactions.
 
 Payload updates merge shallowly; result projections replace. State writers do
-not commit or publish notices. Creation and track_job explicitly flush; other
-state writers do not. Default cancellation allows only pending/running;
-specialized workers supply their own precedence.
+not commit or publish notices. Delete commands return affected IDs or counts
+without committing. Creation and track_job explicitly flush; other state writers
+do not. Default cancellation allows only pending/running; specialized workers
+supply their own precedence.
 """
 
 from __future__ import annotations
@@ -57,6 +58,21 @@ async def delete_batch_predict_jobs(db: AsyncSession, batch_id: uuid.UUID) -> in
     return int(result.rowcount or 0)
 
 
+async def delete_terminal_jobs_before(
+    db: AsyncSession, cutoff: datetime, *, statuses: Collection[str]
+) -> list[uuid.UUID]:
+    """Delete selected terminal jobs older than cutoff; caller owns commit."""
+    result = await db.execute(
+        delete(AsyncJob)
+        .where(
+            AsyncJob.status.in_(statuses),
+            AsyncJob.created_at < cutoff,
+        )
+        .returning(AsyncJob.id)
+    )
+    return list(result.scalars().all())
+
+
 async def mark_running(
     db: AsyncSession, job_id: uuid.UUID, *, celery_task_id: str | None = None
 ) -> None:
@@ -69,6 +85,11 @@ async def mark_running(
         job.started_at = datetime.now(timezone.utc)
     if celery_task_id and not job.celery_task_id:
         job.celery_task_id = celery_task_id
+
+
+def bind_execution_id(job: AsyncJob, execution_id: str | None) -> None:
+    """Set or clear the execution ID; the caller owns lookup, commit, and ordering."""
+    job.celery_task_id = execution_id
 
 
 def _merge_payload(job: AsyncJob, updates: dict) -> None:

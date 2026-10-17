@@ -2091,7 +2091,7 @@ async def trigger_preannotation(
         # Use the durable async job id as the Celery task id. The failure hook
         # can therefore resolve a job even if the worker fails before the API
         # request reaches its post-dispatch commit.
-        precreated_job.celery_task_id = str(precreated_job.id)
+        async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await db.commit()
     elif (
         body.execution_scope == "workbench" and explicit_task_ids is not None
@@ -2128,7 +2128,7 @@ async def trigger_preannotation(
                 **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
             },
         )
-        precreated_job.celery_task_id = str(precreated_job.id)
+        async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await db.commit()
 
     apply_opts: dict = {"queue": queue}
@@ -2187,7 +2187,7 @@ async def trigger_preannotation(
     if precreated_job is not None:
         # ``task_id`` above is the durable async job id; keep that identity even
         # if a test broker returns a different result wrapper id.
-        precreated_job.celery_task_id = str(precreated_job.id)
+        async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
     # B-5 · AI 预标注触发审计 — 让超管在 /audit 看到 谁/何时/对哪个 batch 跑了 AI
     await AuditService.log(
         db,

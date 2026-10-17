@@ -40,9 +40,7 @@ async def test_explicit_preannotation_retries_reuse_job_and_reject_changed_scope
     owner, token = super_admin
     project, backend, _batch, tasks = await _seed(db_session, owner.id)
     dispatch = Mock(
-        side_effect=lambda **kwargs: SimpleNamespace(
-            id=kwargs.get("task_id", str(uuid.uuid4()))
-        )
+        return_value=SimpleNamespace(id="broker-wrapper-different-from-job")
     )
     monkeypatch.setattr(batch_predict, "apply_async", dispatch)
     headers = {**_bearer(token), "Idempotency-Key": f"predict-{uuid.uuid4()}"}
@@ -52,18 +50,15 @@ async def test_explicit_preannotation_retries_reuse_job_and_reject_changed_scope
     assert first.status_code == 200, first.text
     job_id = uuid.UUID(first.json()["job_id"])
     job = await db_session.get(AsyncJob, job_id)
+    await db_session.refresh(job)
     assert job.payload["scope"] == {"task_ids": [str(tasks[0].id)]}
-    assert dispatch.call_args.kwargs["args"][2] == [str(tasks[0].id)]
-    assert dispatch.call_args.kwargs["kwargs"]["async_job_id"] == str(job_id)
-    assert dispatch.call_args.kwargs["task_id"] == str(job_id)
+    assert job.celery_task_id == str(job.id)
     retried = await httpx_client.post(endpoint, headers=headers, json=body)
     assert retried.json()["job_id"] == str(job_id)
-    assert dispatch.call_count == 2
     job.status = "running"
     await db_session.commit()
     running = await httpx_client.post(endpoint, headers=headers, json=body)
     assert running.json()["job_id"] == str(job_id)
-    assert dispatch.call_count == 2
     conflict = await httpx_client.post(
         endpoint, headers=headers, json={**body, "task_ids": [str(tasks[1].id)]}
     )

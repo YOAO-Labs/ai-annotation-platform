@@ -58,7 +58,7 @@ async def _dispatch_job(db: AsyncSession, job: AsyncJob) -> AsyncJob:
     if current is None:
         raise HTTPException(status_code=500, detail="cross-frame job disappeared")
     if not current.celery_task_id:
-        current.celery_task_id = str(queued.id)
+        async_job_svc.bind_execution_id(current, str(queued.id))
         await db.commit()
         await db.refresh(current)
     return current

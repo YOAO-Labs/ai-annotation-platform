@@ -278,7 +278,7 @@ async def export_data_manager_tasks(
         )
         await db.commit()
         raise
-    job.celery_task_id = celery_job.id
+    async_job_service.bind_execution_id(job, celery_job.id)
     await db.commit()
     return {"job_id": str(job.id), "status": "queued"}
 

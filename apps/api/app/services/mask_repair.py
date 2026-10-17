@@ -1056,7 +1056,7 @@ async def begin_repair_execution(
     if celery_task_id and job.celery_task_id and job.celery_task_id != celery_task_id:
         return batch.async_job_id, [], [], True
     if celery_task_id and not job.celery_task_id:
-        job.celery_task_id = celery_task_id
+        async_job_svc.bind_execution_id(job, celery_task_id)
     if job.status == "cancelled" or bool((job.payload or {}).get("cancel_requested")):
         completed_shards = [
             value
@@ -1506,7 +1506,7 @@ async def record_repair_dispatch_task(
         return
     job = await db.get(AsyncJob, async_job_id)
     if job is not None:
-        job.celery_task_id = celery_task_id
+        async_job_svc.bind_execution_id(job, celery_task_id)
 
 
 async def fail_repair_dispatch(

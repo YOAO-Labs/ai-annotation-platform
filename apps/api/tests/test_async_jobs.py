@@ -1,18 +1,20 @@
-"""v0.10.16 · async_jobs 表 + service + API 端点单测（ROADMAP §1.7）。
+"""async_jobs 所有者命令与 API 行为回归。
 
 覆盖：
-- service: create_job / mark_running / update_progress / mark_complete / mark_failed
-  / track_job 上下文（happy + raise）
+- service: create_job / mark_running / update_payload /
+  update_progress / mark_complete / mark_failed / track_job（happy + raise）
 - API: GET /async-jobs owner-scoped、super_admin 看全部、cancel kind 白名单 + 终态拒绝
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import select
 
+from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.notification import Notification
-from app.db.models.async_job import AsyncJobStatus
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -90,6 +92,65 @@ class TestAsyncJobService:
         await db_session.flush()
         await db_session.refresh(aj)
         assert aj.progress_pct == 0
+
+    async def test_update_payload_shallow_merge_preserves_other_fields(
+        self, db_session
+    ):
+        job = await async_job_svc.create_job(
+            db_session,
+            kind="batch_predict",
+            payload={"retained": True, "nested": {"old": True}},
+        )
+
+        await async_job_svc.update_payload(
+            db_session, job.id, {"added": 2, "nested": {"new": True}}
+        )
+        await db_session.flush()
+        await db_session.refresh(job)
+        assert job.payload == {
+            "retained": True,
+            "added": 2,
+            "nested": {"new": True},
+        }
+
+    async def test_delete_terminal_jobs_before_preserves_cutoff_and_status(
+        self, db_session
+    ):
+        cutoff = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        old = cutoff - timedelta(seconds=1)
+        jobs = {}
+        for name, status, created_at in (
+            ("completed-old", AsyncJobStatus.COMPLETED.value, old),
+            ("failed-old", AsyncJobStatus.FAILED.value, old),
+            ("cancelled-old", AsyncJobStatus.CANCELLED.value, old),
+            ("pending-old", AsyncJobStatus.PENDING.value, old),
+            ("running-old", AsyncJobStatus.RUNNING.value, old),
+            ("completed-at-cutoff", AsyncJobStatus.COMPLETED.value, cutoff),
+        ):
+            job = await async_job_svc.create_job(db_session, kind="batch_predict")
+            job.status = status
+            job.created_at = created_at
+            jobs[name] = job
+
+        removed_names = {"completed-old", "failed-old", "cancelled-old"}
+        removed_ids = await async_job_svc.delete_terminal_jobs_before(
+            db_session,
+            cutoff,
+            statuses=(
+                AsyncJobStatus.COMPLETED.value,
+                AsyncJobStatus.FAILED.value,
+                AsyncJobStatus.CANCELLED.value,
+            ),
+        )
+        assert set(removed_ids) == {jobs[name].id for name in removed_names}
+
+        job_ids = [job.id for job in jobs.values()]
+        remaining_ids = await db_session.scalars(
+            select(AsyncJob.id).where(AsyncJob.id.in_(job_ids))
+        )
+        assert set(remaining_ids) == {
+            jobs[name].id for name in jobs.keys() - removed_names
+        }
 
     async def test_track_job_context_marks_complete_on_success(
         self, db_session, annotator

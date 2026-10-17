@@ -546,7 +546,7 @@ async def _run_batch(
             if frozen_model_ref is not None and saved_ref != frozen_model_ref:
                 raise ValueError("Queued model identity differs from the durable job")
             frozen_model_ref = saved_ref
-            precreated_job.celery_task_id = celery_task_id
+            async_job_svc.bind_execution_id(precreated_job, celery_task_id)
             await async_job_svc.mark_running(
                 db, precreated_job.id, celery_task_id=celery_task_id
             )
@@ -772,7 +772,7 @@ async def _run_batch(
             await async_job_svc.mark_running(db, aj.id, celery_task_id=celery_task_id)
         else:
             aj = precreated_job
-            aj.payload = {**(aj.payload or {}), **job_payload}
+            await async_job_svc.update_payload(db, aj.id, job_payload)
         await db.commit()
         async_job_id = aj.id
 

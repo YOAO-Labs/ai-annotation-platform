@@ -456,7 +456,7 @@ async def record_import_dispatch_task(
         return
     job = await db.get(AsyncJob, async_job_id)
     if job is not None:
-        job.celery_task_id = celery_task_id
+        async_job_svc.bind_execution_id(job, celery_task_id)
 
 
 async def fail_import_dispatch(

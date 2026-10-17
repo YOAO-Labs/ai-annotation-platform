@@ -10,9 +10,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete
-
-from app.db.models.async_job import AsyncJob
+from app.services import async_job as async_job_svc
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
 
@@ -29,16 +27,11 @@ def purge_old_async_jobs() -> dict:
 async def _purge_async() -> dict:
     cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
     async with task_session() as db:
-        stmt = (
-            delete(AsyncJob)
-            .where(
-                AsyncJob.status.in_(("completed", "failed", "cancelled")),
-                AsyncJob.created_at < cutoff,
-            )
-            .returning(AsyncJob.id)
+        ids = await async_job_svc.delete_terminal_jobs_before(
+            db,
+            cutoff,
+            statuses=("completed", "failed", "cancelled"),
         )
-        res = await db.execute(stmt)
-        ids = [str(row[0]) for row in res.all()]
         await db.commit()
     log.info("purge_old_async_jobs: removed=%d cutoff=%s", len(ids), cutoff.isoformat())
     return {"removed": len(ids), "cutoff": cutoff.isoformat()}

@@ -472,7 +472,7 @@ async def dispatch(db, run):
     attempt.dispatched_at = service.now()
     job = await db.get(AsyncJob, attempt.async_job_id)
     if job:
-        job.celery_task_id = task_id
+        jobs.bind_execution_id(job, task_id)
     await db.commit()
     try:
         run_sample_evaluation.apply_async(args=[str(attempt.id)], task_id=task_id)
