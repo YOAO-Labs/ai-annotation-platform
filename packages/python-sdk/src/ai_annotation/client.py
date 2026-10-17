@@ -9,10 +9,102 @@ from typing import Any, Callable, Sequence
 from uuid import UUID
 
 from ai_annotation._http import HttpTransport, _drop_none
+from ai_annotation.batch_operation_models import (
+    AdminBatchLockRequest,
+    BatchAssignmentPreviewRequest,
+    BatchAuditLogEntry,
+    BatchDistributionPreview,
+    BatchDistributionRequest,
+    BatchIdsRequest,
+    BatchSplitRequest,
+    BatchSubmitReviewResult,
+    LidarExportPreflightResult,
+    ReviewedBatchAssignment,
+    ReviewedBatchDistribution,
+    UnclassifiedTaskCount,
+)
 from ai_annotation.config import load_config
+from ai_annotation.data_manager import DataManager
 from ai_annotation.errors import AAPError, JobFailedError, JobTimeoutError
-from ai_annotation.export_models import ExportRequestBody
+from ai_annotation.dataset_operation_models import (
+    DatasetBackfillDimensionsResult,
+    DatasetBackfillMediaResult,
+    DatasetBackfillScenesResult,
+    DatasetImportFromConnectionRequest,
+    DatasetImportFromConnectionResult,
+    DatasetScanItemsResult,
+    DatasetSniffAxisResult,
+)
+from ai_annotation.export_models import ExportRequestBody, LidarExportPreflightRequest
+from ai_annotation.project_operation_models import (
+    LidarExportPreflight,
+    OrphanTasksCleanupResult,
+    OrphanTasksPreview,
+    ProjectClassRenameRequest,
+    ProjectClassUsage,
+    ProjectCleanupOrphansRequest,
+    ProjectCleanupOrphansResult,
+    ProjectDataset,
+    ProjectMentionCandidate,
+    ProjectPage,
+    ProjectReadiness,
+    ProjectTransferRequest,
+)
 from ai_annotation.learning_automation import ActiveLearning, TrainingStudies
+from ai_annotation.notifications import Notifications
+from ai_annotation.storage import Storage
+from ai_annotation.project_templates import ProjectTemplates
+from ai_annotation.video_tracker import VideoTracker
+from ai_annotation.video_review import VideoReview
+from ai_annotation.videos import Videos, TaskVideos
+from ai_annotation.files import Files
+from ai_annotation.scenes import Scenes
+from ai_annotation.health import Health
+from ai_annotation.auth import Auth
+from ai_annotation.ml_capabilities import MLCapabilities
+from ai_annotation.system_settings import SystemSettings
+from ai_annotation.api_key_models import ApiKeyUpdateRequest
+from ai_annotation.account import Account
+from ai_annotation.avatars import Avatars
+from ai_annotation.users import Users
+from ai_annotation.groups import Groups
+from ai_annotation.invitations import Invitations
+from ai_annotation.storage_connections import StorageConnections
+from ai_annotation.admin_operations import AdminOperations
+from ai_annotation.ml_diagnostics import MLDiagnostics
+from ai_annotation.project_ml import ProjectML
+from ai_annotation.audit_logs import AuditLogs
+from ai_annotation.task_views import TaskViews
+from ai_annotation.pipelines import ProjectPipelines
+from ai_annotation.guide_assets import GuideAssets
+from ai_annotation.project_performance import ProjectPerformance
+from ai_annotation.search import Search
+from ai_annotation.streams import Streams
+from ai_annotation.task_context import TaskContext
+from ai_annotation.image_pyramids import ImagePyramids
+from ai_annotation.cross_frame_jobs import CrossFrameJobs
+from ai_annotation.task_locks import TaskLocks
+from ai_annotation.point_cloud import PointCloud
+from ai_annotation.scene_tracks import SceneTracks
+from ai_annotation.annotation_operations import AnnotationOperations
+from ai_annotation.comments import Comments
+from ai_annotation.annotation_history import AnnotationHistory
+from ai_annotation.bug_reports import BugReports
+from ai_annotation.mask_formats import MaskFormats
+from ai_annotation.mask_qc import MaskQC
+from ai_annotation.point_cloud_quality import PointCloudQuality
+from ai_annotation.failed_predictions import FailedPredictions
+from ai_annotation.management_operation_models import (
+    AnnotationImportResult,
+    AdminPersonDetail,
+    MyBatchItem,
+    OnboardingProjectSummary,
+    PredictionCostStats,
+    PredictionPurgeRequest,
+    PredictionPurgeResponse,
+    RecentReviewItem,
+    ReviewerMiniStats,
+)
 from ai_annotation.model_management import (
     LearningPolicies,
     ModelReleases,
@@ -32,6 +124,8 @@ from ai_annotation.models import (
     AnnotationBulkUpdateResult,
     AnnotationFeedback,
     AnnotationFeedbackCreate,
+    AnnotationFeedbackPatch,
+    AnnotationFeedbackReply,
     ApiKey,
     ApiKeyCreated,
     Batch,
@@ -48,6 +142,7 @@ from ai_annotation.models import (
     FeedbackPage,
     FeedbackSeverity,
     FeedbackStatus,
+    FeedbackThreadPage,
     ImportResult,
     Job,
     JobPage,
@@ -134,16 +229,31 @@ class Projects:
         name: str,
         type_key: str | None = None,
         data_type: str | None = None,
+        *,
+        template_id: IdLike | None = None,
+        source_project_id: IdLike | None = None,
+        copy_annotation_guide: bool = False,
         **kwargs: Any,
     ) -> Project:
+        """Create a project; source/template defaults are resolved by the server."""
+        if template_id is not None and source_project_id is not None:
+            raise ValueError("template_id and source_project_id are mutually exclusive")
+        if copy_annotation_guide and source_project_id is None:
+            raise ValueError("copy_annotation_guide requires source_project_id")
         body: dict[str, Any] = {
             "name": name,
             "type_key": type_key,
             "data_type": data_type,
+            "template_id": str(template_id) if template_id is not None else None,
+            "source_project_id": (
+                str(source_project_id) if source_project_id is not None else None
+            ),
             **kwargs,
         }
-        # 后端 ProjectCreate.type_label 必填; 未显式给出时按 type_key/data_type/name 兜底
-        body.setdefault("type_label", type_key or data_type or name)
+        if copy_annotation_guide:
+            body["copy_annotation_guide"] = True
+        if template_id is None and source_project_id is None:
+            body.setdefault("type_label", type_key or data_type or name)
         resp = self._http.request("POST", "/projects", json=_drop_none(body))
         return Project.model_validate(resp.json())
 
@@ -171,6 +281,116 @@ class Projects:
         """
         resp = self._http.request("GET", f"/projects/{project_id}/access")
         return ProjectAccess.model_validate(resp.json())
+
+    def query(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        status: str | None = None,
+        search: str | None = None,
+        type_key: Sequence[str] | None = None,
+        data_type: Sequence[str] | None = None,
+        member_id: IdLike | None = None,
+        project_role: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
+    ) -> ProjectPage:
+        """Return one page using the same filters as :meth:`list`."""
+        resp = self._http.request(
+            "GET",
+            "/projects/query",
+            params=_drop_none(
+                {
+                    "page": page,
+                    "page_size": page_size,
+                    "status": status,
+                    "search": search,
+                    "type_key": type_key,
+                    "data_type": data_type,
+                    "member_id": str(member_id) if member_id is not None else None,
+                    "project_role": project_role,
+                    "created_from": created_from,
+                    "created_to": created_to,
+                }
+            ),
+        )
+        return ProjectPage.model_validate(resp.json())
+
+    def readiness(self, project_id: IdLike) -> ProjectReadiness:
+        """Read owner-only, server-observed project start conditions."""
+        resp = self._http.request("GET", f"/projects/{project_id}/readiness")
+        return ProjectReadiness.model_validate(resp.json())
+
+    def class_usage(self, project_id: IdLike) -> ProjectClassUsage:
+        """Count active annotation classes and attribute keys for the project."""
+        resp = self._http.request("GET", f"/projects/{project_id}/class-usage")
+        return ProjectClassUsage.model_validate(resp.json())
+
+    def rename_class(
+        self, project_id: IdLike, request: ProjectClassRenameRequest
+    ) -> Project:
+        """Rename a class and its matching annotations within the project."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/classes/rename",
+            json=request.model_dump(mode="json", exclude_unset=True),
+        )
+        return Project.model_validate(resp.json())
+
+    def cleanup_annotation_orphans(
+        self, project_id: IdLike, *, dry_run: bool = True
+    ) -> ProjectCleanupOrphansResult:
+        """Preview by default; set ``dry_run=False`` to prune orphaned annotations."""
+        request = ProjectCleanupOrphansRequest(dry_run=dry_run)
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/cleanup-orphans",
+            json=request.model_dump(mode="json", exclude_unset=True),
+        )
+        return ProjectCleanupOrphansResult.model_validate(resp.json())
+
+    def list_datasets(self, project_id: IdLike) -> list[ProjectDataset]:
+        """List datasets linked to the project, including item and task counts."""
+        resp = self._http.request("GET", f"/projects/{project_id}/datasets")
+        return [ProjectDataset.model_validate(item) for item in resp.json()]
+
+    def mention_candidates(self, project_id: IdLike) -> list[ProjectMentionCandidate]:
+        """List mention targets visible to the current project member."""
+        resp = self._http.request("GET", f"/projects/{project_id}/mention-candidates")
+        return [ProjectMentionCandidate.model_validate(item) for item in resp.json()]
+
+    def lidar_export_preflight(
+        self, project_id: IdLike, request: LidarExportPreflightRequest
+    ) -> LidarExportPreflight:
+        """Check whether the requested LIDAR export can proceed."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/exports/lidar:preflight",
+            json=request.model_dump(mode="json", exclude_unset=True, exclude_none=True),
+        )
+        return LidarExportPreflight.model_validate(resp.json())
+
+    def preview_orphan_tasks(self, project_id: IdLike) -> OrphanTasksPreview:
+        """Count project tasks whose linked source data is gone."""
+        resp = self._http.request("GET", f"/projects/{project_id}/orphan-tasks/preview")
+        return OrphanTasksPreview.model_validate(resp.json())
+
+    def cleanup_orphan_tasks(self, project_id: IdLike) -> OrphanTasksCleanupResult:
+        """Delete orphan tasks and their annotations, locks, comments, and drafts."""
+        resp = self._http.request(
+            "POST", f"/projects/{project_id}/orphan-tasks/cleanup"
+        )
+        return OrphanTasksCleanupResult.model_validate(resp.json())
+
+    def transfer(self, project_id: IdLike, request: ProjectTransferRequest) -> Project:
+        """Transfer project ownership to an active project administrator."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/transfer",
+            json=request.model_dump(mode="json", exclude_unset=True),
+        )
+        return Project.model_validate(resp.json())
 
 
 class Datasets:
@@ -217,6 +437,62 @@ class Datasets:
 
     def delete(self, dataset_id: IdLike) -> None:
         self._http.request("DELETE", f"/datasets/{dataset_id}")
+
+    def backfill_dimensions(
+        self, dataset_id: IdLike, batch: int = 50
+    ) -> DatasetBackfillDimensionsResult:
+        """Process one image-dimension batch.
+
+        ``remaining_hint`` only says the selected batch was full, not where a
+        cursor should resume. Failed rows remain eligible on later calls, so
+        inspect ``failed`` and do not treat ``processed == 0`` as completion.
+        """
+        response = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/backfill-dimensions",
+            params={"batch": batch},
+        )
+        return DatasetBackfillDimensionsResult.model_validate(response.json())
+
+    def backfill_media(self, dataset_id: IdLike) -> DatasetBackfillMediaResult:
+        response = self._http.request("POST", f"/datasets/{dataset_id}/backfill-media")
+        return DatasetBackfillMediaResult.model_validate(response.json())
+
+    def backfill_scenes(
+        self,
+        dataset_id: IdLike,
+        *,
+        mode: str = "auto",
+        dry_run: bool = False,
+    ) -> DatasetBackfillScenesResult:
+        response = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/scenes/backfill",
+            params={"mode": mode, "dry_run": dry_run},
+        )
+        return DatasetBackfillScenesResult.model_validate(response.json())
+
+    def import_from_connection(
+        self,
+        dataset_id: IdLike,
+        request: DatasetImportFromConnectionRequest,
+    ) -> DatasetImportFromConnectionResult:
+        response = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/import-from-connection",
+            json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+        )
+        return DatasetImportFromConnectionResult.model_validate(response.json())
+
+    def scan_items(self, dataset_id: IdLike) -> DatasetScanItemsResult:
+        response = self._http.request("POST", f"/datasets/{dataset_id}/items/scan")
+        return DatasetScanItemsResult.model_validate(response.json())
+
+    def sniff_axis_convention(self, dataset_id: IdLike) -> DatasetSniffAxisResult:
+        response = self._http.request(
+            "POST", f"/datasets/{dataset_id}/sniff-axis-convention"
+        )
+        return DatasetSniffAxisResult.model_validate(response.json())
 
     def list_items(
         self, dataset_id: IdLike, limit: int = 50, offset: int = 0
@@ -465,6 +741,36 @@ class Annotations:
         )
         return AnnotationBulkUpdateResult.model_validate(resp.json())
 
+    def import_file(
+        self,
+        project_id: IdLike,
+        file_path: str | Path,
+        *,
+        dry_run: bool = False,
+        overwrite: bool = False,
+    ) -> AnnotationImportResult:
+        """Import AAP JSON annotations into an owned project.
+
+        The server accepts files up to 64 MiB; API-key callers require
+        ``annotations:write`` plus current project management authority. A non-dry-run may write annotations and an audit
+        record. It has no idempotency key, so the SDK sends it exactly once.
+        Partial import results are returned in ``errors`` and should be kept.
+        """
+        path = Path(file_path)
+        if path.stat().st_size > 64 * 1024 * 1024:
+            raise AAPError("annotation import file must be at most 64 MiB")
+        params = {"format": "aap_json", "dry_run": dry_run}
+        data = {"overwrite": "true" if overwrite else "false"}
+        with path.open("rb") as file:
+            resp = self._http.request(
+                "POST",
+                f"/projects/{project_id}/annotations/import",
+                params=params,
+                data=data,
+                files={"file": (path.name, file)},
+            )
+        return AnnotationImportResult.model_validate(resp.json())
+
 
 class Feedbacks:
     def __init__(self, http: HttpTransport):
@@ -542,6 +848,48 @@ class Feedbacks:
         resp = self._http.request("GET", "/feedbacks", params=params)
         return FeedbackPage.model_validate(resp.json())
 
+    def thread(
+        self,
+        root_feedback_id: IdLike,
+        *,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> FeedbackThreadPage:
+        """Read one root and a page of its active replies.
+
+        The cursor is opaque and bound to this root; pass ``next_cursor`` back
+        unchanged when requesting the next page.
+        """
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise ValueError("limit must be an integer between 1 and 200")
+        params = _drop_none({"cursor": cursor, "limit": limit})
+        resp = self._http.request(
+            "GET", f"/feedbacks/{root_feedback_id}/thread", params=params
+        )
+        return FeedbackThreadPage.model_validate(resp.json())
+
+    def reply(
+        self, feedback_id: IdLike, body: AnnotationFeedbackReply
+    ) -> AnnotationFeedback:
+        """Reply once to an active item; the server checks visibility and permission."""
+        payload = body.model_dump(mode="json", by_alias=True)
+        resp = self._http.request(
+            "POST", f"/feedbacks/{feedback_id}/replies", json=payload
+        )
+        return AnnotationFeedback.model_validate(resp.json())
+
+    def patch(
+        self, feedback_id: IdLike, body: AnnotationFeedbackPatch
+    ) -> AnnotationFeedback:
+        """Patch explicit fields, preserving explicit nulls for the API contract."""
+        payload = body.model_dump(mode="json", by_alias=True, exclude_unset=True)
+        resp = self._http.request("PATCH", f"/feedbacks/{feedback_id}", json=payload)
+        return AnnotationFeedback.model_validate(resp.json())
+
+    def delete(self, feedback_id: IdLike) -> None:
+        """Soft-delete feedback; the API returns 204 with no body."""
+        self._http.request("DELETE", f"/feedbacks/{feedback_id}")
+
 
 class Predictions:
     def __init__(self, http: HttpTransport):
@@ -579,6 +927,22 @@ class Predictions:
                 files={"file": (path.name, f)},
             )
         return ImportResult.model_validate(resp.json())
+
+    def purge(
+        self, project_id: IdLike, body: PredictionPurgeRequest
+    ) -> PredictionPurgeResponse:
+        """Count or remove predictions in a project managed by this account.
+
+        Use ``body.dry_run=True`` to inspect counts first. A write may permanently
+        remove matching predictions and their metadata; it is sent once and the
+        returned counts are the receipt for what the server removed.
+        """
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/predictions/purge",
+            json=body.model_dump(mode="json"),
+        )
+        return PredictionPurgeResponse.model_validate(resp.json())
 
 
 class Jobs:
@@ -936,6 +1300,156 @@ class Batches:
         )
         return [Batch.model_validate(x) for x in resp.json()]
 
+    def unclassified_count(self, project_id: IdLike) -> UnclassifiedTaskCount:
+        """Count project tasks without a batch assignment."""
+        resp = self._http.request(
+            "GET", f"/projects/{project_id}/batches/unclassified-count"
+        )
+        return UnclassifiedTaskCount.model_validate(resp.json())
+
+    def audit_logs(
+        self, project_id: IdLike, batch_id: IdLike, limit: int = 50
+    ) -> list[BatchAuditLogEntry]:
+        """Read the bounded batch audit history (project-visible access)."""
+        resp = self._http.request(
+            "GET",
+            f"/projects/{project_id}/batches/{batch_id}/audit-logs",
+            params={"limit": limit},
+        )
+        return [BatchAuditLogEntry.model_validate(item) for item in resp.json()]
+
+    def bulk_archive(
+        self, project_id: IdLike, batch_ids: Sequence[IdLike]
+    ) -> BulkBatchActionResult:
+        """Archive 1–200 batches; inspect succeeded/skipped/failed separately."""
+        body = BatchIdsRequest(batch_ids=list(batch_ids))
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/bulk-archive",
+            json=body.model_dump(mode="json", by_alias=True),
+        )
+        return BulkBatchActionResult.model_validate(resp.json())
+
+    def bulk_delete(
+        self,
+        project_id: IdLike,
+        batch_ids: Sequence[IdLike],
+        *,
+        force: bool = False,
+    ) -> BulkBatchActionResult:
+        """Delete 1–200 batches, optionally forcing cleanup of active work."""
+        body = BatchIdsRequest(batch_ids=list(batch_ids))
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/bulk-delete",
+            params={"force": True} if force else None,
+            json=body.model_dump(mode="json", by_alias=True),
+        )
+        return BulkBatchActionResult.model_validate(resp.json())
+
+    def distribution_preview(
+        self, project_id: IdLike, body: BatchDistributionRequest
+    ) -> BatchDistributionPreview:
+        """Preview assignments. The returned version is required for apply."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/distribution-preview",
+            json=body.model_dump(mode="json", by_alias=True, exclude_unset=True),
+        )
+        return BatchDistributionPreview.model_validate(resp.json())
+
+    def distribution_apply(
+        self, project_id: IdLike, body: ReviewedBatchDistribution
+    ) -> BatchDistributeResult:
+        """Apply the exact reviewed input and version; 409 is surfaced without retry."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/distribution-apply",
+            json=body.model_dump(mode="json", by_alias=True, exclude_unset=True),
+        )
+        return BatchDistributeResult.model_validate(resp.json())
+
+    def split(self, project_id: IdLike, body: BatchSplitRequest) -> list[Batch]:
+        """Split unassigned tasks using one of the API's four supported strategies."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/split",
+            json=body.model_dump(mode="json", by_alias=True, exclude_unset=True),
+        )
+        return [Batch.model_validate(item) for item in resp.json()]
+
+    def admin_lock(self, project_id: IdLike, batch_id: IdLike, reason: str) -> Batch:
+        """Lock a batch as its project manager; the reason is audited."""
+        body = AdminBatchLockRequest(reason=reason)
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/{batch_id}/admin-lock",
+            json=body.model_dump(mode="json", by_alias=True),
+        )
+        return Batch.model_validate(resp.json())
+
+    def admin_unlock(self, project_id: IdLike, batch_id: IdLike) -> Batch:
+        """Unlock a batch as its project manager."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/{batch_id}/admin-unlock",
+            json={},
+        )
+        return Batch.model_validate(resp.json())
+
+    def assignment_preview(
+        self,
+        project_id: IdLike,
+        batch_id: IdLike,
+        body: BatchAssignmentPreviewRequest,
+    ) -> BatchDistributionPreview:
+        """Preview one batch's complete annotator/reviewer assignment target."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/{batch_id}/assignment-preview",
+            json=body.model_dump(mode="json", by_alias=True, exclude_unset=True),
+        )
+        return BatchDistributionPreview.model_validate(resp.json())
+
+    def assignment_apply(
+        self,
+        project_id: IdLike,
+        batch_id: IdLike,
+        body: ReviewedBatchAssignment,
+    ) -> Batch:
+        """Apply both nullable role targets with the reviewed CAS version."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/{batch_id}/assignment-apply",
+            json=body.model_dump(mode="json", by_alias=True, exclude_unset=True),
+        )
+        return Batch.model_validate(resp.json())
+
+    def lidar_preflight(
+        self,
+        project_id: IdLike,
+        batch_id: IdLike,
+        body: LidarExportPreflightRequest,
+    ) -> LidarExportPreflightResult:
+        """Check lidar export readiness; ``ready=False`` is a normal response."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/{batch_id}/exports/lidar:preflight",
+            json=body.model_dump(mode="json", by_alias=True, exclude_unset=True),
+        )
+        return LidarExportPreflightResult.model_validate(resp.json())
+
+    def submit_review(
+        self, project_id: IdLike, batch_id: IdLike
+    ) -> BatchSubmitReviewResult:
+        """Submit pending/in-progress tasks in a batch for review."""
+        resp = self._http.request(
+            "POST",
+            f"/projects/{project_id}/batches/{batch_id}/submit-review",
+            json={},
+        )
+        return BatchSubmitReviewResult.model_validate(resp.json())
+
     def get(self, project_id: IdLike, batch_id: IdLike) -> Batch:
         resp = self._http.request("GET", f"/projects/{project_id}/batches/{batch_id}")
         return Batch.model_validate(resp.json())
@@ -1247,6 +1761,91 @@ class Dashboard:
         )
         return MyPerformance.model_validate(resp.json())
 
+    def annotator_onboarding(self, project_id: IdLike) -> OnboardingProjectSummary:
+        """Return the current user's durable onboarding progress for one project."""
+        resp = self._http.request(
+            "GET", f"/dashboard/annotator/projects/{project_id}/onboarding"
+        )
+        return OnboardingProjectSummary.model_validate(resp.json())
+
+    def annotator_batches(self) -> list[MyBatchItem]:
+        """List assigned active annotation batches visible to the current account."""
+        resp = self._http.request("GET", "/dashboard/annotator/batches")
+        return [MyBatchItem.model_validate(item) for item in resp.json()]
+
+    def reviewer_today_mini(self) -> ReviewerMiniStats:
+        """Return the current reviewer's approved/rejected counts and time today."""
+        resp = self._http.request("GET", "/dashboard/reviewer/today-mini")
+        return ReviewerMiniStats.model_validate(resp.json())
+
+    def recent_reviews(self, limit: int = 20) -> list[RecentReviewItem]:
+        """List up to 100 most recently reviewed tasks visible to the current user."""
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("limit must be an integer between 1 and 100")
+        resp = self._http.request(
+            "GET", "/dashboard/me/recent-reviews", params={"limit": limit}
+        )
+        return [RecentReviewItem.model_validate(item) for item in resp.json()]
+
+    def person_detail(
+        self,
+        user_id: IdLike,
+        *,
+        period: str = "4w",
+        project: IdLike | None = None,
+    ) -> AdminPersonDetail:
+        """Return a user's performance detail for an authorized admin scope.
+
+        Project admins must provide an owned project and the user must belong to
+        it; super admins may omit the project for a global view.
+        """
+        resp = self._http.request(
+            "GET",
+            f"/dashboard/admin/people/{user_id}",
+            params=_drop_none(
+                {
+                    "period": period,
+                    "project": str(project) if project is not None else None,
+                }
+            ),
+        )
+        return AdminPersonDetail.model_validate(resp.json())
+
+    def prediction_cost_stats(self, range: str = "30d") -> PredictionCostStats:
+        """Return global prediction cost statistics (super-admin only)."""
+        if range not in {"7d", "30d"}:
+            raise ValueError("range must be '7d' or '30d'")
+        resp = self._http.request(
+            "GET", "/dashboard/admin/prediction-cost-stats", params={"range": range}
+        )
+        return PredictionCostStats.model_validate(resp.json())
+
+    def people_export(
+        self,
+        dest_path: str | Path,
+        *,
+        role: str | None = None,
+        project: IdLike | None = None,
+        period: str = "7d",
+        sort: str = "throughput",
+        q: str | None = None,
+    ) -> Path:
+        """Stream the authorized people-performance CSV to ``dest_path`` once."""
+        params = _drop_none(
+            {
+                "role": role,
+                "project": str(project) if project is not None else None,
+                "period": period,
+                "sort": sort,
+                "q": q,
+            }
+        )
+        return self._http.stream_download(
+            "/api/v1/dashboard/admin/people/export",
+            Path(dest_path),
+            params=params,
+        )
+
 
 class ApiKeys:
     def __init__(self, http: HttpTransport):
@@ -1296,6 +1895,15 @@ class ApiKeys:
         resp = self._http.request("POST", f"/me/api-keys/{key_id}/rotate")
         return ApiKeyCreated.model_validate(resp.json())
 
+    def patch(self, key_id: IdLike, body: ApiKeyUpdateRequest) -> ApiKey:
+        """Send explicit fields; expires_in_days=None clears the expiry."""
+        resp = self._http.request(
+            "PATCH",
+            f"/me/api-keys/{key_id}",
+            json=body.model_dump(mode="json", exclude_unset=True),
+        )
+        return ApiKey.model_validate(resp.json())
+
     def revoke(self, key_id: IdLike) -> None:
         self._http.request("DELETE", f"/me/api-keys/{key_id}")
 
@@ -1325,6 +1933,50 @@ class Client:
         self.tasks = Tasks(self._http)
         self.annotations = Annotations(self._http)
         self.feedbacks = Feedbacks(self._http)
+        self.notifications = Notifications(self._http)
+        self.pipelines = ProjectPipelines(self._http)
+        self.data_manager = DataManager(self._http)
+        self.task_views = TaskViews(self._http)
+        self.storage = Storage(self._http)
+        self.project_templates = ProjectTemplates(self._http)
+        self.video_tracker = VideoTracker(self._http)
+        self.video_review = VideoReview(self._http)
+        self.videos = Videos(self._http)
+        self.task_videos = TaskVideos(self._http)
+        self.files = Files(self._http)
+        self.scenes = Scenes(self._http)
+        self.health = Health(self._http)
+        self.auth = Auth(self._http)
+        self.ml_capabilities = MLCapabilities(self._http)
+        self.system_settings = SystemSettings(self._http)
+        self.account = Account(self._http)
+        self.avatars = Avatars(self._http)
+        self.users = Users(self._http)
+        self.groups = Groups(self._http)
+        self.invitations = Invitations(self._http)
+        self.storage_connections = StorageConnections(self._http)
+        self.admin_operations = AdminOperations(self._http)
+        self.ml_diagnostics = MLDiagnostics(self._http)
+        self.project_ml = ProjectML(self._http)
+        self.audit_logs = AuditLogs(self._http)
+        self.guide_assets = GuideAssets(self._http)
+        self.project_performance = ProjectPerformance(self._http)
+        self.search = Search(self._http)
+        self.streams = Streams(self._http)
+        self.task_context = TaskContext(self._http)
+        self.image_pyramids = ImagePyramids(self._http)
+        self.cross_frame_jobs = CrossFrameJobs(self._http)
+        self.task_locks = TaskLocks(self._http)
+        self.point_cloud = PointCloud(self._http)
+        self.scene_tracks = SceneTracks(self._http)
+        self.annotation_operations = AnnotationOperations(self._http)
+        self.comments = Comments(self._http)
+        self.annotation_history = AnnotationHistory(self._http)
+        self.bug_reports = BugReports(self._http)
+        self.mask_formats = MaskFormats(self._http)
+        self.mask_qc = MaskQC(self._http)
+        self.point_cloud_quality = PointCloudQuality(self._http)
+        self.failed_predictions = FailedPredictions(self._http)
         self.predictions = Predictions(self._http)
         self.jobs = Jobs(self._http)
         self.exports = Exports(self._http, self.jobs)

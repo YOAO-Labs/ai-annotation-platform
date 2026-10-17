@@ -22,6 +22,442 @@ OUTPUT = SOURCE / "_operation_catalog.generated.json"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _MISSING = object()
 METHOD_NOTES: dict[str, dict[str, Any]] = {
+    "files.upload_init": {
+        "constraints": [
+            "Requires project manager authority before task creation/storage signing. Creates an uploading task and a temporary PUT URL (900 seconds), not a dataset item. Save task_id; no idempotency key or automatic POST retry."
+        ],
+    },
+    "files.upload_content": {
+        "constraints": [
+            "Streams the local file to the absolute init upload_url without platform credentials. content_type must match initialization. No redirect/retry or implicit completion; preserve task_id and explicitly call upload_complete only after a successful 2xx PUT."
+        ],
+    },
+    "files.upload_complete": {
+        "constraints": [
+            "Requires project manager authority before storage verification or queue dispatch. The task must still be uploading; success moves it to pending and may enqueue an image thumbnail. No automatic retry or implicit wait."
+        ],
+    },
+    "files.file_url": {
+        "constraints": [
+            "Rechecks current task visibility, including project, batch and assignment, before signing. URL is temporary (3600 seconds), not durable identity; reacquire it after expiry."
+        ],
+    },
+    "files.backfill_thumbnails": {
+        "constraints": [
+            "Requires legitimate project owner/super_admin. Returns queued and a Celery task ID, not a generic AsyncJob ID or completion proof. No automatic POST retry."
+        ],
+    },
+    "scenes.list": {
+        "constraints": [
+            "Returns a raw unpaginated array for dataset_id. Scenes follow the global dataset-catalog read policy, not project membership or creator privacy. API keys require datasets:read."
+        ],
+    },
+    "scenes.get": {
+        "constraints": [
+            "Requires authenticated identity and datasets:read for API keys; unknown scene returns 404. Current global dataset policy remains authoritative."
+        ],
+    },
+    "scenes.trajectory": {
+        "constraints": [
+            "Returns scene_id and frame-index-ordered ego poses; no pose data means an empty array. API keys require datasets:read. This is source trajectory metadata, not annotation/tracker geometry."
+        ],
+    },
+    "scenes.update": {
+        "constraints": [
+            "Requires platform project_admin/super_admin like dataset metadata writes. Only explicit fields are sent; null is no-op and source_metadata={} clears it. No CAS revision; name conflicts remain 409."
+        ],
+    },
+    "video_review.upload_mask_content": {
+        "constraints": [
+            "Uploads COCO RLE JSON for a visible editable task and returns an immutable content-addressed reference; does not edit an annotation. Requires annotations:write and server quota/geometry capability checks. storage_encoding is separate from COCO RLE encoding."
+        ],
+    },
+    "video_review.get_annotation_mask_content": {
+        "constraints": [
+            "Requires annotations:read and current parent-task visibility. Returns static COCO RLE JSON; no conditional cache header is sent. For a track use the frame-specific method."
+        ],
+    },
+    "video_review.get_annotation_frame_mask_content": {
+        "constraints": [
+            "Resolves a visible annotation's mask at the absolute source frame; an outside or missing mask returns 404. Response is JSON, not image bytes."
+        ],
+    },
+    "video_review.get_prediction_mask_content": {
+        "constraints": [
+            "Task/prediction identity and current visibility are jointly checked. shape_index selects the prediction shape; frame_index is the absolute source frame. Returns resolved COCO RLE JSON."
+        ],
+    },
+    "video_review.save_mask_keyframe": {
+        "constraints": [
+            'Pass the uploaded CocoRleMaskRef, exact task/annotation/frame and current annotation expected_version. Sends If-Match W/"version"; the server checks parent identity, editability and segment lease. 409 never refreshes or retries the write.'
+        ],
+    },
+    "video_review.operate_mask_keyframe": {
+        "constraints": [
+            "Delete, mark outside or restore against exact annotation expected_version/If-Match. The server checks lease and keyframe validity; deleting the last keyframe and invalid outside/restoration transitions are rejected."
+        ],
+    },
+    "video_review.list_track_quality_runs": {
+        "domain_effects": [
+            "This read can refresh stale status against current inputs."
+        ],
+        "constraints": [
+            "Unpaginated task-scoped quality runs; their statuses and digests are distinct from tracker candidate review."
+        ],
+    },
+    "video_review.run_track_quality": {
+        "constraints": [
+            "Requires adjacent completed collaboration segments. HTTP 200 creates or reuses a domain run and dispatches an AsyncJob; it is not completed quality analysis. Same current input digest may reuse an eligible run."
+        ],
+    },
+    "video_review.get_track_quality_run": {
+        "constraints": [
+            "The run must belong to the task. Reading can mark stale and includes current chapter-derived metrics; preserve input_digest for any acceptance."
+        ],
+    },
+    "video_review.accept_track_quality_run": {
+        "constraints": [
+            "Requires task reviewer or project management authority, exact input_digest and complete pair decisions. The server rejects stale input and incompatible pairs/components; 409 is not automatically refreshed or retried."
+        ],
+    },
+    "video_review.compose_tracks": {
+        "constraints": [
+            "Requires editable task annotations and valid segment write range. delete_sources defaults to true and can deactivate input annotations. Inspect operation-specific geometry/count/frame rules before confirming; no If-Match or idempotency key is available."
+        ],
+    },
+    "video_review.convert_track_to_bboxes": {
+        "constraints": [
+            "copy preserves the source, while split may deactivate or remove part of its track. scope=frame needs frame_index; frame_mode selects keyframes or all_frames for track scope. No If-Match/idempotency key; read current source and deliberately confirm split."
+        ],
+    },
+    "video_tracker.list_jobs": {
+        "constraints": [
+            "Requires project_admin or super_admin; project administrators are restricted to projects they own. Opaque cursor pages have limit 1–100. counts follow project/model filters but ignore status/cursor."
+        ],
+    },
+    "video_tracker.get_job": {
+        "constraints": [
+            "Task visibility is rechecked. Tracker completed only describes compute; pending_review/partially_reviewed await candidate decisions, accepted/discarded describe review."
+        ],
+    },
+    "video_tracker.list_active": {
+        "constraints": [
+            "Recover queued/running jobs after uncertain creation before another POST. Ordinary task actors list their own jobs; privileged actors may see all task jobs."
+        ],
+    },
+    "video_tracker.list_reviewable": {
+        "constraints": [
+            "Returns task jobs with staged reviewable results, including eligible cancelled jobs; ordinary task actors see their own jobs. This is an unpaginated array, not an AsyncJob page."
+        ],
+    },
+    "video_tracker.track": {
+        "constraints": [
+            "Preferred task-level creation route. Source annotations must belong to the task; no-source discovery needs configured target class/tool unit. Model keys/capabilities are dynamic. Do not combine singular and plural source selectors; the server otherwise prioritizes a nonempty plural list.",
+            "The server checks task editability, absolute frame bounds and a valid segment lease covering the window. HTTP 202 returns tracker job identity, not a generic AsyncJob ID. No idempotency key/automatic POST retry; recover with list_active/list_reviewable after an uncertain response.",
+        ],
+    },
+    "video_tracker.propagate": {
+        "constraints": [
+            "Legacy single-annotation creation path; task-level track is preferred. The annotation/task relationship and segment lease are checked, and creation has no idempotency key or automatic retry."
+        ],
+    },
+    "video_tracker.create_correction": {
+        "constraints": [
+            "First upload and save the manual mask keyframe with the current annotation version. Preserve correction frame, source_annotation_version, corrected_mask_digest, exact model/backend and segment. Bbox fallback is explicit. This 202 job requires local decisions rather than whole-job accept/discard."
+        ],
+    },
+    "video_tracker.get_preview": {
+        "constraints": [
+            "Read authoritative job_revision, expected_source_versions, candidate selectors/digests and manual protection before decisions. The response contains all current candidates without result pagination."
+        ],
+    },
+    "video_tracker.decide_candidates": {
+        "constraints": [
+            "Select instance_ids+from_frame+to_frame or qc_issue_id+candidate_digest, exclusively. Preserve preview job_revision and required source versions. The server checks lease/source evidence; 409 requires deliberate reread, never automatic refresh/replay. override_manual requires privilege."
+        ],
+    },
+    "video_tracker.accept_job": {
+        "constraints": [
+            "Accepts ordinary tracking candidates and writes annotations after permission, lease and source-version checks. Correction jobs require local decisions; no implicit override or POST retry."
+        ],
+    },
+    "video_tracker.discard_job": {
+        "constraints": [
+            "Discards ordinary tracking candidates without annotation writes. Correction jobs require local decisions. The server owns replay and current lease/permission checks."
+        ],
+    },
+    "video_tracker.cancel_job": {
+        "constraints": [
+            "Returns the updated tracker job. Ordinary tracking pending review requires discard instead; correction cancellation may clear staged candidates. Cancellation is not proof the worker has stopped."
+        ],
+    },
+    "video_tracker.get_mask_content": {
+        "constraints": [
+            "Returns COCO RLE JSON, not binary bytes. Requires annotations:read, visible parent task and a SHA belonging to this job; invalid objects conflict and storage unavailability is retryable 503."
+        ],
+    },
+    "project_templates.list": {
+        "constraints": [
+            "Returns a raw array of visible templates with no server pagination. scope and repeated type_key filters narrow it; search matches names. Private/organization/public visibility is checked by the server; super_admin sees all.",
+        ],
+    },
+    "project_templates.create": {
+        "constraints": [
+            "Requires project_admin or super_admin; only super_admin may create public templates. organization requires organization_id; the current create service does not additionally require organization membership.",
+            "source_project_id uses a visible project to fill omitted identity/configuration fields; explicit overrides win. Without a source, name/type_label/type_key are required. Explicit null identity fields are invalid. Creation has no idempotency key or automatic retry.",
+        ],
+    },
+    "project_templates.get": {
+        "constraints": [
+            "Invisible templates return 404. API-key validity and current user visibility remain authoritative; the template routes do not declare separate API-key scopes."
+        ],
+    },
+    "project_templates.update": {
+        "constraints": [
+            "Requires creator or super_admin; invisible templates return 404. Only explicit fields are sent, including null; no revision/If-Match protection is available. Configuration remains server-owned."
+        ],
+    },
+    "project_templates.delete": {
+        "constraints": [
+            "Requires creator or super_admin and returns empty 204. Existing projects retain their copied configuration; usage_count does not prevent deletion."
+        ],
+    },
+    "project_templates.duplicate": {
+        "constraints": [
+            "Requires administrator role and visible source. Sends no request body, creates an owned private copy with reset usage_count; no idempotency key or automatic retry."
+        ],
+    },
+    "projects.create": {
+        "constraints": [
+            "template_id and source_project_id are mutually exclusive. Omit type fields and type_label to inherit server defaults from the visible source/template; explicit overrides win. No SDK-side configuration merge is performed.",
+            "copy_annotation_guide is a source-project option and cannot accompany template_id. Template guide text is inherited but guide asset objects are not copied. Creation has no idempotency key and is not retried automatically.",
+        ],
+    },
+    "storage.health": {
+        "constraints": [
+            "Authenticated probe of the annotation bucket; this is not a full check of every configured storage role."
+        ],
+    },
+    "storage.buckets": {
+        "domain_effects": [
+            "May list many storage objects to compute bucket summaries."
+        ],
+        "constraints": [
+            "Inspect each item's status/error; a successful HTTP envelope does not mean every bucket is healthy."
+        ],
+    },
+    "storage.video_asset_failures": {
+        "constraints": [
+            "Requires project_admin or super_admin. Project administrators see dataset-only assets and assets linked to projects they own. Limit/offset pages can change while generation runs."
+        ],
+    },
+    "storage.retry_video_asset": {
+        "constraints": [
+            "Administrator operation; the server rechecks project ownership of the dataset item. chunk requires chunk_id; frame requires frame_index, width and format. Metadata asset kinds queue the metadata generator.",
+            "HTTP 202/status=queued acknowledges scheduling, not repair. No idempotency key or implicit wait/POST retry; reread failure and descriptor state before another deliberate attempt.",
+        ],
+    },
+    "data_manager.schema": {
+        "constraints": [
+            "Fields, operators, options, columns and supported entity scopes are specific to the current project. Fetch this before building an unfamiliar filter; the response has no schema revision."
+        ],
+    },
+    "data_manager.summary": {
+        "domain_effects": [
+            "This POST computes a read-only task-centric summary over the full matched visible scope, independently of page offsets."
+        ],
+        "constraints": [
+            "The current handler accepts dimensions for compatibility but returns the standard aggregate set; it does not provide selective dimension projection."
+        ],
+    },
+    "data_manager.matches": {
+        "domain_effects": [
+            "This POST is a read-only explanation query, not a task mutation."
+        ],
+        "constraints": [
+            "The project/task pair and current task visibility are jointly checked. Annotation, prediction-shape and tracker matches share one offset/limit window; this response is not raw geometry."
+        ],
+    },
+    "data_manager.query_objects": {
+        "domain_effects": [
+            "This POST reads visible active object rows and facets; it does not mutate annotations."
+        ],
+        "constraints": [
+            "Use the object-grain project schema. Preserve filter groups and opaque cursors; reset cursor when filters or sort change. Current entity queries use only the first sort item and validate columns without pruning returned row fields."
+        ],
+    },
+    "data_manager.query_tracks": {
+        "domain_effects": ["This POST is a read-only logical-track query."],
+        "constraints": [
+            "Track scope must be available for the project. Use the server track_ref locator, not track_id. Current entity queries use the first sort item and do not prune returned row fields by columns_json; reset opaque cursors when query context changes."
+        ],
+    },
+    "data_manager.object_detail": {
+        "constraints": [
+            "The annotation must belong to a currently visible project task and be an eligible active object; invisible, foreign or unavailable objects return 404."
+        ],
+    },
+    "data_manager.object_location": {
+        "constraints": [
+            "Returns the direct location object, not a nested location envelope or media bytes. Project/task/annotation visibility is rechecked."
+        ],
+    },
+    "data_manager.track_detail": {
+        "constraints": [
+            "Pass the opaque server track_ref unchanged; the SDK encodes it as a path parameter. The response includes all visible members and has no member-pagination limit."
+        ],
+    },
+    "data_manager.assignment_preview": {
+        "domain_effects": ["This POST previews assignment without applying it."],
+        "constraints": [
+            "Select 1–200 task UUIDs; IDs are sorted and deduplicated. At least one owner field must be explicit: omitted keeps the override, null clears it and inherits the batch owner. Preserve the returned preview_version and review per-item eligibility/effective owners."
+        ],
+    },
+    "data_manager.assignment_apply": {
+        "constraints": [
+            "Submit the same canonical selection and explicit assignment fields with preview_version. The server locks/recomputes current state; 409 requires a fresh preview and a deliberate decision, never an automatic retry.",
+            "Project management authority and target membership roles are rechecked. skipped_count/failed_count and succeeded IDs must be inspected; HTTP success is not success for every selected task.",
+        ],
+    },
+    "data_manager.export_tasks": {
+        "constraints": [
+            "Exports exactly 1–200 selected visible task UUIDs and never falls back to a project-wide selection. Requires export.annotations capability. Video scope and VOC/coco-multicamera/nuscenes/kitti/pointmask targets are unavailable for this selected-task route.",
+            "Optional Idempotency-Key is caller supplied (server trims and requires 1–128 characters). Preserve the original key/body; same scoped key with different canonical content conflicts. The SDK does not retry POST automatically.",
+            "HTTP 202 returns job_id/status, including an existing terminal status on replay; it is not the artifact. Observe with jobs.get/wait and download via exports.download without persisting signed URLs.",
+        ],
+    },
+    "task_views.list": {
+        "constraints": [
+            "Returns an unpaginated items envelope containing built-in and visible saved views. Built-ins have null id and a key, and cannot be passed to saved-view UUID routes. Null counts plus invalid_fields preserve invalid configurations instead of treating them as empty."
+        ],
+    },
+    "task_views.get": {
+        "constraints": [
+            "The project_id/view_id pair is checked together. Private views are owner-visible; project views are visible to authorized project members. Do not infer access to another user's private view from a global role."
+        ],
+    },
+    "task_views.create": {
+        "constraints": [
+            "View fields use the current project/entity schema. Project-shared visibility requires project management authority; private is the default. Invalid names or duplicate names remain server validation/conflict errors."
+        ],
+    },
+    "task_views.update": {
+        "constraints": [
+            "entity_scope cannot be changed. Omitted or null fields remain unchanged; use {} or [] to clear filter/sort/column settings. Shared writes require project management authority and private writes require ownership."
+        ],
+    },
+    "task_views.delete": {
+        "constraints": [
+            "Deletes only the saved view configuration and returns empty 204; tasks, annotations and tracks are not deleted."
+        ],
+    },
+    "task_views.copy": {
+        "constraints": [
+            "The JSON body is required even when empty. Copy inherits source visibility by default; an ordinary member copying a shared view must explicitly select private visibility. The copy is owned by the caller and duplicate names can conflict."
+        ],
+    },
+    "task_views.query": {
+        "domain_effects": [
+            "This POST is a read-only project task query, with no task mutation or job creation."
+        ],
+        "constraints": [
+            "Uses limit/offset (1–200 per page), not cursor/revision/ETag. Get dynamic fields/operators from data_manager.schema. Explicit columns reduce expensive task projections; empty columns retain broader compatibility behavior. Interpret metrics with the requested columns: unrequested expensive fields may retain compatibility defaults. Do not flatten filter groups or compile filters locally."
+        ],
+    },
+    "task_views.query_view": {
+        "constraints": [
+            "Only saved views with entity_scope=tasks can use this route. Pass the view UUID and owning project, not a built-in key. Pagination is limit/offset without a cursor."
+        ],
+    },
+    "notifications.list": {
+        "constraints": [
+            "Returns the authenticated account's notifications; offset pages are not a stable snapshot while notifications change. Limit is 1–100.",
+            "A notification target is a locator, not an authorization grant; reread the owning resource before acting.",
+        ],
+    },
+    "notifications.mark_read": {
+        "constraints": [
+            "Marks one notification belonging to the authenticated account; a missing or already-read notification returns 404. This does not complete the target business task."
+        ],
+    },
+    "notifications.mark_all_read": {
+        "constraints": [
+            "Changes all unread notifications for the authenticated account; it does not prove their business tasks were completed."
+        ],
+    },
+    "notifications.clear_read": {
+        "constraints": [
+            "Deletes all read notifications for the authenticated account, without deleting their source feedback or tasks."
+        ],
+    },
+    "notifications.delete": {
+        "constraints": [
+            "Deletes one notification belonging to the authenticated account; it does not delete the target resource."
+        ],
+    },
+    "notifications.preferences": {
+        "constraints": [
+            "Returns effective preferences for the authenticated account and the server's current known notification types."
+        ],
+    },
+    "notifications.update_preference": {
+        "constraints": [
+            "Only explicit in_app/toast channels are patched; omitted channels are preserved, explicit null and empty patches are rejected. The server owns the valid notification-type list."
+        ],
+    },
+    "feedbacks.thread": {
+        "constraints": [
+            "The cursor is opaque and bound to root_feedback_id; reuse it only for that root thread in descending creation-time/ID order.",
+            "root is separate from items; total counts active descendants, including descendants reached through a deleted intermediate reply.",
+        ],
+    },
+    "feedbacks.reply": {
+        "constraints": [
+            "Sends only body and attachments; the server inherits scope from the parent and rechecks visibility and anchor freshness.",
+            "This API has no idempotency key. Do not automatically retry after an ambiguous result; reread the thread before deciding whether another reply is needed.",
+        ],
+    },
+    "feedbacks.patch": {
+        "constraints": [
+            "Omitted fields and explicit null are preserved. The current server treats null as no change, while mentions=[] clears mentions; content fields including null still affect permission checks.",
+            "Author/manager content-edit authority differs from reviewer Issue-status authority; readable feedback or actions hints do not replace server authorization.",
+        ],
+    },
+    "feedbacks.delete": {
+        "constraints": [
+            "Soft-deletes one feedback and returns empty HTTP 204. Deleting a root makes its thread unavailable; deleting a reply does not recursively delete its descendants."
+        ],
+    },
+    "pipelines.list": {
+        "constraints": [
+            "The API returns an unpaginated visible array; scope/project/organization filters are available, but limit/offset are not server parameters."
+        ],
+    },
+    "pipelines.create": {
+        "constraints": [
+            "Private scope requires project_id only, organization scope requires organization_id only, and public scope has neither; only private pipelines may be project defaults.",
+            "Saving validates structure; target backend enablement and runtime capabilities are checked later by apply/dispatch. There is no standalone server validate/dry-run endpoint.",
+        ],
+    },
+    "pipelines.update": {
+        "constraints": [
+            "Preserve omitted fields and explicit ownership-clearing nulls. The server validates the merged scope, current authority and default replacement."
+        ],
+    },
+    "pipelines.apply": {
+        "constraints": [
+            "Clones a visible saved pipeline into the target project and optionally switches its default; it does not run inference or return an async job.",
+            "The server checks all referenced backends are enabled in the target project; a visible source pipeline does not prove target-project applicability.",
+        ],
+    },
+    "pipelines.preannotate": {
+        "constraints": [
+            "Bulk and workbench scopes have distinct task/project/batch/state/lock rules; workbench targets one task without batch_id. Explicit task lists contain at most 200 items.",
+            "Idempotency-Key is optional and caller supplied. Preserve the exact key and request; a reused key with different content conflicts. The SDK neither generates keys nor retries POST automatically.",
+            "Root stage identity is parent_stage is None, not stage number zero. The server owns graph, backend and model-capability qualification; there is no dry-run endpoint.",
+            "Returns the actual job acknowledgement (currently HTTP 200), not completion. total_tasks may be unknown; observe job_id with jobs.get/wait, and do not dispatch another request just because polling times out.",
+        ],
+    },
     "training_studies.create": {
         "constraints": [
             "Creation requires preview_digest even though the shared preview model permits omission; submit the digest for the unchanged preview request.",
@@ -104,6 +540,704 @@ METHOD_NOTES: dict[str, dict[str, Any]] = {
         ],
     },
 }
+
+
+for _namespace in ("videos", "task_videos"):
+    for _method in ("manifest", "segments"):
+        METHOD_NOTES[f"{_namespace}.{_method}"] = {
+            "domain_effects": [
+                "This GET may create/persist video segments; segment reads can reconcile expired leases."
+            ],
+            "constraints": [
+                "Use the namespace's dataset_item_id or task_id, not an interchangeable UUID. Signed media URLs are temporary; refresh the descriptor after expiry."
+            ],
+        }
+    for _method in ("chunks", "chunk", "frame"):
+        METHOD_NOTES[f"{_namespace}.{_method}"] = {
+            "domain_effects": [
+                "This GET can create cache rows, enqueue generation or prewarm adjacent chunks. Bound frame ranges; an unbounded chunks query may process the whole video."
+            ],
+            "constraints": [
+                "Frame/chunk HTTP 202 is a JSON descriptor with status/retry_after, not binary media. Download only a ready descriptor with URL; polling is explicit. Frame width is 1–4096, formats webp/jpeg."
+            ],
+        }
+    METHOD_NOTES[f"{_namespace}.frame_timetable"] = {
+        "constraints": [
+            "Python from_frame/to_frame map to HTTP from/to. Source is ffprobe or estimated; unavailable metadata returns 503. No implicit conditional-cache or polling behavior."
+        ],
+    }
+    METHOD_NOTES[f"{_namespace}.prefetch_frames"] = {
+        "constraints": [
+            "Queues missing/failed frames for 1–500 requested indexes; the server deduplicates/sorts and validates actual video bounds. Acknowledgement is not generation completion."
+        ],
+    }
+    METHOD_NOTES[f"{_namespace}.retry_frames"] = {
+        "constraints": [
+            "Up to 500 indexes; empty retries matching failed frames, force clears selected cache objects and regenerates. Task-scoped retry requires annotations:write; dataset-item retry currently checks visible-task access only. No automatic POST retry."
+        ],
+    }
+    for _method in ("download_frame", "download_chunk"):
+        METHOD_NOTES[f"{_namespace}.{_method}"] = {
+            "constraints": [
+                "Requires a typed ready descriptor with an absolute signed URL. No descriptor refresh or polling. Uses no platform credentials, accepts full HTTP 200 only, validates available byte size and atomically replaces destination; failures preserve the old file."
+            ],
+        }
+
+METHOD_NOTES.update(
+    {
+        "task_videos.manifest_v2": {
+            "domain_effects": ["May create segment records."],
+            "constraints": [
+                "Task-scoped current manifest with signed URLs; the legacy manifest method remains a separate public route/schema."
+            ],
+        },
+        "videos.chunk_samples": {
+            "constraints": [
+                "Returns codec configuration and packet timestamps/offsets/sizes as JSON, not binary media or a local decoder. Missing diagnostics return 404."
+            ],
+        },
+        "videos.chapters": {
+            "constraints": [
+                "Unpaginated chapters sorted by frame range; server-derived frame_step/source fields are authoritative."
+            ],
+        },
+        "videos.create_chapter": {
+            "constraints": [
+                "Requires project manager authority. Ordered nonnegative frame bounds and nonblank title are validated; duplicate intervals conflict. Chapter metadata is not a tracker candidate or media-generation request."
+            ],
+        },
+        "videos.update_chapter": {
+            "constraints": [
+                "The chapter must belong to this dataset item and the actor must manage its project. Only explicit fields are sent; the server validates the merged interval and duplicate ranges. No revision/CAS token exists."
+            ],
+        },
+        "videos.delete_chapter": {
+            "constraints": [
+                "Checks dataset-item/chapter relationship and project management authority; deletes metadata, returns empty 204 and does not delete source media."
+            ],
+        },
+        "task_videos.claim_segment": {
+            "constraints": [
+                "Requires annotations:write and eligible task actor/segment assignment. Inspect locked_by/lock_expires_at; the lease is needed for ordinary actor tracking and annotation writes."
+            ],
+        },
+        "task_videos.heartbeat_segment": {
+            "constraints": [
+                "Explicitly extends the current owned lease using server TTL. SDK does not schedule background heartbeats or automatically reclaim after conflict."
+            ],
+        },
+        "task_videos.release_segment": {
+            "constraints": [
+                "Releases the caller's permitted task segment lease; subsequent writes still require current lease checks."
+            ],
+        },
+        "task_videos.submit_segment": {
+            "constraints": [
+                "Ordinary actor needs assignment and valid lease. Final segment submission can move task to review, freeze evidence and dispatch adjacent track-quality runs. Repeated completed submission returns current state."
+            ],
+        },
+        "task_videos.reopen_segment": {
+            "constraints": [
+                "Requires review authority; clears review evidence, returns task to in-progress and marks affected quality runs stale. Deliberate confirmation is required by CLI."
+            ],
+        },
+        "task_videos.unassign_segment": {
+            "constraints": [
+                "Requires review authority; completed segments must first be reopened. Changes assignment/lease ownership and requires CLI confirmation."
+            ],
+        },
+    }
+)
+
+
+for _namespace, _methods, _note in [
+    (
+        "health",
+        "get db redis minio celery",
+        "Public origin-root /health routes, outside /api/v1. HTTP 503 remains a typed report without retries; CLI prints it and exits 1 on degradation. Public errors omit internal diagnostics.",
+    ),
+    (
+        "auth",
+        "login register register_open refresh logout_all",
+        "JWT results do not update Client credentials or saved configuration. Preserve returned credentials explicitly. CLI uses hidden/file/stdin input; passwords, CAPTCHA and tokens are hidden from model repr, not from intentional JSON.",
+    ),
+    (
+        "auth",
+        "logout refresh",
+        "Requires a JWT session, not an API key. No automatic refresh or saved-credential replacement. Logout revokes only this session; refresh can reject invalidated sessions.",
+    ),
+    (
+        "auth",
+        "forgot_password send_verification_email verify_email reset_password",
+        "Explicit account recovery/verification flow with server rate limits and one-time credentials. Email operations contact SMTP; accepted forgot-password does not prove delivery. Reset invalidates prior JWT sessions.",
+    ),
+    (
+        "auth",
+        "resolve_invitation accept_invitation register",
+        "Invitation token is an opaque bearer credential. Resolve/register are public; existing-account acceptance checks authenticated email, current inviter authority and project relationship. No implicit login or credential persistence.",
+    ),
+    (
+        "account",
+        "get_preferences update_preferences",
+        "Preferences are extensible JSON. Send only the intended patch; server owns deep merge and atomic replacement. Named presets require current namedPresetsRevision; after 409 reread and reconcile, never substitute the newest token into stale full contents.",
+    ),
+    (
+        "account",
+        "upload_avatar set_avatar_ref clear_avatar",
+        "Explicit avatar replacement may delete the previous uploaded object. Upload uses multipart file, at most 2 MiB; server verifies and normalizes WebP. Preset selection cannot forge upload tokens.",
+    ),
+    (
+        "account",
+        "request_deactivation cancel_deactivation",
+        "Self-deactivation has a seven-day cooling period and notification effects. Cancellation applies only while eligible; no real account lifecycle action is implied by capability discovery.",
+    ),
+    (
+        "account",
+        "change_password",
+        "Explicit hidden/stdin password input; successful 204 does not imply JWT/API-key revocation. New password needs uppercase, lowercase and a digit.",
+    ),
+    (
+        "account",
+        "heartbeat",
+        "Updates account online state only when explicitly called. SDK does not schedule telemetry or background heartbeats.",
+    ),
+    (
+        "account",
+        "submit_task_events",
+        "Submit real closed intervals with stable caller-provided client_id. Inspect discarded and queued_async; CLI emits the full receipt then exits 1 on discarded rows. Queued is not committed processing proof.",
+    ),
+    (
+        "avatars",
+        "download",
+        "Public WebP token route with 32 lowercase hex characters. No conditional header is sent; full HTTP 200 is atomically saved and failures preserve the destination.",
+    ),
+    (
+        "api_keys",
+        "create rotate",
+        "One-time plaintext is a bearer credential. CLI requires --json or --show-secret before mutation plus confirmation; model repr hides plaintext, intentional JSON retains it. Rotation immediately invalidates the old key.",
+    ),
+    (
+        "api_keys",
+        "patch",
+        "Explicit typed patch preserves omission versus null: expires_in_days=null clears expiry. name/scopes cannot be null. Legacy update(..., expires_in_days=None) keeps its omission behavior.",
+    ),
+    (
+        "users",
+        "list",
+        "Compatibility unpaginated array. Project-admin active-employee assignment candidates ignore project_id; use query for project-scoped results. Visibility does not establish lifecycle authority.",
+    ),
+    (
+        "users",
+        "query stats export",
+        "Scoped management results; use bounded query pages and inspect is_managed/is_lifecycle_managed. Export records audit and streams a wrapped attachment once.",
+    ),
+    (
+        "users",
+        "invite bulk_invite",
+        "Creates bearer invitations without sending email; fresh invites invalidate earlier pending links. Bulk apply can partially succeed: inspect each item, retry only reconciled failures; CLI prints the receipt then exits 1 if failed>0.",
+    ),
+    (
+        "users",
+        "preview_bulk_invites preview_bulk_group_assignment",
+        "Read-only preview validates current scope but does not reserve state or perform the apply. Preview failures remain a normal receipt/exit 0.",
+    ),
+    (
+        "users",
+        "bulk_group_assignment",
+        "group_id is required: UUID assigns, explicit null clears every selected user's group. Apply may partially succeed; CLI prints all results then exits 1 if failed>0. No implicit omission-to-clear.",
+    ),
+    (
+        "users",
+        "assign_group",
+        "Explicit null clears the association. Server checks the same managed-target scope as bulk assignment before mutation.",
+    ),
+    (
+        "users",
+        "preview_role_change change_role",
+        "Superadmin-only platform role, distinct from project membership role. Preview is informative; role patch has no CAS token and rechecks compatibility without silently rewriting project duties.",
+    ),
+    (
+        "users",
+        "offboarding_preview offboard",
+        "Offboarding commit requires the original preview_version and explicit transfer choices. Server checks all related projects; stale 409 needs a fresh preview and new decision, not automatic resubmission.",
+    ),
+    (
+        "users",
+        "deactivate reactivate delete",
+        "Lifecycle authority is stricter than visibility. Suspension revokes keys; reactivation does not restore them. Delete/transfer and emergency suspension have different work-preservation effects; inspect current obligations before confirming.",
+    ),
+    (
+        "users",
+        "admin_reset_password",
+        "Returns one-time temporary credentials. CLI requires deliberate secret output and confirmation; model repr hides password/url. No email delivery is implied.",
+    ),
+    (
+        "groups",
+        "list query create update delete",
+        "Manager-gated global group directory; prefer paged query for agents. Delete clears user associations and requires explicit CLI confirmation. No CAS token.",
+    ),
+    (
+        "invitations",
+        "list query stats export",
+        "Manager-scoped invitations; scope=all is superadmin-only. Prefer bounded query. Export records audit and streams CSV/JSON once; platform and project roles remain separate.",
+    ),
+    (
+        "invitations",
+        "resend",
+        "Rotates/revives the bearer token and invalidates the old link without sending email. CLI requires --json or --show-secret before mutation and confirmation.",
+    ),
+    (
+        "invitations",
+        "send_email",
+        "Sends the current valid invitation token via real SMTP without rotating it. SMTP failure leaves the invitation valid; text output omits its link, deliberate JSON retains API fields.",
+    ),
+    (
+        "invitations",
+        "revoke",
+        "Revokes the invitation; no account deletion or automatic notification. Requires management authority and CLI confirmation.",
+    ),
+    (
+        "storage_connections",
+        "list get create update delete",
+        "Visibility is global or creator-scoped; writes require current authority. Secrets are write-only. Config rejects unknown keys and URL userinfo; SFTP has exactly one matching password/key credential. Updates can reuse stored secrets.",
+    ),
+    (
+        "storage_connections",
+        "test",
+        "Performs a real outbound storage connection after the host guard and writes audit. HTTP 200 can have ok=false; inspect the result, not only status.",
+    ),
+    (
+        "storage_connections",
+        "get_allowlist update_allowlist reset_allowlist deployment_sftp_preset",
+        "Superadmin-only. Allowlist updates require explicit entries; [] denies all targets. Reset removes the override and restores deployment defaults. Preset supplies no credentials or guard bypass; no CAS token.",
+    ),
+    (
+        "system_settings",
+        "get update reset",
+        "Superadmin-only effective settings, metadata and opaque version. Password is represented by password_set. PATCH omission/null preserves values, smtp_password='' clears; reset restores deployment defaults. Supply expected_version and reconcile 409 deliberately.",
+    ),
+    (
+        "system_settings",
+        "test_smtp",
+        "Sends real SMTP email to the current superadmin; limit three tests per minute. CLI requires explicit confirmation before the request.",
+    ),
+    (
+        "audit_logs",
+        "list",
+        "Project admins see only currently managed-project events, filtered before counts/cursors; superadmins see global events. detail_key/detail_value must be paired; total remains the full filtered count, not remaining rows.",
+    ),
+    (
+        "audit_logs",
+        "monthly_summary archives archive export",
+        "Superadmin-only. Months use UTC; summary excludes HTTP metadata by default, list/export include it. Export logs itself, streams once, caps at 50,000 rows (413 otherwise); JSON uses items. Archive pagination currently loads the whole month.",
+    ),
+    (
+        "admin_operations",
+        "preannotate_queue preannotate_summary alias_frequency",
+        "Project-admin results are restricted by current project ownership on the server; superadmins retain global access. Queue includes completed preannotation batches; summary requires enabled backends; alias frequency caps at 200 labels.",
+    ),
+    (
+        "admin_operations",
+        "bulk_clear_preannotate",
+        "Destructive predictions_only/reset_to_draft modes have different scope. Inspect succeeded/skipped/failed; repeated batch IDs can repeat processing. No idempotency key or automatic write retry.",
+    ),
+    (
+        "admin_operations",
+        "system_health analytics",
+        "Superadmin diagnostics can include internal details. Inspect response status; analytics only accepts fixed panel names and days 1..365, and may return 503 before DuckDB initialization.",
+    ),
+    (
+        "ml_capabilities",
+        "protocol instances",
+        "Protocol is static vocabulary; authenticated instances may probe uncached backend setup. SDK omits conditional cache headers to obtain JSON rather than an empty 304.",
+    ),
+    (
+        "ml_diagnostics",
+        "overview gpu_resources runtime_hints observe",
+        "Operational management reads can inspect live buckets/backends; observe calls health/setup. Current server roles remain authoritative; results may describe unavailable components rather than raise an HTTP error.",
+    ),
+    (
+        "ml_diagnostics",
+        "probe smoke_test",
+        "Explicit privileged outbound diagnostics allow private/internal HTTP(S) base URLs. No URL userinfo/query/fragment. Probe forwards the supplied bearer token only when enabled; inspect ok under HTTP 200. Smoke test may reload/unload; auto_unloaded does not prove VRAM release.",
+    ),
+    (
+        "project_ml",
+        "create_backend update_backend disable_backend",
+        "Global backend configuration and project association have distinct authority. Disable removes only this project association; create/update tokens are write-only credentials. No automatic mutation retry.",
+    ),
+    (
+        "project_ml",
+        "setup capabilities refresh_capabilities warmup",
+        "Checks current project authority and that the registry backend is enabled in the project. Refresh is an explicit live probe; warmup may evict shared weights. Preserve busy/conflict failures rather than forcing a fallback.",
+    ),
+    (
+        "project_ml",
+        "interactive interactive_frame predict_frame predict_test",
+        "Server checks backend/project and task relationships. Frame paths use multipart image plus JSON context/config. context.mask_prompt_source also requires annotations:read. predict-test is transient; predict-frame saves Prediction; no automatic retry.",
+    ),
+    (
+        "project_ml",
+        "reload unload",
+        "Superadmin-only global shared-model lifecycle; project_id is audit context, not a private copy. Quiescence/busy checks remain authoritative; no force or fallback after 409/503.",
+    ),
+    (
+        "projects",
+        "query",
+        "Paged current-user-visible projects, page_size 1..100. Repeated type_key/data_type filters and current project roles are independent of account roles; date validation and authority remain server-owned.",
+    ),
+    (
+        "projects",
+        "readiness class_usage",
+        "Requires project owner/superadmin. Readiness is current project setup evidence, not proof that a backend or worker is currently ready to execute.",
+    ),
+    (
+        "projects",
+        "rename_class",
+        "Requires project management and explicit CLI confirmation. tool_unit_id limits configuration updates, while matching annotations are renamed across the project. No CAS token or automatic POST retry.",
+    ),
+    (
+        "projects",
+        "cleanup_annotation_orphans",
+        "Defaults to dry_run=true. Apply deactivates orphan-class annotations and prunes orphan user attributes under task/annotation locks; no preview digest is bound to the later request. CLI confirms actual apply.",
+    ),
+    (
+        "projects",
+        "list_datasets mention_candidates",
+        "Project-visible unpaginated arrays. Dataset relation IDs and mention user IDs are not interchangeable with task or membership-row IDs.",
+    ),
+    (
+        "projects",
+        "preview_orphan_tasks cleanup_orphan_tasks",
+        "Owner/superadmin only. Preview returns counts without a CAS token; cleanup recomputes source-less tasks and deletes related work. No automatic retry after ambiguity; inspect current state before resubmitting.",
+    ),
+    (
+        "projects",
+        "transfer",
+        "Superadmin-only ownership transfer to an active project_admin account. Server locks account/project and rechecks the target; project ownership, not membership role, changes. CLI confirms before the request.",
+    ),
+    (
+        "projects",
+        "lidar_export_preflight",
+        "Requires export.annotations capability. Returns a current readiness report capped at 200 issues, not a binding digest or authorization to skip export-time revalidation.",
+    ),
+    (
+        "batches",
+        "unclassified_count",
+        "Project-visible count of tasks without a batch. Count is live evidence, not a reservation for a later split.",
+    ),
+    (
+        "batches",
+        "audit_logs",
+        "limit 1..200. Live batch/project pairing is checked; deleted direct history requires reliable project detail or exact project/batch path. Returns raw array with detail, not the global audit page shape.",
+    ),
+    (
+        "batches",
+        "distribution_preview distribution_apply assignment_preview assignment_apply",
+        "Project owner/superadmin only. Apply preserves the exact reviewed selection, recipient fields and preview_version; 409 requires a fresh preview and deliberate decision. Assignment fields are required nullable targets: null explicitly clears a role. Recipients must currently belong to the project with the matching role.",
+    ),
+    (
+        "batches",
+        "split",
+        "Splits only unclassified/default-batch tasks. id_range.item_ids are dataset-item UUIDs, not task UUIDs; scene projects require by_scene. Random n_batches cannot exceed the current splittable task count. Creates batches without an idempotency key; CLI confirms.",
+    ),
+    (
+        "batches",
+        "bulk_archive bulk_delete",
+        "Owner/superadmin, 1..200 batch IDs; inspect succeeded/skipped/failed. CLI prints the full receipt then exits 1 on failures. force deletion can reset work and remove predictions; no automatic resubmission of the full partial batch.",
+    ),
+    (
+        "batches",
+        "admin_lock admin_unlock",
+        "Owner/superadmin and exact parent relationship required. Changes batch editing access and sends in-app notifications; lock reason is audited. CLI confirms before effects.",
+    ),
+    (
+        "batches",
+        "submit_review",
+        "Assigned batch annotator or manager only, from annotating/reviewing. Commits bounded chunks and can dispatch Mask QC; submitted/skipped/remaining is a partial progress receipt, not an atomic all-or-nothing result.",
+    ),
+    (
+        "batches",
+        "lidar_preflight export download_voc",
+        "Requires export.annotations capability, matching project/batch and current server export guards. LiDAR preflight is advisory; export rechecks readiness. Annotator/viewer membership alone cannot authorize an export job or synchronous VOC bytes.",
+    ),
+    (
+        "datasets",
+        "import_from_connection",
+        "Platform manager operation on the global dataset catalogue. Rechecks connector visibility, host guard and source path, freezes import budgets, then returns HTTP 202 job_id. Observe that AsyncJob explicitly; no idempotency key or automatic retry.",
+    ),
+    (
+        "datasets",
+        "scan_items",
+        "Platform manager. Synchronously scans/imports items and may enqueue media generation; new_items and linked_tasks describe that scan, not completed thumbnails or inference.",
+    ),
+    (
+        "datasets",
+        "backfill_dimensions",
+        "Platform manager, batch 1..200. No cursor/order: failed width-null items remain eligible and may starve later rows. remaining_hint means a full batch was selected; processed=0 with failed>0 is not completion. SDK never loops automatically.",
+    ),
+    (
+        "datasets",
+        "backfill_media",
+        "Platform manager. Returns queued without an AsyncJob ID; worker attempts dimensions and media for items missing thumbnails, not every dimension-null item. No implicit wait or completion claim.",
+    ),
+    (
+        "datasets",
+        "backfill_scenes",
+        "Platform manager, mode auto/single/per_subdirectory. Default dry_run=false writes inferred scene/frame metadata; existing scene inference may return notes instead of changing it. CLI confirms actual writes.",
+    ),
+    (
+        "datasets",
+        "sniff_axis_convention",
+        "Platform manager. Read-only axis analysis despite POST; returned candidates/confidence do not update dataset configuration.",
+    ),
+    (
+        "guide_assets",
+        "upload_init",
+        "Project owner/superadmin. Allows PNG/JPEG/WebP/GIF/SVG up to 5 MiB and returns key plus a 900-second signed PUT URL. Creates no dataset item; do not retry initialization automatically.",
+    ),
+    (
+        "guide_assets",
+        "upload_bytes",
+        "Explicit bare signed PUT with the initialization Content-Type and no platform credentials. Accepts only 2xx, follows no redirects, and never calls API completion. Preserve the same key/URL and reconcile ambiguous uploads.",
+    ),
+    (
+        "guide_assets",
+        "upload_complete",
+        "Project owner/superadmin; checks key/project and uploaded size before registering metadata. Repeating completion can register the same key again; inspect current project assets before resubmitting. No idempotency key.",
+    ),
+    (
+        "guide_assets",
+        "delete sign_url",
+        "Checks key/project and current authorization. Signed GET URL lasts 3600 seconds. Delete removes metadata even if the storage deletion fails, so success is not proof the object was physically erased.",
+    ),
+    (
+        "project_performance",
+        "members member events export_members",
+        "Project owner/superadmin only; member_id is the user UUID, with current/historical roster eligibility rechecked. Date scope defaults to Asia/Shanghai and at most 90 local days. Cursors are offset-based and must reset when filters change. Preserve null/partial/unknown metric coverage rather than inventing zero.",
+    ),
+    (
+        "project_performance",
+        "export_members",
+        "Exports the entire filtered roster as CSV with scope headers, not a cursor page; SDK omits cursor/limit. API constructs the full payload in memory. Client atomically streams it to the requested destination; no AsyncJob or export audit event is implied.",
+    ),
+    (
+        "search",
+        "query",
+        "Each entity class has its own limit 1..20. Projects/members use current visibility; tasks also enforce assignment/batch role before LIMIT and preserve collaborative-video visibility. Datasets follow the global authenticated catalogue policy.",
+    ),
+    (
+        "dashboard",
+        "person_detail people people_export",
+        "Project admins must supply their owned project; detail target must be a member. Counts and timeline use the selected project, filtering before the latest-50 limit; unscoped events are omitted. Superadmin can explicitly request global scope.",
+    ),
+    (
+        "dashboard",
+        "people_export",
+        "Full in-memory UTF-8 BOM CSV from the unpaginated people list, atomically streamed by SDK. No API audit write or AsyncJob is produced; explicit CLI destination overwrite confirmation still applies.",
+    ),
+    (
+        "dashboard",
+        "annotator_onboarding annotator_batches reviewer_today_mini recent_reviews",
+        "Current-actor views, not global team metrics. Annotator batches are bounded to 100; reviewer mini and recent reviews preserve current membership/actor authority. Server remains authoritative after role changes.",
+    ),
+    (
+        "dashboard",
+        "prediction_cost_stats",
+        "Superadmin-only global cost panel; range is 7d or 30d. Internal statistics failures can fall back to zero values, so zero is not proof no inference ran.",
+    ),
+    (
+        "failed_predictions",
+        "list",
+        "Platform manager plus predictions:read for API keys; project admins see only owned-project rows. Page/page_size are bounded; include_dismissed changes soft-hidden visibility.",
+    ),
+    (
+        "failed_predictions",
+        "retry dismiss restore",
+        "Platform manager and target-project ownership; no additional API-key write scope is declared here. Retry returns HTTP 202 with failed_id, not an AsyncJob ID, and has a three-attempt ceiling. Dismiss/restore are idempotent soft-state changes; CLI confirms all mutations.",
+    ),
+    (
+        "predictions",
+        "purge",
+        "Owner/superadmin role gate without an additional API-key scope. Default source_scope=external_import; all can include ML and unknown predictions. Inspect dry-run counts first, then explicitly confirm deletion. Exact task selection stays server-validated; no implicit conversion to annotation deletion.",
+    ),
+    (
+        "annotations",
+        "import_file",
+        "Owner/superadmin plus annotations:write for API keys. One multipart file, AAP JSON only, at most 64 MiB. Returns a synchronous partial receipt, not a job; overwrite replaces only imported annotations. CLI emits full JSON then exits 1 on errors. No idempotency key or automatic POST retry.",
+    ),
+]:
+    for _method in _methods.split():
+        METHOD_NOTES.setdefault(f"{_namespace}.{_method}", {}).setdefault(
+            "constraints", []
+        ).append(_note)
+
+
+for _namespace, _methods, _note in [
+    (
+        "comments",
+        "list page task_page annotation_counts",
+        "Current actual task visibility is rechecked. list is a legacy unpaginated array; page/task_page use parent-bound keyset cursors with limit 1-200. Counts include only visible active annotation comments.",
+    ),
+    (
+        "comments",
+        "discussion_page",
+        "Mixed comments/feedback feed with all/annotation scope and server-owned action flags. Cursor is bound to parent and filters; preserve item source and actions rather than inferring permissions from author IDs.",
+    ),
+    (
+        "comments",
+        "create update delete",
+        "Requires current task access and author/project management authority for edits/deletes. Empty body needs attachments or canvas drawing. Delete is soft; comments can mirror feedback, audit and mention notifications. No automatic retry.",
+    ),
+    (
+        "comments",
+        "init_attachment_upload upload_attachment",
+        "Initialization returns a 900-second signed PUT target. upload_attachment streams bytes without platform credentials, does not follow redirects, and returns registration metadata; caller must explicitly create/update the comment.",
+    ),
+    (
+        "comments",
+        "attachment_download_url download_attachment",
+        "The API verifies registered key and current task visibility. JSON URL and explicit HTTP 302 forms expire after 300 seconds. Download follows only an absolute HTTP(S) Location through a credential-free client and requires target HTTP 200; temporary URLs are hidden from repr, retained in intentional JSON.",
+    ),
+    (
+        "annotation_history",
+        "annotation task",
+        "Unpaginated latest-first history for an actually visible task, including soft-deleted records. Annotation project metadata does not override its actual task authority; the server remains authoritative after reassignment.",
+    ),
+    (
+        "bug_reports",
+        "list cluster",
+        "Global manager policy: both super_admin and platform project_admin can manage the report queue, independent of report project metadata. list uses limit/offset (limit <=200). cluster computes suggestions for up to 50 new reports without changing their state.",
+    ),
+    (
+        "bug_reports",
+        "list_mine get",
+        "mine is current reporter only; detail permits that reporter or global managers. Report project/task context is diagnostic metadata and does not grant project authority. get returns typed JSON; list(format=markdown) returns text/markdown.",
+    ),
+    (
+        "bug_reports",
+        "create update delete add_comment",
+        "Reporters may update title/description/severity; global managers own status, assignment, duplicate and resolution fields. Only nullable administrative fields can be cleared. Delete is permanent. Reporter comments on closed reports may reopen them to triaged with a five-per-day limit; comments have a 60/hour limit. Mutations are not retried.",
+    ),
+    (
+        "bug_reports",
+        "init_screenshot_upload upload_screenshot download_attachment",
+        "Signed screenshot uploads accept PNG/JPEG/WebP and return metadata for explicit report registration. The 10 MiB size field validates caller metadata, not actual stored size. Downloads validate explicit 302 and use a credential-free HTTP 200 stream; no redirect/retry or credential-bearing URL errors.",
+    ),
+    (
+        "mask_formats",
+        "list export_preflight",
+        "Descriptors reflect project media type and server adapters; SDK does not convert masks. Export preflight requires export.annotations and returns an advisory plan/digest; actual project export does not consume this digest.",
+    ),
+    (
+        "mask_formats",
+        "upload_init upload_bytes import_preflight",
+        "Import requires explicit signed upload followed by preflight of exact source SHA, mapping and options. PUT uses no platform credentials and accepts 2xx only. Upload URL expires after 900 seconds; preflight receipt after 15 minutes. Credentials/receipts are hidden from repr, retained in intentional JSON.",
+    ),
+    (
+        "mask_formats",
+        "execute_import get_import resume_import",
+        "Execute exact actor-owned receipt and plan_digest; lossy plans need explicit confirm_lossy. Domain import batch and AsyncJob statuses differ. Resume is server-gated for eligible failed imports. Never refresh proofs or retry POST automatically.",
+    ),
+    (
+        "mask_qc",
+        "create_run list_issues task_summary get_issue patch_issue",
+        "Requires review authority and actual affected task visibility; project-wide scans require project management. Runs can reuse the same current input and HTTP 202 is not completion. Issues use keyset pages <=200; stale/busy updates remain conflicts.",
+    ),
+    (
+        "mask_qc",
+        "compare compare_content issue_region_content",
+        "Keep exact annotation version, content digest and source frame. Content is COCO RLE JSON, not image bytes; no conditional cache headers are sent. tracker_candidate content uses video_tracker.get_mask_content with returned candidate_job_id and digest.",
+    ),
+    (
+        "mask_qc",
+        "dry_run_repairs execute_repairs get_repair_batch resume_repairs rollback_repairs",
+        "Dry-run persists a plan without editing annotations. Execute exact 15-minute actor-owned receipt/digest. Preserve skipped/partial item results and domain status separately from AsyncJob. Resume only eligible failed/partial batches; rollback completed/partial batches within retention using expected_result_digest. CLI prints failed/partial receipts before exit 1; rollback is explicit, never automatic.",
+    ),
+    (
+        "point_cloud_quality",
+        "create_run get_run list_issues get_issue patch_issue",
+        "Requires review.write and actual task visibility; project/scene scans require management. Run creation may reuse current source/config/scope. Dispatch failure returns reason, run_id and async_job_id for persisted failed records; query before resubmission. Issues retain scene/frame/annotation anchors; stale/busy changes return conflict.",
+    ),
+    (
+        "point_cloud_quality",
+        "list_evaluations create_evaluation get_evaluation promote_evaluation",
+        "Evaluation freezes reviewed non-stale samples synchronously. Candidate config is strict, readback permits additive fields. Eligibility is a gate, not promotion. Promotion requires project management and exact baseline config revision/digest CAS; no automatic re-evaluation or conflict refresh.",
+    ),
+]:
+    for _method in _methods.split():
+        METHOD_NOTES.setdefault(f"{_namespace}.{_method}", {}).setdefault(
+            "constraints", []
+        ).append(_note)
+
+for _method in ("list_issues", "get_issue"):
+    METHOD_NOTES.setdefault(f"point_cloud_quality.{_method}", {})["domain_effects"] = [
+        "This read can persist stale issue status against current inputs."
+    ]
+METHOD_NOTES.setdefault("mask_qc.dry_run_repairs", {})["domain_effects"] = [
+    "Persists a dry-run plan and receipt without mutating annotations."
+]
+
+
+for _namespace, _methods, _note in [
+    (
+        "task_context",
+        "annotations_page neighbors neighbor_annotations mask_capabilities predictions",
+        "Current actual task visibility remains authoritative. Annotation pages preserve opaque cursor/limit1-1000 and require video_segment_id for collaborative video. Neighbor UUIDs are navigation metadata, including unavailable placeholders; they do not grant read/write authority. Prediction shapes preserve original shape_index after filtering and require annotations:read for API keys.",
+    ),
+    (
+        "image_pyramids",
+        "manifest asset_urls",
+        "Manifest GET can invalidate stale generations and enqueue generation when enabled; shared GET retries still apply. Sequential retries observe committed invalidation, but concurrent stale readers can race into duplicate Celery dispatch. Signed URLs expire and asset requests bind current generation with at most128 assets. No implicit URL refresh or generation wait.",
+    ),
+    (
+        "image_pyramids",
+        "retry",
+        "Explicit rate/cooldown-gated generation retry, HTTP202 with a Celery identifier, not necessarily an AsyncJob. Do not pass that identifier to jobs.wait or treat acceptance as ready media.",
+    ),
+    (
+        "cross_frame_jobs",
+        "list create retry_failed",
+        "Current-actor list/retry; creation requires editable source and visible/editable targets, at most100 frames and500 unique box_3d sources. Active identical work is server-singleflight, not caller idempotency. Observe actual AsyncJob responses via jobs; retry only eligible terminal failed frames.",
+    ),
+    (
+        "task_locks",
+        "acquire heartbeat release",
+        "Explicit current-actor task lease with300-second TTL. Acquisition can take over eligible old locks; heartbeat can return404. unique_id is not a CAS token. Release affects the current actor lease. CLI confirms effects; no background renewal thread or automatic acquire/retry.",
+    ),
+    (
+        "point_cloud",
+        "manifest camera_members calibration_history",
+        "Requires actual task visibility; manifest requires lidar. Camera member track must match actual task scene, not only project. Readback retains current versus stored calibration relations and virtual legacy calibration revision1. Manifest URLs are expiring and hidden in repr/default text, retained in intentional JSON.",
+    ),
+    (
+        "point_cloud",
+        "create_camera_member update_camera_member delete_camera_member restore_camera_member update_calibration",
+        "Exact task/source/member/track/camera parent relationships and annotations:write. Create uses track revision and calibration revision/digest; update/restore also use member version. Delete soft-deactivates and changes track revision. Calibration writes require project management; data items shared across projects require superadmin. Preserve finite fixed matrix shapes and all supplied CAS fields; no refresh/retry.",
+    ),
+    (
+        "scene_tracks",
+        "scene_timeline get_track diagnostics list_command_operations list_track_operation_candidates",
+        "Timeline is limited to200 inclusive frames and omits selected-track presence for unavailable frames. Track/diagnostic reads can require whole-scene task visibility. Candidate GET requires write authority and limit<=20; command history and diagnostics have separate bounds. Metadata is not later authorization.",
+    ),
+    (
+        "scene_tracks",
+        "preview_command execute_command revert_command preview_track_operation execute_track_operation",
+        "Preferred commands bind exact preview snapshot_token and caller idempotency_key; revert uses original operation_id. Multi-task writes require all affected task visibility/editability. Legacy execution generates the key server-side, so an uncertain response has no safe caller replay. No automatic conflict refresh or fallback to legacy execution.",
+    ),
+    (
+        "annotation_operations",
+        "conversion_dry_run conversion_execute interpolate_range propagate_batch propagate_to_task secondary_inference commit_mask_mutations commit_polygon_slice restore_slice accept_prediction reject_prediction accept_ai_mask_candidate",
+        "Exact source/target task and annotation relationships, current task editability and segment/write authority. Conversion proofs expire after10min and bind actor/task with explicit replace/lossy decisions. Mask commits preserve whole-scope versions/fingerprint; AI acceptance preserves candidate receipt and required If-Match. Original prediction shape_index is not filtered list position. Dynamic secondary inference params are backend-specific. Mutations are single-attempt; no invented idempotency or proof refresh.",
+    ),
+]:
+    for _method in _methods.split():
+        METHOD_NOTES.setdefault(f"{_namespace}.{_method}", {}).setdefault(
+            "constraints", []
+        ).append(_note)
+METHOD_NOTES.setdefault("image_pyramids.manifest", {})["domain_effects"] = [
+    "May invalidate stale generations and enqueue image-pyramid generation."
+]
 
 
 def _attribute_path(node: ast.expr) -> list[str] | None:
@@ -359,6 +1493,15 @@ def _sdk_declarations() -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]
                     "class": class_node.name,
                     "method": function.name,
                     **_signature(function),
+                    "constructed_models": sorted(
+                        {
+                            call.func.id
+                            for call in ast.walk(function)
+                            if isinstance(call, ast.Call)
+                            and isinstance(call.func, ast.Name)
+                            and call.func.id[:1].isupper()
+                        }
+                    ),
                     "direct_api_operations": [],
                     "api_operations": [],
                     "calls": [],
@@ -370,13 +1513,49 @@ def _sdk_declarations() -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]
         namespace = name.rsplit(".", 1)[0] if "." in name else ""
         class_name = methods[name]["class"]
         for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
+            if class_name == "Streams" and _attribute_path(call.func) == [
+                "self",
+                "_connect",
+            ]:
+                channel = call.args[0]
+                if not isinstance(channel, ast.Constant) or not isinstance(
+                    channel.value, str
+                ):
+                    raise ValueError(f"{name}: stream channel must be a literal")
+                methods[name]["stream_channel"] = channel.value
+                methods[name]["websocket_path"] = _path_template(call.args[1])
+                methods[name]["protocol"] = "websocket"
+                methods[name]["python_only"] = True
+                methods[name]["invocation_note"] = (
+                    "Use async with and async iteration. The CLI provides bounded NDJSON listeners; a stream context is not a JSON result."
+                )
+                continue
             method = None
+            root_path = False
             path_node: ast.expr | None = None
             if _is_http_call(call, "request"):
                 if len(call.args) < 2:
                     raise ValueError(f"{name}: request needs method and path")
                 method = _literal(call.args[0])
                 path_node = call.args[1]
+                root_option = next(
+                    (
+                        keyword.value
+                        for keyword in call.keywords
+                        if keyword.arg == "root_path"
+                    ),
+                    None,
+                )
+                if root_option is not None:
+                    if (
+                        not isinstance(root_option, ast.Constant)
+                        or type(root_option.value) is not bool
+                    ):
+                        raise ValueError(f"{name}: root_path must be a literal boolean")
+                    root_path = root_option.value
+            elif _is_http_call(call, "put_presigned"):
+                methods[name]["external_http"] = True
+                continue
             elif _is_http_call(call, "stream_download"):
                 path_node = (
                     call.args[0]
@@ -411,7 +1590,7 @@ def _sdk_declarations() -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]
                     continue
                 if not path.startswith("/"):
                     raise ValueError(f"{name}: HTTP path must start with /")
-                if not path.startswith("/api/v1/"):
+                if not root_path and not path.startswith("/api/v1/"):
                     path = "/api/v1" + path
                 operation = f"{method} {path}"
                 methods[name]["direct_api_operations"].append(operation)
@@ -445,7 +1624,9 @@ def _sdk_declarations() -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]
     methods = {
         name: method
         for name, method in methods.items()
-        if method["api_operations"] or method["external_http"]
+        if method["api_operations"]
+        or method["external_http"]
+        or method.get("stream_channel")
     }
     operation_sdk = {
         operation: sorted(names) for operation, names in operation_methods.items()
@@ -697,8 +1878,20 @@ def generate_catalog() -> dict[str, Any]:
         command["sdk_methods"] = sorted(
             name for name in command["sdk_methods"] if name in sdk_methods
         )
+    from ai_annotation.streams import describe_stream_channel, list_stream_channels
+
+    channels = [describe_stream_channel(row["name"]) for row in list_stream_channels()]
+    channel_paths = {row["name"]: row["path"] for row in channels}
+    actual_streams = {
+        method["stream_channel"]: method["websocket_path"]
+        for method in sdk_methods.values()
+        if method.get("stream_channel")
+    }
+    if actual_streams != channel_paths:
+        raise ValueError("public stream declarations differ from channel metadata")
     return {
         "schema_version": 1,
+        "stream_channels": channels,
         "openapi_version": spec["info"].get("version"),
         "guide_resource": "ai_annotation/AGENT_GUIDE.md",
         "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",

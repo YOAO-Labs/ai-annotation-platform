@@ -310,6 +310,18 @@ Python SDK 与 `aap learning` 提供冻结训练数据、实验观测、配方�
 
 Agent 可使用随包离线 `capabilities` / `describe` 读取操作、请求 schema 与约束，通过可选 JSON 错误和 stdin 请求执行脚本；详见 [Agent 接入与操作](./docs-site/dev/sdk/agents.md)。
 
+SDK 与 CLI 还提供当前账号通知、反馈线程处理、编排库复制及带幂等身份的预标注提交；读取进度与执行变更分开，详见 [通知、反馈与预标注](./docs-site/dev/sdk/workflows.md)。
+
+Data Explorer 脚本入口支持项目 schema、任务／对象／轨迹查询、保存视图、分配预览与选中任务导出，详见 [Data Explorer 与保存视图](./docs-site/dev/sdk/data-explorer.md)。
+
+SDK 和 CLI 支持视频媒体／分段租约、追踪候选与质量审阅、Mask 修正、轨迹编辑、项目模板及存储资产重试，见 [视频、模板与存储运维](./docs-site/dev/sdk/video-and-templates.md)。模板／源项目创建在服务器继承未指定类型与配置，明确覆盖优先；公开 REST 覆盖路线包含运维，仅执行器私有协议排除。
+
+任务文件采用初始化、签名上传和明确完成的分步流程，签名与排队前校验项目／任务权限；数据集场景提供读取、轨迹与管理员更新，见 [文件上传与数据集场景](./docs-site/dev/sdk/files-and-scenes.md)。
+
+账户／会话、用户／分组／邀请、根健康、系统设置、审计、连接器及 ML 运维可通过 SDK 和 CLI 显式操作，见 [账户、管理与运维](./docs-site/dev/sdk/account-and-operations.md)。项目管理员的审计、预标队列与分组操作由服务器按项目归属限制；批量部分失败和健康降级保留机器可读回执及非零退出码。
+
+项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
+
 | 角色 / 任务                | 入口                                                                                                                            |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | 标注员、审核员、项目管理员 | [docs-site/user-guide/](./docs-site/user-guide/)                                                                                |
@@ -380,3 +392,7 @@ ai-annotation-platform/
 ## License
 
 MIT
+
+讨论、历史、缺陷报告、Mask 格式／修复及点云质量入口见 [讨论、缺陷报告与质量处理](./docs-site/dev/sdk/annotation-quality.md)。回执与版本绑定原选择，派发失败保留可查询的 run/job 身份。
+
+SDK 覆盖全部 558 项稳定公开 REST（含运维），十项执行器私有操作排除，另提供六条公开 WebSocket。任务、租约、相机／轨迹和几何提交见 [任务工作流](./docs-site/dev/sdk/task-workflows.md)；可选 `streams` extra 与有界 NDJSON 监听见 [公开事件流](./docs-site/dev/sdk/streams.md)。

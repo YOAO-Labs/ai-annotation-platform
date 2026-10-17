@@ -8,6 +8,14 @@ last_reviewed: 2026-10-17
 
 # aap CLI 参考
 
+`projects`、`batches`、`datasets`、`dashboard`、`predictions` 和 `annotations` 扩展工作流命令；另有 `project-performance`、`search`、`guide-assets` 和 `failed-predictions`，见 [项目、批次与数据运维](./project-workflows)。批次分派保留 preview_version，标注导入的部分错误会在完整 JSON 回执后返回非零退出码；预检和 dry-run 不会自动转为实际写入。
+
+账户和管理命令组为 `auth`、`account`、`api-keys`、`users`、`groups`、`invitations`、`health`、`ml-capabilities`、`system-settings`、`audit-logs`、`storage-connections`、`admin-operations`、`ml-diagnostics` 和 `project-ml`。详见 [账户、管理与运维](./account-and-operations)。一次性凭据要求 `--json` 或 `--show-secret`；真实邮件、网络探测及生命周期变更使用各命令的确认选项。批量 apply 部分失败先输出完整结果再退出 1，根健康降级同样输出报告后退出 1。
+
+`aap files` 提供任务文件分步上传、短期下载 URL 和缩略图回填；`aap scenes` 提供数据集场景与逐帧位姿读取、管理员元数据更新，见 [文件上传与数据集场景](./files-and-scenes)。
+
+视频与运维命令组为 `videos`、`task-videos`、`video-tracker`、`video-review`、`templates` 和 `storage`。复杂请求支持 `--body file.json` 或 `--body -`；分段提交／重开／取消分配、候选决策、停用源轨迹与资产重试使用各命令的确认选项。`projects create` 支持 `--template` 或 `--source-project`，此时可以省略 `--type` 继承类型。完整流程见 [视频、模板与存储运维](./video-and-templates)。
+
 `aap` 是 Python SDK 附带的命令行工具,需要 `[cli]` extras:
 
 ```bash
@@ -17,6 +25,10 @@ aap --version        # aap <sdk-version>@AAP<aap-target-version>
 
 CLI 与 SDK/TUI 共用同一 SemVer。`AAP...` 部分是该 release 完成测试与 OpenAPI 对账的平台 target，
 不是未经验证的兼容版本区间。
+
+新增 `comments`、`annotation-history`、`bug-reports`、`mask-formats`、`mask-qc`、`point-cloud-quality` 命令组，见 [讨论、缺陷报告与质量处理](./annotation-quality)。修复部分结果先输出回执再退出 1；结构化错误保留安全的 reason、run_id 与 job_id。
+
+任务级读取、媒体、租约、点云与几何修改见 [任务工作流](./task-workflows)；六条 WebSocket 的离线发现、typed 事件、鉴权与有界 NDJSON 监听见 [公开事件流](./streams)。REST 已覆盖全部 558 项采用接口，十项执行器内部协议保持排除。
 
 ## 配置
 
@@ -29,7 +41,7 @@ CLI 凭据按以下优先级解析:
 
 ## 帮助系统
 
-所有命令都支持 `-h` / `--help`(二者等价)查看用法。顶层 `aap -h` 按用途分组展示：配置与发现(`login` / `me` / `tui` / `capabilities` / `describe`)、资源管理(`projects` / `datasets` / `batches` / `members`)、标注与学习流水线(`predictions` / `jobs` / `export` / `learning`)、监控与 ML 运维(`ml-backends` / `ml-registry` / `service-pools` / `stats` / `dashboard`)。
+所有命令都支持 `-h` / `--help`(二者等价)查看用法。顶层 `aap -h` 按用途分组展示：配置与发现(`login` / `me` / `tui` / `capabilities` / `describe`)、资源与协作(`projects` / `datasets` / `batches` / `members` / `notifications` / `feedbacks` / `data-manager` / `task-views`)、标注与学习流水线(`predictions` / `pipelines` / `jobs` / `export` / `learning`)、监控与 ML 运维(`ml-backends` / `ml-registry` / `service-pools` / `stats` / `dashboard`)。
 
 ```bash
 aap -h                       # 顶层: 分组命令 + 快速上手 + env 说明
@@ -49,6 +61,29 @@ aap describe learning.runs.create --json
 无需配置账号或运行 API。能力列表支持有界分页以及 tag / 状态筛选；`covered`、`excluded`、`uncovered` 分别表示已实现、主动排除和尚未接入。`describe` 展开一个操作的 SDK/CLI 关联、参数、schema、额外约束与示例。规范 SDK 名称和可解析的 CLI 点分路径均可使用；多步骤别名应按返回的关联或提示选择具体方法。
 
 目录随安装包分发，真实服务器的权限、预检新鲜度、资源归属及执行器能力继续由服务端决定。完整工作流见 [Agent 接入与操作](./agents)。
+
+### aap notifications、feedbacks 与 pipelines
+
+| 命令组          | 子命令                                                                                                           |
+| --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `notifications` | `list`, `unread-count`, `mark-read`, `mark-all-read`, `delete`, `clear-read`, `preferences`, `update-preference` |
+| `feedbacks`     | `thread`, `reply`, `patch`, `delete`                                                                             |
+| `pipelines`     | `list`, `get`, `create`, `update`, `delete`, `apply`, `preannotate`                                              |
+
+复杂写请求使用 `--body` 文件或 stdin `--body -`。通知清理／删除、反馈软删除以及编排复制／执行等受保护操作遵循确认规则，JSON 模式使用 `--yes`。`apply` 复制编排而不运行推理；`preannotate` 仅返回受理信息，可用 `aap jobs get <job-id> --json` 继续查询，不隐式等待。预标注可显式传 `--idempotency-key`，SDK 不自动生成或替换它。
+
+通知针对当前账号；反馈线程的 cursor 绑定根 ID；编排库列表没有服务端分页。完整参数通过 `--help` 或离线 `describe` 读取，范围、补丁 null 与失败恢复语义见 [通知、反馈与预标注](./workflows)。
+
+### aap data-manager 与 task-views
+
+| 命令组         | 子命令                                                                                                                                                                        |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data-manager` | `schema`, `summary`, `matches`, `query-objects`, `object-detail`, `object-location`, `query-tracks`, `track-detail`, `assignment-preview`, `assignment-apply`, `export-tasks` |
+| `task-views`   | `list`, `get`, `create`, `update`, `delete`, `copy`, `query`, `tasks`                                                                                                         |
+
+所有命令使用 `--project`；复杂查询与写入使用 `--body 文件` 或 `--body -`。`data-manager schema` 使用 `--entity-scope`，`task-views list` 使用 `--scope`，值均为 tasks/objects/tracks。task query 与 saved-view tasks 使用 limit/offset，实体查询 body 使用不透明 cursor，不能混用分页形式。
+
+POST 查询和 assignment-preview 是读取，不要求确认。assignment-apply、export-tasks 和视图删除使用确认规则，JSON 模式必须 `--yes`。分配应用需要原选择／目标及 preview_version；导出仅接受明确任务选择，可显式传 `--idempotency-key`，不自动扩范围或重试。stdin JSON 拒绝非有限数值。完整示例见 [Data Explorer 与保存视图](./data-explorer)。
 
 ### aap learning
 
@@ -249,11 +284,13 @@ aap predictions import 0199bb... preds.json --format aap_json
 ### aap jobs
 
 ```text
+aap jobs get <job-id> [--json]
 aap jobs wait <job-id> [--json]
 aap jobs cancel <job-id> [--json]
 aap jobs retry-failed <job-id> [--yes] [--json]
 ```
 
+- `get`：读取现有 Job 的当前状态，不等待、不取消或重建任务。
 - `wait`:轮询异步任务直到终态,rich 进度条跟随 `progress_pct`。job 以 failed / cancelled 结束时输出错误并以退出码 1 结束。
 - `cancel`:请求**软取消**一个 job(协作式——后端写取消标记,worker 在下一条任务边界落 `cancelled`)。仅可取消的 kind 且处于 pending/running 时有效,否则后端返回 400/409、命令以退出码 1 结束。终态由后续 `jobs wait` / `tui` 反映。
 - `retry-failed`:只对服务端允许重试的 job kind 和管理角色开放；执行前必须交互确认或传 `--yes`，返回实际入队与跳过数。

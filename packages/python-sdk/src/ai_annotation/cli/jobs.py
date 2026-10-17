@@ -20,6 +20,7 @@ from ai_annotation.cli._output import (
     get_client,
     get_error_format,
     print_json,
+    print_learning_result,
     progress_console,
 )
 from ai_annotation.models import Job
@@ -101,6 +102,18 @@ def list_(
             str(job.project_id or "-"),
         )
     console.print(table)
+
+
+@app.command("get")
+def get(
+    job_id: str = typer.Argument(..., help="Job ID"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """读取一项现有 Job 的当前状态，不等待或修改它。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            job = client.jobs.get(job_id)
+    print_learning_result(job, json_output)
 
 
 @app.command("wait")

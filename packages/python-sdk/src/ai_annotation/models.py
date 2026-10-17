@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
 from uuid import UUID
+from ai_annotation.point_cloud_quality_config_models import PointCloudQualityConfigRead
 
 from pydantic import (
     BaseModel,
@@ -58,6 +59,7 @@ class Page(_AAPModel, Generic[T]):
 
 
 class Project(_AAPModel):
+    point_cloud_quality_config: PointCloudQualityConfigRead | None = None
     id: UUID
     display_id: str
     name: str
@@ -201,6 +203,49 @@ FeedbackKind = Literal["issue", "comment", "reject", "bug"]
 FeedbackAnchorType = Literal["project", "task", "annotation", "pixel", "point_cloud"]
 FeedbackStatus = Literal["open", "resolved", "wont_fix"]
 FeedbackSeverity = Literal["info", "warn", "blocker"]
+
+
+class FeedbackMention(_AAPModel):
+    user_id: UUID = Field(alias="userId")
+    display_name: str = Field(alias="displayName", min_length=1, max_length=120)
+    offset: int = Field(ge=0)
+    length: int = Field(ge=1)
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class DiscussionActions(_AAPModel):
+    edit: bool = False
+    change_status: bool = False
+    delete: bool = False
+    reply: bool = False
+
+
+class AnnotationFeedbackPatch(BaseModel):
+    """Only fields explicitly supplied are sent; explicit nulls stay explicit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: FeedbackStatus | None = None
+    severity: FeedbackSeverity | None = None
+    title: str | None = Field(default=None, max_length=500)
+    body: str | None = None
+    mentions: list[FeedbackMention] | None = None
+
+
+class AnnotationFeedbackReply(BaseModel):
+    """A reply inherits its anchor from the server-side parent feedback."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    body: str
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _require_text_or_attachment(self):
+        if not self.attachments and not self.body.strip():
+            raise ValueError("feedback replies must contain text or an attachment")
+        return self
 
 
 class FeedbackVideoFrameRange(BaseModel):
@@ -371,12 +416,15 @@ class AnnotationFeedback(_AAPModel):
     author_id: UUID
     author_name: str | None = None
     attachments: list[dict[str, Any]] = Field(default_factory=list)
+    mentions: list[FeedbackMention] = Field(default_factory=list)
+    canvas_drawing: dict[str, Any] | None = None
     thread_parent_id: UUID | None = None
     is_active: bool = True
     resolved_at: datetime | None = None
     resolved_by_id: UUID | None = None
     created_at: datetime
     updated_at: datetime | None = None
+    actions: DiscussionActions = Field(default_factory=DiscussionActions)
 
     @property
     def video_context(self) -> FeedbackVideoContext | None:
@@ -395,6 +443,13 @@ class FeedbackPage(_AAPModel):
     next_cursor: str | None = None
     total: int | None = None
     status_counts: dict[str, int] | None = None
+
+
+class FeedbackThreadPage(_AAPModel):
+    root: AnnotationFeedback
+    items: list[AnnotationFeedback]
+    next_cursor: str | None = None
+    total: int
 
 
 class ImportResult(_AAPModel):
@@ -783,4 +838,4 @@ class ApiKey(_AAPModel):
 class ApiKeyCreated(ApiKey):
     """创建响应附带一次性 plaintext, 之后无法再次查看。"""
 
-    plaintext: str
+    plaintext: str = Field(repr=False)

@@ -26,10 +26,10 @@ def test_capabilities_are_bounded_filterable_and_cover_the_snapshot():
     assert len(page["operations"]) == 2
     assert page["next_offset"] == 2
     assert page["coverage_counts"] == {
-        "covered": 196,
-        "excluded": 167,
+        "covered": 558,
+        "excluded": 10,
         "planned": 0,
-        "uncovered": 205,
+        "uncovered": 0,
     }
     assert all(item["status"] == "covered" for item in page["operations"])
 
@@ -43,7 +43,7 @@ def test_capabilities_are_bounded_filterable_and_cover_the_snapshot():
         offset = page["next_offset"]
     counts = Counter(item["status"] for item in all_rows)
     assert len(all_rows) == 568
-    assert counts == {"covered": 196, "excluded": 167, "uncovered": 205}
+    assert counts == {"covered": 558, "excluded": 10}
 
 
 @pytest.mark.parametrize(
@@ -96,6 +96,65 @@ def test_describe_resolves_sdk_and_cli_aliases_and_expands_request_model():
 
     export = describe_operation("exports.create")
     assert export["matched_sdk_method"] == "exports.create"
+
+
+def test_describe_exposes_internal_request_dto_and_opaque_json_map():
+    login = describe_operation("auth.login")["sdk"][0]
+    assert "constructed_models" not in login
+    assert len(login["request_schemas"]) == 1
+    request = login["request_schemas"][0]
+    assert request["model"] == "AuthLoginRequest" and request["parameter"] is None
+    assert set(request["schema"]["required"]) == {"email", "password"}
+    assert request["schema"]["additionalProperties"] is False
+    assert login["response_schema"]["properties"]["access_token"]["type"] == "string"
+    preferences = describe_operation("account.update_preferences")["sdk"][0]
+    assert preferences["request_schemas"][0]["parameter"] == "patch"
+    assert preferences["request_schemas"][0]["schema"] == {
+        "type": "object",
+        "additionalProperties": True,
+    }
+    assert preferences["response_schema"]["type"] == "object"
+    user_list = describe_operation("users.list")["sdk"][0]
+    assert user_list["response_schema"]["type"] == "array"
+    assert "request_schemas" not in user_list
+
+
+def test_all_packaged_sdk_methods_have_resolvable_descriptions():
+    catalog = json.loads(
+        (
+            PACKAGE_ROOT / "src/ai_annotation/_operation_catalog.generated.json"
+        ).read_text()
+    )
+    for method in catalog["sdk_methods"]:
+        described = describe_operation(method["name"])
+        assert described["name"]
+        assert described.get("matched_sdk_method", described["name"]) == method["name"]
+
+
+@pytest.mark.parametrize(
+    "alias,method",
+    [("accept", "accept_job"), ("discard", "discard_job"), ("cancel", "cancel_job")],
+)
+def test_tracker_cli_decisions_remain_discoverable(alias, method):
+    operation = describe_operation(f"video-tracker.jobs.{alias}")
+    assert f"video_tracker.{method}" in operation["sdk_methods"]
+    assert operation["cli"][0]["confirmation"] is True
+
+
+def test_video_review_description_preserves_version_and_mask_workflow():
+    edit = describe_operation("video_review.save_mask_keyframe")
+    assert any("If-Match" in item for item in edit["constraints"])
+    assert "expected_version" in {item["name"] for item in edit["sdk"][0]["parameters"]}
+    upload = describe_operation("video_review.upload_mask_content")
+    schema = upload["sdk"][0]["request_schemas"][0]["schema"]
+    assert schema["properties"]["counts"]["items"]["type"] == "integer"
+    assert schema["properties"]["storage_encoding"]
+    assert upload["cli"][0]["confirmation"] is True
+    content_upload = describe_operation("files.upload_content")
+    assert content_upload["kind"] == "sdk_method"
+    assert content_upload["external_http"] is True
+    assert content_upload["api_operations"] == []
+    assert content_upload["cli"][0]["confirmation"] is True
 
 
 def test_describe_includes_cursor_and_compare_and_set_rules():

@@ -62,3 +62,20 @@ class JobFailedError(AAPError):
 
 class JobTimeoutError(AAPError):
     """jobs.wait 超时仍未到终态。"""
+
+
+class StreamError(AAPError):
+    """A sanitized WebSocket failure; refresh owning REST state before reconnecting."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        close_code: int | None = None,
+        status_code: int | None = None,
+    ):
+        self.code = code
+        self.close_code = close_code
+        self.status_code = status_code
+        super().__init__(message)

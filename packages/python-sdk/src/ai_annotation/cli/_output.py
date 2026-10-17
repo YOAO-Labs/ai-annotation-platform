@@ -7,16 +7,18 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Iterator, TypeVar
+from uuid import UUID
 
 import httpx
 import typer
-from pydantic import BaseModel, ValidationError as ModelValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError as ModelValidationError
 from rich.console import Console
 
 from ai_annotation import Client
@@ -27,6 +29,7 @@ from ai_annotation.errors import (
     AuthenticationError,
     JobFailedError,
     JobTimeoutError,
+    StreamError,
 )
 
 console = Console()
@@ -57,14 +60,27 @@ def _model_error(exc: ModelValidationError) -> str:
     ).replace("\n", " ")
 
 
+def _finite_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON numbers must be finite")
+    return number
+
+
+def _reject_json_constant(_value: str) -> None:
+    raise ValueError("JSON numbers must be finite")
+
+
 def read_json_body(path: Path, model_type: type[ModelT]) -> ModelT:
     """Read typed request JSON without including input values in failures."""
     try:
         raw = (
             sys.stdin.read() if path == Path("-") else path.read_text(encoding="utf-8")
         )
-        data = json.loads(raw)
-    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
+        data = json.loads(
+            raw, parse_float=_finite_json_float, parse_constant=_reject_json_constant
+        )
+    except (OSError, UnicodeError, ValueError, RecursionError):
         raise AAPError("无法读取请求文件：请检查路径、UTF-8 编码和 JSON 格式") from None
     if not isinstance(data, dict):
         raise AAPError("请求文件必须包含 JSON 对象")
@@ -84,7 +100,7 @@ def print_learning_result(result: Any, json_mode: bool) -> None:
     elif result is None:
         data = {"deleted": True}
     else:
-        data = result
+        data = TypeAdapter(Any).dump_python(result, mode="json", by_alias=True)
     if json_mode:
         print_json(data)
     else:
@@ -203,6 +219,22 @@ def _validation_fields(details: Any) -> list[dict[str, Any]]:
     return fields
 
 
+def _safe_uuid(value: Any) -> str | None:
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
+
+
+def _safe_reason(value: Any) -> str | None:
+    cleaned = _safe_text(value, 64)
+    return (
+        cleaned if cleaned and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", cleaned) else None
+    )
+
+
 def _api_error_payload(error: APIStatusError) -> dict[str, Any]:
     details = error.detail
     fields = _validation_fields(details)
@@ -229,6 +261,15 @@ def _api_error_payload(error: APIStatusError) -> dict[str, Any]:
         "fields": fields,
         "request_id": _safe_text(error.request_id, 128),
         "retry_after": _safe_text(error.retry_after, 128),
+        "reason": _safe_reason(details.get("reason"))
+        if isinstance(details, dict)
+        else None,
+        "run_id": _safe_uuid(details.get("run_id"))
+        if isinstance(details, dict)
+        else None,
+        "job_id": _safe_uuid(details.get("async_job_id") or details.get("job_id"))
+        if isinstance(details, dict)
+        else None,
     }
 
 
@@ -236,6 +277,13 @@ def _safe_request_detail(error: AAPError) -> str | None:
     message = str(error)
     if message.startswith("async job "):
         return "Async job operation failed."
+    if (
+        message.startswith(("video frame ", "video chunk "))
+        and " is not ready " in message
+    ):
+        return "Video asset is not ready. Read its descriptor before downloading."
+    if message == "video asset URL must be absolute to avoid sending API credentials":
+        return "Video asset URL must be absolute. Refresh its descriptor."
     # Fixed SDK-authored hints are safe; other AAPError text may contain IDs or server data.
     if message.startswith(
         (
@@ -248,6 +296,7 @@ def _safe_request_detail(error: AAPError) -> str | None:
             "expected_size must be",
             "VOC export returns ZIP bytes synchronously; use ",
             "scope and lidar belong in body=ExportRequestBody(...)",
+            "WebSocket streams require ai-annotation-sdk[streams]",
         )
     ):
         return _safe_text(message)
@@ -276,6 +325,9 @@ def print_structured_error(
     retry_after: str | None = None,
     job_id: str | None = None,
     job_status: str | None = None,
+    reason: str | None = None,
+    run_id: str | None = None,
+    close_code: int | None = None,
 ) -> None:
     """Write one sanitized error object to stderr."""
     error: dict[str, Any] = {"kind": kind}
@@ -288,6 +340,14 @@ def print_structured_error(
         ("retry_after", _safe_text(retry_after, 128)),
         ("job_id", _safe_text(job_id, 128)),
         ("job_status", _safe_job_status(job_status)),
+        ("reason", _safe_reason(reason)),
+        ("run_id", _safe_uuid(run_id)),
+        (
+            "close_code",
+            close_code
+            if type(close_code) is int and 1000 <= close_code <= 4999
+            else None,
+        ),
     ):
         if value is not None:
             error[key] = value
@@ -307,6 +367,9 @@ def print_error(
     retry_after: str | None = None,
     job_id: str | None = None,
     job_status: str | None = None,
+    reason: str | None = None,
+    run_id: str | None = None,
+    close_code: int | None = None,
 ) -> None:
     """Write a text error by default, or one structured object when requested."""
     if get_error_format() == "json":
@@ -320,6 +383,9 @@ def print_error(
             retry_after=retry_after,
             job_id=job_id,
             job_status=job_status,
+            reason=reason,
+            run_id=run_id,
+            close_code=close_code,
         )
     elif json_mode:
         print(message, file=sys.stderr)
@@ -383,6 +449,17 @@ def cli_errors(json_mode: bool = False) -> Iterator[None]:
             job_id=_job_timeout_id(e),
         )
         raise typer.Exit(code=1) from None
+    except StreamError as e:
+        print_error(
+            str(e),
+            json_mode,
+            kind="stream_error",
+            code=e.code,
+            status=e.status_code,
+            close_code=e.close_code,
+            detail=str(e),
+        )
+        raise typer.Exit(code=1) from None
     except AAPError as e:
         fields = getattr(e, "cli_fields", None)
         if fields is not None:
@@ -429,10 +506,10 @@ def cli_errors(json_mode: bool = False) -> Iterator[None]:
         raise typer.Exit(code=1) from None
 
 
-def get_client(json_mode: bool = False) -> Client:
+def get_client(json_mode: bool = False, *, require_auth: bool = True) -> Client:
     """从配置装配 Client; 未配置时提示并 exit 1。"""
     base_url, api_key = load_config()
-    if not base_url or not api_key:
+    if not base_url or (require_auth and not api_key):
         print_error(
             "未配置平台地址 / API key: 请先运行 `aap login`, "
             "或设置环境变量 AAP_BASE_URL / AAP_API_KEY",

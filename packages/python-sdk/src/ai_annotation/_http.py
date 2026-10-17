@@ -86,17 +86,33 @@ class HttpTransport:
         json: Any = None,
         data: dict[str, Any] | None = None,
         files: Any = None,
+        headers: dict[str, str] | None = None,
+        root_path: bool = False,
+        accepted_statuses: tuple[int, ...] = (),
     ) -> httpx.Response:
+        if root_path and (not path.startswith("/") or path.startswith("//")):
+            raise ValueError("root path must be an absolute same-origin path")
+        target = self._origin + path if root_path else path
         attempts = 3 if method.upper() == "GET" else 1
         for attempt in range(attempts):
             resp = self._client.request(
-                method, path, params=params, json=json, data=data, files=files
+                method,
+                target,
+                params=params,
+                json=json,
+                data=data,
+                files=files,
+                headers=headers,
             )
-            if resp.status_code in _RETRYABLE_STATUS and attempt + 1 < attempts:
+            if (
+                resp.status_code in _RETRYABLE_STATUS
+                and resp.status_code not in accepted_statuses
+                and attempt + 1 < attempts
+            ):
                 time.sleep(self.retry_backoff * (2**attempt))
                 continue
             break
-        if resp.status_code >= 400:
+        if resp.status_code >= 400 and resp.status_code not in accepted_statuses:
             raise map_status_error(resp)
         return resp
 
@@ -106,6 +122,8 @@ class HttpTransport:
             resp = self.bare.put(url, content=f, headers={"Content-Type": content_type})
         if resp.status_code >= 400:
             raise APIStatusError(resp.status_code, f"预签名上传失败: {resp.text[:200]}")
+        if not 200 <= resp.status_code < 300:
+            raise APIStatusError(resp.status_code, "预签名上传未完成：需要 2xx 响应")
 
     def stream_download(
         self,
@@ -151,6 +169,11 @@ class HttpTransport:
                     if resp.status_code >= 400:
                         resp.read()
                         raise map_status_error(resp)
+                    if resp.status_code != 200:
+                        raise APIStatusError(
+                            resp.status_code,
+                            f"下载需要 HTTP 200，收到 {resp.status_code}",
+                        )
                     for chunk in resp.iter_bytes():
                         temp.write(chunk)
                         digest.update(chunk)

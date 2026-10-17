@@ -96,6 +96,52 @@ def test_server_detail_redacts_api_key(respx_mock):
     assert "ak_sensitive" not in result.stderr
 
 
+def test_dispatch_failure_preserves_recovery_identity(respx_mock):
+    run_id = "00000000-0000-4000-8000-000000000001"
+    job_id = "00000000-0000-4000-8000-000000000002"
+    respx_mock.get(f"{API}/projects").mock(
+        return_value=httpx.Response(
+            503,
+            json={
+                "detail": {
+                    "reason": "point_cloud_quality_dispatch_failed",
+                    "run_id": run_id,
+                    "async_job_id": job_id,
+                    "private_context": "do-not-print",
+                }
+            },
+        )
+    )
+    result = runner.invoke(app, ["--error-format=json", "projects", "list"], env=ENV)
+    error = json.loads(result.stderr)
+    assert result.exit_code == 1
+    assert error["reason"] == "point_cloud_quality_dispatch_failed"
+    assert error["run_id"] == run_id
+    assert error["job_id"] == job_id
+    assert "do-not-print" not in result.stderr
+
+
+def test_recovery_identity_rejects_malformed_ids_and_secret_reason(respx_mock):
+    respx_mock.get(f"{API}/projects").mock(
+        return_value=httpx.Response(
+            503,
+            json={
+                "detail": {
+                    "reason": "ak_sensitive",
+                    "run_id": "not-a-run-id",
+                    "async_job_id": "https://signed.example/?token=secret",
+                }
+            },
+        )
+    )
+    result = runner.invoke(app, ["--error-format=json", "projects", "list"], env=ENV)
+    error = json.loads(result.stderr)
+    assert result.exit_code == 1
+    assert not {"reason", "run_id", "job_id"} & error.keys()
+    assert "ak_sensitive" not in result.stderr
+    assert "signed.example" not in result.stderr
+
+
 def test_usage_errors_cover_parser_and_command_callback():
     parser_error = runner.invoke(
         app,

@@ -15,8 +15,7 @@ from ai_annotation._http import API_PREFIX
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 CLIENT_SOURCE = PACKAGE_ROOT / "src" / "ai_annotation" / "client.py"
 ADDITIONAL_SOURCES = tuple(
-    PACKAGE_ROOT / "src" / "ai_annotation" / name
-    for name in ("training.py", "model_management.py", "learning_automation.py")
+    path for path in sorted(CLIENT_SOURCE.parent.glob("*.py")) if path != CLIENT_SOURCE
 )
 COVERAGE_MANIFEST = PACKAGE_ROOT / "api-coverage.toml"
 SNAPSHOT = (
@@ -26,14 +25,8 @@ SNAPSHOT = (
 _HTTP_METHODS = {"DELETE", "GET", "PATCH", "POST", "PUT"}
 _OPENAPI_METHODS = {method.lower() for method in _HTTP_METHODS}
 _COVERAGE_STATUSES = {"covered", "excluded", "planned", "uncovered"}
-_EXCLUSION_REASONS = {
-    "maintenance-risk",
-    "no-external-demand",
-    "separate-connector-epic",
-    "web-only",
-    "workbench-internal",
-    "executor-only",
-}
+_EXCLUSION_REASONS = {"executor-only"}
+
 _PLANNED_RELEASES: set[str] = set()
 
 
@@ -124,7 +117,25 @@ def extract_client_operations(source: str) -> list[tuple[str, str, int]]:
                 raise AssertionError(
                     f"line {node.lineno}: SDK HTTP path must start with /"
                 )
-            full_path = path if path.startswith(f"{API_PREFIX}/") else API_PREFIX + path
+            root_option = next(
+                (
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg == "root_path"
+                ),
+                None,
+            )
+            if root_option is not None:
+                assert (
+                    isinstance(root_option, ast.Constant)
+                    and type(root_option.value) is bool
+                ), "root_path must be a literal boolean"
+            is_root = root_option is not None and root_option.value is True
+            full_path = (
+                path
+                if is_root or path.startswith(f"{API_PREFIX}/")
+                else API_PREFIX + path
+            )
             operations.append((method, full_path, node.lineno))
         elif _is_http_call(node, "stream_download"):
             method_node = next(
@@ -186,6 +197,21 @@ def _snapshot() -> dict:
     return json.loads(SNAPSHOT.read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize(
+    "prefix", ["/api/v1/videos/{dataset_item_id}", "/api/v1/tasks/{task_id}/video"]
+)
+@pytest.mark.parametrize(
+    "resource,model",
+    [("chunks/{chunk_id}", "VideoChunkOut"), ("frames/{frame_index}", "VideoFrameOut")],
+)
+def test_pending_media_is_documented_as_json(prefix, resource, model):
+    pending = _snapshot()["paths"][f"{prefix}/{resource}"]["get"]["responses"]["202"]
+    assert pending["content"]["application/json"]["schema"]["$ref"].endswith(
+        f"/{model}"
+    )
+    assert "Retry-After" in pending["headers"]
+
+
 def _watched_operations(spec: dict, watched_tags: set[str]) -> set[str]:
     operations: set[str] = set()
     for path, path_item in spec["paths"].items():
@@ -215,6 +241,20 @@ class Example:
             4,
         )
     ]
+
+
+def test_extract_client_operations_distinguishes_root_and_versioned_paths():
+    source = """
+class Health:
+    def check(self):
+        self._http.request("GET", "/health", root_path=True)
+        self._http.request("GET", "/health", root_path=False)
+"""
+    assert [
+        (method, path) for method, path, _ in extract_client_operations(source)
+    ] == [("GET", "/health"), ("GET", "/api/v1/health")]
+    with pytest.raises(AssertionError, match="literal boolean"):
+        extract_client_operations(source.replace("root_path=True", "root_path=enabled"))
 
 
 def test_extract_client_operations_rejects_dynamic_paths():
@@ -337,6 +377,9 @@ def test_api_coverage_manifest_classifies_watched_operations():
             assert entry.get("reason") in _EXCLUSION_REASONS, (
                 f"{operation}: excluded operation needs a known reason"
             )
+            assert operation.startswith("POST /api/v1/internal/training/"), (
+                f"{operation}: public REST operations belong in the SDK scope"
+            )
         elif status == "uncovered":
             assert entry.get("reason") == "not-implemented", (
                 f"{operation}: uncovered operation needs the not-implemented reason"
@@ -347,10 +390,10 @@ def test_api_coverage_manifest_classifies_watched_operations():
         for status in _COVERAGE_STATUSES
     }
     assert counts == {
-        "covered": 196,
-        "excluded": 167,
+        "covered": 558,
+        "excluded": 10,
         "planned": 0,
-        "uncovered": 205,
+        "uncovered": 0,
     }
 
     covered = {
@@ -368,3 +411,36 @@ def test_api_coverage_manifest_classifies_watched_operations():
         f"coverage drift: missing={sorted(client_operations.intersection(actual) - covered)}; "
         f"stale={sorted(covered - client_operations)}"
     )
+
+
+@pytest.mark.skipif(not SNAPSHOT.is_file(), reason="WebSocket router is monorepo-only")
+def test_public_stream_channels_match_root_mounted_router():
+    from ai_annotation.discovery import _catalog
+
+    api = SNAPSHOT.parent
+    tree = ast.parse((api / "app/api/v1/ws.py").read_text())
+    paths = {
+        decorator.args[0].value
+        for function in tree.body
+        if isinstance(function, ast.AsyncFunctionDef)
+        for decorator in function.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Attribute)
+        and decorator.func.attr == "websocket"
+    }
+    channels = _catalog()["stream_channels"]
+    assert len(channels) == 6
+    assert {channel["path"] for channel in channels} == paths
+    main = ast.parse((api / "app/main.py").read_text())
+    mounts = [
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "include_router"
+        and node.args
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id == "ws_router"
+    ]
+    assert len(mounts) == 1
+    assert not any(keyword.arg == "prefix" for keyword in mounts[0].keywords)

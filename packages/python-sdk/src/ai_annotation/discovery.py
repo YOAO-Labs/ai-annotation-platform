@@ -7,7 +7,7 @@ import importlib
 import json
 from functools import lru_cache
 from importlib.resources import files
-from typing import Any, get_args, get_type_hints
+from typing import Any, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -62,19 +62,58 @@ def _sdk_schemas(method: dict[str, Any]) -> dict[str, Any]:
     except (NameError, TypeError):
         annotations = getattr(function, "__annotations__", {})
     result = []
+    raw_schemas = []
     for parameter in method.get("parameters", []):
-        model = _parameter_schema(annotations.get(parameter["name"]))
+        annotation = annotations.get(parameter["name"])
+        model = _parameter_schema(annotation)
         if model is not None:
             result.append(
                 {
                     "parameter": parameter["name"],
                     "model": model.__name__,
+                    "schema": TypeAdapter(annotation).json_schema(
+                        mode="validation", by_alias=True
+                    )
+                    if get_origin(annotation) in {dict, list}
+                    else model.model_json_schema(mode="validation", by_alias=True),
+                }
+            )
+        elif get_origin(annotation) in {dict, list}:
+            raw_schemas.append(
+                {
+                    "parameter": parameter["name"],
+                    "model": str(annotation),
+                    "schema": TypeAdapter(annotation).json_schema(
+                        mode="validation", by_alias=True
+                    ),
+                }
+            )
+    result.extend(raw_schemas)
+    for name in method.get("constructed_models", []):
+        model = _parameter_schema(getattr(module, name, None))
+        if (
+            model is not None
+            and model.model_config.get("extra") == "forbid"
+            and not any(item["model"] == name for item in result)
+        ):
+            result.append(
+                {
+                    "parameter": None,
+                    "model": name,
                     "schema": model.model_json_schema(mode="validation", by_alias=True),
+                    "usage": "Validated internally from the method arguments.",
                 }
             )
     schemas: dict[str, Any] = {"request_schemas": result} if result else {}
     response_type = annotations.get("return")
-    if _parameter_schema(response_type) is not None:
+    if not method["name"].startswith("streams.") and (
+        _parameter_schema(response_type) is not None
+        or get_origin(response_type)
+        in {
+            dict,
+            list,
+        }
+    ):
         schemas["response_schema"] = TypeAdapter(response_type).json_schema(
             mode="serialization", by_alias=True
         )
@@ -106,6 +145,7 @@ def _command_index(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def _enrich_method(method: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(method)
     result.update(_sdk_schemas(result))
+    result.pop("constructed_models", None)
     if result.get("python_only"):
         result["invocation_note"] = (
             "This SDK method has opaque or Python-only parameters; the description is not a generic JSON tool signature."
@@ -190,6 +230,12 @@ def _describe_sdk_method(
     operations = {operation["name"]: operation for operation in catalog["operations"]}
     method_index = _method_index(catalog)
     result["kind"] = "sdk_method"
+    if method["name"].startswith("streams."):
+        result["channel"] = next(
+            copy.deepcopy(channel)
+            for channel in catalog["stream_channels"]
+            if channel["name"] == method["stream_channel"]
+        )
     result["api_operations"] = [
         _describe_row(operations[name], catalog, method_index)
         for name in method.get("api_operations", [])

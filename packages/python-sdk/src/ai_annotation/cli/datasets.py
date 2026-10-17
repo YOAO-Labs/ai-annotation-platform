@@ -8,6 +8,7 @@ import typer
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 from rich.table import Table
 
+from ai_annotation.dataset_operation_models import DatasetImportFromConnectionRequest
 from ai_annotation.cli._output import (
     cli_errors,
     confirm_destructive,
@@ -16,7 +17,9 @@ from ai_annotation.cli._output import (
     get_error_format,
     print_error,
     print_json,
+    print_learning_result,
     progress_console,
+    read_json_body,
 )
 from ai_annotation.cli.jobs import wait_job
 
@@ -345,3 +348,99 @@ def link(
         )
     elif job is None:
         console.print(f"[green]关联完成[/green]: created_tasks={result.created_tasks}")
+
+
+@app.command("sniff-axis")
+def sniff_axis(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """根据相机标定建议点云坐标系。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.datasets.sniff_axis_convention(dataset_id)
+    print_learning_result(result, json_output)
+
+
+@app.command("backfill-dimensions")
+def backfill_dimensions(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    batch: int = typer.Option(50, "--batch", min=1, max=200, help="每次处理条数"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认回填尺寸"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """回填一个尺寸批次；remaining_hint 是满批提示，不是游标，失败项可能重复。"""
+    with cli_errors(json_output):
+        confirm_destructive("确认回填数据集图像尺寸?", yes, json_output)
+        with get_client(json_output) as client:
+            result = client.datasets.backfill_dimensions(dataset_id, batch=batch)
+    print_learning_result(result, json_output)
+    if result.failed:
+        raise typer.Exit(1)
+
+
+@app.command("backfill-media")
+def backfill_media(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认排队媒体回填"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """排队回填数据集缩略图与视频元数据。"""
+    with cli_errors(json_output):
+        confirm_destructive("确认排队数据集媒体回填?", yes, json_output)
+        with get_client(json_output) as client:
+            result = client.datasets.backfill_media(dataset_id)
+    print_learning_result(result, json_output)
+
+
+@app.command("backfill-scenes")
+def backfill_scenes(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    mode: str = typer.Option("auto", "--mode", help="single | per_subdirectory | auto"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="只返回推断结果，不写入"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认回填场景"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """推断 scene 与 frame_index；dry-run 可先检查结果。"""
+    if mode not in {"single", "per_subdirectory", "auto"}:
+        raise typer.BadParameter("--mode 必须是 single、per_subdirectory 或 auto")
+    with cli_errors(json_output):
+        if not dry_run:
+            confirm_destructive("确认写入场景和帧索引?", yes, json_output)
+        with get_client(json_output) as client:
+            result = client.datasets.backfill_scenes(
+                dataset_id, mode=mode, dry_run=dry_run
+            )
+    print_learning_result(result, json_output)
+
+
+@app.command("scan-items")
+def scan_items(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认扫描并导入文件"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """扫描数据集存储前缀并导入新文件。"""
+    with cli_errors(json_output):
+        confirm_destructive("确认扫描并导入数据集新文件?", yes, json_output)
+        with get_client(json_output) as client:
+            result = client.datasets.scan_items(dataset_id)
+    print_learning_result(result, json_output)
+
+
+@app.command("import-from-connection")
+def import_from_connection(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    body_path: Path = typer.Option(
+        ..., "--body", help="UTF-8 JSON 导入请求文件，使用 - 从 stdin 读取"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认排队导入任务"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """从已授权存储连接器排队导入，返回 job_id。"""
+    with cli_errors(json_output):
+        body = read_json_body(body_path, DatasetImportFromConnectionRequest)
+        confirm_destructive("确认排队外部存储导入?", yes, json_output)
+        with get_client(json_output) as client:
+            result = client.datasets.import_from_connection(dataset_id, body)
+    print_learning_result(result, json_output)

@@ -22,19 +22,63 @@ from ai_annotation.cli import (
     annotations,
     batches,
     dashboard,
+    data_manager,
     datasets,
     discovery,
     export,
+    feedbacks,
     jobs,
     learning,
     login,
     members,
     ml_backends,
     ml_registry,
+    notifications,
+    pipelines,
     predictions,
     projects,
     service_pools,
+    storage,
     tasks,
+    templates,
+    video_tracker,
+    video_review,
+    videos,
+    files,
+    scenes,
+    health,
+    auth,
+    ml_capabilities,
+    system_settings,
+    account,
+    api_keys,
+    users,
+    groups,
+    invitations,
+    storage_connections,
+    admin_operations,
+    ml_diagnostics,
+    project_ml,
+    audit_logs,
+    guide_assets,
+    project_performance,
+    search,
+    streams,
+    task_context,
+    image_pyramids,
+    cross_frame_jobs,
+    task_locks,
+    point_cloud,
+    scene_tracks,
+    annotation_operations,
+    failed_predictions,
+    task_views,
+    comments,
+    annotation_history,
+    bug_reports,
+    mask_formats,
+    mask_qc,
+    point_cloud_quality,
 )
 from ai_annotation.cli._output import (
     cli_errors,
@@ -170,12 +214,77 @@ app.command(
     ),
 )(login.login)
 app.add_typer(projects.app, name="projects", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(templates.app, name="templates", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(video_tracker.app, name="video-tracker", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(video_review.app, name="video-review", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(videos.app, name="videos", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(videos.task_app, name="task-videos", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(files.app, name="files", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(scenes.app, name="scenes", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(health.app, name="health", rich_help_panel=PANEL_MONITOR)
+app.add_typer(auth.app, name="auth", rich_help_panel=PANEL_CONFIG)
+app.add_typer(
+    ml_capabilities.app, name="ml-capabilities", rich_help_panel=PANEL_RESOURCE
+)
+app.add_typer(system_settings.app, name="system-settings", rich_help_panel=PANEL_CONFIG)
+app.add_typer(account.app, name="account", rich_help_panel=PANEL_CONFIG)
+app.add_typer(api_keys.app, name="api-keys", rich_help_panel=PANEL_CONFIG)
+app.add_typer(users.app, name="users", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(groups.app, name="groups", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(invitations.app, name="invitations", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(
+    storage_connections.app, name="storage-connections", rich_help_panel=PANEL_RESOURCE
+)
+app.add_typer(
+    admin_operations.app, name="admin-operations", rich_help_panel=PANEL_MONITOR
+)
+app.add_typer(ml_diagnostics.app, name="ml-diagnostics", rich_help_panel=PANEL_MONITOR)
+app.add_typer(project_ml.app, name="project-ml", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(audit_logs.app, name="audit-logs", rich_help_panel=PANEL_MONITOR)
+app.add_typer(guide_assets.app, name="guide-assets", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(
+    project_performance.app, name="project-performance", rich_help_panel=PANEL_MONITOR
+)
+app.add_typer(search.app, name="search", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(streams.app, name="streams", rich_help_panel=PANEL_MONITOR)
+app.add_typer(task_context.app, name="task-context", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(image_pyramids.app, name="image-pyramids", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(
+    cross_frame_jobs.app, name="cross-frame-jobs", rich_help_panel=PANEL_PIPELINE
+)
+app.add_typer(task_locks.app, name="task-locks", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(point_cloud.app, name="point-cloud", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(scene_tracks.app, name="scene-tracks", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(
+    annotation_operations.app,
+    name="annotation-operations",
+    rich_help_panel=PANEL_PIPELINE,
+)
+app.add_typer(comments.app, name="comments", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(
+    annotation_history.app, name="annotation-history", rich_help_panel=PANEL_RESOURCE
+)
+app.add_typer(bug_reports.app, name="bug-reports", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(mask_formats.app, name="mask-formats", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(mask_qc.app, name="mask-qc", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(
+    point_cloud_quality.app, name="point-cloud-quality", rich_help_panel=PANEL_RESOURCE
+)
+app.add_typer(
+    failed_predictions.app, name="failed-predictions", rich_help_panel=PANEL_MONITOR
+)
+app.add_typer(storage.app, name="storage", rich_help_panel=PANEL_MONITOR)
 app.add_typer(datasets.app, name="datasets", rich_help_panel=PANEL_RESOURCE)
 app.add_typer(batches.app, name="batches", rich_help_panel=PANEL_RESOURCE)
 app.add_typer(members.app, name="members", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(notifications.app, name="notifications", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(feedbacks.app, name="feedbacks", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(data_manager.app, name="data-manager", rich_help_panel=PANEL_RESOURCE)
+app.add_typer(task_views.app, name="task-views", rich_help_panel=PANEL_RESOURCE)
 app.add_typer(tasks.app, name="tasks", rich_help_panel=PANEL_PIPELINE)
 app.add_typer(annotations.app, name="annotations", rich_help_panel=PANEL_PIPELINE)
 app.add_typer(predictions.app, name="predictions", rich_help_panel=PANEL_PIPELINE)
+app.add_typer(pipelines.app, name="pipelines", rich_help_panel=PANEL_PIPELINE)
 app.add_typer(jobs.app, name="jobs", rich_help_panel=PANEL_PIPELINE)
 app.add_typer(export.app, name="export", rich_help_panel=PANEL_PIPELINE)
 app.add_typer(ml_backends.app, name="ml-backends", rich_help_panel=PANEL_MONITOR)

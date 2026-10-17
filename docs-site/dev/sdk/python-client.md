@@ -10,7 +10,15 @@ last_reviewed: 2026-10-17
 
 包名 `ai-annotation-sdk`,导入名 `ai_annotation`。同步 Client,底层 httpx + pydantic v2。
 
+项目分页／维护、批次分派／切分／送审、数据集回填、绩效、搜索、指引图片、失败预测与标注导入见 [项目、批次与数据运维](./project-workflows)。已有资源继续沿用 `projects`、`batches`、`datasets` 等入口，另有 `project_performance`、`search`、`guide_assets` 和 `failed_predictions`。
+
+账户、身份、用户管理和运维入口包括 `auth`、`account`、`avatars`、`api_keys`、`users`、`groups`、`invitations`、`health`、`ml_capabilities`、`system_settings`、`audit_logs`、`storage_connections`、`admin_operations`、`ml_diagnostics` 与 `project_ml`。这些命名空间的方法、公开类型与权限／恢复规则见 [账户、管理与运维](./account-and-operations)，精确参数和 schema 可用 `describe_operation("namespace.method")` 离线读取。
+
 > **兼容承诺范围**:公开 API 仅限本页所列(`Client` + 资源命名空间方法 + 顶层导出的模型、异常与能力发现函数)。内部传输层 `ai_annotation._http` 不在兼容承诺内,外部代码不要直接依赖。
+
+`comments`、`annotation_history`、`bug_reports`、`mask_formats`、`mask_qc`、`point_cloud_quality` 的类型请求、分页、签名附件、回执／摘要及失败恢复见 [讨论、缺陷报告与质量处理](./annotation-quality)。
+
+任务级读取、媒体、租约、点云与几何修改见 [任务工作流](./task-workflows)；六条 WebSocket 的离线发现、typed 事件、鉴权与有界 NDJSON 监听见 [公开事件流](./streams)。REST 已覆盖全部 558 项采用接口，十项执行器内部协议保持排除。
 
 ## 版本与 AAP target
 
@@ -68,23 +76,31 @@ with Client() as client:
 
 ### client.projects
 
-| 方法     | 签名                                                                                       | 返回            |
-| -------- | ------------------------------------------------------------------------------------------ | --------------- |
-| `list`   | `list(status: str \| None = None, search: str \| None = None)`                             | `list[Project]` |
-| `create` | `create(name: str, type_key: str \| None = None, data_type: str \| None = None, **kwargs)` | `Project`       |
-| `get`    | `get(project_id)`                                                                          | `Project`       |
-| `update` | `update(project_id, **fields)`                                                             | `Project`       |
-| `delete` | `delete(project_id)`                                                                       | `None`          |
-| `stats`  | `stats()`                                                                                  | `ProjectStats`  |
-| `access` | `access(project_id)`                                                                       | `ProjectAccess` |
+| 方法     | 签名                                                                                                                              | 返回            |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `list`   | `list(status: str \| None = None, search: str \| None = None)`                                                                    | `list[Project]` |
+| `create` | `create(name, type_key=None, data_type=None, *, template_id=None, source_project_id=None, copy_annotation_guide=False, **kwargs)` | `Project`       |
+| `get`    | `get(project_id)`                                                                                                                 | `Project`       |
+| `update` | `update(project_id, **fields)`                                                                                                    | `Project`       |
+| `delete` | `delete(project_id)`                                                                                                              | `None`          |
+| `stats`  | `stats()`                                                                                                                         | `ProjectStats`  |
+| `access` | `access(project_id)`                                                                                                              | `ProjectAccess` |
 
-`create` 说明:后端 `type_label` 必填,未通过 `kwargs` 显式给出时 SDK 按 `type_key` → `data_type` → `name` 顺序兜底填充。
+`create` 额外提供 keyword-only `template_id`、`source_project_id` 和 `copy_annotation_guide`。模板与源项目互斥；未明确给出的类型与 type_label 由服务器继承，明确覆盖优先。普通创建仍按 `type_key` → `data_type` → `name` 填 type_label，保持既有行为。模板不支持 copy_annotation_guide；配置继承由服务器处理，SDK 不复制合并逻辑。
 
 `stats()` 返回可见项目聚合(`total_data` / `completed` / `ai_rate` / `pending_review`)+ 最近 12 周时间序列(`*_series`),任意已认证用户可达。
 
 `access()` 返回当前账号在该项目上的解析后权限(`ProjectAccess`):`platform_role`(平台角色)、`project_role`(项目角色,管理者可为 `None`)、`access_kind`(`super_admin` / `owner` / `member`)、`membership_id` / `membership_version`、`is_manager` 与 `capabilities`。`Project.my_project_role` 是列表 / 详情里当前账号的项目角色。授权来自项目成员关系而非账号全局角色,详见[可见性与权限](../concepts/visibility-and-permissions)。
 
+### client.project_templates、videos、task_videos、video_tracker、video_review、storage
+
+这些命名空间提供项目模板 CRUD／复制、素材与任务视频媒体、章节、显式分段租约、追踪创建／恢复／候选决策、Mask 内容／关键帧、质量审阅、轨迹编辑和存储诊断／资产重试。复杂写入接收公开的 typed request models；通过 `describe_operation()` 查看完整具名参数和请求 schema。
+
+视频 frame/chunk 返回 JSON，202 尚未就绪；GET 可能触发缓存生成。追踪和质量 run 的状态独立于通用 AsyncJob，接纳保留原 revision/digest/source versions。Mask 写入使用 If-Match，轨迹 split/merge 可能停用源标注。具体 ID、下载、权限与恢复边界见 [视频、模板与存储运维](./video-and-templates)。
+
 ### client.datasets
+
+另有 `client.files.upload_init/upload_content/upload_complete/file_url/backfill_thumbnails` 与 `client.scenes.list/get/trajectory/update`。前者处理项目任务文件，后者处理数据集场景；它们与数据集素材上传身份不同。读取场景要求 API key 的 datasets:read，写入遵循管理员策略。完整请求和恢复边界见 [文件上传与数据集场景](./files-and-scenes)。
 
 | 方法             | 签名                                                                                                                  | 返回                   |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------- |
@@ -138,6 +154,66 @@ with Client() as client:
 | `bulk_update` | `bulk_update(annotation_ids, **patch)`                                                            | `AnnotationBulkUpdateResult` |
 
 `bulk_update` 只接受 `class_name` / `attributes` / `z_order` / `is_locked` / `is_hidden`；不包装 geometry 批量修改。
+
+### client.feedbacks
+
+| 方法     | 调用                                                                                   | 返回                 |
+| -------- | -------------------------------------------------------------------------------------- | -------------------- |
+| `create` | `create(project_id, body, *, kind="issue", anchor_type="task", task_id=None, ...)`     | `AnnotationFeedback` |
+| `list`   | `list(project_id, *, cursor=None, limit=50, root_only=None, include_counts=None, ...)` | `FeedbackPage`       |
+| `thread` | `thread(root_feedback_id, *, cursor=None, limit=50)`                                   | `FeedbackThreadPage` |
+| `reply`  | `reply(feedback_id, body: AnnotationFeedbackReply)`                                    | `AnnotationFeedback` |
+| `patch`  | `patch(feedback_id, body: AnnotationFeedbackPatch)`                                    | `AnnotationFeedback` |
+| `delete` | `delete(feedback_id)`                                                                  | `None`               |
+
+完整具名参数可通过 `describe_operation("feedbacks.create")` 等离线描述读取。线程返回单独的 `root`、活跃后代 `items`、根绑定游标与后代总数；游标原样用于同一根线程。回复仅提供正文和附件，没有幂等键，不自动重试。补丁保留省略与显式 null，当前服务端把 null 当作不修改；`mentions=[]` 才清空提及。软删除成功返回空 204；根删除与回复删除对线程有不同影响。权限、提及和锚点新鲜度仍由服务端核对，详见 [反馈工作流](./workflows#阅读完整反馈线程并明确处理)。
+
+### client.data_manager 与 client.task_views
+
+| 资源           | 方法                                                | 主要返回                                                              |
+| -------------- | --------------------------------------------------- | --------------------------------------------------------------------- |
+| `data_manager` | `schema`, `summary`, `matches`                      | schema／完整任务范围聚合／单任务命中页                                |
+| `data_manager` | `query_objects`, `object_detail`, `object_location` | 对象页／`{item}`／直接 location                                       |
+| `data_manager` | `query_tracks`, `track_detail`                      | 逻辑轨迹页／`{track, members}`                                        |
+| `data_manager` | `assignment_preview`, `assignment_apply`            | `DataManagerTaskAssignmentResponse`，含逐项结果与 preview_version     |
+| `data_manager` | `export_tasks`                                      | `DataManagerTaskExportSubmission`，含 job_id 与实际状态               |
+| `task_views`   | `list`, `create`, `get`, `update`, `delete`, `copy` | 内置／保存视图的 `{items}` 或单个 `ProjectTaskView`；delete 返回 None |
+| `task_views`   | `query`, `query_view`                               | `ProjectTaskQueryResponse`，含 items/total/limit/offset               |
+
+所有方法先接收 `project_id`，需要时再接收任务／对象／视图 ID 和请求对象。`schema(project_id, *, entity_scope="tasks")` 获取动态目录；复杂读取使用 `DataManagerSummaryRequest`、`DataManagerMatchesRequest`、`DataManagerEntityQueryRequest` 和 `ProjectTaskQueryRequest`。字段与操作符仍由当前项目 schema 和服务器校验，SDK 不实现过滤器执行器。
+
+视图创建／更新／复制分别使用 `ProjectTaskViewCreate`、`ProjectTaskViewUpdate`、`ProjectTaskViewCopyRequest`；省略或 null 表示不更新，空对象／数组清空配置。内置项 id 为 None，保存视图才使用 UUID 路由。`query_view(..., limit=50, offset=0)` 只查询保存的 task 粒度视图。
+
+分配使用 `DataManagerTaskAssignmentRequest` 和带 preview_version 的 `DataManagerTaskAssignmentApplyRequest`；owner 字段省略保持 override，显式 null 清除 override 并继承批次人员。导出使用 `DataManagerTaskExportRequest`，可通过 `export_tasks(..., idempotency_key=...)` 显式带请求头；不扩大选择、不自动重试或等待。完整参数可离线 `describe_operation` 读取，分页、粒度及边界见 [Data Explorer 与保存视图](./data-explorer)。
+
+### client.notifications
+
+| 方法                | 调用                                                          | 返回内容                                       |
+| ------------------- | ------------------------------------------------------------- | ---------------------------------------------- |
+| `list`              | `list(unread_only=False, limit=30, offset=0)`                 | `NotificationPage`：`items`、`total`、`unread` |
+| `unread_count`      | `unread_count()`                                              | 当前账号未读数                                 |
+| `mark_read`         | `mark_read(notification_id)`                                  | `ok` 确认                                      |
+| `mark_all_read`     | `mark_all_read()`                                             | `updated` 数量                                 |
+| `delete`            | `delete(notification_id)`                                     | `ok` 确认                                      |
+| `clear_read`        | `clear_read()`                                                | `deleted` 数量                                 |
+| `preferences`       | `preferences()`                                               | `NotificationPreferences`                      |
+| `update_preference` | `update_preference(preference: NotificationPreferenceUpdate)` | 成功确认                                       |
+
+列表范围为当前账号，limit 为 1–100。偏好仅更新明确提供的 `in_app`／`toast`，禁止显式 null 或空频道补丁；未知类型由服务器拒绝。标记通知已读不代表完成其目标任务，通知中的目标仍需通过对应资源接口读取并核对权限。
+
+### client.pipelines
+
+| 方法          | 调用                                                                         | 返回                       |
+| ------------- | ---------------------------------------------------------------------------- | -------------------------- |
+| `list`        | `list(*, scope=None, project_id=None, organization_id=None)`                 | `list[ProjectPipeline]`    |
+| `get`         | `get(pipeline_id)`                                                           | `ProjectPipeline`          |
+| `create`      | `create(body: ProjectPipelineCreate)`                                        | `ProjectPipeline`          |
+| `update`      | `update(pipeline_id, body: ProjectPipelineUpdate)`                           | `ProjectPipeline`          |
+| `delete`      | `delete(pipeline_id)`                                                        | `None`                     |
+| `apply`       | `apply(project_id, body: ProjectPipelineApplyRequest)`                       | 复制后的 `ProjectPipeline` |
+| `preannotate` | `preannotate(project_id, body: PreannotateRequest, *, idempotency_key=None)` | `PreannotationSubmission`  |
+
+库列表当前没有服务端分页。`apply` 是复制／可选切换默认，不执行推理。`preannotate` 返回实际 Job acknowledgement，`total_tasks` 可能未知；通过 `jobs.get/wait` 独立观察完成状态。幂等键是明确的 `Idempotency-Key` 请求头，不由 SDK 自动生成；结果不确定时保留原键和完整请求。结构、backend 启用、执行能力和任务范围分别由现有服务端边界校验，不提供伪造的 validate/dry-run。详见 [编排与预标注工作流](./workflows#保存编排与复制到目标项目)。
 
 ### client.predictions
 

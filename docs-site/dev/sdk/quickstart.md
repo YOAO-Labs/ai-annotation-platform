@@ -10,9 +10,23 @@ last_reviewed: 2026-10-17
 
 10 分钟跑通一条完整链路:创建数据集 → 上传数据 → 创建项目并关联 → 触发导出并下载。CLI 与 Python 两条路径任选其一。
 
+处理待办、讨论反馈或执行模型推理时，继续阅读 [通知、反馈与预标注](./workflows)。
+
+按项目 schema 筛选任务／对象／轨迹、复用视图及处理选中任务，见 [Data Explorer 与保存视图](./data-explorer)。
+
+当前账户、会话、用户生命周期、连接器及诊断操作，见 [账户、管理与运维](./account-and-operations)。
+
+项目／批次维护、数据运维、绩效、搜索与导入，见 [项目、批次与数据运维](./project-workflows)。
+
 > **版本与稳定性**：SDK、CLI 与 TUI 使用独立于平台的 SemVer。`aap --version` 同时显示 SDK 版本与
 > 完成测试/OpenAPI 对账的 AAP target；target 是已验证基线，不是对其他平台版本的兼容承诺。公开 API
 > 以 [Python SDK 参考](./python-client)列出的命名空间、模型和异常为准。
+
+讨论、历史、缺陷报告、Mask 导入／修复与点云评估，见 [讨论、缺陷报告与质量处理](./annotation-quality)。
+
+任务级读取、媒体、租约、点云与几何修改见 [任务工作流](./task-workflows)；六条 WebSocket 的离线发现、typed 事件、鉴权与有界 NDJSON 监听见 [公开事件流](./streams)。REST 已覆盖全部 558 项采用接口，十项执行器内部协议保持排除。
+
+Agent 自动化调用、离线能力发现与结构化错误，见 [Agent 接入与操作](./agents)；在线学习、数据版本冻结与模型发布，见 [在线学习与模型训练](../../api/guides/training-datasets) 及 `aap learning` CLI 命令组。
 
 ## 安装
 

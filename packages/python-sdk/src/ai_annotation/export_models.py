@@ -6,6 +6,7 @@ import uuid
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from ai_annotation.models import _AAPModel
 
 
 class VideoExportSegmentSelection(BaseModel):
@@ -74,3 +75,29 @@ class ExportRequestBody(BaseModel):
 
     scope: VideoExportScopeRequest | None = None
     lidar: LidarExportOptions | None = None
+
+
+class LidarExportPreflightRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    targets: list[str] = Field(min_length=1)
+    lidar: LidarExportOptions | None = None
+
+
+class LidarExportIssue(_AAPModel):
+    code: str
+    message: str
+    task_id: uuid.UUID | None = None
+    task_display_id: str | None = None
+    frame_key: str | None = None
+    camera_role: str | None = None
+
+
+class LidarExportPreflightResult(_AAPModel):
+    ready: bool
+    camera_roles: list[str]
+    selected_camera_role: str | None = None
+    checked_tasks: int
+    issue_count: int
+    issues_truncated: bool = False
+    issues: list[LidarExportIssue]

@@ -136,7 +136,52 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 ```
 
 响应的 `anchor_position` 保留完整原始字典；`issue.video_context` 只返回可识别的有效 V1，
-未知版本返回 `None`，仍可读取旧 x/y/frame 做兼容定位。SDK 当前未提供修改、删除或回复反馈的方法。
+未知版本返回 `None`，仍可读取旧 x/y/frame 做兼容定位。`feedbacks.thread()` 读取完整线程的一页后代；`reply()` 与 `patch()` 接收类型化请求，`delete()` 执行软删除。线程游标绑定根反馈，回复没有幂等键，不自动重试；补丁保留省略与显式 null。
+
+## 通知与预标注
+
+`client.notifications` 提供当前账号的有界通知列表、未读计数、已读处理、清理和偏好更新。偏好只修改明确给出的频道，保留其它设置。
+
+`client.pipelines` 管理可见编排库；`apply()` 将模板复制到项目，`preannotate()` 才提交推理。使用明确的范围和稳定的 `Idempotency-Key`，通过现有 `jobs.get/wait` 查询受理后的状态。服务器继续校验项目／组织权限、backend 启用、模型能力、任务归属与锁状态，不提供独立的 dry-run。
+
+```bash
+aap notifications list --unread-only --limit 20 --json
+aap feedbacks thread "$ROOT_ID" --limit 50 --json
+aap pipelines list --scope private --project "$PROJECT_ID" --json
+aap pipelines preannotate --project "$PROJECT_ID" --body request.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
+aap jobs get "$JOB_ID" --json
+```
+
+详见 `docs-site/dev/sdk/workflows.md`；所有新操作也可通过随包离线目录读取请求 schema 与限制。
+
+## Data Explorer 与保存视图
+
+`client.data_manager` 读取项目 schema、聚合、对象／轨迹与定位，提供选中任务的分配预览／应用和导出；`client.task_views` 保存／复制筛选配置并执行任务查询。筛选保留动态字段与分组，不在客户端执行；查询、分配应用和导出各有独立权限与范围。
+
+```bash
+aap data-manager schema --project "$PROJECT_ID" --entity-scope objects --json
+aap data-manager query-objects --project "$PROJECT_ID" --body query.json --json
+aap task-views query --project "$PROJECT_ID" --body tasks.json --json
+aap data-manager assignment-preview --project "$PROJECT_ID" --body selection.json --json
+aap data-manager assignment-apply --project "$PROJECT_ID" --body apply.json --yes --json
+aap data-manager export-tasks --project "$PROJECT_ID" --body export.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
+```
+
+任务查询用 offset，实体查询用不透明 cursor；内置视图的 id 为空，不能传给保存视图 UUID 路由。分配提交保留 preview_version，选中任务导出保留精确任务集合与幂等键，不隐式等待或扩大范围。详见 `docs-site/dev/sdk/data-explorer.md`。
+
+## 视频、项目模板与存储
+
+使用 `client.videos`／`task_videos` 读取素材或任务媒体及管理分段租约，`video_tracker` 创建、恢复与审阅追踪，`video_review` 操作 Mask 内容、关键帧、质量与轨迹。frame/chunk 的 202 是 JSON 待就绪状态，读取可能触发生成；下载和轮询分别明确执行。候选接纳保留 revision/digest/source versions，Mask 写入携带 If-Match，变更不自动重试。
+
+`client.project_templates` 管理模板；`projects.create(name, template_id=...)` 或 `source_project_id=...` 继承服务端配置与类型，明确覆盖优先。`client.storage` 提供 bucket 诊断及管理员视频失败查询／重试，queued 只代表已排队。对应 CLI 为 `videos`、`task-videos`、`video-tracker`、`video-review`、`templates`、`storage`。详见 `docs-site/dev/sdk/video-and-templates.md`。
+
+公开 REST 覆盖路线包括运维与管理员操作，仅内部执行器训练协议排除；尚未实现的公开接口继续明确列为 uncovered。
+
+项目、批次、数据集和看板补齐分页／维护、预览分派、送审／锁定、回填与导入；`project_performance`、`search`、`guide_assets`、`failed_predictions` 提供绩效证据、搜索、指引图片三步上传和失败恢复。LiDAR 项目／批次预检共用模型，标注导入保留同步部分回执。完整 CLI 和限制见 `docs-site/dev/sdk/project-workflows.md`。
+
+账户与运维入口提供 `auth`、`account`、`avatars`、`users`、`groups`、`invitations`、`health`、`ml_capabilities`、`system_settings`、`audit_logs`、`storage_connections`、`admin_operations`、`ml_diagnostics` 和 `project_ml`；`api_keys.patch` 保留显式 null 清除有效期。对应 CLI 使用同名 kebab-case 命令组。先用 `describe` 查看精确参数；敏感输出、部分失败退出码、权限与真实网络／邮件边界见 `docs-site/dev/sdk/account-and-operations.md`。
+
+`client.files` 提供初始化、无平台凭据的签名字节上传、明确完成和任务文件 URL；`client.scenes` 读取数据集场景／有序位姿并执行管理员元数据更新。对应命令为 `aap files` 和 `aap scenes`，权限、分步恢复及 null 语义见 `docs-site/dev/sdk/files-and-scenes.md`。
 
 ## CLI
 
@@ -231,3 +276,7 @@ pytest
 ## 更多文档
 
 参见仓库文档站 `docs-site/dev/sdk/`。
+
+新增 `comments`、`annotation_history`、`bug_reports`、`mask_formats`、`mask_qc`、`point_cloud_quality`。讨论与历史沿用实际任务权限，格式导入／修复保留精确回执和摘要，点云评估晋升校验基线版本。完整工作流见 `docs-site/dev/sdk/annotation-quality.md`。
+
+SDK 覆盖全部 558 项稳定公开 REST（含运维），十项执行器私有操作排除，另提供六条公开 WebSocket。任务、租约、相机／轨迹和几何提交见 [任务工作流](../../docs-site/dev/sdk/task-workflows.md)；可选 `streams` extra 与有界 NDJSON 监听见 [公开事件流](../../docs-site/dev/sdk/streams.md)。

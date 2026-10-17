@@ -13,7 +13,17 @@ from ai_annotation.cli._output import (
     console,
     get_client,
     print_json,
+    print_learning_result,
     read_json_body,
+)
+from ai_annotation.batch_operation_models import (
+    AdminBatchLockRequest,
+    BatchAssignmentPreviewRequest,
+    BatchDistributionRequest,
+    BatchSplitRequest,
+    LidarExportPreflightRequest,
+    ReviewedBatchAssignment,
+    ReviewedBatchDistribution,
 )
 from ai_annotation.export_models import ExportRequestBody
 
@@ -401,3 +411,237 @@ def download_batch_voc(
         print_json({"out": str(dest)})
     else:
         console.print(f"[green]批次 VOC 导出完成[/green] → {dest}")
+
+
+def _print_partial_batch_result(result, json_output: bool) -> None:
+    """Always print the complete receipt before returning a failure exit code."""
+    print_learning_result(result, json_output)
+    if result.failed:
+        raise typer.Exit(code=1)
+
+
+def _print_batch_model_list(result, json_output: bool) -> None:
+    print_learning_result(
+        [item.model_dump(mode="json", by_alias=True) for item in result],
+        json_output,
+    )
+
+
+@app.command("unclassified-count")
+def unclassified_count(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """读取项目中尚未归入批次的任务数。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.unclassified_count(project_id)
+    print_learning_result(result, json_output)
+
+
+@app.command("audit-logs")
+def audit_logs(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    limit: int = typer.Option(50, "--limit", min=1, max=200, help="最多返回 200 条"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON 数组"),
+) -> None:
+    """读取批次操作历史；批次必须属于指定项目。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.audit_logs(project_id, batch_id, limit=limit)
+    _print_batch_model_list(result, json_output)
+
+
+@app.command("bulk-archive")
+def bulk_archive(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_ids: list[str] = typer.Option(
+        ..., "--id", help="批次 ID，可重复，最多 200 个"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    json_output: bool = typer.Option(False, "--json", help="输出完整结果 JSON"),
+) -> None:
+    """批量归档；部分成功会先输出完整回执，存在失败项时以 1 退出。"""
+    confirm_destructive(f"确认归档 {len(batch_ids)} 个批次?", yes, json_output)
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.bulk_archive(project_id, batch_ids)
+    _print_partial_batch_result(result, json_output)
+
+
+@app.command("bulk-delete")
+def bulk_delete(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_ids: list[str] = typer.Option(
+        ..., "--id", help="批次 ID，可重复，最多 200 个"
+    ),
+    force: bool = typer.Option(False, "--force", help="确认清理进行中任务和 AI 预标"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    json_output: bool = typer.Option(False, "--json", help="输出完整结果 JSON"),
+) -> None:
+    """批量删除；默认保护有活动成果的批次，强制清理需再带 --force。"""
+    action = "强制删除并清理任务成果" if force else "删除批次"
+    confirm_destructive(f"确认{action}，共 {len(batch_ids)} 个?", yes, json_output)
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.bulk_delete(project_id, batch_ids, force=force)
+    _print_partial_batch_result(result, json_output)
+
+
+@app.command("distribution-preview")
+def distribution_preview(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    body_path: Path = typer.Option(..., "--body", help="分派 JSON；用 - 从 stdin 读取"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """预览项目批次分派；batch_ids 省略表示按 only_unassigned 选择。"""
+    with cli_errors(json_output):
+        body = read_json_body(body_path, BatchDistributionRequest)
+        with get_client(json_output) as client:
+            result = client.batches.distribution_preview(project_id, body)
+    print_learning_result(result, json_output)
+
+
+@app.command("distribution-apply")
+def distribution_apply(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    body_path: Path = typer.Option(
+        ..., "--body", help="含 preview_version 的 JSON；用 - 从 stdin 读取"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认应用预览分派"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """应用明确提供的预览版本；409 时需重新预览后手动提交。"""
+    with cli_errors(json_output):
+        body = read_json_body(body_path, ReviewedBatchDistribution)
+    confirm_destructive("确认应用这份批次分派预览?", yes, json_output)
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.distribution_apply(project_id, body)
+    print_learning_result(result, json_output)
+
+
+@app.command("split")
+def split(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    body_path: Path = typer.Option(..., "--body", help="切分 JSON；用 - 从 stdin 读取"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认创建批次并移动任务"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON 列表"),
+) -> None:
+    """按 metadata、id_range、random 或 by_scene 创建批次。"""
+    with cli_errors(json_output):
+        body = read_json_body(body_path, BatchSplitRequest)
+    confirm_destructive(f"确认按 {body.strategy} 策略切分项目任务?", yes, json_output)
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.split(project_id, body)
+    _print_batch_model_list(result, json_output)
+
+
+@app.command("admin-lock")
+def admin_lock(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    reason: str = typer.Option(..., "--reason", help="锁定原因，1-500 字"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """以项目负责人身份锁定批次并记录原因。"""
+    with cli_errors(json_output):
+        lock_request = AdminBatchLockRequest(reason=reason)
+    confirm_destructive(f"确认锁定批次 {batch_id}?", yes, json_output)
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.admin_lock(
+                project_id, batch_id, lock_request.reason
+            )
+    print_learning_result(result, json_output)
+
+
+@app.command("admin-unlock")
+def admin_unlock(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """以项目负责人身份解除批次锁定。"""
+    confirm_destructive(f"确认解除批次 {batch_id} 的管理员锁?", yes, json_output)
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.admin_unlock(project_id, batch_id)
+    print_learning_result(result, json_output)
+
+
+@app.command("assignment-preview")
+def assignment_preview(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    body_path: Path = typer.Option(
+        ...,
+        "--body",
+        help="目标责任人 JSON；必须同时给出 annotator_id/reviewer_id，可传 null 清除",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="输出预览 JSON"),
+) -> None:
+    """预览单个批次的完整责任人目标；null 表示清除该角色。"""
+    with cli_errors(json_output):
+        body = read_json_body(body_path, BatchAssignmentPreviewRequest)
+        with get_client(json_output) as client:
+            result = client.batches.assignment_preview(project_id, batch_id, body)
+    print_learning_result(result, json_output)
+
+
+@app.command("assignment-apply")
+def assignment_apply(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    body_path: Path = typer.Option(
+        ..., "--body", help="目标责任人和 preview_version JSON；null 表示清除该角色"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认应用责任人变更"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """应用完整责任人目标；不自动合并或重试过期预览。"""
+    with cli_errors(json_output):
+        body = read_json_body(body_path, ReviewedBatchAssignment)
+    confirm_destructive(f"确认更新批次 {batch_id} 的标注员和审核员?", yes, json_output)
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.assignment_apply(project_id, batch_id, body)
+    print_learning_result(result, json_output)
+
+
+@app.command("lidar-preflight")
+def lidar_preflight(
+    project_id: str = typer.Argument(..., help="激光雷达项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    body_path: Path = typer.Option(..., "--body", help="预检 JSON；用 - 从 stdin 读取"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """预检批次 LiDAR 导出；ready=false 和 issues 是正常结果。"""
+    with cli_errors(json_output):
+        body = read_json_body(body_path, LidarExportPreflightRequest)
+        with get_client(json_output) as client:
+            result = client.batches.lidar_preflight(project_id, batch_id, body)
+    print_learning_result(result, json_output)
+
+
+@app.command("submit-review")
+def submit_review(
+    project_id: str = typer.Argument(..., help="项目 ID"),
+    batch_id: str = typer.Argument(..., help="批次 ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认整批送审"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """整批送审；仅负责人或已分配的标注员可执行。"""
+    confirm_destructive(
+        f"确认提交批次 {batch_id} 内符合条件的任务送审?", yes, json_output
+    )
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.batches.submit_review(project_id, batch_id)
+    print_learning_result(result, json_output)
+    if result.remaining_tasks:
+        raise typer.Exit(1)
