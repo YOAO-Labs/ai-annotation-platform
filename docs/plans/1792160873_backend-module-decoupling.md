@@ -668,6 +668,23 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 5 个相关行为/架构测试文件均已执行；改动的 `test_project_pipelines.py` 与 `test_preannotate_text.py` 合计 22 项复验通过，其余项目配置、验证器与架构套件在合跑中通过（含预期跳过项）。精确 OpenAPI snapshot、Ruff 0.15.22、Markdown 格式检查与 VitePress 全站构建通过；构建保留现有 promql/env 高亮 fallback 与 chunk-size 提示。原始证据保存在 `/tmp/aap-pipeline-evidence/` 的测试、OpenAPI、Ruff、Prettier 与 docs-build 日志中。
 - 主线集成后从冷进程加载领域/schema，无 API/worker 导入；真实主线 ASGI/JWT 创建与 apply 均为 201，独立连接核对源与副本的规范阶段一致、来源 usage=1、旧默认取消及唯一新默认。该探针覆盖当前主线账号/项目锁适配器与已迁移请求 schema 的组合，不重复隔离环境完整验收，不接触模型端点。
 
+### 全局 ML registry 删除与项目主绑定事务
+
+- `application/ml_registry_deletion.py::delete_registry` 编排 `validate_delete`、实际路由静默检查、pool 查询与 `MLBackendService.delete`。registry 删除 flush 成功后，才调用 workspace 清除指向该 pool 的全部项目主绑定；应用命令不提交，HTTP 保留既有审计后 commit。`MLBackendService.delete` 不直接 UPDATE `Project`，删除、绑定清理、审计和最终提交处于同一调用者事务，外键/SQL/提交失败不会留下半完成状态。
+- `services/project_workspace.py` 持有稳定绑定 helper：`set_primary_backend_binding(*, project: Project, pool_id: UUID | None) -> None` 与 `async clear_primary_backend_binding_for_pool(db: AsyncSession, pool_id: UUID) -> None`。原项目 owner transfer、类别重命名和 guide asset helpers 保留。删除路由重读并以账号 `FOR UPDATE` 锁定当前活跃超管，角色/停用变化分别仍返回 403/401，锁持有至调用者提交。
+- 真实隔离 PostgreSQL/Redis 上执行 ASGI/JWT 删除，未覆盖 `get_db` 或认证依赖：204 后 registry 消失，两条指向目标 pool 的项目主绑定都清空，其他 registry 与其项目主绑定不变，`ProjectMLBackendPool` 启用关系保留。当前数据库已降权 actor 的有效 JWT 返回 403 且 registry/绑定保留；集成套件另以同一身份映射的陈旧对象验证角色降权与停用分别拒绝为 403/401。
+- 失败路径保留原策略：缺失 registry 404、GPU fence 非可删 409、运行中预标 job 409、活动 member 未 drain 409、真实隔离 Redis route lease 未清空 409，均不删 registry 或清主绑定。后者用实际路由账本 lease，不调用或假装调用模型/GPU endpoint。真实 ASGI/PostgreSQL 延迟约束在 commit 时拒绝主绑定 UPDATE，返回 500；独立连接确认 registry 行及原绑定仍在，证明两者同事务回滚。
+- 补充同夹具预算取历史 `3b6d3cb1e` 的删除方法及原 validate→quiescent→delete 次序；两侧统一使用真实 JWT/角色检查、当前账号行锁、实际 Redis 静默检查与业务审计 flush，只比较元数据删除/解绑所有权的变化。每次 flush 后 rollback，保留完全相同的 registry、两条目标项目绑定及无关绑定；各预热一次后交错采样三次：
+
+| 采样指标                    | 历史删除命令 | 当前删除命令 |
+| --------------------------- | -----------: | -----------: |
+| SQL 语句数                  |           22 |           22 |
+| Python 堆峰值中位数（字节） |      365,390 |      353,999 |
+
+- 该预算不含 HTTP 传输/中间件、夹具创建和事后读取，也不代表旧授权策略整体、吞吐或进程 RSS；首个历史堆样本为 528,815 字节，离散明显，不把堆差宣称为优化。完整样本及方法摘要在 `artifact://1499`，补充探针自身先修正夹具未 flush 的外键错误后才完成有效采样；未改生产代码或重跑已通过用例。
+- registry 管理、项目绑定和精确 OpenAPI 三个既有测试文件累计 47 个不同用例通过；首次运行的两个夹具错误修正后只重跑受影响用例，去重计数不重复累加。`test_domain_package_architecture.py` 另有 159 passed、74 skipped。删除只回显 mock unload 成功响应的测试及运行中作业/撤权拒绝的固定解释文案断言，保留资源不变、消费者可见的 GPU 错误字段与 `Retry-After` 边界；三个受影响用例在主线补验通过，不重复累计。路由/公开 schema 与精确 OpenAPI snapshot 不变。此切片没有调用真实模型或 GPU，不声明推理/硬件资格。
+- 主线冷进程导入应用删除命令时未加载 API/worker；实际主线路由在成员 drain 及真实 Redis 静默检查后返回 204，两条目标主绑定清空、无关绑定及独立启用关系保留。随后同 JWT 的主体降为 project_admin，再删无关 registry 返回 403，registry/绑定均保留；不以此冒充 GPU 卸载或模型资格。
+
 ### 剩余范围
 
-- 剩余主写入切片为三类质检执行。全入口复核另确认项目/模板配置、Schema 孤儿标注清理、注册删除的主绑定、质检问题人工决策、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入仍需完成，已单独跟踪。完整入口/数据/对象前缀台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余主写入切片为三类质检执行。全入口复核另确认项目/模板配置、Schema 孤儿标注清理、质检问题人工决策、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入仍需完成，已单独跟踪。完整入口/数据/对象前缀台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

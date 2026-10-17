@@ -162,7 +162,7 @@ scene 模式项目额外多一层连续派题逻辑：打开 `prefer_same_scene_
 项目还决定：
 
 - 是否启用 AI：`ai_enabled` 是独立持久化字段；当前前端在选择或清空主后端时同步写入它，但数据库没有“只要绑定后端就自动派生”的约束
-- 主服务池：ORM 写 `ml_backend_pool_id`；公共 API 暂以 `ml_backend_id` 接收 / 返回 registry ID，并在路由层解析到服务池
+- 主服务池：ORM 字段是 `Project.ml_backend_pool_id`，workspace 提供 `set_primary_backend_binding()` 字段设置命令。`application/ml_registry_deletion.py` 先完成删除准入、路由静默及 registry 删除，仅成功后才由 workspace 清空指向该池的全部主绑定；清理与 registry 删除同属一个调用者事务，启用关系不变。公共 API 暂以 `ml_backend_id` 接收 / 返回 registry ID，并在配置入口解析到服务池。
 - 文本预标注默认阈值：`box_threshold` / `text_threshold`
 
 AI 能力是 project 级开关，不是 batch 或 task 私有配置。

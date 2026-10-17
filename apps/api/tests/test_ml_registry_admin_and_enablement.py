@@ -9,8 +9,9 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -18,10 +19,13 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import GPUArbiterMode, settings
+from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
 from app.db.models.gpu_backend_fence import GPUBackendFence
+from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
+from app.db.models.user import User
 from app.services.gpu_arbitration.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
@@ -35,6 +39,8 @@ from app.services.gpu_arbitration.rollout_state import (
     complete_gpu_arbiter_rollout,
 )
 from app.services.ml_backend import MLBackendService
+from app.services.ml_routing.contracts import RoutingCandidate, TrafficState
+from app.services.ml_routing.router import make_ledger_from_settings
 
 
 async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> Project:
@@ -69,27 +75,16 @@ async def _seed_registry(db: AsyncSession, name: str = "g") -> MLBackendRegistry
     return b
 
 
-async def _allow_managed_destructive_operation(
+async def _drain_registry_member(
     db: AsyncSession, registry_id: uuid.UUID, monkeypatch
-) -> None:
-    from app.services.ml_routing import safety
-
-    class QuiescentLedger:
-        async def healthcheck(self) -> None:
-            return None
-
-        async def member_inflight(self, _pool_id: str, _registry_id: str) -> int:
-            return 0
-
-        async def aclose(self) -> None:
-            return None
-
-    svc = MLBackendService(db)
-    pool = await svc._pool_for_registry(registry_id)
-    await svc.drain_pool_member(pool.id, registry_id)
+) -> uuid.UUID:
+    service = MLBackendService(db)
+    pool = await service._pool_for_registry(registry_id)
+    assert pool is not None
+    await service.drain_pool_member(pool.id, registry_id)
     await db.commit()
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
-    monkeypatch.setattr(safety, "make_ledger_from_settings", QuiescentLedger)
+    return pool.id
 
 
 def _configure_gpu(
@@ -842,50 +837,395 @@ async def test_update_registry_404(httpx_client, super_admin):
     assert res.status_code == 404
 
 
-async def test_delete_registry_cascades_project_binding(
+async def test_delete_registry_clears_all_matching_primary_bindings_only(
     httpx_client, db_session, super_admin, monkeypatch
 ):
     user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    b = await _seed_registry(db_session, name="todel")
-    pool = await MLBackendService(db_session)._pool_for_registry(b.id)
-    db_session.add(
-        ProjectMLBackendPool(project_id=proj.id, pool_id=pool.id, enabled=True)
+    backend = await _seed_registry(db_session, name="todel")
+    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    assert pool is not None
+    unrelated_backend = await _seed_registry(db_session, name="unrelated")
+    unrelated_pool = await MLBackendService(db_session)._pool_for_registry(
+        unrelated_backend.id
     )
-    proj.ml_backend_pool_id = pool.id
-    await _allow_managed_destructive_operation(db_session, b.id, monkeypatch)
+    assert unrelated_pool is not None
 
-    res = await httpx_client.delete(
-        f"/api/v1/admin/ml-integrations/registry/{b.id}",
+    affected = [await _seed_project(db_session, user.id) for _ in range(2)]
+    unrelated = await _seed_project(db_session, user.id)
+    for project in affected:
+        project.ml_backend_pool_id = pool.id
+    unrelated.ml_backend_pool_id = unrelated_pool.id
+    db_session.add(
+        ProjectMLBackendPool(project_id=affected[0].id, pool_id=pool.id, enabled=True)
+    )
+
+    await _drain_registry_member(db_session, backend.id, monkeypatch)
+    response = await httpx_client.delete(
+        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert res.status_code == 204
-    # 全局项已删 + 项目绑定 SET NULL
-    assert await MLBackendService(db_session).get(b.id) is None
+
+    assert response.status_code == 204
+    assert await MLBackendService(db_session).get(backend.id) is None
+    assert await MLBackendService(db_session).get(unrelated_backend.id) is not None
+    rows = (
+        await db_session.execute(
+            select(Project.id, Project.ml_backend_pool_id).where(
+                Project.id.in_([project.id for project in (*affected, unrelated)])
+            )
+        )
+    ).all()
+    assert dict(rows) == {
+        affected[0].id: None,
+        affected[1].id: None,
+        unrelated.id: unrelated_pool.id,
+    }
+    enabled_binding = await db_session.scalar(
+        select(ProjectMLBackendPool).where(
+            ProjectMLBackendPool.project_id == affected[0].id,
+            ProjectMLBackendPool.pool_id == pool.id,
+        )
+    )
+    assert enabled_binding is not None
 
 
-async def test_registry_unload_does_not_require_project_binding(
+async def test_delete_missing_registry_preserves_unrelated_binding(
+    httpx_client, db_session, super_admin
+):
+    user, token = super_admin
+    backend = await _seed_registry(db_session, name="still-present")
+    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    assert pool is not None
+    project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
+    await db_session.commit()
+
+    response = await httpx_client.delete(
+        f"/api/v1/admin/ml-integrations/registry/{uuid.uuid4()}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 404
+    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert (
+        await db_session.scalar(
+            select(Project.ml_backend_pool_id).where(Project.id == project.id)
+        )
+        == pool.id
+    )
+
+
+async def test_delete_gpu_fenced_registry_preserves_primary_binding(
+    httpx_client, db_session, super_admin
+):
+    user, token = super_admin
+    backend = await _seed_registry(db_session, name="gpu-fenced")
+    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    assert pool is not None
+    project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
+    db_session.add(
+        GPUBackendFence(backend_registry_id=backend.id, runtime_epoch_high_water=1)
+    )
+    await db_session.commit()
+
+    response = await httpx_client.delete(
+        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error_code"] == (
+        "gpu_backend_retirement_required"
+    )
+    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert (
+        await db_session.scalar(
+            select(Project.ml_backend_pool_id).where(Project.id == project.id)
+        )
+        == pool.id
+    )
+
+
+async def test_delete_registry_with_running_prediction_preserves_binding(
+    httpx_client, db_session, super_admin
+):
+    user, token = super_admin
+    backend = await _seed_registry(db_session, name="busy-prediction")
+    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    assert pool is not None
+    project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
+    db_session.add(
+        AsyncJob(
+            kind="batch_predict",
+            project_id=project.id,
+            user_id=user.id,
+            status=AsyncJobStatus.RUNNING.value,
+            payload={"ml_backend_id": str(backend.id)},
+        )
+    )
+    await db_session.commit()
+
+    response = await httpx_client.delete(
+        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409
+    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert (
+        await db_session.scalar(
+            select(Project.ml_backend_pool_id).where(Project.id == project.id)
+        )
+        == pool.id
+    )
+
+
+async def test_delete_registry_requires_member_draining(
     httpx_client, db_session, super_admin, monkeypatch
 ):
-    _, token = super_admin
-    backend = await _seed_registry(db_session, name="unbound-unload")
-    await _allow_managed_destructive_operation(db_session, backend.id, monkeypatch)
-    calls: list[uuid.UUID] = []
+    user, token = super_admin
+    backend = await _seed_registry(db_session, name="not-draining")
+    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    assert pool is not None
+    project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
+    await db_session.commit()
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
 
-    async def _unload(_self, registry_id: uuid.UUID):
-        calls.append(registry_id)
-        return {"unloaded": True, "residency": {"state": "unloaded"}}
-
-    monkeypatch.setattr(MLBackendService, "unload", _unload)
-
-    res = await httpx_client.post(
-        f"/api/v1/admin/ml-integrations/registry/{backend.id}/unload",
+    response = await httpx_client.delete(
+        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert res.status_code == 200, res.text
-    assert res.json()["unloaded"] is True
-    assert calls == [backend.id]
+    assert response.status_code == 409
+    assert response.json()["detail"]["error_code"] == "ml_backend_member_draining"
+    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert (
+        await db_session.scalar(
+            select(Project.ml_backend_pool_id).where(Project.id == project.id)
+        )
+        == pool.id
+    )
+
+
+async def test_delete_registry_rejects_live_redis_route_lease(
+    httpx_client, db_session, super_admin, monkeypatch
+):
+    user, token = super_admin
+    backend = await _seed_registry(db_session, name="live-route-lease")
+    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    assert pool is not None
+    project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
+    ledger = make_ledger_from_settings()
+    lease = None
+    try:
+        # Exercise the real isolated Redis ledger without contacting any model/GPU endpoint.
+        lease, rejection = await ledger.acquire(
+            str(pool.id),
+            pool.routing_generation,
+            [
+                RoutingCandidate(
+                    instance_id=backend.id,
+                    weight=1,
+                    max_concurrency=1,
+                    fingerprint_ok=True,
+                    health_fresh=True,
+                    traffic_state=TrafficState.ACTIVE,
+                )
+            ],
+            owner=f"test:{uuid.uuid4()}",
+            operation="registry-delete-guard",
+        )
+        assert lease is not None
+        assert rejection is None
+
+        await _drain_registry_member(db_session, backend.id, monkeypatch)
+        response = await httpx_client.delete(
+            f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["error_code"] == (
+            "ml_backend_member_not_quiescent"
+        )
+        assert await MLBackendService(db_session).get(backend.id) is not None
+        assert (
+            await db_session.scalar(
+                select(Project.ml_backend_pool_id).where(Project.id == project.id)
+            )
+            == pool.id
+        )
+    finally:
+        if lease is not None:
+            await ledger.cancel(lease)
+        await ledger.aclose()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_status"),
+    [
+        ("role", "project_admin", 403),
+        ("is_active", False, 401),
+    ],
+)
+async def test_delete_registry_rechecks_revoked_super_admin_authority(
+    field,
+    value,
+    expected_status,
+    httpx_client,
+    db_session,
+    super_admin,
+    monkeypatch,
+):
+    user, token = super_admin
+    backend = await _seed_registry(db_session, name="revoked-admin")
+    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    assert pool is not None
+    project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
+    await _drain_registry_member(db_session, backend.id, monkeypatch)
+    await db_session.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(**{field: value})
+        .execution_options(synchronize_session=False)
+    )
+    if field == "role":
+        assert user.role == "super_admin"
+    else:
+        assert user.is_active is True
+
+    response = await httpx_client.delete(
+        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == expected_status
+    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert (
+        await db_session.scalar(
+            select(Project.ml_backend_pool_id).where(Project.id == project.id)
+        )
+        == pool.id
+    )
+
+
+async def test_delete_registry_commit_failure_rolls_back_registry_and_binding(
+    test_engine: AsyncEngine, app_module, monkeypatch
+):
+    from app.core.security import create_access_token
+    from app.deps import get_db
+
+    sessions = async_sessionmaker(
+        test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    suffix = uuid.uuid4().hex[:8]
+    actor_id = uuid.uuid4()
+    backend_id: uuid.UUID
+    project_id: uuid.UUID
+    pool_id: uuid.UUID
+    trigger_name = f"fail_primary_clear_{suffix}"
+    function_name = f"fail_primary_clear_fn_{suffix}"
+    token = create_access_token(subject=str(actor_id), role="super_admin")
+
+    async with sessions() as db:
+        async with db.begin():
+            actor = User(
+                id=actor_id,
+                email=f"registry-delete-{suffix}@test.local",
+                name="Registry Delete",
+                password_hash="test-only",
+                role="super_admin",
+                is_active=True,
+            )
+            db.add(actor)
+            await db.flush()
+            backend = await _seed_registry(db, name=f"commit-failure-{suffix}")
+            backend_id = backend.id
+            pool = await MLBackendService(db)._pool_for_registry(backend.id)
+            assert pool is not None
+            pool_id = pool.id
+            project = await _seed_project(db, actor.id, ml_backend_pool_id=pool.id)
+            project_id = project.id
+            await MLBackendService(db).drain_pool_member(pool.id, backend.id)
+
+    async with sessions() as db:
+        async with db.begin():
+            await db.execute(
+                text(
+                    f"""
+                    CREATE FUNCTION {function_name}() RETURNS trigger
+                    LANGUAGE plpgsql AS $$
+                    BEGIN
+                        IF NEW.id = '{project_id}'::uuid
+                           AND OLD.ml_backend_pool_id = '{pool_id}'::uuid
+                           AND NEW.ml_backend_pool_id IS NULL THEN
+                            RAISE EXCEPTION 'primary binding commit failure';
+                        END IF;
+                        RETURN NEW;
+                    END;
+                    $$
+                    """
+                )
+            )
+            await db.execute(
+                text(
+                    f"""
+                    CREATE CONSTRAINT TRIGGER {trigger_name}
+                    AFTER UPDATE ON projects
+                    DEFERRABLE INITIALLY DEFERRED
+                    FOR EACH ROW EXECUTE FUNCTION {function_name}()
+                    """
+                )
+            )
+
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
+    previous_db_dependency = app_module.dependency_overrides.get(get_db)
+
+    async def request_db():
+        async with sessions() as db:
+            yield db
+
+    app_module.dependency_overrides[get_db] = request_db
+    try:
+        transport = httpx.ASGITransport(app=app_module, raise_app_exceptions=False)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            response = await client.delete(
+                f"/api/v1/admin/ml-integrations/registry/{backend_id}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert response.status_code == 500
+        async with sessions() as db:
+            assert await db.get(MLBackendRegistry, backend_id) is not None
+            assert (
+                await db.scalar(
+                    select(Project.ml_backend_pool_id).where(Project.id == project_id)
+                )
+                == pool_id
+            )
+    finally:
+        if previous_db_dependency is None:
+            app_module.dependency_overrides.pop(get_db, None)
+        else:
+            app_module.dependency_overrides[get_db] = previous_db_dependency
+        async with sessions() as db:
+            async with db.begin():
+                await db.execute(
+                    text(f"DROP TRIGGER IF EXISTS {trigger_name} ON projects")
+                )
+                await db.execute(text(f"DROP FUNCTION IF EXISTS {function_name}()"))
+                project = await db.get(Project, project_id)
+                assert project is not None
+                await db.delete(project)
+                await MLBackendService(db).delete(backend_id)
+                await db.execute(
+                    delete(MLBackendServicePool).where(
+                        MLBackendServicePool.id == pool_id
+                    )
+                )
+                actor = await db.get(User, actor_id)
+                assert actor is not None
+                await db.delete(actor)
 
 
 async def test_registry_unload_preserves_gpu_arbiter_error_contract(
@@ -893,7 +1233,7 @@ async def test_registry_unload_preserves_gpu_arbiter_error_contract(
 ):
     _, token = super_admin
     backend = await _seed_registry(db_session, name="arbiter-reject")
-    await _allow_managed_destructive_operation(db_session, backend.id, monkeypatch)
+    await _drain_registry_member(db_session, backend.id, monkeypatch)
 
     async def _reject(_self, _registry_id: uuid.UUID):
         raise GPUArbiterDispatchError(

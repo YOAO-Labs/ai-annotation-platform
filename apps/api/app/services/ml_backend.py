@@ -903,9 +903,6 @@ class MLBackendService:
         if not row:
             return False
         await self.validate_delete(registry_id)
-        # 级联: 解绑 projects.ml_backend_pool_id (SET NULL 语义);
-        # project_ml_backend_pool 关联由 FK ondelete=CASCADE 自动清。
-        # 历史 prediction.ml_backend_id / ml_backend_pool_id 同样 SET NULL。
         # v0.23.3 ADR-0050 §5.2: 删除 registry 前必须先清理服务池层 ——
         # pool.legacy_instance_id (FK RESTRICT) 与 pool_member.registry_id (FK RESTRICT)
         # 都引用此 registry。off mode singleton 下: 删 member → 若该 registry 是某 pool
@@ -914,11 +911,6 @@ class MLBackendService:
         # 显式 pool 管理 API (v0.23.4), 本删除路径只处理 singleton / 无 legacy 场景。
         pool = await self._pool_for_registry(registry_id)
         if pool is not None:
-            bound_projects = await self.db.execute(
-                select(Project).where(Project.ml_backend_pool_id == pool.id)
-            )
-            for project in bound_projects.scalars():
-                project.ml_backend_pool_id = None
             # 删该 registry 在所有 pool 的成员关系 (singleton 下只有一条)。
             members = await self.db.execute(
                 select(MLBackendPoolMember).where(
@@ -942,6 +934,7 @@ class MLBackendService:
                 lp.legacy_instance_id = None
                 lp.routing_generation += 1
             await self.db.flush()
+        # Historical prediction registry/pool ids retain their FK SET NULL behavior.
         await self.db.delete(row)
         try:
             await self.db.flush()

@@ -68,6 +68,7 @@ last_reviewed: 2026-10-17
 - 指引图片：`application/project_guide_assets.py` 组合当前授权与存储，
   `services/project_workspace.py` 持有 key/登记规则，纯值限制在 `guide_asset_contracts.py`。
   HEAD 后再次取权并刷新登记，DELETE 保持当前围栏；HTTP 持有提交。
+- 全局 ML registry 删除：`application/ml_registry_deletion.py::delete_registry` 编排删除准入、路由静默、pool 解析与 registry 删除；成功后由 `services/project_workspace.py::clear_primary_backend_binding_for_pool` 在同一事务清空该 pool 的项目主绑定。workspace 持有主绑定 setter/clearer，`MLBackendService.delete` 不写 Project；HTTP 保留审计/提交，超管权限经 `identity_commands.IdentityCommandService.lock_platform_super_admin()` 锁定并刷新。
 - 原标注评论：`application/annotation_comment.py::AnnotationCommentWorkflow` 组合
   `services/annotation_comment.py`、反馈镜像、审计和通知；当前权威与真实任务/标注/评论行
   在修改前重取并锁定。创建保留单事务及提交后发布，原评论与反馈镜像不做双向同步。

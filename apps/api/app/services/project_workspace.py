@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
@@ -13,6 +14,20 @@ from app.services.guide_asset_contracts import (
     ALLOWED_GUIDE_ASSET_TYPES,
     MAX_GUIDE_ASSET_SIZE_BYTES,
 )
+
+
+def set_primary_backend_binding(*, project: Project, pool_id: UUID | None) -> None:
+    project.ml_backend_pool_id = pool_id
+
+
+async def clear_primary_backend_binding_for_pool(
+    db: AsyncSession, pool_id: UUID
+) -> None:
+    await db.execute(
+        update(Project)
+        .where(Project.ml_backend_pool_id == pool_id)
+        .values(ml_backend_pool_id=None)
+    )
 
 
 async def delete_project(db: AsyncSession, project: Project) -> None:

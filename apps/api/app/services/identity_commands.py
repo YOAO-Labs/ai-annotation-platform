@@ -46,6 +46,18 @@ class IdentityCommandService:
             )
         return user
 
+    async def lock_platform_super_admin(
+        self, user_id: uuid.UUID, *, nowait: bool = False
+    ) -> User:
+        """Re-read and hold current super-admin authority through the caller's commit."""
+        user = await self.lock_active_account(user_id, nowait=nowait)
+        if user.role != UserRole.SUPER_ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="需要角色权限: super_admin",
+            )
+        return user
+
     async def create_open_registration_account(
         self,
         *,

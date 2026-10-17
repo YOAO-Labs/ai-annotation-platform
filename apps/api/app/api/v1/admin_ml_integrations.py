@@ -25,6 +25,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.ml_registry_deletion import (
+    delete_registry as delete_registry_command,
+)
 from app.config import GPUArbiterMode, settings
 from app.db.enums import UserRole
 from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
@@ -93,6 +96,7 @@ from app.services.gpu_arbitration.rollout_state import (
     classify_gpu_arbiter_rollout,
     gpu_arbiter_rollout_snapshot,
 )
+from app.services.identity_commands import IdentityCommandService
 from app.services.ml_backend import (
     GPUBackendManagedMutationBlocked,
     MLBackendCapabilityRevalidationError,
@@ -969,18 +973,14 @@ async def delete_registry(
     projects.ml_backend_pool_id / project_ml_backend_pool (CASCADE) / 历史 prediction (SET NULL)。
     v0.23.3 ADR-0050 · 删除前须先 drain + inflight=0 + GPU retirement + 成员移除
     (legacy_instance_id FK RESTRICT + member FK RESTRICT)。"""
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
+    from app.services.ml_routing.safety import MLBackendQuiescenceError
+
+    admin = await IdentityCommandService(db).lock_platform_super_admin(
+        admin.id, nowait=False
     )
 
-    svc = MLBackendService(db)
     try:
-        exists = await svc.validate_delete(registry_id)
-        if not exists:
-            raise HTTPException(status_code=404, detail="ML Backend not found")
-        await require_registry_quiescent(db, registry_id)
-        ok = await svc.delete(registry_id)
+        ok = await delete_registry_command(db, registry_id)
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()

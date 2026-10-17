@@ -2,7 +2,6 @@
 
 覆盖：
 - 创建/更新项目带 ml_backend_id 后保存真实绑定
-- 解绑/删除 backend 时项目 ml_backend_id 置 null
 - service.get_project_backend 优先返回显式绑定，否则 fallback
 """
 
@@ -10,7 +9,6 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
@@ -114,69 +112,6 @@ async def test_patch_project_unbind_backend_clears_binding(
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["ml_backend_id"] is None
-
-
-async def test_raw_delete_ml_backend_no_longer_sets_project_null(
-    db_session, super_admin
-):
-    user, _ = super_admin
-    proj = await _seed_project(db_session, user.id)
-    backend = await _seed_backend(db_session, proj.id)
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
-    proj.ml_backend_pool_id = pool.id
-    await db_session.flush()
-    await db_session.commit()
-
-    # v0.21.0 · 项目主绑定不再随 registry 行 ON DELETE 自动清空; app/service 删除路径负责清。
-    # v0.23.3 · 项目主绑定存的是 pool id (指向 service pool), 不是 registry id。
-    # 直接 SQL 删掉 registry 行 (先解 pool.legacy_instance_id / pool member 的 RESTRICT FK)
-    # 不会触碰 projects 行 — pool 仍在, 项目仍指向它, 直到 service.delete 显式置 None。
-    await db_session.execute(
-        text(
-            "UPDATE ml_backend_service_pools SET legacy_instance_id = NULL "
-            "WHERE id = :pid"
-        ),
-        {"pid": pool.id},
-    )
-    await db_session.execute(
-        text("DELETE FROM ml_backend_pool_members WHERE registry_id = :bid"),
-        {"bid": backend.id},
-    )
-    await db_session.execute(
-        text("DELETE FROM ml_backend_registry WHERE id = :bid"), {"bid": backend.id}
-    )
-    await db_session.commit()
-
-    # 直接读 raw SQL，避免 ORM identity map 缓存陈旧值
-    refreshed = (
-        await db_session.execute(
-            text("SELECT ml_backend_pool_id FROM projects WHERE id = :pid"),
-            {"pid": proj.id},
-        )
-    ).scalar_one_or_none()
-    assert refreshed == pool.id
-
-
-async def test_service_delete_ml_backend_clears_project_binding(
-    db_session, super_admin
-):
-    user, _ = super_admin
-    proj = await _seed_project(db_session, user.id, ai_enabled=True)
-    backend = await _seed_backend(db_session, proj.id, name="gsam2-video")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
-    proj.ml_backend_pool_id = pool.id
-    await db_session.flush()
-
-    assert await MLBackendService(db_session).delete(backend.id) is True
-    await db_session.flush()
-
-    row = (
-        await db_session.execute(
-            text("SELECT ml_backend_pool_id FROM projects WHERE id = :pid"),
-            {"pid": proj.id},
-        )
-    ).scalar_one_or_none()
-    assert row is None
 
 
 async def test_get_project_backend_prefers_explicit_binding(db_session, super_admin):
