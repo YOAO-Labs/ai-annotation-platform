@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
@@ -174,6 +174,17 @@ class IdentityCommandService:
     @staticmethod
     def record_seen_for_locked_user(user: User, now: datetime) -> None:
         user.last_seen_at = now
+
+    async def mark_inactive_accounts_offline(self, cutoff: datetime):
+        """Bulk-update online accounts with absent or stale heartbeats."""
+        return await self.db.execute(
+            update(User)
+            .where(
+                User.status == "online",
+                or_(User.last_seen_at.is_(None), User.last_seen_at < cutoff),
+            )
+            .values(status="offline")
+        )
 
     @staticmethod
     def record_logout_for_locked_user(user: User) -> None:

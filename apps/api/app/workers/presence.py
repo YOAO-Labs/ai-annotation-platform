@@ -14,9 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, update
-
-from app.db.models.user import User
+from app.services.identity_commands import IdentityCommandService
 from app.services.system_settings_service import SystemSettingsService
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
@@ -41,14 +39,7 @@ async def mark_inactive_offline_with_session(db) -> dict:
     # runtime override to reach the next scan without a worker restart.
     threshold_minutes = await SystemSettingsService.get(db, "offline_threshold_minutes")
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=threshold_minutes)
-    result = await db.execute(
-        update(User)
-        .where(
-            User.status == "online",
-            or_(User.last_seen_at.is_(None), User.last_seen_at < cutoff),
-        )
-        .values(status="offline")
-    )
+    result = await IdentityCommandService(db).mark_inactive_accounts_offline(cutoff)
     await db.commit()
     affected = result.rowcount or 0
     log.info(

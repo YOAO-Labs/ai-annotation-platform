@@ -58,6 +58,9 @@ last_reviewed: 2026-10-17
   `services/{user_lifecycle,identity_commands,account_groups}.py`，
   成员行在 `services/project_membership.py`，任务/批次交接在 `BatchService`，
   GDPR 审计历史脱敏在 `AuditService`。预览/CAS、传统删除与离职、SQL/Redis 时序不混同。
+- 在线状态扫描：`workers/presence.py` 解析阈值、计算 cutoff 并持有提交/计数/日志；
+  `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 以单条批量更新写身份状态，
+  保留 online 与缺失/严格早于 cutoff 的 `last_seen_at` 条件。
 - 邀请接受：`application/invitation_acceptance.py` 组合 `InvitationService`、`IdentityCommandService` 与 `project_membership.grant_invitation_membership`。邀请、账号、成员各由对应所有者写入；原 token/当前权限锁与重复 409 保持，HTTP 持有审计、最终提交和 JWT 签发。
 - 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
   `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。

@@ -137,6 +137,73 @@ async def test_presence_scan_reads_runtime_threshold(db_session: AsyncSession):
     assert user.status == "offline"
 
 
+async def test_identity_command_bulk_offline_is_set_based_and_transactional(
+    db_session: AsyncSession,
+):
+    """NULL and strict cutoff selection roll back with the caller's transaction."""
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from app.core.security import hash_password
+    from app.services.identity_commands import IdentityCommandService
+
+    fixture_tag = uuid4().hex
+    password_hash = hash_password("Test1234")
+    cutoff = datetime(2026, 10, 17, 11, 55, tzinfo=timezone.utc)
+    states = {
+        "stale": ("online", cutoff - timedelta(seconds=1)),
+        "null": ("online", None),
+        "fresh": ("online", cutoff + timedelta(seconds=1)),
+        "equal": ("online", cutoff),
+        "offline": ("offline", cutoff - timedelta(days=1)),
+    }
+    user_ids = {}
+    for label, (status, last_seen_at) in states.items():
+        user_id = uuid4()
+        user_ids[label] = user_id
+        db_session.add(
+            User(
+                id=user_id,
+                email=f"presence-owner-{fixture_tag}-{label}@test.local",
+                name=label,
+                password_hash=password_hash,
+                role="employee",
+                is_active=True,
+                status=status,
+                last_seen_at=last_seen_at,
+            )
+        )
+    await db_session.flush()
+    fixture_ids = tuple(user_ids.values())
+
+    async def read_statuses():
+        return dict(
+            (
+                await db_session.execute(
+                    select(User.id, User.status).where(User.id.in_(fixture_ids))
+                )
+            ).all()
+        )
+
+    initial_statuses = {
+        user_ids[label]: status for label, (status, _) in states.items()
+    }
+    savepoint = await db_session.begin_nested()
+    try:
+        await IdentityCommandService(db_session).mark_inactive_accounts_offline(cutoff)
+        assert await read_statuses() == {
+            user_ids["stale"]: "offline",
+            user_ids["null"]: "offline",
+            user_ids["fresh"]: "online",
+            user_ids["equal"]: "online",
+            user_ids["offline"]: "offline",
+        }
+    finally:
+        await savepoint.rollback()
+    assert await read_statuses() == initial_statuses
+
+
 async def test_users_stats_endpoint_weekly_active(
     httpx_client, super_admin, db_session: AsyncSession
 ):

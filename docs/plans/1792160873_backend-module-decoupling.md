@@ -1188,6 +1188,15 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 - 峰值样本（字节）：before `1864 / 1840 / 1832`，当前 `1856 / 1848 / 1816`。此小样本仅说明映射没有新增 SQL 或对象存储 I/O，不据此声称性能优化；API lifespan 执行其既有桶存在性检查，但本路径不读取/写入对象内容。
 
+### 在线状态维护
+
+- `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 现在持有 Core User 的单条 bulk `UPDATE`；在线状态 worker 仍负责解析阈值、计算一次 UTC cutoff、提交、读取 rowcount 和日志。原 `status='online' AND (last_seen_at IS NULL OR last_seen_at < cutoff)` 条件、严格早于 cutoff 的边界及 NULL 选择均未改变；没有逐用户加载。
+- 定向回归：`tests/test_presence.py`、`tests/test_operational_ingest_boundaries.py`、`tests/test_domain_package_architecture.py` 在自有测试库 exit 0；Pinned Ruff 0.15.22 format/check 通过。
+- 原生 smoke 直接调用已注册 `app.workers.presence.mark_inactive_offline` Task entry，使用其真实 `task_session` 在独立 test PostgreSQL 执行，并用新 session 观察提交结果。阈值 5 分钟、固定 cutoff `2026-10-17T11:55:00Z` 下，stale 与 NULL 两行被选中；fresh、等于 cutoff 与已有 offline 保持不变，worker 返回 affected=2。先直接执行身份命令再 rollback，独立 observer 仍读到全部原状态；rollback 与 worker 各只有 1 条 SQL、0 次 `User` ORM load。没有通过 broker/beat 投递或启动 Celery consumer，未触碰 Redis/MinIO。
+- 冻结前/current 对照：旧 worker lines 44–51 的明确 inline transcription 与当前身份命令各预热一次，100 个同形 stale-online 行，三轮交错采样。两侧每次均 1 条 SQL、影响 100 行、0 个 `User` ORM load；Python 堆峰值中位数分别为 287,933 / 288,357 字节。仅测命令构造、执行、rowcount、SQL 及 ORM load；排除配置读、cutoff、commit、日志、session 创建、夹具/rollback、外部服务及进程/原生内存。不据小样本声称吞吐、RSS 或性能改善。
+- 原始运行及逐样本 JSON：`/tmp/aap-presence-owner-1792242095-evidence.json`。测试身份 `30bb69d5f05a6b13` 的 owned 数据库 `aap_wt_30bb69d5f05a6b13_test`；夹具已清理。
+- 主线 presence 与身份运维回归合跑 10 passed，三文件固定 Ruff 格式/check 通过。新增永久回归缩为调用方 savepoint 内的 NULL、严格 cutoff、已离线保持及 rollback 状态验证，不依赖全库恰好只有两条命中，也不在该回归真实提交全库 presence 扫描；SQL/ORM load 仪表仅保留在原生预算证据，不固化实现次数。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测、金字塔访问元数据及审计输出投影已收口；仍有在线状态维护、训练数据构建和主动学习执行，共三组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影及在线状态维护已收口；仍有训练数据构建和主动学习执行，共两组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
