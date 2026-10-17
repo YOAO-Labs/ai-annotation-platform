@@ -108,6 +108,10 @@ services/
 
 `services/workspace_contract.py` 单独持有 `ProjectAccess`、能力枚举与标量角色规则，schema/API/服务消费者直接读取纯值所有者；冷加载只需标准库和既有角色枚举。`services/project_access.py` 保留当前权限解析、同事务锁和消费已加载 User/Project 的管理者谓词，不重导出旧纯符号。访问值不能跨事务代替最终授权，REST 身份依赖、JWT/API key 和 WebSocket 的现行语义也未因类型搬迁改变。
 
+仅需访问决策的写入通过 `ProjectWritePolicyResolver.resolve(ProjectWritePolicyRequest)` 传 actor/project UUID；SQL 适配器绑定原 Session，复用原账号→项目→成员锁，只返回 `ProjectAccess`。管理围栏、预测导入和传统上传的锁定分支不再接收授权来源 ORM；管理围栏全部调用点传 actor ID。端口将原 401/403/404/409 的 status/detail/headers 投影为纯错误，在原消费者处恢复 HTTP 语义；各自 manager 拒绝正文、提交窗口和行锁所有权保持不变。真正需要行的 workspace/任务工作流仍使用原本地 helper。
+
+审核认领/通过/退回的 `TaskReviewWorkflow` 同样只接收 actor UUID。它先沿原 helper 锁定当前权威、批次/任务并检查能力和可见性，再将刚重读的账号投影为 `identity_contracts.IdentityActorFacts`，用于审核、审计及通知姓名。事实只含 id/name/email/全局 role/is_active，不含 ORM 或凭据；项目授权仍由单独的 `ProjectAccess` 决定。认证依赖与完整 profile 所有者路径保留，初始请求身份和历史访问值不替代这次事务内的重读。
+
 项目权威使用 `FOR KEY SHARE`，与所有权转移/删除的显式 `FOR UPDATE` 互斥，但允许项目计数的普通更新；标注生命周期计数使用 SQL 原子增减及下限裁剪，不从旧 ORM 数值回写。账号数据组目录同样只对操作者持有账号权威 KEY SHARE，角色/启停/密码写入仍用完整账号写锁，避免两个管理员互改对方数据组时发生账号锁环。登录与偏好合并保留原有等待式账号锁，不把并发上下文合并或预设 CAS 改成抢锁失败。
 
 `services/async_job_access.py` 持有作业结果的当前项目、导出能力与审核任务范围可见性；明细和取消用例直接消费该所有者，旧路由私有函数已删除。列表仍使用现有 SQL 范围谓词，不因本次下沉改为逐行权限查询。

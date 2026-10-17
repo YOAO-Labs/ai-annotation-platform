@@ -29,8 +29,10 @@ def test_workspace_contract_cold_imports_without_fastapi_or_sqlalchemy():
             "-c",
             (
                 "import sys; "
-                "from app.services.workspace_contract import ProjectAccess, ProjectCapability; "
-                "assert ProjectAccess and ProjectCapability; "
+                "from app.services.workspace_contract import ProjectAccess, ProjectCapability, "
+                "ProjectWritePolicyFailure, ProjectWritePolicyRequest, ProjectWritePolicyResolver; "
+                "assert ProjectAccess and ProjectCapability and ProjectWritePolicyFailure; "
+                "assert ProjectWritePolicyRequest and ProjectWritePolicyResolver; "
                 "assert 'fastapi' not in sys.modules; "
                 "assert 'sqlalchemy' not in sys.modules"
             ),

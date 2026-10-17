@@ -384,7 +384,7 @@ async def create_version(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     existing = (
         await db.execute(
             select(TrainingDatasetVersion).where(
@@ -606,7 +606,7 @@ async def request_job_cancel(
 ) -> None:
     """Fence dataset cancellation against a replaced or already-ended build."""
     await lock_project_manager(
-        db, user, job.project_id, denial_detail="需要项目管理权限"
+        db, user.id, job.project_id, denial_detail="需要项目管理权限"
     )
     version = (
         await db.execute(

@@ -60,7 +60,7 @@ async def capabilities(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     return await service.capabilities(db)
 
 
@@ -80,7 +80,7 @@ async def create(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     preview = await service.create(
         db, project, user, body, getattr(request.state, "api_key_id", None)
     )
@@ -96,7 +96,7 @@ async def get(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     preview = await load(db, project.id, preview_id, lock="share")
     result = await service.output(preview)
     await db.commit()
@@ -114,7 +114,7 @@ async def cancel(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     preview = await load(db, project.id, preview_id, lock=True)
     await service.cancel(db, preview)
     result = await service.output(preview)
@@ -134,7 +134,7 @@ async def expire(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     preview = await load(db, project.id, preview_id, lock=True)
     await service.expire(db, preview)
     await db.commit()
@@ -148,7 +148,7 @@ async def image(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     preview = await load(db, project.id, preview_id, lock="share")
     if preview.expires_at <= service.now():
         raise HTTPException(status_code=410, detail="原生预览已过期，请重新生成")

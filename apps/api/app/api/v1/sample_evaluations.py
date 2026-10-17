@@ -102,7 +102,7 @@ async def create(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     existing = await db.scalar(
         select(Run).where(
             Run.project_id == project.id, Run.request_id == body.request_id
@@ -288,7 +288,7 @@ async def cancel(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
     await service.request_cancel(db, run)
     await db.commit()
@@ -307,7 +307,7 @@ async def retry(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
     if (
         run.deletion_requested_at
@@ -473,7 +473,7 @@ async def delete(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
 
     await guard_source(db, evaluation_id=run.id)

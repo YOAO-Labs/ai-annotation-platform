@@ -150,7 +150,7 @@ async def create(
 ):
     """Return the study and whether this admission created state to commit."""
     await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     request_digest = content_digest(body.request_payload())
     existing = await db.scalar(
         select(TrainingStudy).where(
@@ -279,7 +279,7 @@ async def ledger(db, study, child_runs):
 
 async def cancel(db, project_id, study_id, user: User):
     await claims.project_lock(db, project_id)
-    await lock_project_manager(db, user, project_id)
+    await lock_project_manager(db, user.id, project_id)
     study = await load(db, project_id, study_id, lock=True)
     study.scheduling = False
     study.status = "cancelling"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import NoReturn
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -15,6 +16,9 @@ from app.services.workspace_contract import (
     ACCESS_KIND_SUPER_ADMIN as _ACCESS_KIND_SUPER_ADMIN,
     MANAGER_CAPABILITIES as _MANAGER_CAPABILITIES,
     ProjectAccess as _ProjectAccess,
+    ProjectWritePolicyFailure,
+    ProjectWritePolicyRequest,
+    ProjectWritePolicyResolver,
     membership_role_compatible as _membership_role_compatible,
     platform_role_is_manager as _platform_role_is_manager,
     project_role_capabilities as _project_role_capabilities,
@@ -265,6 +269,46 @@ async def lock_current_project_access(
             db, user=user, project=project, lock_membership=True, nowait=True
         )
     return user, project, access
+
+
+class SqlProjectWritePolicyResolver:
+    """Bind write-policy resolution to the caller's transaction session."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def resolve(self, request: ProjectWritePolicyRequest) -> _ProjectAccess:
+        try:
+            _, _, access = await lock_current_project_access(
+                self._db,
+                actor_id=request.actor_id,
+                project_id=request.project_id,
+            )
+        except HTTPException as exc:
+            raise ProjectWritePolicyFailure(
+                status_code=exc.status_code,
+                detail=exc.detail,
+                headers=exc.headers,
+            ) from exc
+        return access
+
+
+def bind_project_write_policy_resolver(
+    db: AsyncSession,
+) -> ProjectWritePolicyResolver:
+    """Bind the session-free policy port to the caller-owned SQL transaction."""
+    return SqlProjectWritePolicyResolver(db)
+
+
+def restore_project_write_policy_failure(
+    failure: ProjectWritePolicyFailure,
+) -> NoReturn:
+    """Restore a resolver failure as the existing HTTP response at its boundary."""
+    raise HTTPException(
+        status_code=failure.status_code,
+        detail=failure.detail,
+        headers=failure.headers,
+    ) from failure
 
 
 async def resolve_project_access_by_id(

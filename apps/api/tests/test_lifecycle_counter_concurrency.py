@@ -78,7 +78,7 @@ async def test_concurrent_task_approvals_keep_both_project_deltas(
             )
             return await TaskReviewWorkflow(db).approve_task(
                 task_id,
-                actor=actor,
+                actor_id=actor.id,
                 access=access,
                 origin=AuditOriginContext(None, None, None),
                 expected_qc_digest=None,

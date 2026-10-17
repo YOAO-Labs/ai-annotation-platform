@@ -12,6 +12,7 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
 from app.middleware.request_id import request_id_var
 from app.services.audit_origin_contract import AuditOriginContext as _AuditOriginContext
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class AuditAction(str, Enum):
@@ -243,7 +244,7 @@ class AuditService:
     async def log(
         db: AsyncSession,
         *,
-        actor: User | None,
+        actor: User | IdentityActorFacts | None,
         action: str | AuditAction,
         target_type: str | None = None,
         target_id: str | int | None = None,

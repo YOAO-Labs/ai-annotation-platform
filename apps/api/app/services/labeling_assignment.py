@@ -315,7 +315,7 @@ class LabelingTaskAssignmentService:
         *,
         actor: User,
     ) -> DataManagerTaskAssignmentResponse:
-        await lock_project_manager(self.db, actor, project_id)
+        await lock_project_manager(self.db, actor.id, project_id)
         plan, loaded = await self._plan(project_id, payload, for_update=True)
         if plan.preview_version != payload.preview_version:
             raise _stale_preview()

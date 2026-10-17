@@ -158,6 +158,11 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="user_lifecycle", legacy_facades=()),
     DomainSpec(package="identity_commands", legacy_facades=()),
     DomainSpec(
+        package="identity_contracts",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
+    DomainSpec(
         package="audit_summary",
         legacy_facades=(),
         allowed_app_imports=("app.schemas.audit",),

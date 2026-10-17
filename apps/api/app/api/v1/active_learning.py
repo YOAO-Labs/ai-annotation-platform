@@ -212,7 +212,7 @@ async def cancel(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     round = await service.load_round(db, project.id, round_id, lock=True)
     await service.request_cancel(db, round)
     await db.commit()
@@ -228,7 +228,7 @@ async def retry(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     round = await service.load_round(db, project.id, round_id, lock=True)
     rows = await service.candidate_rows(db, round)
     if (

@@ -63,7 +63,7 @@ async def create_decision(
     db: AsyncSession = Depends(get_db),
 ):
     await project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     item = await service.append_decision(db, project.id, version_id, user, body)
     await db.commit()
     return item

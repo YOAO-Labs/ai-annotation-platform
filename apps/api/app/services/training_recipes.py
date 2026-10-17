@@ -289,7 +289,7 @@ async def origin_snapshot(
 
 async def write_revision(body, project, user, db, recipe_id=None):
     await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     digest = content_digest(
         {
             "recipe_id": str(recipe_id) if recipe_id else None,
@@ -376,7 +376,7 @@ async def write_revision(body, project, user, db, recipe_id=None):
 
 async def archive_recipe(db, project, user, recipe_id, expected_head_revision):
     await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     recipe, revision = await recipe_revision(db, project.id, recipe_id, lock=True)
     if recipe.head_revision != expected_head_revision:
         raise HTTPException(status_code=409, detail="配方已有新修订，请刷新")

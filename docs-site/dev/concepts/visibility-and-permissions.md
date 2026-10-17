@@ -57,6 +57,8 @@ last_reviewed: 2026-10-18
 
 写入使用 `resolve_project_access(lock_membership=True)` 或 `lock_current_project_access()`，按账号→项目→成员取得当前权威共享锁，并由调用方持有至提交/回滚。项目行必须参与：负责人可能没有成员行，单独锁成员不能阻止项目转移。读请求仍只解析当前状态，不因只读权限检查长期持有这些写入锁；不可变 `ProjectAccess` 也不是可跨事务重放的许可。资源占用返回可重试冲突，而不是等待旧授权继续落库。
 
+只需权限值的管理围栏、预测导入和传统上传锁定分支使用 `ProjectWritePolicyResolver`：传 actor/project UUID，由绑定原 Session 的 SQL 实现复用上述锁并返回 `ProjectAccess`，不传 User/Project 行。预期拒绝在端口内是纯 status/detail/headers，在消费者恢复原 HTTP 错误；锁不会因返回值而提前释放。审核工作流另从刚锁定的 User 创建 `IdentityActorFacts`，账号全局角色只作身份/审计事实，项目能力继续取当前 `ProjectAccess`。
+
 成员输出 `ProjectMemberOut` 是**扁平**的：`role` 是项目角色，另有独立的 `platform_role`；邀请 HTTP 字段仍叫 `project_member_role`，映射到数据库 `project_role`。项目列表 / 详情带 `my_project_role`，列表按 `project_role` 过滤。
 
 ### 导出收紧（有意行为变化）

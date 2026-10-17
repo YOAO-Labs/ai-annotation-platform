@@ -28,7 +28,7 @@ async def preview(
     db=Depends(get_db),
 ) -> dict:
     await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     if project.status != "in_progress":
         raise HTTPException(status_code=409, detail="项目停用时不能启动参数搜索")
     plan, digest = await service.freeze_plan(db, project.id, body)

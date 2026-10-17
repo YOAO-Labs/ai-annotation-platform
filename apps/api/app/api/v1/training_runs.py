@@ -271,7 +271,7 @@ async def get_evaluation(
 ):
     from app.services.training_evaluations import read_evaluation
 
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     run = await db.scalar(
         select(TrainingRun)
         .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
@@ -328,7 +328,7 @@ async def download_artifact(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     run = await db.scalar(
         select(TrainingRun)
         .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)

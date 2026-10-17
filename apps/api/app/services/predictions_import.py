@@ -48,7 +48,6 @@ from app.services.labeling_prediction_contract import (
     ApplyPredictionResultRequest,
 )
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from app.services.project_access import lock_current_project_access
 from app.services.mask_formats.image_codecs import normalize_coco_segmentation_rle
 from app.services.project import derive_classes_list
 from app.services.task_matcher import (
@@ -335,11 +334,24 @@ async def _hold_import_authority(
 ) -> None:
     from fastapi import HTTPException
 
+    from app.services.project_access import (
+        bind_project_write_policy_resolver,
+        restore_project_write_policy_failure,
+    )
+    from app.services.workspace_contract import (
+        ProjectWritePolicyFailure,
+        ProjectWritePolicyRequest,
+    )
+
     if actor_id is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    _actor, _project, access = await lock_current_project_access(
-        db, actor_id=actor_id, project_id=project_id
-    )
+    resolver = bind_project_write_policy_resolver(db)
+    try:
+        access = await resolver.resolve(
+            ProjectWritePolicyRequest(actor_id=actor_id, project_id=project_id)
+        )
+    except ProjectWritePolicyFailure as exc:
+        restore_project_write_policy_failure(exc)
     if not access.is_manager:
         raise HTTPException(status_code=403, detail="项目管理权限已变化")
 

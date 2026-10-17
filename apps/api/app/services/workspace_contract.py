@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from typing import Mapping, Protocol
 
 from app.db.enums import (
     MANAGER_PLATFORM_ROLES as _MANAGER_PLATFORM_ROLES,
@@ -20,6 +21,9 @@ __all__ = [
     "MANAGER_CAPABILITIES",
     "ProjectAccess",
     "ProjectCapability",
+    "ProjectWritePolicyFailure",
+    "ProjectWritePolicyRequest",
+    "ProjectWritePolicyResolver",
     "membership_role_compatible",
     "platform_role_is_manager",
     "project_role_capabilities",
@@ -85,6 +89,35 @@ class ProjectAccess:
 
     def has(self, *capabilities: str) -> bool:
         return all(capability in self.capabilities for capability in capabilities)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectWritePolicyRequest:
+    """The identifiers needed to resolve current write authority locally."""
+
+    actor_id: uuid.UUID
+    project_id: uuid.UUID
+
+
+class ProjectWritePolicyFailure(Exception):
+    """Expected resolver failure facts, independent of HTTP and persistence."""
+
+    def __init__(
+        self,
+        status_code: int,
+        detail: object,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        super().__init__(str(detail))
+        self.status_code = status_code
+        self.detail = detail
+        self.headers = headers
+
+
+class ProjectWritePolicyResolver(Protocol):
+    """Session-free local port; an implementation may bind the caller's session."""
+
+    async def resolve(self, request: ProjectWritePolicyRequest) -> ProjectAccess: ...
 
 
 def project_role_capabilities(project_role: str) -> frozenset[str]:

@@ -37,7 +37,7 @@ router = APIRouter(
 
 async def authorized_analysis(db, project, user, version_id):
     result = await service.ensure_analysis(db, project.id, version_id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     return result
 
 

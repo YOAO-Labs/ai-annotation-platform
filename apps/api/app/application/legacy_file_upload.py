@@ -18,10 +18,15 @@ from app.services.labeling_tasks import (
     LabelingUploadTargetChanged,
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
-from app.services.workspace_contract import ProjectAccess
 from app.services.project_access import (
-    lock_current_project_access,
+    bind_project_write_policy_resolver,
     resolve_project_access_by_id,
+    restore_project_write_policy_failure,
+)
+from app.services.workspace_contract import (
+    ProjectAccess,
+    ProjectWritePolicyFailure,
+    ProjectWritePolicyRequest,
 )
 from app.services.storage import StorageService
 
@@ -72,9 +77,13 @@ class LegacyFileUploadWorkflow:
         self, actor_id: uuid.UUID, project_id: uuid.UUID, *, lock: bool
     ) -> ProjectAccess:
         if lock:
-            _, _, access = await lock_current_project_access(
-                self.db, actor_id=actor_id, project_id=project_id
-            )
+            resolver = bind_project_write_policy_resolver(self.db)
+            try:
+                access = await resolver.resolve(
+                    ProjectWritePolicyRequest(actor_id=actor_id, project_id=project_id)
+                )
+            except ProjectWritePolicyFailure as exc:
+                restore_project_write_policy_failure(exc)
         else:
             actor = await self.db.get(User, actor_id)
             if actor is None:

@@ -12,7 +12,6 @@ from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
 from app.services import task_access
 from app.services.annotation_evidence import (
     assert_review_evidence_current,
@@ -25,6 +24,7 @@ from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
 from app.services.feedback import FeedbackService
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.notification import NotificationService
 from app.services.workspace_contract import (
@@ -46,22 +46,31 @@ class TaskReviewWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
-    ) -> tuple[Task, User, Project, ProjectAccess]:
-        task, current_actor, project, access = await lock_current_task_target(
+    ) -> tuple[Task, IdentityActorFacts, Project, ProjectAccess]:
+        task, locked_actor, project, access = await lock_current_task_target(
             self.db,
             task_id=task_id,
-            actor_id=actor.id,
+            actor_id=actor_id,
             expected_access=access,
         )
         assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
         await task_access.assert_task_visible(
-            self.db, task, current_actor, access=access
+            self.db, task, locked_actor, access=access
         )
-        return task, current_actor, project, access
+        actor = IdentityActorFacts(
+            id=locked_actor.id,
+            name=locked_actor.name,
+            email=locked_actor.email,
+            role=locked_actor.role,
+            is_active=locked_actor.is_active,
+        )
+        return task, actor, project, access
 
-    async def _assert_review_evidence_allowed(self, *, task: Task, actor: User) -> None:
+    async def _assert_review_evidence_allowed(
+        self, *, task: Task, actor: IdentityActorFacts
+    ) -> None:
         effective_annotator_id = await task_access.resolve_effective_task_assignee_id(
             self.db, task
         )
@@ -73,7 +82,7 @@ class TaskReviewWorkflow:
         self,
         *,
         task: Task,
-        actor: User,
+        actor: IdentityActorFacts,
         access: ProjectAccess,
         project: Project,
     ) -> Project:
@@ -107,12 +116,12 @@ class TaskReviewWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, Any]:
         task, actor, _project, access = await self._locked_task(
-            task_id, actor=actor, access=access
+            task_id, actor_id=actor_id, access=access
         )
         self._assert_review_state(task)
         await self._assert_review_evidence_allowed(task=task, actor=actor)
@@ -165,7 +174,7 @@ class TaskReviewWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
         expected_qc_digest: str | None,
@@ -173,7 +182,7 @@ class TaskReviewWorkflow:
         note: str | None,
     ) -> dict[str, str]:
         task, actor, project, access = await self._locked_task(
-            task_id, actor=actor, access=access
+            task_id, actor_id=actor_id, access=access
         )
         self._assert_review_state(task)
         await self._assert_review_evidence_allowed(task=task, actor=actor)
@@ -308,14 +317,14 @@ class TaskReviewWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
         reason_type: str | None,
         reason: str | None,
     ) -> dict[str, Any]:
         task, actor, project, access = await self._locked_task(
-            task_id, actor=actor, access=access
+            task_id, actor_id=actor_id, access=access
         )
         self._assert_review_state(task)
         await self._assert_review_evidence_allowed(task=task, actor=actor)

@@ -214,7 +214,7 @@ async def retry_version(
         get_training_dataset_dispatcher
     ),
 ):
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     try:
         await service.lock_dataset_execution(db, version_id)
     except TrainingDatasetError as exc:
@@ -240,7 +240,7 @@ async def download_version(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     version = await load_version(db, project, version_id)
     if version.status != "ready" or not version.package_key:
         raise HTTPException(status_code=409, detail="训练数据版本尚未就绪")
@@ -273,7 +273,7 @@ async def delete_version(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     try:
         await service.lock_dataset_execution(db, version_id)
     except TrainingDatasetError as exc:

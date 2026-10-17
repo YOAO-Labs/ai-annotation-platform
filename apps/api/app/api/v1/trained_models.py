@@ -50,7 +50,7 @@ async def register_model(
     db: AsyncSession = Depends(get_db),
 ):
     await project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     result = await service.register(db, project, user, body)
     await db.commit()
     return result
@@ -104,7 +104,7 @@ async def model_detail(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     version = await service.load_version(db, project.id, version_id)
     deployments = (
         await db.scalars(
@@ -163,7 +163,7 @@ async def download_model(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     version = await service.load_version(db, project.id, version_id)
     from app.services.storage import storage_service
 
@@ -237,7 +237,7 @@ async def publish_model(
     db: AsyncSession = Depends(get_db),
 ):
     await project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     result = await service.publish(db, project, user, body)
     await db.commit()
     return result

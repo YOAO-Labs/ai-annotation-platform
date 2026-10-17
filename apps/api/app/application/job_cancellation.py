@@ -67,7 +67,7 @@ async def cancel_job(
         project = await db.get(Project, job.project_id)
         if project is None:
             raise HTTPException(status_code=404, detail="项目不存在")
-        await lock_project_manager(db, user, project.id)
+        await lock_project_manager(db, user.id, project.id)
         await sample_evaluations.request_job_cancel(db, job.id)
         return "cancel_requested"
 

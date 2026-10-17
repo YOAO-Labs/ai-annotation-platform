@@ -60,7 +60,7 @@ async def resume_run(
             db, project_id, preliminary.study_id, lock=True
         )
     lease = await training_runs.lock_resource(db, preliminary.config["resource_id"])
-    await lock_project_manager(db, user, project_id)
+    await lock_project_manager(db, user.id, project_id)
     run = await training_runs.load_run(db, project_id, run_id, lock=True)
     if (
         run.status not in {"failed", "cancelled"}
@@ -111,7 +111,7 @@ async def delete_run(
     preliminary = await training_runs.load_run(db, project_id, run_id)
     if preliminary.auto_trigger_id:
         await training_claims.project_lock(db, project_id)
-    await lock_project_manager(db, user, project_id)
+    await lock_project_manager(db, user.id, project_id)
     run = await training_runs.load_run(db, project_id, run_id, lock=True)
     if run.status not in training_runs.TERMINAL:
         raise HTTPException(status_code=409, detail="训练尚未结束，不能删除")

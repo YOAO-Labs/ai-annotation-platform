@@ -53,7 +53,7 @@ async def claim_review(
     try:
         result = await TaskReviewWorkflow(db).claim_review(
             task_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
         )
@@ -74,7 +74,7 @@ async def approve_task(
     try:
         return await TaskReviewWorkflow(db).approve_task(
             task_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
             expected_qc_digest=body.expected_qc_digest if body else None,
@@ -97,7 +97,7 @@ async def reject_task(
     try:
         return await TaskReviewWorkflow(db).reject_task(
             task_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
             reason_type=body.reason_type if body else None,

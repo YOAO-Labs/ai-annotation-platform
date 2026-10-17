@@ -21,6 +21,8 @@ reviewer/manager plus current, complete, non-self frozen evidence.
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +30,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.project_access import lock_current_project_access
+from app.services.project_access import (
+    bind_project_write_policy_resolver,
+    restore_project_write_policy_failure,
+)
+from app.services.workspace_contract import (
+    ProjectWritePolicyFailure,
+    ProjectWritePolicyRequest,
+)
 
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
 
@@ -121,15 +130,19 @@ async def lock_actor_project_authority(
 
 async def lock_project_manager(
     db: AsyncSession,
-    user: User,
-    project_id,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
     *,
     denial_detail: str = "项目管理权限已变化",
 ) -> None:
     """Serialize current management authority with account/ownership changes."""
-    _, _, access = await lock_current_project_access(
-        db, actor_id=user.id, project_id=project_id
-    )
+    resolver = bind_project_write_policy_resolver(db)
+    try:
+        access = await resolver.resolve(
+            ProjectWritePolicyRequest(actor_id=actor_id, project_id=project_id)
+        )
+    except ProjectWritePolicyFailure as exc:
+        restore_project_write_policy_failure(exc)
     if not access.is_manager:
         raise HTTPException(status_code=403, detail=denial_detail)
 

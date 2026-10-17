@@ -279,7 +279,7 @@ async def admit(
 ):
     """Return the run and whether this admission created state to commit."""
     await claims.project_lock(db, project_id)
-    await lock_project_manager(db, user, project_id)
+    await lock_project_manager(db, user.id, project_id)
     request_digest = content_digest(body.request_payload())
     existing = await db.scalar(
         select(TrainingRun).where(
@@ -505,7 +505,7 @@ async def mark_terminal(db, run, attempt, status, error=None):
 
 
 async def cancel(db, project_id, run_id, user: User):
-    await lock_project_manager(db, user, project_id)
+    await lock_project_manager(db, user.id, project_id)
     run = await load_run(db, project_id, run_id, lock=True)
     attempt = await db.get(TrainingAttempt, run.current_attempt_id)
     if run.status in TERMINAL:

@@ -19,6 +19,7 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services.annotation_evidence import assert_review_evidence_current
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
@@ -34,7 +35,10 @@ _LOCKED_STATUSES = {"review", "completed"}
 
 
 def assert_access_binding(
-    access: ProjectAccess, *, user: User, project_id: uuid.UUID
+    access: ProjectAccess,
+    *,
+    user: User | IdentityActorFacts,
+    project_id: uuid.UUID,
 ) -> None:
     """Fail closed when the resolved access does not match user and resource."""
 

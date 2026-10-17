@@ -25,7 +25,7 @@ async def deploy_model(
 ):
     """Persist a fenced check, install/trial, then publish its matching result."""
     await project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     version = await learning.load_version(db, project.id, version_id)
     learning.validate_bindings(project, version.classes, version.bindings)
     backend = await learning.enabled_backend(db, project.id, registry_id)
@@ -72,7 +72,7 @@ async def deploy_model(
         error = f"加载或样本试用未通过（{type(exc).__name__}）"
 
     await project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     deployment = await learning.complete_deployment_check(
         db,
         deployment_id,

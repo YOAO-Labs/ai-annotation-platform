@@ -60,7 +60,7 @@ async def save(
     api_key_id=None,
 ):
     await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     policy = await db.scalar(
         select(LearningPolicy)
         .where(LearningPolicy.project_id == project.id)
@@ -243,7 +243,7 @@ async def cancel_unstarted(db, policy):
 
 async def disable(db, project_id, user: User, expected_revision: int):
     await claims.project_lock(db, project_id)
-    await lock_project_manager(db, user, project_id)
+    await lock_project_manager(db, user.id, project_id)
     policy = await db.scalar(
         select(LearningPolicy)
         .where(LearningPolicy.project_id == project_id)
@@ -264,7 +264,7 @@ async def disable(db, project_id, user: User, expected_revision: int):
 
 async def delete(db, project_id, user: User) -> bool:
     await claims.project_lock(db, project_id)
-    await lock_project_manager(db, user, project_id)
+    await lock_project_manager(db, user.id, project_id)
     policy = await db.scalar(
         select(LearningPolicy)
         .where(LearningPolicy.project_id == project_id)
@@ -620,7 +620,7 @@ async def check_project(
     source_reader: ProjectTaskSourceReader,
 ) -> LearningPolicy:
     await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
+    await lock_project_manager(db, user.id, project.id)
     policy = await db.scalar(
         select(LearningPolicy).where(LearningPolicy.project_id == project.id)
     )
