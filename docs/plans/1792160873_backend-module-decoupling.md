@@ -1022,6 +1022,21 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 - 隔离记录在 `/tmp/aap-boundary-job-bindings-evidence/results.txt`，包含另一次真实 export consumer 与独立连接观察；其 363 passed、75 skipped 不与主线重复累计。不从小样本推断 RSS、吞吐或优化。未改公开/数据库 schema、依赖、配置或版本；纯所有权迁移不增加 CHANGELOG。
 
+### 素材上传完成的内容与尺寸
+
+- HTTP 上传完成不再直接写 `DatasetItem.file_size`、`content_hash` 或图片尺寸；独立内容观测由 `DatasetService.record_uploaded_item_content` 暂存，尺寸复用已有 `set_item_dimensions`。原长度 truthy、32 字符 ETag、去重查询/重复对象删除/占位删除、缺尺寸读取、追加建题、最终提交和派发顺序未改，不新增授权或上传校验规则。
+- 主线默认 ASGI/JWT 与真实 MinIO/PG：上传实际 77 B、11×7 PNG 后完成返回 200，新事务读到精确大小、MD5 和尺寸；相同内容的另一对象为 409，指向原 item，只有重复占位及对象被删除；缺对象返回 400 并删除占位。夹具没有关联项目，因此 linked_tasks=0，不冒充本轮已完成建题/renderer 或缩略图消费资格。
+- 实际 Redis 消息保留 `app.workers.media.generate_thumbnail` 名称；只核对并移除该自有 item 的一条消息，不启动宽 media consumer。完整事实在 `.worktree/dataset-upload-owner-smoke.json`，临时探针已移除。
+- 原内联三字段写入的字面复现与当前 owner 路径各预热一次、三轮交错采样；范围是同一已加载 item 的内容/尺寸与 flush，尺寸 get 复用 identity map。不含 reset/rollback、授权/HTTP、S3 或派发，不称历史函数 AST、RSS 或吞吐优化：
+
+| 指标                        | 原内联写入 | 当前 owner |
+| --------------------------- | ---------: | ---------: |
+| SQL 语句数                  |          1 |          1 |
+| Python 堆峰值中位数（字节） |    277,137 |    277,369 |
+
+- 五项定向回归通过，覆盖追加建题、批量建题、保留存储前缀拒绝与精确 OpenAPI；两个 Python 文件的固定 Ruff 格式/check 通过。未新增字段回声测试。后端分层及仓库地图已同步；不改 schema、依赖、配置、版本或 CHANGELOG。
+- 本次真实小对象 PUT 再次出现 `MissingHeaderBodySeparatorDefect` 和未解析的第二条 200 状态行，随后请求仍完成；原始日志事件保留在 `.worktree/pcd-live-recurrence.json`。该现象已纳入独立 PCD/HTTP framing 诊断，未在本所有权切片中掩盖警告或调整超时/重试。
+
 ### 剩余范围
 
-- 全入口写入复核另确认十六处剩余，按十四个里程碑跟踪：Mask 格式导入执行；Study 子运行/尝试及训练运行删除；素材上传完成；失败预测处置/重试；点云质检派发失败；样本评估执行/删除意图；训练预览过期；分析样本媒体观测；金字塔访问元数据；审计输出投影；在线状态维护；训练数据构建；主动学习执行。它们尚未验收，不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成已收口；仍有 Mask 格式导入执行、Study 子运行/尝试及训练运行删除、失败预测处置/重试、点云质检派发失败、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，继续按十三个里程碑验收。不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

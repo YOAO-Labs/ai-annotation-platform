@@ -371,7 +371,7 @@ async def upload_complete(
 
     content_length = meta.get("ContentLength")
     if content_length:
-        item.file_size = content_length
+        svc.record_uploaded_item_content(item, file_size=content_length)
 
     # ETag（MinIO 单 PUT = md5）用于去重
     etag = (meta.get("ETag") or "").strip('"')
@@ -394,7 +394,7 @@ async def upload_complete(
                     "duplicate_of": str(existing.id),
                 },
             )
-        item.content_hash = etag
+        svc.record_uploaded_item_content(item, content_hash=etag)
 
     if item.file_type == "image" and (item.width is None or item.height is None):
         dims = storage_service.read_image_dimensions(
@@ -402,7 +402,7 @@ async def upload_complete(
             bucket=storage_service.datasets_bucket,
         )
         if dims:
-            item.width, item.height = dims
+            await svc.set_item_dimensions(item_id, dims)
 
     linked_tasks = await DatasetTaskCreationWorkflow(db).append_items(
         dataset_id, [item.id]

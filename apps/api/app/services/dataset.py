@@ -555,6 +555,19 @@ class DatasetService:
         item.file_size = file_size
         item.content_hash = content_hash
 
+    @staticmethod
+    def record_uploaded_item_content(
+        item: DatasetItem,
+        *,
+        file_size: int | None = None,
+        content_hash: str | None = None,
+    ) -> None:
+        """Stage independent upload observations without flushing or committing."""
+        if file_size is not None:
+            item.file_size = file_size
+        if content_hash is not None:
+            item.content_hash = content_hash
+
     async def record_nuscenes_calibration_digests(self, dataset_id: uuid.UUID) -> None:
         from app.schemas._jsonb_types import SensorCalibration
         from app.services.sensor_calibration import calibration_digest
