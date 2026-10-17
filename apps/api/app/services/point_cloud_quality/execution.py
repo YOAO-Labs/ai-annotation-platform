@@ -453,7 +453,7 @@ async def execute_scan(
         processed += 1
         run.progress_pct = min(95, int(processed * 95 / total_units))
         if run.async_job_id:
-            await job_lifecycle.update_progress(db, run.async_job_id, run.progress_pct)
+            await job_lifecycle.update_progress(run.async_job_id, run.progress_pct)
         await db.commit()
 
     annotations_by_track: dict[str, list[dict]] = defaultdict(list)
@@ -537,7 +537,7 @@ async def execute_scan(
         processed += 1
         run.progress_pct = min(95, int(processed * 95 / total_units))
         if run.async_job_id:
-            await job_lifecycle.update_progress(db, run.async_job_id, run.progress_pct)
+            await job_lifecycle.update_progress(run.async_job_id, run.progress_pct)
         await db.commit()
 
     summary = {
@@ -566,7 +566,7 @@ async def execute_run(
     run.started_at = datetime.now(timezone.utc)
     if run.async_job_id:
         await job_lifecycle.mark_running(
-            db, run.async_job_id, celery_task_id=celery_task_id
+            run.async_job_id, celery_task_id=celery_task_id
         )
     await db.commit()
     try:
@@ -579,7 +579,6 @@ async def execute_run(
             run.completed_at = datetime.now(timezone.utc)
             if run.async_job_id:
                 await job_lifecycle.mark_complete(
-                    db,
                     run.async_job_id,
                     result={"run_id": str(run.id), "status": "stale"},
                 )
@@ -590,7 +589,6 @@ async def execute_run(
             run.completed_at = datetime.now(timezone.utc)
             if run.async_job_id:
                 await job_lifecycle.mark_complete(
-                    db,
                     run.async_job_id,
                     result={
                         "run_id": str(run.id),
@@ -603,16 +601,14 @@ async def execute_run(
         run.completed_at = datetime.now(timezone.utc)
         if run.async_job_id:
             await job_lifecycle.mark_cancelled(
-                db, run.async_job_id, result={"reason": "cancelled_by_user"}
+                run.async_job_id, result={"reason": "cancelled_by_user"}
             )
     except Exception as exc:
         run.status = "failed"
         run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
         run.completed_at = datetime.now(timezone.utc)
         if run.async_job_id:
-            await job_lifecycle.mark_failed(
-                db, run.async_job_id, error=run.error_message
-            )
+            await job_lifecycle.mark_failed(run.async_job_id, error=run.error_message)
     if run.async_job_id:
-        await job_lifecycle.notify_terminal(db, job_id=run.async_job_id)
+        await job_lifecycle.notify_terminal(job_id=run.async_job_id)
     await db.commit()

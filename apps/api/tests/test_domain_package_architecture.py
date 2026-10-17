@@ -154,6 +154,9 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="account_groups", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),
+    DomainSpec(
+        package="quality_job_lifecycle", legacy_facades=(), allowed_app_imports=()
+    ),
     DomainSpec(package="mask_repair", legacy_facades=()),
     DomainSpec(package="mask_formats.service", legacy_facades=()),
     DomainSpec(package="mask_qc.service", legacy_facades=()),
@@ -583,6 +586,28 @@ def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
             for bad in forbidden:
                 if imported == bad or imported.startswith(bad + "."):
                     offenders.append(f"{module}: imports forbidden '{imported}'")
+    assert not offenders, "\n".join(offenders)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [spec for spec in DOMAIN_PACKAGES if spec.allowed_app_imports == ()],
+    ids=lambda spec: spec.package,
+)
+def test_data_contracts_do_not_import_runtime_frameworks(spec: DomainSpec) -> None:
+    """Pure contracts cannot hide a session, HTTP error or task behind an import."""
+    forbidden = ("sqlalchemy", "fastapi", "celery")
+    offenders = []
+    for path, module in _iter_domain_files(spec.package):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for imported, _local in _collect_imports(
+            tree, _source_context_module(path, module)
+        ):
+            if any(
+                imported == root or imported.startswith(root + ".")
+                for root in forbidden
+            ):
+                offenders.append(f"{module}: imports runtime framework '{imported}'")
     assert not offenders, "\n".join(offenders)
 
 

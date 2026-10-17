@@ -956,7 +956,7 @@ async def execute_run(
     run.progress_pct = 5
     if run.async_job_id:
         await job_lifecycle.mark_running(
-            db, run.async_job_id, celery_task_id=celery_task_id
+            run.async_job_id, celery_task_id=celery_task_id
         )
     await db.commit()
     try:
@@ -975,7 +975,6 @@ async def execute_run(
         run.completed_at = datetime.now(timezone.utc)
         if run.async_job_id:
             await job_lifecycle.mark_complete(
-                db,
                 run.async_job_id,
                 result={"run_id": str(run.id), "status": run.status},
             )
@@ -987,15 +986,13 @@ async def execute_run(
         run.error_message = str(exc.detail)[:4000]
         run.completed_at = datetime.now(timezone.utc)
         if run.async_job_id:
-            await job_lifecycle.mark_failed(db, run.async_job_id, error=str(exc.detail))
+            await job_lifecycle.mark_failed(run.async_job_id, error=str(exc.detail))
     except Exception as exc:
         run.status = "failed"
         run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
         run.completed_at = datetime.now(timezone.utc)
         if run.async_job_id:
-            await job_lifecycle.mark_failed(
-                db, run.async_job_id, error=run.error_message
-            )
+            await job_lifecycle.mark_failed(run.async_job_id, error=run.error_message)
     if run.async_job_id:
-        await job_lifecycle.notify_terminal(db, job_id=run.async_job_id)
+        await job_lifecycle.notify_terminal(job_id=run.async_job_id)
     await db.commit()

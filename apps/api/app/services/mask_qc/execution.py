@@ -121,11 +121,10 @@ async def _mark_cancelled(
     run.completed_at = now
     if run.async_job_id is not None:
         await job_lifecycle.mark_cancelled(
-            db,
             run.async_job_id,
             result={"run_id": str(run.id), "progress_pct": run.progress_pct},
         )
-        await job_lifecycle.notify_terminal(db, job_id=run.async_job_id)
+        await job_lifecycle.notify_terminal(job_id=run.async_job_id)
 
 
 async def _update_progress(
@@ -139,7 +138,7 @@ async def _update_progress(
     pct = min(95, max(1, int(completed * 90 / max(total, 1)) + 5))
     run.progress_pct = pct
     if run.async_job_id is not None:
-        await job_lifecycle.update_progress(db, run.async_job_id, pct)
+        await job_lifecycle.update_progress(run.async_job_id, pct)
 
 
 async def _load_reference(
@@ -617,11 +616,10 @@ async def _execute_scan(
     run.completed_at = datetime.now(timezone.utc)
     if run.async_job_id is not None:
         await job_lifecycle.mark_complete(
-            db,
             run.async_job_id,
             result={"run_id": str(run.id), **run.summary},
         )
-        await job_lifecycle.notify_terminal(db, job_id=run.async_job_id)
+        await job_lifecycle.notify_terminal(job_id=run.async_job_id)
     await db.commit()
 
 
@@ -652,10 +650,8 @@ async def execute_run(
     run.status = "running"
     run.started_at = run.started_at or datetime.now(timezone.utc)
     run.progress_pct = max(run.progress_pct, 1)
-    await job_lifecycle.mark_running(
-        db, run.async_job_id, celery_task_id=celery_task_id
-    )
-    await job_lifecycle.update_progress(db, run.async_job_id, 1)
+    await job_lifecycle.mark_running(run.async_job_id, celery_task_id=celery_task_id)
+    await job_lifecycle.update_progress(run.async_job_id, 1)
     await db.commit()
 
     try:
@@ -675,9 +671,7 @@ async def execute_run(
         run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
         run.completed_at = datetime.now(timezone.utc)
         if run.async_job_id is not None:
-            await job_lifecycle.mark_failed(
-                db, run.async_job_id, error=run.error_message
-            )
-            await job_lifecycle.notify_terminal(db, job_id=run.async_job_id)
+            await job_lifecycle.mark_failed(run.async_job_id, error=run.error_message)
+            await job_lifecycle.notify_terminal(job_id=run.async_job_id)
         await db.commit()
         log.exception("Mask QC run failed run=%s", run_id)

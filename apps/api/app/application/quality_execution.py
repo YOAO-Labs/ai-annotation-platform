@@ -11,43 +11,40 @@ from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.mask_qc import execution as mask_qc_execution
 from app.services.point_cloud_quality import execution as point_cloud_execution
-from app.services.quality_job_lifecycle import QualityJobLifecycle
 from app.services.video_track_quality import (
     execute_run as execute_video_track_quality_run,
 )
 
 
 class _AsyncJobLifecycle:
-    async def mark_running(
-        self, db: AsyncSession, job_id: uuid.UUID, *, celery_task_id: str | None
-    ) -> None:
-        await async_job_svc.mark_running(db, job_id, celery_task_id=celery_task_id)
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
 
-    async def update_progress(
-        self, db: AsyncSession, job_id: uuid.UUID, progress_pct: int
+    async def mark_running(
+        self, job_id: uuid.UUID, *, celery_task_id: str | None
     ) -> None:
-        await async_job_svc.update_progress(db, job_id, progress_pct)
+        await async_job_svc.mark_running(
+            self._db, job_id, celery_task_id=celery_task_id
+        )
+
+    async def update_progress(self, job_id: uuid.UUID, progress_pct: int) -> None:
+        await async_job_svc.update_progress(self._db, job_id, progress_pct)
 
     async def mark_complete(
-        self, db: AsyncSession, job_id: uuid.UUID, *, result: dict[str, Any] | None
+        self, job_id: uuid.UUID, *, result: dict[str, Any] | None
     ) -> None:
-        await async_job_svc.mark_complete(db, job_id, result=result)
+        await async_job_svc.mark_complete(self._db, job_id, result=result)
 
-    async def mark_failed(
-        self, db: AsyncSession, job_id: uuid.UUID, *, error: str
-    ) -> None:
-        await async_job_svc.mark_failed(db, job_id, error=error)
+    async def mark_failed(self, job_id: uuid.UUID, *, error: str) -> None:
+        await async_job_svc.mark_failed(self._db, job_id, error=error)
 
     async def mark_cancelled(
-        self, db: AsyncSession, job_id: uuid.UUID, *, result: dict[str, Any] | None
+        self, job_id: uuid.UUID, *, result: dict[str, Any] | None
     ) -> None:
-        await async_job_svc.mark_cancelled(db, job_id, result=result)
+        await async_job_svc.mark_cancelled(self._db, job_id, result=result)
 
-    async def notify_terminal(self, db: AsyncSession, *, job_id: uuid.UUID) -> None:
-        await notify_job_terminal(db, job_id=job_id)
-
-
-_quality_job_lifecycle: QualityJobLifecycle = _AsyncJobLifecycle()
+    async def notify_terminal(self, *, job_id: uuid.UUID) -> None:
+        await notify_job_terminal(self._db, job_id=job_id)
 
 
 async def execute_mask_qc(
@@ -57,7 +54,7 @@ async def execute_mask_qc(
         db,
         run_id=run_id,
         celery_task_id=celery_task_id,
-        job_lifecycle=_quality_job_lifecycle,
+        job_lifecycle=_AsyncJobLifecycle(db),
     )
 
 
@@ -68,7 +65,7 @@ async def execute_point_cloud_quality(
         db,
         run_id=run_id,
         celery_task_id=celery_task_id,
-        job_lifecycle=_quality_job_lifecycle,
+        job_lifecycle=_AsyncJobLifecycle(db),
     )
 
 
@@ -79,5 +76,5 @@ async def execute_video_track_quality(
         db,
         run_id=run_id,
         celery_task_id=celery_task_id,
-        job_lifecycle=_quality_job_lifecycle,
+        job_lifecycle=_AsyncJobLifecycle(db),
     )
