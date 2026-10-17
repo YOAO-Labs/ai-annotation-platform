@@ -27,6 +27,7 @@ from tests.test_training_dataset_analysis import inputs
 from tests.test_training_runs import (
     GPU,
     IMAGE,
+    TOKEN,
     ready_dataset,
     training_config as training_config,
 )
@@ -340,6 +341,152 @@ async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
         )
 
 
+async def test_internal_preview_http_responses_preserve_idle_lost_stop_and_receipts(
+    db_session,
+    super_admin,
+    httpx_client,
+    training_config,
+    monkeypatch,
+):
+    _project, _dataset, path, headers, body = await preview(
+        db_session, httpx_client, super_admin, create=False
+    )
+    executor_headers = {"x-training-executor-token": TOKEN}
+    claim = claim_body()
+    claim_path = "/api/v1/internal/training/previews/claim"
+
+    idle = await httpx_client.post(
+        claim_path,
+        headers=executor_headers,
+        json=claim.model_dump(mode="json"),
+    )
+    assert idle.status_code == 200
+    assert idle.json() == {"assignment": None}
+
+    created = await httpx_client.post(path, headers=headers, json=body)
+    assert created.status_code == 202, created.text
+    row = await db_session.get(TrainingPreview, uuid.UUID(created.json()["id"]))
+
+    objects = Objects()
+    monkeypatch.setattr(service.storage, "client", objects)
+    claimed = await httpx_client.post(
+        claim_path,
+        headers=executor_headers,
+        json=claim.model_dump(mode="json"),
+    )
+    assert claimed.status_code == 200, claimed.text
+    assignment = claimed.json()["assignment"]
+    assert assignment["preview_id"] == str(row.id)
+    assert assignment["input_digest"] == row.input_digest
+    assert assignment["stop"] is False
+    assert {
+        "config",
+        "config_digest",
+        "native_values",
+        "dataset_snapshot_digest",
+        "policy_digest",
+        "seed",
+        "epoch",
+        "count",
+        "sources",
+        "pool_summary",
+    } <= assignment["spec"].keys()
+    assert set(assignment["source_urls"]) == {
+        source["task_id"] for source in row.spec["sources"]
+    }
+    assert assignment["source_urls"] == {
+        source["task_id"]: ("http://owned-storage/get_object/" + source["media_key"])
+        for source in row.spec["sources"]
+    }
+
+    # A worker may retry the durable claim after it loses the first response.
+    row.heartbeat_at = service.now() - timedelta(minutes=1)
+    await db_session.flush()
+    lost = await httpx_client.get(path + f"/{row.id}", headers=headers)
+    assert lost.status_code == 200 and lost.json()["status"] == "lost"
+    replay = await httpx_client.post(
+        claim_path,
+        headers=executor_headers,
+        json=claim.model_dump(mode="json"),
+    )
+    assert replay.status_code == 200 and replay.json() == claimed.json()
+
+    assignment_fence = ExecutorFence(**fence(claim, assignment)).model_dump(mode="json")
+    heartbeat_path = f"/api/v1/internal/training/previews/{row.id}/heartbeat"
+    heartbeat = await httpx_client.post(
+        heartbeat_path,
+        headers=executor_headers,
+        json=assignment_fence,
+    )
+    assert heartbeat.status_code == 200
+    assert heartbeat.json() == {"stop": False, "reason": None}
+
+    artifact_digests = {"preview-0.png": "a" * 64, "report.json": "b" * 64}
+    uploads = await httpx_client.post(
+        f"/api/v1/internal/training/previews/{row.id}/uploads",
+        headers=executor_headers,
+        json=PreviewUploads(
+            **assignment_fence,
+            artifacts=[
+                {
+                    "name": name,
+                    "sha256": digest,
+                    "size_bytes": 100,
+                }
+                for name, digest in artifact_digests.items()
+            ],
+        ).model_dump(mode="json"),
+    )
+    assert uploads.status_code == 200
+    assert uploads.json() == {
+        name: {
+            "url": f"http://owned-storage/put_object/projects/{row.project_id}/previews/{row.id}/{name}",
+            "headers": {
+                "x-amz-meta-preview-id": str(row.id),
+                "x-amz-meta-input-digest": row.input_digest,
+                "x-amz-meta-sha256": digest,
+            },
+        }
+        for name, digest in artifact_digests.items()
+    }
+
+    cancelled = await httpx_client.post(path + f"/{row.id}/cancel", headers=headers)
+    assert cancelled.status_code == 200
+    stopped_claim = await httpx_client.post(
+        claim_path,
+        headers=executor_headers,
+        json=claim.model_dump(mode="json"),
+    )
+    assert stopped_claim.status_code == 200, stopped_claim.text
+    stopped_assignment = stopped_claim.json()["assignment"]
+    assert stopped_assignment["stop"] is True
+    assert stopped_assignment["source_urls"] == {}
+
+    stopped = await httpx_client.post(
+        heartbeat_path,
+        headers=executor_headers,
+        json=assignment_fence,
+    )
+    assert stopped.status_code == 200
+    assert stopped.json() == {
+        "stop": True,
+        "reason": "已请求取消原生预览，等待确认进程退出",
+    }
+
+    finish_path = f"/api/v1/internal/training/previews/{row.id}/finish"
+    finish_body = PreviewFinish(
+        **assignment_fence, status="succeeded", process_exited=True
+    ).model_dump(mode="json")
+    finished = await httpx_client.post(
+        finish_path, headers=executor_headers, json=finish_body
+    )
+    assert finished.status_code == 200
+    assert finished.json() == {"id": str(row.id), "status": "cancelled"}
+    assert (
+        await httpx_client.post(finish_path, headers=executor_headers, json=finish_body)
+    ).json() == finished.json()
+
+
 async def test_dense_256_box_report_publishes_and_cache_still_verifies_storage(
     db_session,
     super_admin,
@@ -352,22 +499,38 @@ async def test_dense_256_box_report_publishes_and_cache_still_verifies_storage(
     row, path, headers, _ = await preview(
         db_session, httpx_client, super_admin, boxes=256
     )
-    claim, assignment = await claimed(db_session, row)
+    claim = claim_body()
+    executor_headers = {"x-training-executor-token": TOKEN}
+    claim_response = await httpx_client.post(
+        "/api/v1/internal/training/previews/claim",
+        headers=executor_headers,
+        json=claim.model_dump(mode="json"),
+    )
+    assert claim_response.status_code == 200, claim_response.text
+    assignment = claim_response.json()["assignment"]
+    assert assignment["preview_id"] == str(row.id)
+    assert assignment["stop"] is False
     assert len(row.spec["sources"][0]["labels"]) > 8192
     inventory = evidence(row, objects)
-    await service.uploads(
-        db_session,
-        row.id,
-        PreviewUploads(**fence(claim, assignment), artifacts=inventory),
-    )
-    finished = await service.finish(
-        db_session,
-        row.id,
-        PreviewFinish(
-            **fence(claim, assignment), status="succeeded", process_exited=True
+    assignment_fence = fence(claim, assignment)
+    upload_response = await httpx_client.post(
+        f"/api/v1/internal/training/previews/{row.id}/uploads",
+        headers=executor_headers,
+        json=PreviewUploads(**assignment_fence, artifacts=inventory).model_dump(
+            mode="json"
         ),
     )
-    assert finished.status == "succeeded"
+    assert upload_response.status_code == 200, upload_response.text
+    assert set(upload_response.json()) == {artifact["name"] for artifact in inventory}
+    finished = await httpx_client.post(
+        f"/api/v1/internal/training/previews/{row.id}/finish",
+        headers=executor_headers,
+        json=PreviewFinish(
+            **assignment_fence, status="succeeded", process_exited=True
+        ).model_dump(mode="json"),
+    )
+    assert finished.status_code == 200
+    assert finished.json() == {"id": str(row.id), "status": "succeeded"}
     response = await httpx_client.get(path + f"/{row.id}", headers=headers)
     assert response.status_code == 200, response.text
     assert (
@@ -378,7 +541,7 @@ async def test_dense_256_box_report_publishes_and_cache_still_verifies_storage(
         image.status_code == 200
         and image.headers["cache-control"] == "private, no-store"
     )
-    report_spec = finished.artifacts["report.json"]
+    report_spec = row.artifacts["report.json"]
     with pytest.raises(ValueError, match="string"):
         training_artifacts.read_json_artifact(
             report_spec, row.id, metadata_key="preview-id"

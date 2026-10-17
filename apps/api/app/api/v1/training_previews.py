@@ -18,7 +18,11 @@ from app.deps import get_current_user, get_db, require_project_owner, require_sc
 from app.schemas.training_preview import (
     PreviewCapabilities,
     PreviewClaim,
+    PreviewClaimResponse,
+    PreviewFinishResponse,
     PreviewFinish,
+    PreviewHeartbeatResponse,
+    PreviewUploadsResponse,
     PreviewUploads,
     TrainingPreviewCreate,
     TrainingPreviewOut,
@@ -175,14 +179,16 @@ async def image(
         raise
 
 
-@executor_router.post("/claim")
+@executor_router.post("/claim", response_model=PreviewClaimResponse)
 async def claim(body: PreviewClaim, db: AsyncSession = Depends(get_db)):
     result = await service.claim(db, body)
     await db.commit()
     return {"assignment": result}
 
 
-@executor_router.post("/{preview_id}/heartbeat")
+@executor_router.post(
+    "/{preview_id}/heartbeat", response_model=PreviewHeartbeatResponse
+)
 async def heartbeat(
     preview_id: uuid.UUID, body: ExecutorFence, db: AsyncSession = Depends(get_db)
 ):
@@ -191,7 +197,7 @@ async def heartbeat(
     return result
 
 
-@executor_router.post("/{preview_id}/uploads")
+@executor_router.post("/{preview_id}/uploads", response_model=PreviewUploadsResponse)
 async def uploads(
     preview_id: uuid.UUID, body: PreviewUploads, db: AsyncSession = Depends(get_db)
 ):
@@ -200,7 +206,7 @@ async def uploads(
     return result
 
 
-@executor_router.post("/{preview_id}/finish")
+@executor_router.post("/{preview_id}/finish", response_model=PreviewFinishResponse)
 async def finish(
     preview_id: uuid.UUID, body: PreviewFinish, db: AsyncSession = Depends(get_db)
 ):

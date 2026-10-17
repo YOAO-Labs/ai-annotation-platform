@@ -29301,6 +29301,48 @@
         "title": "PreviewArtifact",
         "type": "object"
       },
+      "PreviewAssignment": {
+        "additionalProperties": true,
+        "properties": {
+          "input_digest": {
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "lease_token": {
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "preview_id": {
+            "format": "uuid",
+            "title": "Preview Id",
+            "type": "string"
+          },
+          "source_urls": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Source Urls",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PreviewExecutionSpec"
+          },
+          "stop": {
+            "title": "Stop",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "preview_id",
+          "lease_token",
+          "input_digest",
+          "spec",
+          "source_urls",
+          "stop"
+        ],
+        "title": "PreviewAssignment",
+        "type": "object"
+      },
       "PreviewBox": {
         "additionalProperties": false,
         "properties": {
@@ -29434,6 +29476,97 @@
         "title": "PreviewClaim",
         "type": "object"
       },
+      "PreviewClaimResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviewAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "assignment"
+        ],
+        "title": "PreviewClaimResponse",
+        "type": "object"
+      },
+      "PreviewExecutionSpec": {
+        "additionalProperties": true,
+        "properties": {
+          "config": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Config",
+            "type": "object"
+          },
+          "config_digest": {
+            "title": "Config Digest",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "dataset_snapshot_digest": {
+            "title": "Dataset Snapshot Digest",
+            "type": "string"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "native_values": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Native Values",
+            "type": "object"
+          },
+          "policy_digest": {
+            "title": "Policy Digest",
+            "type": "string"
+          },
+          "pool_summary": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Pool Summary",
+            "type": "object"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "config",
+          "config_digest",
+          "native_values",
+          "dataset_snapshot_digest",
+          "policy_digest",
+          "seed",
+          "epoch",
+          "count",
+          "sources",
+          "pool_summary"
+        ],
+        "title": "PreviewExecutionSpec",
+        "type": "object"
+      },
       "PreviewFinish": {
         "additionalProperties": false,
         "properties": {
@@ -29489,6 +29622,57 @@
           "process_exited"
         ],
         "title": "PreviewFinish",
+        "type": "object"
+      },
+      "PreviewFinishResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "PreviewFinishResponse",
+        "type": "object"
+      },
+      "PreviewHeartbeatResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "stop": {
+            "title": "Stop",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stop",
+          "reason"
+        ],
+        "title": "PreviewHeartbeatResponse",
         "type": "object"
       },
       "PreviewOperation": {
@@ -29692,6 +29876,28 @@
         "title": "PreviewSource",
         "type": "object"
       },
+      "PreviewUploadGrant": {
+        "additionalProperties": true,
+        "properties": {
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "headers"
+        ],
+        "title": "PreviewUploadGrant",
+        "type": "object"
+      },
       "PreviewUploads": {
         "additionalProperties": false,
         "properties": {
@@ -29729,6 +29935,13 @@
           "artifacts"
         ],
         "title": "PreviewUploads",
+        "type": "object"
+      },
+      "PreviewUploadsResponse": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/PreviewUploadGrant"
+        },
+        "title": "PreviewUploadsResponse",
         "type": "object"
       },
       "ProbeRequest": {
@@ -59603,7 +59816,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewClaimResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -59664,7 +59879,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewFinishResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -59725,7 +59942,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewHeartbeatResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -59786,7 +60005,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewUploadsResponse"
+                }
               }
             },
             "description": "Successful Response"

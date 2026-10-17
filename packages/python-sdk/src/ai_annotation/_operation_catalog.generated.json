@@ -26131,7 +26131,14 @@
       ],
       "responses": {
         "200": {
-          "description": "Successful Response"
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewClaimResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -26193,7 +26200,14 @@
       ],
       "responses": {
         "200": {
-          "description": "Successful Response"
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewFinishResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -26255,7 +26269,14 @@
       ],
       "responses": {
         "200": {
-          "description": "Successful Response"
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewHeartbeatResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -26317,7 +26338,14 @@
       ],
       "responses": {
         "200": {
-          "description": "Successful Response"
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewUploadsResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",

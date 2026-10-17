@@ -343,4 +343,4 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 真正提取某个模块时，先选定该模块与目标语言，明确批量读事实、标识、错误码、权限上下文、幂等/attempt/generation 和 Blob 身份，再证明强事务保持本地、随同迁移或已有明确的新一致性设计。之后才实现网络适配器，并验证真实新进程的提交、失败、重启、在途兼容与回退；不得把 Python 端口或已声明的 Celery 名称直接当成跨语言交付。
 
-现有独立训练执行器继续使用原 HTTP 协议。claim 的分配/空闲、heartbeat 的停止要求、按名称上传授权和恢复回执均有明确响应模型，保留 optional 字段缺失及显式 null，并允许响应扩展；通用取消响应固定作业 ID 与 `cancelled | cancel_requested`。这些 schema 补全不改变租约、attempt fence、当前授权或取消终态，也不把执行器私有能力纳入普通 SDK。
+现有独立训练执行器继续使用原 HTTP 协议。训练的六个操作与 CPU 增强预览的四个操作均有明确成功响应模型：包含 claim 的分配/空闲、heartbeat 的停止要求、按名称上传授权及完成/恢复回执，保留 optional 字段缺失及显式 null，并允许响应扩展。预览的冻结规格与来源 URL 分开，取消后恢复分配仅返回停止要求和空 URL 表；通用取消响应固定作业 ID 与 `cancelled | cancel_requested`。这些 schema 补全不改变租约、attempt fence、当前授权或取消终态，也不把执行器私有能力纳入普通 SDK。

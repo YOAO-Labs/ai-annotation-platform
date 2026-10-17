@@ -183,12 +183,43 @@ def test_lost_claim_response_retains_exact_preview_identity(supervisor):
         owned.claim(journal)
     recovered = json.loads(owned.journal_path.read_text())
     assert recovered == journal
-    owned.api = lambda endpoint, body: {"assignment": {"preview_id": "same-preview"}}
+    assignment = {
+        "preview_id": "same-preview",
+        "lease_token": "a" * 64,
+        "input_digest": "b" * 64,
+        "spec": {
+            "config": {"base_model": {"filename": "base.pt", "sha256": "c" * 64}},
+            "config_digest": "d" * 64,
+            "native_values": {},
+            "dataset_snapshot_digest": "e" * 64,
+            "policy_digest": "f" * 64,
+            "seed": 42,
+            "epoch": 1,
+            "count": 1,
+            "sources": [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "image_path": "images/train/task.png",
+                    "label_path": "labels/train/task.txt",
+                    "media_key": "projects/project/datasets/dataset/media/task",
+                    "sha256": "1" * 64,
+                    "label_sha256": "2" * 64,
+                    "size_bytes": 100,
+                    "width": 16,
+                    "height": 12,
+                    "labels": "0 0.5 0.5 0.5 0.5\n",
+                }
+            ],
+            "pool_summary": {"selected": 1},
+        },
+        "source_urls": {"task": "https://storage.test/source"},
+        "stop": False,
+    }
+    owned.api = lambda endpoint, body: {"assignment": assignment}
     owned.claim(recovered)
-    assert (
-        json.loads(owned.journal_path.read_text())["assignment"]["preview_id"]
-        == "same-preview"
-    )
+    saved = json.loads(owned.journal_path.read_text())["assignment"]
+    assert saved == assignment
+    assert saved["source_urls"]["task"] == "https://storage.test/source"
 
 
 @pytest.fixture

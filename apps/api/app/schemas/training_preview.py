@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
 from app.schemas.training_run import ExecutorFence, TrainingConfiguration
 
@@ -138,6 +138,63 @@ class PreviewClaim(BaseModel):
     resource_id: str = Field(min_length=1, max_length=200)
     runtime: dict[str, JsonValue] = Field(max_length=30)
     recover_only: bool = False
+
+
+class PreviewExecutionSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    config: dict[str, JsonValue]
+    config_digest: str
+    native_values: dict[str, JsonValue]
+    dataset_snapshot_digest: str
+    policy_digest: str
+    seed: int
+    epoch: int
+    count: int
+    sources: list[PreviewSource]
+    pool_summary: dict[str, JsonValue]
+
+
+class PreviewAssignment(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    preview_id: uuid.UUID
+    lease_token: str
+    input_digest: str
+    spec: PreviewExecutionSpec
+    source_urls: dict[str, str]
+    stop: bool
+
+
+class PreviewClaimResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    assignment: PreviewAssignment | None
+
+
+class PreviewHeartbeatResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    stop: bool
+    reason: str | None
+
+
+class PreviewUploadGrant(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    url: str
+    headers: dict[str, str]
+
+
+class PreviewUploadsResponse(RootModel[dict[str, PreviewUploadGrant]]):
+    pass
+
+
+class PreviewFinishResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: uuid.UUID
+    status: Literal["succeeded", "failed", "cancelled"]
 
 
 class PreviewArtifact(BaseModel):
