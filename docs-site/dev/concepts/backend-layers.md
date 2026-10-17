@@ -142,6 +142,10 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 人工候选接受/驳回消费 `candidate_decision_contract.CandidateDecisionPort`，命令只含原 `LabelingWriteScope`、候选 UUID 及原形状下标、类别/属性覆盖和片段参数。`application/candidate_decision.py` 为原 Session/Task/actor 绑定实现，错误绑定在 SQL 前拒绝；HTTP 保留初始权限/可见性/编辑检查和接受前的视频租约检查。候选预读、最终权威与 Task 锁仍按原顺序执行，SQL 步骤留在 `AnnotationService` 的私有方法，不增加 Prediction 行锁。接受后继续逐标注核验视频范围、heartbeat、提交，再返回本次新建的 `AnnotationOut`；缺候选/越界的 None 分支不提交，由入口返回原 404。驳回在最终 Task 锁与原形状下标检查后，只刷新 `rejected_shape_indexes` 再合并，避免并发决策覆盖已提交的拒绝历史；其余下标去重、heartbeat、提交与 204 保留。预期拒绝通过纯 status/detail/headers 恢复，worker 的 `ApplyPredictionResultPort` 不参与人工决策。
 
+单框/整批跨帧传播和区间插值消费 `annotation_cross_frame_contract.AnnotationCrossFramePort`，只传命名 UUID、原请求 schema 和纯审计来源，返回原响应 schema。HTTP 保留源 Task 准入，`application/annotation_cross_frame.py` 绑定原 Session/source Task/actor/access，保留源标注归属、目标读取/权限、几何与 SceneTrack、heartbeat/审计/提交顺序；先 refresh 全部输出，再投影 DTO。中间帧的可见性/编辑回调留在私有 SQL 组合，端口不传 ORM 或回调。
+
+异步跨帧作业使用独立的 `CrossFrameBatchStager`，在同一 Session 绑定一次，按目标返回创建数量；写入只 flush，进度、回滚、逐帧提交和取消仍由原 worker 持有。手工与作业实现复用 `AnnotationService` 的三个私有 SQL 方法，保留原上下文/位姿读取及补偿算法。共用纯 `AnnotationMutationError` 在 HTTP/worker 装配恢复原拒绝，worker 再执行原失败分类；没有统一提交开关或新作业协议。
+
 `annotation_slice_contracts` 是只依赖标准库的错误、摘要和固定恢复期限所有者。Polygon 切割、Mask mutation 与 `mask_slice_restore` 直接消费该合同，恢复下层不再反向导入切割编排。原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
 
 `mask_formats.registry` 只定义登记、查询、过滤和版本快照原语，不在查询时导入或注册内置实现。`mask_formats.catalog.registry` 在明确的装配模块绑定原描述符及具体 adapter；HTTP、格式导入 worker 和导出消费者直接导入该实例。package root 不重导出或 eager-load catalog，adapter 也不反向导入 registry；格式 ID、能力、选项、版本和原有输入输出不变。

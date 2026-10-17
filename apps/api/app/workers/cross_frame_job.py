@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.application.annotation_cross_frame import bind_cross_frame_batch_stager
 from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
@@ -19,8 +20,8 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.services import task_access
 from app.services import async_job as async_job_svc
-from app.services.annotation import AnnotationService
 from app.services.async_job_notify import notify_job_terminal
+from app.services.annotation_mutation_contract import AnnotationMutationError
 from app.services.cross_frame_job import JOB_KIND, summarize_items
 from app.workers.celery_app import celery_app
 
@@ -206,6 +207,7 @@ async def execute_cross_frame_job(
     # Stable actor id: a per-frame rollback expires the ORM instance, so the
     # bounded account lock must use a captured id rather than actor.id.
     actor_user_id = actor.id
+    cross_frame_batch_stager = bind_cross_frame_batch_stager(db)
     for target_index, target in enumerate(targets):
         frame_index = int(target["frame_index"])
         if frame_index in completed_by_frame:
@@ -380,12 +382,19 @@ async def execute_cross_frame_job(
                         skipped_count=skipped_count,
                     )
                 else:
-                    results, _ = await AnnotationService(db).propagate_batch(
-                        source_task_id=source_task_id,
-                        target_task_id=target_task_id,
-                        annotation_ids=propagate_ids,
-                        user_id=actor.id,
-                    )
+                    try:
+                        created_count = await cross_frame_batch_stager.stage_batch(
+                            source_task_id=source_task_id,
+                            target_task_id=target_task_id,
+                            annotation_ids=propagate_ids,
+                            actor_id=actor.id,
+                        )
+                    except AnnotationMutationError as exc:
+                        raise HTTPException(
+                            status_code=exc.status_code,
+                            detail=exc.detail,
+                            headers=exc.headers,
+                        ) from exc
                     for source_id in source_ids:
                         expected_versions[source_id] = int(
                             source_by_id[source_id].version or 1
@@ -395,7 +404,7 @@ async def execute_cross_frame_job(
                         target,
                         status="success",
                         reason=None,
-                        created_count=len(results),
+                        created_count=created_count,
                         skipped_count=skipped_count,
                     )
         except Exception as exc:  # noqa: BLE001

@@ -14,9 +14,9 @@ from tests.test_annotation_propagate import _add_annotation, _box3d, _seed_scene
 
 
 _OPERATIONS = (
-    ("propagate", "propagate"),
-    ("propagate_batch", "propagate_batch"),
-    ("interpolate_range", "interpolate_range"),
+    ("propagate", "_propagate"),
+    ("propagate_batch", "_propagate_batch"),
+    ("interpolate_range", "_interpolate_range"),
 )
 
 

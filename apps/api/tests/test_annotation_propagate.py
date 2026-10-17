@@ -123,7 +123,7 @@ async def test_propagate_box3d_copies_and_assigns_shared_group(db_session, super
     )
 
     svc = AnnotationService(db_session)
-    new, _ = await svc.propagate(
+    new, _ = await svc._propagate(
         source_annotation_id=src.id,
         target_task_id=tasks[1].id,
         user_id=user.id,
@@ -158,7 +158,7 @@ async def test_propagate_reuses_existing_track_id(db_session, super_admin):
         track_id="trk_preexisting",
     )
     svc = AnnotationService(db_session)
-    new, _ = await svc.propagate(
+    new, _ = await svc._propagate(
         source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
     )
     assert new.track_id == "trk_preexisting"
@@ -194,7 +194,7 @@ async def test_propagate_cannot_silently_cross_explicit_absence(
     await db_session.flush()
 
     with pytest.raises(HTTPException) as captured:
-        await AnnotationService(db_session).propagate(
+        await AnnotationService(db_session)._propagate(
             source_annotation_id=src.id,
             target_task_id=tasks[1].id,
             user_id=user.id,
@@ -214,7 +214,7 @@ async def test_propagate_box3d_null_axis_convention(db_session, super_admin):
         db_session, task=tasks[0], project=project, user_id=user.id, geometry=_box3d()
     )
     svc = AnnotationService(db_session)
-    new, _ = await svc.propagate(
+    new, _ = await svc._propagate(
         source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
     )
     assert new.geometry["convention_at_create"] is None
@@ -229,7 +229,7 @@ async def test_propagate_bbox_2d(db_session, super_admin):
         db_session, task=tasks[0], project=project, user_id=user.id, geometry=bbox
     )
     svc = AnnotationService(db_session)
-    new, _ = await svc.propagate(
+    new, _ = await svc._propagate(
         source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
     )
     assert new.geometry == bbox
@@ -251,7 +251,7 @@ async def test_propagate_rejects_video_bbox(db_session, super_admin):
     )
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.propagate(
+        await svc._propagate(
             source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
         )
     assert exc.value.status_code == 422
@@ -273,7 +273,7 @@ async def test_propagate_rejects_cross_project(db_session, super_admin):
     )
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.propagate(
+        await svc._propagate(
             source_annotation_id=src.id,
             target_task_id=tasks_b[0].id,
             user_id=user.id,
@@ -292,7 +292,7 @@ async def test_propagate_rejects_same_task(db_session, super_admin):
     )
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.propagate(
+        await svc._propagate(
             source_annotation_id=src.id, target_task_id=tasks[0].id, user_id=user.id
         )
     assert exc.value.status_code == 422
@@ -341,7 +341,7 @@ async def test_propagate_rejects_cross_scene(db_session, super_admin):
     )
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.propagate(
+        await svc._propagate(
             source_annotation_id=src.id,
             target_task_id=task_b.id,
             user_id=user.id,
@@ -453,7 +453,7 @@ async def test_propagate_motion_compensation(db_session, super_admin):
         geometry=_box3d(center=(10.0, 2.0, 1.0)),
     )
     svc = AnnotationService(db_session)
-    new, compensated = await svc.propagate(
+    new, compensated = await svc._propagate(
         source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
     )
     assert compensated is True
@@ -472,7 +472,7 @@ async def test_propagate_without_pose_keeps_v0141_bytes(db_session, super_admin)
         db_session, task=tasks[0], project=project, user_id=user.id, geometry=_box3d()
     )
     svc = AnnotationService(db_session)
-    new, compensated = await svc.propagate(
+    new, compensated = await svc._propagate(
         source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
     )
     assert compensated is False
@@ -489,7 +489,7 @@ async def test_propagate_override_psr_skips_compensation(db_session, super_admin
         db_session, task=tasks[0], project=project, user_id=user.id, geometry=_box3d()
     )
     svc = AnnotationService(db_session)
-    new, compensated = await svc.propagate(
+    new, compensated = await svc._propagate(
         source_annotation_id=src.id,
         target_task_id=tasks[1].id,
         user_id=user.id,
@@ -519,7 +519,7 @@ async def test_propagate_batch_all_box3d(db_session, super_admin):
         geometry=_box3d(center=(20.0, 5.0, 0.0)),
     )
     svc = AnnotationService(db_session)
-    results, compensated = await svc.propagate_batch(
+    results, compensated = await svc._propagate_batch(
         source_task_id=tasks[0].id,
         target_task_id=tasks[1].id,
         annotation_ids=None,
@@ -576,7 +576,7 @@ async def test_propagate_batch_resolution_not_amplified_by_box_count(
     monkeypatch.setattr(svc, "_resolve_axis_convention", _spy_axis)
     monkeypatch.setattr(svc, "_frame_pose", _spy_pose)
 
-    results, compensated = await svc.propagate_batch(
+    results, compensated = await svc._propagate_batch(
         source_task_id=tasks[0].id,
         target_task_id=tasks[1].id,
         annotation_ids=None,
@@ -597,7 +597,7 @@ async def test_propagate_batch_empty_source_422(db_session, super_admin):
     _, _, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.propagate_batch(
+        await svc._propagate_batch(
             source_task_id=tasks[0].id,
             target_task_id=tasks[1].id,
             annotation_ids=None,
@@ -617,7 +617,7 @@ async def test_propagate_batch_foreign_annotation_404(db_session, super_admin):
     )
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.propagate_batch(
+        await svc._propagate_batch(
             source_task_id=tasks[0].id,
             target_task_id=tasks[1].id,
             annotation_ids=[foreign.id],
@@ -652,7 +652,7 @@ async def test_interpolate_range_world_lerp(db_session, super_admin):
         track_id="trk_wl",
     )
     svc = AnnotationService(db_session)
-    created, compensated, skipped = await svc.interpolate_range(
+    created, compensated, skipped = await svc._interpolate_range(
         track_id="trk_wl",
         from_task_id=tasks[0].id,
         to_task_id=tasks[4].id,
@@ -669,7 +669,7 @@ async def test_interpolate_range_world_lerp(db_session, super_admin):
     assert mid.class_name == a0.class_name
 
     # 幂等: 重跑全部跳过,不重复生成
-    created2, _, skipped2 = await svc.interpolate_range(
+    created2, _, skipped2 = await svc._interpolate_range(
         track_id="trk_wl",
         from_task_id=tasks[0].id,
         to_task_id=tasks[4].id,
@@ -701,7 +701,7 @@ async def test_interpolate_range_no_pose_degrades(db_session, super_admin):
         track_id="trk_np",
     )
     svc = AnnotationService(db_session)
-    created, compensated, _ = await svc.interpolate_range(
+    created, compensated, _ = await svc._interpolate_range(
         track_id="trk_np",
         from_task_id=tasks[0].id,
         to_task_id=tasks[2].id,
@@ -722,7 +722,7 @@ async def test_interpolate_range_validations(db_session, super_admin):
 
     # 两端缺框 → 422
     with pytest.raises(HTTPException) as exc:
-        await svc.interpolate_range(
+        await svc._interpolate_range(
             track_id="trk_v0",
             from_task_id=tasks[0].id,
             to_task_id=tasks[2].id,
@@ -748,7 +748,7 @@ async def test_interpolate_range_validations(db_session, super_admin):
         track_id="trk_v1",
     )
     with pytest.raises(HTTPException) as exc:
-        await svc.interpolate_range(
+        await svc._interpolate_range(
             track_id="trk_v1",
             from_task_id=tasks[0].id,
             to_task_id=tasks[1].id,
@@ -790,7 +790,7 @@ async def test_interpolate_range_locked_mid_task_rejected(db_session, super_admi
 
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.interpolate_range(
+        await svc._interpolate_range(
             track_id="trk_lk",
             from_task_id=tasks[0].id,
             to_task_id=tasks[2].id,
@@ -846,7 +846,7 @@ async def test_interpolate_range_invisible_mid_task_rejected(db_session, super_a
 
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc:
-        await svc.interpolate_range(
+        await svc._interpolate_range(
             track_id="trk_inv",
             from_task_id=tasks[0].id,
             to_task_id=tasks[2].id,

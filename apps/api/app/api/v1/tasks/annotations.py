@@ -25,7 +25,6 @@ from app.schemas.annotation import (
     InterpolateRangeResponse,
     NeighborAnnotationsResponse,
     NeighborFrameAnnotations,
-    PropagateBatchItem,
     PropagateBatchRequest,
     PropagateBatchResponse,
     PropagateRequest,
@@ -44,6 +43,7 @@ from app.schemas.annotation_conversion import (
     AnnotationConversionExecuteResponse,
 )
 from app.application.annotation_create import _AnnotationCreateSqlAdapter
+from app.application.annotation_cross_frame import _AnnotationCrossFrameSqlAdapter
 from app.application.annotation_mutation import _AnnotationMutationSqlAdapter
 from app.services.annotation import AnnotationService
 from app.services.annotation_create_contract import (
@@ -68,7 +68,6 @@ from app.services.ml_backend import MLBackendService
 from app.services.pipeline_validation import check_capability_violations
 from app.services.raster_mask_storage import RasterMaskContractError
 from app.services.secondary_inference import run_secondary_inference
-from app.services.task_lock import TaskLockService
 from app.db.models.project import Project
 from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
@@ -556,51 +555,25 @@ async def propagate_annotation_to_task(
     await task_access.assert_task_visible(db, source_task, current_user, access=access)
     task_access.assert_task_editable(source_task, current_user, access=access)
 
-    # 归属校验: annotation 必须属于 URL 里的源 task, 否则越权(借可见 task_id
-    # 复制同 project 内不可见 batch 的他人草稿)。
-    src_annotation = await db.get(Annotation, annotation_id)
-    if src_annotation is None or src_annotation.task_id != task_id:
-        raise HTTPException(status_code=404, detail="source annotation not found")
-
-    target_task = await _load_task_or_404(db, data.target_task_id)
-    target_access = await task_access.resolve_task_access(db, target_task, current_user)
-    await task_access.assert_task_visible(
-        db, target_task, current_user, access=target_access
-    )
-    task_access.assert_task_editable(target_task, current_user, access=target_access)
-
-    svc = AnnotationService(db)
-    new_annotation, motion_compensated = await svc.propagate(
-        source_annotation_id=annotation_id,
-        target_task_id=data.target_task_id,
-        user_id=current_user.id,
-        override_psr=data.override_psr,
-    )
-    await TaskLockService(db).heartbeat(data.target_task_id, current_user.id)
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_CREATE,
-        target_type="annotation",
-        target_id=str(new_annotation.id),
-        request=request,
-        status_code=201,
-        detail={
-            "task_id": str(data.target_task_id),
-            "source_task_id": str(task_id),
-            "source_annotation_id": str(annotation_id),
-            "propagated": True,
-            "motion_compensated": motion_compensated,
-            "track_id": new_annotation.track_id,
-            "class_name": new_annotation.class_name,
-        },
-    )
-    await db.commit()
-    await db.refresh(new_annotation)
-    return PropagateResponse(
-        annotation=AnnotationOut.model_validate(new_annotation),
-        motion_compensated=motion_compensated,
-    )
+    try:
+        return await _AnnotationCrossFrameSqlAdapter(
+            db,
+            source_task=source_task,
+            actor=current_user,
+            access=access,
+        ).propagate(
+            source_task_id=source_task.id,
+            annotation_id=annotation_id,
+            actor_id=current_user.id,
+            payload=data,
+            audit_origin=audit_origin_from_request(request),
+        )
+    except AnnotationMutationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
 
 
 @router.post(
@@ -623,50 +596,24 @@ async def propagate_annotations_batch(
     await task_access.assert_task_visible(db, source_task, current_user, access=access)
     task_access.assert_task_editable(source_task, current_user, access=access)
 
-    target_task = await _load_task_or_404(db, data.target_task_id)
-    target_access = await task_access.resolve_task_access(db, target_task, current_user)
-    await task_access.assert_task_visible(
-        db, target_task, current_user, access=target_access
-    )
-    task_access.assert_task_editable(target_task, current_user, access=target_access)
-
-    svc = AnnotationService(db)
-    results, motion_compensated = await svc.propagate_batch(
-        source_task_id=task_id,
-        target_task_id=data.target_task_id,
-        annotation_ids=data.annotation_ids,
-        user_id=current_user.id,
-    )
-    await TaskLockService(db).heartbeat(data.target_task_id, current_user.id)
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_CREATE,
-        target_type="task",
-        target_id=str(data.target_task_id),
-        request=request,
-        status_code=201,
-        detail={
-            "source_task_id": str(task_id),
-            "propagated_batch": True,
-            "motion_compensated": motion_compensated,
-            "count": len(results),
-            "created_annotation_ids": [str(ann.id) for _, ann in results],
-        },
-    )
-    await db.commit()
-    for _, ann in results:
-        await db.refresh(ann)
-    return PropagateBatchResponse(
-        items=[
-            PropagateBatchItem(
-                source_annotation_id=src_id,
-                annotation=AnnotationOut.model_validate(ann),
-            )
-            for src_id, ann in results
-        ],
-        motion_compensated=motion_compensated,
-    )
+    try:
+        return await _AnnotationCrossFrameSqlAdapter(
+            db,
+            source_task=source_task,
+            actor=current_user,
+            access=access,
+        ).propagate_batch(
+            source_task_id=source_task.id,
+            actor_id=current_user.id,
+            payload=data,
+            audit_origin=audit_origin_from_request(request),
+        )
+    except AnnotationMutationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
 
 
 @router.post(
@@ -691,50 +638,24 @@ async def interpolate_annotations_range(
     await task_access.assert_task_visible(db, from_task, current_user, access=access)
     task_access.assert_task_editable(from_task, current_user, access=access)
 
-    to_task = await _load_task_or_404(db, data.to_task_id)
-    to_access = await task_access.resolve_task_access(db, to_task, current_user)
-    await task_access.assert_task_visible(db, to_task, current_user, access=to_access)
-    task_access.assert_task_editable(to_task, current_user, access=to_access)
-
-    svc = AnnotationService(db)
-    created, motion_compensated, skipped_frames = await svc.interpolate_range(
-        track_id=data.track_id,
-        from_task_id=task_id,
-        to_task_id=data.to_task_id,
-        user_id=current_user.id,
-        assert_task_editable=lambda t: task_access.assert_task_editable(
-            t, current_user, access=access
-        ),
-        assert_task_visible=lambda t: task_access.assert_task_visible(
-            db, t, current_user, access=access
-        ),
-    )
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_CREATE,
-        target_type="task",
-        target_id=str(task_id),
-        request=request,
-        status_code=201,
-        detail={
-            "interpolate_range": True,
-            "track_id": data.track_id,
-            "to_task_id": str(data.to_task_id),
-            "motion_compensated": motion_compensated,
-            "created": len(created),
-            "created_annotation_ids": [str(a.id) for a in created],
-            "skipped_frames": skipped_frames,
-        },
-    )
-    await db.commit()
-    for ann in created:
-        await db.refresh(ann)
-    return InterpolateRangeResponse(
-        annotations=[AnnotationOut.model_validate(a) for a in created],
-        motion_compensated=motion_compensated,
-        skipped_frames=skipped_frames,
-    )
+    try:
+        return await _AnnotationCrossFrameSqlAdapter(
+            db,
+            source_task=from_task,
+            actor=current_user,
+            access=access,
+        ).interpolate_range(
+            from_task_id=from_task.id,
+            actor_id=current_user.id,
+            payload=data,
+            audit_origin=audit_origin_from_request(request),
+        )
+    except AnnotationMutationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
 
 
 @router.patch(

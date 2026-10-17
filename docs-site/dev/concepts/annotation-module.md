@@ -430,7 +430,7 @@ refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC
 
 ## 跨帧 propagate 与插值（3D 时序）
 
-点云 3D 时序标注支持「跨帧延续 + 区间插值」，把同一物体在 scene 多帧间的 `box_3d` 标注从「逐帧手搬框」升级为「ego 运动补偿延续 + 关键帧插值」。几何核心在 `apps/api/app/services/ego_transform.py`（`box_ego_to_world` / `box_world_to_ego` / `compensate_psr` / `interpolate_psr` 等纯函数，euler 约定与前端 three.js 锁步），业务编排在 `AnnotationService.propagate` / `propagate_batch` / `interpolate_range`，HTTP 入口都在 `api/v1/tasks/annotations.py`。
+点云 3D 时序标注支持「跨帧延续 + 区间插值」，把同一物体在 scene 多帧间的 `box_3d` 标注从「逐帧手搬框」升级为「ego 运动补偿延续 + 关键帧插值」。几何核心在 `apps/api/app/services/ego_transform.py`（`box_ego_to_world` / `box_world_to_ego` / `compensate_psr` / `interpolate_psr` 等纯函数，euler 约定与前端 three.js 锁步）。HTTP 入口在 `api/v1/tasks/annotations.py`，通过 `AnnotationCrossFramePort` 交给 `application/annotation_cross_frame.py` 绑定原 Session，复用 `AnnotationService._propagate` / `_propagate_batch` / `_interpolate_range` 私有 SQL 步骤。
 
 ### track_id：跨帧链的键
 
@@ -455,7 +455,7 @@ refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC
 
 ### 区间插值
 
-`POST /tasks/{task_id}/annotations/interpolate-range` → `interpolate_range()`，`InterpolateRangeRequest`：`track_id: str` + `to_task_id`。
+`POST /tasks/{task_id}/annotations/interpolate-range` → `AnnotationCrossFramePort.interpolate_range()`，`InterpolateRangeRequest`：`track_id: str` + `to_task_id`。
 
 - 在同 `track_id` 链两端关键帧之间，给区间内每个有 task 的中间帧生成一个插值框（世界系线性内插中心 + slerp 朝向 + 线性尺寸，见 `interpolate_psr`）。
 - 生成框 `source="interpolated"` 且 `temporal_role="derived"`，便于审核按来源过滤，也能与人工关键帧分开重算。

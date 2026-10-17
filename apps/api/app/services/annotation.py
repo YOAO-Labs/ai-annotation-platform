@@ -1160,7 +1160,7 @@ class AnnotationService:
             self.db, scene_id=scene_id, frame_index=frame_index
         )
 
-    async def propagate(
+    async def _propagate(
         self,
         *,
         source_annotation_id: uuid.UUID,
@@ -1382,7 +1382,7 @@ class AnnotationService:
             new_annotation.scene_track_id = track.id
         return new_annotation, motion_compensated
 
-    async def propagate_batch(
+    async def _propagate_batch(
         self,
         *,
         source_task_id: uuid.UUID,
@@ -1475,7 +1475,7 @@ class AnnotationService:
         await self._update_task_stats(target_task_id)
         return results, motion_compensated
 
-    async def interpolate_range(
+    async def _interpolate_range(
         self,
         *,
         track_id: str,

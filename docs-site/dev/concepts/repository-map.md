@@ -144,6 +144,7 @@ last_reviewed: 2026-10-17
    `app/services/mask_mutation.py`（版本冲突与幂等键在此收口）。
    手工 PATCH/DELETE 经 `app/application/annotation_mutation.py` 绑定原 Session/Task/actor，消费 `annotation_mutation_contract` 的纯命令；原 Task-first 锁、Mask I/O 前后版本检查、属性 diff 审计、软删级联和 ETag/204 保持。批量编辑在同一装配文件绑定 Session/actor，经独立的 `AnnotationBulkUpdatePort` 保留 ID 选取、唯一 Task 锁与当前准入、整批写入/审计/提交顺序。
    人工候选接受/驳回由 `app/application/candidate_decision.py` 绑定同一 Session/Task/actor，消费纯 `CandidateDecisionPort`；原候选预读、最终写入围栏、视频范围、heartbeat 和提交顺序保留，接受只返回本次新建 DTO、驳回仍为 204。
+   单框/整批跨帧传播和区间插值由 `app/application/annotation_cross_frame.py` 绑定原 Session/source Task/actor/access，消费纯 `AnnotationCrossFramePort`；后台逐帧作业另用只返回数量、从不提交的 `CrossFrameBatchStager`，保留原源版本、取消、逐目标回滚与提交。两者复用私有 SQL/位姿/几何步骤。
    素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
    `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
    素材/帧传递使用 `services/dataset_task_facts`，共享分组在 `services/dataset_frame_grouping`。
