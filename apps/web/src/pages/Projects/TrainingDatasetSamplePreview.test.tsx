@@ -61,6 +61,8 @@ afterEach(() => {
 
 describe("immutable sample preview", () => {
   it("shows native polygon vertices, area and source version without deriving a rectangle", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     vi.mocked(trainingDatasetsApi.sample).mockResolvedValueOnce({
       sample: insightSample,
       labels: [
@@ -83,22 +85,22 @@ describe("immutable sample preview", () => {
       limit: 500,
     });
     mount();
-    await screen.findByAltText("冻结样本 task-123");
+    await screen.findByAltText("冻结样本图片");
     const overlay = await screen.findByRole("img", { name: "冻结多边形" });
     expect(overlay.querySelector("polygon")).toHaveAttribute("points", "0.1,0.2 0.8,0.2 0.4,0.7");
     expect(overlay.querySelector("rect")).toBeNull();
     expect(screen.getByText("3 个顶点")).toBeVisible();
-    expect(screen.getByTitle("annotation-123")).toHaveTextContent("17.50% · annotati · 标注版本 7");
-    await userEvent.click(screen.getByLabelText("显示本页冻结多边形"));
+    expect(screen.getByRole("button", { name: "复制冻结标注 ID" })).toBeVisible();
+    expect(screen.getByText(/17\.50%/)).toHaveTextContent("标注版本 7");
+    await user.click(screen.getByRole("button", { name: "复制冻结标注 ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("annotation-123"));
+    await user.click(screen.getByLabelText("显示本页冻结多边形"));
     expect(screen.queryByRole("img", { name: "冻结多边形" })).not.toBeInTheDocument();
   });
   it("uses authenticated preview bytes and frozen normalized coordinates, toggles overlay and revokes its URL", async () => {
     const user = userEvent.setup();
     const mounted = mount();
-    expect(await screen.findByAltText("冻结样本 task-123")).toHaveAttribute(
-      "src",
-      "blob:owned-preview",
-    );
+    expect(await screen.findByAltText("冻结样本图片")).toHaveAttribute("src", "blob:owned-preview");
     expect(await screen.findByText("冻结车辆")).toBeVisible();
     const rectangle = screen.getByRole("img", { name: "冻结矩形框" }).querySelector("rect")!;
     expect(Number(rectangle.getAttribute("x"))).toBeCloseTo(0.4);
@@ -163,7 +165,7 @@ describe("immutable sample preview", () => {
       useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
     });
     expect(await screen.findByText("冻结车辆")).toBeVisible();
-    expect(await screen.findByAltText("冻结样本 task-123")).toBeVisible();
+    expect(await screen.findByAltText("冻结样本图片")).toBeVisible();
     expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(2);
     await act(async () => {
       resolveMedia(new Blob(["retired A session"]));
@@ -194,9 +196,9 @@ describe("immutable sample preview", () => {
     await act(async () => resolve(new Blob(["old account"])));
     expect(createUrl).not.toHaveBeenCalled();
     act(() => useAuthStore.getState().setAuth("session-b", { id: "user-b" } as MeResponse));
-    expect(await screen.findByAltText("冻结样本 task-123")).toBeVisible();
+    expect(await screen.findByAltText("冻结样本图片")).toBeVisible();
     mounted.rerender(mounted.update({ ...insightSample, task_id: "new-task-123" }));
-    expect(await screen.findByAltText("冻结样本 new-task")).toBeVisible();
+    expect(await screen.findByAltText("冻结样本图片")).toBeVisible();
     expect(revokeUrl).toHaveBeenCalledWith("blob:owned-preview");
     expect(trainingDatasetsApi.sample).toHaveBeenLastCalledWith(
       "project-1",
@@ -215,10 +217,10 @@ describe("immutable sample preview", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("冻结媒体摘要不匹配");
     expect(screen.queryByRole("img", { name: /冻结样本/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "重试冻结图片" }));
-    const image = await screen.findByAltText("冻结样本 task-123");
+    const image = await screen.findByAltText("冻结样本图片");
     fireEvent.error(image);
     expect(screen.getByRole("alert")).toHaveTextContent("浏览器无法解码冻结图片预览");
-    expect(screen.queryByAltText("冻结样本 task-123")).not.toBeInTheDocument();
+    expect(screen.queryByAltText("冻结样本图片")).not.toBeInTheDocument();
     expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(2);
   });
   it("keeps missing labels unknown, distinguishes confirmed negatives and paginates many frozen boxes", async () => {

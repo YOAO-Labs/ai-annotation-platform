@@ -177,7 +177,7 @@ describe("DataManagerTaskActions", () => {
     await user.click(screen.getByTestId("data-manager-export"));
     await user.click(screen.getByRole("button", { name: "创建导出作业" }));
     await waitFor(() => expect(mocks.actions.exportTasks).toHaveBeenCalledOnce());
-    expect(screen.getByText(/job-export/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制导出作业 ID" })).toBeInTheDocument();
 
     mocks.jobs.set("job-export", {
       status: "completed",
@@ -267,7 +267,9 @@ describe("DataManagerTaskActions", () => {
     expect(mocks.actions.exportTasks).toHaveBeenCalledOnce();
 
     resolveExport({ job_id: "job-export", status: "queued" });
-    await waitFor(() => expect(screen.getByText(/job-export/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "复制导出作业 ID" })).toBeInTheDocument(),
+    );
   });
 
   it("drops a late preview after the selected task scope changes", async () => {

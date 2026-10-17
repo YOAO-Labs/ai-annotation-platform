@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
 import type { SensorCalibration, SensorCalibrationHistoryOut } from "@/api/generated";
+import { copyToClipboard } from "@/lib/clipboard";
+
+vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn().mockResolvedValue(true) }));
 
 const calibrationHookMock = vi.hoisted(() => vi.fn());
 const toastPushMock = vi.hoisted(() => vi.fn());
@@ -134,6 +137,17 @@ describe("SensorCalibrationSheet", () => {
     renderSheet(false);
 
     expect(screen.getByText(String(preciseValue))).toBeTruthy();
+  });
+
+  it("当前和历史 revision 可复制完整哈希，不修改标定", async () => {
+    renderSheet(false);
+    expect(screen.queryByText(HISTORY.current_digest)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制当前标定哈希" }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(HISTORY.current_digest));
+    fireEvent.click(screen.getByRole("button", { name: "复制 Revision 1 标定哈希" }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(HISTORY.items[1].digest));
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByText("虚拟基线")).toBeInTheDocument();
   });
 
   it("无效 JSON 不发请求，有效变更基于当前 revision 追加", async () => {

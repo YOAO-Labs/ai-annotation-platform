@@ -123,7 +123,9 @@ afterEach(() => {
 });
 
 describe("frozen content comparison", () => {
-  it("queries complete content identity and renders each version's own class encoding in one dialog", async () => {
+  it("queries complete content identity and copies the full hash without closing the dialog", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     mount();
     const baseline = screen.getByRole("region", { name: "基线版本" });
     const target = screen.getByRole("region", { name: "当前版本" });
@@ -145,7 +147,11 @@ describe("frozen content comparison", () => {
         expect.anything(),
       );
     }
-    expect(screen.getByText(`内容 SHA256 · ${CONTENT}`)).toBeVisible();
+    const copyHash = screen.getByRole("button", { name: "复制样本内容 SHA256" });
+    expect(copyHash).toBeVisible();
+    await user.click(copyHash);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(CONTENT));
+    expect(close).not.toHaveBeenCalled();
   });
 
   it.each([

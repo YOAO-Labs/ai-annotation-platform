@@ -230,7 +230,7 @@ export function collectMaskQcTrackerCandidates(
         frameIndex: targetFrame,
         annotationId: issue.annotation_id,
         instanceId,
-        label: `${job.modelKey || "Tracker"} · r${jobRevision}${instanceId ? ` · 实例 ${instanceId}` : ""}`,
+        label: `${job.modelKey || "Tracker"} · r${jobRevision}`,
       });
     }
   }

@@ -8,6 +8,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { TrainingDatasetSamplePanel } from "./TrainingDatasetSamplePreview";
 import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
@@ -186,8 +187,9 @@ function ComparisonContent({
       <p className="mb-2 text-xs text-muted-foreground">
         按相同图片内容读取两侧训练成员。类别编号按各自版本解释，标注来自各自冻结标签。
       </p>
-      <p className="mb-4 break-all font-mono text-xs text-muted-foreground">
-        内容 SHA256 · {owner.contentSha256}
+      <p className="mb-4 flex items-center gap-1 text-xs text-muted-foreground">
+        内容 SHA256 ·
+        <CopyValueButton value={owner.contentSha256} label="复制样本内容 SHA256" />
       </p>
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         <ComparisonSide
@@ -237,8 +239,8 @@ function ComparisonSide({
       <header className="mb-3 flex flex-wrap items-start justify-between gap-2 border-b border-border pb-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">{label}</h3>
-          <p className="mt-1 break-all text-xs text-muted-foreground" title={versionId}>
-            版本 {versionId}
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            版本 <CopyValueButton value={versionId} kind="id" label={`复制${label}数据版本 ID`} />
           </p>
         </div>
         {data && (
@@ -277,28 +279,35 @@ function ComparisonSide({
       {data && data.total > 0 && (
         <>
           <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-            <label className="grid w-full min-w-0 gap-1.5 text-xs text-muted-foreground">
-              选择冻结成员
-              <select
-                aria-label={`${label}冻结成员`}
-                className="h-8 w-full min-w-0 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={selected?.task_id ?? ""}
-                disabled={query.isFetching || !data.items.length}
-                onChange={(event) => select(event.target.value)}
-              >
-                {data.items.map((sample) => (
-                  <option key={sample.task_id} value={sample.task_id}>
-                    {sample.task_id} ·{" "}
-                    {sample.split === "val"
-                      ? "验证集"
-                      : sample.split === "train"
-                        ? "训练集"
-                        : "划分未知"}{" "}
-                    · {sample.instances == null ? "实例未知" : `${sample.instances} 个实例`}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex w-full min-w-0 items-end gap-2">
+              <label className="grid min-w-0 flex-1 gap-1.5 text-xs text-muted-foreground">
+                选择冻结成员
+                <select
+                  aria-label={`${label}冻结成员`}
+                  className="h-8 w-full min-w-0 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={selected?.task_id ?? ""}
+                  disabled={query.isFetching || !data.items.length}
+                  onChange={(event) => select(event.target.value)}
+                >
+                  {data.items.map((sample, index) => (
+                    <option key={sample.task_id} value={sample.task_id}>
+                      样本 {page * MEMBER_PAGE_SIZE + index + 1} ·{" "}
+                      {sample.split === "val"
+                        ? "验证集"
+                        : sample.split === "train"
+                          ? "训练集"
+                          : "划分未知"}{" "}
+                      · {sample.instances == null ? "实例未知" : `${sample.instances} 个实例`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <CopyValueButton
+                value={selected?.task_id}
+                kind="id"
+                label={`复制${label}冻结成员任务 ID`}
+              />
+            </div>
             <span className="text-xs tabular-nums text-muted-foreground">
               {data.items.length
                 ? `${page * MEMBER_PAGE_SIZE + 1}–${page * MEMBER_PAGE_SIZE + data.items.length}`

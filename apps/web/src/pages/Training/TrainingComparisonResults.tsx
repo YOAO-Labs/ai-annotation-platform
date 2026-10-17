@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { trainingInputClass } from "./TrainingParameterField";
 import { TrainingMetricChart } from "./TrainingMetricChart";
 import {
@@ -108,10 +109,13 @@ export function TrainingComparisonResults({
                           : "评估口径兼容 · 可计算差值"}
                     </p>
                     <dl className="mt-3 space-y-2 text-xs">
-                      <div>
+                      <div className="flex items-center gap-1">
                         <dt className="text-muted-foreground">最佳权重 SHA</dt>
-                        <dd className="mt-1 break-all font-mono">
-                          {String(e.report.provenance.weights_sha256)}
+                        <dd>
+                          <CopyValueButton
+                            value={String(e.report.provenance.weights_sha256 ?? "")}
+                            label="复制最佳权重哈希"
+                          />
                         </dd>
                       </div>
                       <div>

@@ -105,6 +105,33 @@ afterEach(() => {
 });
 
 describe("training entry", () => {
+  it("keeps the readable resource node and copies the complete GPU resource identity", async () => {
+    const resourceId = "node-west/GPU-11111111-2222-4333-8444-555555555555";
+    vi.mocked(trainingHubApi.catalog).mockResolvedValue({
+      ...catalog,
+      resource_id: resourceId,
+    } as never);
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    mount("/training?tab=warehouses");
+    const executor = await screen.findByRole("region", { name: "训练执行器" });
+    expect(within(executor).getByText("node-west")).toBeVisible();
+    expect(executor).not.toHaveTextContent("GPU-11111111");
+    await user.click(within(executor).getByRole("button", { name: "复制训练资源 ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(resourceId));
+    expect(screen.getByTestId("location")).toHaveTextContent("/training?tab=warehouses");
+  });
+
+  it("keeps unconfigured training resources explicit without a copy action", async () => {
+    vi.mocked(trainingHubApi.catalog).mockResolvedValue({ ...catalog, resource_id: null } as never);
+    mount("/training?tab=warehouses");
+    const executor = await screen.findByRole("region", { name: "训练执行器" });
+    expect(within(executor).getByText("尚未配置")).toBeVisible();
+    expect(
+      within(executor).queryByRole("button", { name: "复制训练资源 ID" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows warehouses and links to projects without starting experiment creation", async () => {
     mount();
     expect(await screen.findByRole("link", { name: "有数据的项目" })).toHaveAttribute(
@@ -264,16 +291,24 @@ describe("training entry", () => {
     expect(screen.getByRole("textbox", { name: "搜索训练项目" })).toHaveValue("");
     expect(await screen.findByRole("link", { name: "有数据的项目" })).toBeVisible();
   });
-  it("keeps container and weight digests collapsed until technical details are expanded", async () => {
+  it("keeps hash copy actions collapsed until technical details are expanded", async () => {
     const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     mount("/training?tab=warehouses");
     const heading = await screen.findByRole("heading", { name: "Ultralytics" });
     const warehouse = heading.closest("article")!;
-    expect(within(warehouse).getByText("sha256:fixed")).not.toBeVisible();
+    const copyHash = within(warehouse).getByRole("button", {
+      name: "复制容器镜像摘要",
+      hidden: true,
+    });
+    expect(copyHash).not.toBeVisible();
     const summary = within(warehouse).getByText("Ultralytics 技术信息");
     summary.focus();
     expect(summary).toHaveFocus();
     await user.click(summary);
-    expect(within(warehouse).getByText("sha256:fixed")).toBeVisible();
+    expect(copyHash).toBeVisible();
+    expect(within(warehouse).queryByText("sha256:fixed")).not.toBeInTheDocument();
+    await user.click(copyHash);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("sha256:fixed"));
   });
 });

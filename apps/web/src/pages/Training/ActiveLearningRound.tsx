@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { trainingInputClass } from "./TrainingParameterField";
 import { useTrainingViewOwner, type AssertTrainingOwner } from "./trainingViewOwner";
@@ -308,13 +309,22 @@ export function RoundContent({
           )}
           <details className="mb-5 rounded-md border border-border p-3 text-xs">
             <summary className="cursor-pointer font-medium">固定来源与执行尝试</summary>
-            <dl className="grid min-w-0 gap-2 break-all text-muted-foreground">
+            <dl className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-muted-foreground">
               <dt>规格摘要</dt>
-              <dd className="m-0 font-mono">{round.spec_digest}</dd>
+              <dd className="m-0">
+                <CopyValueButton value={round.spec_digest} label="复制选样规格摘要" />
+              </dd>
               <dt>权重 SHA256</dt>
-              <dd className="m-0 font-mono">{String(round.spec.model_ref.sha256)}</dd>
+              <dd className="m-0">
+                <CopyValueButton
+                  value={String(round.spec.model_ref.sha256 ?? "")}
+                  label="复制权重哈希"
+                />
+              </dd>
               <dt>推理环境摘要</dt>
-              <dd className="m-0 font-mono">{round.spec.profile_digest}</dd>
+              <dd className="m-0">
+                <CopyValueButton value={round.spec.profile_digest} label="复制推理环境摘要" />
+              </dd>
             </dl>
             <label className="mt-3 block">
               执行尝试
@@ -382,24 +392,28 @@ export function RoundContent({
                                 }
                               />
                               <div className="min-w-0 flex-1">
-                                <button
-                                  type="button"
-                                  className="text-left text-primary hover:underline"
-                                  onClick={() => setFocused(item.ordinal)}
-                                >
-                                  #{item.rank} · {reasonLabel[item.reason] ?? item.reason}
-                                </button>
-                                <span className="ml-2 text-muted-foreground">
-                                  {item.recommended ? "计划内" : "备选"}
-                                  {candidate?.disposition === "accepted"
-                                    ? " · 已接纳"
-                                    : candidate?.disposition === "rejected"
-                                      ? " · 已拒绝"
-                                      : ""}
-                                </span>
-                                <p className="mb-0 mt-1 break-all font-mono text-muted-foreground">
-                                  {item.task_id}
-                                </p>
+                                <div className="flex min-w-0 items-center gap-1">
+                                  <button
+                                    type="button"
+                                    className="text-left text-primary hover:underline"
+                                    onClick={() => setFocused(item.ordinal)}
+                                  >
+                                    #{item.rank} · {reasonLabel[item.reason] ?? item.reason}
+                                  </button>
+                                  <CopyValueButton
+                                    value={item.task_id}
+                                    kind="id"
+                                    label="复制样本任务 ID"
+                                  />
+                                  <span className="text-muted-foreground">
+                                    {item.recommended ? "计划内" : "备选"}
+                                    {candidate?.disposition === "accepted"
+                                      ? " · 已接纳"
+                                      : candidate?.disposition === "rejected"
+                                        ? " · 已拒绝"
+                                        : ""}
+                                  </span>
+                                </div>
                                 <p className="mb-0 mt-1 tabular-nums text-muted-foreground">
                                   优先级{" "}
                                   {item.features.priority === null
@@ -432,7 +446,9 @@ export function RoundContent({
                       assert={assert}
                     />
                     <div className="min-w-0 text-xs">
-                      <p className="break-all font-mono">SHA256 {sample.sha256}</p>
+                      <p className="flex items-center gap-1">
+                        SHA256 <CopyValueButton value={sample.sha256} label="复制样本哈希" />
+                      </p>
                       <p>
                         {sample.width} × {sample.height} · 同组来源 {sample.group_task_ids.length}{" "}
                         张

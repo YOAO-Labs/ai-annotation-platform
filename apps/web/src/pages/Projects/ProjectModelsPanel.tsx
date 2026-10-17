@@ -23,6 +23,7 @@ import { Layers, RadioTower } from "lucide-react";
 import { TrainingLoading } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/trainingViewOwner";
 import { confirmDialog } from "@/components/ui/decisionDialog";
@@ -112,12 +113,34 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
         <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           来源与评估范围
         </summary>
-        <dl className="mt-2 space-y-1 break-all text-muted-foreground">
-          <div>实验：{model.run_id}</div>
-          <div>执行尝试：{model.attempt_id}</div>
-          <div>数据版本：{String(model.provenance.dataset_id ?? "—")}</div>
-          <div>验证基准：{String(model.provenance.validation_digest ?? "—")}</div>
-          <div>权重 SHA-256：{String(model.artifact.sha256 ?? "—")}</div>
+        <dl className="mt-2 space-y-1 text-muted-foreground">
+          <div className="flex items-center gap-1">
+            实验：
+            <CopyValueButton value={model.run_id} kind="id" label="复制实验 ID" />
+          </div>
+          <div className="flex items-center gap-1">
+            执行尝试：
+            <CopyValueButton value={model.attempt_id} kind="id" label="复制执行尝试 ID" />
+          </div>
+          <div className="flex items-center gap-1">
+            数据版本：
+            <CopyValueButton
+              value={String(model.provenance.dataset_id ?? "")}
+              kind="id"
+              label="复制数据版本 ID"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            验证基准：
+            <CopyValueButton
+              value={String(model.provenance.validation_digest ?? "")}
+              label="复制验证基准哈希"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            权重 SHA-256：
+            <CopyValueButton value={String(model.artifact.sha256 ?? "")} label="复制权重 SHA-256" />
+          </div>
           <div>
             类别绑定：
             {model.classes.map((name, i) => `${i}: ${name} → ${model.bindings[i]}`).join("；")}
@@ -574,6 +597,13 @@ function ModelsContent({
               : current
                 ? modelName(current)
                 : "尚未发布受控模型"}
+          {current?.model_version_id && (
+            <CopyValueButton
+              value={current.model_version_id}
+              kind="id"
+              label="复制当前受控模型版本 ID"
+            />
+          )}
           {current && ` · 发布代次 ${current.generation}`}
         </p>
       </section>
@@ -821,9 +851,14 @@ function ModelsContent({
                     >
                       {states[deployment.status] ?? deployment.status}
                     </Badge>
-                    <span className="text-xs">
+                    <span className="flex items-center gap-1 text-xs">
                       {enabledBackends.find((item) => item.backend.id === deployment.registry_id)
                         ?.backend.name ?? deployment.registry_id.slice(0, 8)}
+                      <CopyValueButton
+                        value={deployment.registry_id}
+                        kind="id"
+                        label="复制部署后端 ID"
+                      />
                     </span>
                   </div>
                   {deployment.error_message && (
@@ -1168,8 +1203,15 @@ function ModelsContent({
               key={release.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3"
             >
-              <span>
+              <span className="inline-flex flex-wrap items-center gap-1">
                 第 {release.generation} 次 · {modelName(release)}
+                {release.model_version_id && (
+                  <CopyValueButton
+                    value={release.model_version_id}
+                    kind="id"
+                    label={`复制第 ${release.generation} 次发布的模型版本 ID`}
+                  />
+                )}
                 {release.rollback_from_id ? " · 回退" : ""}
                 {release.id === releases.data.current_release_id ? " · 当前" : ""}
               </span>

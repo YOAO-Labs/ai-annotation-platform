@@ -4,6 +4,7 @@ import { trainingDatasetsApi, type TrainingDatasetAnalyzedSampleOut } from "@/ap
 import { useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
 
@@ -172,8 +173,8 @@ function SamplePreviewContent({
   const polygons = value?.labels.some((label) => label.type === "polygon") ?? false;
   return (
     <>
-      <p className="mb-3 break-all text-xs text-muted-foreground">
-        样本 {sample.task_id} ·{" "}
+      <p className="mb-3 flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+        样本 <CopyValueButton value={sample.task_id} kind="id" label="复制冻结样本任务 ID" /> ·{" "}
         {sample.split === "val" ? "验证集" : sample.split === "train" ? "训练集" : "划分未知"} ·{" "}
         {sample.width ?? "未知"} × {sample.height ?? "未知"}
       </p>
@@ -200,7 +201,7 @@ function SamplePreviewContent({
         <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-md border border-border bg-muted">
           <img
             src={mediaUrl}
-            alt={`冻结样本 ${sample.task_id.slice(0, 8)}`}
+            alt="冻结样本图片"
             className="block max-h-[60vh] max-w-full"
             onError={() => {
               setMediaError("浏览器无法解码冻结图片预览，请重试或检查持久存储");
@@ -305,9 +306,14 @@ function SamplePreviewContent({
                     </td>
                     <td className="py-2 tabular-nums">
                       {box.type === "polygon" ? (
-                        <span title={box.annotation_id}>
-                          {(box.area * 100).toFixed(2)}% · {box.annotation_id.slice(0, 8)} ·
-                          标注版本 {box.annotation_version}
+                        <span className="inline-flex items-center gap-1">
+                          {(box.area * 100).toFixed(2)}% ·
+                          <CopyValueButton
+                            value={box.annotation_id}
+                            kind="id"
+                            label="复制冻结标注 ID"
+                          />
+                          · 标注版本 {box.annotation_version}
                         </span>
                       ) : (
                         `${box.width.toFixed(4)} × ${box.height.toFixed(4)}`

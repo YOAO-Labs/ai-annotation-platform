@@ -1,4 +1,5 @@
 import type { TrainingParameterSchema } from "@/api/generated/types.gen";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { trainingOriginLabel, trainingValueLabel } from "./TrainingParameterField";
 import type { ParameterValue } from "./trainingConfiguration";
 import { trainingTaskLabel } from "./trainingPresentation";
@@ -46,20 +47,48 @@ export function TrainingRunReview({
           <summary className="cursor-pointer font-medium">冻结的数据与运行环境</summary>
           <dl className="mt-3 grid gap-2 break-all text-muted-foreground">
             {[
-              ["配置摘要", digest],
-              ["数据版本", config.dataset_id],
+              ["配置摘要", <CopyValueButton value={digest} label="复制训练配置摘要" />],
+              [
+                "数据版本",
+                <CopyValueButton
+                  value={String(config.dataset_id ?? "")}
+                  kind="id"
+                  label="复制训练数据版本 ID"
+                />,
+              ],
               ["训练任务", trainingTaskLabel(schema.task)],
-              ["数据桥接", record(config.data_contract).bridge ?? "矩形框检测"],
-              ["训练包 SHA256", config.dataset_sha256],
-              ["验证集摘要", config.validation_digest],
+              ["数据桥接", String(record(config.data_contract).bridge ?? "矩形框检测")],
+              [
+                "训练包 SHA256",
+                <CopyValueButton
+                  value={String(config.dataset_sha256 ?? "")}
+                  label="复制训练包哈希"
+                />,
+              ],
+              [
+                "验证集摘要",
+                <CopyValueButton
+                  value={String(config.validation_digest ?? "")}
+                  label="复制验证集摘要"
+                />,
+              ],
               ["类别", Array.isArray(config.classes) ? config.classes.join("、") : ""],
-              ["基础权重", base.id],
-              ["权重 SHA256", base.sha256],
-              ["训练镜像", config.image_digest],
+              ["基础权重", String(base.id ?? "—")],
+              [
+                "权重 SHA256",
+                <CopyValueButton value={String(base.sha256 ?? "")} label="复制基础权重哈希" />,
+              ],
+              [
+                "训练镜像",
+                <CopyValueButton
+                  value={String(config.image_digest ?? "")}
+                  label="复制训练镜像摘要"
+                />,
+              ],
             ].map(([label, value]) => (
-              <div key={String(label)}>
-                <dt className="text-foreground">{String(label)}</dt>
-                <dd className="mt-0.5 font-mono">{String(value ?? "—")}</dd>
+              <div key={String(label)} className="flex min-w-0 items-center gap-2">
+                <dt className="shrink-0 text-foreground">{String(label)}</dt>
+                <dd className="min-w-0">{value ?? "—"}</dd>
               </div>
             ))}
           </dl>
@@ -77,18 +106,54 @@ export function TrainingRunReview({
           </p>
           <dl className="grid gap-2 break-all">
             {[
-              ["候选模型", initialization.model_name],
-              ["模型版本", initialization.model_version_id],
-              ["来源实验", initialization.run_id],
-              ["来源执行尝试", initialization.attempt_id],
-              ["来源摘要", initialization.source_digest],
-              ["初始化权重 SHA256", weights.sha256],
-              ["权重字节数", weights.size_bytes],
-              ["来源验证集摘要", initialization.validation_digest],
+              ["候选模型", String(initialization.model_name ?? "—")],
+              [
+                "模型版本",
+                <CopyValueButton
+                  value={String(initialization.model_version_id ?? "")}
+                  kind="id"
+                  label="复制初始化模型版本 ID"
+                />,
+              ],
+              [
+                "来源实验",
+                <CopyValueButton
+                  value={String(initialization.run_id ?? "")}
+                  kind="id"
+                  label="复制来源训练实验 ID"
+                />,
+              ],
+              [
+                "来源执行尝试",
+                <CopyValueButton
+                  value={String(initialization.attempt_id ?? "")}
+                  kind="id"
+                  label="复制来源执行尝试 ID"
+                />,
+              ],
+              [
+                "来源摘要",
+                <CopyValueButton
+                  value={String(initialization.source_digest ?? "")}
+                  label="复制初始化来源摘要"
+                />,
+              ],
+              [
+                "初始化权重 SHA256",
+                <CopyValueButton value={String(weights.sha256 ?? "")} label="复制初始化权重哈希" />,
+              ],
+              ["权重字节数", String(weights.size_bytes ?? "—")],
+              [
+                "来源验证集摘要",
+                <CopyValueButton
+                  value={String(initialization.validation_digest ?? "")}
+                  label="复制来源验证集摘要"
+                />,
+              ],
             ].map(([label, value]) => (
-              <div key={String(label)}>
-                <dt className="text-muted-foreground">{String(label)}</dt>
-                <dd className="mt-1 font-mono">{String(value ?? "—")}</dd>
+              <div key={String(label)} className="flex min-w-0 items-center gap-2">
+                <dt className="shrink-0 text-muted-foreground">{String(label)}</dt>
+                <dd className="min-w-0">{value ?? "—"}</dd>
               </div>
             ))}
           </dl>

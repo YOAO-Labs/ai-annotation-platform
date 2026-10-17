@@ -11,6 +11,7 @@ import {
 } from "@/api/trainingDatasets";
 import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { TrainingDatasetSamplePreview } from "./TrainingDatasetSamplePreview";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 import { TrainingDatasetClassChart, TrainingDatasetSplitChart } from "./TrainingDatasetCharts";
@@ -371,7 +372,10 @@ function InsightsContent({
               <span>训练包 {(version.size_bytes / 1024 / 1024).toFixed(2)} MiB</span>
             )}
             {version.parent_id && (
-              <span title={version.parent_id}>继承自 {version.parent_id.slice(0, 8)}</span>
+              <span className="inline-flex items-center gap-1">
+                继承自
+                <CopyValueButton value={version.parent_id} kind="id" label="复制父数据版本 ID" />
+              </span>
             )}
           </p>
         </div>
@@ -403,8 +407,10 @@ function InsightsContent({
       )}
       {ready && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-2xs text-muted-foreground">
-            冻结版本 {version.id.slice(0, 8)} · 后续项目编辑不改变此版本
+          <p className="flex items-center gap-1 text-2xs text-muted-foreground">
+            冻结版本
+            <CopyValueButton value={version.id} kind="id" label="复制冻结数据版本 ID" />·
+            后续项目编辑不改变此版本
           </p>
           {!datasetParentReason(version, version.task ?? "detect") ? (
             <Link
@@ -685,47 +691,50 @@ function InsightsContent({
       {ready && view === "compare" && (
         <div className="mt-4 space-y-4">
           <div className="rounded-lg bg-muted p-4">
-            <label className="grid gap-2 text-xs font-medium">
-              选择比较基线
-              <select
-                className={inputClass}
-                value={baselineId}
-                onChange={(event) =>
-                  update({
-                    data_baseline: event.target.value,
-                    data_class: "",
-                    data_page: "0",
-                    data_change: "all",
-                  })
-                }
-              >
-                <option value="">选择已就绪版本</option>
-                {baselineId &&
-                  !baselineChoices.data?.items.some((item) => item.id === baselineId) && (
-                    <option value={baselineId}>
-                      {baseline.data?.name ?? `当前基线 ${baselineId.slice(0, 8)}`}
-                    </option>
-                  )}
-                {baselineChoices.data?.items
-                  .filter(
-                    (item) =>
-                      item.id !== version.id &&
-                      (item.task ?? "detect") === (version.task ?? "detect"),
-                  )
-                  .map((item) => (
-                    <option
-                      key={item.id}
-                      value={item.id}
-                      disabled={!!datasetComparisonReason(version, item)}
-                    >
-                      {item.name}
-                      {datasetComparisonReason(version, item)
-                        ? ` · ${datasetComparisonReason(version, item)}`
-                        : ""}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <div className="flex items-end gap-2">
+              <label className="grid min-w-0 flex-1 gap-2 text-xs font-medium">
+                选择比较基线
+                <select
+                  className={inputClass}
+                  value={baselineId}
+                  onChange={(event) =>
+                    update({
+                      data_baseline: event.target.value,
+                      data_class: "",
+                      data_page: "0",
+                      data_change: "all",
+                    })
+                  }
+                >
+                  <option value="">选择已就绪版本</option>
+                  {baselineId &&
+                    !baselineChoices.data?.items.some((item) => item.id === baselineId) && (
+                      <option value={baselineId}>{baseline.data?.name ?? "当前基线"}</option>
+                    )}
+                  {baselineChoices.data?.items
+                    .filter(
+                      (item) =>
+                        item.id !== version.id &&
+                        (item.task ?? "detect") === (version.task ?? "detect"),
+                    )
+                    .map((item) => (
+                      <option
+                        key={item.id}
+                        value={item.id}
+                        disabled={!!datasetComparisonReason(version, item)}
+                      >
+                        {item.name}
+                        {datasetComparisonReason(version, item)
+                          ? ` · ${datasetComparisonReason(version, item)}`
+                          : ""}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {baselineId && (
+                <CopyValueButton value={baselineId} kind="id" label="复制比较基线数据版本 ID" />
+              )}
+            </div>
             <Pages
               label="基线"
               page={baselinePage}
@@ -963,9 +972,12 @@ function InsightsContent({
                 </tr>
               </thead>
               <tbody>
-                {samples.data?.items.map((item) => (
+                {samples.data?.items.map((item, index) => (
                   <tr key={`${item.version_id}:${item.task_id}`} className="border-t border-border">
-                    <td className="py-3 pr-3 font-mono">{item.task_id.slice(0, 8)}</td>
+                    <td className="py-3 pr-3">
+                      <span>样本 {page * 25 + index + 1}</span>
+                      <CopyValueButton value={item.task_id} kind="id" label="复制冻结样本任务 ID" />
+                    </td>
                     <td className="py-3 pr-3 tabular-nums">
                       {item.split === "val"
                         ? "验证"
@@ -1048,7 +1060,10 @@ function InsightsContent({
         onToggle={(event) => setRawOpen(event.currentTarget.open)}
       >
         <summary className="cursor-pointer">查看原始训练与验证清单</summary>
-        <p className="mt-3 break-all font-mono">快照摘要：{version.snapshot_digest}</p>
+        <p className="mt-3 flex items-center gap-1">
+          快照摘要：
+          <CopyValueButton value={version.snapshot_digest} label="复制数据快照摘要哈希" />
+        </p>
         {version.size_bytes != null && (
           <p className="mt-2">训练包大小：{(version.size_bytes / 1024 / 1024).toFixed(2)} MiB</p>
         )}

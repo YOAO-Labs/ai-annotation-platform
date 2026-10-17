@@ -1,6 +1,7 @@
 import { Box, Check, ChevronDown } from "lucide-react";
 import type { TrainingHubCatalog } from "@/api/trainingHub";
 import { Badge } from "@/components/ui/Badge";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { cn } from "@/lib/utils";
 import { trainingTaskLabel } from "./trainingPresentation";
 
@@ -116,17 +117,19 @@ export function TrainingWarehouseCards({
                     />
                   </summary>
                   <dl className="mt-3 space-y-4 text-xs">
-                    <div>
+                    <div className="flex items-center gap-1">
                       <dt className="text-muted-foreground">容器镜像摘要</dt>
-                      <dd className="mt-1 break-all font-mono text-2xs">{item.image_digest}</dd>
+                      <dd>
+                        <CopyValueButton value={item.image_digest} label="复制容器镜像摘要" />
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-muted-foreground">基础权重</dt>
                       {item.base_models.map((model) => (
                         <dd key={model.id} className="mt-2">
-                          <p className="break-all font-medium">{model.filename}</p>
-                          <p className="mt-1 break-all font-mono text-2xs text-muted-foreground">
-                            SHA-256 {model.sha256}
+                          <p className="flex min-w-0 items-center gap-1">
+                            <span className="break-all font-medium">{model.filename}</span>
+                            <CopyValueButton value={model.sha256} label="复制基础权重哈希" />
                           </p>
                         </dd>
                       ))}

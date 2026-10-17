@@ -10,7 +10,9 @@ import {
 } from "@/api/activeLearning";
 import { trainedModelsApi } from "@/api/trainedModels";
 import { useAuthStore } from "@/stores/authStore";
+import { useMLBackends } from "@/hooks/useMLBackends";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { trainingInputClass } from "./TrainingParameterField";
 import { PickerPage } from "./SampleEvaluationCreate";
@@ -108,6 +110,33 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
       return value;
     },
   });
+  const backends = useMLBackends(projectId);
+  const deploymentOptions = useMemo(() => {
+    const ready = (model.data?.deployments ?? [])
+      .filter((item) => item.status === "ready")
+      .sort(
+        (left, right) =>
+          left.registry_id.localeCompare(right.registry_id) || left.id.localeCompare(right.id),
+      );
+    const backendNames = new Map(
+      (backends.data ?? []).map(({ id: backendId, name }) => [backendId, name.trim()] as const),
+    );
+    return ready.map((item, index) => {
+      const name = backendNames.get(item.registry_id);
+      const checkedAt = item.checked_at ?? item.created_at;
+      return {
+        item,
+        label: [
+          `部署 ${index + 1}`,
+          name,
+          "就绪",
+          `${item.checked_at ? "检查于" : "创建于"} ${checkedAt.slice(0, 10)}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    });
+  }, [backends.data, model.data?.deployments]);
   const pool = useQuery({
     queryKey: ["active-learning-pool", projectId, scope, poolPage],
     retry: false,
@@ -262,53 +291,63 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
-            <label className="text-xs">
-              已注册模型
-              <select
-                className={`${trainingInputClass} mt-2 w-full`}
-                value={modelId}
-                onChange={(event) => {
-                  setModelId(event.target.value);
-                  setDeploymentId("");
-                }}
-              >
-                <option value="">选择模型</option>
-                {!models.error &&
-                  models.data?.items.map((item) => (
-                    <option
-                      key={item.id}
-                      value={item.id}
-                      disabled={item.framework !== "ultralytics"}
-                    >
-                      {item.name} · {item.framework}
-                      {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <div className="text-xs">
+              <label htmlFor="active-learning-model">已注册模型</label>
+              <div className="mt-2 flex items-center gap-2">
+                <select
+                  id="active-learning-model"
+                  className={`${trainingInputClass} min-w-0 flex-1`}
+                  value={modelId}
+                  onChange={(event) => {
+                    setModelId(event.target.value);
+                    setDeploymentId("");
+                  }}
+                >
+                  <option value="">选择模型</option>
+                  {!models.error &&
+                    models.data?.items.map((item) => (
+                      <option
+                        key={item.id}
+                        value={item.id}
+                        disabled={item.framework !== "ultralytics"}
+                      >
+                        {item.name} · {item.framework}
+                        {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
+                      </option>
+                    ))}
+                </select>
+                {modelId && (
+                  <CopyValueButton value={modelId} kind="id" label="复制候选模型版本 ID" />
+                )}
+              </div>
+            </div>
             <p className="text-xs text-muted-foreground">
               主动选样当前仅支持已通过共享评估资格的 Ultralytics。LibreYOLO
               可在模型面板试用、人工发布与回滚。
             </p>
-            <label className="text-xs">
-              就绪部署
-              <select
-                className={`${trainingInputClass} mt-2 w-full`}
-                value={deploymentId}
-                disabled={model.data?.model.framework !== "ultralytics"}
-                onChange={(event) => setDeploymentId(event.target.value)}
-              >
-                <option value="">选择部署</option>
-                {!model.error &&
-                  model.data?.deployments
-                    .filter((item) => item.status === "ready")
-                    .map((item) => (
+            <div className="text-xs">
+              <label htmlFor="active-learning-deployment">就绪部署</label>
+              <div className="mt-2 flex items-center gap-2">
+                <select
+                  id="active-learning-deployment"
+                  className={`${trainingInputClass} min-w-0 flex-1`}
+                  value={deploymentId}
+                  disabled={model.data?.model.framework !== "ultralytics"}
+                  onChange={(event) => setDeploymentId(event.target.value)}
+                >
+                  <option value="">选择部署</option>
+                  {!model.error &&
+                    deploymentOptions.map(({ item, label }) => (
                       <option key={item.id} value={item.id}>
-                        {item.id.slice(0, 8)} · 就绪
+                        {label}
                       </option>
                     ))}
-              </select>
-            </label>
+                </select>
+                {deploymentId && (
+                  <CopyValueButton value={deploymentId} kind="id" label="复制已选部署 ID" />
+                )}
+              </div>
+            </div>
             {fields.map((field) => (
               <label key={field.label} className="text-xs">
                 {field.label}
@@ -452,7 +491,8 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
             {armLabel.random_control}各建议 {input.batch_size} 张。
           </p>
           <p className="break-all font-mono text-xs text-muted-foreground">
-            预览摘要 {checkedPreview.preview_digest}
+            预览摘要{" "}
+            <CopyValueButton value={checkedPreview.preview_digest} label="复制选样预览摘要" />
           </p>
           <p className="mb-0 text-xs text-muted-foreground">
             本轮只验证选样流程。框置信度是检测启发式，不能证明样本正确率或效率收益。修改候选、模型或预算后须重新预览。

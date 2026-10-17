@@ -15,6 +15,7 @@ import { trainingHubApi, type QueueState } from "@/api/trainingHub";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { TrainingWarehouseCards } from "./TrainingWarehouseCards";
 import { TrainingQueuePanel } from "./TrainingQueuePanel";
@@ -76,6 +77,10 @@ export function TrainingPage() {
     queryFn: trainingHubApi.catalog,
     refetchInterval: 5000,
   });
+  const resourceId = catalog.data?.resource_id;
+  const resourceNode = resourceId?.includes("/")
+    ? resourceId.slice(0, resourceId.lastIndexOf("/"))
+    : null;
   const projects = useQuery({
     queryKey: ["training-hub", "projects", search, projectPage],
     queryFn: () => trainingHubApi.projects(search, projectPage * 20),
@@ -387,10 +392,17 @@ export function TrainingPage() {
                   <h3 className="text-sm font-semibold">共享训练执行器</h3>
                 </div>
                 <dl className="grid gap-4 text-xs sm:grid-cols-3">
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-muted-foreground">资源</dt>
-                    <dd className="mt-1 break-all font-mono">
-                      {catalog.data.resource_id ?? "尚未配置"}
+                    <dd className="mt-1 flex min-w-0 items-center gap-1 font-medium">
+                      {resourceId ? (
+                        <>
+                          <span className="min-w-0 truncate">{resourceNode || "共享 GPU"}</span>
+                          <CopyValueButton value={resourceId} kind="id" label="复制训练资源 ID" />
+                        </>
+                      ) : (
+                        "尚未配置"
+                      )}
                     </dd>
                   </div>
                   <div>

@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { TrainingLoading } from "./TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { TrainingMetricChart } from "./TrainingMetricChart";
@@ -506,32 +507,34 @@ export function TrainingRunMonitor({
                       epoch?: number;
                     };
                     return (
-                      <button
-                        key={filename}
-                        disabled={pending}
-                        onClick={() =>
-                          onAction({ kind: "download", run, attemptId: item.id, filename })
-                        }
-                        className="flex min-w-0 items-center gap-3 rounded-md border border-border p-3 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                        title={
-                          artifact.sha256
-                            ? `${artifact.role === "log" ? "原始产物 " : ""}SHA-256: ${artifact.sha256}`
-                            : filename
-                        }
-                      >
-                        <Download className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0">
-                          <span className="block text-xs font-medium">
-                            下载{artifactLabels[artifact.role] ?? filename}
+                      <div key={filename} className="flex min-w-0 items-center gap-2">
+                        <button
+                          disabled={pending}
+                          onClick={() =>
+                            onAction({ kind: "download", run, attemptId: item.id, filename })
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-md border border-border p-3 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                        >
+                          <Download className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0">
+                            <span className="block text-xs font-medium">
+                              下载{artifactLabels[artifact.role] ?? filename}
+                            </span>
+                            <span className="mt-1 block truncate font-mono text-2xs text-muted-foreground">
+                              {filename}
+                              {artifact.size_bytes != null
+                                ? ` · ${(artifact.size_bytes / 1024 / 1024).toFixed(2)} MiB`
+                                : ""}
+                            </span>
                           </span>
-                          <span className="mt-1 block truncate font-mono text-2xs text-muted-foreground">
-                            {filename}
-                            {artifact.size_bytes != null
-                              ? ` · ${(artifact.size_bytes / 1024 / 1024).toFixed(2)} MiB`
-                              : ""}
-                          </span>
-                        </span>
-                      </button>
+                        </button>
+                        {artifact.sha256 && (
+                          <CopyValueButton
+                            value={artifact.sha256}
+                            label={`复制${artifact.role === "log" ? "原始产物" : (artifactLabels[artifact.role] ?? filename)}哈希`}
+                          />
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -576,11 +579,13 @@ export function TrainingRunMonitor({
               )}
             </div>
             {run.origin && (
-              <p className="mb-4 break-all text-xs text-muted-foreground">
-                来源：{String(run.origin.label ?? "已固定配置")}
-                {run.origin.modified ? " · 已修改参数" : ""} · 摘要{" "}
-                {String(run.origin.digest ?? "")}
-              </p>
+              <div className="mb-4 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                <span>
+                  来源：{String(run.origin.label ?? "已固定配置")}
+                  {run.origin.modified ? " · 已修改参数" : ""} · 摘要
+                </span>
+                <CopyValueButton value={String(run.origin.digest ?? "")} label="复制配置来源摘要" />
+              </div>
             )}
             <dl className="grid gap-4 rounded-lg border border-border p-4 text-xs sm:grid-cols-2">
               <div>
@@ -589,9 +594,11 @@ export function TrainingRunMonitor({
                   {framework} {String(run.config.framework_version ?? "")}
                 </dd>
               </div>
-              <div>
+              <div className="flex items-center gap-1">
                 <dt className="text-muted-foreground">数据版本</dt>
-                <dd className="mt-1 break-all font-mono">{run.dataset_id}</dd>
+                <dd>
+                  <CopyValueButton value={run.dataset_id} kind="id" label="复制训练数据版本 ID" />
+                </dd>
               </div>
               {Object.entries((run.config.parameters as Record<string, unknown>) ?? {}).map(
                 ([key, value]) => (
@@ -618,7 +625,10 @@ export function TrainingRunMonitor({
               <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono">
                 {JSON.stringify(run.config, null, 2)}
               </pre>
-              <p className="mt-2 break-all text-muted-foreground">配置摘要：{run.config_digest}</p>
+              <p className="mt-2 flex items-center gap-1 text-muted-foreground">
+                配置摘要：
+                <CopyValueButton value={run.config_digest} label="复制训练配置摘要" />
+              </p>
             </details>
           </TabsContent>
         </Tabs>

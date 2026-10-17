@@ -237,6 +237,7 @@ describe("Mask QC candidate identity", () => {
         annotationId: "annotation-1",
         frameIndex: 3,
         instanceId: "a",
+        label: "SAM2 · r4",
       }),
     ]);
   });

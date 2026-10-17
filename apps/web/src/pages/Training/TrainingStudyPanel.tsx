@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { trainingStudiesApi } from "@/api/trainingStudies";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useTrainingViewOwner } from "./trainingViewOwner";
@@ -227,8 +228,8 @@ export function TrainingStudyPanel({
                   ，停止宽限中的实际计算已完整计入。
                 </p>
               )}
-              <p className="mt-3 break-all font-mono text-2xs text-muted-foreground">
-                计划 SHA256 {study.plan_digest}
+              <p className="mt-3 flex items-center gap-1 text-2xs text-muted-foreground">
+                计划摘要 <CopyValueButton value={study.plan_digest} label="复制搜索计划摘要" />
               </p>
               <div className="mt-4 space-y-3">
                 {study.trials.map((trial) => (
@@ -275,8 +276,9 @@ export function TrainingStudyPanel({
                         {secondsLabel(trial.lease_seconds ?? 0)}
                       </p>
                     )}
-                    <p className="mt-2 break-all font-mono text-2xs text-muted-foreground">
-                      配置 SHA256 {trial.config_digest}
+                    <p className="mt-2 flex items-center gap-1 text-2xs text-muted-foreground">
+                      配置摘要{" "}
+                      <CopyValueButton value={trial.config_digest} label="复制试验配置摘要" />
                     </p>
                     {trial.result && (
                       <p className="mt-2">最终目标指标 {(trial.result.value * 100).toFixed(2)}%</p>
@@ -323,8 +325,12 @@ export function TrainingStudyPanel({
                           </li>
                         ))}
                       </ol>
-                      <p className="mt-2 break-all font-mono text-2xs text-muted-foreground">
-                        评估身份 {group.compatibility_digest}
+                      <p className="mt-2 flex items-center gap-1 text-2xs text-muted-foreground">
+                        评估身份{" "}
+                        <CopyValueButton
+                          value={group.compatibility_digest}
+                          label="复制评估身份摘要"
+                        />
                       </p>
                       {ranked.length >= 2 && (
                         <Link

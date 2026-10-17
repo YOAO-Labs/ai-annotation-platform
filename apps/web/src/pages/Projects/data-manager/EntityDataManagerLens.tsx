@@ -13,6 +13,7 @@ import type {
 } from "@/api/taskViews";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
 import {
@@ -164,7 +165,12 @@ const COLUMN_WIDTHS: Record<string, number> = {
   quality: 220,
 };
 
-function objectCell(row: DataManagerObject, column: string) {
+function objectCell(
+  row: DataManagerObject,
+  column: string,
+  ordinal: number,
+  trackOrdinals: ReadonlyMap<string, number>,
+) {
   switch (column) {
     case "class_name":
       return <span className="font-medium">{row.class_name}</span>;
@@ -173,7 +179,18 @@ function objectCell(row: DataManagerObject, column: string) {
     case "tool_geometry":
       return `${row.tool_unit_id} / ${row.annotation_type}`;
     case "track_id":
-      return row.track_id ? <span className="font-mono">{row.track_id}</span> : "无";
+      return row.track_id ? (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          轨迹 {trackOrdinals.get(row.track_id)}
+          <CopyValueButton
+            value={row.track_id}
+            kind="id"
+            label={`复制对象轨迹 ${trackOrdinals.get(row.track_id)} ID`}
+          />
+        </span>
+      ) : (
+        "无"
+      );
     case "attributes":
       return attributeSummary(row.attributes);
     case "task_location":
@@ -191,16 +208,26 @@ function objectCell(row: DataManagerObject, column: string) {
     case "created_by":
       return row.created_by_name ?? "未知";
     case "annotation_id":
-      return <span className="font-mono">{row.annotation_id}</span>;
+      return (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          对象 {ordinal}
+          <CopyValueButton value={row.annotation_id} kind="id" label="复制标注 ID" />
+        </span>
+      );
     default:
       return "无";
   }
 }
 
-function trackCell(row: DataManagerTrack, column: string) {
+function trackCell(row: DataManagerTrack, column: string, ordinal: number) {
   switch (column) {
     case "track_id":
-      return <span className="font-mono">{row.track_id}</span>;
+      return (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          轨迹 {ordinal}
+          <CopyValueButton value={row.track_id} kind="id" label="复制轨迹 ID" />
+        </span>
+      );
     case "class_name":
       return row.class_name ?? "不一致";
     case "track_kind":
@@ -513,6 +540,15 @@ export function EntityDataManagerLens({
         : (tracksQ.data?.pages.flatMap((page) => page.items) ?? []),
     [objectsQ.data?.pages, scope, tracksQ.data?.pages],
   );
+  const trackOrdinals = useMemo(() => {
+    const ordinals = new Map<string, number>();
+    for (const row of rows) {
+      if (row.track_id && !ordinals.has(row.track_id)) {
+        ordinals.set(row.track_id, ordinals.size + 1);
+      }
+    }
+    return ordinals;
+  }, [rows]);
   const activeQ = scope === "objects" ? objectsQ : tracksQ;
   const total = activeQ.data?.pages[0]?.total ?? 0;
   const facets = activeQ.data?.pages[0]?.facets;
@@ -1181,15 +1217,20 @@ export function EntityDataManagerLens({
                         (scope === "objects"
                           ? (row as DataManagerObject).annotation_id
                           : (row as DataManagerTrack).track_ref);
+                      const selectedKey =
+                        scope === "objects"
+                          ? (row as DataManagerObject).annotation_id
+                          : (row as DataManagerTrack).track_ref;
+                      const selectRow = () => setSelected(selectedKey);
                       return (
-                        <button
+                        <div
                           key={row.entity_key}
-                          type="button"
                           role="row"
+                          tabIndex={0}
                           aria-selected={entitySelected}
                           className={cn(
                             styles.virtualRow,
-                            "absolute left-0 grid h-[46px] min-w-max border-b border-border text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            "absolute left-0 grid h-[46px] min-w-max cursor-pointer border-b border-border text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             entitySelected && "bg-muted",
                           )}
                           // eslint-disable-next-line no-restricted-syntax -- virtualizer provides each row offset at runtime.
@@ -1201,19 +1242,27 @@ export function EntityDataManagerLens({
                               "--dm-row-offset": `${virtualRow.start - scrollMargin}px`,
                             } as CSSProperties
                           }
-                          onClick={() =>
-                            setSelected(
-                              scope === "objects"
-                                ? (row as DataManagerObject).annotation_id
-                                : (row as DataManagerTrack).track_ref,
+                          onClick={selectRow}
+                          onKeyDown={(event) => {
+                            if (
+                              event.target !== event.currentTarget ||
+                              (event.key !== "Enter" && event.key !== " ")
                             )
-                          }
+                              return;
+                            event.preventDefault();
+                            selectRow();
+                          }}
                         >
                           {columns.map((column) => {
                             const content =
                               scope === "objects"
-                                ? objectCell(row as DataManagerObject, column)
-                                : trackCell(row as DataManagerTrack, column);
+                                ? objectCell(
+                                    row as DataManagerObject,
+                                    column,
+                                    virtualRow.index + 1,
+                                    trackOrdinals,
+                                  )
+                                : trackCell(row as DataManagerTrack, column, virtualRow.index + 1);
                             return (
                               <span
                                 key={`${row.entity_key}:${column}`}
@@ -1225,7 +1274,7 @@ export function EntityDataManagerLens({
                               </span>
                             );
                           })}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>

@@ -28,6 +28,7 @@ import {
 } from "@/components/shadcn/ui/table";
 import { Progress } from "@/components/shadcn/ui/progress";
 import { Input } from "@/components/shadcn/ui/input";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
 import type {
   GPUArbiterResourceItem,
@@ -35,7 +36,7 @@ import type {
 } from "@/api/adminMlIntegrations";
 import { formatShortId } from "./registryShared";
 import { urlIssuesForView } from "../marketUrlState";
-import { EmptyState, LoadingState, NullCell, ShortCopyableId, UrlIssueChips } from "./registryUi";
+import { EmptyState, LoadingState, NullCell, UrlIssueChips } from "./registryUi";
 import type { RegistryScope, RegistrySectionProps } from "./registryTypes";
 import type { Diagnostic } from "../runtimeTopology";
 import { DiagnosticBadge } from "../runtime/DiagnosticBadge";
@@ -279,11 +280,15 @@ function GpuResourceRow({
               ) : (
                 <span className="text-xs text-muted-foreground">未提供设备序号</span>
               )}
+              <CopyValueButton
+                value={resource.gpu_resource_id}
+                kind="id"
+                label="复制 GPU 资源 ID"
+              />
             </div>
             <div className="flex items-center gap-2 text-2xs text-muted-foreground">
               <span>节点 · {resource.node_id}</span>
             </div>
-            <ShortCopyableId value={resource.gpu_resource_id} label="GPU 资源 ID" />
             <div className="text-2xs text-muted-foreground">
               配置 · {resource.configured_mode ?? "未配置"}
             </div>

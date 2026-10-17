@@ -113,6 +113,32 @@ describe("Model lineage", () => {
       expect.stringContaining("tab=training&run=experiment&attempt=old-attempt&returnTo="),
     );
   });
+  it("copies known lineage identities while keeping ordinary facts readable", async () => {
+    const digest = "a".repeat(64);
+    vi.mocked(modelLineageApi.get).mockResolvedValueOnce({
+      ...result,
+      node: {
+        ...node,
+        facts: {
+          framework: "Ultralytics",
+          ordinal: "3",
+          checked_at: node.created_at,
+          snapshot_digest: digest,
+        },
+      },
+    });
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    mount();
+    await screen.findByRole("heading", { name: "雨天车辆候选" });
+    expect(screen.getByText("Ultralytics")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText(new Date(node.created_at).toLocaleString("zh-CN"))).toBeInTheDocument();
+    expect(screen.queryByText(digest)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "复制快照摘要" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(digest));
+    expect(screen.getByRole("button", { name: "复制候选模型 ID" })).toBeInTheDocument();
+  });
   it("keeps a request UUID after a lost acknowledgement and appends without publication calls", async () => {
     vi.mocked(modelLineageApi.append).mockRejectedValueOnce(new Error("响应中断"));
     const user = userEvent.setup();

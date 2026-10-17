@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   DataManagerEntityFacets,
@@ -46,6 +46,14 @@ const summary: DataManagerSummary = {
 };
 
 describe("DataManagerCharts", () => {
+  beforeEach(() => {
+    // Recharts measures the container when ResizeObserver exists; jsdom has no layout.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 320, 160),
+    );
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it("renders track facets as accessible chart summaries", () => {
     render(<DataManagerCharts scope="tracks" facets={facets} />);
 
@@ -128,6 +136,7 @@ describe("DataManagerCharts", () => {
     // 点最大的一根柱（小汽车）→ 注入的是存储值 car，非显示名
     const attrChart = container.querySelector('[aria-label^="车型"]');
     const bar = attrChart?.querySelector(".recharts-bar-rectangle");
+    expect(bar).not.toBeNull();
     fireEvent.click(bar!);
     expect(onSelect).toHaveBeenCalledWith("annotation.attribute.bbox.vehicle_type", "car");
   });

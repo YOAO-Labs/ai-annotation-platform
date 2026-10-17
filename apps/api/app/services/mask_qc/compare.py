@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from urllib.parse import urlencode
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -62,10 +61,11 @@ async def geometry_for_annotation_version(
             select(MaskAnnotationRevision).where(
                 MaskAnnotationRevision.annotation_id == annotation.id,
                 MaskAnnotationRevision.annotation_version == annotation_version,
+                MaskAnnotationRevision.expires_at > func.now(),
             )
         )
     ).scalar_one_or_none()
-    if revision is None or revision.expires_at <= datetime.now(timezone.utc):
+    if revision is None:
         raise MaskQCError(
             status_code=409,
             reason=missing_reason,

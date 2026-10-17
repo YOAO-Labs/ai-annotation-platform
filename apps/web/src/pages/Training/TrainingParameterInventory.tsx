@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trainingRunsApi } from "@/api/trainingRuns";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
 const statusLabels = {
   editable: "支持编辑",
@@ -135,8 +136,9 @@ export function TrainingParameterInventory({
       {!fields.length && <p className="py-3 text-xs text-muted-foreground">没有匹配的参数。</p>}
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer">定义与原生来源</summary>
-        <p className="mt-2 break-all">
-          {definition.schema_id} · {definition.schema_digest}
+        <p className="mt-2 flex flex-wrap items-center gap-1">
+          <span>{definition.schema_id} · 摘要</span>
+          <CopyValueButton value={definition.schema_digest} label="复制参数目录摘要" />
         </p>
         <a
           className="mt-1 inline-block text-primary underline"

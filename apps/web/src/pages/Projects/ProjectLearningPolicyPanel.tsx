@@ -9,6 +9,7 @@ import {
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { GitBranch, ArrowRight } from "lucide-react";
 import { TrainingLoading } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
@@ -480,9 +481,18 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
             <TrainingRecipeStatus projectId={projectId} origin={initial(policy.data).origin!} />
           )}
           {initial(policy.data).initialization?.kind === "trained_model" && (
-            <p className="break-all text-xs text-muted-foreground">
-              初始化候选：{initial(policy.data).initialization?.model_version_id} · 来源摘要{" "}
-              {initial(policy.data).initialization?.source_digest}
+            <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+              初始化候选
+              <CopyValueButton
+                value={initial(policy.data).initialization?.model_version_id}
+                kind="id"
+                label="复制初始化模型版本 ID"
+              />
+              · 来源摘要
+              <CopyValueButton
+                value={initial(policy.data).initialization?.source_digest}
+                label="复制初始化来源摘要哈希"
+              />
               。每轮创建全新实验，来源不会跟随发布变化。
             </p>
           )}
@@ -569,9 +579,18 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
             </p>
           )}
           {draft.initialization?.kind === "trained_model" && (
-            <p className="break-all text-xs text-muted-foreground">
-              已固定初始化模型 {draft.initialization.model_version_id}，摘要{" "}
-              {draft.initialization.source_digest}
+            <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+              已固定初始化模型
+              <CopyValueButton
+                value={draft.initialization.model_version_id}
+                kind="id"
+                label="复制初始化模型版本 ID"
+              />
+              ，摘要
+              <CopyValueButton
+                value={draft.initialization.source_digest}
+                label="复制初始化来源摘要哈希"
+              />
               。解除配方来源会保留权重选择；更换权重请在配置工作区另存配方后采用。
             </p>
           )}
@@ -782,9 +801,15 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                 个
               </p>
               <p className="text-muted-foreground">{t.message ?? "等待执行结果"}</p>
-              <p className="break-all text-xs text-muted-foreground">
-                数据版本：{t.dataset_id}
-                {t.run_id && ` · 实验：${t.run_id}`}
+              <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                数据版本：
+                <CopyValueButton value={t.dataset_id} kind="id" label="复制触发记录数据版本 ID" />
+                {t.run_id && (
+                  <>
+                    · 实验：
+                    <CopyValueButton value={t.run_id} kind="id" label="复制触发记录实验 ID" />
+                  </>
+                )}
               </p>
             </div>
           ))}

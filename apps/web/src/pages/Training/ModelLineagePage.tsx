@@ -12,6 +12,7 @@ import {
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
 import { trainingInputClass } from "./TrainingParameterField";
 
@@ -106,6 +107,36 @@ const factNames: Record<string, string> = {
   initialization_source_digest: "初始化来源摘要",
   initialization_policy_digest: "初始化资格摘要",
 };
+const hashFactKeys = new Set([
+  "snapshot_digest",
+  "config_digest",
+  "spec_digest",
+  "weights_sha256",
+  "binding_digest",
+  "dataset_digest",
+  "validation_digest",
+  "frozen_dataset_digest",
+  "frozen_validation_digest",
+  "frozen_config_digest",
+  "frozen_sha256",
+  "frozen_reference_digest",
+  "initialization_source_digest",
+  "initialization_policy_digest",
+]);
+const idFactKeys = new Set([
+  "run_id",
+  "frozen_run_id",
+  "frozen_attempt_id",
+  "frozen_dataset_id",
+  "frozen_model_version_id",
+  "frozen_deployment_id",
+  "frozen_project_id",
+  "initialization_model_id",
+  "initialization_project_id",
+  "initialization_model_version_id",
+  "initialization_run_id",
+  "initialization_attempt_id",
+]);
 
 function existingDetail(projectId: string, node: LineageNode) {
   const base = `/projects/${projectId}/learning`;
@@ -300,22 +331,37 @@ function LineageContent({
         <>
           <section className="mt-6 border-y border-border py-4" aria-label="节点身份">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge>{kindNames[kind]}</Badge>
+              <span className="inline-flex items-center gap-1">
+                <Badge>{kindNames[kind]}</Badge>
+                <CopyValueButton value={node.id} kind="id" label={`复制${kindNames[kind]} ID`} />
+              </span>
               {node.status && <span className="text-xs text-muted-foreground">{node.status}</span>}
               <time className="text-xs tabular-nums text-muted-foreground">
                 {new Date(node.created_at).toLocaleString("zh-CN")}
               </time>
             </div>
-            <p className="mt-2 break-all font-mono text-xs">{node.id}</p>
             <details className="mt-3 text-xs">
               <summary className="cursor-pointer">冻结身份与摘要</summary>
               <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                {Object.entries(node.facts ?? {}).map(([key, value]) => (
-                  <div key={key}>
-                    <dt className="text-muted-foreground">{factNames[key] ?? key}</dt>
-                    <dd className="mt-1 break-all font-mono">{value}</dd>
-                  </div>
-                ))}
+                {Object.entries(node.facts ?? {}).map(([key, value]) => {
+                  const kind = hashFactKeys.has(key) ? "hash" : idFactKeys.has(key) ? "id" : null;
+                  return (
+                    <div key={key} className="flex min-w-0 items-center gap-2">
+                      <dt className="shrink-0 text-muted-foreground">{factNames[key] ?? key}</dt>
+                      <dd className="min-w-0 break-all font-mono">
+                        {kind ? (
+                          <CopyValueButton
+                            value={typeof value === "string" ? value : null}
+                            kind={kind}
+                            label={`复制${factNames[key] ?? key}`}
+                          />
+                        ) : (
+                          value
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
               </dl>
               {Object.keys(node.facts ?? {}).length === 0 && (
                 <p className="mt-2 text-muted-foreground">此节点没有额外冻结摘要。</p>

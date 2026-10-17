@@ -3575,6 +3575,7 @@ export function ThreeDWorkbench({
         {/* v0.13.7 · 相机放大浮层(L3):点⛶弹大图,遮罩 / 关闭钮 / ESC 关闭。
             复用 CameraProjectionView(同 props,大尺寸),投影 / 上色 / 深度 overlay 一致。 */}
         {enlargedCam &&
+          !calibrationSheetOpen &&
           createPortal(
             <div
               ref={cameraModalRef}

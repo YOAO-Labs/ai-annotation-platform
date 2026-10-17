@@ -495,14 +495,15 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^详情/ }));
 
     // sheet is open — copy-id button visible inside it
-    const copyBtn = await screen.findByRole("button", { name: /复制 ID/ });
+    const copyBtn = await screen.findByRole("button", { name: "复制实例 ID" });
     fireEvent.click(copyBtn);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("inst-1"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     // close via Radix Sheet close (aria-label "Close")
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /复制 ID/ })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("button", { name: "复制实例 ID" })).not.toBeInTheDocument(),
     );
   });
 

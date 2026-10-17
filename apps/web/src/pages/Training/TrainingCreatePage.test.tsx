@@ -866,6 +866,39 @@ const initializationPin = {
   artifact: { sha256: "8".repeat(64), size_bytes: 1234 },
 };
 
+it.each([true, false])(
+  "keeps the initialization summary readable when the source pin is available: %s",
+  async (eligible) => {
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({
+      total: 1,
+      items: [{ id: initializationId, name: "项目初始模型", framework: "ultralytics" }],
+    } as never);
+    vi.mocked(trainingRunsApi.initializationSource).mockResolvedValue({
+      model_version_id: initializationId,
+      eligible,
+      reasons: eligible ? [] : ["来源信息不完整"],
+      pin: eligible ? initializationPin : null,
+    } as never);
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    mount();
+    await screen.findByRole("option", { name: "项目初始模型 · ultralytics" });
+    await user.selectOptions(await screen.findByLabelText("训练数据"), "dataset-1");
+    await screen.findByRole("option", { name: /^yolo11n ·/ });
+    await user.selectOptions(screen.getByLabelText("基础权重"), "yolo11n");
+    await user.selectOptions(screen.getByLabelText("初始化权重"), initializationId);
+    const summary = screen.getByRole("complementary", { name: "实验摘要" });
+    expect(
+      await within(summary).findByText(eligible ? "项目初始模型" : "所选候选模型"),
+    ).toBeVisible();
+    expect(summary).not.toHaveTextContent(initializationId);
+    await user.click(within(summary).getByRole("button", { name: "复制初始化模型版本 ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(initializationId));
+    expect(trainingRunsApi.create).not.toHaveBeenCalled();
+    expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
+  },
+);
+
 it("pins an explicitly selected candidate, invalidates review and retries its exact source after refresh", async () => {
   vi.mocked(trainedModelsApi.list).mockResolvedValue({
     total: 1,
@@ -902,9 +935,11 @@ it("pins an explicitly selected candidate, invalidates review and retries its ex
     model_version_id: initializationId,
     source_digest: initializationPin.source_digest,
   });
-  expect(screen.getByRole("region", { name: "冻结的初始化权重" })).toHaveTextContent(
-    initializationPin.artifact.sha256,
-  );
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+  const frozen = screen.getByRole("region", { name: "冻结的初始化权重" });
+  expect(frozen).not.toHaveTextContent(initializationPin.artifact.sha256);
+  await user.click(within(frozen).getByRole("button", { name: "复制初始化权重哈希" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(initializationPin.artifact.sha256));
   vi.mocked(trainingRunsApi.create).mockRejectedValueOnce(new Error("初始化创建响应丢失"));
   await user.click(screen.getByRole("button", { name: "开始训练" }));
   await screen.findByText("初始化创建响应丢失");
