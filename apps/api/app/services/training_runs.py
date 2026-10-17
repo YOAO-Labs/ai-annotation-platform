@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -342,6 +343,69 @@ async def new_attempt(db, run, *, resume_from=None):
     run.error_message = None
     run.completed_at = None
     return attempt
+
+
+def reserve_study_budget(attempt, run, allowance):
+    from training_contract.budget import POLICY_DIGEST, validate_budget
+
+    budget = {
+        "policy_digest": POLICY_DIGEST,
+        "reservation_id": str(uuid.uuid4()),
+        "attempt_id": str(attempt.id),
+        "config_digest": run.config_digest,
+        "allowance_seconds": float(allowance),
+    }
+    validate_budget(budget, attempt.id, run.config_digest)
+    attempt.native_budget = budget
+
+
+async def create_study_child(
+    db,
+    *,
+    project_id,
+    creator_id,
+    study_id,
+    dataset_id,
+    initialization_model_id,
+    request_id,
+    request_digest,
+    name,
+    config,
+    config_digest,
+    origin,
+    authorization,
+    allowance,
+):
+    run = TrainingRun(
+        project_id=project_id,
+        creator_id=creator_id,
+        study_id=study_id,
+        dataset_id=dataset_id,
+        initialization_model_id=initialization_model_id,
+        request_id=request_id,
+        request_digest=request_digest,
+        name=name,
+        config=config,
+        config_digest=config_digest,
+        origin=origin,
+        authorization=authorization,
+    )
+    db.add(run)
+    await db.flush()
+    attempt = await new_attempt(db, run)
+    reserve_study_budget(attempt, run, allowance)
+    return run
+
+
+async def cancel_study_child(db, run):
+    if run.status == "queued":
+        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        await mark_terminal(
+            db, run, attempt, "cancelled", "参数搜索已停止，未启动的试验已取消"
+        )
+    elif run.status in ACTIVE:
+        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        run.status = attempt.status = "cancelling"
 
 
 def mark_study_manual_resume(run: TrainingRun) -> None:

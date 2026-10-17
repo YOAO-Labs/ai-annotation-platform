@@ -8,11 +8,7 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from training_contract import definition
-from training_contract.budget import (
-    POLICY_DIGEST,
-    validate_budget,
-    validate_receipt,
-)
+from training_contract.budget import POLICY_DIGEST, validate_receipt
 
 from app.db.models.project import Project
 from app.db.models.training_run import TrainingAttempt, TrainingEvent, TrainingRun
@@ -281,29 +277,6 @@ async def ledger(db, study, child_runs):
     }, per_run
 
 
-def reserve(attempt, run, allowance):
-    budget = {
-        "policy_digest": POLICY_DIGEST,
-        "reservation_id": str(uuid.uuid4()),
-        "attempt_id": str(attempt.id),
-        "config_digest": run.config_digest,
-        "allowance_seconds": float(allowance),
-    }
-    validate_budget(budget, attempt.id, run.config_digest)
-    attempt.native_budget = budget
-
-
-async def stop_child(db, run):
-    if run.status == "queued":
-        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
-        await runs.mark_terminal(
-            db, run, attempt, "cancelled", "参数搜索已停止，未启动的试验已取消"
-        )
-    elif run.status in runs.ACTIVE:
-        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
-        run.status = attempt.status = "cancelling"
-
-
 async def cancel(db, project_id, study_id, user: User):
     await claims.project_lock(db, project_id)
     await lock_project_manager(db, user, project_id)
@@ -312,7 +285,7 @@ async def cancel(db, project_id, study_id, user: User):
     study.status = "cancelling"
     study.message = "已停止后续试验；活动进程按普通训练取消协议退出"
     for run in await children(db, study.id, lock=True):
-        await stop_child(db, run)
+        await runs.cancel_study_child(db, run)
     await coordinate(db, study.id)
     return study
 
@@ -340,7 +313,7 @@ async def coordinate(db, study_id):
         study.scheduling = False
         study.message = error
         for run in child_runs:
-            await stop_child(db, run)
+            await runs.cancel_study_child(db, run)
     active = [run for run in child_runs if run.status in runs.ACTIVE]
     if active:
         manual = any(
@@ -401,7 +374,8 @@ async def coordinate(db, study_id):
     if not compatible:
         study.status, study.message = "blocked", reason
         return
-    run = TrainingRun(
+    run = await runs.create_study_child(
+        db,
         project_id=study.project_id,
         creator_id=study.creator_id,
         study_id=study.id,
@@ -414,11 +388,8 @@ async def coordinate(db, study_id):
         config_digest=trial.config_digest,
         origin=study.origin,
         authorization=study.authorization,
+        allowance=account["remaining_seconds"],
     )
-    db.add(run)
-    await db.flush()
-    attempt = await runs.new_attempt(db, run)
-    reserve(attempt, run, account["remaining_seconds"])
     trial.run_id = run.id
     study.status, study.message, study.completed_at = (
         "active",

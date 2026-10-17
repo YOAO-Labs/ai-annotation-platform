@@ -96,7 +96,7 @@ async def resume_run(
     allowance = await training_studies.admit_resume(db, study, run) if study else None
     attempt = await training_runs.new_attempt(db, run, resume_from=parent.id)
     if study:
-        training_studies.reserve(attempt, run, allowance)
+        training_runs.reserve_study_budget(attempt, run, allowance)
         training_runs.mark_study_manual_resume(run)
         training_studies.stage_manual_resume(study)
     if run.auto_trigger_id:

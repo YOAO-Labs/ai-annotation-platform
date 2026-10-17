@@ -52,7 +52,7 @@ last_reviewed: 2026-10-17
 
 ## 有预算的串行搜索
 
-`TrainingStudy` 固定完整有限网格、目标、预算、授权与请求身份；`TrainingTrial` 固定序号、配置及普通子实验引用。ID 从项目／请求和试验序号确定性派生。全部组合经共享参数定义解析，预览与创建对同一计划摘要比较，最大 20 项；不会截断。子实验保留独立 `origin` 和初始化 pin，继续使用既有 GPU 租约及 lost／upload 恢复。
+`TrainingStudy` 固定完整有限网格、目标、预算、授权与请求身份；`TrainingTrial` 固定序号、配置及普通子实验引用。ID 从项目／请求和试验序号确定性派生。全部组合经共享参数定义解析，预览与创建对同一计划摘要比较，最大 20 项；不会截断。Study 保留预算／账本计算与协调，普通子实验 `TrainingRun`、首个 `TrainingAttempt` 及入队前 `native_budget` 预留由 `training_runs.create_study_child` 持久化；`reserve_study_budget` 也持有续训预留，`cancel_study_child` 保留 queued 立即终止与 active 进入 cancelling 的区别。子实验继续使用独立 `origin`、初始化 pin、既有 GPU 租约及 lost／upload 恢复。
 
 协调按项目 advisory、授权、Study `FOR NO KEY UPDATE`、Run 的顺序执行。较弱的 Study 非键写锁允许子外键的 KEY SHARE 检查，不会让带所有权凭据的 Run 完成事务反向等待协调器。claim／finish 不获取 Study 锁；Run 的部分唯一索引覆盖全部活动状态，数据库阻止同一搜索重叠。每十秒的 `app.workers.training_study.check_studies` 恢复后续准入，终态关闭 scheduling；停止后的手动续训不重新打开它。
 

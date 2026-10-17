@@ -1051,6 +1051,21 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 - 范围内对象客户端调用均为零，不称历史 AST 对照、RSS、吞吐或优化。定向点云行为、SCC 与精确 OpenAPI 组合为 175 passed、77 skipped、零失败/错误；三文件固定 Ruff 格式/check 通过。移除 mock 派发非空与撤销参数回声断言，保留已提交取消状态和问题行为。正式分层与仓库地图已同步；纯边界迁移不改 schema、依赖、配置、版本或 CHANGELOG。
 
+### Study 子运行与尝试写入所有权
+
+- `training_studies` 保留冻结计划、Trial、预算/账本计算与协调；`training_runs.create_study_child` 持有 Study 子实验的 `TrainingRun`、首个 `TrainingAttempt` 和有效 `native_budget` 预留写入，`reserve_study_budget` 持有续训预留，`cancel_study_child` 持有 queued 立即终止与 active 进入 cancelling 的差异。`application/training_control.py` 的续训消费者已迁移；没有兼容别名。
+- 保留 Study／项目／创建者／数据集／初始化模型、Trial request/config 摘要、origin/authorization、reservation ID、flush 和查询顺序、调用方事务与项目锁。Study 的 `trial.run_id` 与排程状态仍由 Study 编排更新；子运行持久化不提交、不派发，也不执行模型。
+- 隔离自有 PostgreSQL test 环境 `aap_wt_622aaa2e2271a89c_test`（0189）以真实提交和不同 backend PID 的新事务观察 admission：一个 queued 子运行、首个 queued attempt 与 pending AsyncJob 持久化，预算 reservation、配置/request 摘要及 Study origin/authorization 匹配。独立 Study 实际提交 cancellation 后，Study/run/attempt 与 AsyncJob 均 cancelled、native accounting 为 not_started，调度关闭；身份与原始观察在 `/tmp/aap-study-run-1792240740/.worktree/study-run-control-plane.json`。没有启动 worker、领取模型权重或使用 GPU。
+- 冻结 base `ebe9234c768ef92b02604a8f5cdc8fab6ca9d7bc` 的原协调路径与当前完整 `coordinate` 各预热一次、三轮交错采样。两侧使用等形元数据夹具而非同一项目/Study UUID，包含 coordinate 的 SELECT/flush，不含 fixture、调用方 commit、observer、HTTP、worker 或模型/GPU；不将堆差异归因于重构，也不据此宣称吞吐、RSS 或优化。全部样本及身份在 `/tmp/aap-study-run-1792240740/.worktree/study-run-budget.json`：
+
+| 指标                        | 原协调路径 | 当前 owner |
+| --------------------------- | ---------: | ---------: |
+| SQL 语句数                  |         17 |         17 |
+| 对象存储请求                |          0 |          0 |
+| Python 堆峰值中位数（字节） |    568,751 |    643,904 |
+
+- 隔离相关 Study/Run、领域 SCC 与 OpenAPI 测试组合中，新增 identity assertion 因测试解包遗漏 `project`/`dataset` 失败，其余用例完成且未报告失败；修正后仅重跑该行为用例通过，不把首次组合写成全绿。主线删除新增构造字段回声断言，保留原有幂等、取消、权威、预算及回执行为；六项定向消费者回归与四文件固定 Ruff 格式/check 通过，未重复隔离原生验收。纯所有权迁移不改 schema、公开合同、依赖、配置或 CHANGELOG。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成与点云派发失败已收口；仍有 Mask 格式导入执行、Study 子运行/尝试及训练运行删除、失败预测处置/重试、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，继续按十二个里程碑验收。不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败与 Study 子运行/尝试已收口；仍有 Mask 格式导入执行、训练运行删除、失败预测处置/重试、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，继续按十一个里程碑验收。不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
