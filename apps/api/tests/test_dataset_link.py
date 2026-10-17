@@ -97,9 +97,8 @@ async def test_link_project_idempotent(db_session: AsyncSession, super_admin):
     workflow = DatasetTaskCreationWorkflow(db_session)
     link1 = await workflow.link_project(ds.id, project.id)
     link2 = await workflow.link_project(ds.id, project.id)
-    # Existing links return immediately with the same ProjectDataset row.
-    # v0.12.0：link_project 返回 LinkProjectResult，.link 才是 ProjectDataset 行。
-    assert link1.link.id == link2.link.id, "重复 link 应返回同一行"
+    # Replays retain the association identity without returning a live ORM row.
+    assert link1.link_id == link2.link_id, "重复 link 应返回同一关联"
 
     count = (
         await db_session.execute(
@@ -126,16 +125,13 @@ async def test_link_project_empty_dataset(db_session: AsyncSession, super_admin)
                     ProjectDataset.project_id == project.id,
                 )
             )
-            == result.link.id
+            == result.link_id
         )
         await caller_transaction.rollback()
 
     assert (
         await db_session.scalar(
-            select(ProjectDataset.id).where(
-                ProjectDataset.dataset_id == ds.id,
-                ProjectDataset.project_id == project.id,
-            )
+            select(ProjectDataset.id).where(ProjectDataset.id == result.link_id)
         )
         is None
     )

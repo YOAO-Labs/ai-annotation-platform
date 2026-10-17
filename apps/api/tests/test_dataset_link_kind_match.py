@@ -90,9 +90,9 @@ async def test_link_project_enforces_data_type_and_scene_mode(
         db_session, user.id, data_type="lidar", scene_mode=True
     )
 
-    assert (await workflow.link_project(plain_image.id, normal_project.id)).link.id
-    assert (await workflow.link_project(scene_image.id, scene_project.id)).link.id
-    assert (await workflow.link_project(scene_lidar.id, lidar_scene_project.id)).link.id
+    assert (await workflow.link_project(plain_image.id, normal_project.id)).link_id
+    assert (await workflow.link_project(scene_image.id, scene_project.id)).link_id
+    assert (await workflow.link_project(scene_lidar.id, lidar_scene_project.id)).link_id
 
     with pytest.raises(HTTPException) as scene_exc:
         await workflow.link_project(plain_image.id, scene_project.id)

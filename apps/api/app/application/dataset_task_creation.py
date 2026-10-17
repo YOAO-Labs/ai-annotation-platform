@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJobKind
-from app.db.models.dataset import DatasetItem, ProjectDataset
+from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services import async_job as async_job_svc
@@ -23,7 +23,7 @@ from app.services.system_settings_service import SystemSettingsService
 
 @dataclass(frozen=True)
 class LinkProjectResult:
-    link: ProjectDataset
+    link_id: uuid.UUID
     async_job_id: uuid.UUID | None = None
     created_tasks: int = 0
 
@@ -41,7 +41,7 @@ class DatasetTaskCreationWorkflow:
     ) -> LinkProjectResult:
         association = await self.assets.associate_project(dataset_id, project_id)
         if association.existing:
-            return LinkProjectResult(link=association.link)
+            return LinkProjectResult(link_id=association.link_id)
 
         # Freeze the synchronous/queued choice at request time. A queued job
         # keeps the link branch even if the setting changes before execution.
@@ -59,12 +59,14 @@ class DatasetTaskCreationWorkflow:
                     "mode": "link",
                 },
             )
-            return LinkProjectResult(link=association.link, async_job_id=job.id)
+            return LinkProjectResult(link_id=association.link_id, async_job_id=job.id)
 
         result = await self.create_tasks_for_linked_dataset(
             dataset_id=dataset_id, project_id=project_id
         )
-        return LinkProjectResult(link=association.link, created_tasks=result["created"])
+        return LinkProjectResult(
+            link_id=association.link_id, created_tasks=result["created"]
+        )
 
     async def create_tasks_for_linked_dataset(
         self,

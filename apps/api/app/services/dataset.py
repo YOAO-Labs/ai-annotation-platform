@@ -65,7 +65,7 @@ class IngestOutcome:
 
 @dataclass(frozen=True)
 class DatasetProjectAssociation:
-    link: ProjectDataset
+    link_id: uuid.UUID
     existing: bool
     item_count: int
 
@@ -1046,7 +1046,9 @@ class DatasetService:
             )
         ).scalar_one_or_none()
         if existing is not None:
-            return DatasetProjectAssociation(link=existing, existing=True, item_count=0)
+            return DatasetProjectAssociation(
+                link_id=existing.id, existing=True, item_count=0
+            )
 
         dataset = await self.db.get(Dataset, dataset_id)
         project = await self.db.get(Project, project_id)
@@ -1071,7 +1073,7 @@ class DatasetService:
             )
         ).scalar() or 0
         return DatasetProjectAssociation(
-            link=link, existing=False, item_count=item_count
+            link_id=link.id, existing=False, item_count=item_count
         )
 
     async def remove_project_association(

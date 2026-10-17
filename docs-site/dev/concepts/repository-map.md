@@ -139,6 +139,7 @@ last_reviewed: 2026-10-17
    素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
    `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
    素材/帧传递使用 `services/dataset_task_facts`，共享分组在 `services/dataset_frame_grouping`。
+   assets 关联结果与建题应用结果只返回 `link_id` 等标量，不向入口交付 `ProjectDataset` ORM。
    分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
    上传完成的内容观测归 `DatasetService.record_uploaded_item_content`，图片尺寸归其既有 `set_item_dimensions`；HTTP 保留 Head/尺寸读取、去重、占位清理与追加建题的原事务及派发顺序。
    解绑/素材删除、项目删除和无源任务清理由 `application/dataset_deletion.py`、

@@ -57,6 +57,8 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 `services/labeling_tasks.py::LabelingTaskService` 持有初始泛型/点云建题、追加建题、媒体关联和项目任务总数增量；输入为 `dataset_task_facts.py` 的不可变素材/帧事实，不接收素材 ORM。`DatasetService` 保留入库、去重、尺寸、素材行/文件数和管理关联；`pointcloud_import` 保留标定与帧准备，和 `scene_inference` 共用下层 `dataset_frame_grouping`，场景推断不再反向导入点云准备。初始任务保留默认 5000 项及调用方指定的分块提交，追加只 flush，点云标定独立前置提交和零新增帧重放均保持原语义。
 
+素材关联向应用返回 `link_id`、是否已有及素材数，建题应用向入口返回关联 UUID、可选作业 UUID 和创建数；结果均不携带 `ProjectDataset` 实例。关联身份在调用方回滚或分块提交后仍为普通值，原同步/排队选择和重复关联语义保持。跨域缺失任务查询及来源准备仍在本地装配内，公共远程建题操作的重放/提交语义需按原事务设计单独固定。
+
 素材上传完成的已观察内容长度/MD5 由 `DatasetService.record_uploaded_item_content` 分别暂存，图片尺寸复用 `set_item_dimensions`；HTTP 不直接修改 `DatasetItem`。原 ContentLength truthy 条件、32 字符 ETag 去重、仅缺尺寸时读取图片、追加建题及最终提交/派发顺序均保留，缺对象或重复对象仍走原占位清理路径。尺寸命令复用当前 Session 已加载的身份，不新增逐项查询。
 
 存量图片尺寸回填也复用该素材命令：仍按 dataset、`file_type='image'` 与 `width IS NULL` 限量选行，不额外要求 height 为空、不新增排序或数据集可见性规则。读取失败计入 failed，已存在 width 的行即使缺 height 也不处理；`remaining_hint` 只表示本批是否填满，不是总剩余数。全部成功尺寸仍由 HTTP 在循环后一次提交，命令不 flush 或 commit。
