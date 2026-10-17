@@ -657,6 +657,18 @@ async def get_active_generation_for_task(
     return owner, asset, generation
 
 
+async def touch_generation_access(
+    db: AsyncSession, generation: ImagePyramidGeneration
+) -> None:
+    """Commit a rate-limited access timestamp for a served ready generation."""
+    if (
+        generation.last_accessed_at is None
+        or generation.last_accessed_at < utcnow() - timedelta(minutes=10)
+    ):
+        generation.last_accessed_at = utcnow()
+        await db.commit()
+
+
 def generation_manifest(
     generation: ImagePyramidGeneration,
     storage: StorageService = storage_service,

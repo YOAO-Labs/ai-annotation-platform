@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from PIL import Image
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.dataset import Dataset, DatasetItem
@@ -15,6 +17,7 @@ from app.db.models.image_pyramid import (
 )
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.user import User
 from app.services.image_pyramid import (
     build_manifest,
     expected_tile_dimensions,
@@ -24,11 +27,12 @@ from app.services.image_pyramid import (
     prepare_generation,
     pyramid_levels,
     sha256_digest,
+    touch_generation_access,
 )
 from app.services.storage import StorageService
 from app.workers import image_pyramid as image_pyramid_worker
 from app.workers.media_materialization import SqlAlchemyMediaMaterializationWriter
-from tests.factory import build_tool_bindings
+from tests.factory import build_tool_bindings, create_user
 
 
 async def _make_image_task(db_session, owner_id, *, width=8193, height=6145):
@@ -363,6 +367,9 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
         "app.api.v1.tasks.image_pyramid.storage_service.generate_download_url",
         lambda key, **kwargs: f"https://storage.invalid/{key}",
     )
+    now = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
+    monkeypatch.setattr("app.api.v1.tasks.image_pyramid.utcnow", lambda: now[0])
+    monkeypatch.setattr("app.services.image_pyramid.utcnow", lambda: now[0])
     headers = {"Authorization": f"Bearer {token}"}
 
     unauthorized_response = await httpx_client.get(
@@ -379,6 +386,26 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     assert body["manifest"] == manifest
     assert "image-pyramids/" not in str(body["manifest"])
     assert manifest_response.headers["etag"].startswith('"pyramid-1-')
+    await db_session.refresh(generation)
+    assert generation.last_accessed_at == now[0]
+
+    now[0] += timedelta(minutes=10)
+    throttled_response = await httpx_client.get(
+        f"/api/v1/tasks/{task.id}/image-pyramid", headers=headers
+    )
+    assert throttled_response.status_code == 200
+    assert throttled_response.headers["etag"] == manifest_response.headers["etag"]
+    await db_session.refresh(generation)
+    assert generation.last_accessed_at == now[0] - timedelta(minutes=10)
+
+    now[0] += timedelta(microseconds=1)
+    eligible_response = await httpx_client.get(
+        f"/api/v1/tasks/{task.id}/image-pyramid", headers=headers
+    )
+    assert eligible_response.status_code == 200
+    assert eligible_response.headers["etag"] == manifest_response.headers["etag"]
+    await db_session.refresh(generation)
+    assert generation.last_accessed_at == now[0]
 
     not_modified_response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/image-pyramid",
@@ -389,6 +416,9 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     )
     assert not_modified_response.status_code == 304
     assert not not_modified_response.content
+
+    await db_session.refresh(generation)
+    assert generation.last_accessed_at == now[0]
 
     items = [
         {"kind": "overview", "generation": 1},
@@ -445,6 +475,104 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     assert generation.error_code == "object_missing"
 
 
+async def test_generation_access_commit_is_visible_and_rollback_preserves_touch(
+    test_engine, monkeypatch
+):
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    suffix = uuid.uuid4().hex
+    asset_id = uuid.uuid4()
+    fixture_committed = False
+    try:
+        async with sessions() as setup:
+            user = await create_user(
+                setup, "super_admin", f"pyramid-access-{suffix}@test.local", "Pyramid"
+            )
+            task, item = await _make_image_task(setup, user.id, width=64, height=48)
+            asset = ImagePyramidAsset(
+                id=asset_id,
+                dataset_item_id=item.id,
+                profile_version="pyramid-v1",
+                active_generation=1,
+            )
+            generation = ImagePyramidGeneration(
+                asset_id=asset.id,
+                generation=1,
+                source_identity="etag:access:bytes:1234",
+                status="ready",
+                width=item.width,
+                height=item.height,
+                normalization_version="exif-autorotate-srgb-v1",
+            )
+            setup.add_all([asset, generation])
+            await setup.flush()
+            user_id = user.id
+            project_id = task.project_id
+            dataset_id = item.dataset_id
+            item_id = item.id
+            task_id = task.id
+            await setup.commit()
+            fixture_committed = True
+
+        async with sessions() as command:
+            generation = await command.get(ImagePyramidGeneration, (asset_id, 1))
+            assert generation is not None
+            await touch_generation_access(command, generation)
+            committed_touch = generation.last_accessed_at
+
+        assert committed_touch is not None
+
+        async def read_committed_touch():
+            async with sessions() as observer:
+                return await observer.scalar(
+                    select(ImagePyramidGeneration.last_accessed_at).where(
+                        ImagePyramidGeneration.asset_id == asset_id,
+                        ImagePyramidGeneration.generation == 1,
+                    )
+                )
+
+        assert await read_committed_touch() == committed_touch
+
+        async with sessions() as rollback_session:
+            generation = await rollback_session.get(
+                ImagePyramidGeneration, (asset_id, 1)
+            )
+            assert generation is not None
+            monkeypatch.setattr(
+                "app.services.image_pyramid.utcnow",
+                lambda: committed_touch + timedelta(minutes=11),
+            )
+
+            async def unavailable_commit():
+                await rollback_session.flush()
+                raise RuntimeError("controlled access commit failure")
+
+            monkeypatch.setattr(rollback_session, "commit", unavailable_commit)
+            with pytest.raises(RuntimeError):
+                await touch_generation_access(rollback_session, generation)
+            assert await read_committed_touch() == committed_touch
+            await rollback_session.rollback()
+
+        assert await read_committed_touch() == committed_touch
+    finally:
+        if fixture_committed:
+            async with sessions.begin() as cleanup:
+                await cleanup.execute(
+                    delete(ImagePyramidGeneration).where(
+                        ImagePyramidGeneration.asset_id == asset_id
+                    )
+                )
+                await cleanup.execute(
+                    delete(ImagePyramidAsset).where(ImagePyramidAsset.id == asset_id)
+                )
+                await cleanup.execute(delete(Task).where(Task.id == task_id))
+                await cleanup.execute(
+                    delete(DatasetItem).where(DatasetItem.id == item_id)
+                )
+                await cleanup.execute(delete(Dataset).where(Dataset.id == dataset_id))
+                await cleanup.execute(delete(Project).where(Project.id == project_id))
+                await cleanup.execute(delete(User).where(User.id == user_id))
+
+
 async def test_source_replacement_invalidates_ready_generation(
     db_session, httpx_client, super_admin, monkeypatch
 ):
@@ -489,6 +617,7 @@ async def test_source_replacement_invalidates_ready_generation(
     await db_session.refresh(generation)
     assert asset.active_generation is None
     assert generation.status == "failed"
+    assert generation.last_accessed_at is None
 
 
 async def test_reconcile_removes_processed_failed_generation(

@@ -1156,6 +1156,22 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 原始状态与六次交错预算在 `/tmp/aap-analysis-media-1792242095/evidence/native-analysis-media.json`。历史侧是 `4f3f26541` API 成功字段写入和 commit 的内联复现，当前侧使用同一已加载行，各侧预热一次；只含变更与 commit，排除授权、行读取、对象、串流及 HTTP，每次 1 条 SQL、0 次对象调用。堆峰值增量中位数为历史 288,415 字节、当前 288,775 字节，不推断整请求性能或优化。
 - 隔离该测试文件为 31 passed（原始完成/退出码在 `evidence/analysis-media-tests.json`，不因外层等待超时重跑）；主线四项冻结媒体、预览、状态持久化和提交失败回滚/关闭消费者回归通过，三个 Python 文件固定 Ruff 格式/check 通过。正式分层和训练分析说明已同步；纯结构迁移不增加 CHANGELOG，无 API/schema、依赖、配置、版本变更。
 
+### 金字塔访问元数据
+
+- API 保留媒体授权、ready eligibility、缓存与代次身份；访问时间戳改由 `services/image_pyramid.py` 的 `touch_generation_access` 持有。保持原条件（未访问或严格早于 `utcnow() - 10 分钟`）、条件及更新时独立读取时钟（NULL 短路时只读一次）、building 查询后的同一提交点。它是 generation 元数据，不是 AsyncJob 或 Task 缩略图投影；304 仍在触达前返回。
+- 定向 HTTP 回归验证初次触达、恰好十分钟不触达、十分钟加一微秒触达、304 不触达、未授权拒绝与源替换后不触达。独立 PostgreSQL session 验证 owner commit 对新连接可见，以及另一个 session 的未提交替换不可见、rollback 后已提交时间戳仍在。
+- 实际 loopback Uvicorn 使用默认 DB/JWT 依赖和 owned test PostgreSQL/MinIO/Redis：无凭据 401；授权 ready generation 200 与 `private, max-age=60`、稳定 ETag/代次、signed URL 存在；立即第二次 200 不触达；条件请求 304 不触达。独立连接读到 commit，并观察到 rollback 保留已提交触达；Task thumbnail path/blurhash 和 generation identity 不变。首响应有 1 次 GetObject 与 2 次 HeadObject；signed URL 值未保留。清理自有数据库行、三件对象及 Uvicorn。完整原始记录：`/tmp/aap-pyramid-access-1792242095/.worktree/image-pyramid-access-smoke.json`。
+- 命令预算以 `4f3f26541077743d88db7f55a298ac4d78b038bf` 的 API 原内联块作 frozen-before，和当前 owner 使用同一已提交 ready generation 行，各预热一次后交错三轮：
+
+| 指标                        | 原内联块 | 当前 owner |
+| --------------------------- | -------: | ---------: |
+| SQL 语句数                  |        1 |          1 |
+| Python 堆峰值中位数（字节） |  283,490 |    283,466 |
+
+- 预算只含已加载 `ImagePyramidGeneration` 的访问触达与 commit，排除 SQL 预载/重置、HTTP/auth、源与对象校验及 URL 签名；每侧对象 API 调用为零。小样本不代表整请求性能、吞吐、RSS 或优化。原始样本与运行细节见 `/tmp/aap-pyramid-access-1792242095/.worktree/image-pyramid-access-smoke.json`。隔离金字塔/架构组合为 177 passed、77 skipped、零失败/错误；三个变更 Python 文件经固定 Ruff 0.15.22 format/check。未改 schema、OpenAPI、依赖、配置、版本或 CHANGELOG。
+- 此记录是 metadata 所有权与实际访问/事务行为证明；没有运行 generation worker，也不构成 renderer/WebGPU、影像生成或缩略图消费资格。
+- 主线三项 ready HTTP/严格十分钟边界、源替换拒绝和事务消费者回归通过；提交失败回归已改为真正调用访问所有者，在实际 flush 后注入 commit 故障并 rollback，以新 Session 确认保留上次触达，删除直接 setter 的 SQLAlchemy 回声。三文件固定 Ruff 格式/check 通过；未重复已完成的隔离 HTTP/MinIO 验收。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期及分析样本媒体观测已收口；仍有金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共五组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测及金字塔访问元数据已收口；仍有审计输出投影、在线状态维护、训练数据构建和主动学习执行，共四组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

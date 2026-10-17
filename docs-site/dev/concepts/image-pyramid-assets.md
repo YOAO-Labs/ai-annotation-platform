@@ -139,6 +139,8 @@ GET 返回状态 envelope；ready 时返回 manifest 和短期 overview URL，�
 `asset-urls` 最多接受 128 个 overview/tile 逻辑请求，去重后按首次出现顺序返回。服务端验证 Task 可见性、
 generation、level/grid 坐标和对象存在性，再统一签发到期时间。
 
+只有通过 URL 准备的 ready 响应才写入 `last_accessed_at`；带 `If-None-Match` 的 304 会在该写入前返回。`services/image_pyramid.py::touch_generation_access` 持有该代次元数据，仅在时间为空或严格早于十分钟前时更新，并保留原提交点。该元数据独立于 AsyncJob 状态和 Task 缩略图发布。
+
 对象缺失或 source fence 不匹配时，不返回 URL，并把 active generation 标记为不一致或陈旧。retry 对
 pending/building 是幂等的，对失败请求有冷却和频率限制。
 

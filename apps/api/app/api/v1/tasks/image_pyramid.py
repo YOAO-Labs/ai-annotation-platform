@@ -43,6 +43,7 @@ from app.services.image_pyramid import (
     pyramid_required,
     source_matches_generation,
     tile_key,
+    touch_generation_access,
     utcnow,
 )
 from app.services.storage import storage_service
@@ -228,12 +229,7 @@ async def get_image_pyramid(
         align=False,
     )
     building = await _building_generation(db, asset)
-    if (
-        generation.last_accessed_at is None
-        or generation.last_accessed_at < utcnow() - timedelta(minutes=10)
-    ):
-        generation.last_accessed_at = utcnow()
-        await db.commit()
+    await touch_generation_access(db, generation)
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="manifest", outcome="ready").inc()
     return ImagePyramidResponse(
         task_id=task.id,

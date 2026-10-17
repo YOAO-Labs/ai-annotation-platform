@@ -96,6 +96,7 @@ last_reviewed: 2026-10-17
 - 媒体物化：`services/media_materialization.py::MediaMaterializationWriter` 定义结果写端口，
   `workers/media_materialization.py` 绑定 assets/labeling 的元信息与帧索引所有者；
   媒体执行器持有 codec、对象 I/O 和派生帧/分块技术缓存，不代写项目管理权限。
+- 图片金字塔 GET：`api/v1/tasks/image_pyramid.py` 保留任务可见性、源/派生对象检查与缓存响应；`services/image_pyramid.py::touch_generation_access` 写入 ready 代次访问时间并持有十分钟节流和提交，不修改 AsyncJob 或 Task 缩略图状态。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
   `PredictionService` 持有 dismiss/restore、retry 结果计数与成功删除，路由保留当前
   项目管理准入及有状态变更时才记录审计和提交；worker 只持有推理/队列编排。
