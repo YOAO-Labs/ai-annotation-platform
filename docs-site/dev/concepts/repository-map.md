@@ -58,6 +58,12 @@ last_reviewed: 2026-10-16
   `services/{user_lifecycle,identity_commands,account_groups}.py`，
   成员行在 `services/project_membership.py`，任务/批次交接在 `BatchService`，
   GDPR 审计历史脱敏在 `AuditService`。预览/CAS、传统删除与离职、SQL/Redis 时序不混同。
+- 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
+  `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。
+  工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留。
+- 指引图片：`application/project_guide_assets.py` 组合当前授权与存储，
+  `services/project_workspace.py` 持有 key/登记规则，纯值限制在 `guide_asset_contracts.py`。
+  HEAD 后再次取权并刷新登记，DELETE 保持当前围栏；HTTP 持有提交。
 - 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
   持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
   `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。

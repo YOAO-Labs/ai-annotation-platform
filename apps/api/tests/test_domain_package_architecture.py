@@ -255,7 +255,13 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="project_workspace",
         legacy_facades=(),
-        allowed_app_imports=("app.db.models.project",),
+        allowed_app_imports=(
+            "app.db.models.project",
+            "app.services.guide_asset_contracts",
+        ),
+    ),
+    DomainSpec(
+        package="guide_asset_contracts", legacy_facades=(), allowed_app_imports=()
     ),
 )
 

@@ -8,7 +8,7 @@ import uuid
 from collections import Counter
 from datetime import datetime
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -2194,3 +2194,15 @@ class AnnotationService:
             batch_svc = BatchService(self.db)
             await batch_svc.check_auto_transitions(task.batch_id)
             await batch_svc.recalculate_counters(task.batch_id)
+
+    async def rename_class_name(
+        self, project_id: uuid.UUID, old_name: str, new_name: str
+    ) -> None:
+        """Rename matching annotations across every tool unit in one project."""
+        await self.db.execute(
+            text(
+                "UPDATE annotations SET class_name = :new "
+                "WHERE project_id = :pid AND class_name = :old"
+            ),
+            {"pid": str(project_id), "old": old_name, "new": new_name},
+        )

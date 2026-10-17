@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, or_, and_, update
+from sqlalchemy import select, func, or_, and_, update
 from app.deps import (
     get_db,
     get_current_user,
@@ -109,6 +109,7 @@ from app.application.project_deletion import (
 from app.application.project_task_cleanup import (
     delete_source_less_tasks as cleanup_source_less_tasks,
 )
+from app.application.project_class_rename import rename_project_class
 from app.schemas.project import VideoCollaborationConfig
 from app.services.video_collaboration import validate_project_collaboration_update
 
@@ -1280,7 +1281,7 @@ async def delete_project(
 class ClassRenameRequest(BaseModel):
     old_name: str
     new_name: str
-    # v0.10.17 · 工具单位限定; 不传时为兼容 (旧客户端) 在所有 enabled unit 内同名类一起改.
+    # Omission targets all stored bindings, including disabled tool units.
     tool_unit_id: str | None = None
 
 
@@ -1289,6 +1290,7 @@ async def rename_class(
     body: ClassRenameRequest,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """B-13 · 原子地把类别 old_name 重命名为 new_name:
     - 更新 tool_bindings 中对应 unit (或所有 unit) 的 classes[].name (强隔离 · 仅本 unit)
@@ -1296,63 +1298,17 @@ async def rename_class(
       region / 旧 schema 残留留下"孤儿"标注: binding 已无该类, 但 annotation 仍引用)
     - 不动 predictions.result (alias 不变)
     """
-    old = body.old_name.strip()
-    new = body.new_name.strip()
-    if not old or not new:
-        raise HTTPException(status_code=400, detail="名称不能为空")
-    if old == new:
+    changed = await rename_project_class(
+        db,
+        actor_id=current_user.id,
+        project_id=project.id,
+        old_name=body.old_name,
+        new_name=body.new_name,
+        tool_unit_id=body.tool_unit_id,
+    )
+    if not changed:
         return await _serialize_project(db, project)
 
-    tool_bindings = dict(project.tool_bindings or {})
-    target_units: list[str]
-    if body.tool_unit_id is not None:
-        if body.tool_unit_id not in tool_bindings:
-            raise HTTPException(
-                status_code=404, detail=f"tool_unit_id '{body.tool_unit_id}' 不存在"
-            )
-        target_units = [body.tool_unit_id]
-    else:
-        target_units = list(tool_bindings.keys())
-
-    found_any = False
-    for unit_id in target_units:
-        binding = tool_bindings.get(unit_id)
-        if not isinstance(binding, dict):
-            continue
-        classes_list = list(binding.get("classes") or [])
-        names = [c.get("name") for c in classes_list if isinstance(c, dict)]
-        if old not in names:
-            continue
-        if new in names:
-            raise HTTPException(
-                status_code=409,
-                detail=f"类别 '{new}' 在工具单位 '{unit_id}' 已存在",
-            )
-        renamed = []
-        for c in classes_list:
-            if isinstance(c, dict) and c.get("name") == old:
-                renamed.append({**c, "name": new})
-            else:
-                renamed.append(c)
-        tool_bindings[unit_id] = {**binding, "classes": renamed}
-        found_any = True
-
-    if not found_any:
-        raise HTTPException(status_code=404, detail=f"类别 '{old}' 不存在")
-
-    project.tool_bindings = tool_bindings
-
-    # 同步 annotations.class_name: 始终跨 unit 全项目改 (即使本次只动了一个 unit 的
-    # binding). 强隔离仅适用于 binding 元数据; annotations 是面向最终用户的可见框,
-    # 同一名字落到 magic-box / region / 旧 schema 等其他 unit 的标注若不一起改, 会
-    # 在工作台显示成"老框没改名"的孤儿数据.
-    await db.execute(
-        text(
-            "UPDATE annotations SET class_name = :new "
-            "WHERE project_id = :pid AND class_name = :old"
-        ),
-        {"pid": str(project.id), "old": old, "new": new},
-    )
     await db.commit()
     await db.refresh(project)
     return await _serialize_project(db, project)
