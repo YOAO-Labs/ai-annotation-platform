@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.async_job_access import can_access_job
+from app.services.async_job_access import _can_access_job
 from app.core.security import create_access_token
 from app.db.models.async_job import AsyncJob
 from app.db.models.project_member import ProjectMember
@@ -173,7 +173,7 @@ async def test_async_job_access_drops_after_membership_revocation(
     job = await _make_job(db_session, project_id=project.id, user_id=employee.id)
     await db_session.commit()
 
-    assert await can_access_job(db_session, job=job, user=employee) is True
+    assert await _can_access_job(db_session, job=job, actor_id=employee.id) is True
 
     await db_session.execute(
         delete(ProjectMember).where(
@@ -185,7 +185,7 @@ async def test_async_job_access_drops_after_membership_revocation(
     await db_session.refresh(employee)
 
     # Job ownership is not enough once current project access is gone.
-    assert await can_access_job(db_session, job=job, user=employee) is False
+    assert await _can_access_job(db_session, job=job, actor_id=employee.id) is False
 
 
 async def test_export_job_result_denied_to_annotator_membership(

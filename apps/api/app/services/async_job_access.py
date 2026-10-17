@@ -16,8 +16,13 @@ from app.services.project_access import resolve_project_access
 EXPORT_JOB_KIND = "export"
 
 
-async def can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> bool:
+async def _can_access_job(
+    db: AsyncSession, *, job: AsyncJob, actor_id: uuid.UUID
+) -> bool:
     """Reauthorize job ownership and frozen task scope against current project access."""
+    user = await db.get(User, actor_id)
+    if user is None:
+        return False
     if user.role == PlatformRole.SUPER_ADMIN.value:
         return True
     if job.project_id is None:

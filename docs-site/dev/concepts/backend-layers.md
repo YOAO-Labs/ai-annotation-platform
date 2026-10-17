@@ -122,7 +122,7 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 项目权威使用 `FOR KEY SHARE`，与所有权转移/删除的显式 `FOR UPDATE` 互斥，但允许项目计数的普通更新；标注生命周期计数使用 SQL 原子增减及下限裁剪，不从旧 ORM 数值回写。账号数据组目录同样只对操作者持有账号权威 KEY SHARE，角色/启停/密码写入仍用完整账号写锁，避免两个管理员互改对方数据组时发生账号锁环。登录与偏好合并保留原有等待式账号锁，不把并发上下文合并或预设 CAS 改成抢锁失败。
 
-`services/async_job_access.py` 持有作业结果的当前项目、导出能力与审核任务范围可见性；明细和取消用例直接消费该所有者，旧路由私有函数已删除。列表仍使用现有 SQL 范围谓词，不因本次下沉改为逐行权限查询。
+作业列表/明细、取消和失败重试消费 `application/async_job_contracts.py` 的三个值端口，只传主体/资源 UUID 与原过滤参数，返回原响应或取消状态。`SqlAsyncJobReadAdapter` 私下持有列表谓词、ORM 与响应投影；`services/async_job_access.py::_can_access_job` 保留项目、导出能力和审核范围判断。取消/重试适配器绑定原请求 Session 与控制/派发端口，保留领域取消分支、HTTP 的最终提交，以及重试 claim 提交、派发失败补偿的原顺序。预期失败携带原 status/detail/headers；列表不改为逐行权限查询，初始身份事实不替代各领域的当前写入围栏。
 
 讨论读模型与通知接收人筛选直接调用 `project_access.resolve_project_access_by_id`，再检查 `task_access.assert_task_visible`，不消费 HTTP 依赖助手。`deps.assert_project_visible` 仍是 HTTP 侧对同一解析器的适配，不另建权限实现。当前成员状态、任务批次/分派限制及 404 隐藏语义不变；讨论回复和通知行仍同事务写入，提交后再发布并复核投递权限。
 

@@ -21,6 +21,11 @@ from app.services.job_execution_control import JobExecutionControl
 from app.services.prediction_retry import PredictionRetryDispatcher
 from app.application.preannotation_contract import BatchPredictionDispatcher
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
+from app.application.async_job_contracts import (
+    AsyncJobReadPort,
+    JobCancellationPort,
+    PredictionRetryPort,
+)
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -98,6 +103,35 @@ def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:
     from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
 
     return CeleryPredictionRetryDispatcher()
+
+
+def get_async_job_read_port(
+    db: AsyncSession = Depends(get_db),
+) -> AsyncJobReadPort:
+    """Bind async-job reads to the request's SQL session."""
+    from app.application.async_job_read import SqlAsyncJobReadAdapter
+
+    return SqlAsyncJobReadAdapter(db)
+
+
+def get_job_cancellation_port(
+    db: AsyncSession = Depends(get_db),
+    execution_control: JobExecutionControl = Depends(get_job_execution_control),
+) -> JobCancellationPort:
+    """Bind cancellation workflow to the request session and execution control."""
+    from app.application.job_cancellation import SqlJobCancellation
+
+    return SqlJobCancellation(db, execution_control=execution_control)
+
+
+def get_prediction_retry_port(
+    db: AsyncSession = Depends(get_db),
+    dispatcher: PredictionRetryDispatcher = Depends(get_prediction_retry_dispatcher),
+) -> PredictionRetryPort:
+    """Bind retry workflow to the request's session and dispatch port."""
+    from app.application.prediction_retry import SqlPredictionRetry
+
+    return SqlPredictionRetry(db, dispatcher=dispatcher)
 
 
 def get_batch_prediction_dispatcher() -> BatchPredictionDispatcher:

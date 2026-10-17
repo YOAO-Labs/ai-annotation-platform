@@ -200,7 +200,7 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
 async def test_retry_dispatch_failure_releases_claim_without_spending_attempt(
     db_session, super_admin, monkeypatch
 ):
-    from app.application.prediction_retry import retry_prediction
+    from app.application.prediction_retry import SqlPredictionRetry
     from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
     from app.workers import predictions_retry
 
@@ -222,9 +222,9 @@ async def test_retry_dispatch_failure_releases_claim_without_spending_attempt(
         predictions_retry.retry_failed_prediction, "apply_async", publish
     )
     with pytest.raises(RuntimeError):
-        await retry_prediction(
-            db_session, fp.id, user, dispatcher=CeleryPredictionRetryDispatcher()
-        )
+        await SqlPredictionRetry(
+            db_session, dispatcher=CeleryPredictionRetryDispatcher()
+        ).retry_prediction(failed_id=fp.id, actor_id=user.id)
 
     await db_session.refresh(fp)
     assert not fp.extra.get("retry_pending")

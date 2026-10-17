@@ -833,9 +833,8 @@ async def test_training_dataset_cancellation_uses_fresh_job_and_version_state(
 async def test_training_dataset_cancellation_restores_current_account_rejection(
     db_session, super_admin
 ):
-    from fastapi import HTTPException
-
-    from app.application.job_cancellation import cancel_job
+    from app.application.async_job_contracts import AsyncJobOperationFailure
+    from app.application.job_cancellation import SqlJobCancellation
     from app.db.models.user import User
 
     owner, _ = super_admin
@@ -854,13 +853,10 @@ async def test_training_dataset_cancellation_restores_current_account_rejection(
         def request_cancel(self, execution_id):
             execution_ids.append(execution_id)
 
-    with pytest.raises(HTTPException) as exc:
-        await cancel_job(
-            db_session,
-            job.id,
-            owner,
-            execution_control=CaptureExecutionControl(),
-        )
+    with pytest.raises(AsyncJobOperationFailure) as exc:
+        await SqlJobCancellation(
+            db_session, execution_control=CaptureExecutionControl()
+        ).cancel(job_id=job.id, actor_id=owner.id)
 
     assert exc.value.status_code == 401
     assert exc.value.detail == "账号已停用或不存在"
@@ -873,7 +869,7 @@ async def test_training_dataset_cancellation_restores_current_account_rejection(
 async def test_training_dataset_cancellation_preserves_unexpected_owner_exception(
     db_session, super_admin, monkeypatch
 ):
-    from app.application.job_cancellation import cancel_job
+    from app.application.job_cancellation import SqlJobCancellation
 
     owner, _ = super_admin
     _project, job, _version = await make_minimal_cancel_target(db_session, owner)
@@ -892,12 +888,9 @@ async def test_training_dataset_cancellation_preserves_unexpected_owner_exceptio
             execution_ids.append(execution_id)
 
     with pytest.raises(RuntimeError) as exc:
-        await cancel_job(
-            db_session,
-            job.id,
-            owner,
-            execution_control=CaptureExecutionControl(),
-        )
+        await SqlJobCancellation(
+            db_session, execution_control=CaptureExecutionControl()
+        ).cancel(job_id=job.id, actor_id=owner.id)
 
     assert exc.value is owner_failure
     assert execution_ids == []

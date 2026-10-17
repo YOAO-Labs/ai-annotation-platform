@@ -843,6 +843,19 @@ def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
             ("app", "sqlalchemy", "fastapi", "celery"),
         ),
         (
+            "app.application.async_job_contracts",
+            (
+                "app.api",
+                "app.application",
+                "app.db",
+                "app.services",
+                "app.workers",
+                "sqlalchemy",
+                "fastapi",
+                "celery",
+            ),
+        ),
+        (
             "app.application.preannotation_execution",
             ("app.api", "app.workers", "celery"),
         ),

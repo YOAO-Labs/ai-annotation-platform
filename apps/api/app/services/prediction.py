@@ -61,9 +61,15 @@ def _apply_prediction_error(
 
 
 async def assert_can_manage_failed_prediction(
-    db: AsyncSession, fp: FailedPrediction, user: User
+    db: AsyncSession, fp: FailedPrediction, actor_id: uuid.UUID
 ) -> None:
     """Authorize retry, dismissal and restoration against current project management."""
+    user = await db.get(User, actor_id)
+    if user is None:
+        raise HTTPException(
+            status_code=403,
+            detail="仅项目负责人或超级管理员可管理失败预测",
+        )
     if user.role == UserRole.SUPER_ADMIN.value:
         return
     project = await db.get(Project, fp.project_id)

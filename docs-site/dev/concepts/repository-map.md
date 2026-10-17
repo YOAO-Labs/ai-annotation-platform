@@ -57,7 +57,7 @@ last_reviewed: 2026-10-17
   `labeling_write_guard.py` 消费 `project_access.lock_current_project_access()` 的
   账号→项目→成员当前权威；候选/Meta/计数、标注采纳及批次推进由各自标注所有者写入，
   不把历史作业或 Scope DTO 当授权。
-- 作业结果可见性：`app/services/async_job_access.py::can_access_job`；
+- 作业读取/取消/重试值接口：`app/application/async_job_contracts.py`；SQL 可见性实现为 `app/services/async_job_access.py::_can_access_job`，ORM 留在读取与命令适配器内；
   明细与取消重查当前项目、导出能力及审核任务范围，不把历史作业归属当作当前授权。
 - 账号与责任交接：`app/application/{user_lifecycle,legacy_user_lifecycle,project_membership,project_workspace}.py`
   组合身份、workspace 与 labeling 所有者；账号写入在

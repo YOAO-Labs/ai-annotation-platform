@@ -544,7 +544,7 @@ class TestAsyncJobsAPI:
     async def test_retry_publish_failure_releases_only_unpublished_claims(
         self, db_session, project_admin, monkeypatch, fail_at
     ):
-        from app.application.prediction_retry import retry_job_items
+        from app.application.prediction_retry import SqlPredictionRetry
         from app.workers.prediction_retry_dispatch import (
             CeleryPredictionRetryDispatcher,
         )
@@ -583,12 +583,9 @@ class TestAsyncJobsAPI:
 
         monkeypatch.setattr(predictions_retry.retry_failed_prediction, "delay", publish)
         with pytest.raises(RuntimeError):
-            await retry_job_items(
-                db_session,
-                job.id,
-                user,
-                dispatcher=CeleryPredictionRetryDispatcher(),
-            )
+            await SqlPredictionRetry(
+                db_session, dispatcher=CeleryPredictionRetryDispatcher()
+            ).retry_job_items(job_id=job.id, actor_id=user.id)
 
         for index, row in enumerate(failures):
             await db_session.refresh(row)

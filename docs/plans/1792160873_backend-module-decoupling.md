@@ -1549,6 +1549,13 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 五个相关文件首轮 84 passed、1 failed，失败为原测试仍 monkeypatch 已移除的 API storage 别名；改为实际 SQL owner 的同一存储对象后该项通过，累计 85 个不同用例通过、零跳过。覆盖清单、304/签名 URL、源替换失效、ready 触达提交/回滚、pending 重试与新增冷却/Retry-After、列表/保存视图和轻量摘要。
 - 架构 267 passed、109 skipped（未声明 lazy-root 的项），合同冷加载不装配 ORM/HTTP/application/worker，固定 Ruff、差异与 OpenAPI 提交门禁通过。没有运行新的原生图像处理、真实对象存储或独立 worker 资格，原技术执行边界保持本地。
 
+### 作业访问、取消与失败重试的主体值边界
+
+- `AsyncJobReadPort` / `JobCancellationPort` / `PredictionRetryPort` 只接收命名 UUID、原过滤/分页标量，返回原响应或取消状态；不返回 SQL 查询或 ORM。读取 owner 持有原谓词及投影，取消/重试 owner 绑定原 Session 与执行控制/派发器，旧自由取消/重试函数及 User 输入已迁移，驳回/恢复的实际失败预测权限消费者同步传 actor UUID。
+- API 保留原认证/角色/作用域与最终取消提交。十一类取消、无项目作业、错误优先级、重试 claim/提交/派发补偿、分页/项目范围/标签和原 status/detail/headers 均沿用，未引入请求 DTO、默认回退或新队列协议。私有 SQL helper 可持有已加载的行，不为权限布尔判断构建完整响应或重复加载 Job。
+- 五个相关文件 100 passed、零跳过，含范围谓词、列表/明细、项目访问、取消、失败预测及训练数据取消；与已完成训练准入的测试调用合并后通过。架构 268 passed、109 skipped（未声明 lazy-root 的项），应用合同冷加载无 ORM/HTTP/worker/services，固定 Ruff、差异和 OpenAPI 提交门禁通过。
+- 本片保留原缓存角色分支，审计另确认旧超管身份在另一 Session 降权/停用后可能仍放行；该问题按独立正确性修复验证，不能把本片 ID 输入当成角色新鲜度保证。
+
 ### 剩余范围与保留条件
 
 已识别的 Python 依赖方向、写入所有权与选定公开契约有逐片验收记录；这不等于所有模块都已具备独立部署合同。当前已完成的接口、仍保留的本地耦合与未来提取门槛分开记录：

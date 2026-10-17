@@ -25,8 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import (
     get_current_user,
+    get_current_user_id,
     get_db,
-    get_prediction_retry_dispatcher,
+    get_prediction_retry_port,
     require_project_owner,
     require_roles,
     require_scopes,
@@ -44,12 +45,14 @@ from app.schemas.prediction import (
     PredictionPurgeResponse,
 )
 from app.services.audit import AuditAction, AuditService
-from app.application import prediction_retry
+from app.application.async_job_contracts import (
+    AsyncJobOperationFailure,
+    PredictionRetryPort,
+)
 from app.services.prediction import (
     PredictionService,
     assert_can_manage_failed_prediction,
 )
-from app.services.prediction_retry import PredictionRetryDispatcher
 
 
 router = APIRouter()
@@ -158,16 +161,21 @@ async def list_failed_predictions(
     "/admin/failed-predictions/{failed_id}/retry",
     status_code=202,
     response_model=RetryResponse,
+    dependencies=[Depends(require_roles(*_MANAGERS))],
 )
 async def retry_failed_prediction(
     failed_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
-    dispatcher: PredictionRetryDispatcher = Depends(get_prediction_retry_dispatcher),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
+    retry_port: PredictionRetryPort = Depends(get_prediction_retry_port),
 ) -> Any:
-    await prediction_retry.retry_prediction(
-        db, failed_id, current_user, dispatcher=dispatcher
-    )
+    try:
+        await retry_port.retry_prediction(failed_id=failed_id, actor_id=actor_id)
+    except AsyncJobOperationFailure as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=dict(exc.headers) if exc.headers is not None else None,
+        ) from exc
     return RetryResponse(status="queued", failed_id=failed_id)
 
 
@@ -195,7 +203,7 @@ async def dismiss_failed_prediction(
     fp = await db.get(FailedPrediction, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
-    await assert_can_manage_failed_prediction(db, fp, current_user)
+    await assert_can_manage_failed_prediction(db, fp, current_user.id)
     if await PredictionService(db).dismiss_failed_prediction(fp):
         await AuditService.log(
             db,
@@ -232,7 +240,7 @@ async def restore_failed_prediction(
     fp = await db.get(FailedPrediction, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
-    await assert_can_manage_failed_prediction(db, fp, current_user)
+    await assert_can_manage_failed_prediction(db, fp, current_user.id)
     if await PredictionService(db).restore_failed_prediction(fp):
         await AuditService.log(
             db,
