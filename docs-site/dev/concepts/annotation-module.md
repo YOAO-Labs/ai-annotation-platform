@@ -488,6 +488,8 @@ AI 采纳入口：
 
 这样前端可以按 `(predictionId, shapeIndex)` 双键判断“某个 AI shape 是否已经被采纳”，避免一条 prediction 里多个框互相串扰。
 
+驳回先保留候选/任务绑定和最终写入围栏，再在已持有的 Task 锁内刷新拒绝下标后合并。不同会话预读同一旧候选时，后一次成功提交也会保留先前拒绝记录；重复拒绝仍去重，响应保持 204。
+
 ### alias 映射
 
 `CandidateDecisionPort.accept()` 的 SQL 实现按 `prediction.tool_unit_id` 读取 `project.tool_bindings` 中对应 unit 的 classes，把 ML backend 写入的英文 alias 映射回项目真实类目名。生成的 annotation `tool_unit_id` 沿用 `prediction.tool_unit_id`。

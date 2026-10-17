@@ -810,6 +810,8 @@ class AnnotationService:
                 detail=f"shape_index {shape_index} out of range (0..{total_shapes - 1})",
             )
 
+        # Re-read under the Task lock so concurrent rejects merge current history.
+        await self.db.refresh(prediction, ["rejected_shape_indexes"])
         rejected = list(prediction.rejected_shape_indexes or [])
         rejected_set = set(rejected)
         targets = (

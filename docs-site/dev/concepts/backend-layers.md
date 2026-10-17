@@ -138,7 +138,7 @@ services/
 
 批量编辑使用同一契约文件中的 `AnnotationBulkUpdatePort`，传 actor UUID、既有批量请求和审计来源，返回原 `AnnotationBulkUpdateResponse`。私有实现绑定请求 Session/actor，按原顺序选取标注 ID、锁定唯一 Task、检查当前许可/审核证据/可见性和编辑阶段，再记录贡献、调用原批量写入、审计并提交。重复 ID 仍拒绝，空或全部为 null 的补丁仍递增版本；不增加去重或跳过逻辑。
 
-人工候选接受/驳回消费 `candidate_decision_contract.CandidateDecisionPort`，命令只含原 `LabelingWriteScope`、候选 UUID 及原形状下标、类别/属性覆盖和片段参数。`application/candidate_decision.py` 为原 Session/Task/actor 绑定实现，错误绑定在 SQL 前拒绝；HTTP 保留初始权限/可见性/编辑检查和接受前的视频租约检查。候选预读、最终权威与 Task 锁仍按原顺序执行，SQL 步骤留在 `AnnotationService` 的私有方法，未增加 Prediction 行锁或复读。接受后继续逐标注核验视频范围、heartbeat、提交，再返回本次新建的 `AnnotationOut`；缺候选/越界的 None 分支不提交，由入口返回原 404。驳回保留原下标去重、heartbeat、提交与 204。预期拒绝通过纯 status/detail/headers 恢复，worker 的 `ApplyPredictionResultPort` 不参与人工决策。
+人工候选接受/驳回消费 `candidate_decision_contract.CandidateDecisionPort`，命令只含原 `LabelingWriteScope`、候选 UUID 及原形状下标、类别/属性覆盖和片段参数。`application/candidate_decision.py` 为原 Session/Task/actor 绑定实现，错误绑定在 SQL 前拒绝；HTTP 保留初始权限/可见性/编辑检查和接受前的视频租约检查。候选预读、最终权威与 Task 锁仍按原顺序执行，SQL 步骤留在 `AnnotationService` 的私有方法，不增加 Prediction 行锁。接受后继续逐标注核验视频范围、heartbeat、提交，再返回本次新建的 `AnnotationOut`；缺候选/越界的 None 分支不提交，由入口返回原 404。驳回在最终 Task 锁与原形状下标检查后，只刷新 `rejected_shape_indexes` 再合并，避免并发决策覆盖已提交的拒绝历史；其余下标去重、heartbeat、提交与 204 保留。预期拒绝通过纯 status/detail/headers 恢复，worker 的 `ApplyPredictionResultPort` 不参与人工决策。
 
 `annotation_slice_contracts` 是只依赖标准库的错误、摘要和固定恢复期限所有者。Polygon 切割、Mask mutation 与 `mask_slice_restore` 直接消费该合同，恢复下层不再反向导入切割编排。原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
 

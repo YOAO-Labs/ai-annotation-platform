@@ -1,23 +1,29 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import event
+from sqlalchemy import delete, event, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.application.candidate_decision import bind_candidate_decision_port
 from app.db.models.prediction import Prediction
+from app.db.models.project import Project
+from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
+from app.db.models.user import User
 from app.services.annotation import AnnotationService
+from app.services import annotation as annotation_service
 from app.services.candidate_decision_contract import (
     CandidateAcceptCommand,
     CandidateRejectCommand,
 )
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from tests.factory import create_project, create_task
+from tests.factory import create_project, create_task, create_user
 
 pytestmark = pytest.mark.asyncio
 
@@ -217,3 +223,128 @@ async def test_candidate_rejection_restores_projected_http_error_facts(
         "shape_index": 0,
     }
     assert response.headers["X-Candidate-Decision"] == "busy"
+
+
+async def test_concurrent_candidate_rejections_retain_both_shape_indexes(
+    test_engine, monkeypatch
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker() as setup:
+        actor = await create_user(
+            setup,
+            "super_admin",
+            f"candidate-race-{uuid.uuid4()}@test.local",
+            "Candidate race actor",
+        )
+        project, task, prediction = await _seed_candidates(setup, actor)
+        original_expiry = datetime.now(timezone.utc) + timedelta(seconds=30)
+        task_lock = TaskLock(
+            task_id=task.id,
+            user_id=actor.id,
+            expire_at=original_expiry,
+        )
+        setup.add(task_lock)
+        await setup.flush()
+        actor_id, project_id, task_id, prediction_id, task_version = (
+            actor.id,
+            project.id,
+            task.id,
+            prediction.id,
+            task.version,
+        )
+        await setup.commit()
+
+    second_session_id: int | None = None
+    second_candidate_loaded = asyncio.Event()
+    allow_second_guard = asyncio.Event()
+    second_candidate_snapshots: list[list[int]] = []
+    captured_task_versions: list[int | None] = []
+    original_guard = annotation_service.lock_labeling_write
+
+    async def interleaved_guard(db, write_scope, *, operations):
+        if id(db) == second_session_id:
+            candidate = next(
+                (
+                    value
+                    for value in db.identity_map.values()
+                    if isinstance(value, Prediction) and value.id == prediction_id
+                ),
+                None,
+            )
+            assert candidate is not None
+            second_candidate_snapshots.append(
+                list(candidate.rejected_shape_indexes or [])
+            )
+            second_candidate_loaded.set()
+            await asyncio.wait_for(allow_second_guard.wait(), timeout=5)
+        return await original_guard(db, write_scope, operations=operations)
+
+    monkeypatch.setattr(annotation_service, "lock_labeling_write", interleaved_guard)
+
+    async def reject_shape(shape_index: int, *, second: bool = False) -> None:
+        nonlocal second_session_id
+        async with maker() as db:
+            try:
+                if second:
+                    second_session_id = id(db)
+                actor = await db.get(User, actor_id)
+                task = await db.get(Task, task_id)
+                assert actor is not None and task is not None
+                write_scope = _scope(task, actor.id, "candidate_reject")
+                captured_task_versions.append(write_scope.task_version)
+                await bind_candidate_decision_port(db, task=task, actor=actor).reject(
+                    CandidateRejectCommand(
+                        write_scope=write_scope,
+                        prediction_id=prediction_id,
+                        shape_index=shape_index,
+                    )
+                )
+            finally:
+                if db.in_transaction():
+                    await db.rollback()
+
+    first_task: asyncio.Task | None = None
+    second_task: asyncio.Task | None = asyncio.create_task(reject_shape(1, second=True))
+    try:
+        async with asyncio.timeout(15):
+            await asyncio.wait_for(second_candidate_loaded.wait(), timeout=4)
+            assert second_candidate_snapshots == [[]]
+            first_task = asyncio.create_task(reject_shape(0))
+            await asyncio.wait_for(first_task, timeout=4)
+            allow_second_guard.set()
+            await asyncio.wait_for(second_task, timeout=4)
+            assert captured_task_versions == [task_version, task_version]
+
+            async with maker() as check:
+                prediction = await check.scalar(
+                    select(Prediction).where(Prediction.id == prediction_id)
+                )
+                task_lock = await check.scalar(
+                    select(TaskLock).where(
+                        TaskLock.task_id == task_id,
+                        TaskLock.user_id == actor_id,
+                    )
+                )
+                assert prediction is not None
+                assert prediction.rejected_shape_indexes == [0, 1]
+                assert task_lock is not None
+                assert task_lock.expire_at > original_expiry
+    finally:
+        allow_second_guard.set()
+        workers = [worker for worker in (first_task, second_task) if worker is not None]
+        for worker in workers:
+            if not worker.done():
+                worker.cancel()
+        if workers:
+            await asyncio.wait_for(
+                asyncio.gather(*workers, return_exceptions=True), timeout=3
+            )
+        async with maker() as cleanup:
+            await cleanup.execute(
+                delete(Prediction).where(Prediction.id == prediction_id)
+            )
+            await cleanup.execute(delete(TaskLock).where(TaskLock.task_id == task_id))
+            await cleanup.execute(delete(Task).where(Task.id == task_id))
+            await cleanup.execute(delete(Project).where(Project.id == project_id))
+            await cleanup.execute(delete(User).where(User.id == actor_id))
+            await cleanup.commit()
