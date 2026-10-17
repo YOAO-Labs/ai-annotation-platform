@@ -201,10 +201,12 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(),
     ),
     DomainSpec(package="secondary_inference", legacy_facades=()),
+    DomainSpec(package="task_discussion", legacy_facades=()),
+    DomainSpec(package="discussion_notifications", legacy_facades=()),
 )
 
 # Absolute module roots a service domain must never depend on.
-_FORBIDDEN_ROOTS = ("app.api", "app.workers", "app.application")
+_FORBIDDEN_ROOTS = ("app.api", "app.workers", "app.application", "app.deps")
 
 
 def _module_path(rel_source: Path) -> str:
@@ -674,6 +676,8 @@ def test_services_graph_has_no_guarded_domain_cycle() -> None:
         "app.services.prediction_progress",
         "app.services.prediction_roi",
         "app.services.secondary_inference",
+        "app.services.task_discussion",
+        "app.services.discussion_notifications",
         *DOMAIN_PACKAGES[0].legacy_facades,
     }
 

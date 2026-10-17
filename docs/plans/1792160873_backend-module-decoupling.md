@@ -380,8 +380,15 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 ### 本轮边界核对
 
 - 实测服务图为 243 个模块、三个剩余 SCC：`active_learning_pool/sample_evaluation_sources/sample_evaluations`、`annotation_slice/mask_slice_restore` 和 `mask_formats` 的注册环。点云/场景环已去除，预测同步服务到 worker 的反向导入已去除；不能以局部守卫通过宣称全图无环。
-- 剩余组合依赖为 `discussion_notifications`、`task_discussion` 对 `app.deps`；`video_tracking.jobs` 仍直接依赖 Celery，追踪派发仍有执行任务名边界。后续按领域继续迁移，不把基础类型简单搬到 `common`，也不为了绕过门禁增加豁免。
+- 该轮结束时，讨论服务仍依赖 `app.deps`，`video_tracking.jobs` 仍直接依赖 Celery 及执行任务名。后续完成情况见下方剩余边界切片记录；局部门禁不代表其他跨域写入已迁移。
 - 当前只完成上述可独立提交的本地切片。完整命令/表/对象前缀台账、所有跨域写入归属、独立 wire DTO 和真实语言替换仍是计划验收项；本轮不选择语言，不把本地 ORM/session 端口冒充进程边界。
+
+### 讨论可见性与通知接收人边界
+
+- `task_discussion` 和 `discussion_notifications` 直接使用已有 `project_access.resolve_project_access_by_id`，保持项目检查先于任务检查；移除对 HTTP 依赖装配的反向导入，没有复制权限规则或新增兼容接口。HTTP 自身仍消费同一解析器，不改公开合同。
+- 两个服务加入领域/SCC 门禁，服务禁用根扩展至 `app.deps`，覆盖函数内与相对导入。已有批次/分派、有效成员/账号、404 隐藏、接收人去重及提交后发布语义保持。
+- 八个相关完整文件 148 passed、48 skipped，跳过均为 lazy-root 不适用。真实 ASGI HTTP/PostgreSQL/Redis 烟测确认成员 200、外部主体 404、成员移除后 404；原回复通知可从独立会话读取已提交行，成员移除后的新回复仍成功提交但不再通知该接收人。未使用模拟权限/存储/发布器，未进行浏览器验收。
+- 纯内部调用方向切换，不新增查询、锁、提交、schema、配置或外部协议；正式分层和仓库地图同步。其余循环依赖与跨域事务仍按后续切片推进。
 
 ### 剩余范围
 

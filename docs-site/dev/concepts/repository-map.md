@@ -115,6 +115,9 @@ last_reviewed: 2026-10-16
    `app/services/async_job_notify.py::notify_job_terminal` 的既有合同在调用方提交前写入和发布。
    列表/投递分别用 `_scope_conditions()` 与 `_allowed_delivery_indices()` 复用
    `valid_membership_conditions()`，投递路径额外要求账号活跃；不要混淆两种提交时序。
+   讨论流的 `services/task_discussion.py` 与 `services/discussion_notifications.py` 直接调用
+   `project_access.resolve_project_access_by_id` 和任务可见性所有者，不依赖 HTTP 装配；
+   对实际接收人复核当前项目/任务资格，移除成员后不再成为受限讨论通知目的地。
 
 ## 4. ML backend 调用链
 

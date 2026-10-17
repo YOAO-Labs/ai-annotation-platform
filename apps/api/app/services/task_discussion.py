@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.services import task_access
-from app.deps import assert_project_visible
+from app.services.project_access import resolve_project_access_by_id
 from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
@@ -186,7 +186,7 @@ async def require_visible_task(
     # Task visibility applies batch/status and assignment rules, but it is
     # intentionally usable by a few cross-project task flows and does not establish
     # project membership.  Discussion routes must require both checks.
-    await assert_project_visible(task.project_id, db, user)
+    await resolve_project_access_by_id(db, user=user, project_id=task.project_id)
     await task_access.assert_task_visible(db, task, user)
     return task
 

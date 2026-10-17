@@ -20,7 +20,7 @@ from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.notification import Notification
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.deps import assert_project_visible
+from app.services.project_access import resolve_project_access_by_id
 from app.services.feedback import FeedbackService
 from app.services.notification import NotificationService
 
@@ -88,7 +88,9 @@ async def _accessible_active_user_ids(
         if candidate is None:
             continue
         try:
-            await assert_project_visible(task.project_id, db, candidate)
+            await resolve_project_access_by_id(
+                db, user=candidate, project_id=task.project_id
+            )
             await task_access.assert_task_visible(db, task, candidate)
         except HTTPException:
             # A transferred/hidden task is not a notification destination.  Keep
