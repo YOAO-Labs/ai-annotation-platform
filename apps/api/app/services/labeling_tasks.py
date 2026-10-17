@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.sql.selectable import FromClause
 
+from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services import async_job as async_job_svc, task_access
@@ -16,6 +17,10 @@ from app.services.annotation_evidence import ensure_review_round, start_review_r
 from app.services.dataset_task_facts import (
     PreparedDatasetItem,
     PreparedPointCloudFrame,
+)
+from app.services.labeling_task_creation_contract import (
+    LabelingTaskCreationPort,
+    TaskCreationCounts,
 )
 
 from app.services.display_id import next_display_id
@@ -45,7 +50,7 @@ class LabelingUploadTarget:
     status: str
 
 
-class LabelingTaskService:
+class LabelingTaskService(LabelingTaskCreationPort):
     """Own task writes, task-linked media, and labeling progress projections."""
 
     def __init__(self, db: AsyncSession) -> None:
@@ -234,6 +239,39 @@ class LabelingTaskService:
         set_committed_value(project, "completed_tasks", counts.completed_tasks)
         set_committed_value(project, "review_tasks", counts.review_tasks)
 
+    async def read_pending_dataset_items(
+        self, *, dataset_id: uuid.UUID, project_id: uuid.UUID
+    ) -> tuple[PreparedDatasetItem, ...]:
+        rows = (
+            await self.db.execute(
+                select(
+                    DatasetItem.id,
+                    DatasetItem.file_name,
+                    DatasetItem.file_path,
+                    DatasetItem.file_type,
+                )
+                .where(DatasetItem.dataset_id == dataset_id)
+                .where(
+                    ~select(Task.id)
+                    .where(
+                        Task.project_id == project_id,
+                        Task.dataset_item_id == DatasetItem.id,
+                    )
+                    .exists()
+                )
+                .order_by(DatasetItem.id)
+            )
+        ).all()
+        return tuple(
+            PreparedDatasetItem(
+                id=row.id,
+                file_name=row.file_name,
+                file_path=row.file_path,
+                file_type=row.file_type,
+            )
+            for row in rows
+        )
+
     async def create_initial_generic(
         self,
         *,
@@ -242,7 +280,7 @@ class LabelingTaskService:
         job_id: uuid.UUID | None = None,
         chunk_size: int = 5000,
         commit_each_chunk: bool = True,
-    ) -> dict[str, int]:
+    ) -> TaskCreationCounts:
         """Insert the workflow's pending snapshot without a second preselection."""
         total = len(pending_items)
         if total == 0:
@@ -298,7 +336,7 @@ class LabelingTaskService:
         job_id: uuid.UUID | None = None,
         chunk_size: int = 5000,
         commit_each_chunk: bool = True,
-    ) -> dict[str, int]:
+    ) -> TaskCreationCounts:
         if not frames:
             return {"created": 0, "total": 0}
 

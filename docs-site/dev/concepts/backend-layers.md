@@ -53,11 +53,11 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 失败预测管理权限、dismiss/restore 和占用写入由 `services/prediction.py` 持有；同一 owner 还持有 retry 成功后的失败行删除及失败计数（递增 `retry_count`、更新 `last_retry_at`、移除 `retry_pending` 并保留可选仲裁错误）。HTTP 保留当前角色与项目管理准入、条件审计和提交；worker 只保留实际推理/队列编排，预测产物与失败行删除在同一调用事务提交。重试上限和 UTF-8 JSON 的 8 KiB 上下文预算归 `services/prediction_retry.py`。该纯模块的 `PredictionRetryDispatcher` 定义具体重试操作，由 `deps.get_prediction_retry_dispatcher()` 装配 `workers/prediction_retry_dispatch.py`；只传 UUID 和单项预选的执行队列，不暴露 Celery 任务对象或注册名。它仍是本地同步派发接口，没有增加远程协议、自动重试或数据库与 broker 的原子提交；回执丢失等不确定发布仍沿用原语义，补偿不证明任务未入队。
 
-`application/dataset_task_creation.py::DatasetTaskCreationWorkflow` 协调素材关联、请求时同步/排队选择、素材准备与标注建题。初始泛型待建题集合仍用原单语句 `NOT EXISTS` 只读投影，保留排序和一致切面，不先取全量素材 ID 再发大型 `IN` 查询。该投影仍绑定本地数据库，不是可直接远程化的素材查询协议。
+`application/dataset_task_creation.py::DatasetTaskCreationWorkflow` 协调素材关联、请求时同步/排队选择、素材准备与标注建题。它通过 `labeling_task_creation_contract.LabelingTaskCreationPort` 调用待建来源查询、初始泛型/点云建题及追加建题，公开参数只含 UUID、原创建选项和素材/帧事实，结果保留 `created` / `total` 计数字典。待建来源的单语句 `NOT EXISTS` 投影由 Labeling SQL 所有者持有，按素材 UUID 排序，不先取全量素材 ID 再发大型 `IN` 查询。适配器绑定调用方原 Session；该跨域投影仍是本地数据库的一致切面。
 
 `services/labeling_tasks.py::LabelingTaskService` 持有初始泛型/点云建题、追加建题、媒体关联和项目任务总数增量；输入为 `dataset_task_facts.py` 的不可变素材/帧事实，不接收素材 ORM。`DatasetService` 保留入库、去重、尺寸、素材行/文件数和管理关联；`pointcloud_import` 保留标定与帧准备，和 `scene_inference` 共用下层 `dataset_frame_grouping`，场景推断不再反向导入点云准备。初始任务保留默认 5000 项及调用方指定的分块提交，追加只 flush，点云标定独立前置提交和零新增帧重放均保持原语义。
 
-素材关联向应用返回 `link_id`、是否已有及素材数，建题应用向入口返回关联 UUID、可选作业 UUID 和创建数；结果均不携带 `ProjectDataset` 实例。关联身份在调用方回滚或分块提交后仍为普通值，原同步/排队选择和重复关联语义保持。跨域缺失任务查询及来源准备仍在本地装配内，公共远程建题操作的重放/提交语义需按原事务设计单独固定。
+素材关联向应用返回 `link_id`、是否已有及素材数，建题应用向入口返回关联 UUID、可选作业 UUID 和创建数；结果均不携带 `ProjectDataset` 实例。关联身份在调用方回滚或分块提交后仍为普通值，原同步/排队选择和重复关联语义保持。素材准备、标定与同步/排队选择仍由本地应用组合；公开进程内建题契约没有新增重放收据，也不能替代未来远程写入的提交协议。
 
 素材上传完成的已观察内容长度/MD5 由 `DatasetService.record_uploaded_item_content` 分别暂存，图片尺寸复用 `set_item_dimensions`；HTTP 不直接修改 `DatasetItem`。原 ContentLength truthy 条件、32 字符 ETag 去重、仅缺尺寸时读取图片、追加建题及最终提交/派发顺序均保留，缺对象或重复对象仍走原占位清理路径。尺寸命令复用当前 Session 已加载的身份，不新增逐项查询。
 

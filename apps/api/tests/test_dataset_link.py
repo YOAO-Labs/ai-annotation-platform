@@ -89,6 +89,50 @@ async def test_dataset_task_creation_creates_tasks_in_bulk(
 
 
 @pytest.mark.asyncio
+async def test_initial_generic_task_sequence_follows_item_uuid_order(
+    db_session: AsyncSession, super_admin
+):
+    user, _ = super_admin
+    ds = await _seed_dataset(db_session, user.id, n_items=0)
+    project = await _seed_project(db_session, user.id)
+    item_ids = sorted((uuid.uuid4() for _ in range(5)), reverse=True)
+    db_session.add_all(
+        [
+            DatasetItem(
+                id=item_id,
+                dataset_id=ds.id,
+                file_name=f"{item_id}.jpg",
+                file_path=f"ordered/{item_id}.jpg",
+                file_type="image",
+            )
+            for item_id in item_ids
+        ]
+    )
+    await db_session.flush()
+
+    result = await DatasetTaskCreationWorkflow(
+        db_session
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id,
+        project_id=project.id,
+        commit_task_chunks=False,
+    )
+
+    rows = (
+        await db_session.execute(
+            select(Task.dataset_item_id, Task.display_id).where(
+                Task.project_id == project.id
+            )
+        )
+    ).all()
+    assert result == {"created": len(item_ids), "total": len(item_ids)}
+    assert [
+        row.dataset_item_id
+        for row in sorted(rows, key=lambda row: int(row.display_id[2:]))
+    ] == sorted(item_ids)
+
+
+@pytest.mark.asyncio
 async def test_link_project_idempotent(db_session: AsyncSession, super_admin):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=5)

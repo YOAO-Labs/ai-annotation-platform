@@ -249,6 +249,11 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="sample_evaluations", legacy_facades=()),
     DomainSpec(package="prediction_retry", legacy_facades=(), allowed_app_imports=()),
     DomainSpec(package="labeling_tasks", legacy_facades=()),
+    DomainSpec(
+        package="labeling_task_creation_contract",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.dataset_task_facts",),
+    ),
     DomainSpec(package="labeling_assignment", legacy_facades=()),
     DomainSpec(
         package="media_materialization", legacy_facades=(), allowed_app_imports=()

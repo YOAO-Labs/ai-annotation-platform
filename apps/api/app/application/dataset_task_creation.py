@@ -3,16 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJobKind
-from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.services import async_job as async_job_svc
 from app.services.dataset import DatasetService
-from app.services.dataset_task_facts import PreparedDatasetItem
+from app.services.labeling_task_creation_contract import (
+    LabelingTaskCreationPort,
+    TaskCreationCounts,
+)
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.pointcloud_import import (
     attach_calibration,
@@ -34,7 +34,7 @@ class DatasetTaskCreationWorkflow:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.assets = DatasetService(db)
-        self.labeling = LabelingTaskService(db)
+        self.labeling: LabelingTaskCreationPort = LabelingTaskService(db)
 
     async def link_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID
@@ -77,7 +77,7 @@ class DatasetTaskCreationWorkflow:
         chunk_size: int = 5000,
         commit_calibration: bool = True,
         commit_task_chunks: bool = True,
-    ) -> dict[str, int]:
+    ) -> TaskCreationCounts:
         """Create missing tasks, optionally retaining the caller's SQL transaction."""
         project = await self.db.get(Project, project_id)
         if project is not None and project.data_type == "lidar":
@@ -94,34 +94,9 @@ class DatasetTaskCreationWorkflow:
                 chunk_size=chunk_size,
                 commit_each_chunk=commit_task_chunks,
             )
-        # Preserve the original single-statement cross-domain read projection:
-        # only pending asset facts are materialized, with no item-sized IN list.
-        query = (
-            select(
-                DatasetItem.id,
-                DatasetItem.file_name,
-                DatasetItem.file_path,
-                DatasetItem.file_type,
-            )
-            .where(DatasetItem.dataset_id == dataset_id)
-            .where(
-                ~select(Task.id)
-                .where(
-                    Task.project_id == project_id,
-                    Task.dataset_item_id == DatasetItem.id,
-                )
-                .exists()
-            )
-            .order_by(DatasetItem.id)
-        )
-        pending_items = tuple(
-            PreparedDatasetItem(
-                id=row.id,
-                file_name=row.file_name,
-                file_path=row.file_path,
-                file_type=row.file_type,
-            )
-            for row in (await self.db.execute(query)).all()
+        pending_items = await self.labeling.read_pending_dataset_items(
+            dataset_id=dataset_id,
+            project_id=project_id,
         )
         return await self.labeling.create_initial_generic(
             project_id=project_id,
