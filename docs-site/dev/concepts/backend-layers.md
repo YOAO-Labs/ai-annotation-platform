@@ -110,7 +110,7 @@ services/
 
 仅需访问决策的写入通过 `ProjectWritePolicyResolver.resolve(ProjectWritePolicyRequest)` 传 actor/project UUID；SQL 适配器绑定原 Session，复用原账号→项目→成员锁，只返回 `ProjectAccess`。管理围栏、预测导入和传统上传的锁定分支不再接收授权来源 ORM；管理围栏全部调用点传 actor ID。端口将原 401/403/404/409 的 status/detail/headers 投影为纯错误，在原消费者处恢复 HTTP 语义；各自 manager 拒绝正文、提交窗口和行锁所有权保持不变。真正需要行的 workspace/任务工作流仍使用原本地 helper。
 
-审核认领/通过/退回的 `TaskReviewWorkflow` 同样只接收 actor UUID。它先沿原 helper 锁定当前权威、批次/任务并检查能力和可见性，再将刚重读的账号投影为 `identity_contracts.IdentityActorFacts`，用于审核、审计及通知姓名。事实只含 id/name/email/全局 role/is_active，不含 ORM 或凭据；项目授权仍由单独的 `ProjectAccess` 决定。认证依赖与完整 profile 所有者路径保留，初始请求身份和历史访问值不替代这次事务内的重读。
+审核认领/通过/退回、跳过/撤回/重开/接受退回，以及单题/整批送审的三个工作流都只接收 actor UUID。`application/task_workflow_locks` 保留当前账号→项目→成员及批次/任务锁，在原访问绑定和目标复核后投影 `identity_contracts.IdentityActorFacts`；用例继续检查各自能力与可见性，并用这些事实填入审计和通知姓名。事实只含 id/name/email/全局 role/is_active，不含 ORM 或凭据；项目授权仍由单独的 `ProjectAccess` 决定。整批送审每个后续分块及最终回填都重新取权并投影当前账号，不能复用前一个提交前的事实。认证依赖与完整 profile 所有者路径保留，初始请求身份和历史访问值不替代这次事务内的重读。
 
 项目权威使用 `FOR KEY SHARE`，与所有权转移/删除的显式 `FOR UPDATE` 互斥，但允许项目计数的普通更新；标注生命周期计数使用 SQL 原子增减及下限裁剪，不从旧 ORM 数值回写。账号数据组目录同样只对操作者持有账号权威 KEY SHARE，角色/启停/密码写入仍用完整账号写锁，避免两个管理员互改对方数据组时发生账号锁环。登录与偏好合并保留原有等待式账号锁，不把并发上下文合并或预设 CAS 改成抢锁失败。
 

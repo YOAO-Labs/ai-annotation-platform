@@ -30,6 +30,7 @@ from app.services.discussion_notifications import (
     prepare_annotation_comment_mention_notifications,
 )
 from app.services.feedback import FeedbackService
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.notification import NotificationService
 from app.services.workspace_contract import ProjectAccess
 from app.services.task_discussion import require_visible_annotation
@@ -185,7 +186,7 @@ class AnnotationCommentWorkflow:
     def _assert_action(
         self,
         comment: AnnotationComment,
-        actor: User,
+        actor: User | IdentityActorFacts,
         access: ProjectAccess,
         *,
         operation: Literal["edit", "delete"],
@@ -230,7 +231,7 @@ class AnnotationCommentWorkflow:
         *,
         expected_access: ProjectAccess,
         require_active: bool,
-    ) -> tuple[Annotation, Task, User, ProjectAccess]:
+    ) -> tuple[Annotation, Task, IdentityActorFacts, ProjectAccess]:
         annotation_id, task_id = annotation.id, task.id
         try:
             task, actor, _, access = await lock_current_task_target(
@@ -271,7 +272,7 @@ class AnnotationCommentWorkflow:
         *,
         expected_access: ProjectAccess,
         operation: Literal["edit", "delete"],
-    ) -> tuple[AnnotationComment, User]:
+    ) -> tuple[AnnotationComment, IdentityActorFacts]:
         comment_id = comment.id
         annotation, _, actor, access = await self._lock_annotation_target(
             annotation,

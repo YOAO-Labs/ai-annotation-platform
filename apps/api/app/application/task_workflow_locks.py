@@ -15,8 +15,20 @@ from app.db.models.user import User
 from app.services import task_access
 from app.services.workspace_contract import ProjectAccess
 from app.services.project_access import lock_current_project_access
+from app.services.identity_contracts import IdentityActorFacts
 
 _LOCK_FAILURE_SQLSTATES = {"55P03", "40001", "40P01"}
+
+
+def _identity_actor_facts(user: User) -> IdentityActorFacts:
+    """Project the already locked current account into its read-only facts."""
+    return IdentityActorFacts(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+    )
 
 
 async def lock_row_nowait(db: AsyncSession, statement: Any, *, reason: str):
@@ -54,7 +66,7 @@ async def lock_current_batch_target(
     project_id: uuid.UUID,
     batch_id: uuid.UUID,
     expected_access: ProjectAccess,
-) -> tuple[User, Project, ProjectAccess, TaskBatch]:
+) -> tuple[IdentityActorFacts, Project, ProjectAccess, TaskBatch]:
     """Lock current project authority, then the matching batch row."""
     actor, project, current_access = await lock_current_project_access(
         db, actor_id=actor_id, project_id=project_id
@@ -72,7 +84,7 @@ async def lock_current_batch_target(
     )
     if batch is None:
         raise TaskWorkflowError(404, "Batch not found")
-    return actor, project, current_access, batch
+    return _identity_actor_facts(actor), project, current_access, batch
 
 
 async def lock_current_task_target(
@@ -81,7 +93,7 @@ async def lock_current_task_target(
     task_id: uuid.UUID,
     actor_id: uuid.UUID,
     expected_access: ProjectAccess,
-) -> tuple[Task, User, Project, ProjectAccess]:
+) -> tuple[Task, IdentityActorFacts, Project, ProjectAccess]:
     """Revalidate authority, then lock a task's captured batch and fresh row."""
     with db.no_autoflush:
         target = (
@@ -126,4 +138,4 @@ async def lock_current_task_target(
         raise TaskWorkflowError(404, "Task not found")
     if task.batch_id != target_batch_id:
         raise TaskWorkflowError(409, {"reason": "task_target_changed"})
-    return task, actor, project, current_access
+    return task, _identity_actor_facts(actor), project, current_access

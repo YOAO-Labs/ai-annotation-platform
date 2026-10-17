@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.task_workflow_locks import lock_current_task_target
-from app.db.models.user import User
 from app.services import task_access
 from app.services.annotation_evidence import (
     capture_first_review_contributor_snapshot,
@@ -38,14 +37,14 @@ class TaskLifecycleWorkflow:
         *,
         reason: str,
         note: str | None,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, Any]:
         task, actor, _project, access = await lock_current_task_target(
             self.db,
             task_id=task_id,
-            actor_id=actor.id,
+            actor_id=actor_id,
             expected_access=access,
         )
         await task_access.assert_task_visible(self.db, task, actor, access=access)
@@ -116,14 +115,14 @@ class TaskLifecycleWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, str]:
         task, actor, project, access = await lock_current_task_target(
             self.db,
             task_id=task_id,
-            actor_id=actor.id,
+            actor_id=actor_id,
             expected_access=access,
         )
         task_access.assert_effective_task_assignee(
@@ -170,14 +169,14 @@ class TaskLifecycleWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, Any]:
         task, actor, project, access = await lock_current_task_target(
             self.db,
             task_id=task_id,
-            actor_id=actor.id,
+            actor_id=actor_id,
             expected_access=access,
         )
 
@@ -250,14 +249,14 @@ class TaskLifecycleWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, str]:
         task, actor, _project, access = await lock_current_task_target(
             self.db,
             task_id=task_id,
-            actor_id=actor.id,
+            actor_id=actor_id,
             expected_access=access,
         )
 

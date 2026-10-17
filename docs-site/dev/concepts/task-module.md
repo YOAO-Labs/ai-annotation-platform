@@ -45,7 +45,7 @@ Task 是系统中的最小工作单元，一条数据最终总是落实到一条
 | `apps/api/app/api/v1/tasks/`                                                           | task HTTP 路由、请求/响应与错误映射；lifecycle / review 不持有状态写入 |
 | `apps/api/app/application/task_lifecycle.py` · `task_review.py` · `task_submission.py` | 组合送审/恢复/审核、贡献证据、计数、审计、反馈、通知与提交后质检派发   |
 | `apps/api/app/services/labeling_tasks.py`                                              | Task 生命周期状态、审核领取/结果和对应 Project 计数写入                |
-| `apps/api/app/services/identity_contracts.py`                                          | 审核工作流使用的锁后账号事实，不承担项目授权                           |
+| `apps/api/app/services/identity_contracts.py`                                          | 生命周期、送审及审核工作流使用的锁后账号事实，不承担项目授权           |
 | `apps/api/app/services/scheduler.py`                                                   | 下一题派发、batch 可见性过滤                                           |
 | `apps/api/app/services/task_lock.py`                                                   | task 锁服务                                                            |
 | `apps/api/app/services/annotation.py`                                                  | annotation 写入对 task 的状态回写                                      |
@@ -53,7 +53,7 @@ Task 是系统中的最小工作单元，一条数据最终总是落实到一条
 | `apps/web/src/hooks/useTaskLock.ts`                                                    | 前端 task lock 生命周期                                                |
 | `apps/web/src/pages/Workbench/`                                                        | 工作台主消费方                                                         |
 
-审核认领、通过与退回向 `TaskReviewWorkflow` 传 actor UUID。工作流保留当前账号/项目/成员及批次/任务锁，完成原能力和可见性检查后才投影 `IdentityActorFacts`，由这些最新标量填入审计与通知姓名。初始认证缓存不提供锁后身份事实；全局 role 与项目职责/能力保持分离。Task/Project 仍在本地事务内，原证据、计数、反馈、通知与提交时序不变。
+审核认领、通过与退回，跳过、撤回、重开、接受退回，以及单题和整批送审都向对应工作流传 actor UUID。共享锁 helper 保留当前账号/项目/成员及批次/任务锁，在原访问绑定和目标复核后返回 `IdentityActorFacts`；用例继续执行能力和可见性检查，由这些最新标量填入审计与通知姓名。整批送审仍按 200 项分块提交，并在后续分块和最终计数/状态回填前重新取权、生成新事实。初始认证缓存不提供锁后身份事实；全局 role 与项目职责/能力保持分离。Task/Project 仍在本地事务内，原证据、计数、反馈、通知与提交时序不变。
 
 ## 数据模型
 

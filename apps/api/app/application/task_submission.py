@@ -20,7 +20,6 @@ from app.db.models.mask_qc import MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
 from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.annotation_evidence import (
     capture_first_review_contributor_snapshot,
@@ -30,6 +29,7 @@ from app.services.annotation_evidence import (
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.mask_qc.config import load_mask_qc_config
 from app.services.workspace_contract import ProjectAccess
@@ -40,7 +40,7 @@ _SUBMIT_REVIEW_CHUNK_SIZE = 200
 
 
 def _assert_batch_submit_authority(
-    actor: User, access: ProjectAccess, batch: TaskBatch
+    actor: IdentityActorFacts, access: ProjectAccess, batch: TaskBatch
 ) -> bool:
     actor_is_owner = access.is_manager
     actor_is_assigned_annotator = (
@@ -69,7 +69,7 @@ def _assert_batch_submittable(batch: TaskBatch) -> None:
 
 
 async def _prepare_submission(
-    db: AsyncSession, task: Task, *, actor: User, now: datetime
+    db: AsyncSession, task: Task, *, actor: IdentityActorFacts, now: datetime
 ) -> dict[str, Any]:
     """Apply shared labeling transition, quality preparation and evidence freeze."""
     labeling = LabelingTaskService(db)
@@ -143,7 +143,7 @@ class TaskSubmissionWorkflow:
         self,
         task_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
         quality_dispatcher: QualityJobDispatcher,
@@ -151,7 +151,7 @@ class TaskSubmissionWorkflow:
         task, actor, _project, access = await lock_current_task_target(
             self.db,
             task_id=task_id,
-            actor_id=actor.id,
+            actor_id=actor_id,
             expected_access=access,
         )
         await task_access.assert_task_visible(self.db, task, actor, access=access)
@@ -233,7 +233,7 @@ class TaskSubmissionWorkflow:
         project_id: uuid.UUID,
         batch_id: uuid.UUID,
         *,
-        actor: User,
+        actor_id: uuid.UUID,
         access: ProjectAccess,
         origin: AuditOriginContext,
         quality_dispatcher: QualityJobDispatcher,
@@ -242,7 +242,7 @@ class TaskSubmissionWorkflow:
         batch_service = BatchService(self.db)
         actor, _project, access, batch = await lock_current_batch_target(
             self.db,
-            actor_id=actor.id,
+            actor_id=actor_id,
             project_id=project_id,
             batch_id=batch_id,
             expected_access=access,
@@ -271,7 +271,7 @@ class TaskSubmissionWorkflow:
             if chunk_index > 0:
                 actor, _project, access, batch = await lock_current_batch_target(
                     self.db,
-                    actor_id=actor.id,
+                    actor_id=actor_id,
                     project_id=project_id,
                     batch_id=batch_id,
                     expected_access=access,
@@ -364,7 +364,7 @@ class TaskSubmissionWorkflow:
 
         actor, _project, access, batch = await lock_current_batch_target(
             self.db,
-            actor_id=actor.id,
+            actor_id=actor_id,
             project_id=project_id,
             batch_id=batch_id,
             expected_access=access,

@@ -35,7 +35,7 @@ last_reviewed: 2026-10-17
 
 - 平台身份与项目能力解析：`app/services/project_access.py`
   纯访问值、能力与标量角色规则位于 `app/services/workspace_contract.py`；解析和锁仍由本地 SQL 所有者持有。
-  `ProjectWritePolicyResolver` 为只需访问决策的管理围栏、预测导入和上传交付纯值；审核命令使用 actor UUID，再从同事务锁定账号投影 `identity_contracts.IdentityActorFacts`。
+  `ProjectWritePolicyResolver` 为只需访问决策的管理围栏、预测导入和上传交付纯值；审核、生命周期和单题/整批送审命令使用 actor UUID，再从同事务锁定账号投影 `identity_contracts.IdentityActorFacts`，每个送审分块重新生成。
   - `resolve_project_access()` / `resolve_project_access_by_id()`：请求期真值，
     每次重读账号与项目，未知的平台/项目角色 fail closed。
   - `is_privileged_for_project()`：纯函数，管理型访问 = 活跃超管，或项目负责人且平台角色为管理型。

@@ -82,7 +82,7 @@ async def test_stale_access_cannot_accept_rejection_after_authority_change(
     with pytest.raises(HTTPException) as denied:
         await TaskLifecycleWorkflow(db_session).accept_rejection(
             task.id,
-            actor=actor,
+            actor_id=actor.id,
             access=stale_access,
             origin=AuditOriginContext(
                 method="POST", path="/tasks/rejected/accept", ip=None

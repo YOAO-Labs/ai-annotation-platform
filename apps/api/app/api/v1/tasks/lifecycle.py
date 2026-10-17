@@ -38,7 +38,7 @@ async def submit_task(
     try:
         return await TaskSubmissionWorkflow(db).submit_task(
             task_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
             quality_dispatcher=quality_dispatcher,
@@ -79,7 +79,7 @@ async def skip_task(
             task_id,
             reason=body.reason,
             note=body.note,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
         )
@@ -102,7 +102,7 @@ async def withdraw_task(
     try:
         return await TaskLifecycleWorkflow(db).withdraw_task(
             task_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
         )
@@ -125,7 +125,7 @@ async def reopen_task(
     try:
         return await TaskLifecycleWorkflow(db).reopen_task(
             task_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
         )
@@ -148,7 +148,7 @@ async def accept_rejection(
     try:
         return await TaskLifecycleWorkflow(db).accept_rejection(
             task_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
         )

@@ -13,15 +13,19 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from app.application.task_submission import TaskSubmissionWorkflow
 from app.db.models.annotation import Annotation
 from app.db.models.audit_log import AuditLog
 from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.db.models.user import User
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.display_id import next_display_id
+from app.services.project_access import resolve_project_access
 from tests.factory import create_membership, build_tool_bindings
 
 
@@ -1642,6 +1646,106 @@ class TestBatchSubmitReview:
             for row in task_audits
         )
         assert all(str(row.ip) == "198.51.100.29" for row in task_audits)
+
+    @pytest.mark.asyncio
+    async def test_batch_submit_reprojects_actor_after_chunk_commit(
+        self, db_session, super_admin, annotator, monkeypatch
+    ):
+        owner, _ = super_admin
+        actor, _ = annotator
+        project, batch, tasks = await _seed(
+            db_session,
+            owner.id,
+            actor.id,
+            batch_status="annotating",
+            n_tasks=2,
+            task_status="pending",
+        )
+        await db_session.commit()
+        access = await resolve_project_access(db_session, user=actor, project=project)
+        initial_email = actor.email
+        initial_name = actor.name
+        current_email = f"batch-submitter-current-{uuid.uuid4()}@test.local"
+        current_name = "Current batch submitter"
+        task_ids = {str(task.id) for task in tasks}
+        first_chunk_task_id: str | None = None
+        commit_count = 0
+        original_commit = db_session.commit
+
+        async def commit_with_profile_change():
+            nonlocal commit_count, first_chunk_task_id
+            await original_commit()
+            commit_count += 1
+            if commit_count == 1:
+                committed_task_ids = list(
+                    (
+                        await db_session.scalars(
+                            select(AuditLog.target_id).where(
+                                AuditLog.action == "task.submit",
+                                AuditLog.target_id.in_(task_ids),
+                            )
+                        )
+                    ).all()
+                )
+                assert len(committed_task_ids) == 1
+                first_chunk_task_id = committed_task_ids[0]
+                await db_session.execute(
+                    update(User)
+                    .where(User.id == actor.id)
+                    .values(name=current_name, email=current_email)
+                    .execution_options(synchronize_session=False)
+                )
+                assert (actor.name, actor.email) == (initial_name, initial_email)
+
+        monkeypatch.setattr(db_session, "commit", commit_with_profile_change)
+        result = await TaskSubmissionWorkflow(db_session).submit_batch_review(
+            project.id,
+            batch.id,
+            actor_id=actor.id,
+            access=access,
+            origin=AuditOriginContext(
+                method="POST",
+                path=f"/api/v1/projects/{project.id}/batches/{batch.id}/submit-review",
+                ip=None,
+            ),
+            quality_dispatcher=object(),
+            chunk_size=1,
+        )
+
+        assert result["submitted_tasks"] == 2
+        assert result["status"] == "reviewing"
+        assert first_chunk_task_id is not None
+        task_audits = list(
+            (
+                await db_session.scalars(
+                    select(AuditLog).where(
+                        AuditLog.action == "task.submit",
+                        AuditLog.target_id.in_(task_ids),
+                    )
+                )
+            ).all()
+        )
+        assert len(task_audits) == 2
+        email_by_task = {row.target_id: row.actor_email for row in task_audits}
+        assert email_by_task[first_chunk_task_id] == initial_email
+        second_chunk_task_id = next(
+            task_id for task_id in task_ids if task_id != first_chunk_task_id
+        )
+        assert email_by_task[second_chunk_task_id] == current_email
+        batch_audit = await db_session.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "batch.status_changed",
+                AuditLog.target_id == str(batch.id),
+            )
+        )
+        assert batch_audit is not None
+        assert batch_audit.actor_email == current_email
+        assert actor.name == current_name and actor.email == current_email
+        for task in tasks:
+            await db_session.refresh(task)
+            assert task.status == "review"
+        await db_session.refresh(batch)
+        assert batch.status == "reviewing"
 
     @pytest.mark.asyncio
     async def test_rejected_tasks_are_skipped(

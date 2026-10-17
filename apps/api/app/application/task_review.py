@@ -49,23 +49,14 @@ class TaskReviewWorkflow:
         actor_id: uuid.UUID,
         access: ProjectAccess,
     ) -> tuple[Task, IdentityActorFacts, Project, ProjectAccess]:
-        task, locked_actor, project, access = await lock_current_task_target(
+        task, actor, project, access = await lock_current_task_target(
             self.db,
             task_id=task_id,
             actor_id=actor_id,
             expected_access=access,
         )
         assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
-        await task_access.assert_task_visible(
-            self.db, task, locked_actor, access=access
-        )
-        actor = IdentityActorFacts(
-            id=locked_actor.id,
-            name=locked_actor.name,
-            email=locked_actor.email,
-            role=locked_actor.role,
-            is_active=locked_actor.is_active,
-        )
+        await task_access.assert_task_visible(self.db, task, actor, access=access)
         return task, actor, project, access
 
     async def _assert_review_evidence_allowed(

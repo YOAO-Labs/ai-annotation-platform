@@ -15,6 +15,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.user import User
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import is_privileged_for_project
 from app.services.scene import resolve_primary_item_id
 from app.services.task_lock import TaskLockService, assert_task_user_active
@@ -164,7 +165,7 @@ def visible_batch_statuses_for(
 
 
 def annotator_can_rework_task(
-    user: User,
+    user: User | IdentityActorFacts,
     batch: TaskBatch,
     task_status: str,
     task_assignee_id: uuid.UUID | None = None,

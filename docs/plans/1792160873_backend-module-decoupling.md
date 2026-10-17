@@ -1408,6 +1408,12 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 三种写方法运行体与 `5c59d6452` AST 相同：默认 5000 项分块提交、空初始集合不提交、追加只 flush、点云标定前置提交与零新增帧重放、nuScenes 外层事务均保留。隔离 PostgreSQL 的十二个相关文件 95 passed、零业务跳过，覆盖 33,000 项绑定上限、关联类型、点云/场景、导入与追加；新增反向插入素材后任务编号仍按 UUID 排序的行为回归。架构 220 passed、92 skipped，跳过为未声明 lazy-root 规则；契约冷加载不引入 ORM/FastAPI/Celery。
 - 一次性成本探针首轮夹具误用 Dataset.owner_id，尚未进入采样即失败并回滚；改为模型实际的 created_by/display_id 后，仅续验预算。同库两个待建素材、新 Session、关闭分块提交，预热后三轮交错：前后均四条 SQL 且顺序/结果相同，Python 堆峰值 320,582 / 315,899 B、6.687 / 7.106 ms。排除待提交 Project 计数的最终 flush、认证、关联/设置/作业/标定、对象 I/O、持久 commit 和 RSS；夹具整体回滚，不推断性能提升。原始记录 `.worktree/task-creation-contract-budget.json`。
 
+### 任务生命周期与送审的完整 actor 边界
+
+- 生命周期四个公开操作及单题/整批送审两个操作传 actor UUID，和已迁移的审核入口一致。共享 task/batch 锁 helper 在原绑定和目标检查后返回已有五字段 `IdentityActorFacts`，审核不重复投影；评论、章节和上传的实际 helper 消费方同步迁移。Task/Project/Batch 与锁仍属本地事务，认证、profile 和 Workspace 权威 helper 未改。
+- 十二个相关文件 147 passed、零跳过，包括生命周期、分派可见性、贡献证据、评论、章节和传统上传。新增分块回归在首块提交后以不刷新 identity map 的 SQL 改账号资料，确认缓存仍旧；后续块和最终批次审计使用重读后的邮箱，首块审计保留原值。这证明每次重授权都重新投影，不把该夹具宣称为外部并发账号更新资格。OpenAPI check 与架构 220 passed、92 skipped 通过。
+- 九个业务方法在仅规范化 actor-ID 交接后与 `5c59d6452` AST 相同；两个锁 helper 除返回投影外的运行体、五个共享可见性/分派 helper 的运行体相同。同库已加载 Session、一个成员/批次/任务，预热后三轮交错：task target 均六条 SQL、堆峰值均 305,437 B、7.834 / 8.182 ms；batch target 均四条 SQL、299,749 B、5.100 / 4.931 ms，语句顺序及账号/权限值相同。排除用例可见性/状态变化、认证、审计/通知、分块提交、模型/对象 I/O 和 RSS，夹具回滚，不推断性能提升；原始记录 `.worktree/task-actor-contract-budget.json`。
+
 ### 剩余范围与保留条件
 
 已识别的 Python 依赖方向、写入所有权与选定公开契约有逐片验收记录；这不等于所有模块都已具备独立部署合同。当前已完成的接口、仍保留的本地耦合与未来提取门槛分开记录：

@@ -400,7 +400,7 @@ async def submit_batch_review(
         result = await TaskSubmissionWorkflow(db).submit_batch_review(
             project_id,
             batch_id,
-            actor=current_user,
+            actor_id=current_user.id,
             access=access,
             origin=audit_origin_from_request(request),
             quality_dispatcher=quality_dispatcher,

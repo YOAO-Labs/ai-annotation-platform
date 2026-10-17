@@ -51,7 +51,7 @@ def assert_access_binding(
 
 def assert_task_editable(
     task: Task,
-    user: User | None = None,
+    user: User | IdentityActorFacts | None = None,
     *,
     access: ProjectAccess | None = None,
 ) -> None:
@@ -97,7 +97,7 @@ async def resolve_effective_task_assignee_id(
 
 
 def assert_effective_task_assignee(
-    user: User,
+    user: User | IdentityActorFacts,
     effective_assignee_id: uuid.UUID | None,
     *,
     action: str,
@@ -204,7 +204,7 @@ async def assert_review_adjustment_evidence(
 async def assert_task_visible(
     db: AsyncSession,
     task: Task,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     access: ProjectAccess | None = None,
 ) -> None:
