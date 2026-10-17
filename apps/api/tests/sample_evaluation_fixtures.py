@@ -9,10 +9,7 @@ from types import SimpleNamespace
 from botocore.exceptions import ClientError
 from PIL import Image
 
-from app.db.models.sample_evaluation import (
-    SampleEvaluationRun as Run,
-    SampleEvaluationSample as Sample,
-)
+from app.db.models.sample_evaluation import SampleEvaluationAttempt as Attempt
 from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.sample_evaluation import SampleEvaluationCreate
@@ -199,38 +196,24 @@ async def seed(db, owner, objects, *, count=2):
 
 
 async def evaluation(db, owner, world):
+    body = world.body.model_copy(
+        update={"name": "Evaluation", "request_id": uuid.uuid4()}
+    )
     identity = uuid.uuid4()
     spec = await service.frozen_spec(
-        db, world.project, world.body, identity, world.ref, world.profile
+        db, world.project, body, identity, world.ref, world.profile
     )
-    run = Run(
-        id=identity,
-        project_id=world.project.id,
-        creator_id=owner.id,
-        dataset_id=world.dataset.id,
-        model_version_id=world.model.id,
-        deployment_id=world.deployment.id,
-        request_id=uuid.uuid4(),
-        request_digest="a" * 64,
-        name="Evaluation",
+    run = await service.create_run(
+        db,
+        world.project,
+        owner,
+        body,
+        evaluation_id=identity,
+        request_digest=content_digest(body.model_dump(mode="json")),
         spec=spec,
-        spec_digest=content_digest(spec),
-        authorization={},
-        generation=0,
     )
-    db.add(run)
     await db.flush()
-    for frozen in spec["samples"]:
-        db.add(
-            Sample(
-                run_id=run.id,
-                ordinal=frozen["ordinal"],
-                request_id=uuid.uuid5(run.id, f"sample:{frozen['ordinal']}"),
-            )
-        )
-    attempt = await service.new_attempt(db, run)
-    await db.flush()
-    return run, attempt
+    return run, await db.get(Attempt, run.current_attempt_id)
 
 
 def prediction(run, row, *, boxes=None):

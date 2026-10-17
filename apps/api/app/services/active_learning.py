@@ -283,6 +283,15 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
     return round
 
 
+async def retry_round(db, round, previous, candidates):
+    previous.claim_id = None
+    previous.completed_at = previous.completed_at or now()
+    for row in candidates:
+        if row.status == "failed":
+            row.status, row.error_code, row.error_message = "pending", None, None
+    await new_attempt(db, round)
+
+
 async def new_attempt(db, round):
     validate_spec(round)
     round.generation += 1

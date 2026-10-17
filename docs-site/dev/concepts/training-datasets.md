@@ -77,6 +77,7 @@ last_reviewed: 2026-10-17
 ## 人工主动选样
 
 `ActiveLearningRound` 固定明确候选窗口、完整历史排除身份、模型／部署／profile、检测策略及推理与审核预算；独立 Attempt 用 generation、claim、heartbeat 围栏所有写入。完整来源窗口由 PoolMember 保留，推理代表由 Candidate 保留，Decision 和 Feedback 只追加。结果 JSON、特征、原生请求与报告均重新核验摘要，不借用 mutable Prediction。
+`active_learning.create_round` 是 Round、PoolMember、Candidate 和首个 Attempt 的写入所有者；`retry_round` 只重置失败候选的状态/错误，并释放旧 Attempt 的 claim、补齐完成时间后创建下一 generation。HTTP 入口保留管理者锁、当前授权、状态/原 24 小时窗口及失败候选请求准入，并保持提交后派发。重试不改写冻结 spec、候选 request UUID、已成功证据或非失败候选。
 
 候选必须是未分派、无人工编辑或处理历史的待标图片。条件读取原图并计算 SHA256，重验前后 Task／Item／Batch 快照；MD5 内容列不是 SHA 证据。全部保留训练清单的完整 split_history 与 held-out 评估规格用于内容／任务／场景排除；缺清单、摘要不符或超过历史资源上限均拒绝。相同内容和场景先形成连通组，排除传播到整组，再选稳定代表。
 
@@ -91,6 +92,7 @@ last_reviewed: 2026-10-17
 ## 冻结逐样本评估
 
 `SampleEvaluationRun` 固定候选／部署、数据与类绑定、成员多重集、用途、阈值、评估器、预处理及实际推理 profile。`SampleEvaluationAttempt` 用 generation、claim 和心跳维护执行所有权；成员 checkpoint 使用稳定 request UUID 保存已验证证据。项目、数据版本、模型和部署引用使用 RESTRICT，源 Task 刻意不设实时外键，AsyncJob 仅作可空的展示引用。
+`sample_evaluations.create_run` 持有 Run、Sample 和首个 Attempt 的创建写入；Sample request ID 仍按 Run UUID 与 ordinal 确定性 UUID5 生成。`retry_run` 持有旧 Attempt claim 清理、失联完成及其通用作业失败回填、仅失败 Sample 的状态/错误清空和新 generation 创建。HTTP 保留请求摘要重放/冲突、引用锁、授权及删除/状态/过期门禁，并先提交再派发；冻结 spec 与样本身份不随重试变化。
 
 现有 `ml.cpu` 队列 worker 在短事务内领取和提交，网络工作不持领域锁。每分钟维护器通过当前尝试关联及轮转维护时间处理未派发、失联、取消中和删除中记录；迟到 worker 不能覆盖新尝试。候选推理使用 `RoutedMLBackendClient` 与原 GPU 准入，固定部署实例和有界响应，收据读取不新申请或释放不确定租约。
 

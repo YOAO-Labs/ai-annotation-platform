@@ -133,32 +133,16 @@ async def create(
             else "冻结样本、类别或真值超过支持范围",
             422,
         ) from exc
-    run = Run(
-        id=identity,
-        project_id=project.id,
-        creator_id=user.id,
-        dataset_id=body.dataset_id,
-        model_version_id=body.model_version_id,
-        deployment_id=body.deployment_id,
-        request_id=body.request_id,
+    run = await service.create_run(
+        db,
+        project,
+        user,
+        body,
+        evaluation_id=identity,
         request_digest=digest,
-        name=body.name,
         spec=spec,
-        spec_digest=content_digest(spec),
-        authorization={"api_key_id": getattr(request.state, "api_key_id", None)},
-        generation=0,
+        api_key_id=getattr(request.state, "api_key_id", None),
     )
-    db.add(run)
-    await db.flush()
-    for frozen in spec["samples"]:
-        db.add(
-            Sample(
-                run_id=run.id,
-                ordinal=frozen["ordinal"],
-                request_id=uuid.uuid5(run.id, f"sample:{frozen['ordinal']}"),
-            )
-        )
-    await service.new_attempt(db, run)
     await db.commit()
     from app.workers.sample_evaluations import dispatch
 
@@ -322,19 +306,7 @@ async def retry(
         await service.authority(db, run)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
-    previous = await db.get(Attempt, run.current_attempt_id)
-    previous.claim_id = None
-    if previous.status == "lost":
-        previous.completed_at = service.now()
-        await service.jobs.mark_failed(
-            db,
-            previous.async_job_id,
-            error="旧执行已被新尝试接管；后端请求仍通过同一把锁防止重叠",
-        )
-    for row in await service.sample_rows(db, run):
-        if row.status == "failed":
-            row.status, row.error_code, row.error_message = "pending", None, None
-    await service.new_attempt(db, run)
+    await service.retry_run(db, run)
     await db.commit()
     from app.workers.sample_evaluations import dispatch
 

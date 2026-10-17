@@ -208,12 +208,7 @@ async def retry(
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await attempt_for(db, round, round.current_attempt_id)
-    previous.claim_id = None
-    previous.completed_at = previous.completed_at or service.now()
-    for row in rows:
-        if row.status == "failed":
-            row.status, row.error_code, row.error_message = "pending", None, None
-    await service.new_attempt(db, round)
+    await service.retry_round(db, round, previous, rows)
     await db.commit()
     from app.workers.active_learning import dispatch
 

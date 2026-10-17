@@ -232,6 +232,54 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
     return EvaluationSpec.model_validate(spec).model_dump(mode="json", by_alias=True)
 
 
+async def create_run(
+    db, project, user, body, *, evaluation_id, request_digest, spec, api_key_id=None
+):
+    run = Run(
+        id=evaluation_id,
+        project_id=project.id,
+        creator_id=user.id,
+        dataset_id=body.dataset_id,
+        model_version_id=body.model_version_id,
+        deployment_id=body.deployment_id,
+        request_id=body.request_id,
+        request_digest=request_digest,
+        name=body.name,
+        spec=spec,
+        spec_digest=content_digest(spec),
+        authorization={"api_key_id": api_key_id},
+        generation=0,
+    )
+    db.add(run)
+    await db.flush()
+    for frozen in spec["samples"]:
+        db.add(
+            Sample(
+                run_id=run.id,
+                ordinal=frozen["ordinal"],
+                request_id=uuid.uuid5(run.id, f"sample:{frozen['ordinal']}"),
+            )
+        )
+    await new_attempt(db, run)
+    return run
+
+
+async def retry_run(db, run):
+    previous = await db.get(Attempt, run.current_attempt_id)
+    previous.claim_id = None
+    if previous.status == "lost":
+        previous.completed_at = now()
+        await jobs.mark_failed(
+            db,
+            previous.async_job_id,
+            error="旧执行已被新尝试接管；后端请求仍通过同一把锁防止重叠",
+        )
+    for row in await sample_rows(db, run):
+        if row.status == "failed":
+            row.status, row.error_code, row.error_message = "pending", None, None
+    await new_attempt(db, run)
+
+
 async def new_attempt(db, run):
     run.generation += 1
     ordinal = (

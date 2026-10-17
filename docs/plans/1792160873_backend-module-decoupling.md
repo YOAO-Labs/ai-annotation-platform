@@ -875,6 +875,25 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 - 主线归档原始堆增量为历史 `[466706, 467237, 466645]`、当前 `[466615, 466255, 466789]`，每次均为 6 SQL / 0 S3；预热排除。原始观测为运行输出 `LEARNING_MAIN_ARCHIVE_BUDGET`，仅记录命令预算，不代表优化、吞吐、真实模型权重或执行器资格。两个 owner 的主线冷导入均未加载 API/worker；精确 OpenAPI、六个 Python 文件的固定 Ruff 检查通过。
 
+### 评估与主动学习命令
+
+- `services/sample_evaluations.create_run` 统一持有 Run、确定性 UUID5 Sample ID 与首个 attempt 的持久化；`retry_run` 持有 claim 清理、失联 attempt/job 终结、仅失败样本复位及新 attempt。`services/active_learning.retry_round` 持有旧 attempt claim/完成状态、仅失败 Candidate 复位及新 attempt。API 保留模型/数据冻结身份、请求 digest/idempotency、授权/过期/删除门禁与锁，并在提交后派发、按原顺序生成输出。
+- 独立 PostgreSQL Session 核对真实 Uvicorn TCP ASGI/JWT 请求：sample create/replay/conflict 为 202/202/409，invalid create 为 422 且无写入，invalid retry 为 409 且数据库快照不变，retry 为 202；generation 增一、冻结 spec/digest 与确定性 sample IDs 不变，仅 failed sample 复位，inflight 保留，旧 lost attempt claim 清除并完成、旧 AsyncJob 失败。真实延迟约束在 commit 失败时返回 500，独立 Session 确认 Run/Job 与派发队列无变化。
+- 主动学习 preview/create/retry/invalid retry 为 200/202/202/409；独立 Session 确认仅 failed candidate 复位、inflight 保留、冻结 spec/request ID 不变，旧 attempt claim 清除并完成，拒绝路径无持久化变化。证据 JSON：`/tmp/aap-boundary-evaluation-evidence/real_http_smoke.json`。资格协议只用本地 HTTP fixture 回答 profile GET；Celery worker 未启动、队列任务未执行，没有假 ML 结果、推理或 GPU 工作。
+- 在同库冻结输入上各预热一次、交错测量三次，命令 + flush 期间的 SQL 数与 Python 堆峰值增量中位数：
+
+  | 命令                  | SQL 历史 | SQL 当前 | 堆增量历史（字节） | 堆增量当前（字节） |
+  | --------------------- | -------: | -------: | -----------------: | -----------------: |
+  | Sample create         |        8 |        8 |            362,051 |            362,051 |
+  | Sample retry          |       12 |       12 |            308,422 |            308,366 |
+  | Active-learning retry |        8 |        8 |            303,612 |            303,495 |
+
+- 历史 inline 与当前 owner command 使用同样夹具和 AsyncSession，flush 后 savepoint rollback；SQL 计数含命令/flush，不含 fixture 读取和 savepoint，堆测量排除 HTTP/auth/派发。差值仅描述采样，不宣称性能优化；完整方法与样本在 `/tmp/aap-boundary-evaluation-evidence/boundary_budget.json`。
+- 主线以受控训练/模型/部署/profile 元数据和真实 MinIO 输入装配新 create owner；独立 PostgreSQL 连接读到已提交的 Run、两个 UUID5 样本及首尝试。两张 PNG 从 MinIO 实际读回、解码为 16×12，完整 SHA 与来源一致。显式提交 lost/failed/inflight 夹具后，默认 DB 的 JWT-ASGI retry 返回 202；新连接确认 generation 为 2、只重置 failed、原 spec/请求不变、旧 job failed。实际 Redis `ml.cpu` 消息为 `app.workers.sample_evaluations.run_sample_evaluation`，执行 ID `91b710dd-3974-4208-802a-c7f727979cb7` 与新 job 持久记录一致；没有启动消费者或执行推理/GPU。
+- 移除 mock 资格调用计数和时间戳非空断言，保留重放身份、确定性请求、旧 claim 释放、冻结收据、状态转移与终态作业行为；仅补验三个受影响回归，均通过，不与原验收集重复累计。
+- 本地 `test_sample_evaluations.py`、`test_active_learning.py`、`test_domain_package_architecture.py` 与精确 OpenAPI contract 共 202 passed、75 skipped；冷进程导入两领域服务未加载 API/worker。Ruff 0.15.22 对变更 Python 文件的 check 与 format --check 通过；开放 API schema 未变。
+
 ### 剩余范围
 
-- 剩余写入切片为训练控制与自动策略候选、评估/主动学习重试、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余写入切片为训练控制与自动策略候选、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 本切片迁移评估/主动学习 Run、Sample、Attempt、Candidate 命令 DML；通用 execution-ID 绑定所有权单独收拢。这里观测实际派发，但没有执行排队任务，不把种子训练状态或 profile 协议夹具当作真实模型、推理或 GPU 资格。

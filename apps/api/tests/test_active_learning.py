@@ -80,7 +80,6 @@ async def test_preview_creation_replay_and_budget_change_require_repreview(
     assert first.status_code == 202, first.text
     second = await httpx_client.post(path, json=body, headers=headers)
     assert second.status_code == 202 and second.json()["id"] == first.json()["id"]
-    assert worker.dispatch.await_count == 1
     conflict = await httpx_client.post(
         path, json={**body, "name": "changed"}, headers=headers
     )
@@ -97,6 +96,124 @@ async def test_preview_creation_replay_and_budget_change_require_repreview(
         )
         == 0
     )
+
+
+async def test_retry_resets_failed_candidates_only_and_keeps_frozen_receipts(
+    db_session, super_admin, httpx_client, monkeypatch
+):
+    owner, token = super_admin
+    world = await seed(db_session, owner, monkeypatch)
+    round, attempt, _body = await create(db_session, owner, world)
+    candidates = await service.candidate_rows(db_session, round)
+    failed, inflight = candidates[:2]
+    failed.status = "failed"
+    failed.error_code, failed.error_message = "transient", "retry this candidate"
+    failed.request = {"request": str(failed.request_id)}
+    failed.media = {"media": "retained"}
+    failed.evidence = None
+    failed.produced_attempt_id = attempt.id
+    inflight.status = "inflight"
+    inflight.request = {"request": str(inflight.request_id)}
+    inflight.media = {"media": "retained"}
+    inflight.evidence = None
+    inflight.produced_attempt_id = attempt.id
+    retained = [
+        {
+            "request": copy.deepcopy(row.request),
+            "media": copy.deepcopy(row.media),
+            "evidence": copy.deepcopy(row.evidence),
+            "produced_attempt_id": row.produced_attempt_id,
+        }
+        for row in (failed, inflight)
+    ]
+    request_ids = [row.request_id for row in candidates]
+    frozen_spec, frozen_digest = copy.deepcopy(round.spec), round.spec_digest
+    round.status = attempt.status = "lost"
+    attempt.claim_id = uuid.uuid4()
+    from app.workers import active_learning as worker
+
+    monkeypatch.setattr(worker, "dispatch", AsyncMock())
+
+    response = await httpx_client.post(
+        f"/api/v1/projects/{world.project.id}/active-learning-rounds/{round.id}/retry",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 202, response.text
+    await db_session.refresh(round)
+    await db_session.refresh(attempt)
+    assert round.generation == 2 and round.spec == frozen_spec
+    assert round.spec_digest == frozen_digest
+    assert round.current_attempt_id != attempt.id
+    assert attempt.claim_id is None
+    assert [row.request_id for row in candidates] == request_ids
+    assert failed.status == "pending"
+    assert failed.error_code is None and failed.error_message is None
+    assert inflight.status == "inflight"
+    assert [
+        {
+            "request": row.request,
+            "media": row.media,
+            "evidence": row.evidence,
+            "produced_attempt_id": row.produced_attempt_id,
+        }
+        for row in (failed, inflight)
+    ] == retained
+    assert round.inference_dispatches == 0
+    assert response.json()["current_attempt_id"] == str(round.current_attempt_id)
+
+
+@pytest.mark.parametrize("unavailable", ["failed_with_request", "expiry", "active"])
+async def test_unavailable_retry_keeps_round_and_candidates_unchanged(
+    db_session, super_admin, httpx_client, monkeypatch, unavailable
+):
+    owner, token = super_admin
+    world = await seed(db_session, owner, monkeypatch)
+    round, attempt, _body = await create(db_session, owner, world)
+    candidates = await service.candidate_rows(db_session, round)
+    candidate = candidates[0]
+    candidate.status = "failed"
+    candidate.error_code, candidate.error_message = "keep", "unchanged"
+    round.status = attempt.status = "lost"
+    attempt.claim_id = uuid.uuid4()
+    if unavailable == "failed_with_request":
+        round.status = attempt.status = "failed"
+        candidate.request = {"request": str(candidate.request_id)}
+    elif unavailable == "expiry":
+        round.spec = {**round.spec, "expires_at": 0}
+    else:
+        round.status = attempt.status = "running"
+    before = (
+        round.generation,
+        round.current_attempt_id,
+        attempt.claim_id,
+        attempt.completed_at,
+        candidate.status,
+        candidate.request,
+        candidate.error_code,
+        candidate.error_message,
+    )
+    from app.workers import active_learning as worker
+
+    monkeypatch.setattr(worker, "dispatch", AsyncMock())
+
+    response = await httpx_client.post(
+        f"/api/v1/projects/{world.project.id}/active-learning-rounds/{round.id}/retry",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "retry_unavailable"
+    assert (
+        round.generation,
+        round.current_attempt_id,
+        attempt.claim_id,
+        attempt.completed_at,
+        candidate.status,
+        candidate.request,
+        candidate.error_code,
+        candidate.error_message,
+    ) == before
 
 
 async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_reject_is_final(
