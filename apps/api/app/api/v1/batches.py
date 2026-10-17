@@ -8,6 +8,7 @@ from app.deps import (
     get_quality_job_dispatcher,
     get_db,
     get_current_user,
+    get_current_user_id,
     project_access_for_path,
     require_project_visible,
     require_project_owner,
@@ -382,7 +383,7 @@ async def submit_batch_review(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
     access: ProjectAccess = Depends(project_access_for_path),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
@@ -400,7 +401,7 @@ async def submit_batch_review(
         result = await TaskSubmissionWorkflow(db).submit_batch_review(
             project_id,
             batch_id,
-            actor_id=current_user.id,
+            actor_id=actor_id,
             access=access,
             origin=audit_origin_from_request(request),
             quality_dispatcher=quality_dispatcher,

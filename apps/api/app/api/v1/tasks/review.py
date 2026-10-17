@@ -7,8 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_review import TaskReviewWorkflow
 from app.application.task_workflow_errors import TaskWorkflowError
-from app.deps import get_current_user, get_db
-from app.db.models.user import User
+from app.deps import get_current_user_id, get_db
 from app.schemas.task import ReviewClaimResponse
 from app.services.audit import audit_origin_from_request
 from app.services.workspace_contract import ProjectAccess
@@ -43,7 +42,7 @@ async def claim_review(
     task_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     """审核员幂等认领任务。
@@ -53,7 +52,7 @@ async def claim_review(
     try:
         result = await TaskReviewWorkflow(db).claim_review(
             task_id,
-            actor_id=current_user.id,
+            actor_id=actor_id,
             access=access,
             origin=audit_origin_from_request(request),
         )
@@ -68,13 +67,13 @@ async def approve_task(
     request: Request,
     body: ApproveTaskRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     try:
         return await TaskReviewWorkflow(db).approve_task(
             task_id,
-            actor_id=current_user.id,
+            actor_id=actor_id,
             access=access,
             origin=audit_origin_from_request(request),
             expected_qc_digest=body.expected_qc_digest if body else None,
@@ -91,13 +90,13 @@ async def reject_task(
     request: Request,
     body: ReviewAction | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     try:
         return await TaskReviewWorkflow(db).reject_task(
             task_id,
-            actor_id=current_user.id,
+            actor_id=actor_id,
             access=access,
             origin=audit_origin_from_request(request),
             reason_type=body.reason_type if body else None,

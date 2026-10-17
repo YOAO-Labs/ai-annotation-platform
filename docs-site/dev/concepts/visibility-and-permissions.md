@@ -61,6 +61,8 @@ last_reviewed: 2026-10-18
 
 自有 API key 的五个管理操作只向 `ApiKeyManagementPort` 传认证后的账号 ID；SQL 所有者按该 ID 限定凭据行，HTTP 保留当前停用账号检查。ID 依赖与 guard 共用同一次缓存认证，不增加解码、bcrypt 或认证提交。完整 profile、密码与偏好仍由身份所有者持有行，其他用例不能把认证时的角色/资料快照替代授权重读后的当前事实。
 
+任务生命周期、审核和整批送审的九个处理器同样只接收 `get_current_user_id` 的 UUID，原访问依赖与最终账号/项目/成员锁不变。身份缓存供同一请求复用，后续送审分块仍需重新读取当前权威；WebSocket 和需要完整资料的身份入口不沿用这组处理器的参数约定。
+
 成员输出 `ProjectMemberOut` 是**扁平**的：`role` 是项目角色，另有独立的 `platform_role`；邀请 HTTP 字段仍叫 `project_member_role`，映射到数据库 `project_role`。项目列表 / 详情带 `my_project_role`，列表按 `project_role` 过滤。
 
 ### 导出收紧（有意行为变化）

@@ -114,6 +114,8 @@ services/
 
 审核认领/通过/退回、跳过/撤回/重开/接受退回，以及单题/整批送审的三个工作流都只接收 actor UUID。`application/task_workflow_locks` 保留当前账号→项目→成员及批次/任务锁，在原访问绑定和目标复核后投影 `identity_contracts.IdentityActorFacts`；用例继续检查各自能力与可见性，并用这些事实填入审计和通知姓名。事实只含 id/name/email/全局 role/is_active，不含 ORM 或凭据；项目授权仍由单独的 `ProjectAccess` 决定。整批送审每个后续分块及最终回填都重新取权并投影当前账号，不能复用前一个提交前的事实。认证依赖与完整 profile 所有者路径保留，初始请求身份和历史访问值不替代这次事务内的重读。
 
+上述九个 HTTP 处理器也只接收 `get_current_user_id` 提供的 UUID，访问依赖仍保留原位置并共享同一次 `get_current_user`/Session 缓存。身份解析、停用检查和 API key 的 scope/使用时间提交继续由认证边界持有；取 ID 不增加账号查询，也不替代工作流的锁后授权。
+
 `api_key_contracts.ApiKeyManagementPort` 覆盖自有凭据的列表、创建、修改、轮换和吊销；只接收认证后的账号 UUID 与既有请求 schema，返回既有响应 DTO 或原缺失结果。HTTP 用 `get_current_user_id` 复用已缓存的同一次认证与停用检查，在请求 Session 中绑定 `api_key_service.SqlApiKeyManagement`。凭据 SQL 所有者保留原 flush/refresh/commit 顺序，成功修改提交后才投影响应；省略字段、显式空过期时间及软吊销语义不变。JWT/API key 解析、凭据验证与 `last_used_at` 的独立认证提交仍由原路径持有；该管理端口没有把初始账号快照改成其他业务的最终写入许可。
 
 项目权威使用 `FOR KEY SHARE`，与所有权转移/删除的显式 `FOR UPDATE` 互斥，但允许项目计数的普通更新；标注生命周期计数使用 SQL 原子增减及下限裁剪，不从旧 ORM 数值回写。账号数据组目录同样只对操作者持有账号权威 KEY SHARE，角色/启停/密码写入仍用完整账号写锁，避免两个管理员互改对方数据组时发生账号锁环。登录与偏好合并保留原有等待式账号锁，不把并发上下文合并或预设 CAS 改成抢锁失败。

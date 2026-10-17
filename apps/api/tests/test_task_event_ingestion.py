@@ -581,7 +581,7 @@ async def test_buffered_review_chunks_survive_real_claim_and_decision(
             return started.astimezone(tz)
 
     with monkeypatch.context() as clock_patch:
-        clock_patch.setattr("app.api.v1.tasks.review.datetime", ClaimClock)
+        clock_patch.setattr("app.application.task_review.datetime", ClaimClock)
         claimed = await httpx_client.post(
             f"/api/v1/tasks/{task.id}/review/claim", headers=headers
         )
