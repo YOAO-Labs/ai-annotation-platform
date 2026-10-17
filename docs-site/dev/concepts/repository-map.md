@@ -7,7 +7,7 @@ last_reviewed: 2026-10-17
 
 # 仓库地图：模块归属与调用链
 
-独立 Go 服务 `apps/audit-summary` 持有月报归并，Python HTTP 适配、授权与 SQL 查询仍在主 API。内部 HTTP/OpenAPI 与主公开契约分别维护，服务不拥有数据库或存储。语言依据见 [ADR 0090](../adr/0090-module-languages-and-audit-summary-process)。
+正常月报由 Python `app/services/audit_summary.py` 本地归并。`apps/audit-summary` 与 `apps/api/experiments` 只保留 Go／HTTP 隔离实验，默认运行、生产部署和普通 CI 不依赖它。语言依据见 [ADR 0090](../adr/0090-module-languages-and-audit-summary-process)。
 
 > 本文回答「一个行为改哪里、沿着哪些真实符号走」。只列当前实现与允许依赖方向，
 > 不复制目录树、不复制代码、不维护第二套角色矩阵（角色语义见

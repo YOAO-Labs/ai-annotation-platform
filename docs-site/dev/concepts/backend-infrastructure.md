@@ -103,13 +103,14 @@ docker compose down -v
   mc du local/local       # 看 bucket 占用
   ```
 
-### audit-summary · 无状态月报归并
+### audit-summary · 隔离实验
 
 - **构建**：`apps/audit-summary/Dockerfile`，非 root scratch 镜像运行 Go 静态二进制。
-- **端口**：内部 8091，开发宿主仅发布到 `127.0.0.1:8091`；生产 API 使用 `http://audit-summary:8091`。
-- **权限与状态**：没有数据库、Redis、对象存储凭据、业务卷或任务账本，只处理请求中的分组事实。
-- **健康检查**：二进制 `-healthcheck`；停止不需回迁业务状态。故障只影响月报归并，API 返回 503。
-- **工作树**：启动器使用当前 checkout 与独立保留端口，注入 URL 并在退出时关闭进程组。
+- **启用**：仅独立 `docker-compose.experiments.yml` 的 `audit-summary-experiment` profile；默认／生产 Compose 不包含它。
+- **端口**：实验内部 8091，仅发布到宿主 `127.0.0.1:8091`。
+- **权限与状态**：无数据库、Redis、对象存储凭据、业务卷或任务账本。
+- **健康检查**：二进制 `-healthcheck`；停止实验不影响本地 Python 月报。
+- **默认运行**：工作树、普通应用镜像和普通 CI 不包含或启动实验，仅显式命令或手动 workflow 验证。
 
 ### celery-worker · 后台任务消费者
 

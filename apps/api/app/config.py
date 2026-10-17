@@ -422,8 +422,6 @@ class Settings(BaseSettings):
 
     # v0.8.1 · 审计日志冷数据保留月数：超期分区每月 2 日归档到 MinIO 后 DROP。
     audit_retention_months: int = 12
-    # Stateless Go reducer; it has no database, object storage or user credentials.
-    audit_summary_url: str = "http://127.0.0.1:8091"
 
     # v0.8.4 · task_events 异步写入开关。true = Celery 旁路写；false 或 broker 不可用 → 同步 fallback。
     task_events_async: bool = True

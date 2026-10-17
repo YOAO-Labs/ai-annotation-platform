@@ -480,9 +480,9 @@ docker compose --env-file .env.production \
 
 ## 测试与文档
 
-审计月报需要独立 Go 服务。宿主开发运行 `docker compose up -d --build audit-summary`；或在 `apps/audit-summary` 运行 `go run . -listen 127.0.0.1:8091`。API 使用 `AUDIT_SUMMARY_URL`，没有本地算法回退。`dev:worktree up/exec` 自动管理当前 checkout 的 Go 进程、独立端口及 URL，退出时清理；本机需 Go ≥1.25 和可写 build cache。
+正常月报由 `app/services/audit_summary.py` 本地计算，API、Compose、工作树启动和普通 CI 均不依赖 Go；生产 API 不读取 `AUDIT_SUMMARY_URL` 或选择实验适配器。
 
-`cd apps/audit-summary && go test -race ./... && go vet ./...` 检查 Go 契约与并发行为。API 的 `tests/test_audit_summary_process.py` 在干净环境变量下启动 Go 二进制，覆盖精确响应、丢失响应、在途关闭与同端口重启；原月报 API 测试经工作树启动的真实服务执行。
+Go 只通过单独的 `docker-compose.experiments.yml`、`audit-summary-experiment` profile 或手动 workflow 启用。需要验证时，运行 `cd apps/audit-summary && go test -race ./... && go vet ./...`；Python 实验适配器与测试位于 `apps/api/experiments`，显式运行 `cd apps/api && .venv/bin/python -m pytest experiments/tests`。普通 API/Web 镜像排除此目录及 Go 实验源码。
 
 ```bash
 # 全仓格式与静态检查

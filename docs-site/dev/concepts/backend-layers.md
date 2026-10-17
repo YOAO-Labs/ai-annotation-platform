@@ -20,13 +20,13 @@ flowchart LR
 
 **单向依赖**：入口可调用应用工作流或领域服务，工作流组合服务，服务可调模型；领域服务不反向导入入口或应用装配。
 
-## 模块语言与首个进程边界
+## 模块语言与隔离实验
 
-[ADR 0090](../adr/0090-module-languages-and-audit-summary-process) 按事务、生态与计算负载选择语言：身份、项目、标注与学习继续使用 Python；独立结果归并选择 Go；几何计算复用原生库，Rust 需先有计算核与性能依据。
+[ADR 0090](../adr/0090-module-languages-and-audit-summary-process) 记录语言评估：身份、项目、标注、学习及正常审计月报继续 Python；Go 归并仅作隔离实验；几何计算复用原生库，Rust 需先有计算核与性能依据。
 
-审计月报归并算法由 `apps/audit-summary` 持有。`services/audit_summary.py` 是 HTTP 适配器，只发送已授权 SQL 分组事实，按有界分块编码请求，严格恢复十进制计数；没有第二套归并算法或本地回退。主 API 保留超级管理员准入、保留期和 SQL 查询。Go 不接收 Session、ORM、凭据或原始审计 detail，不写业务状态。
+`services/audit_summary.py` 持有正常月报的本地算法；主 API 保留超级管理员准入、保留期和 SQL 查询，不调用远程服务。实验适配器和测试位于 `apps/api/experiments`，不属于生产导入图或普通应用镜像。
 
-Go 持有唯一内部 OpenAPI 文档，公开响应仍由原 API schema 描述。进程、协议及容量故障明确返回 503，不能解释为空统计；重复调用是只读重算。其它领域的本地事务尚未据此变成跨语言协议。
+`apps/audit-summary` 保留实验 OpenAPI、精确计数及进程恢复验证。它只由单独 Compose profile、显式实验测试或手动 workflow 启动，不进入默认／生产部署，也不改变公开 API 错误合同。其它领域的本地事务尚未变成跨语言协议。
 
 ## 路由（api/v1）
 

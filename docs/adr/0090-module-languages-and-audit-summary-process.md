@@ -1,6 +1,6 @@
 # 0090 — 按模块选择语言，以审计月报验证 Go 进程边界
 
-- **Status**: Accepted
+- **Status**: Experimental
 - **Date**: 2026-10-18
 - **Deciders**: 项目维护者委托按功能评估并继续实施
 - **Supersedes**: None
@@ -10,6 +10,8 @@
 Python 依赖方向与写入所有权已完成一轮迁移，但 Session、ORM、共享 DTO 和跨领域事务仍存在。语言选择必须依据事务、计算负载、现有原生库和部署成本；语言本身不能解决权限撤销、在途作业或分布式一致性。
 
 ## Decision
+
+维护者明确要求本切片仅作实验，目前不进入真实环境。正常月报继续本地 Python 计算；默认和生产部署没有 Go 服务依赖，也没有通过配置切换实验适配器的入口。下表中的 Go 是实验或后续候选，不代表生产采用决定。
 
 | 功能模块                                 | 语言选择               | 理由与边界                                                                                    |
 | ---------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------- |
@@ -22,38 +24,37 @@ Python 依赖方向与写入所有权已完成一轮迁移，但 Session、ORM�
 | inference：模型与 GPU 生命周期           | Python／既有原生运行时 | 保留模型生态、精确身份、设备仲裁及已有协议                                                    |
 | learning：训练、评估、主动学习、发布     | Python                 | 保留执行器、冻结数据及 attempt／generation 围栏                                               |
 | insights：数据库查询与物化视图           | SQL＋Python            | 聚合尽量留在 PostgreSQL／DuckDB，授权与取数由原所有者持有                                     |
-| insights：独立可重建的结果归并           | Go                     | 首片为只读审计月报，输入输出明确且无需存储权限                                                |
+| insights：独立可重建的结果归并           | Python；Go 实验候选    | 月报仅验证协议和独立进程，不进入真实执行路径                                                  |
 | jobs：状态与现有 Celery 消费             | Python                 | 保留执行身份、取消、终态及在途消息合同                                                        |
 | audit／notifications：持久事实与提交顺序 | Python                 | 保留不可变历史和事务内写入，派生月报不取得审计写入权                                          |
 | Web／文档交互                            | TypeScript／既有框架   | 保持现有前端技术栈，不依赖浏览器运行时实现后端边界                                            |
 
 Go 标准库的 HTTP/context 足以承载首片，无需 Web 框架；Rust 仅作为经测量后的计算核候选。依据：[Go HTTP](https://pkg.go.dev/net/http)、[Go context](https://pkg.go.dev/context)、[Rust](https://rust-lang.org/)、[PyTorch 前端](https://docs.pytorch.org/tutorials/advanced/cpp_frontend.html)。这些能力不是本系统性能资格证明。
 
-### 首片职责
+### 实验职责
 
 ```mermaid
 flowchart LR
-    User[管理员] --> API[Python：授权、保留期、SQL 查询]
-    API -->|HTTP JSON：分组事实| Go[Go：audit-summary]
-    Go -->|精确计数、排名、UTC 日历| API
-    API --> User
+    Fixture[显式实验夹具] --> Adapter[experiments：Python HTTP 适配器]
+    Adapter -->|HTTP JSON：分组事实| Go[Go 实验：audit-summary]
+    Go -->|精确计数、排名、UTC 日历| Adapter
 ```
 
-`apps/audit-summary` 只处理请求中的统计行，不连接数据库、Redis、对象存储，不接收账号凭据或原始 detail/IP/email，不保存结果。Python 仍持有超级管理员准入与 SQL 查询。原 Python 归并算法删除，不保留本地回退或双实现开关。
+`apps/audit-summary` 只处理实验统计行，不连接数据库、Redis、对象存储，不接收账号凭据或原始 detail/IP/email，不保存结果。正常 API 固定调用 `app/services/audit_summary.py` 的本地算法；实验 HTTP 适配器与测试位于 `apps/api/experiments`，不进入正常应用镜像。实验与生产没有双写或自动切换。
 
-Go 的 `/openapi.json` 是内部 wire 契约真值。`POST /v1/audit/monthly-summary` 接收月份、物化水位和分组行；event/error 计数使用十进制字符串，避免浮点或 JSON 安全整数边界。Python 适配器验证并转换成既有公开 API 的整数，保留 UTC 自然日补零、空维度、4xx／5xx 统计及排名语义。
+Go 的 `/openapi.json` 是实验 wire 契约真值。`POST /v1/audit/monthly-summary` 接收月份、物化水位和分组行；event/error 计数使用十进制字符串。实验适配器验证并恢复整数，以对照 UTC 日历、空维度、4xx／5xx 统计和排名语义；生产公开 API 不依赖该协议。
 
-请求和响应上限均为 64 MiB，超限明确失败而不截断；API 调用超时十秒。服务不可用、非成功响应或协议错误返回 503，不能显示成零事件。该上限是新边界的容量限制，当前开发库没有可用审计表，规模与内存对照仅使用明确的合成夹具。
+实验请求和响应上限均为 64 MiB，调用超时十秒，错误明确失败而不截断或伪造零事件。这些限制不改变生产月报。规模与内存对照只使用明确的合成夹具，且实测 HTTP 路径增加了成本，没有证明生产采用收益。
 
-### 部署与恢复
+### 隔离与恢复
 
-Compose 提供独立 Go 服务，运行镜像不含 Python、数据库驱动、业务凭据或持久卷，只向宿主 loopback 发布端口。工作树启动器在自身保留端口启动当前 checkout 的 Go 进程，向 API／测试命令注入 `AUDIT_SUMMARY_URL`，退出时关闭自身进程组和释放端口。
+仅独立的 `docker-compose.experiments.yml` 与 `audit-summary-experiment` profile、显式测试命令或手动 workflow 可启动 Go。默认／生产 Compose、工作树启动器及普通 CI 均不依赖 Go，应用配置移除 `AUDIT_SUMMARY_URL`。实验镜像为非 root scratch，无业务凭据和持久卷；常规应用镜像排除 Go 实验及 Python 实验目录。
 
-只读归并的重复请求、执行后丢响应不会重复写入；恢复后可从原始事实重新查询。进程使用有界优雅关闭。回退需成对部署 API 与归并实现，但没有新增业务状态、租约或对象需要回迁。
+只读实验的重复请求、丢响应及重启不产生业务写入。先前启动的本机开发 Go 容器已停止并移除，没有生产部署。未来是否采用，需要单独评估收益、运行成本和故障影响，并获得维护者新的实施指令。
 
 ## Consequences
 
-- 首片具有真实生产消费者，Go 进程无需加载 Python、FastAPI、Celery 或 ORM。
-- 新增运行单元和网络序列化，月报可用性依赖此进程，不据此宣称性能优化。
+- 实验验证了 Go 进程无需加载 Python、FastAPI、Celery 或 ORM；先前的真实 API 验证属于实验记录，不代表生产采用。
+- 网络序列化与额外运行单元有成本；生产月报已恢复本地路径，不承担此依赖。
 - 其它模块继续按其语言与事务边界演进，本片不代表整个后端已能独立部署。
 - 旧实现对照、精确计数、真实 API/SQL、非法协议、失败／重启／丢响应和资源清理的完成证据写入实施计划 Outcome。

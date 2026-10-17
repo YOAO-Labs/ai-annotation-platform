@@ -39,8 +39,8 @@ last_reviewed: 2026-10-17
 | `apps/api/app/workers/audit.py`                             | 异步持久化 HTTP 审计；投递失败时中间件同步回退          |
 | `apps/api/app/db/models/audit_log.py`                       | `AuditLog` 数据模型                                     |
 | `apps/api/app/api/v1/audit_logs.py`                         | audit 查询与导出                                        |
-| `apps/api/app/services/audit_summary.py`                    | 月报归并 HTTP 适配，保留精确整数与失败语义              |
-| `apps/audit-summary`                                        | 独立 Go 月报归并，无数据库或存储权限                    |
+| `apps/api/app/services/audit_summary.py`                    | 正常月报的本地 Python 归并                              |
+| `apps/audit-summary`、`apps/api/experiments`                | 显式隔离实验，不参与正常月报执行                        |
 | `apps/api/app/services/notification.py`                     | 通知写表与 Redis PubSub                                 |
 | `apps/api/app/services/notification_preferences.py`         | 只依赖标准库的通知类型与 toast 默认目录                 |
 | `apps/api/app/services/notification_preferences_command.py` | 通知偏好 JSONB 原子写入与新行默认值；不提交             |

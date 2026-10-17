@@ -1,8 +1,19 @@
-# Audit summary service
+# Audit summary experiment
 
-This stateless Go service reduces pre-aggregated UTC audit rows into the public monthly summary shape. Python retains database reads, storage ownership, and the existing authenticated public API. The reducer has no database, object-storage, credential, or external-service access.
+This Go slice is an isolated experiment, not an adopted production service. The normal API computes monthly summaries locally in Python and never selects this adapter through configuration. Default/production Compose, worktree startup and ordinary CI do not start or depend on Go. The experiment has no database, storage, credential or external-service access.
+
+The Python HTTP adapter and process tests live in `apps/api/experiments`, outside ordinary API test discovery and application images. Language replacement, wire precision and process recovery have been exercised; production adoption is explicitly out of scope until the maintainer changes that instruction.
 
 ## Run
+
+Explicit experiment-only Compose, from the repository root:
+
+```sh
+docker compose -f docker-compose.experiments.yml --profile audit-summary-experiment up -d --build
+docker compose -f docker-compose.experiments.yml --profile audit-summary-experiment down
+```
+
+This uses a separate project and loopback port. It does not reroute the normal API.
 
 ```sh
 go run . -listen 127.0.0.1:8091
@@ -35,3 +46,5 @@ Errors use `{ "code": string, "message": string, "retryable": boolean }`. Invali
 go test -race ./...
 go vet ./...
 ```
+
+From `apps/api`, explicitly run `.venv/bin/python -m pytest experiments/tests` for the HTTP adapter, lost-response and process restart checks. The manual GitHub workflow is `Backend audit experiment`; it has no push or pull-request trigger.

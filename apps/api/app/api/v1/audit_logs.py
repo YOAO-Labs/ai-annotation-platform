@@ -31,7 +31,7 @@ from app.schemas.audit import (
     AuditMonthlySummary,
 )
 from app.services.audit_partition_service import AuditPartitionService
-from app.services.audit_summary import AuditSummaryUnavailable, monthly_audit_summary
+from app.services.audit_summary import build_monthly_summary
 
 router = APIRouter()
 
@@ -377,18 +377,14 @@ async def list_audit_logs(
     )
 
 
-@router.get(
-    "/monthly-summary",
-    response_model=AuditMonthlySummary,
-    responses={503: {"description": "审计月报计算服务暂不可用"}},
-)
+@router.get("/monthly-summary", response_model=AuditMonthlySummary)
 async def get_monthly_audit_summary(
     month: str = Query(..., description="UTC 自然月，格式 YYYY-MM"),
     business_only: bool = Query(True, description="排除 http.* 中间件元数据行"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    """Return authorized monthly aggregates computed by the isolated reducer."""
+    """Return authorized monthly audit aggregates from the local calculator."""
     month_start, month_end = _month_bounds(month)
     current_month = datetime.now(timezone.utc).date().replace(day=1)
     retention_start = _shift_month(current_month, -settings.audit_retention_months)
@@ -404,12 +400,13 @@ async def get_monthly_audit_summary(
         month_end=month_end,
         business_only=business_only,
     )
-    try:
-        return await monthly_audit_summary(
-            month=month, materialized_through=materialized_through, rows=rows
-        )
-    except AuditSummaryUnavailable as exc:
-        raise HTTPException(status_code=503, detail={"reason": str(exc)}) from None
+    return build_monthly_summary(
+        month=month,
+        month_start=month_start,
+        month_end=month_end,
+        materialized_through=materialized_through,
+        rows=rows,
+    )
 
 
 @router.get("/archives", response_model=list[AuditArchiveOut])

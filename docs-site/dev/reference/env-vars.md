@@ -36,12 +36,6 @@ last_reviewed: 2026-10-18
 |---|---|---|
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis 连接地址，用于会话缓存、速率限制等 dev:worktree 自动创建独立 Redis 并覆盖缓存、Celery broker/read/write/result 目标；无需手填端口。 格式：redis://[:密码@]主机:端口/数据库编号 |
 
-## 无状态 Go 审计月报归并服务；主 API 保留鉴权和 SQL 查询。服务不可用时月报返回 503。
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `AUDIT_SUMMARY_URL` | `http://127.0.0.1:8091` | dev:worktree 自动启动当前 checkout 的服务并覆盖此地址；生产 Compose 使用内部服务地址。 |
-
 ## --- 设备感知预标队列路由 ---
 
 | 变量 | 默认值 | 说明 |

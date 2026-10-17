@@ -171,14 +171,17 @@ def test_audit_bi_refresh_is_scheduled_on_maintenance_queue():
     assert celery_app.conf.beat_schedule["refresh-audit-bi-mv"]["task"] == task
 
 
-async def test_monthly_summary_reports_peer_outage_without_empty_data(
+async def test_monthly_summary_works_without_experimental_peer(
     httpx_client, auth_headers, monkeypatch
 ):
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "audit_summary_url", "http://127.0.0.1:1")
+    monkeypatch.setenv("AUDIT_SUMMARY_URL", "http://127.0.0.1:1")
     response = await httpx_client.get(
         "/api/v1/audit-logs/monthly-summary?month=2099-01", headers=auth_headers
     )
-    assert response.status_code == 503
-    assert response.json()["detail"] == {"reason": "audit_summary_unavailable"}
+    assert response.status_code == 200
+    assert response.json()["totals"] == {
+        "event_count": 0,
+        "error_count": 0,
+        "action_kind_count": 0,
+    }
+    assert len(response.json()["daily"]) == 31

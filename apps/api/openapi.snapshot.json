@@ -54600,7 +54600,7 @@
     },
     "/api/v1/audit-logs/monthly-summary": {
       "get": {
-        "description": "Return authorized monthly aggregates computed by the isolated reducer.",
+        "description": "Return authorized monthly audit aggregates from the local calculator.",
         "operationId": "get_monthly_audit_summary_api_v1_audit_logs_monthly_summary_get",
         "parameters": [
           {
@@ -54647,9 +54647,6 @@
               }
             },
             "description": "Validation Error"
-          },
-          "503": {
-            "description": "审计月报计算服务暂不可用"
           }
         },
         "security": [

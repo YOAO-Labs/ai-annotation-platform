@@ -13,10 +13,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from app.config import settings
-from app.services.audit_summary import AuditSummaryUnavailable, monthly_audit_summary
+from experiments.audit_summary import AuditSummaryUnavailable, monthly_audit_summary
 
-_ROOT = Path(__file__).resolve().parents[3]
+_ROOT = Path(__file__).resolve().parents[4]
 _MODULE = _ROOT / "apps/audit-summary"
 
 
@@ -69,7 +68,7 @@ def _peer(binary, address="127.0.0.1:0"):
 
 
 async def test_go_peer_lost_response_inflight_shutdown_restart_and_exact_replay(
-    summary_binary, monkeypatch
+    summary_binary,
 ):
     request = json.loads((_MODULE / "testdata/mixed.request.json").read_text())
     expected = json.loads((_MODULE / "testdata/mixed.response.json").read_text())
@@ -88,6 +87,7 @@ async def test_go_peer_lost_response_inflight_shutdown_restart_and_exact_replay(
 
     async def query():
         return await monthly_audit_summary(
+            base_url=f"http://{address}",
             month=request["month"],
             materialized_through=date.fromisoformat(request["materialized_through"])
             if request["materialized_through"]
@@ -105,7 +105,6 @@ async def test_go_peer_lost_response_inflight_shutdown_restart_and_exact_replay(
         )
 
     with _peer(summary_binary) as (process, address):
-        monkeypatch.setattr(settings, "audit_summary_url", f"http://{address}")
         async with httpx.AsyncClient(trust_env=False) as client:
             async with client.stream(
                 "POST", f"http://{address}/v1/audit/monthly-summary", json=request

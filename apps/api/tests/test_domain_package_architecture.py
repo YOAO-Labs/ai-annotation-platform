@@ -142,7 +142,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="audit_summary",
         legacy_facades=(),
-        allowed_app_imports=("app.config", "app.schemas.audit"),
+        allowed_app_imports=("app.schemas.audit",),
     ),
     DomainSpec(
         package="notification_preferences_command",
@@ -427,6 +427,19 @@ def _repo_module_context(path: Path) -> str:
     module_path = relative.with_suffix("")
     sanitized = (part.replace("-", "_") for part in module_path.parts)
     return ".".join(("__repo_scan__", *sanitized))
+
+
+def test_production_modules_do_not_import_experiments() -> None:
+    violations = []
+    for path in sorted((_REPO_ROOT / "apps/api/app").rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for imported, _local in _collect_imports(tree, _repo_module_context(path)):
+            if any(
+                imported == root or imported.startswith(root + ".")
+                for root in ("experiments", "apps.api.experiments")
+            ):
+                violations.append(f"{path.relative_to(_REPO_ROOT)} -> {imported}")
+    assert not violations, "Production imports an experiment:\n" + "\n".join(violations)
 
 
 def _iter_domain_files(pkg: str) -> list[tuple[Path, str]]:

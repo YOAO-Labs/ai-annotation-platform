@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from app.services import audit_summary
+from experiments import audit_summary
 
 
 def _response(count="9007199254740993"):
