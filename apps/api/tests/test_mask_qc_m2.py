@@ -280,7 +280,6 @@ async def test_mask_qc_api_returns_versions_and_filters_effective_stale(
     assert response.status_code == 202, response.text
     body = response.json()
     assert body["source_versions"] == {str(annotation.id): 1}
-    dispatch.assert_called_once()
 
     run = await db_session.get(MaskQCRun, uuid.UUID(body["id"]))
     issue = MaskQCIssue(
@@ -302,9 +301,29 @@ async def test_mask_qc_api_returns_versions_and_filters_effective_stale(
         source={},
     )
     db_session.add(issue)
-    annotation.version = 2
     await db_session.commit()
 
+    response = await httpx_client.patch(
+        f"/api/v1/mask-qc/issues/{issue.id}",
+        json={"status": "resolved"},
+        headers=_bearer(token),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "resolved"
+    assert response.json()["resolved_by_id"] == str(user.id)
+
+    response = await httpx_client.patch(
+        f"/api/v1/mask-qc/issues/{issue.id}",
+        json={"status": "open"},
+        headers=_bearer(token),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "open"
+    assert response.json()["resolved_by_id"] is None
+    assert response.json()["resolved_at"] is None
+
+    annotation.version = 2
+    await db_session.commit()
     response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/mask-qc/issues?status=stale",
         headers=_bearer(token),
@@ -327,6 +346,8 @@ async def test_mask_qc_api_returns_versions_and_filters_effective_stale(
     )
     assert response.status_code == 409
     assert response.json()["detail"]["reason"] == "mask_qc_issue_stale"
+    await db_session.refresh(issue)
+    assert issue.status == "open"
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备及流水线模板命令/预标注 schema 已分片迁移；其余业务域、完整数据所有权与跨语言替换尚未实施。
+> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema 及质检问题决策已分片迁移；其余业务域、完整数据所有权与跨语言替换尚未实施。
 >
 > 创建日期：2026-10-16。
 >
@@ -685,6 +685,24 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - registry 管理、项目绑定和精确 OpenAPI 三个既有测试文件累计 47 个不同用例通过；首次运行的两个夹具错误修正后只重跑受影响用例，去重计数不重复累加。`test_domain_package_architecture.py` 另有 159 passed、74 skipped。删除只回显 mock unload 成功响应的测试及运行中作业/撤权拒绝的固定解释文案断言，保留资源不变、消费者可见的 GPU 错误字段与 `Retry-After` 边界；三个受影响用例在主线补验通过，不重复累计。路由/公开 schema 与精确 OpenAPI snapshot 不变。此切片没有调用真实模型或 GPU，不声明推理/硬件资格。
 - 主线冷进程导入应用删除命令时未加载 API/worker；实际主线路由在成员 drain 及真实 Redis 静默检查后返回 204，两条目标主绑定清空、无关绑定及独立启用关系保留。随后同 JWT 的主体降为 project_admin，再删无关 registry 返回 403，registry/绑定均保留；不以此冒充 GPU 卸载或模型资格。
 
+### 质检问题人工决策
+
+- 已实施切片：`services/mask_qc/service.py::decide_issue` 与 `services/point_cloud_quality/service.py::decide_issue` 分别持有 Mask QC、点云质检 issue 的人工状态决策。两者都校验冻结 Task 绑定和源新鲜度；Mask 写入状态及 resolver/time，重开清空 resolver/time。点云额外 trim reason/note，维护 verdict、reviewer 与时间，重开清空解析和复核字段。没有改变角色判定、评审许可、锁策略或 issue/source 所有权。
+- API 继续保留现有 scope/角色与任务可见性判断、成员/Task/issue 锁和刷新、点云审计、提交及响应 refresh 顺序。公开请求、响应、缺失/null/default 语义和 OpenAPI 快照不变；审计仍随本地事务提交，不转为异步或 outbox。
+- 真实 Uvicorn TCP、JWT、PostgreSQL 实跑使用隔离库 `aap_wt_f9f8b83bf8f18b51_dev`，`app.dependency_overrides` 为 0。用真实 Mask annotation 和 point-cloud Scene/DatasetItem/Task/SceneTrack/Annotation 持久图直接建题，无 expensive scan；super_admin 当前 actor 的 resolve/reopen、点云 wont_fix/resolved、trim 后 reason/note、verdict、resolver/reviewer 及重开清空均按实际 HTTP/持久行核对。无项目成员权限的 outsider 对两类 issue 均为 404；缺 wont_fix reason 为 422。
+- 两类 annotation version 改变后的旧 issue 决策均返回 409；Mask 仍为 open，点云原解析/复核字段仍存储且无拒绝审计，证明路由 Session 关闭回滚 stale refresh 的未提交更改。另在真实 Task `FOR UPDATE` 已取得、issue `FOR UPDATE NOWAIT` 尚未取得的同步窗口，由独立 PostgreSQL session 改写 issue.task_id；两类请求都按原 expected Task 拒绝 409，数据库保留并发写入的 task 绑定，issue 决策字段不变。
+- 同一持久来源图下，为样本创建独立等形 issue 行；历史命令来自 `3b6d3cb1e` API 路由，历史 handler 仅临时挂在同一 Uvicorn app 的隔离 `/api/v1/__baseline` 前缀。两侧各预热一次并采样三次真实 HTTP PATCH，所测为等形问题行而非同一主键原地回滚；SQL 数不变，堆峰值中位数如下，不作为优化结论：
+
+  | 领域     | SQL / 请求（历史 → 当前） | Python 堆峰值中位数（字节，历史 → 当前） |
+  | -------- | ------------------------: | ---------------------------------------: |
+  | Mask QC  |                   13 → 13 |                        372,287 → 372,872 |
+  | 点云质检 |                   19 → 19 |                        401,959 → 401,883 |
+
+- 完整原始样本在 `artifact://1254` 的 `QUALITY_DECISION_SMOKE`；该预算仅代表 issue PATCH，不推断其它列表、并发规模、RSS、ML、GPU、浏览器或点云渲染能力。
+- 本地回归：Mask QC、点云质检和领域架构三套测试共 253 项，179 passed、74 skipped、无失败/错误；精确 OpenAPI snapshot 匹配；固定 Ruff `0.15.22` 对变更 Python 文件检查及格式检查通过。
+- 正式开发文档：后端分层、仓库地图、标注模块与点云数据模型。纯结构切片不增加 CHANGELOG；未修改 DB schema、API schema、依赖、配置或版本。
+- 主线集成后以真实 ASGI/JWT 和独立 PostgreSQL 连接验证 Mask resolve/reopen 为 200/200，来源版本改变后为原 reason-only 409，拒绝决定未持久化，重开完整清空 resolver/time。最初夹具遗漏 RLE encoding 被现有校验拒绝，补齐合法输入后才验上述路径；未改生产校验。此主线探针没有执行扫描、对象 I/O 或模型。
+
 ### 剩余范围
 
-- 剩余主写入切片为三类质检执行。全入口复核另确认项目/模板配置、Schema 孤儿标注清理、质检问题人工决策、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入仍需完成，已单独跟踪。完整入口/数据/对象前缀台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余主写入切片为三类质检执行。全入口复核另确认项目/模板配置、Schema 孤儿标注清理、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入仍需完成，已单独跟踪。完整入口/数据/对象前缀台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

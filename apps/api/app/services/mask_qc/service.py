@@ -51,10 +51,20 @@ def _effective_current_clause():
 
 
 class MaskQCError(RuntimeError):
-    def __init__(self, *, status_code: int, reason: str, message: str, **detail: Any):
-        super().__init__(message)
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        reason: str,
+        message: str | None = None,
+        **detail: Any,
+    ):
+        super().__init__(message if message is not None else reason)
         self.status_code = status_code
-        self.detail = {"reason": reason, "message": message, **detail}
+        self.detail = {"reason": reason}
+        if message is not None:
+            self.detail["message"] = message
+        self.detail.update(detail)
 
 
 def canonical_digest(value: Any) -> str:
@@ -500,6 +510,33 @@ def issue_dedupe_key(
 
 async def effective_issue_status(db: AsyncSession, issue: MaskQCIssue) -> str:
     return (await effective_issue_statuses(db, [issue]))[issue.id]
+
+
+async def decide_issue(
+    db: AsyncSession,
+    *,
+    issue: MaskQCIssue,
+    expected_task_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    status: str,
+) -> None:
+    """Apply a manual decision to the freshly locked, current Mask QC issue."""
+
+    if (
+        issue.task_id != expected_task_id
+        or await effective_issue_status(db, issue) == "stale"
+    ):
+        raise MaskQCError(
+            status_code=409,
+            reason="mask_qc_issue_stale",
+        )
+    issue.status = status
+    if status == "open":
+        issue.resolved_by_id = None
+        issue.resolved_at = None
+    else:
+        issue.resolved_by_id = actor_id
+        issue.resolved_at = datetime.now(timezone.utc)
 
 
 async def effective_issue_statuses(

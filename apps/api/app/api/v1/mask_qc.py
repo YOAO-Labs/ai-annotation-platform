@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -61,6 +60,7 @@ from app.services.mask_qc.compare import (
 from app.services.mask_qc.service import (
     MaskQCError,
     create_mask_qc_run,
+    decide_issue,
     dispatch_mask_qc_run,
     effective_issue_status,
     effective_issue_statuses,
@@ -543,18 +543,16 @@ async def patch_issue(
             ) from exc
         raise
     await task_access.assert_task_visible(db, task, current_user, access=access)
-    if await effective_issue_status(db, issue) == "stale":
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "mask_qc_issue_stale"},
+    try:
+        await decide_issue(
+            db,
+            issue=issue,
+            expected_task_id=task.id,
+            actor_id=current_user.id,
+            status=body.status,
         )
-    issue.status = body.status
-    if body.status == "open":
-        issue.resolved_by_id = None
-        issue.resolved_at = None
-    else:
-        issue.resolved_by_id = current_user.id
-        issue.resolved_at = datetime.now(timezone.utc)
+    except MaskQCError as exc:
+        _raise_mask_qc_error(exc)
     await db.commit()
     await db.refresh(issue)
     return await _issue_out(db, issue)

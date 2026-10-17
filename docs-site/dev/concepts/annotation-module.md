@@ -251,6 +251,13 @@ execute 必须同时提交原 receipt 和 canonical plan digest，重放同一�
 SAM / Tracker 重跑项只创建候选，不越过候选审阅直接改写 annotation。回滚按原分片逆序执行，先确认全部对象仍处于记录的 after version，
 再恢复 before geometry；任一版本不等时整片失败。收据与回滚保留期内的 before refs 都是 Raster GC live roots。
 
+Mask QC 问题的人工 PATCH (`/api/v1/mask-qc/issues/{issue_id}`) 由
+`services/mask_qc/service.py::decide_issue` 持有状态与 resolver/time 写入，并先校验
+Issue 的 Task 绑定和冻结源版本的 effective-stale 状态；过期问题拒绝处置。API 保留
+现有 manager / `review.write` 准入、Task 可见性、成员/Task/Issue 非阻塞锁以及原提交、
+refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC 持有；反馈锚只
+提供评论定位，不接管 Issue 或 annotation/source 所有权。
+
 ### 属性 schema 与派生渲染
 
 `Annotation.attributes` 是 JSONB 自由字段，由项目级 `AttributeField` schema（`apps/api/app/db/models/project.py` → `attribute_schema`，前端在「项目设置 / 类别与属性」用 `AttributeSchemaEditor` 维护）约束 key、类型、必填、`applies_to` 类别白名单等。

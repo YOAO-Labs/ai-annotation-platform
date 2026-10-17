@@ -473,30 +473,53 @@ async def test_quality_api_lists_locates_and_requires_wont_fix_reason(
     assert response.status_code == 422
     response = await httpx_client.patch(
         f"/api/v1/point-cloud-quality/issues/{issue.id}",
-        json={"status": "wont_fix", "reason": "known sparse return"},
+        json={"status": "wont_fix", "reason": "  known sparse return  "},
         headers=headers,
     )
     assert response.status_code == 200, response.text
-    assert response.json()["status"] == "wont_fix"
-    assert response.json()["review_verdict"] is None
+    resolved = response.json()
+    assert resolved["status"] == "wont_fix"
+    assert resolved["resolution_reason"] == "known sparse return"
+    assert resolved["resolved_by_id"] == str(user.id)
+    assert resolved["review_verdict"] is None
+    assert resolved["review_note"] is None
+    assert resolved["reviewed_by_id"] is None
+    assert resolved["reviewed_at"] is None
+
     response = await httpx_client.patch(
         f"/api/v1/point-cloud-quality/issues/{issue.id}",
         json={"status": "open"},
         headers=headers,
     )
     assert response.status_code == 200, response.text
+    reopened = response.json()
+    assert reopened["status"] == "open"
+    assert reopened["resolution_reason"] is None
+    assert reopened["resolved_by_id"] is None
+    assert reopened["resolved_at"] is None
+    assert reopened["review_verdict"] is None
+    assert reopened["review_note"] is None
+    assert reopened["reviewed_by_id"] is None
+    assert reopened["reviewed_at"] is None
+
     response = await httpx_client.patch(
         f"/api/v1/point-cloud-quality/issues/{issue.id}",
         json={
             "status": "resolved",
+            "reason": "  verified by reviewer  ",
             "review_verdict": "confirmed",
-            "review_note": "box is genuinely empty",
+            "review_note": "  box is genuinely empty  ",
         },
         headers=headers,
     )
     assert response.status_code == 200, response.text
-    assert response.json()["review_verdict"] == "confirmed"
-    assert response.json()["reviewed_by_id"] == str(user.id)
+    resolved = response.json()
+    assert resolved["status"] == "resolved"
+    assert resolved["resolution_reason"] == "verified by reviewer"
+    assert resolved["resolved_by_id"] == str(user.id)
+    assert resolved["review_verdict"] == "confirmed"
+    assert resolved["review_note"] == "box is genuinely empty"
+    assert resolved["reviewed_by_id"] == str(user.id)
 
     feedback_payload = {
         "kind": "comment",
@@ -547,6 +570,13 @@ async def test_quality_api_lists_locates_and_requires_wont_fix_reason(
     )
     assert response.status_code == 200
     assert response.json()["status"] == "stale"
+    response = await httpx_client.patch(
+        f"/api/v1/point-cloud-quality/issues/{issue.id}",
+        json={"status": "open"},
+        headers=headers,
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["reason"] == "point_cloud_quality_issue_stale"
     response = await httpx_client.post(
         "/api/v1/feedbacks",
         json={

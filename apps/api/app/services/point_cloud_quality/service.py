@@ -575,6 +575,39 @@ async def refresh_issue_staleness(
     return (await refresh_issue_staleness_bulk(db, [issue]))[issue.id]
 
 
+async def decide_issue(
+    db: AsyncSession,
+    *,
+    issue: PointCloudQualityIssue,
+    expected_task_id: uuid.UUID | None,
+    actor_id: uuid.UUID,
+    status: str,
+    reason: str | None,
+    review_verdict: str | None,
+    review_note: str | None,
+) -> None:
+    """Apply a manual review decision to the current, freshly locked issue."""
+
+    if issue.task_id != expected_task_id or await refresh_issue_staleness(db, issue):
+        raise PointCloudQualityError(409, "point_cloud_quality_issue_stale")
+    issue.status = status
+    issue.resolution_reason = (reason or "").strip() or None
+    if status == "open":
+        issue.resolved_by_id = None
+        issue.resolved_at = None
+        issue.review_verdict = None
+        issue.review_note = None
+        issue.reviewed_by_id = None
+        issue.reviewed_at = None
+    else:
+        issue.resolved_by_id = actor_id
+        issue.resolved_at = datetime.now(timezone.utc)
+        issue.review_verdict = review_verdict
+        issue.review_note = (review_note or "").strip() or None
+        issue.reviewed_by_id = actor_id if review_verdict else None
+        issue.reviewed_at = datetime.now(timezone.utc) if review_verdict else None
+
+
 async def refresh_issue_staleness_bulk(
     db: AsyncSession, issues: list[PointCloudQualityIssue]
 ) -> dict[uuid.UUID, bool]:

@@ -50,6 +50,7 @@ from app.services.audit import AuditAction, AuditService
 from app.services.point_cloud_quality.service import (
     PointCloudQualityError,
     create_quality_run,
+    decide_issue,
     dispatch_quality_run,
     list_issues,
     refresh_issue_staleness,
@@ -342,8 +343,9 @@ async def patch_issue(
     # resource locks so a busy row cannot block indefinitely.
     _project, access = await _assert_issue_visible(db, issue, current_user, lock=True)
     _assert_review_authority(access)
-    if issue.task_id is not None:
-        task = await db.get(Task, issue.task_id, populate_existing=True)
+    expected_task_id = issue.task_id
+    if expected_task_id is not None:
+        task = await db.get(Task, expected_task_id, populate_existing=True)
         if task is not None:
             await _lock_task_nowait(db, task.id)
     try:
@@ -361,28 +363,21 @@ async def patch_issue(
                 status_code=409, detail={"reason": "point_cloud_quality_issue_busy"}
             ) from exc
         raise
-    if await refresh_issue_staleness(db, issue):
-        raise HTTPException(
-            status_code=409, detail={"reason": "point_cloud_quality_issue_stale"}
-        )
     previous = issue.status
     previous_verdict = issue.review_verdict
-    issue.status = body.status
-    issue.resolution_reason = (body.reason or "").strip() or None
-    if body.status == "open":
-        issue.resolved_by_id = None
-        issue.resolved_at = None
-        issue.review_verdict = None
-        issue.review_note = None
-        issue.reviewed_by_id = None
-        issue.reviewed_at = None
-    else:
-        issue.resolved_by_id = current_user.id
-        issue.resolved_at = datetime.now(timezone.utc)
-        issue.review_verdict = body.review_verdict
-        issue.review_note = (body.review_note or "").strip() or None
-        issue.reviewed_by_id = current_user.id if body.review_verdict else None
-        issue.reviewed_at = datetime.now(timezone.utc) if body.review_verdict else None
+    try:
+        await decide_issue(
+            db,
+            issue=issue,
+            expected_task_id=expected_task_id,
+            actor_id=current_user.id,
+            status=body.status,
+            reason=body.reason,
+            review_verdict=body.review_verdict,
+            review_note=body.review_note,
+        )
+    except PointCloudQualityError as exc:
+        _raise_quality_error(exc)
     await AuditService.log(
         db,
         actor=current_user,
