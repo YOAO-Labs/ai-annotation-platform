@@ -104,7 +104,7 @@ last_reviewed: 2026-07-11
 
 ### `GET /api/v1/scenes?dataset_id=<uuid>` / `GET /api/v1/scenes/{id}` / `PATCH /api/v1/scenes/{id}`
 
-scene 元数据 CRUD;create 由 importer / backfill 自动发起,API 不暴露。
+scene API 提供列表/单条读取及部分元数据 PATCH；create 由 importer / backfill 自动发起,API 不暴露。PATCH 只接受 `name`、`source_format`、`source_metadata`;字段省略或 `null` 表示不变,`source_metadata: {}` 表示清空。同 dataset 名称冲突返回 `409` 且不应用其他字段,目标不存在返回 `404`。Scene service 负责加载、冲突检测、字段更新和 flush；API route 提交事务、refresh 并构造响应,因此成功返回后的新会话 GET 可见已保存值。
 
 ### `POST /api/v1/datasets/{id}/scenes/backfill?mode=auto&dry_run=false`
 

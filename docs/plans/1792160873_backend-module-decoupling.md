@@ -778,6 +778,23 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 原始预算证据为 `/tmp/aap-mask-boundary-budget.json`。此采样在同一进程、同一数据库/对象存储客户端中执行，预热为每版本一项且测量顺序为旧后新；仅一条样本，不是中位数、统计显著性或优化结论。`tracemalloc` 只覆盖应用函数的 Python 分配，不包括 worker 进程、进程 RSS、驱动/原生内存、GPU、并发吞吐或完整 HTTP/派发路径；MinIO 调用计数不覆盖网络重试或服务端工作量。
 - 主线冷进程导入格式导入装配未加载 API/worker；默认 DB 依赖的 ASGI/JWT 上传初始化/预检为 200，执行受理为 202。启动消费者前读取真实 Redis `media` 消息，注册名为 `app.workers.mask_format_import.run_mask_format_import`、唯一位置参数为 batch UUID，执行 ID 与持久 AsyncJob 一致；随后启动本工作树真实 Celery solo 消费者并核对注册与 `media` 订阅。作业和批次均 completed、Celery SUCCESS，独立连接读到 committed item，MinIO 的 5×3 RLE 及解码像素与来源完全一致。原始执行 ID 为 `a0ab649d-a009-4945-b519-bb36e27e7ecb`；消费者已温和关闭，不包含模型或 GPU。为采集消息而先入队后开消费者，不据此宣称消除了已记录的发布/登记窗口。
 
+### Scene 元数据 PATCH 写入
+
+- `Scene` owner 承担 PATCH 的名称冲突检查及 `name` / `source_format` / `source_metadata` 更新，只 flush；API route 保留有效身份认证、事务 commit、refresh 和响应装配。此切片不新增 project-owner 检查，null、字段省略、空字典和 404 语义保持不变；不把导入器的替换/清空语义合并进此 PATCH 命令。
+- 修复前以本 worktree 的真实 Uvicorn API 和独立测试 PostgreSQL 复现：PATCH 返回 200 并回显新名称/来源，但新的 HTTP GET 与独立数据库会话都仍读到 `before` / `manual` / `{"before": true}`。原因是请求只 flush/refresh，`get_db` 关闭 session 时回滚。
+- 修改后真实 Uvicorn PATCH 返回 200；新 HTTP GET 和独立 PostgreSQL 会话都读到 `committed-rename` / `nuscenes` / `{"source": "committed"}`。随后 `source_metadata: {}` 经 PATCH 和新会话 GET 均为空对象。省略/null 请求不变；同 dataset 重名返回原 `409` 且没有写入同请求的其他字段；目标不存在继续 `404`。
+- 在同一独立 PostgreSQL 测试库安装临时延迟约束触发器，让 UPDATE 在真实 commit 时失败；Uvicorn 返回 500，新的数据库会话仍读到提交前的名称、来源和 metadata。触发器/函数之后移除；没有捕获或压制 SQL 错误。
+- 聚焦 `test_scene_model.py`、领域架构与精确 OpenAPI 检查：167 passed、74 skipped；固定 Ruff 0.15.22 的 lint/format 检查、173 个文档 frontmatter 检查、changelog 检查及完整 VitePress 文档构建通过。计划新鲜度检查仅提示另外 3 份既有旧计划缺少 Outcome。
+- 冻结单 Scene 的变更/响应体，分别采样三次旧路由体和当前 owner + route commit：
+
+| 采样指标                    | 旧路由体 | 当前 owner + commit |
+| --------------------------- | -------: | ------------------: |
+| SQL 语句数（每次）          |        4 |                   4 |
+| Python 堆峰值中位数（字节） |  296,807 |             296,550 |
+
+- 三组原始 SQL/heap 样本在 `/tmp/aap-scene-patch-evidence.json`。该窄预算排除 HTTP/认证、API 启动、存储、worker 与进程 RSS；旧路径缺少持久化提交，两侧持久化保证不同，不把 SQL 数或堆差当成等价事务成本、吞吐或优化结论。
+- 主线冷进程导入 Scene owner 未加载 API/worker；默认 DB 依赖的 ASGI/JWT 使用非项目负责人的 employee 身份，PATCH 与新 GET 均为 200，独立 PostgreSQL 连接读到已提交的名称/来源/metadata。随后空 metadata 持久化，显式 null 保留现值；没有新增项目角色策略或存储/worker/模型调用。移除响应键全集与固定解释文案断言后，仅补验受影响的持久化回归，行为断言仍通过。
+
 ### 剩余范围
 
-- 全入口复核的剩余写入切片为 Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 全入口复核的剩余写入切片为通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

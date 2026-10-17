@@ -67,7 +67,7 @@ class SceneTimelineAnnotationSummary:
 
 
 class SceneNameConflict(ValueError):
-    """同 dataset 下 scene name 已存在;API 层包成 422。"""
+    """同 dataset 下 scene name 已存在。"""
 
 
 class SceneFrameIndexInconsistent(ValueError):
@@ -158,6 +158,38 @@ async def list_for_dataset(db: AsyncSession, dataset_id: uuid.UUID) -> list[Scen
 
 async def get_scene(db: AsyncSession, scene_id: uuid.UUID) -> Scene | None:
     return await db.get(Scene, scene_id)
+
+
+async def update_scene_fields(
+    db: AsyncSession,
+    *,
+    scene_id: uuid.UUID,
+    name: str | None = None,
+    source_format: str | None = None,
+    source_metadata: dict | None = None,
+) -> Scene | None:
+    """更新 PATCH 支持的 scene 字段；None 表示保持原值。"""
+    scene = await db.get(Scene, scene_id)
+    if scene is None:
+        return None
+
+    if name is not None and name != scene.name:
+        conflict = await db.execute(
+            select(Scene.id)
+            .where(Scene.dataset_id == scene.dataset_id)
+            .where(Scene.name == name)
+            .where(Scene.id != scene_id)
+        )
+        if conflict.scalar_one_or_none() is not None:
+            raise SceneNameConflict(f"scene name {name!r} already exists in dataset")
+        scene.name = name
+    if source_format is not None:
+        scene.source_format = source_format
+    if source_metadata is not None:
+        scene.source_metadata = source_metadata
+
+    await db.flush()
+    return scene
 
 
 async def resolve_primary_item_id(db: AsyncSession, task: Task) -> uuid.UUID | None:

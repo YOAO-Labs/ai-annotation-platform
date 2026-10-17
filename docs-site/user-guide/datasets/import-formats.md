@@ -1,9 +1,8 @@
 ---
 audience: [project_admin, super_admin]
 type: how-to
-since: v0.14.2
 status: stable
-last_reviewed: 2026-06-10
+last_reviewed: 2026-10-17
 ---
 
 # 点云 / 多模态数据集导入格式
@@ -74,6 +73,7 @@ scene 边界与 `frame_index` 的概念详见 [Scene + frame_index 跨 task 帧�
 - 上传 / 入库完成后,**每个 dataset 自动至少有 1 个 scene**(角色目录布局 → 单 scene,名取 dataset 名)。
 - **一个 dataset 可以装多个 scene**;scene 边界由 importer / 目录布局决定。
 - scene 内 `frame_index` 决定跨帧导航(`Shift+→` 延续、邻帧框叠加)的顺序;跨 scene 不串(scene-A 末帧的"下一帧"为空,不会跳到 scene-B 首帧)。
+- 管理员也可通过认证 API 客户端调用 `PATCH /api/v1/scenes/{id}` 修正 scene 名称或来源字段；成功响应在事务提交后返回，后续 `GET` 可读取已保存结果。同一 dataset 内重名返回 `409` 且不应用本次其他字段更改；省略字段或传 `null` 表示不修改，`source_metadata: {}` 则清空该字段。
 
 > ⚠️ **不要**把 `lidar` / `camera` / `calib` / `image` / `video` 用作顶层 scene 目录名——它们是角色目录的保留名,会让多 scene 启发式误判为单 scene。
 

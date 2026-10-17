@@ -76,33 +76,20 @@ async def update_scene(
 
     name 冲突 → 409。
     """
-    scene = await scene_svc.get_scene(db, scene_id)
+    try:
+        scene = await scene_svc.update_scene_fields(
+            db,
+            scene_id=scene_id,
+            name=payload.name,
+            source_format=payload.source_format,
+            source_metadata=payload.source_metadata,
+        )
+    except scene_svc.SceneNameConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if scene is None:
         raise HTTPException(status_code=404, detail="Scene not found")
 
-    if payload.name is not None and payload.name != scene.name:
-        from sqlalchemy import select
-
-        from app.db.models.dataset import Scene as SceneModel
-
-        conflict = await db.execute(
-            select(SceneModel.id)
-            .where(SceneModel.dataset_id == scene.dataset_id)
-            .where(SceneModel.name == payload.name)
-            .where(SceneModel.id != scene_id)
-        )
-        if conflict.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"scene name {payload.name!r} already exists in dataset",
-            )
-        scene.name = payload.name
-    if payload.source_format is not None:
-        scene.source_format = payload.source_format
-    if payload.source_metadata is not None:
-        scene.source_metadata = payload.source_metadata
-
-    await db.flush()
+    await db.commit()
     # refresh:刷新 server_default / onupdate 的 updated_at 等延迟字段,避免
     # Pydantic 在异步序列化时触发 MissingGreenlet。
     await db.refresh(scene)
