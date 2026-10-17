@@ -144,6 +144,8 @@ last_reviewed: 2026-10-17
      `app/deps.py::get_quality_job_dispatcher` 装配
      `app/workers/quality_dispatch.py::CeleryQualityJobDispatcher`；
      覆盖三类质检、Mask 修复/回滚和格式导入。
+     点云派发失败的运行终态归 `point_cloud_quality.service.record_dispatch_failure`；
+     HTTP 保留通用作业失败命令及两者共同提交，原受理/派发窗口不变。
      Mask QC 与点云质检的人工 issue 决策分别归 `app/services/mask_qc/service.py::decide_issue`
      和 `app/services/point_cloud_quality/service.py::decide_issue`；两者保留冻结 Task
      身份与源新鲜度检查。API 仍解析当前角色/任务可见性并取得成员及 Task/issue 锁；

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Literal
 import uuid
 
@@ -52,6 +51,7 @@ from app.services.point_cloud_quality.service import (
     create_quality_run,
     decide_issue,
     dispatch_quality_run,
+    record_dispatch_failure,
     list_issues,
     refresh_issue_staleness,
 )
@@ -204,11 +204,7 @@ async def create_run(
                 db, run_id=run.id, async_job_id=job.id, dispatcher=quality_dispatcher
             )
         except PointCloudQualityError as exc:
-            run = await db.get(PointCloudQualityRun, run.id)
-            if run is not None:
-                run.status = "failed"
-                run.error_message = str(exc.detail)[:4000]
-                run.completed_at = datetime.now(timezone.utc)
+            await record_dispatch_failure(db, run_id=run.id, error=str(exc.detail))
             await async_job_svc.mark_failed(db, job.id, error=str(exc.detail))
             await db.commit()
             _raise_quality_error(exc)

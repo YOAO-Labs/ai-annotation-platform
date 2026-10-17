@@ -569,6 +569,17 @@ async def dispatch_quality_run(
         ) from exc
 
 
+async def record_dispatch_failure(
+    db: AsyncSession, *, run_id: uuid.UUID, error: str
+) -> None:
+    """Stage the original dispatch-failure fields; the caller owns commit."""
+    run = await db.get(PointCloudQualityRun, run_id)
+    if run is not None:
+        run.status = "failed"
+        run.error_message = error[:4000]
+        run.completed_at = datetime.now(timezone.utc)
+
+
 async def refresh_issue_staleness(
     db: AsyncSession, issue: PointCloudQualityIssue
 ) -> bool:
