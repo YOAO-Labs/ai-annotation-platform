@@ -48,3 +48,13 @@ go vet ./...
 ```
 
 From `apps/api`, explicitly run `.venv/bin/python -m pytest experiments/tests` for the HTTP adapter, lost-response and process restart checks. The manual GitHub workflow is `Backend audit experiment`; it has no push or pull-request trigger.
+
+## Local cost breakdown
+
+From the repository root, use the configured API Python environment:
+
+```sh
+PYTHONPATH=apps/api /path/to/api-venv/bin/python apps/api/experiments/bench_cost.py
+```
+
+This compares the Python reducer, Python JSON stages, Go decode/reduce/encode benchmarks, and localhost adapter paths on one deterministic synthetic fixture. It prints JSON measurements, builds the Go binary in a temporary directory, binds an ephemeral loopback port, and runs one bounded request near 7 MiB while sampling process RSS every 50 ms. `EXPERIMENT_COST.md` records the checked-in run; the request ceiling is 8 MiB. It does not use a database, production data, external traffic, or concurrent stress. The report's sampled RSS is not a process high-water mark or proof of production capacity.

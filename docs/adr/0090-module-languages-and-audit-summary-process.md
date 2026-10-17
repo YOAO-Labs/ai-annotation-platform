@@ -46,6 +46,8 @@ Go 的 `/openapi.json` 是实验 wire 契约真值。`POST /v1/audit/monthly-sum
 
 实验请求和响应上限均为 64 MiB，调用超时十秒，错误明确失败而不截断或伪造零事件。这些限制不改变生产月报。规模与内存对照只使用明确的合成夹具，且实测 HTTP 路径增加了成本，没有证明生产采用收益。
 
+固定的 10,000 行本地夹具中，Python 归并约 2.98 ms，Python 请求 JSON 编码约 14.87 ms，Go 解码约 25.17 ms、归并约 5.33 ms，完整调用约 46.93–50.79 ms。这些分项测量包含不同路径，不能相减推导纯网络成本。7.28 MB 单请求及采样 RSS 不是并发或生产容量资格；可复现脚本和完整限制见 `apps/api/experiments/bench_cost.py` 与 `apps/audit-summary/EXPERIMENT_COST.md`。当前决定是不采用该 Go 归并实现；生产基数、并发容量和维护成本在将来重新考虑采用时验证，不为结束实验访问真实环境。
+
 ### 隔离与恢复
 
 仅独立的 `docker-compose.experiments.yml` 与 `audit-summary-experiment` profile、显式测试命令或手动 workflow 可启动 Go。默认／生产 Compose、工作树启动器及普通 CI 均不依赖 Go，应用配置移除 `AUDIT_SUMMARY_URL`。实验镜像为非 root scratch，无业务凭据和持久卷；常规应用镜像排除 Go 实验及 Python 实验目录。
