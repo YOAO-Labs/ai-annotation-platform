@@ -17,7 +17,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "python-multipart>=0.0.12",
     "redis>=5.2.0",
-    "boto3>=1.35.0",
+    "boto3>=1.43.77",
     # v0.11.14 · 存储连接器 SFTP/SSH 拉取（宿主机 & 同网段服务器）。
     "paramiko>=3.4.0",
     # v0.11.14 · 连接器凭据 Fernet 加密落库。cryptography 此前经 python-jose[cryptography]
