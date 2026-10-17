@@ -329,6 +329,8 @@ Resident、CPU fallback、Unloaded 或保守 Unknown。容量不足时，authori
 
 单项重试与按作业重试由 `app/application/prediction_retry.py` 组合，路由保留 HTTP 角色入口与响应。失败预测的当前项目管理准入、行锁占用和占用释放由 `app/services/prediction.py` 持有；重试次数上限与 UTF-8 JSON 的 8 KiB 请求上下文预算由纯模块 `app/services/prediction_retry.py` 定义，预标注入口和批量 worker 直接使用该所有者，不再导入 worker 的上下文预算助手。
 
+`PredictionService` 独占失败项的 dismiss/restore 字段变更、重试成功后的失败行删除，以及失败计数与 `extra.retry_pending` / 可选 `last_gpu_arbiter_error` 更新。路由保留当前管理准入、审计与有变更时才提交；worker 保留推理 transport 和调用方事务，`Prediction` / `PredictionMeta` 创建与失败行删除一起提交。
+
 单项重试在提交占用前按 backend 设备快照选执行队列，受控模型继续优先使用 `controlled_device`；按作业重试仍使用原默认路由，不擅自改成设备感知派发。两条路径均先提交占用再经注入的 `PredictionRetryDispatcher` 派发，具体 Celery 任务选择在 `app/workers/prediction_retry_dispatch.py`。批量中途发布失败时仅释放派发调用尚未返回成功的项，已返回成功项保持排队；补偿自身不增加执行计数，但不确定发布不能作为任务未入队的证明。没有增加自动重试、outbox 或 exactly-once 保证。
 
 ## 代码索引

@@ -683,6 +683,45 @@ class PredictionService:
         await self.db.flush()
         return failed
 
+    async def dismiss_failed_prediction(self, failed: FailedPrediction) -> bool:
+        """Dismiss one failed prediction without committing its caller's transaction."""
+        if failed.dismissed_at is not None:
+            return False
+        failed.dismissed_at = datetime.now(timezone.utc)
+        return True
+
+    async def restore_failed_prediction(self, failed: FailedPrediction) -> bool:
+        """Restore one dismissed failed prediction without committing."""
+        if failed.dismissed_at is None:
+            return False
+        failed.dismissed_at = None
+        return True
+
+    async def delete_failed_prediction_after_retry(self, failed_id: uuid.UUID) -> None:
+        """Delete a successfully retried row in the prediction transaction."""
+        failed = await self.db.get(FailedPrediction, failed_id)
+        if failed is not None:
+            await self.db.delete(failed)
+
+    async def bump_failed_prediction_retry_counter(
+        self,
+        failed_id: uuid.UUID,
+        *,
+        gpu_arbiter_error: dict[str, Any] | None = None,
+    ) -> None:
+        """Record one failed retry and clear its pending marker."""
+        failed = await self.db.get(FailedPrediction, failed_id)
+        if failed is None:
+            return
+        failed.retry_count = (failed.retry_count or 0) + 1
+        failed.last_retry_at = datetime.now(timezone.utc)
+        extra = dict(failed.extra or {})
+        extra.pop("retry_pending", None)
+        if gpu_arbiter_error is not None:
+            extra["last_gpu_arbiter_error"] = gpu_arbiter_error
+        failed.extra = extra
+        await self.db.flush()
+
     async def list_by_task(
         self, task_id: uuid.UUID, model_version: str | None = None
     ) -> list[Prediction]:

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from fastapi import (
@@ -45,7 +45,10 @@ from app.schemas.prediction import (
 )
 from app.services.audit import AuditAction, AuditService
 from app.application import prediction_retry
-from app.services.prediction import assert_can_manage_failed_prediction
+from app.services.prediction import (
+    PredictionService,
+    assert_can_manage_failed_prediction,
+)
 from app.services.prediction_retry import PredictionRetryDispatcher
 
 
@@ -193,8 +196,7 @@ async def dismiss_failed_prediction(
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
     await assert_can_manage_failed_prediction(db, fp, current_user)
-    if fp.dismissed_at is None:
-        fp.dismissed_at = datetime.now(timezone.utc)
+    if await PredictionService(db).dismiss_failed_prediction(fp):
         await AuditService.log(
             db,
             actor=current_user,
@@ -231,8 +233,7 @@ async def restore_failed_prediction(
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
     await assert_can_manage_failed_prediction(db, fp, current_user)
-    if fp.dismissed_at is not None:
-        fp.dismissed_at = None
+    if await PredictionService(db).restore_failed_prediction(fp):
         await AuditService.log(
             db,
             actor=current_user,

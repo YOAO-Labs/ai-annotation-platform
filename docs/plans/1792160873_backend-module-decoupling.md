@@ -1089,6 +1089,23 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 命令预算只覆盖单行读取、Mutation/owner command 与提交；不含 AsyncJob/通知、adapter、HTTP、S3 或整条导入性能，不据此推断吞吐、RSS 或优化。完整 before/current 原始 SQL、对象调用计数及堆峰值样本在 `/tmp/aap-mask-ledger-1792240740-evidence/mask-import-budget.json`；其它逐阶段 pytest JSON/JUnit 亦保留在同一目录。
 - 主线移除新增 `record_property` 探针元数据与自由错误文案断言，保留真实像素、部分提交、取消结果及单次终态通知不变量；取消信号定向回归一项和三文件固定 Ruff 格式/check 通过。未重复已完成的隔离 S3/消费者资格，不将两侧记录累计成新测试总数。
 
+### 失败预测处置与重试
+
+- `services/prediction.py::PredictionService` 独占失败项 dismiss/restore 字段更新、重试成功后的失败行删除，以及失败计数、`last_retry_at`、`extra.retry_pending` 清除和可选 `last_gpu_arbiter_error` 保存。HTTP 保留原角色/项目管理准入；仅状态改变时记录相同审计并提交，已 dismiss/restored 的重复操作不刷新、不审计、不提交。worker 只保留队列与实际推理编排，预测产物和失败行在同一调用事务提交；移除 `_bump_retry_counter`，没有服务到 worker 反向依赖。
+- 隔离 owned-dev 默认 Uvicorn app / `get_db` / JWT 实际 HTTP 与 PostgreSQL 观察见 `/tmp/aap-failed-prediction-1792240740/.worktree/failed-prediction-native-smoke.json`：重复 dismiss 的时间戳稳定、重复 restore 后新连接读到 `NULL`，分别只有一条 dismiss/restored 审计；成功重试的新连接见 FailedPrediction 已删除、单条 score `0.91` Prediction、一个 completed AsyncJob 和 Task 计数 1。受控本地 HTTP `/predict` fixture 的 503 路径持久化计数 1、`last_retry_at`、移除 `retry_pending` 并保留其他 `extra`；另一次提交观察确认可选仲裁错误记录写入，独立 rollback 观察则原样保留计数/时间/extra。fixture 仅验证传输与边界，不是模型、GPU 或真实推理资格。
+- 命令预算来自冻结基线 `ebe9234c768ef92b02604a8f5cdc8fab6ca9d7bc` 的历史函数/赋值与当前 owner 命令，各侧预热一次、交错三次并回滚；范围仅含四项命令，不含连接、行准备、提交、审计/授权/HTTP/JWT、作业通知、推理、对象 I/O、结果写入或样本观察：
+
+| 命令         | SQL（前/后） | Python 堆峰值中位数（前，字节） | Python 堆峰值中位数（后，字节） |
+| ------------ | -----------: | ------------------------------: | ------------------------------: |
+| dismiss      |        1 / 1 |                         277,579 |                         277,515 |
+| restore      |        1 / 1 |                         276,841 |                         276,841 |
+| 成功重试删除 |        2 / 2 |                         303,264 |                         303,480 |
+| 失败重试计数 |        2 / 2 |                         305,071 |                         305,527 |
+
+- 所有预算样本对象 API 调用为零；原始样本及范围在 `/tmp/aap-failed-prediction-1792240740/.worktree/failed-prediction-boundary-budget.json`。不据此推断整请求性能、吞吐、RSS 或优化。隔离四个受影响 Python 文件的 Ruff 0.15.22 check/format-check 通过；`test_failed_predictions.py`、`test_domain_package_architecture.py` SCC 守卫与 `test_openapi_contract.py` 精确 OpenAPI 在 owned-test 环境组合运行至 `[100%]`，进程退出码为 0；未保留计数摘要，不虚构测试总数。
+- 后端分层、重试流程、仓库地图开发说明已同步；未改数据库/API schema、依赖、配置、版本或公开 OpenAPI，纯所有权迁移未增加 CHANGELOG。隔离运行时身份为 `56dc8583bc97f1bb`，dev/test 的 owner 校验均为本 worktree 且 session 数为 0 后，分别以精确确认 `56dc8583bc97f1bb:dev` / `56dc8583bc97f1bb:test` 销毁；未触碰 Main 的数据库、队列或对象桶。
+- 主线六项定向消费者回归通过，覆盖重复 dismiss/restore 的单次审计、普通/受控设备成功重试、后端失败计数和仲裁错误保留；四文件固定 Ruff 格式/check 通过。另以只读 doctor 核对隔离 dev/test 的数据库、Redis 与各九个桶均已不存在，退出码 1 是销毁后的预期状态；未重新初始化或重复其已完成原生验收。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试和 Mask 格式导入执行已收口；仍有训练记录删除组合事务（运行及数据版本两类调用）、失败预测处置/重试、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共十组剩余边界。通用存储 helper 同时删除两类 ORM 记录，后续须一起迁到各自所有者，不能只迁运行后留下数据版本入口。不能以 AsyncJob 已收口代替全后端完成。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行及失败预测处置/重试已收口；仍有训练记录删除组合事务（运行及数据版本两类调用）、样本评估执行/删除意图、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共九组剩余边界。通用存储 helper 同时删除两类 ORM 记录，须一起迁到各自所有者。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

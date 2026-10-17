@@ -43,7 +43,7 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 `application/prediction_retry.py` 持有失败预测的单项及按作业重试用例。保留原管理准入、单项队列选择在占用提交前完成、批量先提交全部可占用项再按原默认路由投递的差异；异常仅释放派发调用尚未返回成功的项，已返回成功项继续占用。该工作流持有提交和补偿边界，不能套用取消/终态的调用方单事务。
 
-失败预测管理权限和占用写入由 `services/prediction.py` 持有，放弃/恢复消费同一准入；重试上限和 UTF-8 JSON 的 8 KiB 上下文预算归 `services/prediction_retry.py`。该纯模块的 `PredictionRetryDispatcher` 定义具体重试操作，由 `deps.get_prediction_retry_dispatcher()` 装配 `workers/prediction_retry_dispatch.py`；只传 UUID 和单项预选的执行队列，不暴露 Celery 任务对象或注册名。它仍是本地同步派发接口，没有增加远程协议、自动重试或数据库与 broker 的原子提交；回执丢失等不确定发布仍沿用原语义，补偿不证明任务未入队。
+失败预测管理权限、dismiss/restore 和占用写入由 `services/prediction.py` 持有；同一 owner 还持有 retry 成功后的失败行删除及失败计数（递增 `retry_count`、更新 `last_retry_at`、移除 `retry_pending` 并保留可选仲裁错误）。HTTP 保留当前角色与项目管理准入、条件审计和提交；worker 只保留实际推理/队列编排，预测产物与失败行删除在同一调用事务提交。重试上限和 UTF-8 JSON 的 8 KiB 上下文预算归 `services/prediction_retry.py`。该纯模块的 `PredictionRetryDispatcher` 定义具体重试操作，由 `deps.get_prediction_retry_dispatcher()` 装配 `workers/prediction_retry_dispatch.py`；只传 UUID 和单项预选的执行队列，不暴露 Celery 任务对象或注册名。它仍是本地同步派发接口，没有增加远程协议、自动重试或数据库与 broker 的原子提交；回执丢失等不确定发布仍沿用原语义，补偿不证明任务未入队。
 
 `application/dataset_task_creation.py::DatasetTaskCreationWorkflow` 协调素材关联、请求时同步/排队选择、素材准备与标注建题。初始泛型待建题集合仍用原单语句 `NOT EXISTS` 只读投影，保留排序和一致切面，不先取全量素材 ID 再发大型 `IN` 查询。该投影仍绑定本地数据库，不是可直接远程化的素材查询协议。
 

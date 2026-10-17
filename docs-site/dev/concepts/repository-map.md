@@ -97,7 +97,8 @@ last_reviewed: 2026-10-17
   `workers/media_materialization.py` 绑定 assets/labeling 的元信息与帧索引所有者；
   媒体执行器持有 codec、对象 I/O 和派生帧/分块技术缓存，不代写项目管理权限。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
-  单项重试、放弃和恢复共享当前项目管理准入，不从 API 路由导入规则。
+  `PredictionService` 持有 dismiss/restore、retry 结果计数与成功删除，路由保留当前
+  项目管理准入及有状态变更时才记录审计和提交；worker 只持有推理/队列编排。
 - 贡献与审核事实：`app/services/annotation_evidence.py` 持有轮次、贡献者快照、
   当前轮冻结证据与首次审核事实；提交审计缺失时只按既有规则回退保留行。
   API 和片段服务直接消费，不再经路由私有快照函数。

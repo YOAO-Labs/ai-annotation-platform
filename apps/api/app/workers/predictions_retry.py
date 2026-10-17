@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -68,6 +67,7 @@ async def _do_retry_with_factory(
     """实际 retry 逻辑；session_factory 暴露便于测试 mock。"""
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+    from app.services.prediction import PredictionService
 
     fid = uuid.UUID(failed_id)
     uid = uuid.UUID(user_id)
@@ -106,7 +106,9 @@ async def _do_retry_with_factory(
                 await notify_job_terminal(db, job_id=job.id)
                 await db.commit()
             async with session_factory() as retry_db:
-                await _bump_retry_counter(retry_db, fid)
+                await PredictionService(retry_db).bump_failed_prediction_retry_counter(
+                    fid
+                )
                 await retry_db.commit()
             raise
 
@@ -210,7 +212,7 @@ async def _run_retry_attempt(
 
     if not task or not backend:
         async with session_factory() as db:
-            await _bump_retry_counter(db, fid)
+            await PredictionService(db).bump_failed_prediction_retry_counter(fid)
             await db.commit()
         return {
             "status": "failed",
@@ -254,7 +256,9 @@ async def _run_retry_attempt(
         )
         gpu_arbiter_error = gpu_arbiter_failure_record(exc)
         async with session_factory() as db:
-            await _bump_retry_counter(db, fid, gpu_arbiter_error=gpu_arbiter_error)
+            await PredictionService(db).bump_failed_prediction_retry_counter(
+                fid, gpu_arbiter_error=gpu_arbiter_error
+            )
             await db.commit()
         result = {
             "status": "failed",
@@ -299,9 +303,7 @@ async def _run_retry_attempt(
             ),
         )
         # 删除 failed_prediction 行
-        fp_again = await db.get(FailedPrediction, fid)
-        if fp_again:
-            await db.delete(fp_again)
+        await pred_svc.delete_failed_prediction_after_retry(fid)
         await db.commit()
 
     return {
@@ -309,23 +311,3 @@ async def _run_retry_attempt(
         "failed_id": failed_id,
         "prediction_id": str(pred.id),
     }
-
-
-async def _bump_retry_counter(
-    db: AsyncSession,
-    fid: uuid.UUID,
-    *,
-    gpu_arbiter_error: dict | None = None,
-) -> None:
-    from app.db.models.prediction import FailedPrediction
-
-    fp = await db.get(FailedPrediction, fid)
-    if fp:
-        fp.retry_count = (fp.retry_count or 0) + 1
-        fp.last_retry_at = datetime.now(timezone.utc)
-        extra = dict(fp.extra or {})
-        extra.pop("retry_pending", None)
-        if gpu_arbiter_error is not None:
-            extra["last_gpu_arbiter_error"] = gpu_arbiter_error
-        fp.extra = extra
-        await db.flush()

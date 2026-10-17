@@ -16,6 +16,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.audit_log import AuditLog
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.notification import Notification
@@ -601,6 +602,24 @@ async def test_restore_clears_dismissed_at(httpx_client, super_admin, db_session
     body = resp.json()
     assert body["status"] == "restored"
     assert body["dismissed_at"] is None
+    repeated = await httpx_client.post(
+        f"/api/v1/admin/failed-predictions/{fp.id}/restore", headers=headers
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["dismissed_at"] is None
+    restore_audits = (
+        (
+            await db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "failed_prediction.restored",
+                    AuditLog.target_id == str(fp.id),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(restore_audits) == 1
 
     # 默认列表又能看到
     list_resp = await httpx_client.get(
@@ -631,6 +650,19 @@ async def test_dismiss_is_idempotent(httpx_client, super_admin, db_session):
     assert r2.status_code == 200
     # dismissed_at 第二次调用不应被刷新
     assert r1.json()["dismissed_at"] == r2.json()["dismissed_at"]
+    audits = (
+        (
+            await db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "failed_prediction.dismissed",
+                    AuditLog.target_id == str(fp.id),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(audits) == 1
 
 
 async def test_dismiss_requires_manager(
