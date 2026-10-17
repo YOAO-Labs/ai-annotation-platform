@@ -14,20 +14,21 @@
     --limit       最多导入几张（默认全部）
 
 支持格式：jpg, jpeg, png, bmp, webp, tiff
+
+对象存储与数据库不共享事务：导入失败时已上传对象不会随 SQL 回滚而删除。
 """
 
 import argparse
 import asyncio
-import uuid
 from pathlib import Path
 
 import boto3
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.config import settings
-from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.user import User
+from app.services.dataset import DatasetService
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
@@ -93,17 +94,12 @@ async def import_to_dataset(
             print("错误: 数据库中没有用户，请先运行 seed.py")
             return
 
-        ds_id = uuid.uuid4()
-        ds = Dataset(
-            id=ds_id,
-            display_id=f"DS-{str(ds_id)[:6].upper()}",
+        assets = DatasetService(db)
+        ds = await assets.create_local_image_import_dataset(
             name=name,
             description=f"从本地文件夹 {folder.name} 导入",
-            data_type="image",
             created_by=owner.id,
         )
-        db.add(ds)
-        await db.flush()
         print(f"数据集: {ds.display_id} (owner: {owner.email})\n")
 
         imported = 0
@@ -121,20 +117,18 @@ async def import_to_dataset(
             )
 
             file_size = img_path.stat().st_size
-            item = DatasetItem(
-                dataset_id=ds_id,
+            await assets.add_item(
+                dataset_id=ds.id,
                 file_name=img_path.name,
                 file_path=storage_key,
                 file_type=infer_file_type(img_path.suffix.lower()),
                 file_size=file_size,
+                flush=False,
             )
-            db.add(item)
             imported += 1
             print(
                 f"  [{imported:>3}/{len(images)}] {img_path.name} → {bucket}/{storage_key}"
             )
-
-        ds.file_count = imported
         await db.commit()
 
     await engine.dispose()

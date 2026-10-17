@@ -1,8 +1,8 @@
 """v0.14.2 · nuScenes-mini → 本平台原生目录结构 + 入库(MinIO + DB)一次性转换脚本。
 
-把 nuScenes 数据集的一个或多个 scene 转成本平台点云原生目录结构,并 **显式调用
-v0.14.0 的 scene service** 建 scene + 给 items 赋 frame_index;dataset task-creation
-workflow 再使用这些资产事实创建 labeling tasks。
+把 nuScenes 数据集的一个或多个 scene 转成本平台点云原生目录结构。Dataset/Item 写入
+由 `DatasetService` 持有，Scene / frame 与 pose 写入由各自 service 持有；
+`NuScenesImportWorkflow` 组合 workspace、项目关联、标定和 labeling tasks。
 
 不引入 nuscenes-devkit 依赖——自己读 JSON。只依赖 numpy + Pillow(均已是项目依赖)。
 
@@ -38,7 +38,7 @@ timestamp_delta_us 备查;前端不消费;逐帧真补偿留 v0.15+)。
 
 幂等:dataset 按派生 display_id 复用(短名为 DS-NU-<name>,超长名加 hash 截断到
 DB display_id 长度限制内);scene 按 (dataset_id, name) 已存在则跳过该 scene;
-task creation workflow 本身幂等。
+入口最终提交同一个 SQL transaction。
 
 ================================ 手动测试 checklist ================================
 跑真实 nuScenes-mini 后人工验证(浏览器 + curl,token 自备):
@@ -421,22 +421,21 @@ async def import_nuscenes(
       2. 逐 scene:沿 sample.next 链取有序 sample;每帧转 lidar PCD + 各 CAM jpg +
          (首帧)算 calib;建 DatasetItem;create_scene + assign(lidar 有序、cam 同帧、
          calib scene-level)。已存在同名 scene 则跳过(幂等)。
-      3. 建/复用 lidar Project + ProjectDataset,由 dataset task-creation workflow
-         读取已存在 scene/frame 事实、写 calibration 并创建 labeling tasks。
+      3. 建/复用 lidar Project + ProjectDataset，并由应用工作流创建标注任务。
 
-    调用方负责最终 commit(task creation workflow 内部会 commit;参考 seed_pointcloud)。
-    返回 {"dataset_id", "scenes": [{"name", "frames"}...], "total_items"}。
+    调用方负责最终 commit;素材、Scene、workspace、标定、任务及关联写入只
+    flush 到调用方事务。返回 {"dataset_id", "scenes": [{"name", "frames"}...],
+    "total_items"}。
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import select
 
-    from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.db.models.project import Project
+    from app.application.nuscenes_import import NuScenesImportWorkflow
+    from app.db.models.dataset import DatasetItem
     from app.schemas.scene_pose import FramePose
     from app.services import scene as scene_svc
     from app.services import scene_pose as scene_pose_svc
-    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
-    from app.services.pointcloud_import import attach_calibration
-    from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
+    from app.services.dataset import DatasetService
+    from app.services.storage import storage_service
 
     meta_dir = _resolve_source_path(nuscenes_root, version)
     if not meta_dir.is_dir():
@@ -457,93 +456,21 @@ async def import_nuscenes(
 
     # 1. ensure/复用 dataset(派生固定 display_id → 幂等)
     display_id = dataset_display_id or _derived_display_id("DS-NU-", dataset_name)
-    ds = await db.scalar(select(Dataset).where(Dataset.display_id == display_id))
-    needs_pcd_upgrade = False
-    if ds is None:
-        dataset_id = uuid.uuid4()
-        storage_root = f"{TRUSTED_NUSCENES_PREFIX}-{dataset_id.hex}"
-        ds = Dataset(
-            id=dataset_id,
-            display_id=display_id,
-            name=dataset_name,
-            data_type="point_cloud",
-            is_temporal=True,
-            created_by=owner_id,
-            metadata_={
-                "axis_convention": axis_convention,
-                "source": {
-                    "format": "nuscenes",
-                    "version": version,
-                    "scenes": sorted(scene_names),
-                    "pcd_encoding": PCD_ENCODING,
-                    "storage_root": storage_root,
-                    "storage_layout": "uuid_v1",
-                },
-            },
-        )
-        db.add(ds)
-        await db.flush()
-    else:
-        meta = dict(ds.metadata_ or {})
-        existing_source = meta.get("source")
-        stored_root = (
-            str(existing_source.get("storage_root"))
-            if isinstance(existing_source, dict) and existing_source.get("storage_root")
-            else None
-        )
-        storage_layout = (
-            str(existing_source.get("storage_layout"))
-            if isinstance(existing_source, dict)
-            and existing_source.get("storage_layout")
-            else None
-        )
-        expected_root = f"{TRUSTED_NUSCENES_PREFIX}-{ds.id.hex}"
-        uses_legacy_root = stored_root is None or (
-            storage_layout == "legacy_name" and stored_root == dataset_name
-        )
-        if (
-            stored_root is not None
-            and stored_root != expected_root
-            and not uses_legacy_root
-        ):
-            raise ValueError("nuScenes dataset storage_root does not match its UUID")
-        storage_root = stored_root or dataset_name
-        _safe_source_path(storage_root)
-        if uses_legacy_root:
-            conflicting_item = await db.scalar(
-                select(DatasetItem.id)
-                .where(DatasetItem.dataset_id != ds.id)
-                .where(DatasetItem.file_path.startswith(f"{storage_root}/"))
-                .limit(1)
-            )
-            if conflicting_item is not None:
-                raise ValueError(
-                    f"legacy nuScenes storage root {storage_root!r} is shared by "
-                    "another dataset; migrate it before re-import"
-                )
-        needs_pcd_upgrade = not isinstance(existing_source, dict) or (
-            existing_source.get("pcd_encoding") != PCD_ENCODING
-        )
-        existing_axis = meta.get("axis_convention")
-        if existing_axis and existing_axis != axis_convention:
-            raise ValueError(
-                f"dataset {ds.display_id} axis_convention={existing_axis!r} "
-                f"cannot accept --frame {frame} ({axis_convention!r}); "
-                "use a different --dataset-name to avoid mixing sensor and ego frames"
-            )
-        if not existing_axis:
-            meta["axis_convention"] = axis_convention
-        meta["source"] = {
-            "format": "nuscenes",
-            "version": version,
-            "scenes": sorted(scene_names),
-            "pcd_encoding": PCD_ENCODING,
-            "storage_root": storage_root,
-            "storage_layout": "legacy_name" if uses_legacy_root else "uuid_v1",
-        }
-        ds.metadata_ = meta
-        ds.is_temporal = True
-        await db.flush()
+    assets = DatasetService(db)
+    dataset_import = await assets.ensure_nuscenes_dataset(
+        display_id=display_id,
+        name=dataset_name,
+        owner_id=owner_id,
+        version=version,
+        scene_names=scene_names,
+        axis_convention=axis_convention,
+        frame=frame,
+        pcd_encoding=PCD_ENCODING,
+    )
+    ds = dataset_import.dataset
+    storage_root = dataset_import.storage_root
+    needs_pcd_upgrade = dataset_import.needs_pcd_upgrade
+    _safe_source_path(storage_root)
 
     bucket = storage_service.datasets_bucket
     existing_scenes = {
@@ -716,24 +643,28 @@ async def import_nuscenes(
                 Body=map_bytes,
                 Metadata={"sha256": map_sha256},
             )
-            scene.source_format = "nuscenes"
-            scene.source_metadata = {
-                **existing_scene_meta,
-                "scene_token": scene_row["token"],
-                "first_sample_token": scene_row["first_sample_token"],
-                "frame_count": len(samples),
-                "nuscenes_version": version,
-                "frame": frame,
-                "nuscenes_export": {
-                    "version": version,
-                    "scene": scene_row,
-                    "log": log_row,
-                    "map": map_row,
-                    "map_storage_key": map_storage_key,
-                    "map_file_size": len(map_bytes),
-                    "map_sha256": map_sha256,
+            await scene_svc.update_source_metadata(
+                db,
+                scene_id=scene.id,
+                source_format="nuscenes",
+                source_metadata={
+                    **existing_scene_meta,
+                    "scene_token": scene_row["token"],
+                    "first_sample_token": scene_row["first_sample_token"],
+                    "frame_count": len(samples),
+                    "nuscenes_version": version,
+                    "frame": frame,
+                    "nuscenes_export": {
+                        "version": version,
+                        "scene": scene_row,
+                        "log": log_row,
+                        "map": map_row,
+                        "map_storage_key": map_storage_key,
+                        "map_file_size": len(map_bytes),
+                        "map_sha256": map_sha256,
+                    },
                 },
-            }
+            )
             needs_pcd_refresh = True
             report_pcd_upgrade = needs_pcd_upgrade
             backfilled_camera_dimensions = 0
@@ -776,9 +707,9 @@ async def import_nuscenes(
                     raise ValueError(
                         f"existing scene {scene_name!r} is missing lidar frame {frame_idx}"
                     )
-                lidar_item.metadata_ = {
-                    **(lidar_item.metadata_ or {}),
-                    "nuscenes_export": _source_context(
+                assets.set_nuscenes_export_context(
+                    lidar_item,
+                    _source_context(
                         sample=sample,
                         sample_data=lidar_sd,
                         calibrated_sensor=lidar_cs,
@@ -787,7 +718,7 @@ async def import_nuscenes(
                         storage_key=raw_lidar_key,
                         source_bytes=raw_lidar_bytes,
                     ),
-                }
+                )
                 frame_poses.append(
                     FramePose(
                         frame_index=frame_idx,
@@ -819,12 +750,14 @@ async def import_nuscenes(
                             "sha256": hashlib.sha256(source_camera_bytes).hexdigest()
                         },
                     )
-                    if not item.width or not item.height:
-                        item.width, item.height = _camera_dimensions(sd)
+                    camera_width, camera_height = _camera_dimensions(sd)
+                    if assets.backfill_camera_dimensions(
+                        item, width=camera_width, height=camera_height
+                    ):
                         backfilled_camera_dimensions += 1
-                    item.metadata_ = {
-                        **(item.metadata_ or {}),
-                        "nuscenes_export": _source_context(
+                    assets.set_nuscenes_export_context(
+                        item,
+                        _source_context(
                             sample=sample,
                             sample_data=sd,
                             calibrated_sensor=cs,
@@ -833,7 +766,7 @@ async def import_nuscenes(
                             storage_key=item.file_path,
                             source_bytes=source_camera_bytes,
                         ),
-                    }
+                    )
 
             await scene_pose_svc.upsert_frame_poses(
                 db, scene_id=scene.id, poses=frame_poses
@@ -897,8 +830,9 @@ async def import_nuscenes(
                         Body=pcd_bytes,
                         Metadata={"sha256": pcd_sha256},
                     )
-                    item.file_size = len(pcd_bytes)
-                    item.content_hash = pcd_sha256
+                    assets.refresh_imported_item_content(
+                        item, file_size=len(pcd_bytes), content_hash=pcd_sha256
+                    )
                     if report_pcd_upgrade:
                         upgraded_point_clouds += 1
             report = {"name": scene_name, "frames": len(samples), "skipped": True}
@@ -999,7 +933,7 @@ async def import_nuscenes(
                 Body=pcd_bytes,
                 Metadata={"sha256": pcd_sha256},
             )
-            lidar_item = DatasetItem(
+            lidar_item = await assets.add_item(
                 dataset_id=ds.id,
                 file_name=f"{frame_stem}.pcd",
                 file_path=lidar_key,
@@ -1017,8 +951,8 @@ async def import_nuscenes(
                         source_bytes=raw_lidar_bytes,
                     )
                 },
+                flush=False,
             )
-            db.add(lidar_item)
             lidar_items.append(lidar_item)
             total_items += 1
 
@@ -1041,7 +975,7 @@ async def import_nuscenes(
                     Metadata={"sha256": hashlib.sha256(jpg_bytes).hexdigest()},
                 )
                 camera_width, camera_height = _camera_dimensions(sd)
-                cam_item = DatasetItem(
+                cam_item = await assets.add_item(
                     dataset_id=ds.id,
                     file_name=f"{frame_stem}.jpg",
                     file_path=cam_key,
@@ -1061,8 +995,8 @@ async def import_nuscenes(
                             source_bytes=jpg_bytes,
                         )
                     },
+                    flush=False,
                 )
-                db.add(cam_item)
                 await db.flush()  # 拿 id 以填 shared_frame_items
                 cam_frame_index[cam_item.id] = frame_idx
                 total_items += 1
@@ -1096,15 +1030,15 @@ async def import_nuscenes(
                     storage_service.client.put_object(
                         Bucket=bucket, Key=calib_key, Body=calib_bytes
                     )
-                    calib_item = DatasetItem(
+                    calib_item = await assets.add_item(
                         dataset_id=ds.id,
                         file_name=f"{channel}.json",
                         file_path=calib_key,
                         file_type="other",
                         file_size=len(calib_bytes),
                         content_hash=hashlib.sha256(calib_bytes).hexdigest(),
+                        flush=False,
                     )
-                    db.add(calib_item)
                     calib_items.append(calib_item)
                     total_items += 1
 
@@ -1153,78 +1087,17 @@ async def import_nuscenes(
         )
         report_scenes.append({"name": scene_name, "frames": len(samples)})
 
-    # 3. 建/复用 lidar Project + ProjectDataset，再交由 dataset task workflow 创建 labeling tasks
+    # 3. Build/reuse the lidar workspace, associate the dataset, and create tasks.
     project_display_id = project_display_id or _derived_display_id(
         "P-NU-", dataset_name
     )
-    project = await db.scalar(
-        select(Project).where(Project.display_id == project_display_id)
+    project = await NuScenesImportWorkflow(db).create_project_and_tasks(
+        dataset_id=ds.id,
+        project_display_id=project_display_id,
+        project_name=project_name or f"nuScenes {dataset_name}",
+        owner_id=owner_id,
+        tool_bindings=tool_bindings,
     )
-    if project is None:
-        project = Project(
-            id=uuid.uuid4(),
-            display_id=project_display_id,
-            name=project_name or f"nuScenes {dataset_name}",
-            type_label="点云检测",
-            type_key="lidar",
-            data_type="lidar",
-            scene_mode=True,
-            prefer_same_scene_continuation=True,
-            owner_id=owner_id,
-            tool_bindings=tool_bindings or {},
-            ai_enabled=False,
-        )
-        db.add(project)
-        await db.flush()
-
-    link_exists = await db.scalar(
-        select(ProjectDataset).where(
-            ProjectDataset.project_id == project.id,
-            ProjectDataset.dataset_id == ds.id,
-        )
-    )
-    if link_exists is None:
-        db.add(ProjectDataset(project_id=project.id, dataset_id=ds.id))
-        await db.flush()
-
-    # dataset 已有 scene，point-cloud preparation 会复用这些 scene。
-    # Task 通过 dataset_item_id → scene_id 反查到 frame_index。
-    await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id
-    )
-    await attach_calibration(db, dataset_id=ds.id)
-    from app.schemas._jsonb_types import SensorCalibration
-    from app.services.sensor_calibration import calibration_digest
-
-    camera_items = list(
-        (
-            await db.execute(
-                select(DatasetItem)
-                .where(DatasetItem.dataset_id == ds.id)
-                .where(DatasetItem.file_type == "image")
-            )
-        ).scalars()
-    )
-    for item in camera_items:
-        metadata = dict(item.metadata_ or {})
-        source = metadata.get("nuscenes_export")
-        calibration = metadata.get("calibration")
-        if not isinstance(source, dict) or calibration is None:
-            continue
-        source = dict(source)
-        source.setdefault(
-            "platform_calibration_digest",
-            calibration_digest(SensorCalibration.model_validate(calibration)),
-        )
-        metadata["nuscenes_export"] = source
-        item.metadata_ = metadata
-    ds.file_count = int(
-        await db.scalar(
-            select(func.count(DatasetItem.id)).where(DatasetItem.dataset_id == ds.id)
-        )
-        or 0
-    )
-    await db.flush()
 
     return {
         "dataset_id": ds.id,
@@ -1237,37 +1110,6 @@ async def import_nuscenes(
 # --------------------------------------------------------------------------- #
 # admin / CLI
 # --------------------------------------------------------------------------- #
-async def _ensure_admin(db) -> uuid.UUID:
-    """取标准 admin 用户;库里没有则按 admin/123456 建一个(与 seed_pointcloud 一致)。
-
-    弱口令默认 admin 仅用于 dev/test。生产环境(settings.environment == "production")
-    下若无 admin,拒绝自动创建——避免误对生产库植入弱口令 super_admin 后门。
-    """
-    from sqlalchemy import select
-
-    from app.config import settings
-    from app.core.security import hash_password
-    from app.db.models.user import User
-
-    admin = await db.scalar(select(User).where(User.email == "admin"))
-    if admin:
-        return admin.id
-    if settings.environment == "production":
-        raise RuntimeError(
-            "生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。"
-            "请先手动创建管理员账号再运行本导入脚本。"
-        )
-    admin = User(
-        id=uuid.uuid4(),
-        email="admin",
-        name="超级管理员",
-        password_hash=hash_password("123456"),
-        role="super_admin",
-        is_active=True,
-    )
-    db.add(admin)
-    await db.flush()
-    return admin.id
 
 
 async def main() -> None:
@@ -1296,16 +1138,20 @@ async def main() -> None:
 
     scene_names = [s.strip() for s in args.scene_tokens.split(",") if s.strip()]
 
+    from app.config import settings
     from app.db.base import async_session
+    from app.services.identity_commands import IdentityCommandService
 
     async with async_session() as db:
-        owner_id = await _ensure_admin(db)
+        owner = await IdentityCommandService(db).ensure_import_admin(
+            environment=settings.environment
+        )
         info = await import_nuscenes(
             db,
             nuscenes_root=Path(args.nuscenes_root),
             scene_names=scene_names,
             dataset_name=args.dataset_name,
-            owner_id=owner_id,
+            owner_id=owner.id,
             version=args.version,
             frame=args.frame,
         )

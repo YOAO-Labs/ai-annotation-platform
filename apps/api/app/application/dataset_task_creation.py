@@ -73,21 +73,25 @@ class DatasetTaskCreationWorkflow:
         project_id: uuid.UUID,
         job_id: uuid.UUID | None = None,
         chunk_size: int = 5000,
+        commit_calibration: bool = True,
+        commit_task_chunks: bool = True,
     ) -> dict[str, int]:
+        """Create missing tasks, optionally retaining the caller's SQL transaction."""
         project = await self.db.get(Project, project_id)
         if project is not None and project.data_type == "lidar":
             await attach_calibration(self.db, dataset_id=dataset_id)
-            # Calibration is committed before scene inference, including replays
-            # where every lidar frame already has a task.
-            await self.db.commit()
+            if commit_calibration:
+                # Calibration is committed before scene inference, including replays
+                # where every lidar frame already has a task.
+                await self.db.commit()
             frames = await prepare_pointcloud_frames(self.db, dataset_id=dataset_id)
             return await self.labeling.create_initial_pointcloud(
                 project_id=project_id,
                 frames=frames,
                 job_id=job_id,
                 chunk_size=chunk_size,
+                commit_each_chunk=commit_task_chunks,
             )
-
         # Preserve the original single-statement cross-domain read projection:
         # only pending asset facts are materialized, with no item-sized IN list.
         query = (
@@ -122,6 +126,7 @@ class DatasetTaskCreationWorkflow:
             pending_items=pending_items,
             job_id=job_id,
             chunk_size=chunk_size,
+            commit_each_chunk=commit_task_chunks,
         )
 
     async def append_items(

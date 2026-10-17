@@ -75,9 +75,165 @@ class DatasetDeleteCleanup:
     pyramid_asset_ids: tuple[uuid.UUID, ...]
 
 
+@dataclass(frozen=True)
+class NuScenesDatasetImport:
+    dataset: Dataset
+    storage_root: str
+    needs_pcd_upgrade: bool
+
+
+@dataclass(frozen=True)
+class ResetDatasetSummary:
+    id: uuid.UUID
+    display_id: str
+    name: str
+
+
 class DatasetService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def list_for_reset(self) -> tuple[ResetDatasetSummary, ...]:
+        rows = (
+            await self.db.execute(select(Dataset.id, Dataset.display_id, Dataset.name))
+        ).all()
+        return tuple(
+            ResetDatasetSummary(id=row.id, display_id=row.display_id, name=row.name)
+            for row in rows
+        )
+
+    async def reset_all(self) -> None:
+        """Delete dataset rows and links only; object-store keys are left untouched."""
+        await self.db.execute(delete(ProjectDataset))
+        await self.db.execute(delete(DatasetItem))
+        await self.db.execute(delete(Dataset))
+
+    async def create_local_image_import_dataset(
+        self, *, name: str, description: str, created_by: uuid.UUID
+    ) -> Dataset:
+        dataset_id = uuid.uuid4()
+        dataset = Dataset(
+            id=dataset_id,
+            display_id=f"DS-{str(dataset_id)[:6].upper()}",
+            name=name,
+            description=description,
+            data_type="image",
+            created_by=created_by,
+        )
+        self.db.add(dataset)
+        await self.db.flush()
+        return dataset
+
+    async def ensure_nuscenes_dataset(
+        self,
+        *,
+        display_id: str,
+        name: str,
+        owner_id: uuid.UUID,
+        version: str,
+        scene_names: list[str],
+        axis_convention: str,
+        frame: Literal["sensor", "ego"],
+        pcd_encoding: str,
+        flush: bool = True,
+    ) -> NuScenesDatasetImport:
+        dataset = await self.db.scalar(
+            select(Dataset).where(Dataset.display_id == display_id)
+        )
+        if dataset is None:
+            dataset_id = uuid.uuid4()
+            storage_root = f"{TRUSTED_NUSCENES_PREFIX}-{dataset_id.hex}"
+            dataset = Dataset(
+                id=dataset_id,
+                display_id=display_id,
+                name=name,
+                data_type="point_cloud",
+                is_temporal=True,
+                created_by=owner_id,
+                metadata_={
+                    "axis_convention": axis_convention,
+                    "source": {
+                        "format": "nuscenes",
+                        "version": version,
+                        "scenes": sorted(scene_names),
+                        "pcd_encoding": pcd_encoding,
+                        "storage_root": storage_root,
+                        "storage_layout": "uuid_v1",
+                    },
+                },
+            )
+            self.db.add(dataset)
+            if flush:
+                await self.db.flush()
+            return NuScenesDatasetImport(
+                dataset=dataset, storage_root=storage_root, needs_pcd_upgrade=False
+            )
+
+        metadata = dict(dataset.metadata_ or {})
+        existing_source = metadata.get("source")
+        stored_root = (
+            str(existing_source.get("storage_root"))
+            if isinstance(existing_source, dict) and existing_source.get("storage_root")
+            else None
+        )
+        storage_layout = (
+            str(existing_source.get("storage_layout"))
+            if isinstance(existing_source, dict)
+            and existing_source.get("storage_layout")
+            else None
+        )
+        expected_root = f"{TRUSTED_NUSCENES_PREFIX}-{dataset.id.hex}"
+        uses_legacy_root = stored_root is None or (
+            storage_layout == "legacy_name" and stored_root == name
+        )
+        if (
+            stored_root is not None
+            and stored_root != expected_root
+            and not uses_legacy_root
+        ):
+            raise ValueError("nuScenes dataset storage_root does not match its UUID")
+        storage_root = stored_root or name
+        if uses_legacy_root:
+            conflicting_item = await self.db.scalar(
+                select(DatasetItem.id)
+                .where(DatasetItem.dataset_id != dataset.id)
+                .where(DatasetItem.file_path.startswith(f"{storage_root}/"))
+                .limit(1)
+            )
+            if conflicting_item is not None:
+                raise ValueError(
+                    f"legacy nuScenes storage root {storage_root!r} is shared by "
+                    "another dataset; migrate it before re-import"
+                )
+        needs_pcd_upgrade = not isinstance(existing_source, dict) or (
+            existing_source.get("pcd_encoding") != pcd_encoding
+        )
+        existing_axis = metadata.get("axis_convention")
+        if existing_axis and existing_axis != axis_convention:
+            raise ValueError(
+                f"dataset {dataset.display_id} axis_convention={existing_axis!r} "
+                f"cannot accept --frame {frame} ({axis_convention!r}); "
+                "use a different --dataset-name to avoid mixing sensor and ego frames"
+            )
+        if not existing_axis:
+            metadata["axis_convention"] = axis_convention
+        metadata["source"] = {
+            "format": "nuscenes",
+            "version": version,
+            "scenes": sorted(scene_names),
+            "pcd_encoding": pcd_encoding,
+            "storage_root": storage_root,
+            "storage_layout": "legacy_name" if uses_legacy_root else "uuid_v1",
+        }
+        dataset.metadata_ = metadata
+        dataset.is_temporal = True
+        if flush:
+            await self.db.flush()
+        return NuScenesDatasetImport(
+            dataset=dataset,
+            storage_root=storage_root,
+            needs_pcd_upgrade=needs_pcd_upgrade,
+        )
 
     async def list(
         self,
@@ -350,6 +506,9 @@ class DatasetService:
         content_hash: str | None = None,
         width: int | None = None,
         height: int | None = None,
+        metadata_: dict | None = None,
+        *,
+        flush: bool = True,
     ) -> DatasetItem:
         item = DatasetItem(
             dataset_id=dataset_id,
@@ -361,14 +520,82 @@ class DatasetService:
             width=width,
             height=height,
         )
+        if metadata_ is not None:
+            item.metadata_ = metadata_
         self.db.add(item)
 
         ds = await self.db.get(Dataset, dataset_id)
         if ds:
             ds.file_count = (ds.file_count or 0) + 1
 
-        await self.db.flush()
+        if flush:
+            await self.db.flush()
         return item
+
+    @staticmethod
+    def set_nuscenes_export_context(item: DatasetItem, context: dict) -> None:
+        metadata = dict(item.metadata_ or {})
+        metadata["nuscenes_export"] = context
+        item.metadata_ = metadata
+
+    @staticmethod
+    def backfill_camera_dimensions(
+        item: DatasetItem, *, width: int, height: int
+    ) -> bool:
+        if item.width and item.height:
+            return False
+        item.width = width
+        item.height = height
+        return True
+
+    @staticmethod
+    def refresh_imported_item_content(
+        item: DatasetItem, *, file_size: int, content_hash: str
+    ) -> None:
+        item.file_size = file_size
+        item.content_hash = content_hash
+
+    async def record_nuscenes_calibration_digests(self, dataset_id: uuid.UUID) -> None:
+        from app.schemas._jsonb_types import SensorCalibration
+        from app.services.sensor_calibration import calibration_digest
+
+        camera_items = list(
+            (
+                await self.db.execute(
+                    select(DatasetItem)
+                    .where(DatasetItem.dataset_id == dataset_id)
+                    .where(DatasetItem.file_type == "image")
+                )
+            ).scalars()
+        )
+        for item in camera_items:
+            metadata = dict(item.metadata_ or {})
+            source = metadata.get("nuscenes_export")
+            calibration = metadata.get("calibration")
+            if not isinstance(source, dict) or calibration is None:
+                continue
+            source = dict(source)
+            source.setdefault(
+                "platform_calibration_digest",
+                calibration_digest(SensorCalibration.model_validate(calibration)),
+            )
+            metadata["nuscenes_export"] = source
+            item.metadata_ = metadata
+
+    async def recount_items(self, dataset_id: uuid.UUID) -> int:
+        count = int(
+            await self.db.scalar(
+                select(func.count(DatasetItem.id)).where(
+                    DatasetItem.dataset_id == dataset_id
+                )
+            )
+            or 0
+        )
+        dataset = await self.db.get(Dataset, dataset_id)
+        if dataset is not None:
+            dataset.file_count = count
+        await self.db.flush()
+        return count
 
     async def delete_item(
         self, item_id: uuid.UUID, *, dataset_id: uuid.UUID | None = None

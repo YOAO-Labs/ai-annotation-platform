@@ -16,7 +16,11 @@ from sqlalchemy import select
 
 # v0.13.11 · 点云夹具脚本与本文件同目录;PYTHONPATH 已含 apps/api,直接 import。
 sys.path.insert(0, str(__file__.rsplit("/", 1)[0]))  # 让 `scripts/` 入 sys.path
-from seed_pointcloud import seed_pointcloud, seed_nuscenes_scene  # noqa: E402
+from seed_pointcloud import (  # noqa: E402
+    cleanup_legacy_dev_seed_objects,
+    seed_nuscenes_scene,
+    seed_pointcloud,
+)
 from seed_coco8 import seed_coco8  # noqa: E402  (依赖 sys.path 先扩)
 from seed_video import seed_video  # noqa: E402  (开源视频 video-track 夹具)
 from seed_ocr import seed_ocr  # noqa: E402  (OCR 截图夹具)
@@ -366,7 +370,7 @@ async def seed(
         # P-PC-DEV 固定导入 scene-0061 的 39 个 key frame。--offline 只复用已有缓存。
         if admin_id is not None:
             try:
-                nu = await seed_nuscenes_scene(
+                nu, stale_storage_keys = await seed_nuscenes_scene(
                     db,
                     owner_id=admin_id,
                     cache_dir=cache_dir,
@@ -374,6 +378,7 @@ async def seed(
                     create_batch=not strict,
                 )
                 await db.commit()
+                cleanup_legacy_dev_seed_objects(stale_storage_keys)
                 scenes = ", ".join(
                     f"{s['name']}({s['frames']}帧{'·已存在' if s.get('skipped') else ''})"
                     for s in nu["scenes"]

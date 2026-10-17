@@ -67,25 +67,13 @@ _LEGACY_DATASET_NAMES = {
 
 
 async def _ensure_admin(db) -> uuid.UUID:
-    """取标准 admin 用户;独立运行且库里还没有 admin 时,按 admin/123456 建一个。"""
-    from sqlalchemy import select
+    """Reuse the standard CLI admin bootstrap owned by identity commands."""
+    from app.config import settings
+    from app.services.identity_commands import IdentityCommandService
 
-    from app.core.security import hash_password
-    from app.db.models.user import User
-
-    admin = await db.scalar(select(User).where(User.email == ADMIN_EMAIL))
-    if admin:
-        return admin.id
-    admin = User(
-        id=uuid.uuid4(),
-        email=ADMIN_EMAIL,
-        name="超级管理员",
-        password_hash=hash_password(ADMIN_PASSWORD),
-        role="super_admin",
-        is_active=True,
+    admin = await IdentityCommandService(db).ensure_import_admin(
+        environment=settings.environment
     )
-    db.add(admin)
-    await db.flush()
     return admin.id
 
 
@@ -265,6 +253,17 @@ async def _remove_legacy_dev_seed(db, *, owner_id: uuid.UUID) -> list[str]:
     return [key for key in storage_keys if key]
 
 
+def cleanup_legacy_dev_seed_objects(storage_keys: list[str]) -> None:
+    """Delete legacy objects only after the owning seed transaction commits."""
+    from app.services.storage import storage_service
+
+    for key in storage_keys:
+        try:
+            storage_service.delete_object(key, bucket=storage_service.datasets_bucket)
+        except Exception as exc:  # noqa: BLE001 - stale dev objects must not abort seed
+            print(f"  WARN 旧点云对象清理失败 {key}: {exc}")
+
+
 async def seed_nuscenes_scene(
     db,
     *,
@@ -272,7 +271,7 @@ async def seed_nuscenes_scene(
     cache_dir: Path | None = None,
     offline: bool = False,
     create_batch: bool = True,
-) -> dict:
+) -> tuple[dict, list[str]]:
     """把 nuScenes-mini 的 scene-0061(39 帧)灌入当前栈,建 scene 模式点云项目并按 scene 建包。
 
     复用 import_nuscenes_scene.import_nuscenes:每帧转 ego 系 PCD + 6 路相机 jpg +
@@ -286,8 +285,8 @@ async def seed_nuscenes_scene(
 
     幂等:dataset/scene/project 均按派生 display_id 复用,同名 scene 已存在则跳过;重跑时
     无未分包任务 → by_scene split 抛 400,捕获后视作已建包(batches=0)。
-    调用方负责最终 commit(import_nuscenes 的 task-creation workflow 内部会 commit)。
-    返回 import_nuscenes 报告 + {"batches": 本次新建包数}。
+    调用方负责最终 commit(import_nuscenes 的 task-creation workflow 不会 commit)。
+    返回 (import_nuscenes 报告 + batches, 提交后可删的旧对象 key)。
     """
     from fastapi import HTTPException
 
@@ -313,7 +312,6 @@ async def seed_nuscenes_scene(
 
     from app.db.models.dataset import Dataset
     from app.db.models.project import Project
-    from app.services.storage import storage_service
 
     project = await db.get(Project, info["project_id"])
     dataset = await db.get(Dataset, info["dataset_id"])
@@ -338,14 +336,9 @@ async def seed_nuscenes_scene(
             info["batches"] = 0  # 无未分包任务(重跑已建包)
     else:
         info["batches"] = 0
-    for key in stale_storage_keys:
-        try:
-            storage_service.delete_object(key, bucket=storage_service.datasets_bucket)
-        except Exception as exc:  # noqa: BLE001 - stale dev objects must not abort seed
-            print(f"  WARN 旧点云对象清理失败 {key}: {exc}")
     info["fixture"] = str(nuscenes_root)
     info["replaced_legacy"] = bool(stale_storage_keys)
-    return info
+    return info, stale_storage_keys
 
 
 async def main() -> None:
@@ -353,8 +346,9 @@ async def main() -> None:
 
     async with async_session() as db:
         owner_id = await _ensure_admin(db)
-        nu = await seed_nuscenes_scene(db, owner_id=owner_id)
+        nu, stale_storage_keys = await seed_nuscenes_scene(db, owner_id=owner_id)
         await db.commit()
+        cleanup_legacy_dev_seed_objects(stale_storage_keys)
 
     print("=== 点云 dev 数据 ===")
     print(f"nuScenes mini  total_items: {nu['total_items']}  本次建包: {nu['batches']}")

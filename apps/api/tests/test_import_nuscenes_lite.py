@@ -21,9 +21,9 @@ import zipfile
 import numpy as np
 import pytest
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.db.models.dataset import Dataset, DatasetItem, Scene
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task_batch import TaskBatch
@@ -31,6 +31,7 @@ from app.services import scene as scene_svc
 from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.lidar_preflight import preflight_lidar_export
 from app.services.storage import storage_service
+from app.services.dataset import DatasetService
 from app.workers.export import _nuscenes_scope_digest
 from scripts.import_nuscenes_scene import (
     _derived_display_id,
@@ -43,6 +44,8 @@ from scripts.import_nuscenes_scene import (
     _transform,
     import_nuscenes,
 )
+
+import scripts.seed_pointcloud as seed_pointcloud
 
 pytestmark = pytest.mark.asyncio
 
@@ -217,6 +220,9 @@ class _FakeS3Client:
             "ContentLength": len(payload),
             "Metadata": self.metadata[(Bucket, Key)],
         }
+
+    def delete_object(self, *, Bucket, Key):  # noqa: N803
+        self.objects.pop((Bucket, Key), None)
 
 
 # --------------------------------------------------------------------------- #
@@ -393,6 +399,120 @@ def _write_fake_nuscenes(
         ("map", map_tbl),
     ]:
         (meta / f"{name}.json").write_text(json.dumps(rows), encoding="utf-8")
+
+
+async def test_nuscenes_task_creation_rolls_back_with_import_transaction(
+    tmp_path, db_session, super_admin, monkeypatch
+):
+    owner, _ = super_admin
+    root = tmp_path / "nuscenes-transaction"
+    _write_fake_nuscenes(root, scenes=1, samples_per=1)
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+
+    async def fail_after_task_creation(_service, _dataset_id):
+        raise RuntimeError("injected calibration digest failure")
+
+    monkeypatch.setattr(
+        DatasetService, "record_nuscenes_calibration_digests", fail_after_task_creation
+    )
+    with pytest.raises(RuntimeError):
+        await import_nuscenes(
+            db_session,
+            nuscenes_root=root,
+            scene_names=["scene-0000"],
+            dataset_name="nu-transaction-rollback",
+            owner_id=owner.id,
+            dataset_display_id="DS-NU-ROLLBACK",
+            project_display_id="P-NU-ROLLBACK",
+        )
+
+    await db_session.rollback()
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Dataset)
+            .where(Dataset.display_id == "DS-NU-ROLLBACK")
+        )
+        == 0
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Project)
+            .where(Project.display_id == "P-NU-ROLLBACK")
+        )
+        == 0
+    )
+
+
+async def test_legacy_seed_objects_are_deleted_only_after_caller_commit(
+    tmp_path, db_session, super_admin, monkeypatch
+):
+    owner, _ = super_admin
+    root = tmp_path / "nuscenes-legacy-replacement"
+    _write_fake_nuscenes(root, scenes=1, samples_per=1)
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+    monkeypatch.setattr(
+        seed_pointcloud,
+        "ensure_nuscenes_mini",
+        lambda cache_dir=None, offline=False: root,
+    )
+    monkeypatch.setattr(seed_pointcloud, "NUSCENES_SCENES", ["scene-0000"])
+
+    old_key = "legacy-pc-dev/old-frame.pcd"
+    fake_client.put_object(
+        Bucket=storage_service.datasets_bucket, Key=old_key, Body=b"old PCD"
+    )
+    legacy_dataset = Dataset(
+        display_id="DS-PC-DEV",
+        name="pc-scene-dev",
+        data_type="lidar",
+        created_by=owner.id,
+        file_count=1,
+        metadata_={"source": {"format": "legacy-pointcloud"}},
+    )
+    legacy_project = Project(
+        display_id="P-PC-DEV",
+        name="点云联合标注 (dev)",
+        type_label="点云框选",
+        type_key="lidar_box_3d",
+        data_type="lidar",
+        owner_id=owner.id,
+    )
+    db_session.add_all([legacy_dataset, legacy_project])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            DatasetItem(
+                dataset_id=legacy_dataset.id,
+                file_name="old-frame.pcd",
+                file_path=old_key,
+                file_type="point_cloud",
+                file_size=7,
+            ),
+            ProjectDataset(project_id=legacy_project.id, dataset_id=legacy_dataset.id),
+        ]
+    )
+    await db_session.flush()
+
+    info, cleanup_keys = await seed_pointcloud.seed_nuscenes_scene(
+        db_session,
+        owner_id=owner.id,
+        cache_dir=root,
+        offline=True,
+        create_batch=False,
+    )
+
+    assert info["replaced_legacy"] is True
+    assert cleanup_keys == [old_key]
+    assert fake_client.objects[(storage_service.datasets_bucket, old_key)] == b"old PCD"
+
+    await db_session.commit()
+    assert fake_client.objects[(storage_service.datasets_bucket, old_key)] == b"old PCD"
+    seed_pointcloud.cleanup_legacy_dev_seed_objects(cleanup_keys)
+    assert (storage_service.datasets_bucket, old_key) not in fake_client.objects
 
 
 async def test_import_nuscenes_two_scenes(

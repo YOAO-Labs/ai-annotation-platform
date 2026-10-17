@@ -46,6 +46,36 @@ async def clear_primary_backend_binding_for_pool(
     )
 
 
+async def find_import_project(db: AsyncSession, display_id: str) -> Project | None:
+    return await db.scalar(select(Project).where(Project.display_id == display_id))
+
+
+async def create_import_project(
+    db: AsyncSession,
+    *,
+    display_id: str,
+    name: str,
+    owner_id: uuid.UUID,
+    tool_bindings: dict | None,
+) -> Project:
+    project = Project(
+        id=uuid.uuid4(),
+        display_id=display_id,
+        name=name,
+        type_label="点云检测",
+        type_key="lidar",
+        data_type="lidar",
+        scene_mode=True,
+        prefer_same_scene_continuation=True,
+        owner_id=owner_id,
+        tool_bindings=tool_bindings or {},
+        ai_enabled=False,
+    )
+    db.add(project)
+    await db.flush()
+    return project
+
+
 async def delete_project(db: AsyncSession, project: Project) -> None:
     await db.delete(project)
 

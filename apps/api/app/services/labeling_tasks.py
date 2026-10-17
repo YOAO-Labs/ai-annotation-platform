@@ -51,6 +51,14 @@ class LabelingTaskService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def clear_dataset_item_sources(self) -> None:
+        await self.db.execute(
+            text(
+                "UPDATE tasks SET dataset_item_id = NULL "
+                "WHERE dataset_item_id IS NOT NULL"
+            )
+        )
+
     async def _submission_assignment_start(
         self, task_id: uuid.UUID, user_id: uuid.UUID, now: datetime
     ) -> datetime:
@@ -233,6 +241,7 @@ class LabelingTaskService:
         pending_items: tuple[PreparedDatasetItem, ...],
         job_id: uuid.UUID | None = None,
         chunk_size: int = 5000,
+        commit_each_chunk: bool = True,
     ) -> dict[str, int]:
         """Insert the workflow's pending snapshot without a second preselection."""
         total = len(pending_items)
@@ -276,7 +285,8 @@ class LabelingTaskService:
                     await async_job_svc.update_progress(self.db, job_id, pct)
                     last_pct = pct
 
-            await self.db.commit()
+            if commit_each_chunk:
+                await self.db.commit()
 
         return {"created": created, "total": total}
 
@@ -287,6 +297,7 @@ class LabelingTaskService:
         frames: tuple[PreparedPointCloudFrame, ...],
         job_id: uuid.UUID | None = None,
         chunk_size: int = 5000,
+        commit_each_chunk: bool = True,
     ) -> dict[str, int]:
         if not frames:
             return {"created": 0, "total": 0}
@@ -349,7 +360,8 @@ class LabelingTaskService:
                     await async_job_svc.update_progress(self.db, job_id, pct)
                     last_pct = pct
 
-            await self.db.commit()
+            if commit_each_chunk:
+                await self.db.commit()
 
         return {"created": created, "total": total}
 

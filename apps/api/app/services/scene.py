@@ -105,6 +105,22 @@ async def create_scene(
     return scene
 
 
+async def update_source_metadata(
+    db: AsyncSession,
+    *,
+    scene_id: uuid.UUID,
+    source_format: str | None,
+    source_metadata: dict,
+) -> Scene | None:
+    """Update source metadata without committing the caller's Scene transaction."""
+    scene = await db.get(Scene, scene_id)
+    if scene is None:
+        return None
+    scene.source_format = source_format
+    scene.source_metadata = source_metadata
+    return scene
+
+
 async def assign_items_to_scene(
     db: AsyncSession,
     *,

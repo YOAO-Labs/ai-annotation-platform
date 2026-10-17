@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+from app.db.models.project import Project
+from app.services.dataset import DatasetService
+from app.services.pointcloud_import import attach_calibration
+from app.services.project_workspace import create_import_project, find_import_project
+
+
+class NuScenesImportWorkflow:
+    """Compose nuScenes project, association, calibration, and task writes."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def create_project_and_tasks(
+        self,
+        *,
+        dataset_id: uuid.UUID,
+        project_display_id: str,
+        project_name: str,
+        owner_id: uuid.UUID,
+        tool_bindings: dict | None,
+    ) -> Project:
+        project = await find_import_project(self.db, project_display_id)
+        if project is None:
+            project = await create_import_project(
+                self.db,
+                display_id=project_display_id,
+                name=project_name,
+                owner_id=owner_id,
+                tool_bindings=tool_bindings,
+            )
+
+        assets = DatasetService(self.db)
+        await assets.associate_project(dataset_id, project.id)
+        await DatasetTaskCreationWorkflow(self.db).create_tasks_for_linked_dataset(
+            dataset_id=dataset_id,
+            project_id=project.id,
+            commit_calibration=False,
+            commit_task_chunks=False,
+        )
+        await attach_calibration(self.db, dataset_id=dataset_id)
+        await assets.record_nuscenes_calibration_digests(dataset_id)
+        await assets.recount_items(dataset_id)
+        return project

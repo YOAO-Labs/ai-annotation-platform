@@ -9,6 +9,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import hash_password
+
 from app.db.enums import UserRole
 from app.db.models.user import User
 from app.services.user_lifecycle import UserLifecycleService
@@ -79,6 +81,29 @@ class IdentityCommandService:
         self.db.add(user)
         await self.db.flush()
         return user
+
+    async def ensure_import_admin(self, *, environment: str) -> User:
+        """Reuse admin, or bootstrap it only outside production for this CLI."""
+        admin = await self.db.scalar(select(User).where(User.email == "admin"))
+        if admin is not None:
+            return admin
+        if environment == "production":
+            raise RuntimeError(
+                "生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。"
+                "请先手动创建管理员账号再运行本导入脚本。"
+            )
+
+        admin = User(
+            id=uuid.uuid4(),
+            email="admin",
+            name="超级管理员",
+            password_hash=hash_password("123456"),
+            role=UserRole.SUPER_ADMIN.value,
+            is_active=True,
+        )
+        self.db.add(admin)
+        await self.db.flush()
+        return admin
 
     @staticmethod
     def record_login_for_locked_user(user: User, now: datetime) -> None:
