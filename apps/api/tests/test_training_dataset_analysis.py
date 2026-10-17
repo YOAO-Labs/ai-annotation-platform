@@ -700,6 +700,14 @@ async def test_immutable_media_checks_bytes_and_never_substitutes_current_source
     path = base + f"/samples/{task_id}/media"
     response = await httpx_client.get(path, headers=headers)
     assert response.status_code == 200, response.text
+    observed_sample = await db_session.scalar(
+        select(TrainingDatasetAnalyzedSample).where(
+            TrainingDatasetAnalyzedSample.version_id == data.id,
+            TrainingDatasetAnalyzedSample.task_id == uuid.UUID(task_id),
+        )
+    )
+    assert observed_sample.media_state == "verified"
+    assert observed_sample.media_checked_at is not None
     assert (
         response.content == payload and response.headers["cache-control"] == "no-store"
     )
@@ -780,6 +788,141 @@ async def test_preview_respects_frozen_exif_dimensions_and_paginated_native_labe
         "width": 0.3,
         "height": 0.4,
     }
+
+
+async def test_preview_decode_failure_records_verified_with_fresh_observer(
+    test_engine, monkeypatch
+):
+    from fastapi import HTTPException
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.api.v1.training_dataset_analysis import sample_media
+    from app.db.models.project import Project
+    from app.db.models.user import User
+    from tests.factory import create_user
+
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    payload = b"not a decodable image"
+    digest = hashlib.sha256(payload).hexdigest()
+    async with maker() as seed:
+        owner = await create_user(
+            seed, "super_admin", f"media-preview-{uuid.uuid4()}@test.local", "Preview"
+        )
+        project, data = await version(
+            seed,
+            owner,
+            specs=[
+                {
+                    "content": "preview-error",
+                    "sha256": digest,
+                    "size_bytes": len(payload),
+                }
+            ],
+        )
+        await service.ensure_analysis(seed, project.id, data.id)
+
+    fake = FrozenStore(payload, digest, data.snapshot_digest)
+    monkeypatch.setattr(service.storage, "client", fake)
+    task_id = uuid.UUID(data.manifest["samples"][0]["task_id"])
+    try:
+        async with maker() as db:
+            with pytest.raises(HTTPException) as caught:
+                await sample_media(data.id, task_id, project, owner, db, True)
+        assert caught.value.status_code == 409
+        assert caught.value.detail["code"] == "frozen_preview_unavailable"
+        assert all(body.closed for body in fake.bodies)
+        async with maker() as observer:
+            sample = await observer.scalar(
+                select(TrainingDatasetAnalyzedSample).where(
+                    TrainingDatasetAnalyzedSample.version_id == data.id,
+                    TrainingDatasetAnalyzedSample.task_id == task_id,
+                )
+            )
+            assert sample.media_state == "verified"
+            assert sample.media_checked_at is not None
+    finally:
+        from sqlalchemy import delete
+
+        async with maker() as cleanup:
+            await cleanup.execute(
+                delete(TrainingDatasetVersion).where(
+                    TrainingDatasetVersion.id == data.id
+                )
+            )
+            await cleanup.execute(delete(Project).where(Project.id == project.id))
+            await cleanup.execute(delete(User).where(User.id == owner.id))
+            await cleanup.commit()
+
+
+async def test_media_observation_commit_failure_rolls_back_and_closes_stream(
+    test_engine, monkeypatch
+):
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.api.v1.training_dataset_analysis import sample_media
+    from app.db.models.project import Project
+    from app.db.models.user import User
+    from tests.factory import create_user
+
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    payload = b"frozen bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    async with maker() as seed:
+        owner = await create_user(
+            seed, "super_admin", f"media-commit-{uuid.uuid4()}@test.local", "Commit"
+        )
+        project, data = await version(
+            seed,
+            owner,
+            specs=[
+                {
+                    "content": "commit-error",
+                    "sha256": digest,
+                    "size_bytes": len(payload),
+                }
+            ],
+        )
+        await service.ensure_analysis(seed, project.id, data.id)
+
+    source = io.BytesIO(payload)
+    monkeypatch.setattr(
+        service,
+        "read_media",
+        lambda *args, **kwargs: (source, "application/octet-stream"),
+    )
+    task_id = uuid.UUID(data.manifest["samples"][0]["task_id"])
+    try:
+        async with maker() as db:
+
+            async def fail_commit():
+                await db.flush()
+                raise RuntimeError
+
+            monkeypatch.setattr(db, "commit", fail_commit)
+            with pytest.raises(RuntimeError):
+                await sample_media(data.id, task_id, project, owner, db, False)
+            assert source.closed
+            await db.rollback()
+        async with maker() as observer:
+            sample = await observer.scalar(
+                select(TrainingDatasetAnalyzedSample).where(
+                    TrainingDatasetAnalyzedSample.version_id == data.id,
+                    TrainingDatasetAnalyzedSample.task_id == task_id,
+                )
+            )
+            assert sample.media_state == "unchecked"
+            assert sample.media_checked_at is None
+    finally:
+        async with maker() as cleanup:
+            await cleanup.execute(
+                delete(TrainingDatasetVersion).where(
+                    TrainingDatasetVersion.id == data.id
+                )
+            )
+            await cleanup.execute(delete(Project).where(Project.id == project.id))
+            await cleanup.execute(delete(User).where(User.id == owner.id))
+            await cleanup.commit()
 
 
 def test_large_metadata_derivation_keeps_public_summary_constant_size():

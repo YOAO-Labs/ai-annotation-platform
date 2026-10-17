@@ -10,6 +10,7 @@ import re
 import tempfile
 import uuid
 from collections import Counter
+from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps
@@ -740,6 +741,16 @@ async def media_observations(db, version_id):
         ):
             result["last_checked_at"] = checked_at
     return result
+
+
+async def record_media_observation(db, sample, *, error_code=None):
+    sample.media_state = (
+        "verified"
+        if error_code in {None, "frozen_preview_unavailable"}
+        else "unavailable"
+    )
+    sample.media_checked_at = datetime.now(timezone.utc)
+    await db.commit()
 
 
 def read_media(project_id, version, sample, *, preview=False):

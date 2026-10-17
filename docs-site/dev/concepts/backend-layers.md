@@ -174,6 +174,8 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 `labeling_assets.read_project_task_source_facts` 在单条 PostgreSQL 语句中读取工具配置、任务/素材引用和活跃标注，并由标注所有者固定已审核、当前不可用和已审核空样本资格。`dataset_task_facts` 只返回标准库不可变事实，嵌套 JSON 也不可变；查询只返回所选工具的几何，其他工具仅计数，避免加载后再复制/丢弃。`training_datasets` 消费这些事实，负责训练选择、标签规范化、媒体身份与版本摘要，不再查询生产 Task/Annotation 表或重算审核/跳过资格。当前联合读取仍是本地持久化适配器，不是可远程调用的快照协议。
 
+`training_dataset_analysis.record_media_observation` 持有分析成员的 `media_state`、`media_checked_at` 及原提交：原字节校验成功记为 verified，只有 PNG 预览不可用仍记为 verified，冻结字节不可用才记为 unavailable。HTTP 保留当前授权、版本共享行锁、对象读取、错误映射和响应流关闭；成功后的观测提交失败仍关闭已打开的流，不把观测状态写入不可变统计。
+
 训练公共下层由三个所有者提供：`training_adapters` 持有资源标识、配置目录、参数解析与受控模板；`training_claims` 持有项目级 PostgreSQL 事务锁及自动策略/参数搜索的执行器领取准入；`training_artifacts` 持有流式产物校验、观测摘要校验与有界 JSON 读取。它们不反向导入 run、策略、搜索、配方或观测编排服务，原编排模块的已迁移入口不再导出。
 
 `training_runs` 保留执行状态机、资源租约与终态提交，学习策略、参数搜索、配方和观测服务直接消费上述下层。领取判定不在已持有资源/run 锁时额外取得项目/策略锁；项目事务锁的键和等待语义、手动恢复的授权前提、产物流式上限及线程卸载保持原行为。这些边界仍使用当前配置、ORM 或存储对象，不是跨语言 wire 契约。

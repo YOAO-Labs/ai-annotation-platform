@@ -1149,6 +1149,13 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 原始实际运行观察：`/tmp/aap-preview-expiry-evidence/http.json` 与 `/tmp/aap-preview-expiry-evidence/postgres.json`。活动租约是持久化夹具，没有启动 executor/worker；Smoke 不覆盖预览创建或原生 ML 执行，预算的零 S3 观测仅限其狭窄命令范围。
 - 主线四项过期/取消、回滚和 PUT 清理窗口消费者回归通过，三文件固定 Ruff 格式/check 通过；未重复隔离 Uvicorn 验收。预算夹具的 Job 没有通知 owner，因此预算也不包含通知行和 Redis 发布；真实 HTTP 夹具有 owner，范围不同。隔离 dev/test 以精确 `5d15ac1bb2790770:dev` / `5d15ac1bb2790770:test` 确认销毁。
 
+### 冻结分析成员媒体观测
+
+- `training_dataset_analysis.record_media_observation` 持有 `media_state`、`media_checked_at` 和原 commit；API 保留授权、版本共享行锁、读取与错误映射，以及提交失败关闭已打开响应流的行为。冻结字节校验成功记 verified，`frozen_preview_unavailable` 同样记 verified，其他原媒体错误记 unavailable；不可变统计和版本摘要不回写。
+- 隔离默认 JWT/get_db 的 ASGI HTTP、真实 PostgreSQL/MinIO 观察到：成功 200 字节摘要为 `6364f8ead64d0af153eb438f273d134302bef89538862c895a2286d107ac2a11` 且流关闭，新 Session 见 verified；预览解码失败 409 仍 verified；对象缺失 404 后 unavailable。提交端口在真实 flush 后注入故障，流关闭，rollback 后新 Session 见原 unavailable 状态及原时间。这里不是独立 PID 或真实数据库故障资格，不含模型、GPU 或 worker。
+- 原始状态与六次交错预算在 `/tmp/aap-analysis-media-1792242095/evidence/native-analysis-media.json`。历史侧是 `4f3f26541` API 成功字段写入和 commit 的内联复现，当前侧使用同一已加载行，各侧预热一次；只含变更与 commit，排除授权、行读取、对象、串流及 HTTP，每次 1 条 SQL、0 次对象调用。堆峰值增量中位数为历史 288,415 字节、当前 288,775 字节，不推断整请求性能或优化。
+- 隔离该测试文件为 31 passed（原始完成/退出码在 `evidence/analysis-media-tests.json`，不因外层等待超时重跑）；主线四项冻结媒体、预览、状态持久化和提交失败回滚/关闭消费者回归通过，三个 Python 文件固定 Ruff 格式/check 通过。正式分层和训练分析说明已同步；纯结构迁移不增加 CHANGELOG，无 API/schema、依赖、配置、版本变更。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务及训练预览过期已收口；仍有分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共六组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期及分析样本媒体观测已收口；仍有金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共五组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

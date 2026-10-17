@@ -2,7 +2,6 @@
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -277,18 +276,12 @@ async def sample_media(
             service.read_media, project.id, version, row, preview=preview
         )
     except TrainingDatasetError as exc:
-        row.media_state = (
-            "verified" if exc.code == "frozen_preview_unavailable" else "unavailable"
-        )
-        row.media_checked_at = datetime.now(timezone.utc)
-        await db.commit()
+        await service.record_media_observation(db, row, error_code=exc.code)
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
         ) from exc
-    row.media_state = "verified"
-    row.media_checked_at = datetime.now(timezone.utc)
     try:
-        await db.commit()
+        await service.record_media_observation(db, row)
     except BaseException:
         source.close()
         raise
