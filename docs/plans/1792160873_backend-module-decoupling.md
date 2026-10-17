@@ -1172,6 +1172,22 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 此记录是 metadata 所有权与实际访问/事务行为证明；没有运行 generation worker，也不构成 renderer/WebGPU、影像生成或缩略图消费资格。
 - 主线三项 ready HTTP/严格十分钟边界、源替换拒绝和事务消费者回归通过；提交失败回归已改为真正调用访问所有者，在实际 flush 后注入 commit 故障并 rollback，以新 Session 确认保留上次触达，删除直接 setter 的 SQLAlchemy 回声。三文件固定 Ruff 格式/check 通过；未重复已完成的隔离 HTTP/MinIO 验收。
 
+### 审计输出邮箱投影
+
+- `api/v1/audit_logs.py::_row_to_out()` 先通过现有 `AuditLogOut.model_validate()` 转换，再只在 DTO 上写入关联用户当前邮箱；已存的历史邮箱仍优先，NULL 才回退当前邮箱。查询/导出过滤、导出元数据与 `audit.export` 的 flush/commit 均未改变；未添加 `AuditLog` setter、schema 或触发器豁免。
+- 改前在隔离 worktree 的新鲜 PostgreSQL `aap_wt_7194133dc1dceeb7_dev`、真实 Uvicorn HTTP、JWT 和默认 DB 依赖下复现：历史邮箱与当前邮箱不同，列表返回 200 且正确展示已存历史值/NULL 行的当前邮箱回退；JSON 导出返回 500。日志证实 `AuditService.log().flush()` 尝试更新 NULL 历史行，append-only trigger 抛出 `audit_logs rows are immutable: UPDATE operation denied`。独立连接确认失败回滚后存储的历史邮箱和 NULL 未变更，未产生 `audit.export`。
+- 修复后同一数据库、同一主体和同一过滤器下，列表及 JSON 导出均返回 200；导出仍含两行及相同 `filter_criteria`。新建独立 PostgreSQL engine/connection 观察到原历史邮箱仍旧值、原 NULL 仍为 NULL，且一条 `audit.export` 以 JSON、两行、原过滤器成功提交。证据含完整 HTTP 响应体和独立连接查询：`/tmp/aap-audit-projection-1792242095/.worktree/audit-projection-evidence.json`。
+- 确定性回归验证历史值优先、NULL 行回退当前邮箱、列表/导出输出一致、历史列未改写及导出审计 detail 已提交。主线 `tests/test_audit_logs.py` 全部 7 项通过；固定 Ruff `0.15.22` format/check 两个变更 Python 文件均通过，不把隔离组合计数归到该单文件。
+- 狭窄映射预算以前置读取源码的 `_row_to_out()` 原实现逐字内联为 frozen-before，对照当前函数；等形预加载 ORM fixture、每侧预热一次、三轮交错采样。每次只含 `AuditLog → AuditLogOut` 及邮箱回退，不含查询/路由/过滤/HTTP/审计提交/导出串流；SQL 以 SQLAlchemy execute 事件计数，对象存储客户端调用为 0：
+
+| 指标（单次映射范围）        | Frozen before | 当前 |
+| --------------------------- | ------------: | ---: |
+| SQL 语句数                  |             0 |    0 |
+| Python 堆峰值中位数（字节） |          1840 | 1848 |
+| 对象存储客户端调用          |             0 |    0 |
+
+- 峰值样本（字节）：before `1864 / 1840 / 1832`，当前 `1856 / 1848 / 1816`。此小样本仅说明映射没有新增 SQL 或对象存储 I/O，不据此声称性能优化；API lifespan 执行其既有桶存在性检查，但本路径不读取/写入对象内容。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测及金字塔访问元数据已收口；仍有审计输出投影、在线状态维护、训练数据构建和主动学习执行，共四组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测、金字塔访问元数据及审计输出投影已收口；仍有在线状态维护、训练数据构建和主动学习执行，共三组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

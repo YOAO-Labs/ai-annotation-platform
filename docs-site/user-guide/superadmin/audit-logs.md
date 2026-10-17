@@ -3,7 +3,7 @@ audience: [super_admin]
 type: reference
 since: v0.8.1
 status: stable
-last_reviewed: 2026-07-23
+last_reviewed: 2026-10-17
 ---
 
 # 审计日志
@@ -20,13 +20,14 @@ last_reviewed: 2026-07-23
 
 ![详情 Modal detail_json + 时间线追溯按钮](../images/superadmin/audit-logs/detail-modal.png)
 
-| 字段                        | 含义                                                |
-| --------------------------- | --------------------------------------------------- |
-| `actor_id`                  | 触发动作的用户；`ON DELETE SET NULL` 保留历史       |
-| `action`                    | 命名空间动作，如 `project.create` / `task.approve`  |
-| `target_type` / `target_id` | 操作对象类型与 ID                                   |
-| `detail_json`               | JSONB，存上下文（旧值、IP、UA、filter_criteria 等） |
-| `created_at`                | timestamptz                                         |
+| 字段                        | 含义                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `actor_id`                  | 触发动作的用户；`ON DELETE SET NULL` 保留历史                                    |
+| `actor_email`               | 写入时记录的操作人邮箱；旧记录为空且关联账号仍存在时显示当前邮箱回退，不改写历史 |
+| `action`                    | 命名空间动作，如 `project.create` / `task.approve`                               |
+| `target_type` / `target_id` | 操作对象类型与 ID                                                                |
+| `detail_json`               | JSONB，存上下文（旧值、IP、UA、filter_criteria 等）                              |
+| `created_at`                | timestamptz                                                                      |
 
 `audit_logs` 受 trigger 守护——**任何 UPDATE/DELETE 默认被拒**（"audit_logs rows are immutable"）。例外：受三重门禁保护的 E2E fixture reset/cleanup 流程通过 `SET LOCAL "app.allow_audit_update" = 'true'` 临时豁免（详见 [E2E 数据隔离](../../dev/troubleshooting/dev-data-preservation)）。
 

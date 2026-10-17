@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-17
 ---
 
 # 审计与通知
@@ -70,6 +70,8 @@ last_reviewed: 2026-09-12
 | `detail_json`                             | 补充上下文                          |
 | `request_id`                              | 同一 HTTP 请求下的多条 audit 关联键 |
 | `created_at`                              | 时间戳                              |
+
+历史查询和导出优先显示已存的 `actor_email`；旧记录为空且关联账号仍存在时，才将当前 `User.email` 投影到响应 DTO。该回退不写入 ORM `AuditLog`：导出随后会 flush 并提交 `audit.export`，不得因此更新受 append-only trigger 保护的历史行。
 
 ### `AuditAction`
 

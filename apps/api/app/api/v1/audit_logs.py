@@ -233,10 +233,11 @@ def _build_base_query(
 
 def _row_to_out(row) -> AuditLogOut:
     log, u_email = row
-    # actor_email 优先使用 JOIN 结果，兼容历史已存名字段
-    if log.actor_email is None and u_email is not None:
-        log.actor_email = u_email
-    return AuditLogOut.model_validate(log)
+    output = AuditLogOut.model_validate(log)
+    # Keep the joined email as response-only projection; AuditLog is immutable history.
+    if output.actor_email is None and u_email is not None:
+        output.actor_email = u_email
+    return output
 
 
 def _encode_cursor(created_at: datetime, id_: int) -> str:

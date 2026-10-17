@@ -1,6 +1,7 @@
 """审计日志过滤 / 分页 / 自动记录测试。"""
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from app.db.models.audit_log import AuditLog
 
@@ -108,3 +109,95 @@ class TestAuditAutoRecord:
         log = result.scalar_one_or_none()
         assert log is not None
         assert log.status_code == 200
+
+
+class TestAuditLogProjection:
+    async def test_export_projects_current_email_without_mutating_history(
+        self, httpx_client, db_session, super_admin
+    ):
+        """Exports project a current email fallback without rewriting audit history."""
+        from sqlalchemy import select
+
+        user, token = super_admin
+        historical_email = user.email
+        current_email = f"renamed-{uuid4()}@test.local"
+        target_id = str(uuid4())
+        target_type = "audit_projection"
+        history_action = "audit.projection.historical"
+        legacy_action = "audit.projection.legacy"
+        now = datetime.now(timezone.utc)
+        db_session.add_all(
+            [
+                AuditLog(
+                    actor_id=user.id,
+                    actor_email=historical_email,
+                    actor_role="super_admin",
+                    action=history_action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    created_at=now,
+                ),
+                AuditLog(
+                    actor_id=user.id,
+                    actor_email=None,
+                    actor_role="super_admin",
+                    action=legacy_action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    created_at=now,
+                ),
+            ]
+        )
+        user.email = current_email
+        await db_session.flush()
+        headers = {"Authorization": f"Bearer {token}"}
+        filters = {"target_type": target_type, "target_id": target_id}
+
+        exported = await httpx_client.get(
+            "/api/v1/audit-logs/export",
+            params={**filters, "format": "json"},
+            headers=headers,
+        )
+        assert exported.status_code == 200, exported.text
+        export_body = exported.json()
+        export_items = {item["action"]: item for item in export_body["items"]}
+        assert export_body["_export_meta"]["rows"] == 2
+        assert export_body["_export_meta"]["filter_criteria"] == filters
+        assert export_items[history_action]["actor_email"] == historical_email
+        assert export_items[legacy_action]["actor_email"] == current_email
+
+        listed = await httpx_client.get(
+            "/api/v1/audit-logs", params=filters, headers=headers
+        )
+        assert listed.status_code == 200, listed.text
+        list_body = listed.json()
+        assert list_body["total"] == 2
+        list_items = {item["action"]: item for item in list_body["items"]}
+        assert list_items[history_action]["actor_email"] == historical_email
+        assert list_items[legacy_action]["actor_email"] == current_email
+
+        stored_emails = (
+            await db_session.execute(
+                select(AuditLog.action, AuditLog.actor_email)
+                .where(AuditLog.target_id == target_id)
+                .order_by(AuditLog.action)
+            )
+        ).all()
+        assert dict(stored_emails) == {
+            history_action: historical_email,
+            legacy_action: None,
+        }
+
+        export_detail = (
+            await db_session.execute(
+                select(AuditLog.detail_json).where(
+                    AuditLog.action == "audit.export",
+                    AuditLog.actor_id == user.id,
+                    AuditLog.target_type == "audit_logs",
+                )
+            )
+        ).scalar_one()
+        assert export_detail["format"] == "json"
+        assert export_detail["rows"] == 2
+        assert export_detail["actor_email"] == current_email
+        assert export_detail["filter_criteria"] == filters
