@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -12,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
 from app.middleware.request_id import request_id_var
+from app.services.audit_origin_contract import AuditOriginContext as _AuditOriginContext
 
 
 class AuditAction(str, Enum):
@@ -163,21 +163,13 @@ def extract_client_ip(request: Request | None) -> str | None:
     return None
 
 
-@dataclass(frozen=True, slots=True)
-class AuditOriginContext:
-    """Immutable HTTP provenance captured before entering an application workflow."""
-
-    method: str | None
-    path: str | None
-    ip: str | None
-
-    @classmethod
-    def from_request(cls, request: Request) -> AuditOriginContext:
-        return cls(
-            method=request.method,
-            path=str(request.url.path),
-            ip=extract_client_ip(request),
-        )
+def audit_origin_from_request(request: Request) -> _AuditOriginContext:
+    """Capture stable HTTP provenance before entering an application workflow."""
+    return _AuditOriginContext(
+        method=request.method,
+        path=str(request.url.path),
+        ip=extract_client_ip(request),
+    )
 
 
 def export_detail(
@@ -256,7 +248,7 @@ class AuditService:
         target_type: str | None = None,
         target_id: str | int | None = None,
         request: Request | None = None,
-        origin: AuditOriginContext | None = None,
+        origin: _AuditOriginContext | None = None,
         status_code: int | None = None,
         detail: dict[str, Any] | None = None,
     ) -> AuditLog:

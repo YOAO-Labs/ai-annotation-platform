@@ -14,7 +14,7 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.audit import AuditOriginContext
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.project_access import resolve_project_access
 from tests.factory import create_membership, create_project, create_task, create_user

@@ -6,12 +6,20 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
+from app.application.annotation_create import _AnnotationCreateSqlAdapter
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.audit_log import AuditLog
+from app.db.models.task import Task
+from app.schemas.annotation import AnnotationCreate, AnnotationOut
+from app.services.annotation_create_contract import (
+    AnnotationCreateCommand,
+    AnnotationCreateError,
+)
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.task_lock import TaskLockService
 from tests.factory import create_project, create_task, create_user
 
@@ -41,7 +49,13 @@ async def test_create_annotation_replays_durable_receipt(
 ):
     task, token = await _seed(db_session, super_admin)
     key = f"offline-create-{uuid.uuid4()}"
-    headers = _bearer(token, **{"Idempotency-Key": key})
+    headers = _bearer(
+        token,
+        **{
+            "Idempotency-Key": key,
+            "X-Forwarded-For": "198.51.100.42, 10.0.0.8",
+        },
+    )
 
     first = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",
@@ -74,6 +88,19 @@ async def test_create_annotation_replays_durable_receipt(
     assert operation is not None
     assert operation.kind == "create_annotation"
     assert operation.response_json == first.json()
+    audit = await db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "annotation.create",
+            AuditLog.target_type == "annotation",
+            AuditLog.target_id == first.json()["id"],
+        )
+    )
+    assert audit is not None
+    assert (audit.method, audit.path, str(audit.ip)) == (
+        "POST",
+        f"/api/v1/tasks/{task.id}/annotations",
+        "198.51.100.42",
+    )
 
 
 @pytest.mark.asyncio
@@ -143,6 +170,189 @@ async def test_create_annotation_without_key_keeps_legacy_behavior(
         .where(Annotation.task_id == task.id)
     )
     assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_annotation_create_command_uses_bound_rows_and_stable_receipt(
+    db_session, super_admin, test_engine, monkeypatch
+):
+    actor, _token = super_admin
+    task, _token = await _seed(db_session, super_admin)
+    key = f"bound-create-{uuid.uuid4()}"
+    origin = AuditOriginContext(
+        method="POST",
+        path=f"/api/v1/tasks/{task.id}/annotations",
+        ip="198.51.100.42",
+    )
+    data = AnnotationCreate.model_validate(_payload())
+    statements: list[str] = []
+
+    def record_statement(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    original_get = db_session.get
+
+    async def get_without_identity_query(entity, *args, **kwargs):
+        statement_count = len(statements)
+        result = await original_get(entity, *args, **kwargs)
+        if entity in {Task, type(actor)}:
+            assert len(statements) == statement_count
+        return result
+
+    monkeypatch.setattr(db_session, "get", get_without_identity_query)
+
+    async def execute_create(idempotency_key: str | None) -> AnnotationOut:
+        locked_task = (
+            await db_session.execute(
+                select(Task)
+                .where(Task.id == task.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        command = AnnotationCreateCommand(
+            task_id=task.id,
+            actor_id=actor.id,
+            data=data,
+            idempotency_key=idempotency_key,
+            audit_origin=origin,
+        )
+        result = await _AnnotationCreateSqlAdapter(
+            db_session, task=locked_task, actor=actor
+        ).create(command)
+        assert isinstance(result, AnnotationOut)
+        return result
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", record_statement)
+    try:
+        unkeyed = await execute_create(None)
+        keyed = await execute_create(key)
+        replay = await execute_create(key)
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", record_statement)
+
+    unkeyed_json = unkeyed.model_dump(mode="json")
+    keyed_json = keyed.model_dump(mode="json")
+    replay_json = replay.model_dump(mode="json")
+    assert unkeyed_json.keys() == keyed_json.keys()
+    assert keyed_json == replay_json
+    operation = await db_session.scalar(
+        select(AnnotationOperation).where(
+            AnnotationOperation.task_id == task.id,
+            AnnotationOperation.actor_id == actor.id,
+            AnnotationOperation.idempotency_key == key,
+        )
+    )
+    assert operation is not None
+    assert operation.response_json == keyed_json
+    audit_rows = list(
+        (
+            await db_session.scalars(
+                select(AuditLog).where(
+                    AuditLog.action == "annotation.create",
+                    AuditLog.target_id.in_({str(unkeyed.id), str(keyed.id)}),
+                )
+            )
+        ).all()
+    )
+    assert len(audit_rows) == 2
+    keyed_audit = next(row for row in audit_rows if row.target_id == str(keyed.id))
+    assert (keyed_audit.method, keyed_audit.path, str(keyed_audit.ip)) == (
+        origin.method,
+        origin.path,
+        origin.ip,
+    )
+
+
+@pytest.mark.parametrize("mismatched_identity", ["task_id", "actor_id"])
+@pytest.mark.asyncio
+async def test_annotation_create_command_rejects_mismatched_binding_before_database_access(
+    mismatched_identity, db_session, super_admin, test_engine
+):
+    actor, _token = super_admin
+    task, _token = await _seed(db_session, super_admin)
+    key = f"mismatched-create-{uuid.uuid4()}"
+    command_task_id = uuid.uuid4() if mismatched_identity == "task_id" else task.id
+    command_actor_id = uuid.uuid4() if mismatched_identity == "actor_id" else actor.id
+    command = AnnotationCreateCommand(
+        task_id=command_task_id,
+        actor_id=command_actor_id,
+        data=AnnotationCreate.model_validate(_payload()),
+        idempotency_key=key,
+        audit_origin=AuditOriginContext(
+            method="POST",
+            path=f"/api/v1/tasks/{task.id}/annotations",
+            ip="198.51.100.42",
+        ),
+    )
+    statements: list[str] = []
+
+    def record_statement(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", record_statement)
+    try:
+        adapter = _AnnotationCreateSqlAdapter(db_session, task=task, actor=actor)
+        with pytest.raises(
+            ValueError,
+            match="annotation create command identity does not match binding",
+        ):
+            await adapter.create(command)
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", record_statement)
+
+    assert statements == []
+    annotation_count = await db_session.scalar(
+        select(func.count())
+        .select_from(Annotation)
+        .where(Annotation.task_id.in_({task.id, command_task_id}))
+    )
+    operation_count = await db_session.scalar(
+        select(func.count())
+        .select_from(AnnotationOperation)
+        .where(AnnotationOperation.idempotency_key == key)
+    )
+    audit_count = await db_session.scalar(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
+            AuditLog.action == "annotation.create",
+            AuditLog.target_type == "annotation",
+            AuditLog.actor_id.in_({actor.id, command_actor_id}),
+        )
+    )
+    assert (annotation_count, operation_count, audit_count) == (0, 0, 0)
+
+
+async def test_annotation_create_port_returns_plain_error_before_bad_key_access(
+    db_session, super_admin, test_engine
+):
+    actor, _token = super_admin
+    task, _token = await _seed(db_session, super_admin)
+    statements = []
+
+    def record_statement(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", record_statement)
+    try:
+        with pytest.raises(AnnotationCreateError) as rejected:
+            await _AnnotationCreateSqlAdapter(
+                db_session, task=task, actor=actor
+            ).create(
+                AnnotationCreateCommand(
+                    task_id=task.id,
+                    actor_id=actor.id,
+                    data=AnnotationCreate.model_validate(_payload()),
+                    idempotency_key=" ",
+                    audit_origin=AuditOriginContext(None, None, None),
+                )
+            )
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", record_statement)
+    assert rejected.value.status_code == 400
+    assert rejected.value.detail == "Idempotency-Key must contain 1 to 128 characters"
+    assert statements == []
 
 
 @pytest.mark.asyncio

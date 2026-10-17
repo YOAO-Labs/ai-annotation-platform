@@ -39,7 +39,7 @@ from app.schemas.annotation_comment import (
     CommentAttachmentUploadInitResponse,
     TaskDiscussionPage,
 )
-from app.services.audit import AuditOriginContext
+from app.services.audit import audit_origin_from_request
 from app.services.storage import storage_service
 from app.services.task_discussion import (
     list_task_discussion,
@@ -313,7 +313,7 @@ async def create_comment(
         annotation_id,
         current_user,
         data,
-        origin=AuditOriginContext.from_request(request),
+        origin=audit_origin_from_request(request),
     )
     return _to_out(comment, current_user.name)
 
@@ -339,7 +339,7 @@ async def delete_comment(
     await AnnotationCommentWorkflow(db).delete(
         comment_id,
         current_user,
-        origin=AuditOriginContext.from_request(request),
+        origin=audit_origin_from_request(request),
     )
 
 

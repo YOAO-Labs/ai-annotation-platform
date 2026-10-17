@@ -60,7 +60,9 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 
 ## 创建收据与重放
 
-`POST /tasks/{task_id}/annotations` 仍由 HTTP 入口先锁定 Task，再核验当前可见/可编辑权限与视频写入范围；`application/annotation_create.py::AnnotationCreateWorkflow` 随后编排创建。`services/annotation.py::AnnotationService` 独占标注创建操作收据的查询与写入，HTTP 不直接访问 `AnnotationOperation`。
+`POST /tasks/{task_id}/annotations` 仍由 HTTP 入口先锁定 Task，再核验当前可见/可编辑权限与视频写入范围。`services/annotation_create_contract.py::AnnotationCreatePort` 只接收任务/actor UUID、原请求模型、幂等键与审计来源，首次创建与重放统一返回 `AnnotationOut`；`application/annotation_create.py` 的 SQL 实现绑定原 Session 和已加载行，不为命令额外查询身份。`services/annotation.py::AnnotationService` 独占标注创建操作收据的查询与写入，HTTP 不直接访问 `AnnotationOperation`。
+
+审计来源由 HTTP 用 `audit.audit_origin_from_request` 捕获为仅含 method/path/IP 的 `AuditOriginContext`；请求对象和 ORM 不进入命令。命令的任务或 actor 与适配器绑定不一致时，在收据查询及业务写入之前拒绝。
 
 可选 `Idempotency-Key` 先 trim，再按 1–128 个字符校验。收据范围是 actor + task + key；摘要来自规范化 `AnnotationCreate.model_dump(mode="json")`，使用排序后的 canonical JSON。相同操作种类和摘要返回收据中冻结的 `response_json`，即使标注后来编辑也不重建响应；同键用于其他操作或不同摘要时仍为 409，并返回原 `operation_id`。
 

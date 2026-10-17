@@ -24,7 +24,8 @@ from app.schemas.annotation_comment import (
 from app.services.annotation_comment import AnnotationCommentService
 from app.services import task_access
 from app.services.discussion_actions import discussion_actions
-from app.services.audit import AuditAction, AuditOriginContext, AuditService
+from app.services.audit import AuditAction, AuditService
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.discussion_notifications import (
     prepare_annotation_comment_mention_notifications,
 )

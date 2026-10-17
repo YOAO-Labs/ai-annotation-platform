@@ -24,7 +24,7 @@ from app.schemas.annotation_comment import (
     AnnotationCommentCreate,
     AnnotationCommentUpdate,
 )
-from app.services.audit import AuditOriginContext
+from app.services.audit_origin_contract import AuditOriginContext
 from app.db.models.project import Project
 from tests.factory import build_tool_bindings
 

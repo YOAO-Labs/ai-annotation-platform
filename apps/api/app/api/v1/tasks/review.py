@@ -10,7 +10,7 @@ from app.application.task_workflow_errors import TaskWorkflowError
 from app.deps import get_current_user, get_db
 from app.db.models.user import User
 from app.schemas.task import ReviewClaimResponse
-from app.services.audit import AuditOriginContext
+from app.services.audit import audit_origin_from_request
 from app.services.workspace_contract import ProjectAccess
 from app.api.v1.tasks._shared import require_task_review_write
 
@@ -55,7 +55,7 @@ async def claim_review(
             task_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
@@ -76,7 +76,7 @@ async def approve_task(
             task_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
             expected_qc_digest=body.expected_qc_digest if body else None,
             warning_issue_ids=body.warning_issue_ids if body else [],
             note=body.note if body else None,
@@ -99,7 +99,7 @@ async def reject_task(
             task_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
             reason_type=body.reason_type if body else None,
             reason=body.reason if body else None,
         )

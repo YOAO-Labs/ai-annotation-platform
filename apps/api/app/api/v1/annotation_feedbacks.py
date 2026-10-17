@@ -40,7 +40,7 @@ from app.schemas.annotation_feedback import (
 )
 from app.schemas.user import UserBrief
 from app.services import task_access
-from app.services.audit import AuditOriginContext
+from app.services.audit import audit_origin_from_request
 from app.services.discussion_actions import discussion_actions
 from app.services.feedback import FeedbackService
 from app.services.project_access import resolve_project_access_by_id
@@ -348,7 +348,7 @@ async def create_feedback(
         result = await AnnotationFeedbackWorkflow(db).create(
             payload,
             actor_id=user.id,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
@@ -375,7 +375,7 @@ async def patch_feedback(
             feedback_id,
             payload,
             actor_id=user.id,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
@@ -400,7 +400,7 @@ async def delete_feedback(
         await AnnotationFeedbackWorkflow(db).soft_delete(
             feedback_id,
             actor_id=user.id,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
@@ -419,7 +419,7 @@ async def reply_feedback(
             feedback_id,
             payload,
             actor_id=user.id,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)

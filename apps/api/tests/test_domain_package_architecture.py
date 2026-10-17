@@ -135,6 +135,19 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(package="task_access", legacy_facades=()),
+    DomainSpec(
+        package="annotation_create_contract",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.schemas.annotation",
+            "app.services.audit_origin_contract",
+        ),
+    ),
+    DomainSpec(
+        package="audit_origin_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
     DomainSpec(package="project_write_guard", legacy_facades=()),
     DomainSpec(package="project_membership", legacy_facades=()),
     DomainSpec(

@@ -32,7 +32,7 @@ from app.deps import get_db, require_roles
 from app.application.bulk_clear_preannotate import (
     bulk_clear_preannotate as run_bulk_clear_preannotate,
 )
-from app.services.audit import AuditOriginContext
+from app.services.audit import audit_origin_from_request
 from app.services.batch_permissions import bulk_preannotation_eligible_condition
 
 router = APIRouter()
@@ -188,7 +188,7 @@ async def bulk_clear_preannotate(
         mode=payload.mode,
         reason=payload.reason,
         actor=admin,
-        origin=AuditOriginContext.from_request(request),
+        origin=audit_origin_from_request(request),
     )
     return BulkClearResponse(**result)
 

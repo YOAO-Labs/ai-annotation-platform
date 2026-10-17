@@ -111,7 +111,7 @@ last_reviewed: 2026-10-17
 - 贡献与审核事实：`app/services/annotation_evidence.py` 持有轮次、贡献者快照、
   当前轮冻结证据与首次审核事实；提交审计缺失时只按既有规则回退保留行。
   API 和片段服务直接消费，不再经路由私有快照函数。
-- 创建收据：`app/application/annotation_create.py::AnnotationCreateWorkflow` 在 HTTP 锁定 Task、核验当前授权与视频写入范围后编排创建、heartbeat、收据、审计和提交；`services/annotation.py::AnnotationService` 独占创建收据读写。同 actor/task/key 的规范化请求重放冻结响应，冲突仍返回 409 与原 operation ID。
+- 创建命令与收据：`services/annotation_create_contract.py::AnnotationCreatePort` 使用 UUID、原请求模型与纯审计来源，统一返回 `AnnotationOut`；`app/application/annotation_create.py` 的 SQL 实现绑定 HTTP 已锁定的 Task、当前 actor 和原 Session，编排创建、heartbeat、收据、审计与提交。`services/annotation.py::AnnotationService` 独占创建收据读写，同 actor/task/key 的规范化请求重放冻结响应，冲突仍返回 409 与原 operation ID。
 - 聚合 SQL 的同一契约：`app/services/project_aggregates.py`
   - `valid_membership_conditions()`：成员行只在账号活跃、平台/项目角色均为现行值、
     且观察者只持观察者职责时生效。

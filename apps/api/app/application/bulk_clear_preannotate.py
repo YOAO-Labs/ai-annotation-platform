@@ -14,7 +14,8 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services.annotation_cleanup import detach_prediction_parents_for_tasks
 from app.services.async_job import delete_batch_predict_jobs
-from app.services.audit import AuditAction, AuditOriginContext, AuditService
+from app.services.audit import AuditAction, AuditService
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
 from app.services.prediction import PredictionService
 from app.services.project_access import lock_current_project_rows

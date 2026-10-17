@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_lifecycle import TaskLifecycleWorkflow
 from app.application.task_review import TaskReviewWorkflow
-from app.services.audit import AuditOriginContext
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.project_access import resolve_project_access
 from tests.factory import (
     create_batch,

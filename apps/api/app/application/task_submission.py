@@ -27,7 +27,8 @@ from app.services.annotation_evidence import (
     freeze_review_contributor_evidence,
     task_contributor_snapshot,
 )
-from app.services.audit import AuditAction, AuditOriginContext, AuditService
+from app.services.audit import AuditAction, AuditService
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.mask_qc.config import load_mask_qc_config

@@ -116,7 +116,11 @@ services/
 
 `services/annotation_evidence.py` 持有标注贡献累积、审核轮次创建/确保、贡献者快照、提交审计缺失时的保留行回退，以及首次审核事实记录。HTTP 提交/跳过/审核和视频片段服务直接调用该所有者，不再消费 `_shared.py` 的私有快照函数；当前轮授权证据与历史绩效归属仍是不同记录，不互相替代。
 
-`application/annotation_create.py::AnnotationCreateWorkflow` 承接锁后的手工标注创建事务；HTTP 继续先锁 Task 并核验当前权限和视频写入范围。工作流 trim 并校验 `Idempotency-Key`，`AnnotationService` 持有窄化的创建收据查询/写入，按 actor + task + key 查找，以 canonical `AnnotationCreate` 摘要区分精确重放与 409 冲突。新建仍按标注写入/flush → legacy video heartbeat → 响应 refresh/收据 → 审计 → commit → 最终 refresh；重放直接返回冻结响应，不重复创建贡献、历史、审计或 heartbeat。没有新增通用幂等/重试框架或 HTTP 合同。
+手工创建通过 `annotation_create_contract.AnnotationCreatePort` 接收任务/actor UUID、原 `AnnotationCreate`、幂等键和纯审计来源，首次创建与重放均返回 `AnnotationOut`。HTTP 继续先锁 Task、核验当前权限和视频写入范围，再将原 Session 与已加载行绑定给 `application/annotation_create.py` 的 SQL 实现；命令 ID 与绑定不符时在数据库访问前拒绝，不额外查询身份行。
+
+创建实现 trim 并校验 `Idempotency-Key`，`AnnotationService` 持有窄化的创建收据查询/写入，按 actor + task + key 查找，以 canonical `AnnotationCreate` 摘要区分精确重放与 409 冲突。新建仍按标注写入/flush → legacy video heartbeat → 响应 refresh/收据 → 审计 → commit → 最终 refresh；重放直接返回冻结响应，不重复创建贡献、历史、审计或 heartbeat。`audit_origin_contract.AuditOriginContext` 仅含 method/path/IP，HTTP 通过 `audit.audit_origin_from_request` 捕获；命令不传 Request 或 ORM。没有新增通用幂等/重试框架或 HTTP 合同，也不改变本地贡献证据和写入围栏查询。
+
+预期 HTTP 拒绝通过纯 `AnnotationCreateError` 的 status/detail/headers 交付，入口还原原状态和正文；Mask 的既有领域错误映射继续保留。数据库或未知内部错误不伪装成可重放成功回执。
 
 `annotation_slice_contracts` 是只依赖标准库的错误、摘要和固定恢复期限所有者。Polygon 切割、Mask mutation 与 `mask_slice_restore` 直接消费该合同，恢复下层不再反向导入切割编排。原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
 

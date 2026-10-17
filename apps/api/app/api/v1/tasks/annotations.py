@@ -43,12 +43,16 @@ from app.schemas.annotation_conversion import (
     AnnotationConversionExecuteRequest,
     AnnotationConversionExecuteResponse,
 )
-from app.application.annotation_create import AnnotationCreateWorkflow
+from app.application.annotation_create import _AnnotationCreateSqlAdapter
 from app.services.annotation import (
     AnnotationService,
     validate_geometry_type_transition,
 )
-from app.services.audit import AuditAction, AuditService
+from app.services.annotation_create_contract import (
+    AnnotationCreateCommand,
+    AnnotationCreateError,
+)
+from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.annotation_conversion import (
     AnnotationConversionError,
     AnnotationConversionService,
@@ -360,13 +364,23 @@ async def create_annotation(
     )
 
     try:
-        return await AnnotationCreateWorkflow(db).create(
+        return await _AnnotationCreateSqlAdapter(
+            db,
             task=task,
-            data=data,
             actor=current_user,
-            request=request,
-            idempotency_key=idempotency_key,
+        ).create(
+            AnnotationCreateCommand(
+                task_id=task.id,
+                actor_id=current_user.id,
+                data=data,
+                idempotency_key=idempotency_key,
+                audit_origin=audit_origin_from_request(request),
+            )
         )
+    except AnnotationCreateError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail, headers=exc.headers
+        ) from exc
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 

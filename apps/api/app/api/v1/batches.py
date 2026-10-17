@@ -50,7 +50,7 @@ from app.services.batch import (
 )
 from app.services.workspace_contract import ProjectAccess, ProjectCapability
 from app.services.management import preview_batch_distribution
-from app.services.audit import AuditOriginContext, AuditService, AuditAction
+from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.notification import NotificationService
 from app.services.user_brief import resolve_briefs_with_project_role
 from app.db.models.audit_log import AuditLog
@@ -402,7 +402,7 @@ async def submit_batch_review(
             batch_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
             quality_dispatcher=quality_dispatcher,
         )
     except TaskWorkflowError as exc:

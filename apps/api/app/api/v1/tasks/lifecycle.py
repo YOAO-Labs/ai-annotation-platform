@@ -14,7 +14,7 @@ from app.deps import (
     get_quality_job_dispatcher,
 )
 from app.db.models.user import User
-from app.services.audit import AuditOriginContext
+from app.services.audit import audit_origin_from_request
 from app.services.workspace_contract import ProjectAccess
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.api.v1.tasks._shared import require_task_annotation_write_lifecycle
@@ -40,7 +40,7 @@ async def submit_task(
             task_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
             quality_dispatcher=quality_dispatcher,
         )
     except TaskWorkflowError as exc:
@@ -81,7 +81,7 @@ async def skip_task(
             note=body.note,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
@@ -104,7 +104,7 @@ async def withdraw_task(
             task_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
@@ -127,7 +127,7 @@ async def reopen_task(
             task_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)
@@ -150,7 +150,7 @@ async def accept_rejection(
             task_id,
             actor=current_user,
             access=access,
-            origin=AuditOriginContext.from_request(request),
+            origin=audit_origin_from_request(request),
         )
     except TaskWorkflowError as exc:
         _raise_workflow_error(exc)

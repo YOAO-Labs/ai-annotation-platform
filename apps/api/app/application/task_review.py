@@ -21,7 +21,8 @@ from app.services.annotation_evidence import (
     review_round_contributor_snapshot,
     task_contributor_snapshot,
 )
-from app.services.audit import AuditAction, AuditOriginContext, AuditService
+from app.services.audit import AuditAction, AuditService
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
 from app.services.feedback import FeedbackService
 from app.services.labeling_tasks import LabelingTaskService
