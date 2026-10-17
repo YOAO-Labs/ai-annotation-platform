@@ -893,7 +893,39 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 移除 mock 资格调用计数和时间戳非空断言，保留重放身份、确定性请求、旧 claim 释放、冻结收据、状态转移与终态作业行为；仅补验三个受影响回归，均通过，不与原验收集重复累计。
 - 本地 `test_sample_evaluations.py`、`test_active_learning.py`、`test_domain_package_architecture.py` 与精确 OpenAPI contract 共 202 passed、75 skipped；冷进程导入两领域服务未加载 API/worker。Ruff 0.15.22 对变更 Python 文件的 check 与 format --check 通过；开放 API schema 未变。
 
+- 本切片迁移评估/主动学习 Run、Sample、Attempt、Candidate 命令 DML；通用 execution-ID 绑定所有权单独收拢。这里观测实际派发，但没有执行排队任务，不把种子训练状态或 profile 协议夹具当作真实模型、推理或 GPU 资格。
+
+### 训练控制命令所有权
+
+- `services/training_runs` 现在持有运行 admission、排队取消和执行器 recovery；`services/training_studies` 持有 Study/Trial 创建与取消；`services/learning_policies` 持有策略保存、禁用、删除及显式检查/触发编排。跨所有者的续训与运行删除由 `application/training_control.py` 组合。HTTP 保留授权依赖、调用方 commit 和响应顺序；准入返回是否新建，成功重放不新增原入口没有执行的提交。
+- 保留请求/预检摘要、来源和 API-key 授权快照、项目与管理者锁、Study 预算 reservation、终态/取消优先级、GPU lease 与执行器 attempt/boot fence、恢复回执和删除引用保护；不改变训练协议、状态机、重试或策略语义。无 API/worker 反向导入。
+- 策略触发候选版本、任务数据集成员和异步作业的同事务 staging 由 `training_datasets.create_policy_candidate_version` 持有；所有策略验证完成后的自动触发 run/首个 attempt 持久化由 `training_runs.create_policy_triggered_run` 持有。`learning_policies` 保留策略和 trigger 状态机/ledger；委托不加 commit、不改响应或 dispatch 顺序。
+- 早期 focused `test_training_runs.py` + `test_learning_policies.py` 41 项通过，`test_training_studies.py` 首轮通过；新增 policy candidate/run owner 命令后复跑 `test_learning_policies.py` + `test_domain_package_architecture.py` 至 100% 且无失败（保留显式 skip）。冷进程导入三项 learning service 与 application 后没有载入 API/worker；新增 3 个 owner 模块的 Ruff check/format check 通过。`pnpm openapi:check` 在 API 路径改造后精确匹配，未变更公开合同。
+- 隔离开发库 `aap_wt_444f0eca0344e257_dev` 的真实 Uvicorn TCP + JWT / 默认 `get_db`：预检 200、准入和相同 request-id 重放均 202 且只有同一条持久 run（独立 PG session 观测 queued），排队取消 200 且 run/attempt 均为 cancelled。配置变化后的旧预检摘要为 409、独立 observer 行数为 0；临时 deferred constraint trigger 注入提交失败为 500、独立 observer 行数为 0，trigger/function 已清理。该受控 fixture 未启动 worker、真实训练或 GPU。
+- 同一开发库补充真实 Uvicorn TCP/JWT / 默认 `get_db` 与独立 PG observer：受控 executor claim 进入 preparing→heartbeat 后 training→cancel 后 cancelling 且保留 lease；旧 boot recovery 为 409 且状态不变，有效 recovery 为 200、run/attempt cancelled、`execution_lost` receipt 和 lease 释放，旧 heartbeat 为 409。另一个失败 attempt 使用 owned MinIO 中的受控占位字节/摘要验证 resume 202、第二 attempt queued 且 `resume_from_id` 指向旧 attempt、旧 heartbeat 409；不代表真实训练 checkpoint 或 GPU。Study preview/create/同 request 重放为 200/202/202 且同 ID，独立 observer 见 2 Trials、首个 10 秒 reservation，cancel 后 Study/queued child 为 cancelled。自动策略真实源图片 `/check` 为 200，独立 observer 见 building trigger、pending version/job 和 1 个 task-dataset membership；受控无 worker dispatcher 记录 dispatch，关闭策略取消候选 version/job，disable 历史状态及 delete trigger/policy 为 200/204。原始观察 `/tmp/aap-training-control-evidence/remaining-controls.json`；全程无 worker、真实训练或 GPU。
+- 主线用默认 `get_db`、真实 ASGI/JWT 与提交后的新 PG 事务补验运行和 Study 新建/重放：身份保持一致，分别只有一个运行/首个 attempt，以及一个 Study/两个 Trial。现场执行历史函数发现隔离检查点把成功重放带入了提交；准入命令现返回新建标记，HTTP 恢复原有检查点，而不是无条件提交。真实 Session 提交事件对照如下：
+
+| 成功重放路径 | 原入口直接函数 | 隔离检查点直接函数 | 主线默认 DB / ASGI |
+| ------------ | -------------: | -----------------: | -----------------: |
+| 运行         |              0 |                  1 |                  0 |
+| Study        |         未采样 |                  1 |                  0 |
+
+- 主线补齐受控就绪候选的实际 `/check` → 自动运行/首个 attempt/`training_run` 作业提交 → 新 PG observer → executor claim：两次检查只产生同一运行，领取进入 preparing 且资源 lease 指向该 attempt；随后真实 cancel/finish 请求使运行 cancelled 并释放 lease。拥有的 MinIO ZIP 已完整回读校验 SHA，并解码其中 train/val 两张 16×12 PNG；目录、就绪状态和 manifest 仍是明确的控制面元数据夹具，不是数据构建器、模型或训练/GPU 资格。首个探针误把既有 claim 的 `assignment` envelope 当成扁平响应；只修正探针并从已提交状态继续，没有重复已验路径或改生产响应。原始观察与主线 admission 预算保留于 `.worktree/training-control-main-smoke.json`。
+
+- 主线 admission 直接路由函数与隔离 policy-check 实际 ASGI 请求分别记录预热后的交错预算：
+
+| 路径         | 采样指标                    | 历史实现 | 当前实现 |
+| ------------ | --------------------------- | -------: | -------: |
+| admission    | SQL 语句数（每次）          |       10 |       10 |
+| admission    | Python 堆峰值中位数（字节） |  384,805 |  385,021 |
+| policy-check | SQL 语句数（每次）          |       39 |       39 |
+| policy-check | 源对象 HEAD 次数（每次）    |        2 |        2 |
+| policy-check | Python 堆峰值中位数（字节） |  487,667 |  486,586 |
+
+- admission 范围为预载身份后的直接路由命令与 rollback-only 外事务中的调用方提交，不含网络、JWT 依赖、预检和响应序列化，也不是独立连接或并发锁证明；policy-check 包含实际 ASGI/JWT、commit 与受控 dispatch transport，排除夹具、策略保存、observer、worker、训练与 GPU。两侧预热不入中位数，均采样三次；它们不是同一范围的两个端到端性能指标，也不代表优化。原始样本分别为 `.worktree/training-control-main-smoke.json` 的 `final_admission_budget` 与 `/tmp/aap-training-control-evidence/policy-check-budget.json`。
+- 主线仅补验六个受影响行为：运行/Study 幂等准入、有效目录镜像变化后的旧预检拒绝、排队取消、Study 预算再保留与禁用策略的显式续训，均通过。初次从仓库根目录调用 pytest 未找到相对 `alembic.ini`，六项都停在 setup；改用 `uv --directory apps/api` 后完成，不与隔离验收重复累计。删除在假 commit 内主动 rollback 的循环论证用例；提交失败原子性仍以真实 deferred constraint / 新 PG 事务证据为准。Ruff 0.15.22 对十个变更 Python 文件通过，精确 OpenAPI 检查通过；两个临时主线探针已移除，原始观察保留。
+- 正式开发说明更新在 `docs-site/dev/concepts/backend-layers.md`。纯边界迁移未改 schema、公开 API/OpenAPI、依赖、配置或版本，不增加 CHANGELOG；仍未做语言替换。
+
 ### 剩余范围
 
-- 剩余写入切片为训练控制与自动策略候选、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
-- 本切片迁移评估/主动学习 Run、Sample、Attempt、Candidate 命令 DML；通用 execution-ID 绑定所有权单独收拢。这里观测实际派发，但没有执行排队任务，不把种子训练状态或 profile 协议夹具当作真实模型、推理或 GPU 资格。
+- 剩余写入切片为媒体重试/金字塔任务投影、标注幂等收据、邀请接受的成员写入、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

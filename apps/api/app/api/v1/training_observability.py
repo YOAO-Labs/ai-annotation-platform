@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.training_runs import executor_auth, load_run
+from app.api.v1.training_runs import executor_auth
 from app.db.models.project import Project
 from app.db.models.training_run import TrainingAttempt
 from app.deps import get_db, require_project_owner, require_scopes
@@ -17,6 +17,7 @@ from app.schemas.training_observability import (
     TrainingRecovery,
 )
 from app.services import training_observability as service
+from app.services import training_runs as run_service
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-runs",
@@ -28,7 +29,7 @@ executor_router = APIRouter(
 
 
 async def load_attempt(db, project_id, run_id, attempt_id):
-    run = await load_run(db, project_id, run_id)
+    run = await run_service.load_run(db, project_id, run_id)
     attempt = await db.get(TrainingAttempt, attempt_id)
     if attempt is None or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="执行尝试不存在")
@@ -72,7 +73,7 @@ async def recovery(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):
-    run = await load_run(db, project.id, run_id)
+    run = await run_service.load_run(db, project.id, run_id)
     return await service.recovery(db, run)
 
 

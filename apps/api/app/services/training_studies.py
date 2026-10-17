@@ -17,13 +17,17 @@ from training_contract.budget import (
 from app.db.models.project import Project
 from app.db.models.training_run import TrainingAttempt, TrainingEvent, TrainingRun
 from app.db.models.training_study import TrainingStudy, TrainingTrial
+from app.db.models.user import User
+from app.schemas.training_study import TrainingStudyCreate
 from app.services import (
     training_adapters as adapters,
     training_claims as claims,
     training_evaluations,
+    training_initialization,
     training_recipes,
     training_runs as runs,
 )
+from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_bridge import content_digest
 
 log = logging.getLogger(__name__)
@@ -140,6 +144,72 @@ async def freeze_plan(db, project_id, body):
     return plan, content_digest(plan)
 
 
+async def create(
+    db,
+    project: Project,
+    user: User,
+    body: TrainingStudyCreate,
+    *,
+    api_key_id=None,
+):
+    """Return the study and whether this admission created state to commit."""
+    await claims.project_lock(db, project.id)
+    await lock_project_manager(db, user, project.id)
+    request_digest = content_digest(body.request_payload())
+    existing = await db.scalar(
+        select(TrainingStudy).where(
+            TrainingStudy.project_id == project.id,
+            TrainingStudy.request_id == body.base.request_id,
+        )
+    )
+    if existing:
+        if existing.request_digest != request_digest:
+            raise HTTPException(
+                status_code=409, detail="同一请求标识不能启动不同参数搜索"
+            )
+        return existing, False
+    if project.status != "in_progress":
+        raise HTTPException(status_code=409, detail="项目停用时不能启动参数搜索")
+    plan, digest = await freeze_plan(db, project.id, body)
+    if body.preview_digest != digest:
+        raise HTTPException(
+            status_code=409, detail="搜索计划已变化或尚未预览，请重新核对全部组合和预算"
+        )
+    first = plan["trials"][0]["config"]
+    study = TrainingStudy(
+        id=uuid.UUID(plan["study_id"]),
+        project_id=project.id,
+        creator_id=user.id,
+        dataset_id=body.base.dataset_id,
+        initialization_model_id=training_initialization.model_id(
+            first.get("initialization")
+        ),
+        request_id=body.base.request_id,
+        request_digest=request_digest,
+        plan_digest=digest,
+        name=body.base.name,
+        plan=plan,
+        origin=plan["origin"],
+        authorization={"api_key_id": api_key_id},
+    )
+    db.add(study)
+    await db.flush()
+    for trial in plan["trials"]:
+        db.add(
+            TrainingTrial(
+                id=uuid.UUID(trial["id"]),
+                study_id=study.id,
+                ordinal=trial["ordinal"],
+                config=trial["config"],
+                config_digest=trial["config_digest"],
+                values=trial["values"],
+            )
+        )
+    await db.flush()
+    await coordinate(db, study.id)
+    return study, True
+
+
 async def load(db, project_id, study_id, *, lock=False):
     query = select(TrainingStudy).where(
         TrainingStudy.id == study_id, TrainingStudy.project_id == project_id
@@ -232,6 +302,19 @@ async def stop_child(db, run):
     elif run.status in runs.ACTIVE:
         attempt = await db.get(TrainingAttempt, run.current_attempt_id)
         run.status = attempt.status = "cancelling"
+
+
+async def cancel(db, project_id, study_id, user: User):
+    await claims.project_lock(db, project_id)
+    await lock_project_manager(db, user, project_id)
+    study = await load(db, project_id, study_id, lock=True)
+    study.scheduling = False
+    study.status = "cancelling"
+    study.message = "已停止后续试验；活动进程按普通训练取消协议退出"
+    for run in await children(db, study.id, lock=True):
+        await stop_child(db, run)
+    await coordinate(db, study.id)
+    return study
 
 
 async def coordinate(db, study_id):
@@ -518,3 +601,9 @@ async def tick(session_factory):
             except Exception:
                 await db.rollback()
                 log.exception("Training Study coordination failed: %s", identity)
+
+
+def stage_manual_resume(study: TrainingStudy) -> None:
+    if study.status == "completed":
+        study.scheduling = True
+    study.status, study.completed_at = "active", None

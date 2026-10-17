@@ -27,9 +27,11 @@ from app.db.models.training_run import (
     TrainingResourceLease,
     TrainingRun,
 )
-from app.schemas.training_run import ExecutorFence, TrainingRunCreate
+from app.schemas.training_run import ExecutorFence, ExecutorRecovery, TrainingRunCreate
+from app.db.models.user import User
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
+from app.services.project_write_guard import lock_project_manager
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
@@ -41,6 +43,7 @@ from app.services import training_adapters as adapters
 from app.services import training_artifacts as artifact_service
 from app.services import training_claims as claims
 from app.services import training_initialization as initialization
+from app.services import training_recipes as recipes
 
 ACTIVE = {
     "queued",
@@ -57,6 +60,20 @@ SCOPES = frozenset({"datasets:read", "datasets:write", "annotations:read"})
 
 def now():
     return datetime.now(timezone.utc)
+
+
+async def load_run(db, project_id, run_id, *, lock=False):
+    statement = select(TrainingRun).where(
+        TrainingRun.id == run_id, TrainingRun.project_id == project_id
+    )
+    if lock:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
+    run = await db.scalar(statement)
+    if run is None:
+        raise HTTPException(status_code=404, detail="训练实验不存在")
+    return run
 
 
 def runtime_compatible(config, runtime):
@@ -246,6 +263,53 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
     return config
 
 
+async def admit(
+    db,
+    project_id,
+    user: User,
+    body: TrainingRunCreate,
+    *,
+    api_key_id=None,
+):
+    """Return the run and whether this admission created state to commit."""
+    await claims.project_lock(db, project_id)
+    await lock_project_manager(db, user, project_id)
+    request_digest = content_digest(body.request_payload())
+    existing = await db.scalar(
+        select(TrainingRun).where(
+            TrainingRun.project_id == project_id,
+            TrainingRun.request_id == body.request_id,
+        )
+    )
+    if existing:
+        if existing.request_digest != request_digest:
+            raise HTTPException(status_code=409, detail="同一请求标识不能用于不同实验")
+        return existing, False
+    config = await frozen_config(db, project_id, body)
+    origin = await recipes.origin_snapshot(db, project_id, body.origin, config)
+    if body.preflight_digest != content_digest(config):
+        raise HTTPException(
+            status_code=409, detail="训练配置已变化或尚未检查，请重新预检"
+        )
+    run = TrainingRun(
+        project_id=project_id,
+        creator_id=user.id,
+        dataset_id=body.dataset_id,
+        initialization_model_id=initialization.model_id(config.get("initialization")),
+        request_id=body.request_id,
+        request_digest=request_digest,
+        name=body.name,
+        config=config,
+        config_digest=content_digest(config),
+        origin=origin,
+        authorization={"api_key_id": api_key_id},
+    )
+    db.add(run)
+    await db.flush()
+    await new_attempt(db, run)
+    return run, True
+
+
 async def new_attempt(db, run, *, resume_from=None):
     ordinal = (
         await db.scalar(
@@ -278,6 +342,50 @@ async def new_attempt(db, run, *, resume_from=None):
     run.error_message = None
     run.completed_at = None
     return attempt
+
+
+def mark_study_manual_resume(run: TrainingRun) -> None:
+    run.authorization = {**run.authorization, "study_manual_resume": True}
+
+
+def mark_policy_manual_resume(run: TrainingRun) -> None:
+    run.authorization = {**run.authorization, "manual_resume": True}
+
+
+async def create_policy_triggered_run(
+    db,
+    *,
+    project_id,
+    creator_id,
+    dataset_id,
+    initialization_model_id,
+    trigger_id,
+    request_id,
+    request_digest,
+    name,
+    config,
+    origin,
+    authorization,
+) -> TrainingRun:
+    """Persist a policy-validated run and its first attempt without HTTP admission."""
+    run = TrainingRun(
+        project_id=project_id,
+        creator_id=creator_id,
+        dataset_id=dataset_id,
+        initialization_model_id=initialization_model_id,
+        auto_trigger_id=trigger_id,
+        request_id=request_id,
+        request_digest=request_digest,
+        name=name,
+        config=config,
+        config_digest=content_digest(config),
+        origin=origin,
+        authorization=authorization,
+    )
+    db.add(run)
+    await db.flush()
+    await new_attempt(db, run)
+    return run
 
 
 async def lock_resource(db, identity=None):
@@ -325,6 +433,19 @@ async def mark_terminal(db, run, attempt, status, error=None):
     else:
         await jobs.mark_failed(db, run.async_job_id, error=error or "训练失败")
     await notify_job_terminal(db, job_id=run.async_job_id)
+
+
+async def cancel(db, project_id, run_id, user: User):
+    await lock_project_manager(db, user, project_id)
+    run = await load_run(db, project_id, run_id, lock=True)
+    attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+    if run.status in TERMINAL:
+        raise HTTPException(status_code=409, detail="训练实验已结束")
+    if run.status == "queued":
+        await mark_terminal(db, run, attempt, "cancelled")
+    else:
+        run.status = attempt.status = "cancelling"
+    return run
 
 
 async def observe_lost(db, lease):
@@ -408,6 +529,31 @@ async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
             },
         )
     return lease, run, attempt
+
+
+async def recover(db, attempt_id, body: ExecutorRecovery) -> None:
+    if body.new_boot_id == body.boot_id:
+        raise HTTPException(status_code=422, detail="恢复需要新的执行器启动身份")
+    lease, run, attempt = await fenced(db, attempt_id, body, allow_terminal=True)
+    if attempt.status not in TERMINAL:
+        if lease.attempt_id != attempt.id:
+            raise HTTPException(status_code=409, detail="GPU 租约已变化")
+        await mark_terminal(
+            db,
+            run,
+            attempt,
+            "cancelled" if run.status == "cancelling" else "failed",
+            "执行器重启，已通过独占资源锁确认旧进程退出",
+        )
+        attempt.failure = failure_receipt(
+            "execution_lost",
+            "execution",
+            run.config_digest,
+            "执行器重启，已通过独占资源锁确认旧进程退出",
+            source="platform",
+        )
+        attempt.runtime = {**attempt.runtime, "recovery_boot_id": str(body.new_boot_id)}
+        lease.attempt_id = None
 
 
 def internal_download(key):

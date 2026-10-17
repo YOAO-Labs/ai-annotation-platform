@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from sqlalchemy import or_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -36,13 +36,13 @@ from app.schemas.training_hub import TrainingParameterSchema
 from app.schemas.training_initialization import TrainingInitializationEligibility
 from training_contract import definition
 from training_contract.model_return import registration_eligibility
+from app.application import training_control
 from app.services.project_write_guard import lock_project_manager
 from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
 from app.services import training_initialization as initialization
 from app.services import training_adapters as adapters
-from app.services import training_claims as claims
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 
@@ -65,20 +65,6 @@ async def executor_auth(x_training_executor_token: str = Header(default="")):
 executor_router = APIRouter(
     prefix="/internal/training", dependencies=[Depends(executor_auth)]
 )
-
-
-async def load_run(db, project_id, run_id, *, lock=False):
-    statement = select(TrainingRun).where(
-        TrainingRun.id == run_id, TrainingRun.project_id == project_id
-    )
-    if lock:
-        statement = statement.with_for_update().execution_options(
-            populate_existing=True
-        )
-    run = await db.scalar(statement)
-    if run is None:
-        raise HTTPException(status_code=404, detail="训练实验不存在")
-    return run
 
 
 @router.get("/catalog")
@@ -168,42 +154,15 @@ async def create_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
-    request_digest = content_digest(body.request_payload())
-    existing = await db.scalar(
-        select(TrainingRun).where(
-            TrainingRun.project_id == project.id,
-            TrainingRun.request_id == body.request_id,
-        )
+    run, created = await service.admit(
+        db,
+        project.id,
+        user,
+        body,
+        api_key_id=getattr(request.state, "api_key_id", None),
     )
-    if existing:
-        if existing.request_digest != request_digest:
-            raise HTTPException(status_code=409, detail="同一请求标识不能用于不同实验")
-        return existing
-    config = await service.frozen_config(db, project.id, body)
-    origin = await recipes.origin_snapshot(db, project.id, body.origin, config)
-    if body.preflight_digest != content_digest(config):
-        raise HTTPException(
-            status_code=409, detail="训练配置已变化或尚未检查，请重新预检"
-        )
-    run = TrainingRun(
-        project_id=project.id,
-        creator_id=user.id,
-        dataset_id=body.dataset_id,
-        initialization_model_id=initialization.model_id(config.get("initialization")),
-        request_id=body.request_id,
-        request_digest=request_digest,
-        name=body.name,
-        config=config,
-        config_digest=content_digest(config),
-        origin=origin,
-        authorization={"api_key_id": getattr(request.state, "api_key_id", None)},
-    )
-    db.add(run)
-    await db.flush()
-    await service.new_attempt(db, run)
-    await db.commit()
+    if created:
+        await db.commit()
     return run
 
 
@@ -247,7 +206,7 @@ async def get_run(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    run = await load_run(db, project.id, run_id)
+    run = await service.load_run(db, project.id, run_id)
     attempts = (
         await db.scalars(
             select(TrainingAttempt)
@@ -274,7 +233,7 @@ async def get_events(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    run = await load_run(db, project.id, run_id)
+    run = await service.load_run(db, project.id, run_id)
     attempt = await db.get(TrainingAttempt, attempt_id or run.current_attempt_id)
     if attempt is None or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="执行尝试不存在")
@@ -334,15 +293,7 @@ async def cancel_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await lock_project_manager(db, user, project.id)
-    run = await load_run(db, project.id, run_id, lock=True)
-    attempt = await db.get(TrainingAttempt, run.current_attempt_id)
-    if run.status in service.TERMINAL:
-        raise HTTPException(status_code=409, detail="训练实验已结束")
-    if run.status == "queued":
-        await service.mark_terminal(db, run, attempt, "cancelled")
-    else:
-        run.status = attempt.status = "cancelling"
+    run = await service.cancel(db, project.id, run_id, user)
     await db.commit()
     return run
 
@@ -359,89 +310,7 @@ async def resume_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    preliminary = await load_run(db, project.id, run_id)
-    eligibility = await observations.recovery(db, preliminary)
-    if not eligibility["eligible"]:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "resume_unavailable",
-                "reasons": eligibility["reasons"],
-                "message": "当前执行尝试未满足恢复条件，请检查已停止状态、checkpoint 与运行环境",
-            },
-        )
-    if preliminary.auto_trigger_id:
-        from app.services import learning_policies
-
-        await claims.project_lock(db, project.id)
-        from app.db.models.learning_policy import LearningTrigger
-
-        if await learning_policies.active_run(
-            db, project.id, excluding=run_id
-        ) or await db.scalar(
-            select(LearningTrigger.id)
-            .where(
-                LearningTrigger.project_id == project.id,
-                LearningTrigger.status.in_(learning_policies.ACTIVE_TRIGGERS),
-                LearningTrigger.id != preliminary.auto_trigger_id,
-            )
-            .limit(1)
-        ):
-            raise HTTPException(
-                status_code=409, detail="项目已有其他自动候选或实验，请先结束它"
-            )
-    study = None
-    if preliminary.study_id:
-        from app.services import training_studies
-
-        await claims.project_lock(db, project.id)
-        study = await training_studies.load(
-            db, project.id, preliminary.study_id, lock=True
-        )
-    lease = await service.lock_resource(db, preliminary.config["resource_id"])
-    await lock_project_manager(db, user, project.id)
-    run = await load_run(db, project.id, run_id, lock=True)
-    if (
-        run.status not in {"failed", "cancelled"}
-        or lease.attempt_id == run.current_attempt_id
-    ):
-        raise HTTPException(status_code=409, detail="旧训练必须确认停止后才可恢复")
-    await service.authority(db, run)
-    eligibility = await observations.recovery(db, run, check_storage=False, lease=lease)
-    if not eligibility["eligible"]:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "resume_unavailable",
-                "reasons": eligibility["reasons"],
-                "message": "恢复条件已变化，请刷新后重试",
-            },
-        )
-    parent = await db.get(TrainingAttempt, run.current_attempt_id)
-    checkpoint = next(
-        (item for item in parent.artifacts.values() if item["role"] == "checkpoint"),
-        None,
-    )
-    if (
-        not checkpoint
-        or not checkpoint.get("epoch")
-        or checkpoint["epoch"] >= run.config["parameters"]["epochs"]
-    ):
-        raise HTTPException(
-            status_code=409, detail="没有可恢复的未完成 checkpoint，请创建新实验"
-        )
-    allowance = await training_studies.admit_resume(db, study, run) if study else None
-    attempt = await service.new_attempt(db, run, resume_from=parent.id)
-    if study:
-        training_studies.reserve(attempt, run, allowance)
-        run.authorization = {**run.authorization, "study_manual_resume": True}
-        if study.status == "completed":
-            study.scheduling = True
-        study.status, study.completed_at = "active", None
-    if run.auto_trigger_id:
-        run.authorization = {**run.authorization, "manual_resume": True}
-        trigger = await db.get(LearningTrigger, run.auto_trigger_id)
-        trigger.status, trigger.completed_at = "queued", None
+    run = await training_control.resume_run(db, project.id, run_id, user)
     await db.commit()
     return run
 
@@ -514,46 +383,7 @@ async def delete_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    preliminary = await load_run(db, project.id, run_id)
-    if preliminary.auto_trigger_id:
-        await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
-    run = await load_run(db, project.id, run_id, lock=True)
-    if run.status not in service.TERMINAL:
-        raise HTTPException(status_code=409, detail="训练尚未结束，不能删除")
-    if run.study_id:
-        raise HTTPException(
-            status_code=409,
-            detail="实验属于保留的参数搜索，不能单独删除其计划与预算证据",
-        )
-    if run.auto_trigger_id:
-        from app.db.models.learning_policy import LearningTrigger
-
-        trigger = await db.get(LearningTrigger, run.auto_trigger_id)
-        if trigger.status in {"building", "queued", "running"}:
-            raise HTTPException(
-                status_code=409, detail="请先检查自动策略以同步实验终态，再删除实验"
-            )
-    from app.db.models.trained_model import TrainedModelVersion
-
-    if await db.scalar(
-        select(TrainedModelVersion.id)
-        .where(
-            or_(
-                TrainedModelVersion.run_id == run.id,
-                TrainedModelVersion.attempt_id.in_(
-                    select(TrainingAttempt.id).where(TrainingAttempt.run_id == run.id)
-                ),
-            )
-        )
-        .limit(1)
-    ):
-        raise HTTPException(
-            status_code=409, detail="训练产物已被模型版本引用，不能删除"
-        )
-    from app.services import training_storage_cleanup as cleanup
-
-    await cleanup.delete_record(db, run, f"projects/{project.id}/runs/{run.id}/")
+    await training_control.delete_run(db, project.id, run_id, user)
 
 
 @executor_router.post("/claim")
@@ -596,31 +426,6 @@ async def finish(
 async def recover(
     attempt_id: uuid.UUID, body: ExecutorRecovery, db: AsyncSession = Depends(get_db)
 ) -> dict:
-    if body.new_boot_id == body.boot_id:
-        raise HTTPException(status_code=422, detail="恢复需要新的执行器启动身份")
-    lease, run, attempt = await service.fenced(
-        db, attempt_id, body, allow_terminal=True
-    )
-    if attempt.status not in service.TERMINAL:
-        if lease.attempt_id != attempt.id:
-            raise HTTPException(status_code=409, detail="GPU 租约已变化")
-        await service.mark_terminal(
-            db,
-            run,
-            attempt,
-            "cancelled" if run.status == "cancelling" else "failed",
-            "执行器重启，已通过独占资源锁确认旧进程退出",
-        )
-        from training_contract.observability import failure_receipt
-
-        attempt.failure = failure_receipt(
-            "execution_lost",
-            "execution",
-            run.config_digest,
-            "执行器重启，已通过独占资源锁确认旧进程退出",
-            source="platform",
-        )
-        attempt.runtime = {**attempt.runtime, "recovery_boot_id": str(body.new_boot_id)}
-        lease.attempt_id = None
+    await service.recover(db, attempt_id, body)
     await db.commit()
     return {"recovered": True}

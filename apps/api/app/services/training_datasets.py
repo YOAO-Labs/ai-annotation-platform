@@ -19,6 +19,7 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
 from app.schemas.training_dataset import TrainingDatasetCreate, TrainingDatasetSelection
 from app.services import async_job as jobs
+from app.services import project_task_dataset as task_datasets
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.project_access import resolve_project_access
@@ -38,7 +39,6 @@ from training_contract.dataset import (
     DETECTION_CONTRACT,
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
-from app.services import project_task_dataset as task_datasets
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.labeling_assets import read_project_task_source_facts
 from app.services.dataset_task_facts import thaw_source_json
@@ -436,6 +436,37 @@ async def enqueue_dataset(db: AsyncSession, version: TrainingDatasetVersion) -> 
     version.error_code = version.error_message = None
     version.completed_at = None
     await db.flush()
+
+
+async def create_policy_candidate_version(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    creator_id: uuid.UUID,
+    parent_id: uuid.UUID,
+    request_digest: str,
+    name: str,
+    snapshot: dict,
+    snapshot_digest: str,
+    preparation_report: dict,
+) -> TrainingDatasetVersion:
+    """Stage one policy candidate and its durable dataset work in this transaction."""
+    version = TrainingDatasetVersion(
+        project_id=project_id,
+        creator_id=creator_id,
+        parent_id=parent_id,
+        request_id=uuid.uuid4(),
+        request_digest=request_digest,
+        name=name,
+        snapshot=snapshot,
+        snapshot_digest=snapshot_digest,
+        preparation_report=preparation_report,
+    )
+    db.add(version)
+    await db.flush()
+    await task_datasets.ensure_membership(db, version, project_locked=True)
+    await enqueue_dataset(db, version)
+    return version
 
 
 async def dispatch_dataset(

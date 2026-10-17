@@ -7,14 +7,17 @@ import uuid
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import delete as sql_delete, or_, select
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
+from app.db.models.user import User
+from app.schemas.learning_policy import LearningPolicySave
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.schemas.training_run import TrainingRunCreate
 from app.services import training_datasets as datasets, training_runs as runs
+from app.services import training_adapters as adapters
 from app.services import training_claims as claims
 from app.services import async_job as jobs
 from app.services.training_dataset_bridge import (
@@ -25,6 +28,8 @@ from app.services.training_dataset_bridge import (
 )
 from app.services import training_initialization as initialization
 from app.services import project_task_dataset as task_datasets
+from app.services import training_recipes as recipes
+from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_insight_adapters import adapter_for
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
@@ -43,6 +48,126 @@ async def assert_no_project_policies(db, project_id: uuid.UUID) -> None:
             status_code=409,
             detail="项目包含自动训练策略，请先关闭并移除策略及其依赖",
         )
+
+
+async def save(
+    db,
+    project: Project,
+    user: User,
+    body: LearningPolicySave,
+    *,
+    api_key_id=None,
+):
+    await claims.project_lock(db, project.id)
+    await lock_project_manager(db, user, project.id)
+    policy = await db.scalar(
+        select(LearningPolicy)
+        .where(LearningPolicy.project_id == project.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (policy.revision if policy else 0) != body.expected_revision:
+        raise HTTPException(status_code=409, detail="策略已被其他操作修改，请刷新")
+    if policy and policy.config.get("configuration") and body.configuration is None:
+        raise HTTPException(
+            status_code=409,
+            detail="当前策略使用完整训练配置，请保留 configuration，不能静默降为六参数配置",
+        )
+    if policy and policy.config.get("initialization") and body.initialization is None:
+        raise HTTPException(
+            status_code=409,
+            detail="当前策略固定了项目初始化权重；请保留来源或明确选择目录初始化",
+        )
+    parent = await db.get(TrainingDatasetVersion, body.parent_id)
+    if not parent or parent.project_id != project.id or parent.status != "ready":
+        raise HTTPException(
+            status_code=422, detail="请选择当前项目已就绪的数据作为初始划分"
+        )
+    try:
+        parent_task = adapter_for(parent.manifest).task
+    except TrainingDatasetError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if parent_task != "detect":
+        raise HTTPException(status_code=422, detail="自动学习策略仅接受检测父数据版本")
+    pin = await initialization.resolve(
+        db,
+        project.id,
+        body.initialization,
+        body.framework,
+        body.base_model,
+        parent.manifest.get("classes"),
+    )
+    template = claims.fixed_policy_template(body.framework, body.base_model)
+    configuration = (
+        adapters.resolve_configuration(
+            body.framework, body.base_model, body.configuration.model_dump()
+        )
+        if body.configuration is not None
+        else None
+    )
+    origin = await recipes.origin_snapshot(
+        db,
+        project.id,
+        body.origin,
+        {
+            **template,
+            "configuration": configuration,
+            **({"initialization": pin} if pin else {}),
+        },
+        retain=policy.config.get("origin") if policy else None,
+        strict=True,
+    )
+    if body.enabled and project.status != "in_progress":
+        raise HTTPException(status_code=409, detail="仅进行中的项目可启用自动训练")
+    selection = TrainingDatasetSelection(
+        parent_id=body.parent_id, batch_id=body.batch_id
+    )
+    if body.batch_id:
+        from app.db.models.task_batch import TaskBatch
+
+        batch = await db.get(TaskBatch, body.batch_id)
+        if not batch or batch.project_id != project.id:
+            raise HTTPException(status_code=404, detail="批次不属于当前项目")
+    if policy is None:
+        policy = LearningPolicy(project_id=project.id, revision=0, config={})
+        db.add(policy)
+        await db.flush()
+    await cancel_unstarted(db, policy)
+    policy.revision += 1
+    policy.enabled, policy.creator_id = body.enabled, user.id
+    policy.authorization = {"api_key_id": api_key_id}
+    policy.initialization_model_id = initialization.model_id(pin)
+    policy.config = {
+        "parent_id": str(selection.parent_id),
+        "batch_id": str(selection.batch_id) if selection.batch_id else None,
+        "template": template,
+        "parameters": body.parameters.model_dump(),
+        "min_changed_samples": body.min_changed_samples,
+        "check_interval_minutes": body.check_interval_minutes,
+        "cooldown_minutes": body.cooldown_minutes,
+    }
+    if configuration is not None:
+        from training_contract.validation import CANONICAL
+
+        policy.config = {
+            **policy.config,
+            "configuration": configuration,
+            "parameters": {
+                key: configuration["effective_values"][key] for key in CANONICAL
+            },
+        }
+    if origin is not None:
+        policy.config = {**policy.config, "origin": origin}
+    if pin is not None:
+        policy.config = {**policy.config, "initialization": pin}
+    policy.blocked_train_digest = policy.last_snapshot_digest = None
+    policy.next_check_at = runs.now()
+    policy.state, policy.message = (
+        ("waiting", "策略已启用，等待检查")
+        if body.enabled
+        else ("disabled", "自动训练已关闭，历史记录保留")
+    )
+    return policy
 
 
 async def eligible(db, policy):
@@ -113,6 +238,64 @@ async def cancel_unstarted(db, policy):
         await jobs.mark_cancelled(db, dataset.async_job_id)
     trigger.status, trigger.completed_at = "cancelled", runs.now()
     trigger.message = "策略关闭或已变化，未启动的自动实验已取消"
+
+
+async def disable(db, project_id, user: User, expected_revision: int):
+    await claims.project_lock(db, project_id)
+    await lock_project_manager(db, user, project_id)
+    policy = await db.scalar(
+        select(LearningPolicy)
+        .where(LearningPolicy.project_id == project_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not policy or policy.revision != expected_revision:
+        raise HTTPException(status_code=409, detail="策略已变化，请刷新")
+    policy.enabled = False
+    policy.revision += 1
+    policy.state, policy.message = (
+        "disabled",
+        "自动训练已关闭；已经启动的实验可以继续或显式取消",
+    )
+    await cancel_unstarted(db, policy)
+    return policy
+
+
+async def delete(db, project_id, user: User) -> bool:
+    await claims.project_lock(db, project_id)
+    await lock_project_manager(db, user, project_id)
+    policy = await db.scalar(
+        select(LearningPolicy)
+        .where(LearningPolicy.project_id == project_id)
+        .with_for_update()
+    )
+    if not policy:
+        return False
+    if (
+        policy.enabled
+        or await db.scalar(
+            select(LearningTrigger.id)
+            .where(
+                LearningTrigger.policy_id == policy.id,
+                LearningTrigger.status.in_(ACTIVE_TRIGGERS),
+            )
+            .limit(1)
+        )
+        or await db.scalar(
+            select(TrainingRun.id)
+            .join(LearningTrigger, LearningTrigger.id == TrainingRun.auto_trigger_id)
+            .where(LearningTrigger.policy_id == policy.id)
+            .limit(1)
+        )
+    ):
+        raise HTTPException(
+            status_code=409, detail="请先关闭策略并移除被触发记录引用的实验"
+        )
+    await db.execute(
+        sql_delete(LearningTrigger).where(LearningTrigger.policy_id == policy.id)
+    )
+    await db.delete(policy)
+    return True
 
 
 def growth(partitions, baseline):
@@ -269,23 +452,20 @@ async def reconcile(db, policy, trigger):
         raise HTTPException(status_code=409, detail="自动训练初始化来源已变化")
     if any(config[key] != template[key] for key in template):
         raise HTTPException(status_code=409, detail="自动训练模板已变化")
-    run = TrainingRun(
+    await runs.create_policy_triggered_run(
+        db,
         project_id=policy.project_id,
         creator_id=policy.creator_id,
         dataset_id=dataset.id,
         initialization_model_id=initialization.model_id(config.get("initialization")),
-        auto_trigger_id=trigger.id,
+        trigger_id=trigger.id,
         request_id=trigger.id,
         request_digest=content_digest(body.request_payload()),
         name=body.name,
         config=config,
-        config_digest=content_digest(config),
         origin=policy.config.get("origin"),
         authorization=policy.authorization,
     )
-    db.add(run)
-    await db.flush()
-    await runs.new_attempt(db, run)
     trigger.status, policy.state = "queued", "active"
     policy.last_started_at, policy.message = (
         runs.now(),
@@ -401,21 +581,17 @@ async def check_policy(db, policy_id, *, force=False):
             "数据快照未变化，等待新增或修正的训练样本",
         )
         return
-    version = TrainingDatasetVersion(
+    version = await datasets.create_policy_candidate_version(
+        db,
         project_id=policy.project_id,
         creator_id=policy.creator_id,
         parent_id=selection.parent_id,
-        request_id=uuid.uuid4(),
         request_digest=digest,
         name=f"自动候选 · 策略 {policy.revision}",
         snapshot=snapshot,
         snapshot_digest=digest,
         preparation_report=datasets.frozen_preparation_report(digest, report),
     )
-    db.add(version)
-    await db.flush()
-    await task_datasets.ensure_membership(db, version, project_locked=True)
-    await datasets.enqueue_dataset(db, version)
     db.add(
         LearningTrigger(
             policy_id=policy.id,
@@ -430,6 +606,18 @@ async def check_policy(db, policy_id, *, force=False):
         "building",
         "正在冻结自动候选数据",
     )
+
+
+async def check_project(db, project: Project, user: User) -> LearningPolicy:
+    await claims.project_lock(db, project.id)
+    await lock_project_manager(db, user, project.id)
+    policy = await db.scalar(
+        select(LearningPolicy).where(LearningPolicy.project_id == project.id)
+    )
+    if not policy:
+        raise HTTPException(status_code=404, detail="自动策略尚未配置")
+    await check_policy(db, policy.id, force=True)
+    return policy
 
 
 async def dispatch_pending(db, policy_id, *, dispatcher: TrainingDatasetDispatcher):
@@ -491,3 +679,8 @@ async def tick(
             except Exception:
                 await db.rollback()
                 log.exception("Automatic learning policy check failed: %s", identity)
+
+
+async def requeue_after_manual_resume(db, trigger_id: uuid.UUID) -> None:
+    trigger = await db.get(LearningTrigger, trigger_id)
+    trigger.status, trigger.completed_at = "queued", None

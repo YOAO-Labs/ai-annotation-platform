@@ -7,13 +7,12 @@ from sqlalchemy import func, select
 
 from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
-from app.db.models.training_study import TrainingStudy, TrainingTrial
+from app.db.models.training_study import TrainingStudy
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_study import TrainingStudyCreate
-from app.services import training_initialization, training_studies as service
+from app.services import training_studies as service
 from app.services import training_claims as claims
-from app.services.training_dataset_bridge import content_digest
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-studies",
@@ -46,61 +45,15 @@ async def create(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ) -> dict:
-    await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
-    request_digest = content_digest(body.request_payload())
-    existing = await db.scalar(
-        select(TrainingStudy).where(
-            TrainingStudy.project_id == project.id,
-            TrainingStudy.request_id == body.base.request_id,
-        )
+    study, created = await service.create(
+        db,
+        project,
+        user,
+        body,
+        api_key_id=getattr(request.state, "api_key_id", None),
     )
-    if existing:
-        if existing.request_digest != request_digest:
-            raise HTTPException(
-                status_code=409, detail="同一请求标识不能启动不同参数搜索"
-            )
-        return await service.describe(db, existing)
-    if project.status != "in_progress":
-        raise HTTPException(status_code=409, detail="项目停用时不能启动参数搜索")
-    plan, digest = await service.freeze_plan(db, project.id, body)
-    if body.preview_digest != digest:
-        raise HTTPException(
-            status_code=409, detail="搜索计划已变化或尚未预览，请重新核对全部组合和预算"
-        )
-    first = plan["trials"][0]["config"]
-    study = TrainingStudy(
-        id=uuid.UUID(plan["study_id"]),
-        project_id=project.id,
-        creator_id=user.id,
-        dataset_id=body.base.dataset_id,
-        initialization_model_id=training_initialization.model_id(
-            first.get("initialization")
-        ),
-        request_id=body.base.request_id,
-        request_digest=request_digest,
-        plan_digest=digest,
-        name=body.base.name,
-        plan=plan,
-        origin=plan["origin"],
-        authorization={"api_key_id": getattr(request.state, "api_key_id", None)},
-    )
-    db.add(study)
-    await db.flush()
-    for trial in plan["trials"]:
-        db.add(
-            TrainingTrial(
-                id=uuid.UUID(trial["id"]),
-                study_id=study.id,
-                ordinal=trial["ordinal"],
-                config=trial["config"],
-                config_digest=trial["config_digest"],
-                values=trial["values"],
-            )
-        )
-    await db.flush()
-    await service.coordinate(db, study.id)
-    await db.commit()
+    if created:
+        await db.commit()
     return await service.describe(db, study)
 
 
@@ -155,14 +108,6 @@ async def cancel(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ) -> dict:
-    await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
-    study = await service.load(db, project.id, study_id, lock=True)
-    study.scheduling = False
-    study.status = "cancelling"
-    study.message = "已停止后续试验；活动进程按普通训练取消协议退出"
-    for run in await service.children(db, study.id, lock=True):
-        await service.stop_child(db, run)
-    await service.coordinate(db, study.id)
+    study = await service.cancel(db, project.id, study_id, user)
     await db.commit()
     return await service.describe(db, study)

@@ -21,6 +21,7 @@ from app.schemas.training_run import (
     ExecutorClaim,
     ExecutorFinish,
     ExecutorHeartbeat,
+    ExecutorRecovery,
     ExecutorUpload,
 )
 from app.services import training_runs as service
@@ -165,6 +166,49 @@ async def test_manager_creation_is_frozen_idempotent_and_blocks_dataset_deletion
     assert await db_session.get(TrainingDatasetVersion, dataset.id)
 
 
+async def test_stale_preflight_rejects_admission_without_persisting_a_run(
+    db_session, super_admin, httpx_client, training_config, monkeypatch
+):
+    owner, token = super_admin
+    project, dataset = await ready_dataset(db_session, owner)
+    payload = {
+        "name": "Stale preflight",
+        "dataset_id": str(dataset.id),
+        "request_id": str(uuid.uuid4()),
+        "parameters": {"epochs": 3},
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+    preflight = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-runs:preflight",
+        headers=headers,
+        json=payload,
+    )
+    assert preflight.status_code == 200
+    payload["preflight_digest"] = preflight.json()["config_digest"]
+    changed_catalog = {
+        **settings.training_catalog_json,
+        "ultralytics": {
+            **settings.training_catalog_json["ultralytics"],
+            "image_digest": "sha256:" + "4" * 64,
+        },
+    }
+    monkeypatch.setattr(settings, "training_catalog_json", changed_catalog)
+
+    rejected = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-runs",
+        headers=headers,
+        json=payload,
+    )
+
+    assert rejected.status_code == 409
+    assert not await db_session.scalar(
+        select(TrainingRun.id).where(
+            TrainingRun.project_id == project.id,
+            TrainingRun.request_id == uuid.UUID(payload["request_id"]),
+        )
+    )
+
+
 async def test_members_and_unauthenticated_executor_cannot_run_training(
     db_session, super_admin, annotator, httpx_client, training_config
 ):
@@ -260,6 +304,73 @@ async def test_cancel_retains_lease_until_exit_and_completion_ack_replays(
     assert done.status == "cancelled" and lease.attempt_id is None
     repeated = await service.finish(db_session, attempt.id, body)
     assert repeated.status == "cancelled"
+
+
+async def test_queued_cancel_is_immediately_terminal(
+    db_session, super_admin, httpx_client, training_config
+):
+    owner, token = super_admin
+    project, dataset = await ready_dataset(db_session, owner)
+    data, _ = await create_run(httpx_client, token, project, dataset)
+
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-runs/{data['id']}/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200 and response.json()["status"] == "cancelled"
+    attempt = await db_session.get(
+        TrainingAttempt, uuid.UUID(data["current_attempt_id"])
+    )
+    assert attempt.status == "cancelled"
+
+
+async def test_executor_recovery_rechecks_boot_fence_and_preserves_cancel_precedence(
+    db_session, super_admin, httpx_client, training_config
+):
+    owner, token = super_admin
+    project, dataset = await ready_dataset(db_session, owner)
+    run, claim, assignment = await claimed_run(
+        db_session, httpx_client, token, project, dataset
+    )
+    attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
+    lease = await db_session.get(TrainingResourceLease, "test/" + GPU)
+    path = f"/api/v1/internal/training/attempts/{attempt.id}/recover"
+    executor_headers = {"x-training-executor-token": TOKEN}
+
+    stale = ExecutorRecovery(
+        **{**fence(claim, assignment), "boot_id": uuid.uuid4()},
+        new_boot_id=uuid.uuid4(),
+        exclusive_resource_lock=True,
+        process_exited=True,
+    )
+    rejected = await httpx_client.post(
+        path, headers=executor_headers, json=stale.model_dump(mode="json")
+    )
+    assert rejected.status_code == 409
+    assert run.status == attempt.status == "preparing"
+    assert lease.attempt_id == attempt.id and attempt.failure is None
+
+    cancelled = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-runs/{run.id}/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelling"
+    recovery = ExecutorRecovery(
+        **fence(claim, assignment),
+        new_boot_id=uuid.uuid4(),
+        exclusive_resource_lock=True,
+        process_exited=True,
+    )
+    recovered = await httpx_client.post(
+        path, headers=executor_headers, json=recovery.model_dump(mode="json")
+    )
+
+    assert recovered.status_code == 200 and recovered.json() == {"recovered": True}
+    assert run.status == attempt.status == "cancelled"
+    assert attempt.failure["code"] == "execution_lost"
+    assert attempt.runtime["recovery_boot_id"] == str(recovery.new_boot_id)
+    assert lease.attempt_id is None
 
 
 async def test_lost_heartbeat_does_not_release_gpu_or_allow_new_claim(
