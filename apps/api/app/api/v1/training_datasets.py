@@ -36,7 +36,7 @@ from app.services import training_storage_cleanup as cleanup
 from aap_task_contract import VisualTask
 from app.services.project_write_guard import lock_project_manager
 from app.services.storage import storage_service
-from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 
 router = APIRouter(
@@ -96,64 +96,15 @@ async def create_version(
         get_training_dataset_dispatcher
     ),
 ):
-    request_digest = content_digest(body.canonical_payload())
-    # Serialize before taking share locks, avoiding share-to-exclusive upgrades.
-    await db.execute(
-        select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
-    )
-    await lock_project_manager(db, user, project.id)
-    existing = (
-        await db.execute(
-            select(TrainingDatasetVersion).where(
-                TrainingDatasetVersion.project_id == project.id,
-                TrainingDatasetVersion.request_id == body.request_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if existing:
-        if existing.request_digest != request_digest:
-            raise HTTPException(
-                status_code=409, detail="同一请求标识不能用于不同数据版本"
-            )
-        try:
-            await task_datasets.ensure_membership(db, existing, project_locked=True)
-        except TrainingDatasetError as exc:
-            fail(exc)
-        await db.commit()
-        return await task_datasets.attach_read_metadata(db, existing)
     try:
-        snapshot, report = await service.freeze_selection(
+        return await service.create_version(
             db,
             project,
-            service.selection_of(body),
-            actor_id=user.id,
+            user,
+            body,
             api_key_id=getattr(request.state, "api_key_id", None),
+            dispatcher=dataset_dispatcher,
         )
-        if report["digest"] != body.preflight_digest:
-            raise HTTPException(status_code=409, detail="数据已变化，请重新预检")
-        if not report["ready"]:
-            raise HTTPException(status_code=422, detail=report)
-        version = TrainingDatasetVersion(
-            project_id=project.id,
-            creator_id=user.id,
-            parent_id=body.parent_id,
-            request_id=body.request_id,
-            request_digest=request_digest,
-            name=body.name.strip(),
-            snapshot=snapshot,
-            snapshot_digest=report["digest"],
-            preparation_report=service.frozen_preparation_report(
-                report["digest"], report
-            ),
-        )
-        db.add(version)
-        await db.flush()
-        await task_datasets.ensure_membership(db, version, project_locked=True)
-        await service.enqueue_dataset(db, version)
-        await db.commit()
-        await service.dispatch_dataset(db, version, dispatcher=dataset_dispatcher)
-        await db.refresh(version)
-        return await task_datasets.attach_read_metadata(db, version)
     except TrainingDatasetError as exc:
         fail(exc)
 

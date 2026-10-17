@@ -289,10 +289,92 @@ async def test_snapshot_is_fixed_after_task_edits_and_creation_is_idempotent(
     assert repeated.json()["id"] == str(version_id)
     await db_session.refresh(version)
     assert json.dumps(version.snapshot, sort_keys=True) == saved
+    changed = await httpx_client.post(
+        path, headers=headers, json={**payload, "name": "Different name"}
+    )
+    assert changed.status_code == 409
+    await db_session.refresh(version)
+    assert json.dumps(version.snapshot, sort_keys=True) == saved
     fresh = await httpx_client.post(
-        path, headers=headers, json={**payload, "request_id": str(uuid.uuid4())}
+        path,
+        headers=headers,
+        json={**payload, "request_id": str(uuid.uuid4())},
     )
     assert fresh.status_code == 409
+
+
+async def test_stale_preflight_and_invalid_selection_do_not_create_dataset_rows(
+    db_session, super_admin, httpx_client, source_headers
+):
+    from app.db.models.project_task_dataset import (
+        ProjectTaskDataset,
+        TaskDatasetVersionMembership,
+    )
+
+    owner, token = super_admin
+    project, tasks = await reviewed_project(db_session, owner)
+    headers = {"Authorization": f"Bearer {token}"}
+    path = f"/api/v1/projects/{project.id}/training-datasets"
+    preflight = await httpx_client.post(f"{path}:preflight", headers=headers, json={})
+    assert preflight.status_code == 200 and preflight.json()["ready"]
+    stale_request_id = uuid.uuid4()
+    stale_payload = {
+        "name": "Stale preflight",
+        "request_id": str(stale_request_id),
+        "preflight_digest": preflight.json()["digest"],
+    }
+    tasks[0].status = "in_progress"
+    await db_session.flush()
+    stale = await httpx_client.post(path, headers=headers, json=stale_payload)
+    assert stale.status_code == 409
+    invalid_request_id = uuid.uuid4()
+    invalid = await httpx_client.post(
+        path,
+        headers=headers,
+        json={
+            "name": "Unknown task",
+            "task_ids": [str(uuid.uuid4())],
+            "request_id": str(invalid_request_id),
+            "preflight_digest": "0" * 64,
+        },
+    )
+    assert invalid.status_code == 404
+    assert (
+        await db_session.scalar(
+            select(TrainingDatasetVersion.id).where(
+                TrainingDatasetVersion.project_id == project.id
+            )
+        )
+        is None
+    )
+    assert (
+        await db_session.scalar(
+            select(AsyncJob.id).where(
+                AsyncJob.project_id == project.id,
+                AsyncJob.kind == "training_dataset",
+            )
+        )
+        is None
+    )
+    assert (
+        await db_session.scalar(
+            select(ProjectTaskDataset.id).where(
+                ProjectTaskDataset.project_id == project.id
+            )
+        )
+        is None
+    )
+    assert (
+        await db_session.scalar(
+            select(TaskDatasetVersionMembership.version_id)
+            .join(
+                ProjectTaskDataset,
+                TaskDatasetVersionMembership.task_dataset_id == ProjectTaskDataset.id,
+            )
+            .where(ProjectTaskDataset.project_id == project.id)
+        )
+        is None
+    )
 
 
 async def test_only_current_review_round_can_imply_negative(

@@ -17,7 +17,7 @@ from app.db.models.project import Project
 from app.db.models.task_batch import TaskBatch
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
-from app.schemas.training_dataset import TrainingDatasetSelection
+from app.schemas.training_dataset import TrainingDatasetCreate, TrainingDatasetSelection
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
@@ -38,6 +38,7 @@ from training_contract.dataset import (
     DETECTION_CONTRACT,
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
+from app.services import project_task_dataset as task_datasets
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.labeling_assets import read_project_task_source_facts
 from app.services.dataset_task_facts import thaw_source_json
@@ -354,6 +355,70 @@ async def freeze_selection(
         "excluded": excluded,
     }
     return snapshot, report
+
+
+async def create_version(
+    db: AsyncSession,
+    project: Project,
+    user: User,
+    body: TrainingDatasetCreate,
+    *,
+    api_key_id: str | None,
+    dispatcher: TrainingDatasetDispatcher,
+) -> TrainingDatasetVersion:
+    request_digest = content_digest(body.canonical_payload())
+    # Serialize before taking share locks, avoiding share-to-exclusive upgrades.
+    await db.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
+    )
+    await lock_project_manager(db, user, project.id)
+    existing = (
+        await db.execute(
+            select(TrainingDatasetVersion).where(
+                TrainingDatasetVersion.project_id == project.id,
+                TrainingDatasetVersion.request_id == body.request_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        if existing.request_digest != request_digest:
+            raise HTTPException(
+                status_code=409, detail="同一请求标识不能用于不同数据版本"
+            )
+        await task_datasets.ensure_membership(db, existing, project_locked=True)
+        await db.commit()
+        return await task_datasets.attach_read_metadata(db, existing)
+
+    snapshot, report = await freeze_selection(
+        db,
+        project,
+        selection_of(body),
+        actor_id=user.id,
+        api_key_id=api_key_id,
+    )
+    if report["digest"] != body.preflight_digest:
+        raise HTTPException(status_code=409, detail="数据已变化，请重新预检")
+    if not report["ready"]:
+        raise HTTPException(status_code=422, detail=report)
+    version = TrainingDatasetVersion(
+        project_id=project.id,
+        creator_id=user.id,
+        parent_id=body.parent_id,
+        request_id=body.request_id,
+        request_digest=request_digest,
+        name=body.name.strip(),
+        snapshot=snapshot,
+        snapshot_digest=report["digest"],
+        preparation_report=frozen_preparation_report(report["digest"], report),
+    )
+    db.add(version)
+    await db.flush()
+    await task_datasets.ensure_membership(db, version, project_locked=True)
+    await enqueue_dataset(db, version)
+    await db.commit()
+    await dispatch_dataset(db, version, dispatcher=dispatcher)
+    await db.refresh(version)
+    return await task_datasets.attach_read_metadata(db, version)
 
 
 async def enqueue_dataset(db: AsyncSession, version: TrainingDatasetVersion) -> None:

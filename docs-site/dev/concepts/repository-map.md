@@ -152,6 +152,10 @@ last_reviewed: 2026-10-17
      HTTP 的 `app/deps.py::get_training_dataset_dispatcher` 或周期策略 worker →
      `app/workers/training_dataset_dispatch.py::CeleryTrainingDatasetDispatcher`；
      领域保留 version/job/attempt 与派发失败竞态处理，适配器保留线程卸载。
+     `/training-datasets` 创建命令由 `services/training_datasets.create_version` 持有，
+     复用冻结选择和 `project_task_dataset.ensure_membership`；配方创建/追加修订的摘要重放、
+     head CAS 与写入由 `services/training_recipes.write_revision` 持有；
+     归档由同模块 `archive_recipe` 保持管理/行锁围栏及 head CAS，HTTP 保留提交和响应适配。
    - 执行取消：`app/services/job_execution_control.py::JobExecutionControl` →
      `app/deps.py::get_job_execution_control` 装配 `app/workers/job_execution_control.py`；
      只请求非强制撤销，不把请求回执当作已停止证明。

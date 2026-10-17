@@ -1,13 +1,12 @@
 """Manager-owned, project-scoped recipe history and explicit reuse candidates."""
 
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
-from app.services.project_write_guard import lock_project_manager
 from app.schemas.training_recipe import (
     TrainingConfigurationResolve,
     TrainingRecipeOut,
@@ -16,9 +15,6 @@ from app.schemas.training_recipe import (
     TrainingReuseCandidate,
 )
 from app.services import training_recipes as service
-from app.services import training_claims as claims
-from app.services.training_dataset_bridge import content_digest
-from app.services import training_initialization as initialization
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-recipes",
@@ -59,94 +55,6 @@ async def list_recipes(
     return {"total": total, "items": items}
 
 
-async def write_revision(body, project, user, db, recipe_id=None):
-    await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
-    digest = content_digest(
-        {
-            "recipe_id": str(recipe_id) if recipe_id else None,
-            "body": body.request_payload(),
-        }
-    )
-    previous = await db.scalar(
-        select(TrainingRecipeRevision).where(
-            TrainingRecipeRevision.project_id == project.id,
-            TrainingRecipeRevision.request_id == body.request_id,
-        )
-    )
-    if previous:
-        if previous.request_digest != digest:
-            raise HTTPException(
-                status_code=409, detail="同一请求标识不能保存不同配方修订"
-            )
-        recipe, _ = await service.recipe_revision(db, project.id, previous.recipe_id)
-        return await service.describe(db, recipe, previous)
-    if recipe_id:
-        recipe, _ = await service.recipe_revision(db, project.id, recipe_id, lock=True)
-        if recipe.archived or recipe.head_revision != body.expected_head_revision:
-            raise HTTPException(
-                status_code=409,
-                detail="配方已归档或出现新修订；保留编辑内容并刷新后重试",
-            )
-    else:
-        if body.expected_head_revision != 0:
-            raise HTTPException(status_code=409, detail="新配方的预期修订必须为零")
-        recipe = TrainingRecipe(project_id=project.id, head_revision=0)
-        db.add(recipe)
-        await db.flush()
-    if body.source_run_id:
-        run = await service.source_run(
-            db, project.id, body.source_run_id, body.source_attempt_id
-        )
-        if run.status != "succeeded":
-            raise HTTPException(
-                status_code=409, detail="仅已验证成功的实验可直接保存为配方"
-            )
-        value = service.from_run(run)
-        compatible, reason = service.compatibility(value)
-        if not compatible:
-            raise HTTPException(status_code=409, detail=reason)
-        if value.get("initialization"):
-            await initialization.validate_accepted(
-                db,
-                project.id,
-                value["initialization"],
-                value["framework"],
-                value["base_model"]["id"],
-            )
-        origin = {
-            "kind": "clone",
-            "run_id": str(run.id),
-            "attempt_id": str(body.source_attempt_id)
-            if body.source_attempt_id
-            else None,
-            "digest": run.config_digest,
-            "label": run.name,
-        }
-    else:
-        source = body.configuration
-        value = await service.resolve_snapshot(db, project.id, source)
-        origin = await service.origin_snapshot(db, project.id, body.origin, value)
-    recipe.head_revision += 1
-    revision = TrainingRecipeRevision(
-        recipe_id=recipe.id,
-        project_id=project.id,
-        creator_id=user.id,
-        ordinal=recipe.head_revision,
-        name=body.name,
-        description=body.description,
-        snapshot=value,
-        snapshot_digest=content_digest(value),
-        origin=origin,
-        initialization_model_id=initialization.model_id(value.get("initialization")),
-        request_id=body.request_id,
-        request_digest=digest,
-    )
-    db.add(revision)
-    await db.commit()
-    return await service.describe(db, recipe, revision)
-
-
 @router.post(
     "",
     response_model=TrainingRecipeOut,
@@ -159,7 +67,7 @@ async def create_recipe(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    return await write_revision(body, project, user, db)
+    return await service.write_revision(body, project, user, db)
 
 
 @router.post(
@@ -175,7 +83,7 @@ async def create_revision(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    return await write_revision(body, project, user, db, recipe_id)
+    return await service.write_revision(body, project, user, db, recipe_id)
 
 
 @router.get("/{recipe_id}", response_model=TrainingRecipeOut)
@@ -231,14 +139,9 @@ async def archive_recipe(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    await claims.project_lock(db, project.id)
-    await lock_project_manager(db, user, project.id)
-    recipe, revision = await service.recipe_revision(
-        db, project.id, recipe_id, lock=True
+    recipe, revision = await service.archive_recipe(
+        db, project, user, recipe_id, expected_head_revision
     )
-    if recipe.head_revision != expected_head_revision:
-        raise HTTPException(status_code=409, detail="配方已有新修订，请刷新")
-    recipe.archived = True
     await db.commit()
     return await service.describe(db, recipe, revision)
 

@@ -3,13 +3,16 @@
 import copy
 import uuid
 
+from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete, select
 from app.config import settings
 from app.db.models.learning_policy import LearningPolicy
-from app.db.models.training_recipe import TrainingRecipeRevision
+from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.db.models.training_run import TrainingRun
 from app.services import training_claims as claims
+from app.schemas.training_recipe import TrainingRecipeWrite
+from app.services import training_recipes as recipe_service
 from tests.test_training_parameters import configuration, new_v2
 from tests.test_training_runs import ready_dataset
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
@@ -83,6 +86,15 @@ async def test_immutable_history_cas_archive_and_idempotent_replay(
         f"{path}/{first['id']}/revisions?limit=1", headers=headers(token)
     )
     assert history.json()["total"] == 2 and len(history.json()["items"]) == 1
+    stale_archive = await httpx_client.post(
+        f"{path}/{first['id']}/archive?expected_head_revision=1", headers=headers(token)
+    )
+    assert stale_archive.status_code == 409
+    archive_state = await httpx_client.get(
+        f"{path}/{first['id']}", headers=headers(token)
+    )
+    assert archive_state.json()["archived"] is False
+    assert archive_state.json()["head_revision"] == 2
     archived = await httpx_client.post(
         f"{path}/{first['id']}/archive?expected_head_revision=2", headers=headers(token)
     )
@@ -97,6 +109,42 @@ async def test_immutable_history_cas_archive_and_idempotent_replay(
         path, headers=headers(token), json={**body, "name": "Other"}
     )
     assert mismatch.status_code == 409
+    state = await httpx_client.get(f"{path}/{first['id']}", headers=headers(token))
+    assert state.status_code == 200 and state.json()["head_revision"] == 2
+    revision_state = await httpx_client.get(
+        f"{path}/{first['id']}/revisions", headers=headers(token)
+    )
+    assert revision_state.status_code == 200 and revision_state.json()["total"] == 2
+
+
+async def test_failed_first_revision_rolls_back_flushed_recipe_identity(
+    db_session, super_admin
+):
+    owner, _ = super_admin
+    project, _ = await ready_dataset(db_session, owner)
+    body = TrainingRecipeWrite(
+        request_id=uuid.uuid4(),
+        name="Invalid source",
+        source_run_id=uuid.uuid4(),
+    )
+    with pytest.raises(HTTPException) as error:
+        async with db_session.begin_nested():
+            await recipe_service.write_revision(body, project, owner, db_session)
+    assert error.value.status_code == 404
+    assert (
+        await db_session.scalar(
+            select(TrainingRecipe.id).where(TrainingRecipe.project_id == project.id)
+        )
+        is None
+    )
+    assert (
+        await db_session.scalar(
+            select(TrainingRecipeRevision.id).where(
+                TrainingRecipeRevision.project_id == project.id
+            )
+        )
+        is None
+    )
 
 
 async def test_recipe_scope_attempt_relationship_and_legacy_rejection(

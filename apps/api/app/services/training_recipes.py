@@ -8,6 +8,8 @@ from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import training_adapters as adapters
 from app.services.training_dataset_bridge import content_digest
 from app.services import training_initialization as initialization
+from app.services import training_claims as claims
+from app.services.project_write_guard import lock_project_manager
 
 
 def snapshot(framework, base_model, configuration, initialization_pin=None):
@@ -283,3 +285,100 @@ async def origin_snapshot(
             "identity": value["configuration"]["identity"],
         }
     )
+
+
+async def write_revision(body, project, user, db, recipe_id=None):
+    await claims.project_lock(db, project.id)
+    await lock_project_manager(db, user, project.id)
+    digest = content_digest(
+        {
+            "recipe_id": str(recipe_id) if recipe_id else None,
+            "body": body.request_payload(),
+        }
+    )
+    previous = await db.scalar(
+        select(TrainingRecipeRevision).where(
+            TrainingRecipeRevision.project_id == project.id,
+            TrainingRecipeRevision.request_id == body.request_id,
+        )
+    )
+    if previous:
+        if previous.request_digest != digest:
+            raise HTTPException(
+                status_code=409, detail="同一请求标识不能保存不同配方修订"
+            )
+        recipe, _ = await recipe_revision(db, project.id, previous.recipe_id)
+        return await describe(db, recipe, previous)
+    if recipe_id:
+        recipe, _ = await recipe_revision(db, project.id, recipe_id, lock=True)
+        if recipe.archived or recipe.head_revision != body.expected_head_revision:
+            raise HTTPException(
+                status_code=409,
+                detail="配方已归档或出现新修订；保留编辑内容并刷新后重试",
+            )
+    else:
+        if body.expected_head_revision != 0:
+            raise HTTPException(status_code=409, detail="新配方的预期修订必须为零")
+        recipe = TrainingRecipe(project_id=project.id, head_revision=0)
+        db.add(recipe)
+        await db.flush()
+    if body.source_run_id:
+        run = await source_run(
+            db, project.id, body.source_run_id, body.source_attempt_id
+        )
+        if run.status != "succeeded":
+            raise HTTPException(
+                status_code=409, detail="仅已验证成功的实验可直接保存为配方"
+            )
+        value = from_run(run)
+        compatible, reason = compatibility(value)
+        if not compatible:
+            raise HTTPException(status_code=409, detail=reason)
+        if value.get("initialization"):
+            await initialization.validate_accepted(
+                db,
+                project.id,
+                value["initialization"],
+                value["framework"],
+                value["base_model"]["id"],
+            )
+        origin = {
+            "kind": "clone",
+            "run_id": str(run.id),
+            "attempt_id": str(body.source_attempt_id)
+            if body.source_attempt_id
+            else None,
+            "digest": run.config_digest,
+            "label": run.name,
+        }
+    else:
+        value = await resolve_snapshot(db, project.id, body.configuration)
+        origin = await origin_snapshot(db, project.id, body.origin, value)
+    recipe.head_revision += 1
+    revision = TrainingRecipeRevision(
+        recipe_id=recipe.id,
+        project_id=project.id,
+        creator_id=user.id,
+        ordinal=recipe.head_revision,
+        name=body.name,
+        description=body.description,
+        snapshot=value,
+        snapshot_digest=content_digest(value),
+        origin=origin,
+        initialization_model_id=initialization.model_id(value.get("initialization")),
+        request_id=body.request_id,
+        request_digest=digest,
+    )
+    db.add(revision)
+    await db.commit()
+    return await describe(db, recipe, revision)
+
+
+async def archive_recipe(db, project, user, recipe_id, expected_head_revision):
+    await claims.project_lock(db, project.id)
+    await lock_project_manager(db, user, project.id)
+    recipe, revision = await recipe_revision(db, project.id, recipe_id, lock=True)
+    if recipe.head_revision != expected_head_revision:
+        raise HTTPException(status_code=409, detail="配方已有新修订，请刷新")
+    recipe.archived = True
+    return recipe, revision

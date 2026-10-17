@@ -24,6 +24,8 @@ last_reviewed: 2026-10-17
 
 `task_dataset_version_memberships` 以既有版本 UUID 为主键关联任务数据集与正整数序号。`TrainingDatasetVersion` 仍是快照、清单、状态、请求和包身份的唯一所有者。手动 API、自动策略及回填共用分配助手，先取项目 advisory lock，再推进流的 `next_ordinal`。重放或重试不分配新序号，失败／取消版本仍占号，删除不回收序号。版本序号只在其任务流内唯一；父版本是独立分区继承关系，可从旧分支继承，不自动指向上一序号。
 
+手动创建由 `services/training_datasets.create_version` 持有；HTTP 入口只传入当前项目/负责人、认证所带 API Key 身份和注入的派发端口。命令复用 `freeze_selection` 与 `project_task_dataset.ensure_membership`，先按规范请求摘要处理幂等重放，再冻结并校验预检摘要；创建、任务流成员关系和作业入队仍在派发前的同一事务提交，随后按原时序派发、刷新并附加只读元数据。重放只修复缺失的任务流成员关系，不重建快照、不重复派发。
+
 列表用完整认可的冻结契约进行 SQL 任务识别，再执行任务／状态筛选、计数和分页，延迟读取大型 JSON。外连接关联表使旧写入者创建的版本继续可见，未关联时返回空管理字段。任务数据集 GET 只读地返回任务选择、状态计数、最新就绪版本、逐项能力和待关联／无法识别数量；没有版本的已支持任务不必预先创建流。无法识别的记录通过独立诊断列表读取，不经过严格版本摘要模型，也不默认归为检测。
 
 回填只增加管理关联，不改任何历史快照、清单、包、摘要或训练引用。首次关联按创建时间与 UUID 稳定排序；后发现的历史版本追加高水位序号，不重排既有版本。删除最后一个版本后保留空流及高水位，删除项目时才在无保留引用的同一事务清理空流。操作命令见仓库 `DEV.md` 的「任务数据集管理关联与回填」，环境归属见 [独立工作树开发环境](../how-to/worktree-environments)，取舍见 [项目任务版本流](../adr/archive/0087-project-task-dataset-streams)。
@@ -228,6 +230,8 @@ LibreYOLO 回流资格由共享 `training_contract.model_return` 定义，独立
 ## 版本化参数契约
 
 项目训练配方由 `training_recipes` 身份与 `training_recipe_revisions` 不可变快照组成。项目 advisory 锁、当前管理权限、预期 head 与独立请求摘要共同约束创建修订。归档只改变身份的可采用状态，不修改历史修订、策略展开配置或实验。配方存储完整 resolver 结果与受控基础权重、镜像身份，重放 `user_values` 后比较完整快照；不能将包含平台与依赖推导字段的 `effective_values` 作为输入覆盖。
+
+创建、追加修订的管理权威/项目锁、请求摘要重放、预期 head CAS、来源解析与 revision/head 写入归 `services/training_recipes.write_revision`。归档命令由同模块 `archive_recipe` 持有，保留当前管理权威、配方行锁和 head CAS，HTTP 在原位置提交。HTTP 保留现有路由权限与状态码并适配 schema；失败由请求事务回滚，不留下预建配方身份或半个 head。这些命令仍是进程内 Session/ORM 操作，不是新远程协议。
 
 克隆与配方的来源元数据保存在独立 `training_runs.origin` JSON 中，策略则保存在 `config.origin`，与执行模板分离。来源记录原始标识、名称与摘要，不添加限制原实验删除的外键。配方应用不再依赖原实验存在，原实验删除后仍能显示保存时的来源。来源不参与执行配置摘要；新增可选请求字段为空时逐项移除，保持历史幂等序列化。创建先回放已接受请求，再解析来源，避免归档或删除破坏重试。
 
