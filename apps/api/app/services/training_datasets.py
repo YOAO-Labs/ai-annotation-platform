@@ -445,6 +445,43 @@ async def enqueue_dataset(db: AsyncSession, version: TrainingDatasetVersion) -> 
     await db.flush()
 
 
+def mark_dataset_running(version: TrainingDatasetVersion) -> None:
+    version.status = "running"
+
+
+def update_dataset_progress(version: TrainingDatasetVersion, progress_pct: int) -> None:
+    version.progress_pct = progress_pct
+
+
+def publish_dataset_package(
+    version: TrainingDatasetVersion,
+    *,
+    manifest: dict,
+    package_key: str,
+    package_sha256: str,
+    size_bytes: int,
+) -> None:
+    version.manifest = manifest
+    version.package_key = package_key
+    version.package_sha256 = package_sha256
+    version.size_bytes = size_bytes
+    version.status = "ready"
+    version.progress_pct = 100
+    version.completed_at = datetime.now(timezone.utc)
+
+
+def fail_dataset_build(
+    version: TrainingDatasetVersion,
+    *,
+    error_code: str,
+    error_message: str,
+) -> None:
+    version.status = "failed"
+    version.error_code = error_code
+    version.error_message = error_message
+    version.completed_at = datetime.now(timezone.utc)
+
+
 async def create_policy_candidate_version(
     db: AsyncSession,
     *,

@@ -1,5 +1,6 @@
 """Project authority, immutable snapshot and materialization regressions."""
 
+import hashlib
 import io
 import json
 import uuid
@@ -683,6 +684,7 @@ async def test_real_storage_materialization_retry_preserves_originals(
         await db_session.refresh(version)
         assert version.status == "failed"
         assert version.error_code == "temporary_failure"
+        assert version.completed_at is not None
         storage_service.delete_prefix(source_prefix)
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
@@ -692,6 +694,10 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
         await db_session.refresh(version)
         assert version.status == "ready", version.error_message
+        assert version.progress_pct == 100
+        assert version.completed_at is not None
+        assert version.error_code is None
+        assert version.error_message is None
         response = storage_service.client.get_object(
             Bucket=storage_service.training_bucket, Key=version.package_key
         )
@@ -710,18 +716,61 @@ async def test_real_storage_materialization_retry_preserves_originals(
                     io.BytesIO(archive.read(sample["image_path"]))
                 ) as image:
                     assert image.size == (32, 24)
+        assert version.manifest == manifest
+        assert version.size_bytes == len(package_bytes)
+        assert version.package_sha256 == hashlib.sha256(package_bytes).hexdigest()
         assert version.snapshot == snapshot
         original_checksum = version.package_sha256
+        ready_package_key = version.package_key
+        ready_attempt_id = version.attempt_id
+        await worker.build_dataset(
+            version.id, version.async_job_id, uuid.uuid4(), sessions
+        )
+        await db_session.refresh(version)
+        assert version.status == "ready"
+        assert version.attempt_id == ready_attempt_id
+        assert version.package_key == ready_package_key
+        assert version.package_sha256 == original_checksum
+        package_head = storage_service.client.head_object(
+            Bucket=storage_service.training_bucket,
+            Key=ready_package_key,
+        )
+        assert package_head["ContentLength"] == version.size_bytes
         await worker.build_dataset(
             version.id, version.async_job_id, version.attempt_id, sessions
         )
         await db_session.refresh(version)
         assert version.package_sha256 == original_checksum
-        # A late cancellation after upload must discard this attempt's ZIP.
+        # A failed retry must preserve the original published fields and object.
         version.status = "failed"
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
+        failed_attempt = version.attempt_id
+        monkeypatch.setattr(worker, "build_training_package", temporary_failure)
+        await worker.build_dataset(
+            version.id, version.async_job_id, failed_attempt, sessions
+        )
+        await db_session.refresh(version)
+        assert version.status == "failed"
+        assert version.error_code == "temporary_failure"
+        assert version.package_key == ready_package_key
+        assert version.package_sha256 == original_checksum
+        assert version.size_bytes == len(package_bytes)
+        assert version.manifest == manifest
+        assert version.snapshot == snapshot
+        failed_object = storage_service.client.get_object(
+            Bucket=storage_service.training_bucket, Key=ready_package_key
+        )
+        try:
+            preserved_bytes = failed_object["Body"].read()
+        finally:
+            failed_object["Body"].close()
+        assert hashlib.sha256(preserved_bytes).hexdigest() == original_checksum
+        # A late cancellation after upload discards only this attempt's ZIP.
+        await service.enqueue_dataset(db_session, version)
+        await db_session.commit()
         cancelled_attempt = version.attempt_id
+        monkeypatch.setattr(worker, "build_training_package", original_bridge)
         authority_calls = 0
         original_authority = worker.assert_dataset_authority
 
@@ -742,6 +791,14 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
         await db_session.refresh(version)
         assert version.status == "cancelled"
+        assert version.package_key == ready_package_key
+        assert version.package_sha256 == original_checksum
+        assert version.size_bytes == len(package_bytes)
+        assert version.manifest == manifest
+        cancel_package_head = storage_service.client.head_object(
+            Bucket=storage_service.training_bucket, Key=ready_package_key
+        )
+        assert cancel_package_head["ContentLength"] == len(package_bytes)
         assert (
             storage_service.list_objects(
                 f"{training_prefix}datasets/{version.id}/attempts/{cancelled_attempt}/",

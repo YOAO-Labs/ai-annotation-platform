@@ -184,6 +184,8 @@ export 队列执行 `workers/training_dataset.py`。它以条件读取验证源�
 
 取消先锁领域记录，再同步 job 与版本为取消。worker 在图片边界停止，最终发布前再次核对状态，未发布 attempt 的 ZIP 在退出时清理。失败派发仅能修改本次仍在 pending 的尝试，不能覆盖已经运行或完成的结果。
 
+`workers/training_dataset.py` 保留先复核当前权威、再锁定当前版本行的顺序，以及 job/attempt/status 围栏、执行 advisory lock、逐样本提交和对象发布/清理编排；`training_datasets` 的窄领域命令集中写入构建过程的运行状态/进度、ready 包身份/摘要/大小、完成时间及失败字段。worker 仍负责冻结快照物化、S3/ZIP I/O、AsyncJob 终态/通知和事务提交；只有 ready 提交成功后才置 published，未发布 attempt 仍按原时点清理。
+
 创建者的账号和项目权限锁在最终发布前重新获取；API Key 获取共享行锁并校验当前 scope、过期与撤销状态，持续至 ready 提交。下载也重新检查当前项目管理权限与对象存在性。项目删除在任何破坏性操作前检查持久版本引用。
 
 ## 存储与部署

@@ -176,6 +176,8 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 训练数据集使用异步端口 `services/training_dataset_dispatch.py::TrainingDatasetDispatcher`。HTTP 由 `deps.get_training_dataset_dispatcher()` 装配，周期学习策略 worker 在自身入口装配 `workers/training_dataset_dispatch.py::CeleryTrainingDatasetDispatcher`，经 `learning_policies.tick/dispatch_pending` 显式传递。领域服务保留 version/job/attempt 身份、执行 ID 落库和同 attempt 且仍 pending 时的失败回填；适配器保留原 task 及线程卸载，业务服务不再承担 Celery 或线程派发。
 
+训练数据集构建 worker 保留先复核当前权威再锁定版本行、job/attempt/status 围栏、执行 advisory lock、逐样本提交及 S3 上传后最终发布的工作流；`TrainingDatasetVersion` 的运行/进度、ready 包字段和构建失败字段由 `training_datasets` 窄命令写入。worker 继续管理 AsyncJob/通知提交与未发布 attempt 清理；不增加通用生命周期抽象或 service→worker 依赖。
+
 `labeling_assets.read_project_task_source_facts` 在单条 PostgreSQL 语句中读取工具配置、任务/素材引用和活跃标注，并由标注所有者固定已审核、当前不可用和已审核空样本资格。`dataset_task_facts` 只返回标准库不可变事实，嵌套 JSON 也不可变；查询只返回所选工具的几何，其他工具仅计数，避免加载后再复制/丢弃。`training_datasets` 消费这些事实，负责训练选择、标签规范化、媒体身份与版本摘要，不再查询生产 Task/Annotation 表或重算审核/跳过资格。当前联合读取仍是本地持久化适配器，不是可远程调用的快照协议。
 
 `training_dataset_analysis.record_media_observation` 持有分析成员的 `media_state`、`media_checked_at` 及原提交：原字节校验成功记为 verified，只有 PNG 预览不可用仍记为 verified，冻结字节不可用才记为 unavailable。HTTP 保留当前授权、版本共享行锁、对象读取、错误映射和响应流关闭；成功后的观测提交失败仍关闭已打开的流，不把观测状态写入不可变统计。

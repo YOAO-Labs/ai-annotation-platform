@@ -1197,6 +1197,15 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 原始运行及逐样本 JSON：`/tmp/aap-presence-owner-1792242095-evidence.json`。测试身份 `30bb69d5f05a6b13` 的 owned 数据库 `aap_wt_30bb69d5f05a6b13_test`；夹具已清理。
 - 主线 presence 与身份运维回归合跑 10 passed，三文件固定 Ruff 格式/check 通过。新增永久回归缩为调用方 savepoint 内的 NULL、严格 cutoff、已离线保持及 rollback 状态验证，不依赖全库恰好只有两条命中，也不在该回归真实提交全库 presence 扫描；SQL/ORM load 仪表仅保留在原生预算证据，不固化实现次数。
 
+### 训练数据构建状态字段所有权
+
+- `training_datasets` 以四个窄命令独占构建过程中的版本状态、进度、manifest/package 元数据、完成时间及错误字段赋值；命令只修改已锁定 ORM 行，不查询、不提交。`_build_dataset` 保留 authority-before-row-lock、`async_job_id`/`attempt_id`/状态围栏与执行 advisory lock，调用 owner 命令但不再直接写这些字段。通用 `dispatch_dataset` 执行 ID 委派保持不变；service 不导入 worker/Celery，也没有新建通用生命周期抽象。
+- 冻结 source snapshot 与 manifest digest、逐样本增量提交、MinIO 上传、发布前再核验权限/当前版本、`AsyncJob` 通知和终态提交顺序保持；仅提交完成后置 `published`，旧 attempt 仍拒绝，未发布 attempt 只清理自身对象前缀。回归补强既有已发布包在失败重试、stale attempt、上传后取消时的字段和 MinIO 对象保留/清理边界。
+- 隔离 fresh dev 上实际通过 API preflight/create 与当前 Celery worker 完成三张 32×24 PNG reviewed 样本：首次创建观察到 202，同一版本随后 ready、进度 100、AsyncJob completed；探针恢复后读取该 ready 版本，并处理根相对下载地址取得同源 `/minio` 包，9 个 ZIP 条目 CRC 通过，3 张图均解码且 train/val 为 2/1。独立新 PG session/PID 重新读出 version/job/attempt/execution ID；MinIO 下载字节与 PostgreSQL package SHA-256、size、manifest 相等，且原始 source objects 各自 SHA-256/size 一致。原始初始化、夹具、HTTP/package 及独立 Postflight JSON 在 `/tmp/aap-training-dataset-builder-evidence/{dev-init.json,test-init.json,dataset-stage.json,dataset-api-smoke.json,dataset-postflight.json}`。
+- `tests/test_training_datasets.py`、`tests/test_domain_package_architecture.py` 与 `tests/test_openapi_contract.py` 组合命令 exit 0 到 100%；pytest 终端未输出计数摘要，不补造通过/跳过计数。未做任何模型、GPU 或训练资格声称。
+- 隔离命令预算以 ebe9234c7 冻结 worker 的直接字段赋值为 before，真实 owner 命令为 current；四类命令每侧预热一次、三轮交错，当前和历史每次均为 0 SQL、0 MinIO API 调用。tracemalloc 峰值两侧分别相等：running/progress 为 0 B，publish/failure 为 240 B。明确排除查询/围栏、commit/flush、S3/ZIP 与 HTTP/Celery，不代表吞吐、RSS、端到端延迟或优化；原始样本在 `/tmp/aap-training-dataset-builder-evidence/budget.json`。文档同步 backend layers 与 training-datasets；未改 schema、依赖、配置或版本，纯边界迁移不增加 CHANGELOG。
+- 主线构建测试全文件 19 passed，三文件固定 Ruff 格式/check 通过；保留发布、失败重试、旧 attempt 和上传后取消的状态/对象断言，移除新增自由错误文案固定。隔离真实包为 2,946 字节，SHA-256 `78b435f2daf7c58c97810d7ceb986276bde9a4f0fe765f6e70497b0f48ae9d55`，已逐项核对原始 API/PG/MinIO 证据，未重复相同原生构建。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影及在线状态维护已收口；仍有训练数据构建和主动学习执行，共两组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护及训练数据构建已收口；仍有主动学习执行一组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

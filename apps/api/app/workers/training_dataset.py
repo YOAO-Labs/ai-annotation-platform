@@ -7,7 +7,6 @@ import hashlib
 import logging
 import tempfile
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from botocore.exceptions import ClientError
@@ -29,7 +28,14 @@ from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     build_training_package,
 )
-from app.services.training_datasets import MAX_IMAGE_BYTES, assert_dataset_authority
+from app.services.training_datasets import (
+    MAX_IMAGE_BYTES,
+    assert_dataset_authority,
+    fail_dataset_build,
+    mark_dataset_running,
+    publish_dataset_package,
+    update_dataset_progress,
+)
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -182,7 +188,7 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                 or version.status != "pending"
             ):
                 return
-            version.status = "running"
+            mark_dataset_running(version)
             await jobs.mark_running(db, job_id)
             snapshot = version.snapshot
             snapshot_digest = version.snapshot_digest
@@ -222,10 +228,9 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                         or version.status != "running"
                     ):
                         return
-                    version.progress_pct = int(
-                        80 * (index + 1) / len(snapshot["samples"])
-                    )
-                    await jobs.update_progress(db, job_id, version.progress_pct)
+                    progress_pct = int(80 * (index + 1) / len(snapshot["samples"]))
+                    update_dataset_progress(version, progress_pct)
+                    await jobs.update_progress(db, job_id, progress_pct)
                     await db.commit()
                 package = directory / "dataset.zip"
                 manifest = await asyncio.to_thread(
@@ -260,13 +265,13 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                     or version.status != "running"
                 ):
                     return
-                version.manifest = manifest
-                version.package_key = package_key
-                version.package_sha256 = package_digest
-                version.size_bytes = package_size
-                version.status = "ready"
-                version.progress_pct = 100
-                version.completed_at = datetime.now(timezone.utc)
+                publish_dataset_package(
+                    version,
+                    manifest=manifest,
+                    package_key=package_key,
+                    package_sha256=package_digest,
+                    size_bytes=package_size,
+                )
                 await jobs.mark_complete(
                     db,
                     job_id,
@@ -293,19 +298,22 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                 and version.async_job_id == job_id
                 and version.status in {"pending", "running"}
             ):
-                version.status = "failed"
-                version.error_code = (
+                error_code = (
                     exc.code
                     if isinstance(exc, TrainingDatasetError)
                     else "build_failed"
                 )
-                version.error_message = (
+                error_message = (
                     str(exc)
                     if isinstance(exc, TrainingDatasetError)
                     else "训练数据构建失败，请检查素材或重试"
                 )
-                version.completed_at = datetime.now(timezone.utc)
-                await jobs.mark_failed(db, job_id, error=version.error_message)
+                fail_dataset_build(
+                    version,
+                    error_code=error_code,
+                    error_message=error_message,
+                )
+                await jobs.mark_failed(db, job_id, error=error_message)
                 await notify_job_terminal(db, job_id=job_id)
                 await db.commit()
         finally:
