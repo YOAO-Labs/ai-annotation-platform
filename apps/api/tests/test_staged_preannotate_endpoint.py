@@ -91,19 +91,15 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
 def _mock_celery(monkeypatch):
     captured: dict = {}
 
-    class _FakeJob:
-        id = "fake-job-uuid"
-
-    # v0.19.5 · 派发改用 apply_async(args=, kwargs=, queue=) 以做设备感知队列路由。
-    def _fake_apply_async(args=None, kwargs=None, queue=None, **_extra):
-        captured["args"] = tuple(args or ())
-        captured["kwargs"] = kwargs or {}
+    def fake_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
+        captured["request"] = request
         captured["queue"] = queue
-        return _FakeJob()
+        captured["soft_time_limit"] = soft_time_limit
+        return "fake-job-uuid"
 
-    from app.workers import tasks as worker_tasks
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
-    monkeypatch.setattr(worker_tasks.batch_predict, "apply_async", _fake_apply_async)
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
     return captured
 
 
@@ -134,7 +130,7 @@ async def test_no_pipeline_stages_forwards_none(
         json={"ml_backend_id": str(detect.id), "batch_id": str(batch.id)},
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["pipeline_stages"] is None
+    assert _mock_celery["request"].pipeline_stages is None
 
 
 @pytest.mark.asyncio
@@ -153,7 +149,7 @@ async def test_pipeline_stages_forwarded(
         },
     )
     assert resp.status_code == 200, resp.text
-    fwd = _mock_celery["kwargs"]["pipeline_stages"]
+    fwd = _mock_celery["request"].pipeline_stages
     assert fwd is not None and len(fwd) == 2
     assert fwd[1]["parent_stage"] == 0
     assert fwd[1]["write"]["keys"] == ["color"]
@@ -186,12 +182,12 @@ async def test_pipeline_source_stage_is_execution_source(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["args"][1] == str(detect.id)
-    assert _mock_celery["kwargs"]["model_id"] == "detect-root"
-    assert _mock_celery["kwargs"]["task"] == "detect"
-    assert _mock_celery["kwargs"]["model_variants"] == {"size": "n"}
-    assert _mock_celery["kwargs"]["params"] == {"conf": 0.4}
-    assert _mock_celery["kwargs"]["class_filter"] == [1, 2]
+    assert _mock_celery["request"].ml_backend_id == str(detect.id)
+    assert _mock_celery["request"].model_id == "detect-root"
+    assert _mock_celery["request"].task == "detect"
+    assert _mock_celery["request"].model_variants == {"size": "n"}
+    assert _mock_celery["request"].params == {"conf": 0.4}
+    assert _mock_celery["request"].class_filter == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -221,7 +217,7 @@ async def test_accept_parallel_fanout_three_stages(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert len(_mock_celery["kwargs"]["pipeline_stages"]) == 3
+    assert len(_mock_celery["request"].pipeline_stages) == 3
 
 
 async def _post_stages(client, token, proj, detect, batch, stages):
@@ -275,7 +271,7 @@ async def test_accept_depth_three_geometry_chain(
     ]
     resp = await _post_stages(httpx_client, token, proj, detect, batch, stages)
     assert resp.status_code == 200, resp.text
-    assert len(_mock_celery["kwargs"]["pipeline_stages"]) == 3
+    assert len(_mock_celery["request"].pipeline_stages) == 3
 
 
 @pytest.mark.asyncio
@@ -481,7 +477,7 @@ async def test_accept_geometry_downstream(
         },
     )
     assert resp.status_code == 200, resp.text
-    fwd = _mock_celery["kwargs"]["pipeline_stages"]
+    fwd = _mock_celery["request"].pipeline_stages
     assert fwd[1]["roi"] == {"mode": "geometry", "pad": 0.05}
     assert fwd[1]["write"] == {"target": "geometry"}
 
@@ -632,7 +628,7 @@ async def test_bakes_crop_delivery_for_plain_detector_geometry_child(
     ]
     resp = await _post_stages(httpx_client, token, proj, detect, batch, stages)
     assert resp.status_code == 200, resp.text
-    fwd = _mock_celery["kwargs"]["pipeline_stages"]
+    fwd = _mock_celery["request"].pipeline_stages
     assert fwd[1]["input"] == {"mode": "crop"}
 
 
@@ -663,7 +659,7 @@ async def test_bakes_geometry_delivery_for_box_seg_child(
     ]
     resp = await _post_stages(httpx_client, token, proj, detect, batch, stages)
     assert resp.status_code == 200, resp.text
-    fwd = _mock_celery["kwargs"]["pipeline_stages"]
+    fwd = _mock_celery["request"].pipeline_stages
     assert fwd[1]["input"] == {"mode": "geometry"}
 
 
@@ -695,7 +691,7 @@ async def test_explicit_input_mode_not_overridden(
     ]
     resp = await _post_stages(httpx_client, token, proj, detect, batch, stages)
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["pipeline_stages"][1]["input"] == {"mode": "geometry"}
+    assert _mock_celery["request"].pipeline_stages[1]["input"] == {"mode": "geometry"}
 
 
 @pytest.mark.asyncio
@@ -709,7 +705,7 @@ async def test_label_forwarded_to_worker(
     stages[1]["label"] = "hat"
     resp = await _post_stages(httpx_client, token, proj, detect, batch, stages)
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["pipeline_stages"][1]["label"] == "hat"
+    assert _mock_celery["request"].pipeline_stages[1]["label"] == "hat"
 
 
 @pytest.mark.asyncio
@@ -730,7 +726,7 @@ async def test_pipeline_source_backend_overrides_top_level_compat_field(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["args"][1] == str(classify.id)
+    assert _mock_celery["request"].ml_backend_id == str(classify.id)
 
 
 @pytest.mark.asyncio

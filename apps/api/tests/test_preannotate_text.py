@@ -94,22 +94,17 @@ async def _seed(
 
 @pytest.fixture
 def _mock_celery(monkeypatch):
-    """把 batch_predict.delay 替换成假 job 对象，避免真触发 Celery。"""
     captured: dict = {}
 
-    class _FakeJob:
-        id = "fake-job-uuid"
-
-    # v0.19.5 · 派发改用 apply_async(args=, kwargs=, queue=)。
-    def _fake_apply_async(args=None, kwargs=None, queue=None, **_extra):
-        captured["args"] = tuple(args or ())
-        captured["kwargs"] = kwargs or {}
+    def fake_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
+        captured["request"] = request
         captured["queue"] = queue
-        return _FakeJob()
+        captured["soft_time_limit"] = soft_time_limit
+        return "fake-job-uuid"
 
-    from app.workers import tasks as worker_tasks
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
-    monkeypatch.setattr(worker_tasks.batch_predict, "apply_async", _fake_apply_async)
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
     return captured
 
 
@@ -191,7 +186,7 @@ async def test_preannotate_unassigned_draft_batch_allowed(
     data = resp.json()
     assert data["status"] == "queued"
     assert data["total_tasks"] == 3
-    assert _mock_celery["kwargs"]["batch_id"] == str(batch.id)
+    assert _mock_celery["request"].batch_id == str(batch.id)
 
 
 @pytest.mark.asyncio
@@ -269,7 +264,7 @@ async def test_preannotate_explicit_tasks_in_unassigned_draft_allowed(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["args"][2] == sorted((str(t.id) for t in tasks))
+    assert _mock_celery["request"].task_ids == sorted((str(t.id) for t in tasks))
 
 
 @pytest.mark.asyncio
@@ -326,10 +321,10 @@ async def test_preannotate_happy_path_text_box_mode(
     assert data["channel"] == f"project:{proj.id}:preannotate"
 
     # delay 收到的 kwargs 透传 prompt + output_mode + batch_id
-    assert _mock_celery["kwargs"]["prompt"] == "ripe apples"
-    assert _mock_celery["kwargs"]["output_mode"] == "box"
-    assert _mock_celery["kwargs"]["batch_id"] == str(batch.id)
-    assert _mock_celery["kwargs"]["user_id"] == str(owner.id)
+    assert _mock_celery["request"].prompt == "ripe apples"
+    assert _mock_celery["request"].output_mode == "box"
+    assert _mock_celery["request"].batch_id == str(batch.id)
+    assert _mock_celery["request"].user_id == str(owner.id)
 
 
 @pytest.mark.asyncio
@@ -350,8 +345,8 @@ async def test_preannotate_forwards_model_id_and_task_type(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["task"] == "ocr"
-    assert _mock_celery["kwargs"]["model_id"] == "pp-ocrv4"
+    assert _mock_celery["request"].task == "ocr"
+    assert _mock_celery["request"].model_id == "pp-ocrv4"
 
 
 @pytest.mark.asyncio

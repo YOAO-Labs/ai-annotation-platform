@@ -7,7 +7,11 @@ last_reviewed: 2026-10-17
 
 # 预标注流水线（Prediction Pipeline）
 
-AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` 作为用户可见任务真值，以 `predictions` / `failed_predictions` 保存可采纳结果和失败项。本页讲清 Celery 派发边界、持久化五态、写入时点与下游表的关系。
+AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任务真值，以 `predictions` / `failed_predictions` 保存可采纳结果和失败项。本页讲清应用用例、Celery 派发边界、持久化五态及写入时点。
+
+`application/preannotation_contract.py::BatchPredictionRequest` 固定现有任务参数，`preannotation_execution.run_preannotation` 持有批量/分阶段编排和数据库资源生命周期。HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction_dispatch.py` 保留原 Celery 参数、执行 ID、设备队列及 tracker 超时；`workers/tasks.py::batch_predict` 保留原注册名/签名与失败钩子，直接调用应用命令。
+
+帧模式在应用的同一 Session 中逐任务读取元数据，仅把任务 ID/帧数、阶段配置与作业/执行 ID 交给帧派发端口。`workers/frame_preannotate.py` 负责段规划、Redis 进度和两阶段 chord；无帧时由应用完成空作业，派发后由既有帧任务完成预测与收尾。进程内请求保留原 JSON 引用，调用完成前由调用方持有；没有增加本地 RPC 或新的 ML 协议。
 
 > 决策依据：[ADR 0014 — Prediction Jobs 历史表](../adr/archive/0014-prediction-jobs-table)
 
@@ -141,7 +145,7 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 
 `PreannotateRequest`（`apps/api/app/schemas/preannotate.py`）新增 `params: dict | None` 字段，由前端按选中 backend 的 `/setup.params` 用 SchemaForm 渲染并按 backend 记忆（`User.preferences.ai.params_by_backend`）后带上。
 
-Worker（`apps/api/app/workers/tasks.py::batch_predict`）构建 `/predict` context 时：
+应用命令（`apps/api/app/application/preannotation_execution.py::run_preannotation`）构建 `/predict` context 时：
 
 ```python
 if params:
@@ -152,7 +156,7 @@ if params:
 
 ## 幂等预标模式（predict_mode）
 
-`PreannotateRequest.predict_mode`（`apps/api/app/schemas/preannotate.py`）是 `Literal["skip_predicted", "overwrite", "append"]`，默认 `skip_predicted`，由 worker（`apps/api/app/workers/tasks.py::batch_predict` / `_run_batch`）透传决定 task 选取与旧预测处理：
+`PreannotateRequest.predict_mode`（`apps/api/app/schemas/preannotate.py`）是 `Literal["skip_predicted", "overwrite", "append"]`，默认 `skip_predicted`，由应用命令（`apps/api/app/application/preannotation_execution.py::run_preannotation`）决定 task 选取与旧预测处理：
 
 | 模式                     | task 选取                                                            | 旧预测处理                                                                                          | 用途                                      |
 | ------------------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------- |
@@ -201,7 +205,7 @@ if params:
 
 ### 下游投递路由（`_resolve_input_mode`）
 
-worker 解析投递模式：端点（`apps/api/app/api/v1/projects.py`）按下游 model 的 `supported_inputs` + `write.target` 烘焙 `input.mode`，worker（`apps/api/app/workers/tasks.py::_resolve_input_mode`）只读已烘焙的字段，缺省回落 `write.target` 启发式（产几何→`geometry`，产属性→`crop`）。
+应用层解析投递模式：端点（`apps/api/app/api/v1/projects.py`）按下游 model 的 `supported_inputs` + `write.target` 烘焙 `input.mode`，`apps/api/app/application/preannotation_execution.py::_resolve_input_mode` 只读已烘焙的字段，缺省回落 `write.target` 启发式（产几何→`geometry`，产属性→`crop`）。
 
 | `write.target` × 下游 `supported_inputs`                        | 投递模式               | 投递内容                                                                                  | 典型场景                                                         |
 | --------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
@@ -338,7 +342,9 @@ Resident、CPU fallback、Unloaded 或保守 Unknown。容量不足时，authori
 ## 代码索引
 
 - 模型：`apps/api/app/db/models/async_job.py`、`apps/api/app/db/models/prediction.py`
-- Worker：`apps/api/app/workers/tasks.py::batch_predict` / `_run_batch` / `_run_task_pipeline` / `_resolve_input_mode`
+- 请求与派发：`apps/api/app/application/preannotation_contract.py`、`apps/api/app/workers/batch_prediction_dispatch.py`
+- 应用编排：`apps/api/app/application/preannotation_execution.py::run_preannotation`、`_run_task_pipeline`、`_resolve_input_mode`
+- Celery 适配：`apps/api/app/workers/tasks.py::batch_predict` 与失败钩子、`apps/api/app/workers/frame_preannotate.py` 的帧 chord
 - ROI 路由：`apps/api/app/services/prediction_roi.py`（`crop_inputs_from_boxes` / `geometry_prompts_from_boxes` / `merge_classify_attributes` / `remap_geometry_to_image`）
 - 上下文与原图：`apps/api/app/services/prediction_context.py`（`build_predict_context` / `model_label` / `load_task_image`）
 - 进度发布：`apps/api/app/services/prediction_progress.py::publish_progress`

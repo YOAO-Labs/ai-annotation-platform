@@ -1445,7 +1445,7 @@ async def predict_frame(
     if is_controlled(cfg.get("model_id")) or cfg.get("frozen_model_ref"):
         raise HTTPException(status_code=422, detail="受控模型当前不支持视频单帧预标注")
 
-    # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 workers/tasks.py `_run_batch`)。
+    # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 application/preannotation_execution.py batch prediction)。
     project = await db.get(Project, project_id)
     try:
         context = build_predict_context(

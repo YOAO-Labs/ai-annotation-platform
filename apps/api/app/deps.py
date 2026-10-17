@@ -17,6 +17,7 @@ from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.dataset_task_facts import ProjectTaskSourceReader
 from app.services.job_execution_control import JobExecutionControl
 from app.services.prediction_retry import PredictionRetryDispatcher
+from app.application.preannotation_contract import BatchPredictionDispatcher
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
@@ -86,6 +87,15 @@ def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:
     from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
 
     return CeleryPredictionRetryDispatcher()
+
+
+def get_batch_prediction_dispatcher() -> BatchPredictionDispatcher:
+    """Bind batch prediction dispatch at the HTTP composition boundary."""
+    from app.workers.batch_prediction_dispatch import (
+        CeleryBatchPredictionDispatcher,
+    )
+
+    return CeleryBatchPredictionDispatcher()
 
 
 def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:

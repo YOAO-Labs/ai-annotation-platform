@@ -3,6 +3,10 @@ import logging
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from app.application.preannotation_contract import (
+    BatchPredictionDispatcher,
+    BatchPredictionRequest,
+)
 from app.application.project_workspace import (
     transfer_project_owner as transfer_project_owner_workflow,
 )
@@ -22,6 +26,7 @@ from app.deps import (
     require_project_visible,
     require_project_owner,
     require_project_capability,
+    get_batch_prediction_dispatcher,
 )
 from app.db.enums import (
     PROJECT_ROLES,
@@ -1688,6 +1693,9 @@ async def trigger_preannotation(
         alias="Idempotency-Key",
         description="Optional durable identity for retrying a scoped preannotation request.",
     ),
+    batch_dispatcher: BatchPredictionDispatcher = Depends(
+        get_batch_prediction_dispatcher
+    ),
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
@@ -1772,7 +1780,7 @@ async def trigger_preannotation(
     pipeline_stages_payload: list[dict] | None = None
     if body.pipeline_stages:
         norm: list[dict] = []
-        # v0.20.21 · stage号→(caps, model_id) map, 源阶段固定 stage=0 (worker tasks.py:753)。
+        # v0.20.21 · stage号→(caps, model_id) map, source stage is identified by parent_stage=None.
         # 循环内填各下游 caps, 循环后校验「上游产出几何可否作下游 ROI」。
         stage_caps: dict[int, tuple[dict, object]] = {
             next(
@@ -1941,8 +1949,6 @@ async def trigger_preannotation(
             hint_conds.append(TaskModel.total_predictions == 0)
         count_q = await db.execute(select(func.count(TaskModel.id)).where(*hint_conds))
         total_tasks_hint = int(count_q.scalar_one() or 0)
-
-    from app.workers.tasks import batch_predict
 
     # v0.19.5 · 设备感知路由: 全 CPU pipeline → cpu 队列; 任一 GPU/未自报阶段 → gpu(ml) 队列 (零退化)。
     queue = resolve_preannotate_queue(
@@ -2131,49 +2137,42 @@ async def trigger_preannotation(
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await db.commit()
 
-    apply_opts: dict = {"queue": queue}
-    if has_tracker_stage:
-        apply_opts["soft_time_limit"] = settings.tracker_soft_time_limit_seconds
-    if precreated_job is not None:
-        apply_opts["task_id"] = str(precreated_job.id)
+    soft_time_limit = (
+        settings.tracker_soft_time_limit_seconds if has_tracker_stage else None
+    )
+    batch_request = BatchPredictionRequest(
+        project_id=str(project.id),
+        ml_backend_id=str(source_backend_id),
+        task_ids=(
+            [str(tid) for tid in explicit_task_ids] if explicit_task_ids else None
+        ),
+        prompt=body.prompt,
+        output_mode=body.output_mode,
+        batch_id=str(body.batch_id) if body.batch_id else None,
+        user_id=str(current_user.id),
+        params=body.params or None,
+        predict_mode=body.predict_mode,
+        # v0.14.9 · protocol v2 resolves the durable controlled model identity here.
+        model_id=(
+            f"trained:{frozen_model_ref['model_version_id']}"
+            if frozen_model_ref
+            else body.model_id
+        ),
+        task=body.task,
+        prompt_type=body.prompt_type,
+        model_variants=body.model_variants,
+        class_filter=body.class_filter,
+        pipeline_stages=pipeline_stages_payload,
+        execution_unit=execution_unit,
+        execution_scope=body.execution_scope,
+        async_job_id=str(precreated_job.id) if precreated_job is not None else None,
+        frozen_model_ref=frozen_model_ref,
+    )
     try:
-        job = batch_predict.apply_async(
-            args=[
-                str(project.id),
-                str(source_backend_id),
-                [str(tid) for tid in explicit_task_ids] if explicit_task_ids else None,
-            ],
-            kwargs={
-                "prompt": body.prompt,
-                "output_mode": body.output_mode,
-                "batch_id": str(body.batch_id) if body.batch_id else None,
-                "user_id": str(current_user.id),
-                "params": body.params or None,
-                "predict_mode": body.predict_mode,
-                # v0.14.9 · 协议 v2: 多模型路由 + task 别名透传到 /predict context
-                "model_id": f"trained:{frozen_model_ref['model_version_id']}"
-                if frozen_model_ref
-                else body.model_id,
-                "task": body.task,
-                "prompt_type": body.prompt_type,
-                # v0.14.17 · 协议 v2 结构化 variant 路径 (YOLO) + 类别白名单
-                "model_variants": body.model_variants,
-                "class_filter": body.class_filter,
-                # v0.18.1 · 多阶段预标注: 非空时 worker 走阶段化编排 (detect→ROI→classify)
-                "pipeline_stages": pipeline_stages_payload,
-                # v0.21.7 · 执行单位 (video/frame/scene): frame → 逐帧 fan-out。缺省=整段/逐题。
-                "execution_unit": execution_unit,
-                # issue #121 · 执行场景透传 worker: workbench 单题允许 in_progress / draft,
-                # bulk 保持 pending + active 批次前置条件。
-                "execution_scope": body.execution_scope,
-                **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
-                **(
-                    {"async_job_id": str(precreated_job.id)}
-                    if precreated_job is not None
-                    else {}
-                ),
-            },
-            **apply_opts,
+        dispatched_id = batch_dispatcher.dispatch(
+            batch_request,
+            queue=queue,
+            soft_time_limit=soft_time_limit,
         )
     except Exception as exc:
         if precreated_job is not None:
@@ -2198,7 +2197,7 @@ async def trigger_preannotation(
         request=request,
         status_code=200,
         detail={
-            "job_id": str(precreated_job.id) if precreated_job else job.id,
+            "job_id": str(precreated_job.id) if precreated_job else dispatched_id,
             "ml_backend_id": str(source_backend_id),
             "batch_id": str(body.batch_id) if body.batch_id else None,
             "task_count": (
@@ -2228,11 +2227,11 @@ async def trigger_preannotation(
         warnings.append(msg)
         logger.warning("[ai-pre] %s", msg)
     return {
-        "job_id": str(precreated_job.id) if precreated_job else job.id,
+        "job_id": str(precreated_job.id) if precreated_job else dispatched_id,
         "status": "queued",
         "total_tasks": total_tasks_hint,
         "channel": f"project:{project.id}:preannotate",
-        **({"celery_task_id": job.id} if precreated_job else {}),
+        **({"celery_task_id": dispatched_id} if precreated_job else {}),
         "warnings": warnings,
     }
 

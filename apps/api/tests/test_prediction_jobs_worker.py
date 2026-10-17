@@ -1,11 +1,11 @@
-"""v0.10.49 · batch_predict worker 写入单测（async_jobs 单一真值）.
+"""v0.10.49 · preannotation application 写入单测（async_jobs 单一真值）.
 
-v0.10.49 收敛后 prediction_jobs 专表已删，worker 直接以 async_jobs 为工作状态。
+v0.10.49 收敛后 prediction_jobs 专表已删，application command 直接以 async_jobs 为工作状态。
 覆盖：
-1. _mark_job_failed 把 running async_job 翻成 failed + 写 error_message
-2. _mark_job_failed 跳过已 completed async_job 不覆盖
-3. _run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result
-4. _run_batch 把请求 params 合并进 /predict context
+1. Worker failure hook 把 running async_job 翻成 failed + 写 error_message
+2. Worker failure hook 跳过已 completed async_job 不覆盖
+3. Application command 把每条 PredictionResult.meta.total_cost 累加进 async_job.result
+4. Application command 把请求 params 合并进 /predict context
 
 AsyncJob ORM / celery_task_id 反查由 test_async_jobs.py 覆盖，本文件不重复。
 """
@@ -24,6 +24,21 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.notification import Notification
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
+from app.workers import tasks as worker_tasks
+
+
+async def _run_batch(**kwargs):
+    """Exercise the application command with the existing test database session."""
+    from app.application.preannotation_contract import BatchPredictionRequest
+    from app.application.preannotation_execution import run_preannotation
+
+    execution_id = kwargs.pop("celery_task_id", None)
+    frame_dispatcher = kwargs.pop("frame_dispatcher", None)
+    return await run_preannotation(
+        BatchPredictionRequest(**kwargs),
+        execution_id=execution_id,
+        frame_dispatcher=frame_dispatcher,
+    )
 
 
 def test_retryable_request_context_has_hard_size_limit():
@@ -110,8 +125,6 @@ async def test_mark_job_failed_updates_running_row(
     await db_session.flush()
     job_id = job.id
 
-    from app.workers import tasks as worker_tasks  # noqa: F401
-
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
 
@@ -147,8 +160,6 @@ async def test_mark_job_failed_skips_already_completed(
     await db_session.flush()
     job_id = job.id
 
-    from app.workers import tasks as worker_tasks
-
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
 
@@ -164,13 +175,125 @@ async def test_mark_job_failed_skips_already_completed(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("frame_counts", "receipt", "expected_status"),
+    [
+        ([9, 0], (True, 2, 9), AsyncJobStatus.RUNNING.value),
+        ([0], (False, 0, 0), AsyncJobStatus.COMPLETED.value),
+    ],
+)
+async def test_frame_execution_uses_existing_session_and_dispatches_facts(
+    db_session: AsyncSession,
+    monkeypatch,
+    super_admin,
+    frame_counts,
+    receipt,
+    expected_status,
+):
+    """Frame metadata stays in the batch session and only facts cross the worker port."""
+    from types import SimpleNamespace
+
+    from app.application.preannotation_contract import (
+        FramePreannotationDispatchReceipt,
+        TaskFrameCount,
+    )
+    from app.db.models.task import Task
+
+    user, _ = super_admin
+    project, backend = await _seed_project_and_backend(db_session, user.id)
+    tasks = [
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            display_id=f"T-VIDEO-{index}",
+            file_name=f"video-{index}.mp4",
+            file_path=f"video/{index}.mp4",
+            file_type="video",
+            status="pending",
+        )
+        for index in range(len(frame_counts))
+    ]
+    db_session.add_all(tasks)
+    await db_session.flush()
+
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+
+    context_reads = []
+    frame_count_by_task = {
+        task.id: frame_count
+        for task, frame_count in zip(tasks, frame_counts, strict=True)
+    }
+
+    async def build_context(db, task):
+        assert db is db_session
+        context_reads.append(task.id)
+        frame_count = frame_count_by_task[task.id]
+        return SimpleNamespace(metadata=SimpleNamespace(frame_count=frame_count))
+
+    monkeypatch.setattr(
+        "app.services.video_frame_service.build_context_from_task", build_context
+    )
+
+    dispatched = []
+
+    async def frame_dispatcher(request):
+        dispatched.append(request)
+        return FramePreannotationDispatchReceipt(*receipt)
+
+    def unexpected_image_inference(*_args, **_kwargs):
+        raise AssertionError("frame execution must not enter image inference")
+
+    monkeypatch.setattr(
+        "app.services.ml_routing.client.RoutedMLBackendClient",
+        unexpected_image_inference,
+    )
+
+    await _run_batch(
+        project_id=str(project.id),
+        user_id=str(user.id),
+        ml_backend_id=str(backend.id),
+        task_ids=[str(task.id) for task in tasks],
+        execution_unit="frame",
+        frame_dispatcher=frame_dispatcher,
+    )
+
+    assert len(context_reads) == len(tasks)
+    assert set(context_reads) == {task.id for task in tasks}
+    assert len(dispatched) == 1
+    assert set(dispatched[0].task_frame_counts) == {
+        TaskFrameCount(str(task.id), frame_count)
+        for task, frame_count in zip(tasks, frame_counts, strict=True)
+        if frame_count > 0
+    }
+    assert dispatched[0].project_id == str(project.id)
+    assert dispatched[0].ml_backend_id == str(backend.id)
+    assert dispatched[0].job_id
+
+    job = (
+        await db_session.execute(
+            select(AsyncJob).where(
+                AsyncJob.kind == "batch_predict",
+                AsyncJob.project_id == project.id,
+            )
+        )
+    ).scalar_one()
+    assert job.status == expected_status
+    if expected_status == AsyncJobStatus.COMPLETED.value:
+        assert job.result["execution_unit"] == "frame"
+        assert job.result["reason"] == "no_frames"
+
+
+@pytest.mark.asyncio
 async def test_run_batch_accumulates_total_cost(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
     """v0.10.49 · _run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result."""
     from app.db.models.task import Task
     from app.services.ml_client import PredictionResult
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -222,7 +345,7 @@ async def test_run_batch_accumulates_total_cost(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         user_id=str(user.id),
         ml_backend_id=str(backend.id),
@@ -249,7 +372,6 @@ async def test_run_batch_all_failed_marks_job_failed(
     """B-45 · batch_predict 全部子项失败时 job 落 failed（不再「失败也显示已完成」），
     且仍把 failed_count / failed_prediction_ids 写进 result 供失败重试链路使用。"""
     from app.db.models.task import Task
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -286,7 +408,7 @@ async def test_run_batch_all_failed_marks_job_failed(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         user_id=str(user.id),
         ml_backend_id=str(backend.id),
@@ -333,7 +455,6 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -372,7 +493,7 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         user_id=str(user.id),
         ml_backend_id=str(backend.id),
@@ -430,7 +551,6 @@ async def test_run_batch_stops_on_cooperative_cancel(
     """v0.10.51 · batch_predict 在任务边界看到 cancel_requested 后落 cancelled。"""
     from app.db.models.task import Task
     from app.services.ml_client import PredictionResult
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -489,7 +609,7 @@ async def test_run_batch_stops_on_cooperative_cancel(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t.id) for t in tasks],
@@ -540,7 +660,6 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     from app.services.ml_client import PredictionResult
     from app.services.labeling_prediction_contract import ApplyPredictionResultError
     from app.services.prediction import PredictionService
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -609,7 +728,7 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     # before running so post-run asserts stay plain column queries.
     proj_id = proj.id
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t.id) for t in tasks],
@@ -650,7 +769,6 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -703,7 +821,7 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         user_id=str(user.id),
         ml_backend_id=str(backend.id),
@@ -742,7 +860,6 @@ async def test_run_batch_merges_params_into_context(
     """v0.10.38 · _run_batch 把请求 params 合并进 /predict context, 覆盖项目级阈值兜底."""
     from app.db.models.task import Task
     from app.services.ml_client import PredictionResult
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -789,7 +906,7 @@ async def test_run_batch_merges_params_into_context(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         user_id=str(user.id),
         ml_backend_id=str(backend.id),
@@ -811,7 +928,6 @@ async def test_run_batch_passes_model_id_and_task_type_into_context(
     """An OCR legacy task input produces a canonical task and model identity."""
     from app.db.models.task import Task
     from app.services.ml_client import PredictionResult
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -857,7 +973,7 @@ async def test_run_batch_passes_model_id_and_task_type_into_context(
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
     # 无 prompt: 纯图片 OCR, 仅靠 task_type / model_id 起 context
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         user_id=str(user.id),
         ml_backend_id=str(backend.id),
@@ -889,7 +1005,6 @@ async def test_run_batch_pure_text_prompt_unchanged_without_v2_args(
     """v0.14.9 · 回归: 无 model_id / task_type 时纯文本 prompt 现状不变 (type=text)。"""
     from app.db.models.task import Task
     from app.services.ml_client import PredictionResult
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -934,7 +1049,7 @@ async def test_run_batch_pure_text_prompt_unchanged_without_v2_args(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         user_id=str(user.id),
         ml_backend_id=str(backend.id),
@@ -987,7 +1102,6 @@ async def test_run_batch_workbench_scope_runs_in_progress_task(
     from app.db.models.task import Task
     from app.db.models.task_lock import TaskLock
     from app.services.ml_client import PredictionResult
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -1040,7 +1154,7 @@ async def test_run_batch_workbench_scope_runs_in_progress_task(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    await worker_tasks._run_batch(
+    await _run_batch(
         project_id=str(proj.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t1.id)],
@@ -1069,7 +1183,6 @@ async def test_run_batch_workbench_scope_rejects_non_editable_status(
 ):
     """review #121 · workbench 白名单外状态 (uploading / 终态) 一律拒绝。"""
     from app.db.models.task import Task
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -1092,7 +1205,7 @@ async def test_run_batch_workbench_scope_rejects_non_editable_status(
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
     with pytest.raises(ValueError, match="not editable"):
-        await worker_tasks._run_batch(
+        await _run_batch(
             project_id=str(proj.id),
             ml_backend_id=str(backend.id),
             task_ids=[str(t1.id)],
@@ -1111,7 +1224,6 @@ async def test_run_batch_workbench_scope_rejects_foreign_lock_alongside_own(
 
     from app.db.models.task import Task
     from app.db.models.task_lock import TaskLock
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     other, _ = annotator
@@ -1147,7 +1259,7 @@ async def test_run_batch_workbench_scope_rejects_foreign_lock_alongside_own(
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
     with pytest.raises(ValueError, match="locked for editing"):
-        await worker_tasks._run_batch(
+        await _run_batch(
             project_id=str(proj.id),
             ml_backend_id=str(backend.id),
             task_ids=[str(t1.id)],
@@ -1163,7 +1275,6 @@ async def test_run_batch_bulk_scope_rejects_in_progress_task(
 ):
     """Issue #121 · bulk 路径仍拒绝非 pending 任务 (防止批量前置条件退化)。"""
     from app.db.models.task import Task
-    from app.workers import tasks as worker_tasks
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -1186,7 +1297,7 @@ async def test_run_batch_bulk_scope_rejects_in_progress_task(
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
     with pytest.raises(ValueError, match="no longer pending"):
-        await worker_tasks._run_batch(
+        await _run_batch(
             project_id=str(proj.id),
             ml_backend_id=str(backend.id),
             task_ids=[str(t1.id)],

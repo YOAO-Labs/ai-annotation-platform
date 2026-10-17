@@ -150,6 +150,11 @@ last_reviewed: 2026-10-17
    `annotation_evidence`，应用组合反馈、审计和通知。整批默认 200 题分块提交，
    不与单题事务或最终批次投影提交合并。
 5. 领域执行派发：
+   - 批量预标注：`application/preannotation_contract.BatchPredictionDispatcher` →
+     `deps.get_batch_prediction_dispatcher` → `workers/batch_prediction_dispatch.py`；
+     原 `workers.tasks.batch_predict` 参数/任务名保留，批量及分阶段状态机在
+     `application/preannotation_execution.py`。帧元数据在同 Session 读取，ID/帧数事实
+     经注入端口交给 `workers/frame_preannotate.py` 规划与派发 chord。
    - 质量：`app/services/quality_job_dispatch.py::QualityJobDispatcher` →
      `app/deps.py::get_quality_job_dispatcher` 装配
      `app/workers/quality_dispatch.py::CeleryQualityJobDispatcher`；

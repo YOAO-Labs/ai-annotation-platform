@@ -122,6 +122,8 @@ services/
 
 `services/prediction_context.py` 持有规范化预测上下文、模型展示名及原图 RGB 读取；`services/prediction_roi.py` 持有裁剪、父框索引、属性合并和坐标回映；`services/prediction_progress.py` 持有原 Redis 频道与消息构造。HTTP、同步二次推理、批量和逐帧 worker 直接消费这些下层所有者，同步服务不再导入 worker，逐帧 worker 也不再反向导入批量 worker。上下文和 ROI 冷加载不引入 ORM、入口、Celery 或配置；原图读取仍在调用时使用对象存储，进度发布仍绑定现有 Redis/config。执行队列、fan-out、根作业身份、裁剪缓存、授权及提交边界未改，这些本地助手不是新的跨语言协议。
 
+批量执行用例由 `application/preannotation_execution.run_preannotation` 持有，接收纯 `BatchPredictionRequest` 与明确的帧派发能力；数据库创建、正常/提前/异常退出统一由应用的 finally 释放。`deps.get_batch_prediction_dispatcher` 只在入口装配 Celery producer，保留原 task 名、参数、CPU/GPU 队列、预建执行 ID 与 tracker 超时；根 worker 仅适配参数、执行 ID 和失败信号。应用先在当前 Session 读取帧数事实，再调用仅接收 ID/帧数的 chord 端口。最终候选写入仍绑定本地同事务；批量作用域、冻结模型身份、逐题提交与回滚、合作取消、阶段错误和成本统计沿用原行为。
+
 推理产物经 `labeling_prediction_contract.ApplyPredictionResultPort` 的类型化请求交回标注所有者，携带不可变 `labeling_write_scope` 前置事实，不携带权限许可。`PredictionService.apply_prediction_result` 是绑定原 Session 的实现，持有候选、分区 Meta 和预测数写入，只 flush、不提交；回执仅含预测 UUID、UTC 创建时间与派生工具单位，不返回 ORM 或复制几何。错误以稳定 code、retryable、原状态/detail 交付；HTTP 在入口映射，逐帧执行仅对暂态忙锁重试，继续保留未写候选及原作用域。
 
 `AnnotationService` 持有采纳/拒绝及二次推理属性/子框写入，`BatchService` 持有推理后的批次推进。`labeling_write_guard` 复用 `project_access.lock_current_project_access()`，锁定并读取当前账号→项目→成员，保留 Task/批次、编辑 advisory、源版本及作业终态的本地最终写入边界；不信任排队时的角色或 URL 的另一题。当前端口没有远程幂等操作 ID 或独立提交范围；业务 JSON 在调用完成前仍由调用方持有，不能因 dataclass 冻结就当作深层不可变产物。

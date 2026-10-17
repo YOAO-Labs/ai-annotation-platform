@@ -499,7 +499,7 @@ class AnnotationService:
 
         # v0.20.10 · 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
         # 映射。pipeline 是 stage 级 (非 per-key), 但 enriched key = f"{label}_{k}" if label else k
-        # (与 tasks.py:_run_task_pipeline 一致), 故能精确反推每个键出自哪个 stage 的 backend/model。
+        # (与 application/preannotation_execution.py:_run_task_pipeline 一致), 故能精确反推每个键出自哪个 stage 的 backend/model。
         # PredictionMeta 与 prediction 1:1 (prediction_id unique)。confidence 不在 extra 里, 不编造。
         from app.db.models.prediction import PredictionMeta
 

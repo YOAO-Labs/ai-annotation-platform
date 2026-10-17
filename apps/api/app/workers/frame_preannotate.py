@@ -39,6 +39,10 @@ import redis
 from fastapi import HTTPException
 
 from app.config import settings
+from app.application.preannotation_contract import (
+    FramePreannotationDispatchReceipt,
+    FramePreannotationDispatchRequest,
+)
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
     ApplyPredictionResultPort,
@@ -135,46 +139,37 @@ def _bump_progress(job_id: str, done_delta: int) -> tuple[int, int]:
         r.close()
 
 
-# ── 编排入口: 建段 + 派 chord (由 _run_batch 的 frame 分支调用) ────────────────
+# ── 编排入口: 建段 + 派 chord (由应用层 batch command 注入调用) ────────────────
 
 
 async def dispatch_frame_preannotate(
-    db,
-    *,
-    project_id: str,
-    ml_backend_id: str,
-    tasks: list,
-    stage0: dict,
-    job_id: str,
-    celery_root_task_id: str | None,
-) -> dict:
-    """逐帧执行单位编排: 为每个视频 task 规划段 → 建 job 级 chord 派发。
+    request: FramePreannotationDispatchRequest,
+) -> FramePreannotationDispatchReceipt:
+    """Plan and publish frame chords from already-authorized frame facts.
 
-    返回 ``{"dispatched": bool, "segments": int, "total_frames": int}``。
-    ``total_frames==0`` (无可跑帧) 时不派 chord, 由调用方按无操作收尾。
+    The application resolves video metadata in its existing session. This adapter
+    owns only chunk planning, Redis progress initialization and Celery publication.
     """
     from celery import chord, group
 
-    from app.services.video_frame_service import build_context_from_task
-
+    project_id = request.project_id
+    ml_backend_id = request.ml_backend_id
+    stage0 = request.stage0
+    job_id = request.job_id
+    root_execution_id = request.root_execution_id
     max_frames = settings.frame_preannotate_max_frames
     chunk_size = settings.frame_preannotate_chunk_size
-
-    task_frame_counts: list[tuple[str, int]] = []
-    for task in tasks:
-        try:
-            ctx = await build_context_from_task(db, task)
-        except Exception:
-            continue  # 非视频 / 元数据缺失 → 跳过 (该 task 不逐帧)
-        frame_count = int(ctx.metadata.frame_count or 0)
-        if frame_count > 0:
-            task_frame_counts.append((str(task.id), frame_count))
+    task_frame_counts = [
+        (item.task_id, item.frame_count) for item in request.task_frame_counts
+    ]
 
     segments, total_frames = plan_segments(
         task_frame_counts, max_frames=max_frames, chunk_size=chunk_size
     )
     if total_frames <= 0 or not segments:
-        return {"dispatched": False, "segments": 0, "total_frames": 0}
+        return FramePreannotationDispatchReceipt(
+            dispatched=False, segments=0, total_frames=0
+        )
 
     # 每视频全帧计划 (阶段 A 抽帧用; 与 plan_segments 同口径, 全量 step=1)。
     video_plans: list[tuple[str, list[int]]] = []
@@ -203,14 +198,14 @@ async def dispatch_frame_preannotate(
             stage0=stage0,
             job_id=job_id,
             segments=segments,
-            celery_root_task_id=celery_root_task_id,
+            celery_root_task_id=root_execution_id,
         )
     )
-    return {
-        "dispatched": True,
-        "segments": len(segments),
-        "total_frames": total_frames,
-    }
+    return FramePreannotationDispatchReceipt(
+        dispatched=True,
+        segments=len(segments),
+        total_frames=total_frames,
+    )
 
 
 # ── 阶段 A: 每视频抽全帧一次 (走 media 队列, 跨视频并行) ──────────────────────────

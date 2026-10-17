@@ -1123,7 +1123,7 @@ async def _publish_stats_async() -> dict:
         return {"skipped": True, "subscribers": 0}
 
     # Celery prefork + 全局 asyncpg engine 共享会触发 "another operation in progress",
-    # 用 per-task engine + NullPool 模式 (与 tasks._run_batch 一致). 1s 高频但单次 < 50ms.
+    # 用 per-task engine + NullPool 模式 (与 application.run_preannotation 一致). 1s 高频但单次 < 50ms.
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False

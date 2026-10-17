@@ -101,19 +101,15 @@ def _own_lock(db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID) -> None:
 def _mock_celery(monkeypatch):
     captured: dict = {}
 
-    class _FakeJob:
-        id = "fake-job-uuid"
-
-    def _fake_apply_async(args=None, kwargs=None, queue=None, **extra):
-        captured["args"] = tuple(args or ())
-        captured["kwargs"] = kwargs or {}
+    def fake_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
+        captured["request"] = request
         captured["queue"] = queue
-        captured["extra"] = extra
-        return _FakeJob()
+        captured["soft_time_limit"] = soft_time_limit
+        return "fake-job-uuid"
 
-    from app.workers import tasks as worker_tasks
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
-    monkeypatch.setattr(worker_tasks.batch_predict, "apply_async", _fake_apply_async)
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
     return captured
 
 
@@ -138,9 +134,9 @@ async def test_workbench_scope_allows_in_progress_draft_with_own_lock(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["execution_scope"] == "workbench"
-    assert _mock_celery["args"][2] == [str(task.id)]
-    assert _mock_celery["extra"]["task_id"] == resp.json()["job_id"]
+    assert _mock_celery["request"].execution_scope == "workbench"
+    assert _mock_celery["request"].task_ids == [str(task.id)]
+    assert _mock_celery["request"].async_job_id == resp.json()["job_id"]
 
     # issue #121 review · 工作台单题请求预建持久作业, 使 worker 早期校验失败也有终态记录。
     job_id = uuid.UUID(resp.json()["job_id"])

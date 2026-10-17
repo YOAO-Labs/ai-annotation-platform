@@ -1,0 +1,81 @@
+"""Pure command and runtime-port types for batch prediction execution."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+
+@dataclass(frozen=True, slots=True)
+class BatchPredictionRequest:
+    """JSON-safe facts passed by the HTTP/Celery boundary into the use case.
+
+    ``task_ids=None`` means select from the project/batch scope; ``[]`` means
+    select no tasks. ``pipeline_stages=None`` or ``[]`` selects the legacy
+    single-stage configuration. ``async_job_id=None`` asks the application to
+    create its job. A missing or null frozen reference means no frozen identity;
+    a supplied snapshot is retained. ``execution_scope`` defaults to ``bulk``
+    only when omitted and otherwise passes through unchanged, including ``None``.
+    Nested JSON retains its existing representation to avoid copying model configs.
+    """
+
+    project_id: str
+    ml_backend_id: str
+    task_ids: list[str] | None = None
+    prompt: str | None = None
+    output_mode: str = "mask"
+    batch_id: str | None = None
+    user_id: str | None = None
+    params: dict[str, Any] | None = None
+    predict_mode: str = "skip_predicted"
+    model_id: str | None = None
+    task_type: str | None = None
+    model_variants: dict[str, Any] | None = None
+    class_filter: list[int] | None = None
+    pipeline_stages: list[dict[str, Any]] | None = None
+    execution_unit: str | None = None
+    execution_scope: str | None = "bulk"
+    async_job_id: str | None = None
+    frozen_model_ref: dict[str, Any] | None = None
+    task: str | None = None
+    prompt_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskFrameCount:
+    task_id: str
+    frame_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class FramePreannotationDispatchRequest:
+    project_id: str
+    ml_backend_id: str
+    task_frame_counts: tuple[TaskFrameCount, ...]
+    stage0: dict[str, Any]
+    job_id: str
+    root_execution_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FramePreannotationDispatchReceipt:
+    dispatched: bool
+    segments: int
+    total_frames: int
+
+
+class FramePreannotationDispatcher(Protocol):
+    async def __call__(
+        self, request: FramePreannotationDispatchRequest
+    ) -> FramePreannotationDispatchReceipt: ...
+
+
+class BatchPredictionDispatcher(Protocol):
+    def dispatch(
+        self,
+        request: BatchPredictionRequest,
+        *,
+        queue: str,
+        soft_time_limit: int | None = None,
+    ) -> str:
+        """Publish one unchanged batch_predict task and return its execution ID."""

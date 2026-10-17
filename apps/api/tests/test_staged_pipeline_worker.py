@@ -1,4 +1,4 @@
-"""v0.18.1 · 多阶段预标注 worker 核心 (_run_task_pipeline) 单测 (路径 B M1).
+"""v0.18.1 · 多阶段预标注 application 核心 (_run_task_pipeline) 单测 (路径 B M1).
 
 用假 stage client + monkeypatch 图像加载, 验证:
 - 单阶段: 等价于直接 predict, extra=None (回归路径)。
@@ -18,7 +18,7 @@ from app.services.gpu_arbitration.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )
-from app.workers import tasks as worker_tasks
+from app.application import preannotation_execution as worker_tasks
 
 
 @dataclass

@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import uuid
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -35,14 +34,12 @@ def _bearer(token: str) -> dict[str, str]:
 async def test_explicit_preannotation_retries_reuse_job_and_reject_changed_scope(
     httpx_client, super_admin, db_session, monkeypatch
 ):
-    from app.workers.tasks import batch_predict
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
     owner, token = super_admin
     project, backend, _batch, tasks = await _seed(db_session, owner.id)
-    dispatch = Mock(
-        return_value=SimpleNamespace(id="broker-wrapper-different-from-job")
-    )
-    monkeypatch.setattr(batch_predict, "apply_async", dispatch)
+    dispatch = Mock(return_value="broker-wrapper-different-from-job")
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", dispatch)
     headers = {**_bearer(token), "Idempotency-Key": f"predict-{uuid.uuid4()}"}
     body = {"ml_backend_id": str(backend.id), "task_ids": [str(tasks[0].id)]}
     endpoint = f"/api/v1/projects/{project.id}/preannotate"
@@ -69,7 +66,7 @@ async def test_explicit_preannotation_retries_reuse_job_and_reject_changed_scope
 async def test_explicit_preannotation_rechecks_task_and_batch_scope_before_dispatch(
     httpx_client, super_admin, db_session, monkeypatch
 ):
-    from app.workers.tasks import batch_predict
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
     owner, token = super_admin
     project, backend, batch, tasks = await _seed(db_session, owner.id)
@@ -78,7 +75,7 @@ async def test_explicit_preannotation_rechecks_task_and_batch_scope_before_dispa
     )
     assert foreign_project.id != project.id
     dispatch = Mock()
-    monkeypatch.setattr(batch_predict, "apply_async", dispatch)
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", dispatch)
     endpoint = f"/api/v1/projects/{project.id}/preannotate"
     body = {"ml_backend_id": str(backend.id), "task_ids": [str(tasks[0].id)]}
     foreign = await httpx_client.post(
@@ -163,19 +160,15 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
 def _mock_celery(monkeypatch):
     captured: dict = {}
 
-    class _FakeJob:
-        id = "fake-job-uuid"
-
-    # v0.19.5 · 派发改用 apply_async(args=, kwargs=, queue=)。
-    def _fake_apply_async(args=None, kwargs=None, queue=None, **_extra):
-        captured["args"] = tuple(args or ())
-        captured["kwargs"] = kwargs or {}
+    def fake_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
+        captured["request"] = request
         captured["queue"] = queue
-        return _FakeJob()
+        captured["soft_time_limit"] = soft_time_limit
+        return "fake-job-uuid"
 
-    from app.workers import tasks as worker_tasks
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
-    monkeypatch.setattr(worker_tasks.batch_predict, "apply_async", _fake_apply_async)
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
     return captured
 
 
@@ -191,7 +184,7 @@ async def test_predict_mode_defaults_skip_predicted(
         json={"ml_backend_id": str(backend.id), "batch_id": str(batch.id)},
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["predict_mode"] == "skip_predicted"
+    assert _mock_celery["request"].predict_mode == "skip_predicted"
 
 
 @pytest.mark.asyncio
@@ -210,7 +203,7 @@ async def test_predict_mode_overwrite_forwarded(
         },
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["predict_mode"] == "overwrite"
+    assert _mock_celery["request"].predict_mode == "overwrite"
 
 
 @pytest.mark.asyncio

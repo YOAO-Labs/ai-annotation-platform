@@ -403,7 +403,7 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     controlled_artifacts,
     monkeypatch,
 ):
-    from app.workers.tasks import batch_predict
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
@@ -427,11 +427,11 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     mock_live_receipts(monkeypatch, db_session)
     await publish(httpx_client, token, project, v1, d1, 0)
     dispatch = Mock(
-        side_effect=lambda **kwargs: SimpleNamespace(
-            id=kwargs.get("task_id", str(uuid.uuid4()))
+        side_effect=lambda request, **_options: (
+            request.async_job_id or str(uuid.uuid4())
         )
     )
-    monkeypatch.setattr(batch_predict, "apply_async", dispatch)
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", dispatch)
     endpoint = f"/api/v1/projects/{project.id}/preannotate"
     body = {
         "ml_backend_id": str(backend.id),
@@ -455,12 +455,11 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     await publish(httpx_client, token, project, v2, d2, 1)
     replay = await httpx_client.post(endpoint, headers=request_headers, json=body)
     assert replay.status_code == 200 and replay.json()["job_id"] == str(job.id)
-    assert dispatch.call_args.kwargs["kwargs"]["frozen_model_ref"] == original_ref
+    assert dispatch.call_args.args[0].frozen_model_ref == original_ref
     fresh = await httpx_client.post(endpoint, headers=headers(token), json=body)
     assert fresh.status_code == 200, fresh.text
     assert (
-        dispatch.call_args.kwargs["kwargs"]["frozen_model_ref"]["model_version_id"]
-        == second["id"]
+        dispatch.call_args.args[0].frozen_model_ref["model_version_id"] == second["id"]
     )
 
 

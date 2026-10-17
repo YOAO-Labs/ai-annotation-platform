@@ -694,6 +694,32 @@ def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
     assert not flagged, f"package root eager-imports high-level module(s): {flagged}"
 
 
+@pytest.mark.parametrize(
+    ("module", "forbidden"),
+    [
+        (
+            "app.application.preannotation_contract",
+            ("app", "sqlalchemy", "fastapi", "celery"),
+        ),
+        (
+            "app.application.preannotation_execution",
+            ("app.api", "app.workers", "celery"),
+        ),
+    ],
+)
+def test_preannotation_application_dependency_boundary(module, forbidden) -> None:
+    path = _SERVICES_DIR.parent.joinpath(*module.split(".")[1:]).with_suffix(".py")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    offenders = [
+        imported
+        for imported, _local in _collect_imports(tree, module)
+        if any(
+            imported == root or imported.startswith(root + ".") for root in forbidden
+        )
+    ]
+    assert not offenders, f"{module}: imports outside its boundary {offenders}"
+
+
 def test_repo_has_no_first_party_legacy_facade_references() -> None:
     """Tracked Python code cannot reintroduce an old facade import or target."""
     offenders: list[str] = []
