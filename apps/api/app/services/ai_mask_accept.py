@@ -29,6 +29,11 @@ from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_propagation import _new_track_id
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.audit import AuditAction, AuditService
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultPort,
+    ApplyPredictionResultReceipt,
+    ApplyPredictionResultRequest,
+)
 from app.services.prediction import PredictionService
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
@@ -380,19 +385,30 @@ async def _load_source_for_update(
     return source
 
 
-def _prediction_out(prediction, *, inference_time_ms: int | None) -> PredictionOut:
+def _prediction_out(
+    prediction: ApplyPredictionResultReceipt,
+    request: ApplyPredictionResultRequest,
+    *,
+    inference_time_ms: int | None,
+) -> PredictionOut:
+    # shortcut: mask result only; read the persisted row if new geometry is added.
+    if len(request.result) != 1 or request.result[0].get("type") not in {
+        "raster_mask",
+        "video_track_mask",
+    }:
+        raise RuntimeError("AI mask accept requires one persisted mask prediction")
     return PredictionOut.model_validate(
         {
             "id": prediction.id,
-            "task_id": prediction.task_id,
-            "project_id": prediction.project_id,
-            "ml_backend_id": prediction.ml_backend_id,
-            "model_version": prediction.model_version,
-            "score": prediction.score,
-            "source": prediction.source,
+            "task_id": request.task_id,
+            "project_id": request.project_id,
+            "ml_backend_id": request.ml_backend_id,
+            "model_version": request.model_version,
+            "score": request.score,
+            "source": request.source,
             "tool_unit_id": prediction.tool_unit_id,
-            "result": prediction.result,
-            "cluster": prediction.cluster,
+            "result": request.result,
+            "cluster": None,
             "created_at": prediction.created_at,
             "inference_time_ms": inference_time_ms,
             "total_cost": None,
@@ -618,7 +634,8 @@ async def accept_ai_mask_candidate(
         job_id=None,
         job_id_known=True,
     )
-    prediction = await PredictionService(db).create_from_ml_result(
+    prediction_writer: ApplyPredictionResultPort = PredictionService(db)
+    prediction_request = ApplyPredictionResultRequest(
         task_id=task.id,
         project_id=task.project_id,
         ml_backend_id=prediction_backend_id,
@@ -643,6 +660,7 @@ async def accept_ai_mask_candidate(
         },
         write_scope=write_scope,
     )
+    prediction = await prediction_writer.apply_prediction_result(prediction_request)
 
     if source is None:
         annotation = await annotation_service.create(
@@ -709,10 +727,11 @@ async def accept_ai_mask_candidate(
         },
     )
     await db.flush()
-    await db.refresh(prediction)
     await db.refresh(annotation)
     response = AiMaskAcceptResponse(
-        prediction=_prediction_out(prediction, inference_time_ms=inference_time_ms),
+        prediction=_prediction_out(
+            prediction, prediction_request, inference_time_ms=inference_time_ms
+        ),
         annotation=AnnotationOut.model_validate(annotation),
         source_version=source_version,
         result_version=annotation.version,

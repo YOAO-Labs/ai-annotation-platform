@@ -14,6 +14,11 @@ from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.services.annotation import AnnotationService
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
+    ApplyPredictionResultRequest,
+    ApplyPredictionResultReceipt,
+)
 from app.services.prediction import PredictionService
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.raster_mask_storage import (
@@ -40,6 +45,18 @@ def _prediction_write_scope(task, actor_id):
         execution_scope_known=True,
         job_id=None,
         job_id_known=True,
+    )
+
+
+async def _apply_prediction(db, task, actor_id, result):
+    return await PredictionService(db).apply_prediction_result(
+        ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=task.project_id,
+            ml_backend_id=None,
+            result=result,
+            write_scope=_prediction_write_scope(task, actor_id),
+        )
     )
 
 
@@ -164,14 +181,8 @@ async def test_prediction_create_gate_off_rejects_before_flush_or_link(
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", False)
 
-    with pytest.raises(RasterMaskContractError) as exc_info:
-        await PredictionService(db_session).create_from_ml_result(
-            task_id=task.id,
-            project_id=project.id,
-            ml_backend_id=None,
-            result=[_shape(reference)],
-            write_scope=_prediction_write_scope(task, user.id),
-        )
+    with pytest.raises(ApplyPredictionResultError) as exc_info:
+        await _apply_prediction(db_session, task, user.id, [_shape(reference)])
 
     assert exc_info.value.detail["reason"] == "raster_mask_create_disabled"
     assert await _count_for_task(db_session, Prediction, task.id) == 0
@@ -206,14 +217,8 @@ async def test_prediction_create_honors_every_effective_rollout_layer(
         }
     await db_session.flush()
 
-    with pytest.raises(RasterMaskContractError) as exc_info:
-        await PredictionService(db_session).create_from_ml_result(
-            task_id=task.id,
-            project_id=project.id,
-            ml_backend_id=None,
-            result=[_shape(reference)],
-            write_scope=_prediction_write_scope(task, user.id),
-        )
+    with pytest.raises(ApplyPredictionResultError) as exc_info:
+        await _apply_prediction(db_session, task, user.id, [_shape(reference)])
 
     assert exc_info.value.detail["reason"] == "raster_mask_create_disabled"
     assert await _count_for_task(db_session, Prediction, task.id) == 0
@@ -234,15 +239,17 @@ async def test_prediction_create_gate_on_validates_then_links(
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
-    prediction = await PredictionService(db_session).create_from_ml_result(
-        task_id=task.id,
-        project_id=project.id,
-        ml_backend_id=None,
-        result=[_shape(reference)],
-        write_scope=_prediction_write_scope(task, user.id),
-    )
+    transaction = db_session.get_transaction()
+    receipt = await _apply_prediction(db_session, task, user.id, [_shape(reference)])
 
     await db_session.refresh(upload)
+    assert isinstance(receipt, ApplyPredictionResultReceipt)
+    assert receipt.created_at is not None
+    assert receipt.tool_unit_id == "region"
+    assert db_session.get_transaction() is transaction
+    prediction = await db_session.scalar(
+        select(Prediction).where(Prediction.id == receipt.id)
+    )
     assert prediction.result[0]["geometry"]["type"] == "raster_mask"
     assert upload.linked_at is not None
     load.assert_awaited_once_with(reference)
@@ -279,14 +286,8 @@ async def test_prediction_create_gate_on_keeps_all_contract_validation(
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
-    with pytest.raises(RasterMaskContractError) as exc_info:
-        await PredictionService(db_session).create_from_ml_result(
-            task_id=task.id,
-            project_id=project.id,
-            ml_backend_id=None,
-            result=[_shape(reference)],
-            write_scope=_prediction_write_scope(task, user.id),
-        )
+    with pytest.raises(ApplyPredictionResultError) as exc_info:
+        await _apply_prediction(db_session, task, user.id, [_shape(reference)])
 
     assert exc_info.value.detail["reason"] == expected_reason
     assert await _count_for_task(db_session, Prediction, task.id) == 0

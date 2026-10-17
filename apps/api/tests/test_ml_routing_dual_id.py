@@ -15,6 +15,7 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.db.models.prediction import Prediction
+from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.ml_backend import MLBackendService
 from app.services.prediction import PredictionService
@@ -30,7 +31,7 @@ def _tiny_jpeg() -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_create_from_ml_result_records_pool_and_instance(
+async def test_apply_prediction_result_records_pool_and_instance(
     db_session, super_admin
 ) -> None:
     """Prediction gets both ml_backend_id (instance) and ml_backend_pool_id (requested pool)."""
@@ -51,19 +52,24 @@ async def test_create_from_ml_result_records_pool_and_instance(
         job_id_known=True,
     )
     pred_svc = PredictionService(db_session)
-    pred = await pred_svc.create_from_ml_result(
-        task_id=task.id,
-        project_id=proj.id,
-        ml_backend_id=backend.id,
-        result=[{"type": "rectangle", "points": [0, 0, 1, 1]}],
-        ml_backend_pool_id=pool.id,
-        write_scope=write_scope,
+    receipt = await pred_svc.apply_prediction_result(
+        ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=proj.id,
+            ml_backend_id=backend.id,
+            result=[{"type": "rectangle", "points": [0, 0, 1, 1]}],
+            ml_backend_pool_id=pool.id,
+            write_scope=write_scope,
+        )
     )
     await db_session.flush()
+    prediction = await db_session.scalar(
+        select(Prediction).where(Prediction.id == receipt.id)
+    )
 
     # Both columns written.
-    assert pred.ml_backend_id == backend.id
-    assert pred.ml_backend_pool_id == pool.id
+    assert prediction.ml_backend_id == backend.id
+    assert prediction.ml_backend_pool_id == pool.id
 
 
 @pytest.mark.asyncio
@@ -144,7 +150,7 @@ async def test_predict_frame_route_records_dual_id(
     """The /predict-frame route records both pool + instance on the persisted Prediction.
 
     This is the integration test for the call-path wiring: the route resolves the pool
-    via MLBackendService.pool_id_for_registry and passes it to create_from_ml_result.
+    via MLBackendService.pool_id_for_registry and passes it to ApplyPredictionResult.
     Mocks the backend HTTP call so we exercise only the persistence path.
     """
     from unittest.mock import AsyncMock, patch

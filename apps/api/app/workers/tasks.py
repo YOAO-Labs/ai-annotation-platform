@@ -8,6 +8,10 @@ import uuid
 
 from app.config import settings
 from app.services import prediction_retry
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultPort,
+    ApplyPredictionResultRequest,
+)
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -881,6 +885,7 @@ async def _run_batch(
             return
 
         pred_svc = PredictionService(db)
+        prediction_writer: ApplyPredictionResultPort = pred_svc
 
         from app.services.storage import resolve_task_url as _resolve_task_url
 
@@ -1095,23 +1100,25 @@ async def _run_batch(
                 executed_pool_id = stage_clients[0].pool_id or source_pool_id
                 final_write_started = True
                 for pred_result in results:
-                    await pred_svc.create_from_ml_result(
-                        task_id=task.id,
-                        project_id=uuid.UUID(project_id),
-                        ml_backend_id=executed_backend_id,
-                        result=pred_result.result,
-                        score=pred_result.score,
-                        model_version=pred_result.model_version,
-                        inference_time_ms=pred_result.inference_time_ms,
-                        token_meta=pred_result.meta,
-                        pipeline_extra=pipeline_extra,
-                        ml_backend_pool_id=executed_pool_id,
-                        write_scope=write_scope,
-                        **(
-                            {"model_provenance": frozen_model_ref}
-                            if frozen_model_ref
-                            else {}
-                        ),
+                    await prediction_writer.apply_prediction_result(
+                        ApplyPredictionResultRequest(
+                            task_id=task.id,
+                            project_id=uuid.UUID(project_id),
+                            ml_backend_id=executed_backend_id,
+                            result=pred_result.result,
+                            score=pred_result.score,
+                            model_version=pred_result.model_version,
+                            inference_time_ms=pred_result.inference_time_ms,
+                            token_meta=pred_result.meta,
+                            pipeline_extra=pipeline_extra,
+                            ml_backend_pool_id=executed_pool_id,
+                            write_scope=write_scope,
+                            **(
+                                {"model_provenance": frozen_model_ref}
+                                if frozen_model_ref
+                                else {}
+                            ),
+                        )
                     )
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
                     if pred_result.meta:

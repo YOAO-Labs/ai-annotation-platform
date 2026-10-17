@@ -1321,6 +1321,14 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 对比 `cb2805542` 原查询，同一一次性 PostgreSQL、64 个任务/512 条 bbox、预热后交错三轮，两侧均一条 SQL；Python 堆峰值中位数分别 1,045,118 / 1,045,302 B，时间分别 16.115 / 14.468 ms。范围包含 reader 与 Session 开关，不含授权、媒体 HEAD、打包或派发；tracemalloc 不是 RSS，小样本不代表性能提升。原始记录 `.worktree/source-read-budget.json`，测试夹具已按生成 ID 清理。
 - 没有新增远程消费者、网络适配器、对象 I/O 或公共 API 字段；保持本地来源快照，尚不提供远程持久快照句柄或授权媒体引用。
 
+### 候选落库的进程内命令契约
+
+- `ApplyPredictionResultRequest` / 精简 receipt / `ApplyPredictionResultPort` 不传 Session、ORM 或 API 响应模型。`PredictionService.apply_prediction_result` 是原持久化实现，所有生产调用点和测试已迁移，旧方法删除；回执只有 ID、时间与工具单位，不为每一帧额外序列化几何。
+- 作用域、当前权限、Task/批次/编辑/作业围栏、Mask 校验/引用、Meta/模型谱系、计数和两次 flush 保留，调用方仍决定 commit。错误将原状态/detail 映射为纯异常事实，并区分暂态忙锁；逐帧 checkpoint 和 Celery 重试不丢原推理结果。AI Mask 仅使用自身不会重映射的 Mask 请求构造原响应，移除原多余 refresh；类型守卫阻止未来把轨迹框误作该响应。
+- 相关 13 文件首轮 228 passed、1 个新增对照断言失败；该断言把 HTTP 已规范化的 shape 与原始存储 JSON 直接比较，已改用原 `PredictionOut` 投影。修正项与合同错误路由共 4 passed；没有重跑此前已通过的其余消费者。独立 Redis/PostgreSQL 和 Celery 的持续忙锁释放、取消、作用域变化三项 3 passed；此 consumer 仍为测试进程内 worker，不是 OS 崩溃恢复证明。领域架构组合 185 passed、80 skipped。
+- `cb2805542` 原实现与当前实现对同一一次性库的 128 个 bbox，预热后交错三轮均执行 9 条 SQL，Meta/计数/候选随回滚共同恢复；Python 堆峰值中位数为 395,175 / 395,370 B，耗时 17.110 / 18.052 ms。只测最终写入及其权威/锁/flush，不含推理、API 编码、commit/rollback 或 RSS；不作为性能提升结论。原始记录 `.worktree/prediction-write-budget.json`，夹具已清理。
+- 这是进程内写接口；通用 operation ID/跨进程重投、执行所有权移交及回退未由此交付，不能把类型化请求当成远程部署许可。
+
 ### 剩余范围
 
 已识别的 Python 依赖方向、写入所有权与完整台账有逐片验收记录；这不等于所有模块都已具备独立部署合同。后续遗留按以下条件推进：

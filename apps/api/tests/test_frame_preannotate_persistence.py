@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi import HTTPException
 from kombu.utils.json import dumps, loads
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -19,6 +18,10 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.labeling_write_scope import capture_labeling_write_scope
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
+    ApplyPredictionResultRequest,
+)
 from app.services.prediction import PredictionService, to_video_bbox_result
 from app.workers import frame_preannotate
 from tests.factory import create_project, create_task, create_user
@@ -132,14 +135,14 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
     monkeypatch.setattr(frame_preannotate, "_write_job_progress", AsyncMock())
     contended = asyncio.Event()
     failures = []
-    create = PredictionService.create_from_ml_result
+    apply_result = PredictionService.apply_prediction_result
 
-    async def observed_create(self, *args, **kwargs):
+    async def observed_apply(self, request):
         try:
-            return await create(self, *args, **kwargs)
-        except HTTPException as exc:
+            return await apply_result(self, request)
+        except ApplyPredictionResultError as exc:
             failures.append(exc)
-            if exc.detail == {"reason": "task_busy"}:
+            if exc.code == "task_busy":
                 contended.set()
             raise
 
@@ -155,14 +158,18 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
             job_id=world.job_id,
             job_id_known=True,
         )
-        await PredictionService(writer).create_from_ml_result(
-            world.task_id,
-            world.project_id,
-            world.backend_id,
-            to_video_bbox_result(raw, 99),
-            write_scope=scope,
+        await PredictionService(writer).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=world.task_id,
+                project_id=world.project_id,
+                ml_backend_id=world.backend_id,
+                result=to_video_bbox_result(raw, 99),
+                write_scope=scope,
+            )
         )
-        monkeypatch.setattr(PredictionService, "create_from_ml_result", observed_create)
+        monkeypatch.setattr(
+            PredictionService, "apply_prediction_result", observed_apply
+        )
         runner = asyncio.create_task(
             frame_preannotate._run_segment(
                 segment={"task_id": str(world.task_id), "frame_indices": [0]},

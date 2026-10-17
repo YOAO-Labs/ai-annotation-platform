@@ -9,6 +9,10 @@ from app.db.models.prediction import Prediction
 from app.services import async_job as async_job_service
 from app.services.annotation import AnnotationService
 from app.services.batch import BatchService
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
+    ApplyPredictionResultRequest,
+)
 from app.services.labeling_write_scope import (
     LabelingBatchWriteScope,
     capture_labeling_write_scope,
@@ -93,9 +97,15 @@ async def test_late_prediction_does_not_land_after_scope_changes(
         await async_job_service.mark_cancelled(db_session, job.id)
     await db_session.flush()
 
-    with pytest.raises(HTTPException) as failure:
-        await PredictionService(db_session).create_from_ml_result(
-            task.id, project.id, None, [], write_scope=scope
+    with pytest.raises(ApplyPredictionResultError) as failure:
+        await PredictionService(db_session).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project.id,
+                ml_backend_id=None,
+                result=[],
+                write_scope=scope,
+            )
         )
 
     assert failure.value.status_code == expected_status

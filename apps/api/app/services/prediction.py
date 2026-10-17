@@ -20,9 +20,17 @@ from app.schemas._jsonb_types import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 from app.services.annotation_propagation import _new_track_id
 from app.services.labeling_write_scope import LabelingWriteScope
 from app.services.labeling_write_guard import lock_labeling_write
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
+    ApplyPredictionResultReceipt,
+    ApplyPredictionResultRequest,
+)
 from app.services.test_seed_access import assert_isolated_test_seed_database
 from app.services.project_access import resolve_project_access
-from app.services.raster_mask_storage import prepare_mask_payload_for_write
+from app.services.raster_mask_storage import (
+    RasterMaskContractError,
+    prepare_mask_payload_for_write,
+)
 
 logger = logging.getLogger("app.services.prediction")
 
@@ -30,6 +38,26 @@ logger = logging.getLogger("app.services.prediction")
 # point_mask_3d 而漂移)。'ai_interactive' 已退役: result item 若显式带该值, 不在白名单内,
 # derive_tool_unit_from_result 会绕过它、改按几何类型派生并记 warning。
 TOOL_UNIT_IDS = frozenset(_SCHEMA_TOOL_UNIT_IDS)
+
+
+def _apply_prediction_error(
+    exc: HTTPException | RasterMaskContractError,
+) -> ApplyPredictionResultError:
+    detail = exc.detail
+    if isinstance(detail, dict) and isinstance(detail.get("reason"), str):
+        code = detail["reason"]
+    else:
+        code = {
+            401: "labeling_authentication_required",
+            403: "labeling_permission_changed",
+            404: "labeling_target_not_found",
+        }.get(exc.status_code, "labeling_write_rejected")
+    return ApplyPredictionResultError(
+        code=code,
+        status_code=exc.status_code,
+        detail=detail,
+        headers=getattr(exc, "headers", None),
+    )
 
 
 async def assert_can_manage_failed_prediction(
@@ -534,64 +562,60 @@ class PredictionService:
             "failed_predictions": failed_result.rowcount or 0,
         }
 
-    async def create_from_ml_result(
-        self,
-        task_id: uuid.UUID,
-        project_id: uuid.UUID,
-        ml_backend_id: uuid.UUID | None,
-        result: list[dict],
-        score: float | None = None,
-        model_version: str | None = None,
-        inference_time_ms: int | None = None,
-        token_meta: dict | None = None,
-        source: str = "ml_backend",
-        pipeline_extra: dict | None = None,
-        ml_backend_pool_id: uuid.UUID | None = None,
-        model_provenance: dict | None = None,
-        *,
-        write_scope: LabelingWriteScope,
-    ) -> Prediction:
-        if write_scope.task_id != task_id or write_scope.project_id != project_id:
+    async def apply_prediction_result(
+        self, request: ApplyPredictionResultRequest
+    ) -> ApplyPredictionResultReceipt:
+        write_scope = request.write_scope
+        if (
+            write_scope.task_id != request.task_id
+            or write_scope.project_id != request.project_id
+        ):
             raise ValueError("prediction write scope does not match its target")
-        task, _actor, _access = await lock_labeling_write(
-            self.db,
-            write_scope,
-            operations=(
-                "interactive_frame_prediction",
-                "interactive_mask_accept",
-                "mask_repair",
-                "preannotation",
-                "prediction_import",
-                "prediction_retry",
-            ),
-        )
+        try:
+            task, _actor, _access = await lock_labeling_write(
+                self.db,
+                write_scope,
+                operations=(
+                    "interactive_frame_prediction",
+                    "interactive_mask_accept",
+                    "mask_repair",
+                    "preannotation",
+                    "prediction_import",
+                    "prediction_retry",
+                ),
+            )
+        except HTTPException as exc:
+            raise _apply_prediction_error(exc) from exc
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
-        result = _remap_track_ids(result)
-        await prepare_mask_payload_for_write(self.db, task, result)
+        result = _remap_track_ids(request.result)
+        try:
+            await prepare_mask_payload_for_write(self.db, task, result)
+        except RasterMaskContractError as exc:
+            raise _apply_prediction_error(exc) from exc
         prediction = Prediction(
             id=uuid.uuid4(),
-            task_id=task_id,
-            project_id=project_id,
-            ml_backend_id=ml_backend_id,
+            task_id=request.task_id,
+            project_id=request.project_id,
+            ml_backend_id=request.ml_backend_id,
             # v0.23.3 ADR-0050 §5.4 · requested pool (单阶段 = 请求的池; 多阶段 = root stage pool)。
-            ml_backend_pool_id=ml_backend_pool_id,
-            model_version=model_version,
-            score=score,
+            ml_backend_pool_id=request.ml_backend_pool_id,
+            model_version=request.model_version,
+            score=request.score,
             # v0.10.17 · 按 result[0].type 派生 tool_unit_id.
             tool_unit_id=derive_tool_unit_from_result(result),
             result=result,
-            source=source,
+            source=request.source,
         )
         self.db.add(prediction)
         await self.db.flush()
 
-        meta_data = token_meta or {}
+        meta_data = request.token_meta or {}
         meta = PredictionMeta(
             id=uuid.uuid4(),
             prediction_id=prediction.id,
             # v0.10.25 · 复合 FK 冗余分区键；flush 后 prediction.created_at 已由 RETURNING 回写。
             prediction_created_at=prediction.created_at,
-            inference_time_ms=inference_time_ms,
+            inference_time_ms=request.inference_time_ms,
             prompt_tokens=meta_data.get("prompt_tokens"),
             completion_tokens=meta_data.get("completion_tokens"),
             total_tokens=meta_data.get("total_tokens"),
@@ -601,8 +625,12 @@ class PredictionService:
             # v0.18.1 · 多阶段预标注阶段元信息 (stage_count / enriched_attr_keys),
             # 追溯「哪个属性来自哪个阶段」; MVP 暂存 extra JSONB 不改表。
             extra={
-                **(pipeline_extra or {}),
-                **({"trained_model": model_provenance} if model_provenance else {}),
+                **(request.pipeline_extra or {}),
+                **(
+                    {"trained_model": request.model_provenance}
+                    if request.model_provenance
+                    else {}
+                ),
             },
         )
         self.db.add(meta)
@@ -610,7 +638,11 @@ class PredictionService:
         task.total_predictions = (task.total_predictions or 0) + 1
 
         await self.db.flush()
-        return prediction
+        return ApplyPredictionResultReceipt(
+            id=prediction.id,
+            created_at=prediction.created_at,
+            tool_unit_id=prediction.tool_unit_id,
+        )
 
     async def create_test_seed_prediction(
         self,

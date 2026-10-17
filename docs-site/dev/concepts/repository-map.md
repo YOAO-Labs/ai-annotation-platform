@@ -50,6 +50,8 @@ last_reviewed: 2026-10-17
   与 `resolve_project_access(lock_membership=True)` 复用账号→项目→成员当前权威锁，
   训练/模型/评估不再依赖训练数据集路由辅助函数。
 - 推理候选最终写入：`app/services/labeling_write_scope.py` 冻结主体/目标/源版本事实，
+  `labeling_prediction_contract.ApplyPredictionResultPort` 提供请求、精简回执与稳定错误，
+  `PredictionService.apply_prediction_result` 在调用方原 Session 内持久化；
   `labeling_write_guard.py` 消费 `project_access.lock_current_project_access()` 的
   账号→项目→成员当前权威；候选/Meta/计数、标注采纳及批次推进由各自标注所有者写入，
   不把历史作业或 Scope DTO 当授权。

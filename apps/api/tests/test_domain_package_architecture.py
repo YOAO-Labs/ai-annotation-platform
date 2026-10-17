@@ -194,6 +194,11 @@ DOMAIN_PACKAGES = (
         package="job_execution_control", legacy_facades=(), allowed_app_imports=()
     ),
     DomainSpec(package="prediction", legacy_facades=()),
+    DomainSpec(
+        package="labeling_prediction_contract",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.labeling_write_scope",),
+    ),
     DomainSpec(package="cross_frame_job", legacy_facades=()),
     DomainSpec(package="sample_evaluations", legacy_facades=()),
     DomainSpec(package="prediction_retry", legacy_facades=(), allowed_app_imports=()),
@@ -591,7 +596,12 @@ def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
 
 @pytest.mark.parametrize(
     "spec",
-    [spec for spec in DOMAIN_PACKAGES if spec.allowed_app_imports == ()],
+    [
+        spec
+        for spec in DOMAIN_PACKAGES
+        if spec.allowed_app_imports == ()
+        or spec.package == "labeling_prediction_contract"
+    ],
     ids=lambda spec: spec.package,
 )
 def test_data_contracts_do_not_import_runtime_frameworks(spec: DomainSpec) -> None:

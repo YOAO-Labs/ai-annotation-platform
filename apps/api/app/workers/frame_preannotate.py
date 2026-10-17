@@ -39,22 +39,17 @@ import redis
 from fastapi import HTTPException
 
 from app.config import settings
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
+    ApplyPredictionResultPort,
+    ApplyPredictionResultRequest,
+)
 from app.workers.celery_app import celery_app
 
 # 逐帧抽帧的目标宽度 / 格式 (ML backend 拉取用)。jpeg 通用、体积小; 宽度够检测即可。
 _FRAME_WIDTH = 1280
 _FRAME_FORMAT = "jpeg"
 _WRITE_ATTEMPTS = 5
-_WRITE_BUSY_REASONS = frozenset(
-    {
-        "account_busy",
-        "project_busy",
-        "membership_busy",
-        "batch_busy",
-        "task_busy",
-        "job_busy",
-    }
-)
 
 
 class _FrameWriteDeferred(Exception):
@@ -472,7 +467,7 @@ async def _run_segment(
                     job_id=uuid.UUID(job_id),
                     job_id_known=True,
                 )
-            pred_svc = PredictionService(db)
+            pred_svc: ApplyPredictionResultPort = PredictionService(db)
             client = None
 
             # 段级幂等 (断点续跑): 该 task 已落库的 video_bbox 帧号, 跳过。
@@ -554,18 +549,15 @@ async def _run_segment(
                         }
                     for attempt in range(_WRITE_ATTEMPTS):
                         try:
-                            await pred_svc.create_from_ml_result(
-                                **pending_write,
-                                write_scope=write_scope,
+                            await pred_svc.apply_prediction_result(
+                                ApplyPredictionResultRequest(
+                                    **pending_write, write_scope=write_scope
+                                )
                             )
                             await db.commit()
                             break
-                        except HTTPException as exc:
-                            if (
-                                exc.status_code != 409
-                                or not isinstance(exc.detail, dict)
-                                or exc.detail.get("reason") not in _WRITE_BUSY_REASONS
-                            ):
+                        except ApplyPredictionResultError as exc:
+                            if not exc.retryable:
                                 raise
                             await db.rollback()
                             if attempt == _WRITE_ATTEMPTS - 1:

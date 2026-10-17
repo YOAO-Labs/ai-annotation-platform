@@ -8,7 +8,7 @@
 - YOLO: zip 包, 内含 classes.txt / data.yaml 与每图一个 label txt.
 
 写入路径: 把内部 geometry 反向适配回 LabelStudio shape -> 复用
-PredictionService.create_from_ml_result, 标记 source='external_import'.
+ApplyPredictionResultPort, 标记 source='external_import'.
 
 ROADMAP §6 决策底线 lenient 精神:
 - schema_version > 当前 major 直接 422; 同 major 内未知字段忽略.
@@ -43,6 +43,10 @@ from app.schemas.aap_json import (
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.prediction import PredictionService, derive_tool_unit_from_result
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultPort,
+    ApplyPredictionResultRequest,
+)
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.project_access import lock_current_project_access
 from app.services.mask_formats.image_codecs import normalize_coco_segmentation_rle
@@ -86,7 +90,7 @@ def internal_geometry_to_ls_shape(
 
     平台 prediction.result JSONB 列存的是 LS 标准格式 (apps/api/app/services/
     prediction.py:to_internal_shape 是读路径的反向). 这里走"导入端 -> LS shape"
-    适配, 之后复用 PredictionService.create_from_ml_result 写入.
+    适配, 之后复用 labeling prediction-result port 写入.
 
     返回 None 表示不支持的 kind, 调用方应把 errors[] 累计.
 
@@ -373,7 +377,7 @@ async def import_aap_json(
         await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
     result = AAPImportResult(dry_run=dry_run)
-    svc = PredictionService(db)
+    svc: ApplyPredictionResultPort = PredictionService(db)
     stored_mask_keys: set[str] = set()
     project = await db.get(Project, project_id)
 
@@ -522,23 +526,25 @@ async def import_aap_json(
                     str(reference["object_key"]) for reference, _ in unstored
                 )
 
-            await svc.create_from_ml_result(
-                task_id=task.id,
-                project_id=project_id,
-                ml_backend_id=None,
-                result=ls_shapes,
-                score=entry.score if entry.score is not None else entry.confidence,
-                model_version=entry.model_version or model_version_fallback,
-                source="external_import",
-                write_scope=capture_labeling_write_scope(
-                    task,
-                    actor_id=actor_id,
-                    actor_known=actor_id is not None,
-                    operation="prediction_import",
-                    execution_scope=None,
-                    execution_scope_known=True,
-                    job_id=job_id,
-                    job_id_known=True,
+            await svc.apply_prediction_result(
+                ApplyPredictionResultRequest(
+                    task_id=task.id,
+                    project_id=project_id,
+                    ml_backend_id=None,
+                    result=ls_shapes,
+                    score=entry.score if entry.score is not None else entry.confidence,
+                    model_version=entry.model_version or model_version_fallback,
+                    source="external_import",
+                    write_scope=capture_labeling_write_scope(
+                        task,
+                        actor_id=actor_id,
+                        actor_known=actor_id is not None,
+                        operation="prediction_import",
+                        execution_scope=None,
+                        execution_scope_known=True,
+                        job_id=job_id,
+                        job_id_known=True,
+                    ),
                 ),
             )
             result.imported += 1
@@ -796,7 +802,7 @@ async def import_coco(
             image_map[img_id] = img
 
     result = AAPImportResult(dry_run=dry_run)
-    svc = PredictionService(db)
+    svc: ApplyPredictionResultPort = PredictionService(db)
     project = await db.get(Project, project_id)
     purged_tasks = purged_tasks if purged_tasks is not None else set()
     stored_rle_references: dict[str, dict[str, Any]] = {}
@@ -940,23 +946,25 @@ async def import_coco(
                 stored_rle_references[object_key] = stored
             ls_shape["geometry"] = {"type": "raster_mask", "mask": stored}
 
-        await svc.create_from_ml_result(
-            task_id=task.id,
-            project_id=project_id,
-            ml_backend_id=None,
-            result=[ls_shape],
-            score=confidence,
-            model_version=model_version_fallback,
-            source="external_import",
-            write_scope=capture_labeling_write_scope(
-                task,
-                actor_id=actor_id,
-                actor_known=actor_id is not None,
-                operation="prediction_import",
-                execution_scope=None,
-                execution_scope_known=True,
-                job_id=job_id,
-                job_id_known=True,
+        await svc.apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project_id,
+                ml_backend_id=None,
+                result=[ls_shape],
+                score=confidence,
+                model_version=model_version_fallback,
+                source="external_import",
+                write_scope=capture_labeling_write_scope(
+                    task,
+                    actor_id=actor_id,
+                    actor_known=actor_id is not None,
+                    operation="prediction_import",
+                    execution_scope=None,
+                    execution_scope_known=True,
+                    job_id=job_id,
+                    job_id_known=True,
+                ),
             ),
         )
         result.imported += 1
@@ -1010,7 +1018,7 @@ async def import_yolo(
 
     project_class_set = set(project_classes)
     result = AAPImportResult(dry_run=dry_run)
-    svc = PredictionService(db)
+    svc: ApplyPredictionResultPort = PredictionService(db)
     purged_tasks = purged_tasks if purged_tasks is not None else set()
 
     for label_name in _iter_yolo_label_files(zf):
@@ -1107,23 +1115,25 @@ async def import_yolo(
             result.imported += 1
             continue
 
-        await svc.create_from_ml_result(
-            task_id=task.id,
-            project_id=project_id,
-            ml_backend_id=None,
-            result=ls_shapes,
-            score=1.0,  # YOLO label 无分数 → 预测级 score 同样缺省满分(与逐 shape 一致)
-            model_version=model_version_fallback,
-            source="external_import",
-            write_scope=capture_labeling_write_scope(
-                task,
-                actor_id=actor_id,
-                actor_known=actor_id is not None,
-                operation="prediction_import",
-                execution_scope=None,
-                execution_scope_known=True,
-                job_id=job_id,
-                job_id_known=True,
+        await svc.apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project_id,
+                ml_backend_id=None,
+                result=ls_shapes,
+                score=1.0,  # YOLO label 无分数 → 预测级 score 同样缺省满分(与逐 shape 一致)
+                model_version=model_version_fallback,
+                source="external_import",
+                write_scope=capture_labeling_write_scope(
+                    task,
+                    actor_id=actor_id,
+                    actor_known=actor_id is not None,
+                    operation="prediction_import",
+                    execution_scope=None,
+                    execution_scope_known=True,
+                    job_id=job_id,
+                    job_id_known=True,
+                ),
             ),
         )
         result.imported += 1

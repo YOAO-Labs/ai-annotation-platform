@@ -20,7 +20,10 @@ from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
+from app.schemas.prediction import PredictionOut
 from app.services.ai_mask_receipt import issue_ai_mask_receipt
+from app.services.ai_mask_accept import _prediction_out
+from app.services.labeling_prediction_contract import ApplyPredictionResultReceipt
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.video_tracks import resolve_track_at_frame
 
@@ -29,6 +32,21 @@ from tests.factory import create_membership
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
 ALT_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 1, 3]}
+
+
+def test_ai_mask_response_rejects_geometry_that_may_be_rewritten_before_persist():
+    receipt = ApplyPredictionResultReceipt(
+        id=uuid.uuid4(),
+        created_at=datetime.now(timezone.utc),
+        tool_unit_id="bbox",
+    )
+
+    with pytest.raises(RuntimeError, match="one persisted mask prediction"):
+        _prediction_out(
+            receipt,
+            SimpleNamespace(result=[{"type": "video_track_bbox"}]),
+            inference_time_ms=None,
+        )
 
 
 async def _seed(
@@ -328,6 +346,35 @@ async def test_image_accept_is_atomic_and_replays_exact_result(
     assert payload["annotation"]["parent_prediction_id"] == payload["prediction"]["id"]
     assert payload["prediction"]["source"] == "interactive_accept"
     assert first.headers["etag"] == 'W/"1"'
+    saved_prediction = await db_session.scalar(
+        select(Prediction).where(
+            Prediction.id == uuid.UUID(payload["prediction"]["id"])
+        )
+    )
+    prediction_payload = payload["prediction"]
+    assert saved_prediction is not None
+    assert prediction_payload["task_id"] == str(saved_prediction.task_id)
+    assert prediction_payload["project_id"] == str(saved_prediction.project_id)
+    assert prediction_payload["ml_backend_id"] == (
+        str(saved_prediction.ml_backend_id)
+        if saved_prediction.ml_backend_id is not None
+        else None
+    )
+    assert prediction_payload["model_version"] == saved_prediction.model_version
+    assert prediction_payload["score"] == saved_prediction.score
+    assert prediction_payload["source"] == saved_prediction.source
+    assert prediction_payload["tool_unit_id"] == saved_prediction.tool_unit_id
+    assert (
+        prediction_payload["result"]
+        == PredictionOut.model_validate(saved_prediction).model_dump(mode="json")[
+            "result"
+        ]
+    )
+    assert prediction_payload["cluster"] == saved_prediction.cluster
+    assert (
+        datetime.fromisoformat(prediction_payload["created_at"].replace("Z", "+00:00"))
+        == saved_prediction.created_at
+    )
 
     pending = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/predictions",

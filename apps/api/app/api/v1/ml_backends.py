@@ -71,6 +71,10 @@ from app.services.ml_interaction_proxy import (
     prepare_interactive_context,
 )
 from app.services.ml_routing.client import RoutedMLBackendClient
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultPort,
+    ApplyPredictionResultRequest,
+)
 from app.services.prediction import PredictionService, to_video_bbox_result
 from app.services.project_access import ProjectAccess, ProjectCapability
 from app.services.storage import StorageService
@@ -1511,15 +1515,17 @@ async def predict_frame(
     # Final mutation boundary: re-acquire the task row and locked membership so a
     # revocation or role change during inference cannot persist a prediction.
     await _reacquire_write_boundary(db, task.id, current_user)
-    pred_svc = PredictionService(db)
-    prediction = await pred_svc.create_from_ml_result(
-        task_id=task.id,
-        project_id=project_id,
-        ml_backend_id=client.last_instance_id or backend_id,
-        result=video_shapes,
-        score=score,
-        ml_backend_pool_id=client.pool_id,
-        write_scope=write_scope,
+    prediction_writer: ApplyPredictionResultPort = PredictionService(db)
+    prediction = await prediction_writer.apply_prediction_result(
+        ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=project_id,
+            ml_backend_id=client.last_instance_id or backend_id,
+            result=video_shapes,
+            score=score,
+            ml_backend_pool_id=client.pool_id,
+            write_scope=write_scope,
+        )
     )
     await db.commit()
     return {

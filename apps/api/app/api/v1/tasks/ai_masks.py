@@ -12,6 +12,7 @@ from app.api.v1.tasks._shared import (
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.ai_mask import AiMaskAcceptRequest, AiMaskAcceptResponse
+from app.services.labeling_prediction_contract import ApplyPredictionResultError
 from app.services.project_access import ProjectAccess
 from app.services.ai_mask_accept import AiMaskAcceptError, accept_ai_mask_candidate
 from app.services.raster_mask_storage import RasterMaskContractError
@@ -90,7 +91,11 @@ async def accept_native_ai_mask_candidate(
             expected_version=expected_version,
             access=access,
         )
-    except (AiMaskAcceptError, RasterMaskContractError) as exc:
+    except (
+        AiMaskAcceptError,
+        ApplyPredictionResultError,
+        RasterMaskContractError,
+    ) as exc:
         outcome = "conflict" if exc.status_code == 409 else "error"
         observe_mask_ai_phase(
             operation=operation,

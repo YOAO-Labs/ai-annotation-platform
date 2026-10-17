@@ -36,6 +36,10 @@ from app.services.ml_interaction_proxy import (
     prepare_interactive_context,
 )
 from app.services.ml_routing.client import RoutedMLBackendClient
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultPort,
+    ApplyPredictionResultRequest,
+)
 from app.services.prediction import PredictionService
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.storage import resolve_task_url
@@ -137,36 +141,39 @@ async def _run_sam_candidate(
             reference=reference,
             rle=rle,
         )
-        prediction = await PredictionService(db).create_from_ml_result(
-            task_id=task.id,
-            project_id=task.project_id,
-            ml_backend_id=client.last_instance_id or backend_id,
-            ml_backend_pool_id=client.pool_id,
-            result=[
-                {
-                    "type": "raster_mask",
-                    "class_name": str(item["class_name"]),
-                    "geometry": geometry,
-                    "confidence": float(candidate.get("score") or 0),
-                    "tool_unit_id": str(item["tool_unit_id"]),
-                    "attributes": {},
-                }
-            ],
-            score=candidate.get("score"),
-            model_version=getattr(response, "model_version", None),
-            inference_time_ms=getattr(response, "inference_time_ms", None),
-            source="mask_repair",
-            pipeline_extra={
-                "mask_repair": {
-                    "batch_id": str(batch_id),
-                    "issue_id": str(item["issue_id"]),
-                    "source_annotation_id": str(annotation.id),
-                    "source_version": int(annotation.version or 1),
-                    "candidate_index": candidate_index,
-                    "model_id": model_id,
-                }
-            },
-            write_scope=write_scope,
+        prediction_writer: ApplyPredictionResultPort = PredictionService(db)
+        prediction = await prediction_writer.apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=task.project_id,
+                ml_backend_id=client.last_instance_id or backend_id,
+                ml_backend_pool_id=client.pool_id,
+                result=[
+                    {
+                        "type": "raster_mask",
+                        "class_name": str(item["class_name"]),
+                        "geometry": geometry,
+                        "confidence": float(candidate.get("score") or 0),
+                        "tool_unit_id": str(item["tool_unit_id"]),
+                        "attributes": {},
+                    }
+                ],
+                score=candidate.get("score"),
+                model_version=getattr(response, "model_version", None),
+                inference_time_ms=getattr(response, "inference_time_ms", None),
+                source="mask_repair",
+                pipeline_extra={
+                    "mask_repair": {
+                        "batch_id": str(batch_id),
+                        "issue_id": str(item["issue_id"]),
+                        "source_annotation_id": str(annotation.id),
+                        "source_version": int(annotation.version or 1),
+                        "candidate_index": candidate_index,
+                        "model_id": model_id,
+                    }
+                },
+                write_scope=write_scope,
+            )
         )
         prediction_ids.append(str(prediction.id))
     return {

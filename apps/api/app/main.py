@@ -22,6 +22,7 @@ from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.upload_body_limits import UploadBodyLimitMiddleware
 from app.services.storage import storage_service
 from app.services.ml_routing.contracts import RoutingError
+from app.services.labeling_prediction_contract import ApplyPredictionResultError
 from app.deps import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,6 +116,21 @@ async def _routing_error_handler(_request: Request, exc: RoutingError):
 
 
 app.add_exception_handler(RoutingError, _routing_error_handler)
+
+
+async def _apply_prediction_result_error_handler(
+    _request: Request, exc: ApplyPredictionResultError
+):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
+
+
+app.add_exception_handler(
+    ApplyPredictionResultError, _apply_prediction_result_error_handler
+)
 
 
 async def _registry_validation_error_handler(

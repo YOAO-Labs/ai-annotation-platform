@@ -17,6 +17,7 @@ from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import trained_models as service
 from app.services import trained_model_backend as backend_io
 from app.services import training_artifacts as artifacts
+from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
 from app.services.labeling_write_scope import capture_labeling_write_scope
@@ -651,13 +652,15 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
         job_id=None,
         job_id_known=True,
     )
-    prediction = await PredictionService(db_session).create_from_ml_result(
-        task_id=task.id,
-        project_id=project.id,
-        ml_backend_id=deployment.registry_id,
-        result=result.result,
-        model_provenance=ref,
-        write_scope=prediction_scope,
+    prediction = await PredictionService(db_session).apply_prediction_result(
+        ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=project.id,
+            ml_backend_id=deployment.registry_id,
+            result=result.result,
+            model_provenance=ref,
+            write_scope=prediction_scope,
+        )
     )
     meta = await db_session.scalar(
         select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)

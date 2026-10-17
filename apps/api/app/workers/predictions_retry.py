@@ -23,6 +23,10 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import settings
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultPort,
+    ApplyPredictionResultRequest,
+)
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -276,31 +280,34 @@ async def _run_retry_attempt(
     # 第三阶段：写 predictions + 删 failed + 推 succeeded
     async with session_factory() as db:
         pred_svc = PredictionService(db)
-        pred = await pred_svc.create_from_ml_result(
-            task_id=task.id,
-            project_id=task.project_id,
-            ml_backend_id=executed_backend_id,
-            result=first.result,
-            score=first.score,
-            model_version=first.model_version,
-            inference_time_ms=first.inference_time_ms,
-            ml_backend_pool_id=retry_pool_id,
-            token_meta=first.meta,
-            write_scope=capture_labeling_write_scope(
-                task,
-                actor_id=uid,
-                actor_known=True,
-                operation="prediction_retry",
-                execution_scope=None,
-                execution_scope_known=True,
-                job_id=job_id,
-                job_id_known=True,
-            ),
-            **(
-                {"model_provenance": request_context["frozen_model_ref"]}
-                if request_context and request_context.get("frozen_model_ref")
-                else {}
-            ),
+        prediction_writer: ApplyPredictionResultPort = pred_svc
+        pred = await prediction_writer.apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=task.project_id,
+                ml_backend_id=executed_backend_id,
+                result=first.result,
+                score=first.score,
+                model_version=first.model_version,
+                inference_time_ms=first.inference_time_ms,
+                ml_backend_pool_id=retry_pool_id,
+                token_meta=first.meta,
+                write_scope=capture_labeling_write_scope(
+                    task,
+                    actor_id=uid,
+                    actor_known=True,
+                    operation="prediction_retry",
+                    execution_scope=None,
+                    execution_scope_known=True,
+                    job_id=job_id,
+                    job_id_known=True,
+                ),
+                **(
+                    {"model_provenance": request_context["frozen_model_ref"]}
+                    if request_context and request_context.get("frozen_model_ref")
+                    else {}
+                ),
+            )
         )
         # 删除 failed_prediction 行
         await pred_svc.delete_failed_prediction_after_retry(fid)

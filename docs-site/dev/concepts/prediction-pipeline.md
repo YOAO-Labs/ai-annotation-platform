@@ -58,7 +58,7 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 
 `labeling_write_scope` 定义不可变任务/批次事实：实际 actor、操作、执行范围、可用的 Task 版本、状态、分派、批次、审核轮次和作业身份；二次推理与 Mask 修复另冻结源 Annotation ID/版本。`known=false` 与明确的 `null` 不互换，作用域对象本身不提供权限，也不构成远程授权令牌。
 
-`PredictionService.create_from_ml_result()` 必须接收该作用域，在任何候选、Meta 和任务预测数写入前调用 `labeling_write_guard`。准入复用 `project_access.lock_current_project_access()`，按账号→项目→成员锁定并读取当前权威，再锁定批次/任务并复核冻结前置条件、当前编辑锁和实际作业的主体、项目、范围与终态。项目行共享锁覆盖所有权迁移，编辑 advisory 锁覆盖写入至提交期间的编辑锁抢占；调用方保留原提交边界。
+`labeling_prediction_contract.ApplyPredictionResultPort` 接收类型化请求及该作用域，返回预测 ID、创建时间与派生工具单位；不传 Session 或返回 ORM。`PredictionService.apply_prediction_result()` 在调用方原事务内实现写入，在任何候选、Meta 和任务预测数写入前调用 `labeling_write_guard`。准入复用 `project_access.lock_current_project_access()`，按账号→项目→成员锁定并读取当前权威，再锁定批次/任务并复核冻结前置条件、当前编辑锁和实际作业的主体、项目、范围与终态。项目行共享锁覆盖所有权迁移，编辑 advisory 锁覆盖写入至提交期间的编辑锁抢占；调用方保留原提交边界。端口用稳定 code 和 retryable 区分忙锁与失效作用域，入口仍投影原 HTTP 状态/detail，不新增远程重试或独立提交。
 
 - 批量仍要求 pending task 与 active / 未分派 draft 批次；工作台仍用同一 `WORKBENCH_AI_EDITABLE_TASK_STATUSES` 白名单并允许本人编辑锁。批次仅在仍为 active、未被管理员锁定且当前任务/编辑集合符合该执行范围时推进；draft 不自动推进。
 - 外部导入保留项目管理准入与原任务阶段范围，不强行套用批量 pending 规则。覆盖清理先持有当前管理权限；失败重试和候选写入同样携带真实 actor，不以项目所有者补造身份。
@@ -76,7 +76,7 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 
 `predictions.tool_unit_id String(30)` 是必填字段：
 
-- 写入时由 `PredictionService.create_from_ml_result` 调 [`derive_tool_unit_from_result`](../../../apps/api/app/services/prediction.py) 按 `result[0].type` 派生:
+- 写入时由 `PredictionService.apply_prediction_result` 调 [`derive_tool_unit_from_result`](../../../apps/api/app/services/prediction.py) 按 `result[0].type` 派生:
   - `polygonlabels` / `brushlabels` / `multi_polygon` → `region`
   - `polylinelabels` → `polyline`
   - `rectanglelabels` → `bbox`; 若 `value.rotation` 字段存在 → `rotated_bbox`

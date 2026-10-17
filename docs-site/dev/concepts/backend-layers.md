@@ -120,7 +120,9 @@ services/
 
 `services/prediction_context.py` 持有规范化预测上下文、模型展示名及原图 RGB 读取；`services/prediction_roi.py` 持有裁剪、父框索引、属性合并和坐标回映；`services/prediction_progress.py` 持有原 Redis 频道与消息构造。HTTP、同步二次推理、批量和逐帧 worker 直接消费这些下层所有者，同步服务不再导入 worker，逐帧 worker 也不再反向导入批量 worker。上下文和 ROI 冷加载不引入 ORM、入口、Celery 或配置；原图读取仍在调用时使用对象存储，进度发布仍绑定现有 Redis/config。执行队列、fan-out、根作业身份、裁剪缓存、授权及提交边界未改，这些本地助手不是新的跨语言协议。
 
-推理产物经不可变 `labeling_write_scope` 交回标注所有者，不携带权限许可。`PredictionService` 持有候选、分区 Meta 和预测数写入，`AnnotationService` 持有采纳/拒绝及二次推理属性/子框写入，`BatchService` 持有推理后的批次推进。`labeling_write_guard` 复用 `project_access.lock_current_project_access()`，锁定并读取当前账号→项目→成员，保留 Task/批次、编辑 advisory、源版本及作业终态的本地最终写入边界；不信任排队时的角色或 URL 的另一题。
+推理产物经 `labeling_prediction_contract.ApplyPredictionResultPort` 的类型化请求交回标注所有者，携带不可变 `labeling_write_scope` 前置事实，不携带权限许可。`PredictionService.apply_prediction_result` 是绑定原 Session 的实现，持有候选、分区 Meta 和预测数写入，只 flush、不提交；回执仅含预测 UUID、UTC 创建时间与派生工具单位，不返回 ORM 或复制几何。错误以稳定 code、retryable、原状态/detail 交付；HTTP 在入口映射，逐帧执行仅对暂态忙锁重试，继续保留未写候选及原作用域。
+
+`AnnotationService` 持有采纳/拒绝及二次推理属性/子框写入，`BatchService` 持有推理后的批次推进。`labeling_write_guard` 复用 `project_access.lock_current_project_access()`，锁定并读取当前账号→项目→成员，保留 Task/批次、编辑 advisory、源版本及作业终态的本地最终写入边界；不信任排队时的角色或 URL 的另一题。当前端口没有远程幂等操作 ID 或独立提交范围；业务 JSON 在调用完成前仍由调用方持有，不能因 dataclass 冻结就当作深层不可变产物。
 
 `application/bulk_clear_preannotate.py` 持有批量清空的模式选择、逐项结果、审计和最终提交；`annotation_cleanup.py` 持有标注父预测引用解绑及已采纳 AI 标注软删，`PredictionService.delete_for_tasks()` 持有分区预测/失败预测及 Meta 的删除次序，`async_job.delete_batch_predict_jobs()` 只清对应批次的预标作业，批次回退仍归 `BatchService`。下层标注命令避免建立 `BatchService ↔ AnnotationService` 循环；领域命令不自行提交，批量入口没有新增逐项 savepoint。领域异常若已经回滚事务，工作流立即向外保留异常，不继续使用已释放的权威围栏或累计成功列表。
 

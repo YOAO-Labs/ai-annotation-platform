@@ -34,6 +34,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.annotation import AnnotationService
 from app.services.exporting.packaging import _rotated_corners_norm
+from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.prediction import PredictionService, to_internal_shape
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.predictions_import import (
@@ -918,29 +919,35 @@ async def test_prediction_video_mask_content_is_task_scoped_and_frame_resolved(
         job_id=None,
         job_id_known=True,
     )
-    prediction = await PredictionService(db_session).create_from_ml_result(
-        task_id=task.id,
-        project_id=project.id,
-        ml_backend_id=None,
-        source="external_import",
-        result=[
-            {
-                "type": "video_track_mask",
-                "class_name": "car",
-                "confidence": 0.9,
-                "tool_unit_id": "region",
-                "attributes": {},
-                "geometry": {
+    prediction = await PredictionService(db_session).apply_prediction_result(
+        ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=project.id,
+            ml_backend_id=None,
+            source="external_import",
+            result=[
+                {
                     "type": "video_track_mask",
-                    "track_id": "mask-candidate",
-                    "keyframes": [
-                        {"frame_index": 1, "mask": reference, "source": "prediction"}
-                    ],
-                    "outside": [{"from": 8, "to": 9, "source": "prediction"}],
-                },
-            }
-        ],
-        write_scope=write_scope,
+                    "class_name": "car",
+                    "confidence": 0.9,
+                    "tool_unit_id": "region",
+                    "attributes": {},
+                    "geometry": {
+                        "type": "video_track_mask",
+                        "track_id": "mask-candidate",
+                        "keyframes": [
+                            {
+                                "frame_index": 1,
+                                "mask": reference,
+                                "source": "prediction",
+                            }
+                        ],
+                        "outside": [{"from": 8, "to": 9, "source": "prediction"}],
+                    },
+                }
+            ],
+            write_scope=write_scope,
+        )
     )
     endpoint_load = AsyncMock(return_value=rle)
     monkeypatch.setattr("app.api.v1.tasks.predictions.load_coco_rle", endpoint_load)
@@ -2025,7 +2032,7 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
     monkeypatch.setattr(predictions_import, "store_coco_rle", store)
     monkeypatch.setattr(
         predictions_import.PredictionService,
-        "create_from_ml_result",
+        "apply_prediction_result",
         create,
     )
 
@@ -2045,14 +2052,14 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
     assert "sum(counts)" in result.errors[1].reason
     assert "compressed COCO RLE" in result.errors[2].reason
 
-    raster_shape = create.await_args_list[0].kwargs["result"][0]
+    raster_shape = create.await_args_list[0].args[0].result[0]
     assert raster_shape["type"] == "raster_mask"
     assert raster_shape["tool_unit_id"] == "region"
     assert raster_shape["geometry"]["type"] == "raster_mask"
     assert "counts" not in raster_shape["geometry"]["mask"]
     assert to_internal_shape(raster_shape)["geometry"] == raster_shape["geometry"]
-    assert create.await_args_list[1].kwargs["result"][0]["type"] == "polygonlabels"
-    assert create.await_args_list[2].kwargs["result"][0]["type"] == "raster_mask"
+    assert create.await_args_list[1].args[0].result[0]["type"] == "polygonlabels"
+    assert create.await_args_list[2].args[0].result[0]["type"] == "raster_mask"
 
 
 async def test_import_coco_rle_respects_create_flag(
@@ -2092,7 +2099,7 @@ async def test_import_coco_rle_respects_create_flag(
     monkeypatch.setattr(predictions_import, "store_coco_rle", store)
     monkeypatch.setattr(
         predictions_import.PredictionService,
-        "create_from_ml_result",
+        "apply_prediction_result",
         create,
     )
 
