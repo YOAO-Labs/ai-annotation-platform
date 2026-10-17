@@ -135,7 +135,7 @@ archived
 
 如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
 
-写入路径: `apps/api/app/api/v1/projects.py` 的 `create_project` / `update_project` 调用 `coalesce_legacy_into_tool_bindings` (旧客户端只传扁平字段时反向派生到对应 unit), 之后剔除扁平 key —— `tool_bindings` 是唯一写入目标。读出路径由 `ProjectOut` 的 `model_validator` 用 `derive_*` 从 `tool_bindings` 派生扁平投影。详细 helper 实现见 `apps/api/app/services/project.py`。
+写入路径: `projects.py` 只负责 HTTP 请求、提交与响应, 委托 `application/project_workspace_configuration.py::WorkspaceConfigurationWorkflow`; `services/project_workspace.py` 是项目配置与 ProjectTemplate 行命令的唯一服务所有者, 包含旧扁平类别/属性字段到 `tool_bindings` 的规范化。工作流复核当前 actor/项目/模板权限, 组合模板与源项目配置并协调 backend 启用和主绑定; 项目内嵌已保存流水线使用 `services/pipeline_template.py::validate_saved_pipeline` 校验结构。读出路径由 `ProjectOut` 的 `model_validator` 用 `derive_*` 从 `tool_bindings` 派生扁平投影; 纯投影 helper 留在 `apps/api/app/services/project.py`, 模板可见性/scope/payload helper 留在 `services/project_template.py`。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 

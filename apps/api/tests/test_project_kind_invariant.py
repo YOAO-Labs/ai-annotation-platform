@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from app.services.project import (
+from app.services.project_workspace import (
     assert_project_kind_consistent,
     data_type_from_type_key,
     legacy_type_key_from_data_type,
@@ -110,6 +110,9 @@ async def test_patch_project_rejects_kind_drift(httpx_client, db_session, super_
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 422, res.text
+    await db_session.refresh(proj)
+    assert proj.type_key == "image-det"
+    assert proj.data_type == "image"
 
 
 @pytest.mark.asyncio

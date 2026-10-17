@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import copy
 import uuid
 from typing import Annotated
 
@@ -22,22 +21,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.enums import UserRole
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
-from app.deps import assert_project_visible, get_current_user, get_db
+from app.deps import get_current_user, get_db
 from app.schemas.project_template import (
     ProjectTemplateCreate,
     ProjectTemplateOut,
     ProjectTemplateUpdate,
 )
-from app.services.display_id import next_display_id
-from app.services.project import coalesce_legacy_into_tool_bindings
-from app.services.project_template import (
-    TEMPLATE_PAYLOAD_FIELDS,
-    assert_can_create_scope,
-    assert_template_visible,
-    can_edit_template,
-    dump_project_to_template_payload,
-    list_user_org_ids,
+from app.application.project_workspace_configuration import (
+    WorkspaceConfigurationWorkflow,
 )
+from app.services.project_template import assert_template_visible, list_user_org_ids
 
 
 router = APIRouter()
@@ -105,56 +98,10 @@ async def create_template(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # 角色门槛: super_admin / project_admin 可建; 其它角色拒
-    if user.role not in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN):
-        raise HTTPException(
-            status_code=403, detail="仅项目管理员或超级管理员可创建模板"
-        )
-
-    assert_can_create_scope(data.scope, user)
-    if data.scope == "organization" and data.organization_id is None:
-        raise HTTPException(
-            status_code=400, detail="organization scope 必须指定 organization_id"
-        )
-
-    payload = data.model_dump(exclude_unset=True, exclude_none=False)
-    source_project_id = payload.pop("source_project_id", None)
-
-    if source_project_id is not None:
-        source_project = await assert_project_visible(source_project_id, db, user)
-        merged = dump_project_to_template_payload(source_project)
-        # caller 显式给出的字段优先
-        for k, v in merged.items():
-            payload.setdefault(k, v)
-        # 模板默认沿用源项目 name + type 以减少重复输入 (caller 给则优先)
-        payload.setdefault("name", f"{source_project.name} 模板")
-        payload.setdefault("type_label", source_project.type_label)
-        payload.setdefault("type_key", source_project.type_key)
-
-    if (
-        not payload.get("name")
-        or not payload.get("type_label")
-        or not payload.get("type_key")
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="name / type_label / type_key 必填 (或通过 source_project_id 兜底)",
-        )
-
-    # v0.10.22 · 旧客户端只传 legacy classes / classes_config / attribute_schema 时反向派生
-    # 进 tool_bindings, 派生后剔除扁平字段 (列已删, 不能作 ORM kwarg).
-    coalesce_legacy_into_tool_bindings(payload, None, payload.get("type_key"))
-    for _legacy_key in ("classes", "classes_config", "attribute_schema"):
-        payload.pop(_legacy_key, None)
-
-    template = ProjectTemplate(
-        id=uuid.uuid4(),
-        display_id=await next_display_id(db, "project_templates"),
-        created_by=user.id,
-        source_project_id=source_project_id,
-        **payload,
+    template = await WorkspaceConfigurationWorkflow(db).create_template(
+        data.model_dump(exclude_unset=True, exclude_none=False),
+        actor_id=user.id,
     )
-    db.add(template)
     await db.commit()
     await db.refresh(template)
     return await _serialize(db, template)
@@ -187,33 +134,11 @@ async def update_template(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    template = await _load_template_or_404(db, template_id)
-    await assert_template_visible(db, template, user)
-    if not can_edit_template(template, user):
-        raise HTTPException(status_code=403, detail="仅模板创建者或超级管理员可编辑")
-
-    payload = data.model_dump(exclude_unset=True)
-    new_scope = payload.get("scope", template.scope)
-    if new_scope != template.scope:
-        # scope 升级到 public 需 super_admin
-        assert_can_create_scope(new_scope, user)
-        if new_scope == "organization" and not payload.get(
-            "organization_id", template.organization_id
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="organization scope 必须指定 organization_id",
-            )
-
-    # v0.10.22 · 同 create 路径: 兼容旧客户端 legacy 字段反向派生进 tool_bindings 后剔除.
-    coalesce_legacy_into_tool_bindings(
-        payload, template.tool_bindings, payload.get("type_key") or template.type_key
+    template = await WorkspaceConfigurationWorkflow(db).update_template(
+        template_id,
+        data.model_dump(exclude_unset=True),
+        actor_id=user.id,
     )
-    for _legacy_key in ("classes", "classes_config", "attribute_schema"):
-        payload.pop(_legacy_key, None)
-
-    for k, v in payload.items():
-        setattr(template, k, v)
     await db.commit()
     await db.refresh(template)
     return await _serialize(db, template)
@@ -225,11 +150,9 @@ async def delete_template(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    template = await _load_template_or_404(db, template_id)
-    await assert_template_visible(db, template, user)
-    if not can_edit_template(template, user):
-        raise HTTPException(status_code=403, detail="仅模板创建者或超级管理员可删除")
-    await db.delete(template)
+    await WorkspaceConfigurationWorkflow(db).delete_template(
+        template_id, actor_id=user.id
+    )
     await db.commit()
 
 
@@ -242,33 +165,9 @@ async def duplicate_template(
     user: User = Depends(get_current_user),
 ):
     """克隆任意可见模板为当前用户私有模板."""
-    if user.role not in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN):
-        raise HTTPException(
-            status_code=403, detail="仅项目管理员或超级管理员可克隆模板"
-        )
-
-    src = await _load_template_or_404(db, template_id)
-    await assert_template_visible(db, src, user)
-
-    payload = {field: getattr(src, field) for field in TEMPLATE_PAYLOAD_FIELDS}
-    # deep copy JSONB 字段
-    for k, v in list(payload.items()):
-        if isinstance(v, (dict, list)):
-            payload[k] = copy.deepcopy(v)
-
-    new = ProjectTemplate(
-        id=uuid.uuid4(),
-        display_id=await next_display_id(db, "project_templates"),
-        name=f"{src.name} (副本)",
-        description=src.description,
-        annotation_guide=src.annotation_guide,
-        scope="private",
-        organization_id=None,
-        created_by=user.id,
-        source_project_id=src.source_project_id,
-        **payload,
+    template = await WorkspaceConfigurationWorkflow(db).duplicate_template(
+        template_id, actor_id=user.id
     )
-    db.add(new)
     await db.commit()
-    await db.refresh(new)
-    return await _serialize(db, new)
+    await db.refresh(template)
+    return await _serialize(db, template)

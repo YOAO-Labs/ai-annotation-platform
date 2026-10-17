@@ -219,3 +219,76 @@ async def test_project_export_denied_for_annotator_and_viewer(
             headers=_headers(principal),
         )
         assert response.status_code == 403, response.text
+
+
+async def test_project_patch_uses_current_owner_and_hides_outsider(
+    httpx_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    old_owner = await create_user(
+        db_session, "project_admin", f"old-owner-{uuid.uuid4()}@test.local", "Old"
+    )
+    current_owner = await create_user(
+        db_session,
+        "project_admin",
+        f"current-owner-{uuid.uuid4()}@test.local",
+        "Current",
+    )
+    outsider = await create_user(
+        db_session, "employee", f"outsider-{uuid.uuid4()}@test.local", "Outsider"
+    )
+    project = await create_project(db_session, owner_id=old_owner.id)
+    old_owner_headers = _headers(old_owner)
+    current_owner_headers = _headers(current_owner)
+    outsider_headers = _headers(outsider)
+    original_name = project.name
+    project.owner_id = current_owner.id
+    await db_session.commit()
+
+    old_owner_response = await httpx_client.patch(
+        f"/api/v1/projects/{project.id}",
+        json={"name": "old owner write"},
+        headers=old_owner_headers,
+    )
+    outsider_response = await httpx_client.patch(
+        f"/api/v1/projects/{project.id}",
+        json={"name": "outsider write"},
+        headers=outsider_headers,
+    )
+    assert old_owner_response.status_code == 404
+    assert outsider_response.status_code == 404
+
+    current_owner_response = await httpx_client.patch(
+        f"/api/v1/projects/{project.id}",
+        json={"name": "current owner write"},
+        headers=current_owner_headers,
+    )
+    assert current_owner_response.status_code == 200, current_owner_response.text
+    assert current_owner_response.json()["name"] == "current owner write"
+
+    await db_session.refresh(project)
+    assert project.owner_id == current_owner.id
+    assert project.name == "current owner write"
+    assert project.name != original_name
+
+
+async def test_project_patch_rejects_demoted_actor_with_existing_token(
+    httpx_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    owner = await create_user(
+        db_session, "project_admin", f"demoted-owner-{uuid.uuid4()}@test.local", "Owner"
+    )
+    project = await create_project(db_session, owner_id=owner.id)
+    owner_headers = _headers(owner)
+    original_name = project.name
+    owner.role = "employee"
+    await db_session.commit()
+
+    response = await httpx_client.patch(
+        f"/api/v1/projects/{project.id}",
+        json={"name": "must not persist"},
+        headers=owner_headers,
+    )
+    assert response.status_code == 404
+
+    await db_session.refresh(project)
+    assert project.name == original_name

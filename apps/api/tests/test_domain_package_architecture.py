@@ -257,8 +257,15 @@ DOMAIN_PACKAGES = (
         package="project_workspace",
         legacy_facades=(),
         allowed_app_imports=(
+            "app.db.enums",
+            "app.db.models.dataset",
             "app.db.models.project",
+            "app.db.models.project_template",
+            "app.db.models.user",
+            "app.services.display_id",
             "app.services.guide_asset_contracts",
+            "app.services.project_kind",
+            "app.services.project_template",
         ),
     ),
     DomainSpec(

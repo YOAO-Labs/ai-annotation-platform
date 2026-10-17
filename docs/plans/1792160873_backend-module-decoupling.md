@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行、问题决策及 Schema 清理已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
+> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行、问题决策、Schema 清理及项目配置/模板行命令已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
 >
 > 创建日期：2026-10-16。
 >
@@ -740,6 +740,23 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 实际 HTTP smoke 的不可变审计行拒绝了 fixture `DELETE`，未修改该记录；先清理项目/任务/标注，按审计外键保留 actor，再由 `doctor` 确认无活动会话并以专属确认销毁 `480ade4267685159:test` 的 test DB/Redis/九个桶。补充预算使用同一自有槽并再次销毁，临时程序已移除。公开字段、OpenAPI 与版本不变；当前管理权/目标围栏的用户影响记录于 Security。
 - 主线冷进程导入标注 owner 未加载 API/worker；默认数据库依赖的真实 ASGI/JWT 预览与执行均为 200。独立连接确认预览不更改行/审计，执行软删类别孤儿、修剪有效标注 legacy key 并保留 `_proof`，任务计数为 1、已知贡献者记录当前 actor，业务审计恰好一条。该主线探针没有对象 I/O、worker 或模型执行。
 
+### 项目配置与模板行命令
+
+- `services/project_workspace.py` 统一持有项目配置规范化/创建/更新、ProjectTemplate 行创建/更新/删除/复制与 usage 计数，及主 backend 绑定 helper；类别读投影仍由 `services/project.py` 提供，模板可见性/scope/payload helper 仍在 `services/project_template.py`。`application/project_workspace_configuration.py` 复核当前 actor、项目与模板权威，组合项目 kind/协作/模板和 source 项目处理、backend 启用及主绑定；模板先在无锁读取后执行可见性与操作准入，再取得 NOWAIT 行锁，并在锁后保留原可见性/权限复核；项目内嵌流水线结构调用 `services/pipeline_template.py::validate_saved_pipeline`。HTTP 保留 commit、refresh 和响应。
+- `test_project_templates.py` 的默认 ASGI/JWT 路径不覆盖 `get_db`，在自有 PostgreSQL 中实际创建、更新、应用并删除模板；独立 session 观察 template usage、项目配置、显式 null/空 JSONB 与省略字段保留。真实 PATCH 的 kind 不一致返回 422 且独立 session 确认旧行不变；延迟约束触发器使真实 commit 返回 500，独立 session 确认更新回滚，触发器、函数及测试行均在 `finally` 清理。权限测试另覆盖当前 owner、转移后的旧 owner、outsider 与降权 JWT。
+- 16 个相关测试文件累计 344 passed、74 skipped；精确 OpenAPI snapshot 匹配。固定 Ruff `0.15.22` 对改动 Python 文件 format，`ruff check` 全部通过。补充锁回归单独一项通过，未重跑此前套件，也不重复累计同一回归的后续补验。原始日志见 `/tmp/aap-workspace-config-evidence/` 的 `focused-tests-final.log`、`template-openapi-tests.log`、`ruff-format.log` 与 `ruff-check-final.log`。
+- 同一私有模板与 project_admin 预先装载后，取历史 `891f4e344` API 的 update-template 变更/校验体及其历史 policy/coalesce helpers，与当前 workspace owner 的 update 命令配对。每侧预热一次后交错采样三次命令及显式 flush，每次新 session 随后 rollback，独立观察者确认同一冻结模板不变：
+
+| 采样指标                    | 历史命令体 | 当前 owner |
+| --------------------------- | ---------: | ---------: |
+| SQL 语句数（每次）          |          1 |          1 |
+| Python 堆峰值中位数（字节） |    283,796 |    283,828 |
+
+- 原始六组 SQL/current-heap/peak-heap 在 `/tmp/aap-workspace-config-evidence/workspace-template-budget.log`；预算不含 HTTP/JWT、当前管理权加载/锁、预装载、序列化、rollback、RSS/原生内存或 GPU/浏览器，不以此比较整个历史授权策略或宣称优化。补充预算未改生产代码或重复已验套件，自有 `06d959c2d32212dd:test` 已销毁。
+- 主线冷进程导入新装配未加载 API/worker；默认 DB 依赖的真实 ASGI/JWT 创建模板 201、更新 200、应用建项目 200、修改项目 200、删除模板 204。独立连接确认来源 usage=1、项目 owner 与规范绑定一致，省略 description 保留、显式 guide null 与空绑定保留，随后 truck 类别和新指南持久化；不接触存储、worker 或模型。
+- 以独立 owner 事务持有真实模板 `FOR UPDATE` 并从默认 ASGI/JWT 路径以 outsider 请求：修复前私有模板 PATCH/DELETE/duplicate 均返回 `409 template_busy`，随机缺失 ID 返回 404；修复后 PATCH/DELETE/duplicate 及 apply 私有模板均为 404。新独立 PG 回归同时验证公开模板对非创建者的编辑/删除仍为 403、允许的 duplicate/apply 遇锁仍为 409，且所有模板和项目行无副作用。原始脱敏响应分别见 `/tmp/aap-workspace-config-evidence/template-lock-before.log` 与 `template-lock-after.log`；回归用例为 `test_locked_private_template_operations_remain_concealed`。
+- 项目配置路由移除无 Python 调用方的 `_CLONEABLE_PROJECT_FIELDS` 重导出；其他模板和项目 helper 调用保持现有服务归属。
+
 ### 剩余范围
 
-- 全入口复核的剩余写入切片为项目/模板配置、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 全入口复核的剩余写入切片为 Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

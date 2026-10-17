@@ -61,6 +61,9 @@ last_reviewed: 2026-10-17
 - 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
   `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。
   工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留。
+- 项目配置与模板行命令：`services/project_workspace.py` 是唯一服务所有者，
+  `application/project_workspace_configuration.py::WorkspaceConfigurationWorkflow`
+  复核当前 actor/项目/模板权威并组合跨域校验；HTTP 保留提交与响应。
 - 保存预标流水线写入由 `services/pipeline_template.py` 持有，包括
   `validate_saved_pipeline`、创建/更新/删除、阶段深拷贝与默认项切换；
   `application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威与 backend 启用校验。

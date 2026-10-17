@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from tests.conftest import create_registry_with_pool
+from tests.factory import build_tool_bindings
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -169,17 +170,58 @@ async def test_patch_omit_keeps_pipeline(httpx_client, super_admin, db_session):
 
 
 @pytest.mark.asyncio
+async def test_patch_explicit_empty_and_null_project_configuration(
+    httpx_client, super_admin, db_session
+):
+    owner, token = super_admin
+    proj, _, _ = await _seed(db_session, owner.id)
+    proj.annotation_guide = "# previous guide"
+    proj.tool_bindings = build_tool_bindings(["car"])
+    await db_session.commit()
+
+    resp = await httpx_client.patch(
+        f"/api/v1/projects/{proj.id}",
+        headers=_bearer(token),
+        json={
+            "name": "empty configuration",
+            "annotation_guide": None,
+            "tool_bindings": {},
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["name"] == "empty configuration"
+    assert resp.json()["annotation_guide"] is None
+    assert resp.json()["tool_bindings"] == {}
+    assert resp.json()["classes"] == []
+    assert resp.json()["ai_enabled"] is True
+
+    await db_session.refresh(proj)
+    assert proj.annotation_guide is None
+    assert proj.tool_bindings == {}
+
+
+@pytest.mark.asyncio
 async def test_patch_rejects_duplicate_stage(httpx_client, super_admin, db_session):
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
+    original_name = proj.name
+    expected_pipeline = _stages(detect.id, classify.id)
+    proj.preannotate_pipeline = expected_pipeline
+    await db_session.commit()
+
     stages = _stages(detect.id, classify.id)
     stages[1]["stage"] = 0  # 重复 stage 序号
     resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
-        json={"preannotate_pipeline": stages},
+        json={"name": "must-not-persist", "preannotate_pipeline": stages},
     )
     assert resp.status_code == 422, resp.text
+
+    await db_session.refresh(proj)
+    assert proj.name == original_name
+    assert proj.preannotate_pipeline == expected_pipeline
 
 
 @pytest.mark.asyncio

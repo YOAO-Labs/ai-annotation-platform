@@ -1,8 +1,8 @@
 """v0.10.22 · tool_bindings service helper 单测.
 
 覆盖 services/project.py 的 derive_* (读时派生投影) /
-coalesce_legacy_into_tool_bindings (旧输入反向派生) / lookup_classes_for_tool_unit,
-以及 services/prediction.py 的 derive_tool_unit_from_ls_type / derive_tool_unit_from_result.
+services/project_workspace.py 的配置归一化与工具单位查询 /
+services/prediction.py 的 derive_tool_unit_from_ls_type / derive_tool_unit_from_result.
 
 这些 helper 是 tool_bindings 单源真值的派生 / 反向派生 / 工具单位查表核心,
 任何回归都会让导出 reader / 新 wizard / accept_prediction 至少一个分支错位.
@@ -17,13 +17,15 @@ from app.services.prediction import (
     derive_tool_unit_from_result,
 )
 from app.services.project import (
-    coalesce_legacy_into_tool_bindings,
     derive_attribute_schema,
     derive_classes_config,
     derive_classes_list,
+    resolve_class_visual,
+)
+from app.services.project_workspace import (
+    coalesce_legacy_into_tool_bindings,
     derive_tool_unit_for_type_key,
     lookup_classes_for_tool_unit,
-    resolve_class_visual,
 )
 
 

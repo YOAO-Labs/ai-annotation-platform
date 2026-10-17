@@ -22,7 +22,6 @@ from app.deps import (
     require_project_visible,
     require_project_owner,
     require_project_capability,
-    assert_project_visible,
 )
 from app.db.enums import (
     PROJECT_ROLES,
@@ -73,7 +72,6 @@ from app.schemas.export import (
     LidarExportPreflightResponse,
 )
 from app.config import settings
-from app.services.display_id import next_display_id
 from app.services.pipeline_validation import (
     check_capability_violations,
     check_parent_geometry_roi,
@@ -83,19 +81,6 @@ from app.services.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
 from app.services.batch_permissions import allows_bulk_preannotation
 from app.services.pipeline_template import (
     assert_pipeline_visible,
-    validate_saved_pipeline,
-)
-from app.services.project_kind import (
-    ProjectKind,
-    canonical_media_kind,
-    dataset_has_scenes,
-    dataset_kind,
-    kind_mismatch_detail,
-    scene_mode_allowed,
-)
-from app.services.project_clone import (
-    CLONEABLE_PROJECT_FIELDS as _CLONEABLE_PROJECT_FIELDS,  # noqa: F401 (re-export)
-    merge_from_source as _merge_from_source_project_impl,
 )
 from app.application.project_deletion import (
     delete_project as delete_project_transaction,
@@ -106,8 +91,9 @@ from app.application.project_task_cleanup import (
 )
 from app.application.project_class_rename import rename_project_class
 from app.application.project_pipeline import apply_saved_pipeline
-from app.schemas.project import VideoCollaborationConfig
-from app.services.video_collaboration import validate_project_collaboration_update
+from app.application.project_workspace_configuration import (
+    WorkspaceConfigurationWorkflow,
+)
 
 router = APIRouter()
 logger = logging.getLogger("app.api.projects")
@@ -325,53 +311,6 @@ async def _serialize_project(
     data["ai_completed_tasks"] = ai_completed
     data["batch_summary"] = batch_summary
     return data
-
-
-async def _assert_project_kind_update_allowed(
-    db: AsyncSession, project: Project, payload: dict
-) -> None:
-    if "scene_mode" in payload and payload["scene_mode"] != project.scene_mode:
-        if (project.total_tasks or 0) > 0:
-            raise HTTPException(
-                status_code=422,
-                detail="已建 task 的项目不可切换 scene 模式,请先解绑数据集",
-            )
-
-    target_data_type = payload.get("data_type", project.data_type)
-    target_scene_mode = bool(payload.get("scene_mode", project.scene_mode))
-    if target_scene_mode and not scene_mode_allowed(target_data_type):
-        raise HTTPException(
-            status_code=422,
-            detail="scene_mode 仅支持 image/lidar 项目",
-        )
-
-    if "data_type" not in payload and "scene_mode" not in payload:
-        return
-
-    from app.db.models.dataset import Dataset, ProjectDataset
-
-    rows = await db.execute(
-        select(Dataset)
-        .join(ProjectDataset, ProjectDataset.dataset_id == Dataset.id)
-        .where(ProjectDataset.project_id == project.id)
-    )
-    target = ProjectKind(
-        data_type=canonical_media_kind(target_data_type),
-        scene_mode=target_scene_mode,
-    )
-    for dataset in rows.scalars().all():
-        has_scenes = await dataset_has_scenes(db, dataset.id)
-        mismatch = kind_mismatch_detail(
-            target, dataset_kind(dataset, has_scenes=has_scenes)
-        )
-        if mismatch:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"已有数据集 {dataset.display_id} 与目标项目 kind 不匹配: "
-                    f"{mismatch}; 请先解绑数据集"
-                ),
-            )
 
 
 def _project_filter_datetime(value: str | None, *, end_of_day: bool = False):
@@ -641,247 +580,14 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
-    # v0.10.11 · exclude_unset 让"未显式给出"与"显式给出默认值"可区分; 兜底字段
-    # 优先用 source_project_id 项目的值, 其次走 Project 模型列默认值.
-    payload = data.model_dump(exclude_unset=True)
-
-    # v0.10.28 · B 路线: 新建以 data_type 为主. type_key 缺省时由 data_type 派生兼容值;
-    # data_type 缺省时由 type_key 反推, 二者互填后均落库 (Project.type_key NOT NULL).
-    from app.services.project import (
-        assert_project_kind_consistent,
-        data_type_from_type_key,
-        legacy_type_key_from_data_type,
+    project, template = await WorkspaceConfigurationWorkflow(db).create_project(
+        data.model_dump(exclude_unset=True), actor_id=current_user.id
     )
-
-    _dt = payload.get("data_type")
-    _tk = payload.get("type_key")
-    # 两侧都给时先断言一致 (cross-fill 只补缺, 不审已给值).
-    assert_project_kind_consistent(_tk, _dt)
-    if not _tk:
-        payload["type_key"] = legacy_type_key_from_data_type(_dt)
-    if not _dt:
-        payload["data_type"] = data_type_from_type_key(payload.get("type_key"))
-    if payload.get("scene_mode"):
-        if not scene_mode_allowed(payload.get("data_type")):
-            raise HTTPException(
-                status_code=422,
-                detail="scene_mode 仅支持 image/lidar 项目",
-            )
-        payload.setdefault("prefer_same_scene_continuation", True)
-    if "video_collaboration" in payload:
-        await validate_project_collaboration_update(
-            db,
-            None,
-            VideoCollaborationConfig.model_validate(payload["video_collaboration"]),
-            data_type=payload["data_type"],
-            requested_video_sampling=payload.get("video_sampling"),
-            requested_tool_bindings=payload.get("tool_bindings"),
-        )
-        if (
-            payload["video_collaboration"]["enabled"]
-            and payload["type_key"] != "video-track"
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="video_collaboration 只能用于 video-track 项目",
-            )
-
-    # v0.10.22 · 先把客户端显式传入的旧扁平 classes / classes_config / attribute_schema
-    # 反向派生进 tool_bindings (按 type_key 推 unit), 再剔除扁平 key. 必须早于下面的
-    # source / template 兜底合并 —— 它们只填"缺失"的 tool_bindings, 故显式输入优先;
-    # 同时扁平字段对应 DB 列已删, 不能作为 ORM kwarg.
-    from app.services.project import coalesce_legacy_into_tool_bindings
-
-    coalesce_legacy_into_tool_bindings(
-        payload, existing_tool_bindings=None, type_key=payload.get("type_key")
-    )
-    for _legacy_key in ("classes", "classes_config", "attribute_schema"):
-        payload.pop(_legacy_key, None)
-
-    # v0.9.7 · 取出 source_id (若给定), 校验存在性后再创建项目;
-    # 项目 INSERT 完成后再为新项目启用 backend (项目 → project_ml_backend FK).
-    source_id = payload.pop("ml_backend_source_id", None)
-    # v0.23.3 ADR-0050 · 公共 schema 仍用 ml_backend_id (registry id, 兼容前端);
-    # 内部转成 ml_backend_pool_id (singleton pool id) 存进项目主绑定。
-    requested_main_backend_id = payload.pop("ml_backend_id", None)
-    source_backend = None
-    if source_id is not None:
-        from app.db.models.ml_backend_registry import MLBackendRegistry as _MLB
-
-        source_backend = await db.get(_MLB, source_id)
-        if source_backend is None:
-            raise HTTPException(
-                status_code=400, detail="ml_backend_source_id not found"
-            )
-
-    # v0.10.14 · E2 · "从模板创建" — schema 已校验 template_id / source_project_id
-    # 互斥. 应用模板时把模板载荷 deepcopy 进 payload, 并 usage_count += 1.
-    template_id = payload.pop("template_id", None)
-
-    # v0.10.11 · "从已有项目复制配置" — 用源项目兜底未显式给出的字段;
-    # 若源项目带 ml_backend_id 且 caller 未单独指定 ml_backend_source_id,
-    # 自动把源项目的 backend 作为 backend 克隆源.
-    source_project_id = payload.pop("source_project_id", None)
-    # v0.10.13 · E1 · annotation_guide / guide_assets 不在默认克隆白名单 (避免信息错位);
-    # 通过独立 flag 触发, 仅当 source_project_id 给定时有效. 图片资源 storage key
-    # 复用 (不重新上传) — 源项目删除资源会影响新项目, UI 已在 wizard 标注.
-    copy_guide = payload.pop("copy_annotation_guide", False)
-    if source_project_id is not None:
-        source_project = await assert_project_visible(
-            source_project_id, db, current_user
-        )
-        payload = _merge_from_source_project(payload, source_project)
-        if copy_guide:
-            import copy as _copy
-
-            if source_project.annotation_guide is not None:
-                payload.setdefault("annotation_guide", source_project.annotation_guide)
-            if source_project.guide_assets:
-                payload.setdefault(
-                    "guide_assets", _copy.deepcopy(source_project.guide_assets)
-                )
-        if source_backend is None and source_project.ml_backend_pool_id is not None:
-            from app.db.models.ml_backend_pool import MLBackendServicePool
-
-            # v0.23.3 ADR-0050 · 项目主绑定存 pool id; 经 pool.legacy_instance_id 解析
-            # 回 registry 实例 (off mode singleton, 与 v0.23.2 clone 行为一致)。
-            src_pool = await db.get(
-                MLBackendServicePool, source_project.ml_backend_pool_id
-            )
-            if src_pool is not None and src_pool.legacy_instance_id is not None:
-                from app.db.models.ml_backend_registry import MLBackendRegistry as _MLB
-
-                source_backend = await db.get(_MLB, src_pool.legacy_instance_id)
-    elif copy_guide:
-        # 没给 source_project_id 却给了 copy_annotation_guide 是请求体错误, 提示前端
-        raise HTTPException(
-            status_code=400,
-            detail="copy_annotation_guide requires source_project_id",
-        )
-
-    template = None
-    if template_id is not None:
-        from app.db.models.project_template import ProjectTemplate
-        from app.services.project_template import (
-            assert_template_visible,
-            merge_template_into_payload,
-        )
-
-        template = await db.get(ProjectTemplate, template_id)
-        if template is None:
-            raise HTTPException(status_code=404, detail="模板不存在")
-        await assert_template_visible(db, template, current_user)
-        payload = merge_template_into_payload(template, payload)
-
-    if requested_main_backend_id:
-        # v0.10.37 · 创建即绑定 backend 时同样按 data_type 校验模态 (与 update_project 对称)
-        await _validate_backend_modality(
-            db, requested_main_backend_id, payload["data_type"]
-        )
-
-    new_project_id = uuid.uuid4()
-    # v0.19.0 ADR-0044 · 直接指定主 backend (非克隆路径) 时, 同步在新项目建启用关联;
-    # 不然 project_ml_backend_pool 缺行, trigger_preannotation 的 is_enabled 校验 404 +
-    # ai_enabled 又派生为 true → 工作台显示「已启用 AI 却跑不起来」。
-    main_backend_to_enable = (
-        requested_main_backend_id if source_backend is None else None
-    )
-    project = Project(
-        id=new_project_id,
-        display_id=await next_display_id(db, "projects"),
-        owner_id=current_user.id,
-        **payload,
-    )
-    db.add(project)
-    await db.flush()  # 让 project row 入 DB, 满足 project_ml_backend FK
-
-    if source_backend is not None:
-        new_pool_id = await _clone_backend_to_new_project(
-            db, source=source_backend, new_project_id=new_project_id
-        )
-        project.ml_backend_pool_id = new_pool_id
-        # v0.10.37 · 克隆源项目 backend 落定后, 同样按新项目 data_type 校验模态
-        # (clone 复制了 url/auth, 实时探 /setup 与校验 source 等价).
-        await _validate_backend_modality(db, source_backend.id, project.data_type)
-    elif main_backend_to_enable is not None:
-        from app.services.ml_backend import MLBackendService
-
-        svc = MLBackendService(db)
-        await svc.set_enabled(new_project_id, main_backend_to_enable, enabled=True)
-        # v0.23.3 ADR-0050 · 项目主绑定存 pool id; set_enabled 内部已解析 registry→pool。
-        pool = await svc._pool_for_registry(main_backend_to_enable)
-        if pool is not None:
-            project.ml_backend_pool_id = pool.id
-
-    if template is not None:
-        template.usage_count = (template.usage_count or 0) + 1
-
     await db.commit()
     await db.refresh(project)
     if template is not None:
-        # 测试环境共享 dependency-override session, 后续 GET /project-templates/{id}
-        # 会从 identity map 取出本 template; commit 后属性可能进入"待重新加载"
-        # 状态触发 sync I/O. 显式 refresh 保证下次访问不触发 lazy load.
         await db.refresh(template)
     return await _serialize_project(db, project)
-
-
-async def _clone_backend_to_new_project(
-    db: AsyncSession, *, source, new_project_id: uuid.UUID
-) -> uuid.UUID:
-    """v0.19.0 ADR-0044 · backend 已是全局注册项, 「克隆给新项目」退化为「为新项目启用同一
-    全局 backend」: 建一条 project_ml_backend_pool 关联。返回项目主绑定的 pool id。
-    v0.23.3 ADR-0050 · 返回 singleton pool id (项目主绑定存 pool, 非 registry)。
-    """
-    from app.services.ml_backend import MLBackendService
-
-    svc = MLBackendService(db)
-    await svc.set_enabled(new_project_id, source.id, enabled=True)
-    pool = await svc._pool_for_registry(source.id)
-    # source 必经 create_registry / singleton backfill, 故 pool 必然存在。
-    return pool.id if pool is not None else source.id
-
-
-# v0.10.14 · E2 · 白名单 + merge 实现迁出至 app.services.project_clone, 供
-# projects + project_templates 共享. 这里保留同名 wrapper, 不改调用点.
-def _merge_from_source_project(payload: dict, source: Project) -> dict:
-    return _merge_from_source_project_impl(payload, source)
-
-
-async def _validate_backend_modality(
-    db: AsyncSession, backend_id, data_type: str
-) -> None:
-    """v0.10.37 · 绑定 backend 时按项目 data_type 校验模态匹配 (epic 阶段 1).
-
-    实时探一次 `/setup` 派生 backend 模态; fail-open: 探测失败 (backend 暂不可达) → 放行,
-    不因瞬时宕机卡住绑定, mismatch 留到 predict 时暴露. lidar 暂无 backend 支持, 跳过校验.
-    """
-    if data_type not in ("image", "video"):
-        return
-    from app.db.models.ml_backend_registry import MLBackendRegistry as _MLB
-    from app.services.ml_capabilities import derive_modalities, extract_capabilities
-    from app.services.ml_client import MLBackendClient
-
-    backend = await db.get(_MLB, backend_id)
-    if backend is None:
-        return
-    try:
-        caps = extract_capabilities(await MLBackendClient(backend).setup())
-    except Exception:
-        return  # fail-open
-    if caps is None:
-        return
-    modalities = derive_modalities(caps)
-    if not modalities:
-        return  # 能力快照不含模态信号 (无 prompt/tracker) → fail-open, 不误拦纯批量检测后端
-    if data_type not in modalities:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"该 ML Backend 不支持「{data_type}」模态 (检测到: "
-                f"{modalities or '无'}); 视频项目需绑定自报 supported_trackers 的 backend."
-            ),
-        )
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
@@ -1066,145 +772,16 @@ async def update_project(
     data: ProjectUpdate,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    payload = data.model_dump(exclude_unset=True)
-    if (
-        "video_collaboration" in payload
-        or "video_sampling" in payload
-        or "tool_bindings" in payload
-    ):
-        requested_collaboration = VideoCollaborationConfig.model_validate(
-            payload.get("video_collaboration", project.video_collaboration or {})
-        )
-        await validate_project_collaboration_update(
-            db,
-            project,
-            requested_collaboration,
-            data_type=payload.get("data_type", project.data_type),
-            video_sampling_changed=(
-                "video_sampling" in payload
-                and payload["video_sampling"] != (project.video_sampling or {})
-            ),
-            requested_video_sampling=payload.get(
-                "video_sampling", project.video_sampling or {}
-            ),
-            requested_tool_bindings=payload.get(
-                "tool_bindings", project.tool_bindings or {}
-            ),
-        )
-        if (
-            requested_collaboration.enabled
-            and payload.get("type_key", project.type_key) != "video-track"
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="video_collaboration 只能用于 video-track 项目",
-            )
-    if "mask_qc_config" in payload:
-        from app.services.mask_qc.config import load_mask_qc_config
-
-        project = (
-            await db.execute(
-                select(Project).where(Project.id == project.id).with_for_update()
-            )
-        ).scalar_one()
-        current_config = load_mask_qc_config(project.mask_qc_config)
-        requested_config = load_mask_qc_config(payload["mask_qc_config"])
-        if requested_config.config_revision != current_config.config_revision:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": "mask_qc_config_revision_conflict",
-                    "expected": requested_config.config_revision,
-                    "actual": current_config.config_revision,
-                },
-            )
-        requested_config.config_revision = current_config.config_revision + 1
-        payload["mask_qc_config"] = requested_config.model_dump(mode="json")
-    if "point_cloud_quality_config" in payload:
-        from app.services.point_cloud_quality.config import (
-            load_point_cloud_quality_config,
-        )
-
-        project = (
-            await db.execute(
-                select(Project).where(Project.id == project.id).with_for_update()
-            )
-        ).scalar_one()
-        current_config = load_point_cloud_quality_config(
-            project.point_cloud_quality_config
-        )
-        requested_config = load_point_cloud_quality_config(
-            payload["point_cloud_quality_config"]
-        )
-        if requested_config.config_revision != current_config.config_revision:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": "point_cloud_quality_config_revision_conflict",
-                    "expected": requested_config.config_revision,
-                    "actual": current_config.config_revision,
-                },
-            )
-        requested_config.config_revision = current_config.config_revision + 1
-        payload["point_cloud_quality_config"] = requested_config.model_dump(mode="json")
-    # v0.13.x 收口 PR#30 review #5: type_key 与 data_type 媒体维度必须一致.
-    # 单独 PATCH 任一字段也要校验 (用 payload 给值 + 项目现值组合后的有效值).
-    if "type_key" in payload or "data_type" in payload:
-        from app.services.project import assert_project_kind_consistent
-
-        assert_project_kind_consistent(
-            payload.get("type_key", project.type_key),
-            payload.get("data_type", project.data_type),
-        )
-    await _assert_project_kind_update_allowed(db, project, payload)
-    # v0.18.27 · 项目级编排结构校验 (显式 null = 清除, 跳过校验直接置 None)。
-    if payload.get("preannotate_pipeline") is not None:
-        payload["preannotate_pipeline"] = validate_saved_pipeline(
-            payload["preannotate_pipeline"]
-        )
-    # v0.23.3 ADR-0050 · 公共 schema 仍用 ml_backend_id (registry id);
-    # 内部转成 ml_backend_pool_id (singleton pool) 存项目主绑定。
-    # 注意区分「字段未提供」(不改动) 与「显式 null」(清空): 用 in 判断而非 pop 默认值。
-    if "ml_backend_id" in payload:
-        requested_main_backend_id = payload.pop("ml_backend_id")
-        if requested_main_backend_id:
-            # v0.10.37 · 绑定按 data_type 校验模态 (用应用 payload 后的有效 data_type)
-            await _validate_backend_modality(
-                db,
-                requested_main_backend_id,
-                payload.get("data_type") or project.data_type,
-            )
-            # v0.19.0 ADR-0044 · 设主 backend 即视为「本项目启用该 backend」;
-            # 否则 trigger_preannotation 的 is_enabled 校验 404, 而 ai_enabled 又自动派生 true
-            # → 工作台显示「已启用 AI 却跑不起来」。与 PUT /ml-backends/{rid}/enablement 对称。
-            from app.services.ml_backend import MLBackendService
-
-            svc = MLBackendService(db)
-            await svc.set_enabled(project.id, requested_main_backend_id, enabled=True)
-            pool = await svc._pool_for_registry(requested_main_backend_id)
-            payload["ml_backend_pool_id"] = pool.id if pool is not None else None
-        else:
-            # 显式 null = 清空主绑定
-            payload["ml_backend_pool_id"] = None
-
-    # v0.10.22 · 同 create_project: 旧扁平输入反向派生进 tool_bindings 后剔除.
-    from app.services.project import coalesce_legacy_into_tool_bindings
-
-    coalesce_legacy_into_tool_bindings(
-        payload,
-        existing_tool_bindings=project.tool_bindings,
-        type_key=payload.get("type_key") or project.type_key,
+    project = await WorkspaceConfigurationWorkflow(db).update_project(
+        project.id,
+        data.model_dump(exclude_unset=True),
+        actor_id=current_user.id,
     )
-    for _legacy_key in ("classes", "classes_config", "attribute_schema"):
-        payload.pop(_legacy_key, None)
-
-    for k, v in payload.items():
-        setattr(project, k, v)
     await db.commit()
     await db.refresh(project)
     result = await _serialize_project(db, project)
-    # v0.19.3 WS1 · 保存编排能力软提示 (不挡, dispatch-time 422 仍是最终闸)。
     result["capability_warnings"] = await _compute_pipeline_capability_warnings(
         db, project.preannotate_pipeline
     )

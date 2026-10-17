@@ -235,7 +235,7 @@ class AnnotationService:
         if class_name == "__unknown":
             return
         from app.db.models.project import Project
-        from app.services.project import lookup_classes_for_tool_unit
+        from app.services.project_workspace import lookup_classes_for_tool_unit
         from fastapi import HTTPException
 
         project = await self.db.get(Project, project_id)

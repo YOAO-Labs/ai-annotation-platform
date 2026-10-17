@@ -36,7 +36,7 @@ from app.services.mask_formats.safe_archive import (
     SafeZipArchive,
     validate_png_contract,
 )
-from app.services.project import lookup_classes_for_tool_unit
+from app.services.project_workspace import lookup_classes_for_tool_unit
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.task_matcher import resolve_task, resolve_task_by_file_stem
 from app.utils.raster_mask_rle import coco_rle_area, validate_coco_rle

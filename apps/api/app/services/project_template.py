@@ -1,10 +1,4 @@
-"""v0.10.14 · E2 · ProjectTemplate service.
-
-可见性 / 写权限 / 应用模板创建项目时的字段 merge 三件事:
-- 可见性: private (created_by), organization (同 org), public (全部)
-- 写权限: created_by 或 super_admin
-- 应用: deepcopy 模板载荷字段进 payload, 模板 usage_count + 1
-"""
+"""Project-template visibility, scope, and payload helpers."""
 
 from __future__ import annotations
 
@@ -78,6 +72,18 @@ def assert_can_create_scope(scope: str, user: User) -> None:
 
     if scope == "public" and user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="仅超级管理员可创建公共模板")
+
+
+def assert_template_creation_scope(
+    scope: str, organization_id: uuid.UUID | None, actor: User
+) -> None:
+    assert_can_create_scope(scope, actor)
+    if scope == "organization" and organization_id is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400, detail="organization scope 必须指定 organization_id"
+        )
 
 
 def dump_project_to_template_payload(project: Any) -> dict[str, Any]:
