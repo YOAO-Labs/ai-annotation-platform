@@ -132,6 +132,8 @@ services/
 
 `services/video_context.py` 持有共享 `VideoContext` 与源帧采样纯函数。帧服务负责上下文构建、缓存和 manifest 编排，片段与协作服务消费下层上下文/采样，不反向导入帧服务。导出、追踪与质检直接导入该新所有者；旧帧服务导出已移除，没有兼容别名。上下文仍包含 ORM 实体，不是已定义的跨语言 wire DTO。
 
+点云清单通过 `application/point_cloud_manifest.build_point_cloud_manifest` 组合两个值端口：Labeling 的 `TaskDatasetItemLinksReader` 返回原顺序的素材 ID/role，Assets 的 `PointCloudManifestAssetsReader` 返回素材、相机标定及主点云的坐标约定/Scene/帧数/位姿事实。HTTP 保留任务可见性和项目类型检查，再传 UUID、回退对象键及签名能力；两个 SQL 适配器绑定原 Session，已加载素材 ORM 只留在 Assets 内。主点云和相机签名、逐相机标定降级、最后的 Scene/位姿读取顺序保持，位姿的自由 JSON 单独复制以脱离 ORM；不读取对象正文。此端口仅覆盖点云清单，视频清单、Task 媒体摘要及含 ORM 的视频上下文仍有各自边界。
+
 `services/prediction_context.py` 持有规范化预测上下文、模型展示名及原图 RGB 读取；`services/prediction_roi.py` 持有裁剪、父框索引、属性合并和坐标回映；`services/prediction_progress.py` 持有原 Redis 频道与消息构造。HTTP、同步二次推理、批量和逐帧 worker 直接消费这些下层所有者，同步服务不再导入 worker，逐帧 worker 也不再反向导入批量 worker。上下文和 ROI 冷加载不引入 ORM、入口、Celery 或配置；原图读取仍在调用时使用对象存储，进度发布仍绑定现有 Redis/config。执行队列、fan-out、根作业身份、裁剪缓存、授权及提交边界未改，这些本地助手不是新的跨语言协议。
 
 批量执行用例由 `application/preannotation_execution.run_preannotation` 持有，接收纯 `BatchPredictionRequest` 与明确的帧派发能力；数据库创建、正常/提前/异常退出统一由应用的 finally 释放。`deps.get_batch_prediction_dispatcher` 只在入口装配 Celery producer，保留原 task 名、参数、CPU/GPU 队列、预建执行 ID 与 tracker 超时；根 worker 仅适配参数、执行 ID 和失败信号。应用先在当前 Session 读取帧数事实，再调用仅接收 ID/帧数的 chord 端口。最终候选写入仍绑定本地同事务；批量作用域、冻结模型身份、逐题提交与回滚、合作取消、阶段错误和成本统计沿用原行为。

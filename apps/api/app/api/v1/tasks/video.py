@@ -16,11 +16,10 @@ from app.deps import (
     require_scopes,
 )
 from app.db.models.user import User
-from app.db.models.dataset import Dataset, DatasetItem, VideoFrameIndex
+from app.db.models.dataset import VideoFrameIndex
 from app.db.models.task import Task
 from app.schemas.annotation import AnnotationOut
 from app.schemas.task import (
-    PointCloudCameraOut,
     TaskPointCloudManifestResponse,
     TaskVideoFrameTimetableResponse,
     TaskVideoManifestResponse,
@@ -51,9 +50,18 @@ from app.schemas.video_tracker_job import (
     VideoTrackerPropagateRequest,
 )
 from app.services.audit import AuditAction, AuditService
-from app.services.task_dataset_link import get_linked_items
 from app.services.project_access import is_privileged_for_project
 from app.services.storage import storage_service
+from app.application.point_cloud_manifest import (
+    PointCloudManifestFileUnavailable,
+    build_point_cloud_manifest,
+)
+from app.services.assets_point_cloud_manifest import (
+    SqlAlchemyPointCloudManifestAssetsReader,
+)
+from app.services.labeling_point_cloud_manifest import (
+    SqlAlchemyTaskDatasetItemLinksReader,
+)
 from app.services.video_frame_service import (
     build_context_from_task,
     get_chunk as get_video_chunk_asset,
@@ -278,10 +286,6 @@ async def get_point_cloud_manifest(
     current_user: User = Depends(get_current_user),
 ):
     from app.db.models.project import Project
-    from app.services.sensor_calibration import (
-        SensorCalibrationError,
-        resolve_calibration_state,
-    )
 
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user)
@@ -290,8 +294,6 @@ async def get_point_cloud_manifest(
     if project is None or project.data_type != "lidar":
         raise HTTPException(status_code=409, detail="Task is not a point-cloud task")
 
-    links = await get_linked_items(db, task_id)
-
     def _presign(key: str) -> str:
         return storage_service.generate_download_url(
             key,
@@ -299,124 +301,19 @@ async def get_point_cloud_manifest(
             bucket=storage_service.datasets_bucket,
         )
 
-    # 一次性取出所有关联 DatasetItem，避免逐 link 往返 DB
-    item_ids = [link.dataset_item_id for link in links]
-    items_by_id: dict[uuid.UUID, DatasetItem] = {}
-    if item_ids:
-        rows = (
-            (await db.execute(select(DatasetItem).where(DatasetItem.id.in_(item_ids))))
-            .scalars()
-            .all()
+    try:
+        return await build_point_cloud_manifest(
+            task.id,
+            task.file_path,
+            link_reader=SqlAlchemyTaskDatasetItemLinksReader(db),
+            assets_reader=SqlAlchemyPointCloudManifestAssetsReader(db),
+            presign=_presign,
+            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
         )
-        items_by_id = {item.id: item for item in rows}
-
-    # 主点云 URL：优先 primary_lidar link，否则回退 task.file_path
-    point_cloud_url: str | None = None
-    primary_link = next((link for link in links if link.role == "primary_lidar"), None)
-    if primary_link is not None:
-        primary_item = items_by_id.get(primary_link.dataset_item_id)
-        if primary_item is not None:
-            point_cloud_url = _presign(primary_item.file_path)
-    if point_cloud_url is None:
-        if not task.file_path:
-            raise HTTPException(
-                status_code=404, detail="Point cloud file not available"
-            )
-        point_cloud_url = _presign(task.file_path)
-
-    cameras: list[PointCloudCameraOut] = []
-    for link in links:
-        if not link.role.startswith("camera_"):
-            continue
-        item = items_by_id.get(link.dataset_item_id)
-        if item is None:
-            continue
-        calibration = None
-        calibration_revision = None
-        calibration_digest = None
-        try:
-            state = await resolve_calibration_state(db, item)
-            calibration = state.calibration
-            calibration_revision = state.revision
-            calibration_digest = state.digest
-        except SensorCalibrationError:
-            # 无标定相机仍可展示原图；投影与人工成员写入按显式空值降级。
-            logger.warning(
-                "task %s %s: stored calibration unavailable, returning null",
-                task_id,
-                link.role,
-            )
-        cameras.append(
-            PointCloudCameraOut(
-                name=link.role[len("camera_") :],
-                role=link.role,
-                dataset_item_id=item.id,
-                image_url=_presign(item.file_path),
-                width=item.width,
-                height=item.height,
-                calibration=calibration,
-                calibration_revision=calibration_revision,
-                calibration_digest=calibration_digest,
-            )
-        )
-
-    cameras.sort(key=lambda c: c.name)
-
-    # v0.13.11 · 取主点云所在 Dataset 的 axis_convention,前端用它把 PCD positions 与各相机
-    # extrinsic 旋转归一化到 ISO 8855。无 primary_lidar item / 无 metadata key → None,
-    # 前端按 "iso_8855" (= identity) 处理,保持向后兼容。
-    axis_convention = None
-    if primary_link is not None:
-        primary_item = items_by_id.get(primary_link.dataset_item_id)
-        if primary_item is not None:
-            dataset = await db.get(Dataset, primary_item.dataset_id)
-            if dataset is not None:
-                axis_convention = (dataset.metadata_ or {}).get("axis_convention")
-
-    # v0.14.0 · scene 字段透出:仅当 primary_lidar item 有 scene_id 时挂上,
-    # 前端用做跨帧导航的合法 backing(本期不消费 UX,仅显示在调试面板)。
-    scene_id_out: uuid.UUID | None = None
-    scene_name_out: str | None = None
-    frame_index_out: int | None = None
-    scene_total_frames_out: int | None = None
-    ego_pose_out = None
-    if primary_link is not None:
-        primary_item = items_by_id.get(primary_link.dataset_item_id)
-        if primary_item is not None and primary_item.scene_id is not None:
-            from app.db.models.dataset import Scene
-            from app.services import scene_pose as scene_pose_svc
-
-            scene = await db.get(Scene, primary_item.scene_id)
-            if scene is not None:
-                scene_id_out = scene.id
-                scene_name_out = scene.name
-                frame_index_out = primary_item.frame_index
-                total_row = await db.execute(
-                    select(func.count(func.distinct(DatasetItem.frame_index)))
-                    .where(DatasetItem.scene_id == scene.id)
-                    .where(DatasetItem.frame_index.is_not(None))
-                )
-                scene_total_frames_out = total_row.scalar() or 0
-                # v0.15.0 · 本帧 ego pose 透出;无位姿行(历史/非 nuScenes) → None
-                if primary_item.frame_index is not None:
-                    ego_pose_out = await scene_pose_svc.get_frame_pose(
-                        db,
-                        scene_id=scene.id,
-                        frame_index=primary_item.frame_index,
-                    )
-
-    return TaskPointCloudManifestResponse(
-        task_id=task.id,
-        point_cloud_url=point_cloud_url,
-        cameras=cameras,
-        expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-        axis_convention=axis_convention,
-        scene_id=scene_id_out,
-        scene_name=scene_name_out,
-        frame_index=frame_index_out,
-        scene_total_frames=scene_total_frames_out,
-        ego_pose=ego_pose_out,
-    )
+    except PointCloudManifestFileUnavailable as exc:
+        raise HTTPException(
+            status_code=404, detail="Point cloud file not available"
+        ) from exc
 
 
 @router.get(

@@ -125,7 +125,9 @@ scene API 提供列表/单条读取及部分元数据 PATCH；create 由 importe
 
 ### Manifest 透出
 
-`GET /api/v1/tasks/{id}/point-cloud/manifest` 新增 `scene_id` / `scene_name` / `frame_index` / `scene_total_frames` 四字段(全 None 表示历史未 backfill)。前端调试可见,本期不消费 UX。
+`GET /api/v1/tasks/{id}/point-cloud/manifest` 返回 `scene_id` / `scene_name` / `frame_index` / `scene_total_frames` 四字段；未回填 Scene 时均为空。
+
+该清单由 `application/point_cloud_manifest.py` 组合 Labeling 链接引用与 Assets 的素材/标定/Scene/位姿事实。HTTP 先核验当前任务可见性和项目类型，读取端口只接收 UUID，在同一 Session 内保留原读取及签名顺序；完整素材 ORM 留在 Assets SQL 适配器内。缺失 Scene 或位姿继续返回空值，位姿的自由来源 JSON 复制后交付，避免消费者修改 ORM 缓存。
 
 ## scene_inference 算法
 

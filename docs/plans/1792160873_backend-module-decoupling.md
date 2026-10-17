@@ -1414,6 +1414,12 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 十二个相关文件 147 passed、零跳过，包括生命周期、分派可见性、贡献证据、评论、章节和传统上传。新增分块回归在首块提交后以不刷新 identity map 的 SQL 改账号资料，确认缓存仍旧；后续块和最终批次审计使用重读后的邮箱，首块审计保留原值。这证明每次重授权都重新投影，不把该夹具宣称为外部并发账号更新资格。OpenAPI check 与架构 220 passed、92 skipped 通过。
 - 九个业务方法在仅规范化 actor-ID 交接后与 `5c59d6452` AST 相同；两个锁 helper 除返回投影外的运行体、五个共享可见性/分派 helper 的运行体相同。同库已加载 Session、一个成员/批次/任务，预热后三轮交错：task target 均六条 SQL、堆峰值均 305,437 B、7.834 / 8.182 ms；batch target 均四条 SQL、299,749 B、5.100 / 4.931 ms，语句顺序及账号/权限值相同。排除用例可见性/状态变化、认证、审计/通知、分块提交、模型/对象 I/O 和 RSS，夹具回滚，不推断性能提升；原始记录 `.worktree/task-actor-contract-budget.json`。
 
+### 点云多素材清单的读取契约
+
+- HTTP 保留 Task 可见性与 LiDAR 项目检查，以 task UUID/回退文件键调用应用；Labeling 端口返回原查询顺序的素材 ID/role，Assets 端口分原批量素材、逐相机标定、相机签名后的主素材上下文三个阶段交付纯事实。SQL 适配器共享原 Session，原 DatasetItem 行只在 Assets 内保留；未把逐相机查询改成另一种错误/新鲜度语义。主点云回退、缺素材跳过、相机排序、缺失/无效 legacy 标定降级、坐标约定和条件 Scene/计数/位姿均保持。位姿的自由 metadata 单独复制，防止嵌套数组仍引用 ORM JSON；无对象 Get/Head。
+- 五个相关文件 48 passed、零跳过，覆盖 manifest、nuScenes 有位姿响应、场景/时钟与标定消费者。新增相机标定降级、回退/404、签名桶/时效/对象键和嵌套位姿 JSON 脱离回归；集成审查在运行前纠正新增回退夹具超过 display_id 长度的问题，并删除无消费者的三个事实字段。架构 230 passed、96 skipped；契约和应用冷加载不引入 FastAPI/ORM/Celery。
+- 相同隔离 PostgreSQL、已加载 Session/actor、一主点云两相机及一个有位姿 Scene，对照 `5c59d6452` 的实际旧路由函数。预热后三轮交错，前后均十条 SQL、三次受控签名，语句/签名顺序及完整 JSON 响应相同；Python 堆峰值 338,875 / 336,012 B、10.678 / 12.057 ms。包含当前可见性 SQL 和响应投影，签名为确定性适配器，排除 HTTP/JWT、真实对象 API/网络、commit 和 RSS；夹具回滚，不推断性能提升。原始记录 `.worktree/pointcloud-manifest-contract-budget.json`。视频 V1/V2、Task 媒体摘要和 VideoContext 不在这项完成声明内。
+
 ### 剩余范围与保留条件
 
 已识别的 Python 依赖方向、写入所有权与选定公开契约有逐片验收记录；这不等于所有模块都已具备独立部署合同。当前已完成的接口、仍保留的本地耦合与未来提取门槛分开记录：

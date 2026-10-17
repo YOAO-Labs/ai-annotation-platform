@@ -129,6 +129,7 @@ last_reviewed: 2026-10-17
 3. 取任务：`app/services/scheduler.py` 派题；任务锁语义在 `app/services/task_lock.py`。
    视频共享上下文和采样在 `app/services/video_context.py`；帧服务负责构建，
    片段、协作、导出、追踪与质检单向依赖该下层所有者。
+   点云清单经 `app/application/point_cloud_manifest.py` 组合 `labeling_point_cloud_manifest_contract` 的链接引用与 `assets_point_cloud_manifest_contract` 的素材/标定/Scene/位姿事实；HTTP 保留当前可见性，SQL 适配器使用同一 Session，签名引用沿用原桶与时效。
 4. 编辑与提交：Workbench 装配在
    `apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx` +
    `state/useWorkbenchShellModel.tsx`；任务切换准入在 `state/taskNavigation.ts`
