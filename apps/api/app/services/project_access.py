@@ -227,14 +227,19 @@ async def resolve_project_access(
     Always re-reads current account and project state so a revoked account or a
     transferred project cannot authorize from a stale identity map entry.
 
-    ``lock_membership=True`` acquires the membership with ``FOR SHARE`` so an
-    in-flight authorized mutation can finish before a role change commits while
-    still conflicting with the role-changing ``FOR UPDATE``.
+    ``lock_membership=True`` fences account, project and membership authority in
+    that order, so disable, ownership transfer and role change cannot commit
+    between authorization and the caller's write.
 
     Raises 401 for an inactive/missing account, 404 when the account cannot see
     the project at all (existence is hidden) and 403 when a visible membership
     is internally inconsistent.
     """
+    if lock_membership:
+        _, _, access = await lock_current_project_access(
+            db, actor_id=user.id, project_id=project.id
+        )
+        return access
 
     fresh_user = await db.get(User, user.id, populate_existing=True)
     if fresh_user is None or not fresh_user.is_active:
@@ -352,6 +357,8 @@ async def lock_current_project_access(
     """Resolve current authority under account -> project -> membership share locks.
 
     All locks are bounded and retained until the caller commits or rolls back.
+    Project KEY SHARE fences explicit ownership/deletion FOR UPDATE locks while
+    allowing ordinary counter deltas without a SHARE-to-UPDATE upgrade cycle.
     This is a local database admission boundary, not a portable authority token.
     """
     with db.no_autoflush:
@@ -369,7 +376,7 @@ async def lock_current_project_access(
             db,
             select(Project)
             .where(Project.id == project_id)
-            .with_for_update(read=True, nowait=True)
+            .with_for_update(read=True, key_share=True, nowait=True)
             .execution_options(populate_existing=True),
             busy_reason="project_busy",
         )

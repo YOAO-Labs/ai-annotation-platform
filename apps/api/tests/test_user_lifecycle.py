@@ -15,7 +15,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.schemas.user import OffboardingCommitRequest
-from app.services.user_lifecycle import UserLifecycleService
+from app.application.user_lifecycle import UserLifecycleWorkflow
 from tests.factory import create_project, create_user
 
 
@@ -266,12 +266,12 @@ async def test_reviewer_and_owner_roles_use_separate_receivers(db_session, super
     db_session.add(review_task)
     await db_session.flush()
 
-    reviewer_preview = await UserLifecycleService.preview(
+    reviewer_preview = await UserLifecycleWorkflow.preview(
         db_session, target_id=reviewer.id, actor=actor
     )
     assert reviewer_preview.projects[0].roles["reviewer"].present is True
     assert reviewer_preview.projects[0].roles["owner"].present is False
-    await UserLifecycleService.offboard(
+    await UserLifecycleWorkflow.offboard(
         db_session,
         target_id=reviewer.id,
         actor=actor,
@@ -289,11 +289,11 @@ async def test_reviewer_and_owner_roles_use_separate_receivers(db_session, super
     await db_session.refresh(review_task)
     assert review_task.reviewer_id == reviewer_receiver.id
 
-    owner_preview = await UserLifecycleService.preview(
+    owner_preview = await UserLifecycleWorkflow.preview(
         db_session, target_id=owner.id, actor=actor
     )
     assert owner_preview.projects[0].roles["owner"].present is True
-    await UserLifecycleService.offboard(
+    await UserLifecycleWorkflow.offboard(
         db_session,
         target_id=owner.id,
         actor=actor,

@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.project_access import resolve_project_access_by_id
+from app.services.project_access import lock_current_project_access
 
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
 
@@ -63,20 +63,12 @@ async def lock_actor_account(
 async def lock_actor_scope(
     db: AsyncSession, actor_id, project_id, *, nowait: bool = True
 ) -> None:
-    """Account-first bounded share locks for a final write.
-
-    Order is account -> membership, matching the lifecycle model, so a later
-    resource lock cannot introduce a membership-after-resource wait cycle.
-    """
+    """Bounded account -> project -> membership share locks for a final write."""
 
     from sqlalchemy.exc import DBAPIError
 
+    await lock_actor_project_authority(db, actor_id, project_id, nowait=nowait)
     try:
-        await db.execute(
-            select(User.id)
-            .where(User.id == actor_id)
-            .with_for_update(read=True, nowait=nowait)
-        )
         await db.execute(
             select(ProjectMember.id)
             .where(
@@ -99,7 +91,7 @@ async def lock_actor_project_authority(
     """Account-first bounded share locks covering owner-based authority.
 
     Order is account -> project row, matching the lifecycle model.  The project
-    row share lock conflicts with ownership transfers that take the same row
+    row KEY SHARE lock conflicts with ownership transfers that take the same row
     ``FOR UPDATE``, so a concurrent transfer (or account disable) cannot commit
     between the authority check and the caller's final write commit.
     """
@@ -117,7 +109,7 @@ async def lock_actor_project_authority(
         await db.execute(
             select(Project.id)
             .where(Project.id == project_id)
-            .with_for_update(read=True, nowait=nowait)
+            .with_for_update(read=True, key_share=True, nowait=nowait)
         )
     except DBAPIError as exc:
         if _busy_lock_error(exc):
@@ -135,8 +127,9 @@ async def lock_project_manager(
     denial_detail: str = "项目管理权限已变化",
 ) -> None:
     """Serialize current management authority with account/ownership changes."""
-    await lock_actor_project_authority(db, user.id, project_id)
-    _, access = await resolve_project_access_by_id(db, user=user, project_id=project_id)
+    _, _, access = await lock_current_project_access(
+        db, actor_id=user.id, project_id=project_id
+    )
     if not access.is_manager:
         raise HTTPException(status_code=403, detail=denial_detail)
 

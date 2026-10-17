@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ratelimit import limiter
@@ -38,6 +37,7 @@ from app.services.avatar_image import (
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.deactivation_service import DeactivationService
+from app.services.identity_commands import IdentityCommandService
 from app.services.notification import NotificationService
 
 router = APIRouter()
@@ -54,9 +54,9 @@ async def heartbeat(
     last_seen_at 与 status='online'。Celery beat `mark_inactive_offline` 任务
     据 last_seen_at 把超 OFFLINE_THRESHOLD_MINUTES 的用户置 offline。
     """
-    user.last_seen_at = datetime.now(timezone.utc)
-    if user.status != "online":
-        user.status = "online"
+    identity = IdentityCommandService(db)
+    user = await identity.lock_active_account(user.id)
+    identity.record_heartbeat_for_locked_user(user, datetime.now(timezone.utc))
     await db.commit()
     return None
 
@@ -74,10 +74,12 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    old_name = user.name
-    user.name = payload.name.strip()
-    if not user.name:
+    identity = IdentityCommandService(db)
+    user = await identity.lock_active_account(user.id)
+    new_name = payload.name.strip()
+    if not new_name:
         raise HTTPException(status_code=400, detail="姓名不能为空")
+    old_name = identity.update_name_for_locked_user(user, new_name)
 
     if user.name != old_name:
         await AuditService.log(
@@ -103,16 +105,16 @@ async def _apply_avatar_ref(
     *,
     detail: dict,
 ) -> User:
-    """写入新头像引用、提交、再清理旧上传对象。
+    """Write the avatar reference for a caller-locked active account, then clean up.
 
-    顺序有意如此:先提交 DB 再删对象。反过来的话,一旦提交失败就会出现「DB 仍指向已删
-    对象」的破图;本顺序最坏只留下一个无引用的几十 KB 孤儿对象。
+    The caller acquires the fresh account lock before any object write. Commit before
+    deleting the previous object so a failed commit cannot leave a dangling reference.
     """
+    identity = IdentityCommandService(db)
     previous_ref = user.avatar_ref
     if previous_ref == new_ref:
         return user
-
-    user.avatar_ref = new_ref
+    identity.update_avatar_for_locked_user(user, new_ref)
     await AuditService.log(
         db,
         actor=user,
@@ -158,6 +160,7 @@ async def upload_avatar(
         normalized = await asyncio.to_thread(normalize_avatar, raw)
     except AvatarImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    user = await IdentityCommandService(db).lock_active_account(user.id)
 
     token = avatar_service.new_upload_token()
     await asyncio.to_thread(avatar_service.write_avatar_object, token, normalized)
@@ -185,6 +188,7 @@ async def set_avatar_ref(
         new_ref = avatar_service.validate_client_ref(payload.avatar_ref)
     except avatar_service.InvalidAvatarRef as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    user = await IdentityCommandService(db).lock_active_account(user.id)
     return await _apply_avatar_ref(
         db, user, new_ref, request, detail={"kind": "preset_or_clear"}
     )
@@ -197,6 +201,7 @@ async def clear_avatar(
     user: User = Depends(get_current_user),
 ):
     """恢复默认头像（= 回退首字母圆片）。"""
+    user = await IdentityCommandService(db).lock_active_account(user.id)
     return await _apply_avatar_ref(
         db, user, None, request, detail={"kind": "preset_or_clear"}
     )
@@ -209,14 +214,14 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    identity = IdentityCommandService(db)
+    user = await identity.lock_active_account(user.id)
     if not verify_password(payload.old_password, user.password_hash):
         raise HTTPException(status_code=400, detail="原密码不正确")
     if payload.old_password == payload.new_password:
         raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
 
-    user.password_hash = hash_password(payload.new_password)
-    # v0.8.1 · 管理员重置后用户自助改密 → 清空标志，恢复正常状态
-    user.password_admin_reset_at = None
+    identity.set_password_for_locked_user(user, hash_password(payload.new_password))
     await AuditService.log(
         db,
         actor=user,
@@ -721,14 +726,8 @@ async def update_preferences(
     入参收 raw dict：先过 legacy 平铺键提升器 + 移除键剥离器（均 v0.16 移除）再手动走
     pydantic 校验，校验失败按 FastAPI 原生 422 形态抛出。"""
     promoted = _strip_removed_workbench_keys(_promote_legacy_workbench_keys(payload))
-    user = (
-        await db.execute(
-            select(User)
-            .where(User.id == user.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one()
+    identity = IdentityCommandService(db)
+    user = await identity.lock_active_account(user.id, nowait=False)
     existing = user.preferences or {}
     raw_workspace = _workspace_value(promoted)
     named_presets_supplied = (
@@ -824,7 +823,7 @@ async def update_preferences(
     if named_presets_supplied:
         merged[_NAMED_PRESETS_REVISION_KEY] = uuid4().hex
     response = _preferences_response(merged)
-    user.preferences = merged
+    identity.update_preferences_for_locked_user(user, merged)
     await db.commit()
     return response
 

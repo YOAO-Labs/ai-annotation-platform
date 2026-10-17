@@ -2277,9 +2277,11 @@ def shortcut_preferences_writer():
     from app.api.v1.me import update_preferences
 
     def create(existing):
-        user = SimpleNamespace(id=uuid4(), preferences=copy.deepcopy(existing))
+        user = SimpleNamespace(
+            id=uuid4(), preferences=copy.deepcopy(existing), is_active=True
+        )
         session = SimpleNamespace(
-            execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: user)),
+            scalars=AsyncMock(return_value=[user]),
             commit=AsyncMock(),
         )
 

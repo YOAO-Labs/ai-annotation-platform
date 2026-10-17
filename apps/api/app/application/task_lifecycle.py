@@ -4,12 +4,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
-from app.db.models.project import Project
-from app.db.models.task import Task
+from app.application.task_workflow_locks import lock_current_task_target
 from app.db.models.user import User
 from app.services import task_access
 from app.services.annotation_evidence import (
@@ -43,16 +41,12 @@ class TaskLifecycleWorkflow:
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, Any]:
-        task = (
-            await self.db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
-        if task is None:
-            raise TaskWorkflowError(404, "Task not found")
+        task, actor, _project, access = await lock_current_task_target(
+            self.db,
+            task_id=task_id,
+            actor_id=actor.id,
+            expected_access=access,
+        )
         await task_access.assert_task_visible(self.db, task, actor, access=access)
         task_access.assert_effective_task_assignee(
             actor,
@@ -125,12 +119,12 @@ class TaskLifecycleWorkflow:
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, str]:
-        task = await self.db.get(Task, task_id)
-        if task is None:
-            raise TaskWorkflowError(404, "Task not found")
-        project = await self.db.get(Project, task.project_id)
-        if project is None:
-            raise TaskWorkflowError(404, "Task not found")
+        task, actor, project, access = await lock_current_task_target(
+            self.db,
+            task_id=task_id,
+            actor_id=actor.id,
+            expected_access=access,
+        )
         task_access.assert_effective_task_assignee(
             actor,
             await task_access.resolve_effective_task_assignee_id(self.db, task),
@@ -153,7 +147,7 @@ class TaskLifecycleWorkflow:
 
         self.labeling.withdraw_task(task)
         clear_review_contributor_evidence(task)
-        self.labeling.decrement_project_review_count(project)
+        await self.labeling.decrement_project_review_count(project)
         batch_service = BatchService(self.db)
         await batch_service.check_auto_transitions(task.batch_id)
         if task.batch_id:
@@ -179,12 +173,13 @@ class TaskLifecycleWorkflow:
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, Any]:
-        task = await self.db.get(Task, task_id)
-        if task is None:
-            raise TaskWorkflowError(404, "Task not found")
-        project = await self.db.get(Project, task.project_id)
-        if project is None:
-            raise TaskWorkflowError(404, "Task not found")
+        task, actor, project, access = await lock_current_task_target(
+            self.db,
+            task_id=task_id,
+            actor_id=actor.id,
+            expected_access=access,
+        )
+
         task_access.assert_effective_task_assignee(
             actor,
             await task_access.resolve_effective_task_assignee_id(self.db, task),
@@ -201,7 +196,7 @@ class TaskLifecycleWorkflow:
             task, now=datetime.now(timezone.utc)
         )
         clear_review_contributor_evidence(task)
-        self.labeling.decrement_project_completed_count(project)
+        await self.labeling.decrement_project_completed_count(project)
         batch_service = BatchService(self.db)
         await batch_service.check_auto_transitions(task.batch_id)
         if task.batch_id:
@@ -258,12 +253,13 @@ class TaskLifecycleWorkflow:
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, str]:
-        task = await self.db.get(Task, task_id)
-        if task is None:
-            raise TaskWorkflowError(404, "Task not found")
-        project = await self.db.get(Project, task.project_id)
-        if project is None:
-            raise TaskWorkflowError(404, "Task not found")
+        task, actor, _project, access = await lock_current_task_target(
+            self.db,
+            task_id=task_id,
+            actor_id=actor.id,
+            expected_access=access,
+        )
+
         task_access.assert_effective_task_assignee(
             actor,
             await task_access.resolve_effective_task_assignee_id(self.db, task),

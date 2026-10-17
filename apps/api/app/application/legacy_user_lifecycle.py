@@ -1,0 +1,652 @@
+"""Account administration workflows, preserving legacy disable/delete semantics."""
+
+from __future__ import annotations
+
+import secrets
+import string
+from datetime import datetime, timezone
+from uuid import UUID
+
+from fastapi import HTTPException, Request
+from pydantic import ValidationError
+from sqlalchemy import func, select
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.security import hash_password
+from app.db.enums import PLATFORM_ROLES, UserRole
+from app.db.models.group import Group
+from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
+from app.db.models.task import Task
+from app.db.models.task_lock import TaskLock
+from app.db.models.user import User
+from app.services.audit import AuditAction, AuditService
+from app.services.batch import BatchService
+from app.services.management import platform_role_change_blockers
+from app.services.management import user_scope_clause
+from app.schemas.management import (
+    BulkGroupAssignmentRequest,
+    BulkGroupAssignmentResponse,
+    BulkGroupAssignmentResultItem,
+)
+from app.services.identity_commands import IdentityCommandService
+from app.services.user_lifecycle import (
+    UserLifecycleService,
+    retire_account_credentials,
+    set_disabled_metadata,
+    set_platform_role,
+)
+
+_MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+_PA_ASSIGNABLE_ROLES = {UserRole.EMPLOYEE.value}
+_PENDING_TASK_STATUSES = ("pending", "in_progress", "review", "rejected")
+
+
+async def count_active_super_admins(db: AsyncSession) -> int:
+    return (
+        await db.execute(
+            select(func.count(User.id)).where(
+                User.role == UserRole.SUPER_ADMIN.value,
+                User.is_active.is_(True),
+            )
+        )
+    ).scalar_one()
+
+
+async def project_admin_project_member(
+    db: AsyncSession, *, actor: User, target: User
+) -> bool:
+    query = (
+        select(func.count(ProjectMember.id))
+        .join(Project, Project.id == ProjectMember.project_id)
+        .where(
+            Project.owner_id == actor.id,
+            ProjectMember.user_id == target.id,
+        )
+    )
+    return (await db.execute(query)).scalar_one() > 0
+
+
+async def project_admin_manages_target(
+    db: AsyncSession, *, actor: User, target: User
+) -> bool:
+    if target.is_active and target.role in _PA_ASSIGNABLE_ROLES:
+        return True
+    return await project_admin_project_member(db, actor=actor, target=target)
+
+
+async def _target_only_in_actor_projects(
+    db: AsyncSession, *, actor: User, target: User
+) -> bool:
+    project_ids = await UserLifecycleService.derived_project_ids(db, target.id)
+    if not project_ids:
+        return True
+    owned_count = (
+        await db.execute(
+            select(func.count(Project.id)).where(
+                Project.id.in_(sorted(project_ids)),
+                Project.owner_id == actor.id,
+            )
+        )
+    ).scalar_one()
+    return owned_count == len(project_ids)
+
+
+async def _count_pending_tasks(
+    db: AsyncSession, *, target_id: UUID
+) -> tuple[int, list[str]]:
+    rows = (
+        (
+            await db.execute(
+                select(Task.id)
+                .where(
+                    Task.assignee_id == target_id,
+                    Task.status.in_(_PENDING_TASK_STATUSES),
+                )
+                .order_by(Task.created_at.desc())
+                .limit(5)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    count = (
+        await db.execute(
+            select(func.count(Task.id)).where(
+                Task.assignee_id == target_id,
+                Task.status.in_(_PENDING_TASK_STATUSES),
+            )
+        )
+    ).scalar_one()
+    return count, [str(task_id) for task_id in rows]
+
+
+async def _count_task_locks(db: AsyncSession, *, target_id: UUID) -> int:
+    return (
+        await db.execute(
+            select(func.count(TaskLock.id)).where(TaskLock.user_id == target_id)
+        )
+    ).scalar_one()
+
+
+async def _lock_legacy_lifecycle_target(
+    db: AsyncSession, user_id: str, actor: User, receiver_id: UUID | None = None
+) -> tuple[User, User]:
+    try:
+        target_id = UUID(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="用户不存在") from exc
+    ids = [target_id, actor.id]
+    if receiver_id:
+        ids.append(receiver_id)
+    accounts = await UserLifecycleService.lock_accounts(db, ids)
+    fresh_actor = accounts.get(actor.id)
+    if (
+        fresh_actor is None
+        or not fresh_actor.is_active
+        or fresh_actor.role not in _MANAGERS
+    ):
+        raise HTTPException(status_code=403, detail="当前账号已无管理权限")
+    target = accounts.get(target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return target, fresh_actor
+
+
+async def _lock_lifecycle_projects(db: AsyncSession, target_id: UUID) -> None:
+    project_ids = await UserLifecycleService.derived_project_ids(db, target_id)
+    if not project_ids:
+        return
+    try:
+        await db.execute(
+            select(Project)
+            .where(Project.id.in_(sorted(project_ids)))
+            .order_by(Project.id)
+            .with_for_update(read=True, key_share=True, nowait=True)
+            .execution_options(populate_existing=True)
+        )
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40001", "40P01"}:
+            raise HTTPException(
+                status_code=409, detail={"reason": "project_busy"}
+            ) from exc
+        raise
+
+
+async def delete_user(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    actor: User,
+    request: Request,
+    transfer_to_user_id: UUID | None,
+) -> User:
+    user, actor = await _lock_legacy_lifecycle_target(
+        db, user_id, actor, transfer_to_user_id
+    )
+    if user.id == actor.id:
+        raise HTTPException(status_code=400, detail="不能删除自己")
+    if not user.is_active:
+        return user
+    await _lock_lifecycle_projects(db, user.id)
+
+    if actor.role == UserRole.PROJECT_ADMIN.value:
+        if user.role not in _PA_ASSIGNABLE_ROLES:
+            raise HTTPException(status_code=403, detail="项目管理员仅能删除员工账号")
+        if not await project_admin_manages_target(db, actor=actor, target=user):
+            raise HTTPException(status_code=403, detail="该用户不在你管理的项目内")
+        if not await _target_only_in_actor_projects(db, actor=actor, target=user):
+            raise HTTPException(
+                status_code=403,
+                detail="该用户跨多个项目，须由超级管理员处理",
+            )
+
+    if user.role == UserRole.SUPER_ADMIN.value:
+        if await count_active_super_admins(db) <= 1:
+            raise HTTPException(status_code=400, detail="不能删除最后一名超级管理员")
+
+    pending_count, sample_ids = await _count_pending_tasks(db, target_id=user.id)
+    lock_count = await _count_task_locks(db, target_id=user.id)
+    if (pending_count > 0 or lock_count > 0) and transfer_to_user_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "has_pending_tasks",
+                "pending_task_count": pending_count,
+                "locked_task_count": lock_count,
+                "sample_task_ids": sample_ids,
+                "message": f"该用户当前有 {pending_count} 个未完成任务、{lock_count} 个锁定任务，需先转交",
+            },
+        )
+
+    transferred_count = 0
+    if transfer_to_user_id is not None:
+        receiver = await db.get(User, transfer_to_user_id)
+        if receiver is None or not receiver.is_active:
+            raise HTTPException(status_code=400, detail="转交目标用户不存在或已禁用")
+        if receiver.id == user.id:
+            raise HTTPException(status_code=400, detail="转交目标不能与被删用户相同")
+        if (
+            receiver.role not in _PA_ASSIGNABLE_ROLES
+            and receiver.role != UserRole.PROJECT_ADMIN.value
+        ):
+            raise HTTPException(status_code=400, detail="转交目标角色不合法")
+        if actor.role == UserRole.PROJECT_ADMIN.value:
+            affected_project_ids = set(
+                (
+                    await db.execute(
+                        select(Task.project_id)
+                        .where(
+                            Task.assignee_id == user.id,
+                            Task.status.in_(_PENDING_TASK_STATUSES),
+                            Task.project_id.is_not(None),
+                        )
+                        .distinct()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if affected_project_ids and receiver.id != actor.id:
+                covered_count = (
+                    await db.execute(
+                        select(
+                            func.count(func.distinct(ProjectMember.project_id))
+                        ).where(
+                            ProjectMember.user_id == receiver.id,
+                            ProjectMember.project_id.in_(sorted(affected_project_ids)),
+                        )
+                    )
+                ).scalar_one()
+                if covered_count < len(affected_project_ids):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="转交目标必须是待转交任务所在项目的成员",
+                    )
+
+        labeling = BatchService(db)
+        transferred_count = await labeling.legacy_transfer_task_assignments(
+            from_user_id=user.id,
+            to_user_id=receiver.id,
+            statuses=_PENDING_TASK_STATUSES,
+        )
+        await labeling.release_user_task_locks(user.id)
+
+    set_disabled_metadata(
+        user,
+        kind="deleted",
+        actor_id=actor.id,
+        reason="管理员删除账号",
+    )
+    deletion_entry = await AuditService.log(
+        db,
+        actor=actor,
+        action=AuditAction.USER_DELETE,
+        target_type="user",
+        target_id=str(user.id),
+        request=request,
+        status_code=200,
+        detail={
+            "email": user.email,
+            "role": user.role,
+            "transferred_to": str(transfer_to_user_id) if transfer_to_user_id else None,
+            "transferred_count": transferred_count,
+            "released_locks": lock_count if transfer_to_user_id else 0,
+        },
+    )
+
+    await AuditService.redact_actor_history(db, user.id, deletion_entry=deletion_entry)
+
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def deactivate_user(
+    db: AsyncSession, *, user_id: str, actor: User, request: Request
+) -> User:
+    user, actor = await _lock_legacy_lifecycle_target(db, user_id, actor)
+    if user.id == actor.id:
+        raise HTTPException(status_code=400, detail="不能停用自己")
+    if not user.is_active:
+        return user
+    await _lock_lifecycle_projects(db, user.id)
+
+    if actor.role == UserRole.PROJECT_ADMIN.value:
+        if user.role not in _PA_ASSIGNABLE_ROLES:
+            raise HTTPException(
+                status_code=403, detail="项目管理员仅能停用标注员/审核员账号"
+            )
+        if not await project_admin_manages_target(db, actor=actor, target=user):
+            raise HTTPException(status_code=403, detail="该用户不在你管理的项目内")
+        if not await _target_only_in_actor_projects(db, actor=actor, target=user):
+            raise HTTPException(
+                status_code=403, detail="该用户跨多个项目，须由超级管理员处理"
+            )
+
+    if user.role == UserRole.SUPER_ADMIN.value:
+        if await count_active_super_admins(db) <= 1:
+            raise HTTPException(status_code=400, detail="不能停用最后一名超级管理员")
+
+    set_disabled_metadata(
+        user,
+        kind="suspended",
+        actor_id=actor.id,
+        reason="管理员停用账号",
+    )
+    await retire_account_credentials(db, user.id)
+    await AuditService.log(
+        db,
+        actor=actor,
+        action=AuditAction.USER_DEACTIVATE,
+        target_type="user",
+        target_id=str(user.id),
+        request=request,
+        status_code=200,
+        detail={"email": user.email},
+    )
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def change_user_role(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    role: str,
+    actor: User,
+    request: Request,
+) -> User:
+    if role not in PLATFORM_ROLES:
+        raise HTTPException(status_code=400, detail=f"非法平台角色: {role}")
+
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.id == actor.id:
+        raise HTTPException(status_code=400, detail="不能修改自己的角色")
+
+    # Revalidate the actor and target under account locks.  Recompute the
+    # current role and the no-op case only after the fresh reload so a stale
+    # ORM identity cannot decide the mutation.
+    # The shared account owner refreshes both authority rows under the lock.
+
+    await UserLifecycleService.lock_accounts(db, [actor.id, user.id])
+    fresh_actor = await db.get(User, actor.id, populate_existing=True)
+    if (
+        fresh_actor is None
+        or not fresh_actor.is_active
+        or fresh_actor.role != UserRole.SUPER_ADMIN.value
+    ):
+        raise HTTPException(status_code=403, detail="当前账号已无管理权限")
+    fresh_user = await db.get(User, user.id, populate_existing=True)
+    if fresh_user is None or not fresh_user.is_active:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    user = fresh_user
+
+    old_role = user.role
+    new_role = role
+    if old_role == new_role:
+        return user
+
+    # Serialize against ownership transfers: hold the target's owned project
+    # rows so a concurrent transfer cannot interleave between the ownership
+    # blocker count and the role write (accounts are already locked above, and
+    # the transfer endpoint takes account -> project in the same order).
+    from app.db.models.project import Project as ProjectModel
+
+    try:
+        await db.execute(
+            select(ProjectModel.id)
+            .where(ProjectModel.owner_id == user.id)
+            .order_by(ProjectModel.id)
+            .with_for_update(nowait=True)
+        )
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40001", "40P01"}:
+            raise HTTPException(
+                status_code=409, detail={"reason": "project_busy"}
+            ) from exc
+        raise
+
+    blockers = await platform_role_change_blockers(db, target=user, new_role=new_role)
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "platform_role_change_blocked",
+                "blockers": blockers,
+            },
+        )
+
+    # —— super_admin 兜底：最后一名 super_admin 不可被降级 ——
+    if (
+        old_role == UserRole.SUPER_ADMIN.value
+        and new_role != UserRole.SUPER_ADMIN.value
+    ):
+        if await count_active_super_admins(db) <= 1:
+            raise HTTPException(status_code=400, detail="不能降级最后一名超级管理员")
+
+    set_platform_role(user, new_role)
+    await AuditService.log(
+        db,
+        actor=actor,
+        action=AuditAction.USER_ROLE_CHANGE,
+        target_type="user",
+        target_id=str(user.id),
+        request=request,
+        status_code=200,
+        detail={"email": user.email, "old": old_role, "new": new_role},
+    )
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+_ROLE_LEVEL = {
+    UserRole.SUPER_ADMIN.value: 0,
+    UserRole.PROJECT_ADMIN.value: 1,
+    UserRole.REVIEWER.value: 2,
+    UserRole.EMPLOYEE.value: 3,
+    UserRole.ANNOTATOR.value: 3,
+    UserRole.VIEWER.value: 4,
+}
+
+
+def _generate_temp_password(length: int = 16) -> str:
+    """生成 16 位强临时密码：≥1 大写 / 小写 / 数字 / 符号。"""
+    upper = string.ascii_uppercase
+    lower = string.ascii_lowercase
+    digits = string.digits
+    # 限制符号集合，避免 shell 转义麻烦：!@#$%^&*?
+    symbols = "!@#$%^&*?"
+    pool = upper + lower + digits + symbols
+    while True:
+        pwd = "".join(secrets.choice(pool) for _ in range(length))
+        if (
+            any(c in upper for c in pwd)
+            and any(c in lower for c in pwd)
+            and any(c in digits for c in pwd)
+            and any(c in symbols for c in pwd)
+        ):
+            return pwd
+
+
+async def admin_reset_password(
+    db: AsyncSession, *, user_id: UUID, actor: User, request: Request
+) -> tuple[User, str]:
+    target, actor = await _lock_legacy_lifecycle_target(db, str(user_id), actor)
+    if target is None or not target.is_active:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.id == actor.id:
+        raise HTTPException(
+            status_code=400, detail="不能给自己重置密码（请用「修改密码」）"
+        )
+
+    actor_lvl = _ROLE_LEVEL.get(actor.role, 99)
+    target_lvl = _ROLE_LEVEL.get(target.role, 99)
+    # 只能重置严格低等级（数值更大）的用户
+    if target_lvl <= actor_lvl:
+        raise HTTPException(status_code=403, detail="只能重置等级低于你的用户的密码")
+
+    if actor.role == UserRole.PROJECT_ADMIN.value:
+        # project_admin 可重置启用标注员/审核员（含未分配）的密码；同级与超管除外
+        if target.role == UserRole.PROJECT_ADMIN.value:
+            raise HTTPException(status_code=403, detail="项目管理员之间不可互重置")
+        if not await project_admin_manages_target(db, actor=actor, target=target):
+            raise HTTPException(status_code=403, detail="该用户不在你管理的项目内")
+
+    temp_password = _generate_temp_password()
+    IdentityCommandService.set_password_for_locked_user(
+        target,
+        hash_password(temp_password),
+        admin_reset_at=datetime.now(timezone.utc),
+    )
+
+    await AuditService.log(
+        db,
+        actor=actor,
+        action=AuditAction.USER_PASSWORD_ADMIN_RESET,
+        target_type="user",
+        target_id=str(target.id),
+        request=request,
+        status_code=200,
+        # 注意：detail 不记录密码本身
+        detail={"target_email": target.email, "target_role": target.role},
+    )
+    await db.commit()
+    return target, temp_password
+
+
+def bulk_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        if isinstance(detail, dict):
+            return str(detail.get("message") or detail.get("reason") or detail)
+        return str(detail)
+    if isinstance(exc, ValidationError):
+        return "; ".join(error["msg"] for error in exc.errors())
+    return "处理失败，请稍后重试"
+
+
+async def apply_bulk_group_assignment(
+    db: AsyncSession,
+    *,
+    payload: BulkGroupAssignmentRequest,
+    actor: User,
+    request: Request,
+) -> BulkGroupAssignmentResponse:
+    accounts = await UserLifecycleService.lock_accounts(db, [actor.id])
+    actor = accounts.get(actor.id)
+    if actor is None or not actor.is_active or actor.role not in _MANAGERS:
+        raise HTTPException(status_code=403, detail="当前账号已无管理权限")
+    if (
+        payload.group_id is not None
+        and await db.scalar(select(Group.id).where(Group.id == payload.group_id))
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="数据组不存在")
+    results: list[BulkGroupAssignmentResultItem] = []
+    for user_id in payload.user_ids:
+        item_tx = await db.begin_nested()
+        try:
+            target = await db.scalar(
+                select(User)
+                .where(User.id == user_id, user_scope_clause(actor))
+                .with_for_update(nowait=True)
+                .execution_options(populate_existing=True)
+            )
+            if target is None:
+                raise HTTPException(
+                    status_code=404, detail="用户不存在或不在管理范围内"
+                )
+            group = (
+                await db.scalar(select(Group).where(Group.id == payload.group_id))
+                if payload.group_id is not None
+                else None
+            )
+            IdentityCommandService.set_group_for_locked_user(
+                target,
+                group_id=group.id if group else None,
+                group_name=group.name if group else None,
+            )
+            await AuditService.log(
+                db,
+                actor=actor,
+                action="user.bulk_group_assign",
+                target_type="user",
+                target_id=str(target.id),
+                request=request,
+                status_code=200,
+                detail={
+                    "group_id": str(group.id) if group else None,
+                    "group_name": group.name if group else None,
+                },
+            )
+            await item_tx.commit()
+            results.append(BulkGroupAssignmentResultItem(user_id=user_id, ok=True))
+        except Exception as exc:
+            await item_tx.rollback()
+            results.append(
+                BulkGroupAssignmentResultItem(
+                    user_id=user_id,
+                    ok=False,
+                    retryable=True,
+                    error=bulk_error(exc),
+                )
+            )
+    await db.commit()
+    return BulkGroupAssignmentResponse(
+        items=results,
+        succeeded=sum(item.ok for item in results),
+        failed=sum(not item.ok for item in results),
+    )
+
+
+async def assign_user_group(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    group_id: str | None,
+    actor: User,
+    request: Request,
+) -> User:
+    user, actor = await _lock_legacy_lifecycle_target(db, user_id, actor)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    new_group: Group | None = None
+    if group_id:
+        new_group = await db.get(Group, group_id)
+        if new_group is None:
+            raise HTTPException(status_code=404, detail="数据组不存在")
+
+    old_group_id = user.group_id
+    old_group_name = user.group_name
+    IdentityCommandService.set_group_for_locked_user(
+        user,
+        group_id=new_group.id if new_group else None,
+        group_name=new_group.name if new_group else None,
+    )
+
+    await AuditService.log(
+        db,
+        actor=actor,
+        action="user.group_change",
+        target_type="user",
+        target_id=str(user.id),
+        request=request,
+        status_code=200,
+        detail={
+            "email": user.email,
+            "old_group_id": str(old_group_id) if old_group_id else None,
+            "old_group_name": old_group_name,
+            "new_group_id": str(new_group.id) if new_group else None,
+            "new_group_name": new_group.name if new_group else None,
+        },
+    )
+    await db.commit()
+    await db.refresh(user)
+    return user

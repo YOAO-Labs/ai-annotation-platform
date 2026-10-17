@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.sql.selectable import FromClause
 
 from app.db.models.project import Project
@@ -154,18 +155,51 @@ class LabelingTaskService:
             task.reviewer_claimed_at = reviewed_at
         return ensure_review_round(task)
 
-    @staticmethod
-    def decrement_project_review_count(project: Project) -> None:
-        project.review_tasks = max((project.review_tasks or 0) - 1, 0)
+    async def decrement_project_review_count(self, project: Project) -> None:
+        count = await self.db.scalar(
+            update(Project)
+            .where(Project.id == project.id)
+            .values(
+                review_tasks=func.greatest(
+                    func.coalesce(Project.review_tasks, 0) - 1, 0
+                )
+            )
+            .returning(Project.review_tasks)
+            .execution_options(synchronize_session=False)
+        )
+        set_committed_value(project, "review_tasks", count)
 
-    @staticmethod
-    def decrement_project_completed_count(project: Project) -> None:
-        project.completed_tasks = max((project.completed_tasks or 0) - 1, 0)
+    async def decrement_project_completed_count(self, project: Project) -> None:
+        count = await self.db.scalar(
+            update(Project)
+            .where(Project.id == project.id)
+            .values(
+                completed_tasks=func.greatest(
+                    func.coalesce(Project.completed_tasks, 0) - 1, 0
+                )
+            )
+            .returning(Project.completed_tasks)
+            .execution_options(synchronize_session=False)
+        )
+        set_committed_value(project, "completed_tasks", count)
 
-    @staticmethod
-    def record_project_review_approval(project: Project) -> None:
-        project.completed_tasks = (project.completed_tasks or 0) + 1
-        project.review_tasks = max((project.review_tasks or 0) - 1, 0)
+    async def record_project_review_approval(self, project: Project) -> None:
+        counts = (
+            await self.db.execute(
+                update(Project)
+                .where(Project.id == project.id)
+                .values(
+                    completed_tasks=func.coalesce(Project.completed_tasks, 0) + 1,
+                    review_tasks=func.greatest(
+                        func.coalesce(Project.review_tasks, 0) - 1, 0
+                    ),
+                )
+                .returning(Project.completed_tasks, Project.review_tasks)
+                .execution_options(synchronize_session=False)
+            )
+        ).one()
+        set_committed_value(project, "completed_tasks", counts.completed_tasks)
+        set_committed_value(project, "review_tasks", counts.review_tasks)
 
     async def create_initial_generic(
         self,

@@ -321,20 +321,23 @@ MinIO 的 presigned **GET / download URL** 默认 1 小时 TTL（`apps/api/app/s
 
 ## 9. 关键文件索引
 
-| 主题                       | 路径                                                       |
-| -------------------------- | ---------------------------------------------------------- |
-| 角色枚举                   | `apps/api/app/db/enums.py`                                 |
-| 项目授权解析               | `apps/api/app/services/project_access.py`                  |
-| 成员角色变更 / 交接        | `apps/api/app/services/project_membership.py`              |
-| 路由权限装饰器             | `apps/api/app/core/permissions.py`                         |
-| 密码策略                   | `apps/api/app/core/password.py`                            |
-| JWT 编解码                 | `apps/api/app/core/security.py`                            |
-| Token 黑名单               | `apps/api/app/core/token_blacklist.py`                     |
-| 限流                       | `apps/api/app/core/ratelimit.py`                           |
-| 审计服务                   | `apps/api/app/services/audit.py`                           |
-| 审计中间件                 | `apps/api/app/middleware/audit.py`                         |
-| 审计不可变 trigger         | `apps/api/alembic/versions/0032_audit_log_immutability.py` |
-| 邀请服务                   | `apps/api/app/services/invitation.py`                      |
-| Bootstrap super_admin      | `apps/api/scripts/bootstrap_admin.py`                      |
-| 认证路由                   | `apps/api/app/api/v1/auth.py`                              |
-| CORS / production 启动断言 | `apps/api/app/main.py:50-83`                               |
+| 主题                       | 路径                                                          |
+| -------------------------- | ------------------------------------------------------------- |
+| 角色枚举                   | `apps/api/app/db/enums.py`                                    |
+| 项目授权解析               | `apps/api/app/services/project_access.py`                     |
+| 成员角色变更 / 交接工作流  | `apps/api/app/application/project_membership.py`              |
+| 成员行所有者               | `apps/api/app/services/project_membership.py`                 |
+| 账号离职 / 恢复工作流      | `apps/api/app/application/user_lifecycle.py`                  |
+| 账号状态 / 凭据 / 资料     | `apps/api/app/services/{user_lifecycle,identity_commands}.py` |
+| 路由权限装饰器             | `apps/api/app/core/permissions.py`                            |
+| 密码策略                   | `apps/api/app/core/password.py`                               |
+| JWT 编解码                 | `apps/api/app/core/security.py`                               |
+| Token 黑名单               | `apps/api/app/core/token_blacklist.py`                        |
+| 限流                       | `apps/api/app/core/ratelimit.py`                              |
+| 审计服务                   | `apps/api/app/services/audit.py`                              |
+| 审计中间件                 | `apps/api/app/middleware/audit.py`                            |
+| 审计不可变 trigger         | `apps/api/alembic/versions/0032_audit_log_immutability.py`    |
+| 邀请服务                   | `apps/api/app/services/invitation.py`                         |
+| Bootstrap super_admin      | `apps/api/scripts/bootstrap_admin.py`                         |
+| 认证路由                   | `apps/api/app/api/v1/auth.py`                                 |
+| CORS / production 启动断言 | `apps/api/app/main.py:50-83`                                  |

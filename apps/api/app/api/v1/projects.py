@@ -8,6 +8,13 @@ import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+from app.application.project_workspace import (
+    transfer_project_owner as transfer_project_owner_workflow,
+)
+from app.application.project_membership import (
+    change_role as change_project_member_role,
+    remove_member as remove_project_member,
+)
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -34,9 +41,7 @@ from app.services.project_access import (
 )
 from app.services.project_membership import (
     add_member as add_project_member,
-    change_role as change_project_member_role,
     preview_role_change as preview_project_member_role_change,
-    remove_member as remove_project_member,
 )
 from app.db.models.user import User
 from app.db.models.project import Project
@@ -1526,34 +1531,12 @@ async def transfer_owner(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    # Account-first, then the project row — the same order as the platform-role
-    # mutation, so a concurrent demotion of the target cannot interleave with
-    # the role check and the ownership write.
-    from app.services.user_lifecycle import UserLifecycleService
-
-    accounts = await UserLifecycleService.lock_accounts(db, [body.new_owner_id])
-    target = accounts.get(body.new_owner_id)
-    if target is None or not target.is_active:
-        raise HTTPException(status_code=404, detail="目标用户不存在")
-
-    project = (
-        (
-            await db.execute(
-                select(Project)
-                .where(Project.id == project_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        )
-        .scalars()
-        .first()
+    project = await transfer_project_owner_workflow(
+        db,
+        actor_id=current_user.id,
+        project_id=project_id,
+        new_owner_id=body.new_owner_id,
     )
-    if project is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if target.role != UserRole.PROJECT_ADMIN:
-        raise HTTPException(status_code=400, detail="仅可转移给 project_admin")
-
-    project.owner_id = target.id
     await db.commit()
     await db.refresh(project)
     return await _serialize_project(db, project)

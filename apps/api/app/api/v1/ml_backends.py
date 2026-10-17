@@ -130,8 +130,8 @@ async def _reacquire_write_boundary(
     restricted write or response we re-check the active account, re-resolve the
     current membership and lock the refreshed task row ``NOWAIT`` so a concurrent
     revocation or role change cannot slip a stale authority through and a busy
-    resource cannot block the request indefinitely.  Account-first, then
-    membership, then the bounded task lock.
+    resource cannot block the request indefinitely. Account-first, then project,
+    membership, and the bounded task lock.
     """
 
     from app.services.task_lock import assert_task_user_active

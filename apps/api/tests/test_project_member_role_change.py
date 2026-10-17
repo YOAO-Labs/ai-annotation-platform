@@ -15,10 +15,8 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from app.services.project_membership import (
-    preview_role_change,
-    remove_member,
-)
+from app.application.project_membership import remove_member
+from app.services.project_membership import preview_role_change
 from tests.factory import (
     create_membership,
     create_project,

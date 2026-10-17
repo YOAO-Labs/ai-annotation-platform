@@ -4,7 +4,7 @@ import logging
 import random
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from fastapi import HTTPException
 from sqlalchemy import Integer, case, select, func, update, delete, or_
@@ -14,6 +14,7 @@ from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.db.models.task_lock import TaskLock
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -355,6 +356,183 @@ class BatchService:
             )
             .values(reviewer_id=user_id, reviewer_is_override=False)
         )
+
+    async def handoff_offboarding_role(
+        self,
+        *,
+        batches: Iterable[TaskBatch],
+        tasks: Iterable[Task],
+        responsibility: str,
+        receiver_id: uuid.UUID,
+    ) -> None:
+        """Move offboarding assignments using the labeling assignment owner."""
+
+        if responsibility == "annotator":
+            task_field = "assignee_id"
+            batch_field = "annotator_id"
+        elif responsibility == "reviewer":
+            task_field = "reviewer_id"
+            batch_field = "reviewer_id"
+        else:
+            raise ValueError(f"unsupported labeling responsibility: {responsibility}")
+
+        for task in tasks:
+            setattr(task, task_field, receiver_id)
+            if responsibility == "annotator":
+                task.assigned_at = func.now()
+        for batch in batches:
+            setattr(batch, batch_field, receiver_id)
+            batch.assigned_user_ids = [
+                value
+                for value in (
+                    str(batch.annotator_id) if batch.annotator_id else None,
+                    str(batch.reviewer_id) if batch.reviewer_id else None,
+                )
+                if value
+            ]
+
+    async def legacy_transfer_task_assignments(
+        self,
+        *,
+        from_user_id: uuid.UUID,
+        to_user_id: uuid.UUID,
+        statuses: Iterable[str],
+    ) -> int:
+        """Transfer only the legacy disable/delete endpoint's task subset."""
+
+        result = await self.db.execute(
+            update(Task)
+            .where(
+                Task.assignee_id == from_user_id,
+                Task.status.in_(tuple(statuses)),
+            )
+            .values(assignee_id=to_user_id, assigned_at=func.now())
+        )
+        return result.rowcount or 0
+
+    async def release_user_task_locks(self, user_id: uuid.UUID) -> None:
+        await self.db.execute(delete(TaskLock).where(TaskLock.user_id == user_id))
+
+    async def handoff_project_member_annotation(
+        self,
+        *,
+        task_ids: Iterable[uuid.UUID],
+        batch_ids: Iterable[uuid.UUID],
+        from_user_id: uuid.UUID,
+        to_user_id: uuid.UUID,
+        unfinished_statuses: Iterable[str],
+    ) -> None:
+        """Move unfinished annotation work and freeze inherited history."""
+
+        task_ids = tuple(task_ids)
+        if task_ids:
+            await self.db.execute(
+                update(Task).where(Task.id.in_(task_ids)).values(assignee_id=to_user_id)
+            )
+
+        batch_ids = sorted(set(batch_ids))
+        if not batch_ids:
+            return
+
+        await self.db.execute(
+            update(Task)
+            .where(
+                Task.batch_id.in_(batch_ids),
+                Task.assignee_id.is_(None),
+                Task.status.not_in(tuple(unfinished_statuses)),
+            )
+            .values(assignee_id=from_user_id)
+        )
+        batches = (
+            await self.db.scalars(
+                select(TaskBatch)
+                .where(TaskBatch.id.in_(batch_ids))
+                .order_by(TaskBatch.id)
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+        for batch in batches:
+            batch.annotator_id = to_user_id
+            batch.assigned_user_ids = self._replace_assigned_user_id(
+                batch.assigned_user_ids, old_id=from_user_id, new_id=to_user_id
+            )
+
+    async def handoff_project_member_reviewer(
+        self,
+        *,
+        task_ids: Iterable[uuid.UUID],
+        batch_ids: Iterable[uuid.UUID],
+        from_user_id: uuid.UUID,
+        to_user_id: uuid.UUID,
+        completed_status: str,
+    ) -> None:
+        """Move review work, clear claims, and freeze inherited history."""
+
+        task_ids = tuple(task_ids)
+        if task_ids:
+            await self.db.execute(
+                update(Task)
+                .where(Task.id.in_(task_ids))
+                .values(reviewer_id=to_user_id, reviewer_claimed_at=None)
+            )
+
+        batch_ids = sorted(set(batch_ids))
+        if not batch_ids:
+            return
+
+        await self.db.execute(
+            update(Task)
+            .where(
+                Task.batch_id.in_(batch_ids),
+                Task.reviewer_id.is_(None),
+                Task.status == completed_status,
+            )
+            .values(reviewer_id=from_user_id)
+        )
+        batches = (
+            await self.db.scalars(
+                select(TaskBatch)
+                .where(TaskBatch.id.in_(batch_ids))
+                .order_by(TaskBatch.id)
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+        for batch in batches:
+            batch.reviewer_id = to_user_id
+            batch.assigned_user_ids = self._replace_assigned_user_id(
+                batch.assigned_user_ids, old_id=from_user_id, new_id=to_user_id
+            )
+
+    async def release_project_task_locks(
+        self, *, user_id: uuid.UUID, task_ids: Iterable[uuid.UUID]
+    ) -> int:
+        task_ids = tuple(task_ids)
+        if not task_ids:
+            return 0
+        await self.db.execute(
+            delete(TaskLock).where(
+                TaskLock.user_id == user_id,
+                TaskLock.task_id.in_(task_ids),
+            )
+        )
+        return len(task_ids)
+
+    @staticmethod
+    def _replace_assigned_user_id(
+        values: Iterable[Any], *, old_id: uuid.UUID, new_id: uuid.UUID
+    ) -> list[str]:
+        old_str, new_str = str(old_id), str(new_id)
+        updated: list[str] = []
+        replaced = False
+        for raw in values or []:
+            if str(raw) == old_str:
+                updated.append(new_str)
+                replaced = True
+            else:
+                updated.append(str(raw))
+        if not replaced:
+            updated.append(new_str)
+        return updated
 
     async def transition(
         self,

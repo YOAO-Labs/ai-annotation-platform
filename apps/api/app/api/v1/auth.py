@@ -1,3 +1,5 @@
+import uuid
+
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -12,7 +14,6 @@ from app.core.security import ALGORITHM
 from app.deps import get_db, get_current_user
 from app.db.models.user import User
 from app.db.base import async_session
-from app.db.enums import UserRole
 from app.schemas.user import Token, LoginRequest, UserOut
 from app.schemas.invitation import OpenRegisterRequest, RegisterResponse
 from app.core.security import (
@@ -32,6 +33,8 @@ from app.services.email import (
     send_verification_email,
 )
 from app.services.system_settings_service import SystemSettingsService
+from app.services.identity_commands import IdentityCommandService
+
 from app.config import settings
 import logging
 
@@ -132,12 +135,10 @@ async def login(
                 headers={"X-Login-Failed-Count": str(failed_before)},
             )
 
-    # 密码重置也锁定同一用户行；这样 reset 在提交 generation 前会与登录
-    # 串行化，旧密码不会在窗口内拿到递增后的 generation。
-    result = await db.execute(
-        select(User).where(User.email == data.email).with_for_update()
-    )
-    user = result.scalar_one_or_none()
+    # Password verification and login presence share the bounded lifecycle row lock
+    # with password resets and account deactivation.
+    identity = IdentityCommandService(db)
+    user = await identity.lock_account_by_email(data.email)
     if user is None or not verify_password(data.password, user.password_hash):
         new_count = await login_failed_counter.increment(client_ip)
         await AuditService.log(
@@ -206,9 +207,7 @@ async def login(
     await login_failed_counter.reset(client_ip)
 
     now = datetime.now(timezone.utc)
-    user.last_login_at = now
-    user.last_seen_at = now
-    user.status = "online"
+    identity.record_login_for_locked_user(user, now)
     from app.core.token_blacklist import get_user_generation
 
     gen = await get_user_generation(str(user.id))
@@ -301,9 +300,9 @@ async def reset_password(
         await db.commit()
         raise HTTPException(status_code=400, detail="重置链接无效或已过期")
 
-    user.password_hash = hash_password(data.new_password)
-    # 通过恢复链接设置新密码后，管理员临时密码的强制改密标记也已完成。
-    user.password_admin_reset_at = None
+    IdentityCommandService(db).set_password_for_locked_user(
+        user, hash_password(data.new_password)
+    )
     await AuditService.log(
         db,
         actor=user,
@@ -395,17 +394,13 @@ async def register_open(
 
     require_verification = settings.email_verification_required
     now = datetime.now(timezone.utc)
-    user = User(
+    user = await IdentityCommandService(db).create_open_registration_account(
         email=payload.email,
         name=payload.name,
         password_hash=hash_password(payload.password),
-        role=UserRole.VIEWER.value,
-        status="offline" if require_verification else "online",
-        is_active=True,
-        email_verified_at=None if require_verification else now,
+        email_verification_required=require_verification,
+        now=now,
     )
-    db.add(user)
-    await db.flush()
 
     await AuditService.log(
         db,
@@ -452,6 +447,7 @@ async def logout(
 ):
     from app.core.token_blacklist import blacklist_token
 
+    current_user = await IdentityCommandService(db).lock_active_account(current_user.id)
     payload = decode_access_token(credentials.credentials)
     jti = payload.get("jti")
     if jti:
@@ -459,7 +455,7 @@ async def logout(
         remaining = int(exp - datetime.now(timezone.utc).timestamp())
         await blacklist_token(jti, max(remaining, 0))
 
-    current_user.status = "offline"
+    IdentityCommandService.record_logout_for_locked_user(current_user)
 
     await AuditService.log(
         db,
@@ -532,7 +528,7 @@ async def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="token_revoked"
         )
 
-    user = await db.get(User, sub)
+    user = await IdentityCommandService(db).lock_account(uuid.UUID(sub))
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="user_inactive"
@@ -547,7 +543,7 @@ async def refresh_token(
 
     new_token = create_access_token(subject=str(user.id), role=user.role, gen=cur_gen)
 
-    user.last_seen_at = now
+    IdentityCommandService.record_seen_for_locked_user(user, now)
     await AuditService.log(
         db,
         actor=user,
@@ -573,8 +569,9 @@ async def logout_all(
 ):
     from app.core.token_blacklist import increment_user_generation
 
+    current_user = await IdentityCommandService(db).lock_active_account(current_user.id)
     new_gen = await increment_user_generation(str(current_user.id))
-    current_user.status = "offline"
+    IdentityCommandService.record_logout_for_locked_user(current_user)
 
     await AuditService.log(
         db,

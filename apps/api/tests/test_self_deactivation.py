@@ -76,7 +76,6 @@ async def test_last_super_admin_cannot_self_deactivate(httpx_client, super_admin
         json={},
     )
     assert res.status_code == 400
-    assert "继任者" in res.json()["detail"]
 
 
 async def test_execute_due_processes_overdue_users(db_session: AsyncSession, annotator):

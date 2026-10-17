@@ -117,7 +117,7 @@
 ## Notes
 
 - 授权解析：`apps/api/app/services/project_access.py`；接线：`apps/api/app/deps.py`。
-- 成员变更 / 交接：`apps/api/app/services/project_membership.py`；邀请 / 生命周期：`apps/api/app/services/{management,invitation,user_lifecycle,batch}.py`。
+- 成员变更 / 交接工作流：`apps/api/app/application/project_membership.py`，成员行写入：`apps/api/app/services/project_membership.py`；离职 / 传统生命周期：`apps/api/app/application/{user_lifecycle,legacy_user_lifecycle}.py`。身份状态 / 资料 / 凭据由 `services/{user_lifecycle,identity_commands}.py` 持有，批次与任务责任由 `BatchService` 持有。
 - 契约：`apps/api/app/api/v1/projects.py`（access / preview / change role）、`apps/api/app/schemas/project.py`、`apps/api/app/schemas/invitation.py`。
 - 任务与审阅证据：`apps/api/app/api/v1/tasks/_shared.py`；`db/models/task.py`。
 - 迁移：`apps/api/alembic/versions/0173_project_role_preparation.py`、`0174_project_role_conversion.py`。

@@ -12,11 +12,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request
-from sqlalchemy import select, text, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
-from app.db.models.audit_log import AuditLog
 from app.db.models.notification import Notification
 from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
@@ -202,13 +201,7 @@ class DeactivationService:
                 },
             )
 
-            # GDPR 脱敏：被注销用户在 audit_logs 历史行中的 actor_email / actor_role 置 NULL
-            await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
-            await db.execute(
-                update(AuditLog)
-                .where(AuditLog.actor_id == user.id)
-                .values(actor_email=None, actor_role=None)
-            )
+            await AuditService.redact_actor_history(db, user.id)
 
             # 通知 super_admin 已自动生效（与 request 时的通知遥相呼应）
             for sid in super_ids:

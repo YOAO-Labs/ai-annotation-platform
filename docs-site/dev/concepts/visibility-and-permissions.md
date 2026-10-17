@@ -53,6 +53,8 @@ last_reviewed: 2026-09-19
 
 这两者与 `resolve_project_access()` 是同一套规则的不同入口：请求路径需要每次重读当前账号 / 项目状态（撤权、转移后立即失效），因此用 async 解析器；worker 与聚合已经锁定或加载了行，则用纯函数复用同一判定。
 
+写入使用 `resolve_project_access(lock_membership=True)` 或 `lock_current_project_access()`，按账号→项目→成员取得当前权威共享锁，并由调用方持有至提交/回滚。项目行必须参与：负责人可能没有成员行，单独锁成员不能阻止项目转移。读请求仍只解析当前状态，不因只读权限检查长期持有这些写入锁；不可变 `ProjectAccess` 也不是可跨事务重放的许可。资源占用返回可重试冲突，而不是等待旧授权继续落库。
+
 成员输出 `ProjectMemberOut` 是**扁平**的：`role` 是项目角色，另有独立的 `platform_role`；邀请 HTTP 字段仍叫 `project_member_role`，映射到数据库 `project_role`。项目列表 / 详情带 `my_project_role`，列表按 `project_role` 过滤。
 
 ### 导出收紧（有意行为变化）

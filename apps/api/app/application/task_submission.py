@@ -8,12 +8,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
+from app.application.task_workflow_locks import (
+    lock_current_batch_target,
+    lock_current_task_target,
+    lock_rows_nowait,
+)
 from app.db.enums import BatchStatus
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.mask_qc import MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.annotation_evidence import (
@@ -32,13 +38,33 @@ from app.services import task_access
 _SUBMIT_REVIEW_CHUNK_SIZE = 200
 
 
-def _task_lock_query(task_id: uuid.UUID):
-    return (
-        select(Task)
-        .where(Task.id == task_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+def _assert_batch_submit_authority(
+    actor: User, access: ProjectAccess, batch: TaskBatch
+) -> bool:
+    actor_is_owner = access.is_manager
+    actor_is_assigned_annotator = (
+        access.project_role == "annotator"
+        and batch.annotator_id is not None
+        and batch.annotator_id == actor.id
     )
+    if not (actor_is_owner or actor_is_assigned_annotator):
+        raise TaskWorkflowError(
+            403,
+            "only the assigned annotator or a project owner can submit the batch",
+        )
+    return actor_is_owner
+
+
+def _assert_batch_submittable(batch: TaskBatch) -> None:
+    if batch.status not in (BatchStatus.ANNOTATING, BatchStatus.REVIEWING):
+        raise TaskWorkflowError(
+            409,
+            {
+                "reason": "batch_not_submittable",
+                "status": batch.status,
+                "message": "只有「标注中」或「审核中」的批次可以整批送审",
+            },
+        )
 
 
 async def _prepare_submission(
@@ -121,9 +147,12 @@ class TaskSubmissionWorkflow:
         origin: AuditOriginContext,
         quality_dispatcher: QualityJobDispatcher,
     ) -> dict[str, Any]:
-        task = (await self.db.execute(_task_lock_query(task_id))).scalar_one_or_none()
-        if task is None:
-            raise TaskWorkflowError(404, "Task not found")
+        task, actor, _project, access = await lock_current_task_target(
+            self.db,
+            task_id=task_id,
+            actor_id=actor.id,
+            expected_access=access,
+        )
         await task_access.assert_task_visible(self.db, task, actor, access=access)
         task_access.assert_effective_task_assignee(
             actor,
@@ -210,30 +239,15 @@ class TaskSubmissionWorkflow:
         chunk_size: int = _SUBMIT_REVIEW_CHUNK_SIZE,
     ) -> dict[str, Any]:
         batch_service = BatchService(self.db)
-        batch = await batch_service.get(batch_id)
-        if batch is None or batch.project_id != project_id:
-            raise TaskWorkflowError(404, "Batch not found")
-
-        actor_is_owner = access.is_manager
-        actor_is_assigned_annotator = (
-            access.project_role == "annotator"
-            and batch.annotator_id is not None
-            and batch.annotator_id == actor.id
+        actor, _project, access, batch = await lock_current_batch_target(
+            self.db,
+            actor_id=actor.id,
+            project_id=project_id,
+            batch_id=batch_id,
+            expected_access=access,
         )
-        if not (actor_is_owner or actor_is_assigned_annotator):
-            raise TaskWorkflowError(
-                403,
-                "only the assigned annotator or a project owner can submit the batch",
-            )
-        if batch.status not in (BatchStatus.ANNOTATING, BatchStatus.REVIEWING):
-            raise TaskWorkflowError(
-                409,
-                {
-                    "reason": "batch_not_submittable",
-                    "status": batch.status,
-                    "message": "只有「标注中」或「审核中」的批次可以整批送审",
-                },
-            )
+        actor_is_owner = _assert_batch_submit_authority(actor, access, batch)
+        _assert_batch_submittable(batch)
 
         before_status = batch.status
         candidate_ids = [
@@ -242,6 +256,7 @@ class TaskSubmissionWorkflow:
                 await self.db.execute(
                     select(Task.id)
                     .where(
+                        Task.project_id == project_id,
                         Task.batch_id == batch_id,
                         Task.status.in_(("pending", "in_progress")),
                     )
@@ -251,19 +266,31 @@ class TaskSubmissionWorkflow:
         ]
         now = datetime.now(timezone.utc)
         submitted = 0
-        for start in range(0, len(candidate_ids), chunk_size):
-            chunk_ids = candidate_ids[start : start + chunk_size]
-            tasks = (
-                (
-                    await self.db.execute(
-                        select(Task)
-                        .where(Task.id.in_(chunk_ids))
-                        .order_by(Task.created_at, Task.id)
-                        .with_for_update()
-                    )
+        for chunk_index, start in enumerate(range(0, len(candidate_ids), chunk_size)):
+            if chunk_index > 0:
+                actor, _project, access, batch = await lock_current_batch_target(
+                    self.db,
+                    actor_id=actor.id,
+                    project_id=project_id,
+                    batch_id=batch_id,
+                    expected_access=access,
                 )
-                .scalars()
-                .all()
+                actor_is_owner = _assert_batch_submit_authority(actor, access, batch)
+                _assert_batch_submittable(batch)
+
+            chunk_ids = candidate_ids[start : start + chunk_size]
+            tasks = await lock_rows_nowait(
+                self.db,
+                select(Task)
+                .where(
+                    Task.id.in_(chunk_ids),
+                    Task.project_id == project_id,
+                    Task.batch_id == batch_id,
+                )
+                .order_by(Task.created_at, Task.id)
+                .with_for_update(nowait=True)
+                .execution_options(populate_existing=True),
+                reason="task_busy",
             )
             quality_dispatches: list[tuple[uuid.UUID, uuid.UUID]] = []
             for task in tasks:
@@ -334,6 +361,15 @@ class TaskSubmissionWorkflow:
                     except MaskQCError:
                         continue
 
+        actor, _project, access, batch = await lock_current_batch_target(
+            self.db,
+            actor_id=actor.id,
+            project_id=project_id,
+            batch_id=batch_id,
+            expected_access=access,
+        )
+        _assert_batch_submit_authority(actor, access, batch)
+        _assert_batch_submittable(batch)
         await batch_service.check_auto_transitions(batch_id)
         await batch_service.recalculate_counters(batch_id)
         await self.db.refresh(batch)

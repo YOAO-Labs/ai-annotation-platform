@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
+from app.application.task_workflow_locks import lock_current_task_target
 from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -26,7 +26,11 @@ from app.services.batch import BatchService
 from app.services.feedback import FeedbackService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.notification import NotificationService
-from app.services.project_access import ProjectAccess
+from app.services.project_access import (
+    ProjectAccess,
+    ProjectCapability,
+    assert_capability,
+)
 from app.services.scheduler import effective_task_reviewer_id
 
 
@@ -38,20 +42,23 @@ class TaskReviewWorkflow:
         self.labeling = LabelingTaskService(db)
 
     async def _locked_task(
-        self, task_id: uuid.UUID, *, actor: User, access: ProjectAccess
-    ) -> Task:
-        task = (
-            await self.db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
-        if task is None:
-            raise TaskWorkflowError(404, "Task not found")
-        await task_access.assert_task_visible(self.db, task, actor, access=access)
-        return task
+        self,
+        task_id: uuid.UUID,
+        *,
+        actor: User,
+        access: ProjectAccess,
+    ) -> tuple[Task, User, Project, ProjectAccess]:
+        task, current_actor, project, access = await lock_current_task_target(
+            self.db,
+            task_id=task_id,
+            actor_id=actor.id,
+            expected_access=access,
+        )
+        assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
+        await task_access.assert_task_visible(
+            self.db, task, current_actor, access=access
+        )
+        return task, current_actor, project, access
 
     async def _assert_review_evidence_allowed(self, *, task: Task, actor: User) -> None:
         effective_annotator_id = await task_access.resolve_effective_task_assignee_id(
@@ -62,11 +69,13 @@ class TaskReviewWorkflow:
         )
 
     async def _assert_review_owner(
-        self, *, task: Task, actor: User, access: ProjectAccess
+        self,
+        *,
+        task: Task,
+        actor: User,
+        access: ProjectAccess,
+        project: Project,
     ) -> Project:
-        project = await self.db.get(Project, task.project_id)
-        if project is None:
-            raise TaskWorkflowError(404, "Project not found")
         task_access.assert_access_binding(
             access, user=actor, project_id=task.project_id
         )
@@ -101,7 +110,9 @@ class TaskReviewWorkflow:
         access: ProjectAccess,
         origin: AuditOriginContext,
     ) -> dict[str, Any]:
-        task = await self._locked_task(task_id, actor=actor, access=access)
+        task, actor, _project, access = await self._locked_task(
+            task_id, actor=actor, access=access
+        )
         self._assert_review_state(task)
         await self._assert_review_evidence_allowed(task=task, actor=actor)
 
@@ -160,10 +171,14 @@ class TaskReviewWorkflow:
         warning_issue_ids: list[uuid.UUID],
         note: str | None,
     ) -> dict[str, str]:
-        task = await self._locked_task(task_id, actor=actor, access=access)
+        task, actor, project, access = await self._locked_task(
+            task_id, actor=actor, access=access
+        )
         self._assert_review_state(task)
         await self._assert_review_evidence_allowed(task=task, actor=actor)
-        project = await self._assert_review_owner(task=task, actor=actor, access=access)
+        await self._assert_review_owner(
+            task=task, actor=actor, access=access, project=project
+        )
 
         from app.services.video_canonical import (
             VideoBoundaryUnreconciledError,
@@ -240,7 +255,7 @@ class TaskReviewWorkflow:
             result="approved",
             contributor_ids=contributor_ids,
         )
-        self.labeling.record_project_review_approval(project)
+        await self.labeling.record_project_review_approval(project)
 
         batch_service = BatchService(self.db)
         await batch_service.check_auto_transitions(task.batch_id)
@@ -298,10 +313,14 @@ class TaskReviewWorkflow:
         reason_type: str | None,
         reason: str | None,
     ) -> dict[str, Any]:
-        task = await self._locked_task(task_id, actor=actor, access=access)
+        task, actor, project, access = await self._locked_task(
+            task_id, actor=actor, access=access
+        )
         self._assert_review_state(task)
         await self._assert_review_evidence_allowed(task=task, actor=actor)
-        await self._assert_review_owner(task=task, actor=actor, access=access)
+        await self._assert_review_owner(
+            task=task, actor=actor, access=access, project=project
+        )
         if reason_type is None:
             raise TaskWorkflowError(422, "reject reason_type is required")
 
@@ -327,9 +346,7 @@ class TaskReviewWorkflow:
         await self.db.flush()
         await FeedbackService(self.db).mirror_task_reject(task, reviewer_id=actor.id)
 
-        project = await self.db.get(Project, task.project_id)
-        if project:
-            self.labeling.decrement_project_review_count(project)
+        await self.labeling.decrement_project_review_count(project)
         batch_service = BatchService(self.db)
         await batch_service.check_auto_transitions(task.batch_id)
         if task.batch_id:

@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.application.task_workflow_errors import TaskWorkflowError
+from app.db.models.project import Project
+from app.db.models.task import Task
+from app.db.models.task_batch import TaskBatch
+from app.db.models.user import User
+from app.services import task_access
+from app.services.project_access import ProjectAccess, lock_current_project_access
+
+_LOCK_FAILURE_SQLSTATES = {"55P03", "40001", "40P01"}
+
+
+async def lock_row_nowait(db: AsyncSession, statement: Any, *, reason: str):
+    """Execute one bounded row-lock query and map lock contention consistently."""
+    try:
+        with db.no_autoflush:
+            result = await db.execute(statement)
+    except DBAPIError as exc:
+        orig = exc.orig
+        sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        if sqlstate in _LOCK_FAILURE_SQLSTATES:
+            raise TaskWorkflowError(409, {"reason": reason}) from exc
+        raise
+    return result.scalar_one_or_none()
+
+
+async def lock_rows_nowait(db: AsyncSession, statement: Any, *, reason: str):
+    """Execute a bounded multi-row lock query with the same public error mapping."""
+    try:
+        with db.no_autoflush:
+            result = await db.execute(statement)
+    except DBAPIError as exc:
+        orig = exc.orig
+        sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        if sqlstate in _LOCK_FAILURE_SQLSTATES:
+            raise TaskWorkflowError(409, {"reason": reason}) from exc
+        raise
+    return result.scalars().all()
+
+
+async def lock_current_batch_target(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+    batch_id: uuid.UUID,
+    expected_access: ProjectAccess,
+) -> tuple[User, Project, ProjectAccess, TaskBatch]:
+    """Lock current project authority, then the matching batch row."""
+    actor, project, current_access = await lock_current_project_access(
+        db, actor_id=actor_id, project_id=project_id
+    )
+    task_access.assert_access_binding(
+        expected_access, user=actor, project_id=project_id
+    )
+    batch = await lock_row_nowait(
+        db,
+        select(TaskBatch)
+        .where(TaskBatch.id == batch_id, TaskBatch.project_id == project_id)
+        .with_for_update(nowait=True)
+        .execution_options(populate_existing=True),
+        reason="batch_busy",
+    )
+    if batch is None:
+        raise TaskWorkflowError(404, "Batch not found")
+    return actor, project, current_access, batch
+
+
+async def lock_current_task_target(
+    db: AsyncSession,
+    *,
+    task_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    expected_access: ProjectAccess,
+) -> tuple[Task, User, Project, ProjectAccess]:
+    """Revalidate authority, then lock a task's captured batch and fresh row."""
+    with db.no_autoflush:
+        target = (
+            await db.execute(
+                select(Task.project_id, Task.batch_id).where(Task.id == task_id)
+            )
+        ).one_or_none()
+    if target is None:
+        raise TaskWorkflowError(404, "Task not found")
+    project_id, target_batch_id = target
+
+    actor, project, current_access = await lock_current_project_access(
+        db, actor_id=actor_id, project_id=project_id
+    )
+    task_access.assert_access_binding(
+        expected_access, user=actor, project_id=project_id
+    )
+    if target_batch_id is not None:
+        batch = await lock_row_nowait(
+            db,
+            select(TaskBatch)
+            .where(
+                TaskBatch.id == target_batch_id,
+                TaskBatch.project_id == project_id,
+            )
+            .with_for_update(nowait=True)
+            .execution_options(populate_existing=True),
+            reason="batch_busy",
+        )
+        if batch is None:
+            raise TaskWorkflowError(409, {"reason": "task_target_changed"})
+
+    task = await lock_row_nowait(
+        db,
+        select(Task)
+        .where(Task.id == task_id, Task.project_id == project_id)
+        .with_for_update(nowait=True)
+        .execution_options(populate_existing=True),
+        reason="task_busy",
+    )
+    if task is None:
+        raise TaskWorkflowError(404, "Task not found")
+    if task.batch_id != target_batch_id:
+        raise TaskWorkflowError(409, {"reason": "task_target_changed"})
+    return task, actor, project, current_access

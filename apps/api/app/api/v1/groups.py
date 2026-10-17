@@ -4,7 +4,6 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
@@ -15,6 +14,7 @@ from app.schemas.group import GroupCreate, GroupOut, GroupUpdate
 from app.schemas.management import GroupPage
 from app.services.audit import AuditService
 from app.services.management import fetch_group_page
+from app.services.account_groups import AccountGroupService
 
 router = APIRouter()
 
@@ -82,17 +82,9 @@ async def create_group(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(require_roles(*_MANAGERS)),
 ):
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="名称不能为空")
-
-    grp = Group(name=name, description=(payload.description or None))
-    db.add(grp)
-    try:
-        await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=f"已存在同名数据组: {name}")
+    actor, grp = await AccountGroupService(db).create(
+        actor_id=actor.id, payload=payload
+    )
 
     await AuditService.log(
         db,
@@ -102,7 +94,7 @@ async def create_group(
         target_id=str(grp.id),
         request=request,
         status_code=201,
-        detail={"name": name},
+        detail={"name": grp.name},
     )
     await db.commit()
     await db.refresh(grp)
@@ -123,36 +115,9 @@ async def update_group(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(require_roles(*_MANAGERS)),
 ):
-    grp = await db.scalar(select(Group).where(Group.id == group_id).with_for_update())
-    if grp is None:
-        raise HTTPException(status_code=404, detail="数据组不存在")
-
-    changes: dict[str, str] = {}
-    if payload.name is not None:
-        new_name = payload.name.strip()
-        if not new_name:
-            raise HTTPException(status_code=400, detail="名称不能为空")
-        if new_name != grp.name:
-            old_name = grp.name
-            grp.name = new_name
-            changes["name"] = f"{old_name}→{new_name}"
-            # 同步更新 users.group_name 字段（保持兼容）
-            from sqlalchemy import update as sa_update
-
-            await db.execute(
-                sa_update(User)
-                .where(User.group_id == grp.id)
-                .values(group_name=new_name)
-            )
-    if payload.description is not None:
-        grp.description = payload.description or None
-        changes["description"] = "updated"
-
-    try:
-        await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=f"已存在同名数据组: {payload.name}")
+    actor, grp, changes = await AccountGroupService(db).update(
+        group_id, actor_id=actor.id, payload=payload
+    )
 
     if changes:
         await AuditService.log(
@@ -191,20 +156,7 @@ async def delete_group(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(require_roles(*_MANAGERS)),
 ):
-    grp = await db.scalar(select(Group).where(Group.id == group_id).with_for_update())
-    if grp is None:
-        raise HTTPException(status_code=404, detail="数据组不存在")
-    name = grp.name
-
-    # 解除关联（FK ON DELETE SET NULL 也会处理，但 group_name 是冗余字段）
-    from sqlalchemy import update as sa_update
-
-    await db.execute(
-        sa_update(User)
-        .where(User.group_id == grp.id)
-        .values(group_id=None, group_name=None)
-    )
-    await db.delete(grp)
+    actor, name = await AccountGroupService(db).delete(group_id, actor_id=actor.id)
 
     await AuditService.log(
         db,
