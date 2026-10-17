@@ -1,19 +1,16 @@
 """Training deletion commits a durable cleanup intent before destructive IO."""
 
-import asyncio
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from sqlalchemy import delete, select
-from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1.training_datasets import delete_version
 from app.api.v1.training_runs import delete_run
-from app.config import settings
 from app.core.security import create_access_token
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -23,7 +20,6 @@ from app.db.models.user import User
 from app.deps import get_db
 from app.services import training_storage_cleanup as cleanup
 from app.services.storage import storage_service
-from app.workers import sample_evaluations as worker
 from tests.factory import create_user
 from tests.test_training_runs import ready_dataset
 
@@ -92,32 +88,52 @@ async def test_commit_failure_never_purges_training_storage(
     committed_record, monkeypatch
 ):
     world = committed_record
-    purge = Mock()
+    objects = {"artifact": b"original"}
+
+    def purge(*_args, **_kwargs):
+        objects.clear()
+
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
     async with world.factory() as db:
         monkeypatch.setattr(
             db, "commit", AsyncMock(side_effect=RuntimeError("commit unavailable"))
         )
-        with pytest.raises(RuntimeError, match="commit unavailable"):
+        with pytest.raises(RuntimeError):
             await world.endpoint(
                 world.record.id, project=world.project, user=world.owner, db=db
             )
-    purge.assert_not_called()
+    assert objects == {"artifact": b"original"}
     async with world.factory() as db:
         record = await db.get(type(world.record), world.record.id)
         assert record is not None and record.status == world.record.status
-        assert not await db.scalar(select(TrainingStorageDeletion.id))
+        assert not await db.scalar(
+            select(TrainingStorageDeletion.id).where(
+                TrainingStorageDeletion.prefix == world.prefix
+            )
+        )
 
 
 async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
-    committed_record, test_engine, app_module, monkeypatch
+    committed_record, app_module, monkeypatch
 ):
     world = committed_record
     original_bucket = storage_service.training_bucket
-    purge = Mock(side_effect=RuntimeError("storage unavailable"))
-    warning = Mock()
+    other_bucket = "different-training"
+    key = world.prefix + "artifact"
+    objects = {
+        original_bucket: {key: b"original"},
+        other_bucket: {key: b"unrelated"},
+    }
+    unavailable = True
+
+    def purge(prefix, *, bucket):
+        if unavailable:
+            raise RuntimeError("storage unavailable")
+        for object_key in list(objects[bucket]):
+            if object_key.startswith(prefix):
+                del objects[bucket][object_key]
+
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
-    monkeypatch.setattr(cleanup.log, "warning", warning)
 
     async def request_session():
         async with world.factory() as db:
@@ -134,39 +150,29 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
     assert response.status_code == 204, response.text
     async with world.factory() as db:
         assert await db.get(type(world.record), world.record.id) is None
-        intent = await db.scalar(select(TrainingStorageDeletion))
+        intent = await db.scalar(
+            select(TrainingStorageDeletion).where(
+                TrainingStorageDeletion.prefix == world.prefix
+            )
+        )
         assert (intent.prefix, intent.bucket) == (world.prefix, original_bucket)
         assert intent.last_attempted_at is not None
         intent_id = intent.id
-    warning.assert_called_once_with(
-        "Training storage deletion deferred intent=%s", intent_id
-    )
-    # A further outage must retain the same committed intent. A changed runtime
-    # bucket must never redirect old cleanup to another bucket.
-    monkeypatch.setattr(storage_service, "training_bucket", "different-training")
-    await worker.maintain(world.factory)
+    assert objects[original_bucket] == {key: b"original"}
+    # A changed runtime bucket must not redirect the committed cleanup intent.
+    monkeypatch.setattr(storage_service, "training_bucket", other_bucket)
+    await cleanup.maintain(world.factory)
     async with world.factory() as db:
         assert await db.get(TrainingStorageDeletion, intent_id) is not None
-    purge.side_effect = None
-    # Exercise the registered task entry point, which creates its own engine.
-    # Refuse to invoke it if runtime settings target another database.
-    task_url = make_url(settings.database_url)
-    assert (task_url.host, task_url.port, task_url.database) == (
-        test_engine.url.host,
-        test_engine.url.port,
-        test_engine.url.database,
-    )
-    await asyncio.to_thread(worker.maintain_evaluations.run)
-    assert purge.call_count == 3
-    for call in purge.call_args_list:
-        assert call.args == (world.prefix,) and call.kwargs == {
-            "bucket": original_bucket
-        }
+    unavailable = False
+    await cleanup.maintain(world.factory)
+    assert objects[original_bucket] == {}
+    assert objects[other_bucket] == {key: b"unrelated"}
     async with world.factory() as db:
         assert await db.get(TrainingStorageDeletion, intent_id) is None
         assert not await cleanup.purge_requested(db, intent_id)
-    await worker.maintain(world.factory)
-    assert purge.call_count == 3
+    await cleanup.maintain(world.factory)
+    assert objects[other_bucket] == {key: b"unrelated"}
 
 
 @pytest.mark.parametrize("failed_commit", [2, 3])
@@ -174,7 +180,11 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
     committed_record, monkeypatch, failed_commit
 ):
     world = committed_record
-    purge = Mock()
+    objects = {"artifact": b"original"}
+
+    def purge(*_args, **_kwargs):
+        objects.clear()
+
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
     async with world.factory() as db:
         commit = db.commit
@@ -188,16 +198,23 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
             await commit()
 
         monkeypatch.setattr(db, "commit", fail_acknowledgement)
-        assert (
-            await world.endpoint(
-                world.record.id, project=world.project, user=world.owner, db=db
-            )
-            is None
+        await world.endpoint(
+            world.record.id, project=world.project, user=world.owner, db=db
         )
+    # The first cleanup commit precedes IO; the second acknowledges its result.
+    assert objects == ({"artifact": b"original"} if failed_commit == 2 else {})
     async with world.factory() as db:
         assert await db.get(type(world.record), world.record.id) is None
-        assert await db.scalar(select(TrainingStorageDeletion.id)) is not None
-    await worker.maintain(world.factory)
-    assert purge.call_count == (1 if failed_commit == 2 else 2)
+        assert await db.scalar(
+            select(TrainingStorageDeletion.id).where(
+                TrainingStorageDeletion.prefix == world.prefix
+            )
+        )
+    await cleanup.maintain(world.factory)
+    assert objects == {}
     async with world.factory() as db:
-        assert not await db.scalar(select(TrainingStorageDeletion.id))
+        assert not await db.scalar(
+            select(TrainingStorageDeletion.id).where(
+                TrainingStorageDeletion.prefix == world.prefix
+            )
+        )

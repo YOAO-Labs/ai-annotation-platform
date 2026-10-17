@@ -188,6 +188,8 @@ export 队列执行 `workers/training_dataset.py`。它以条件读取验证源�
 
 版本和终态实验删除在同一事务中删除业务记录，并写入独立的 `training_storage_deletions` 清理意图。数据库引用检查及提交先于任何对象删除；意图保存确切 bucket/prefix，不依附项目外键。提交后先尝试清理，故障时由已有 `maintain_evaluations` 周期任务分批重试，只有对象清理及确认提交均成功才移除意图。重复清理同一不可变前缀可恢复存储故障、进程中断和确认提交失败；业务删除成功仍返回 `204`。
 
+记录删除分别由 `training_datasets.stage_version_deletion`、`training_runs.stage_run_deletion` 持有；存储服务只暂存和清理独立意图。两类调用方都在原提交点合并 SQL 删除与意图，提交失败不进入对象删除。后续运行配置中的训练桶改变，不会改写已提交意图保存的目标桶。
+
 升级部署需应用新增迁移、创建独立训练桶并授予对象读写权限、刷新 export worker，再核验注册任务 `app.workers.training_dataset.run_training_dataset`。局域网生产还需同步受限 MinIO 策略与 Caddy 下载路径。
 
 存储清理意图需应用 `0189` 迁移并刷新消费 `default` 队列的 worker，保持 Celery beat 运行；沿用每分钟的 `app.workers.sample_evaluations.maintain_evaluations`，无需新增任务或调度器。此处的「维护」是该业务任务，消费数据库运维 `maintenance` 队列的专用 worker 不负责此路径。

@@ -63,6 +63,11 @@ def now():
     return datetime.now(timezone.utc)
 
 
+async def stage_run_deletion(db, run: TrainingRun) -> None:
+    """Stage SQL deletion; the workflow commits it with its storage intent."""
+    await db.delete(run)
+
+
 async def load_run(db, project_id, run_id, *, lock=False):
     statement = select(TrainingRun).where(
         TrainingRun.id == run_id, TrainingRun.project_id == project_id

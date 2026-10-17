@@ -59,6 +59,13 @@ async def assert_no_project_versions(db, project_id: uuid.UUID) -> None:
         )
 
 
+async def stage_version_deletion(
+    db: AsyncSession, version: TrainingDatasetVersion
+) -> None:
+    """Stage SQL deletion; the workflow commits it with its storage intent."""
+    await db.delete(version)
+
+
 MAX_SAMPLES = 20000
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
 MAX_DATASET_BYTES = 20 * 1024 * 1024 * 1024

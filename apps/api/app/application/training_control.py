@@ -141,6 +141,9 @@ async def delete_run(
         raise HTTPException(
             status_code=409, detail="训练产物已被模型版本引用，不能删除"
         )
-    await training_storage_cleanup.delete_record(
-        db, run, f"projects/{project_id}/runs/{run.id}/"
+    intent = training_storage_cleanup.stage_deletion(
+        db, f"projects/{project_id}/runs/{run.id}/"
     )
+    await training_runs.stage_run_deletion(db, run)
+    await db.commit()
+    await training_storage_cleanup.purge_committed(db, intent.id)

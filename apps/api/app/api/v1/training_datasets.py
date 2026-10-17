@@ -330,6 +330,7 @@ async def delete_version(
             status_code=409,
             detail="运行中或被后续版本、训练实验、未清理增强预览引用的数据版本不能删除",
         )
-    await cleanup.delete_record(
-        db, version, f"projects/{project.id}/datasets/{version.id}/"
-    )
+    intent = cleanup.stage_deletion(db, f"projects/{project.id}/datasets/{version.id}/")
+    await service.stage_version_deletion(db, version)
+    await db.commit()
+    await cleanup.purge_committed(db, intent.id)

@@ -1124,6 +1124,21 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 主线默认 ASGI/JWT/DB 的两次真实 DELETE 均为 503/cleanup_pending，各自的新 PG 事务读到相同删除时间和当前 attempt；恢复受控存储后通过既有 purge 命令完成 SQL 删除。原生观察在 `.worktree/evaluation-owner-main-smoke.json`，临时探针已移除。对象存储、收据和输出均为受控夹具，不声称 MinIO、模型、GPU 或 Celery consumer 资格。
 - 主线两项受影响测试文件合跑为 43 passed、零失败/错误；五文件固定 Ruff 格式/check 通过。保留真实 claim/attempt、收据、部分报告、删除意图与新事务状态断言，删除新增 setter 重放回声和自由错误文案固定；不与隔离组合重复累计。
 
+### 训练运行及数据版本删除组合事务
+
+- 原通用存储 helper 的全部两类业务调用已切换：Run 删除由 `training_runs.stage_run_deletion`、数据版本删除由 `training_datasets.stage_version_deletion` 持有；`training_storage_cleanup.stage_deletion` 仅持有存储意图。应用/HTTP 编排保留原权限、执行锁、引用保护与同一次 commit，之后调用 `purge_committed`。旧 `delete_record` 及调用已移除，不保留任意 ORM 行删除的兼容入口。
+- 默认 ASGI/JWT/get_db、owned PostgreSQL 与真实 MinIO 已分别实跑两类删除：精确前缀的 PostgreSQL 延迟约束触发器使真实 commit 失败，HTTP 500 后新事务仍见业务行、无意图，原对象字节保持；移除临时约束后注入存储端口故障，HTTP 204，独立 asyncpg 连接在对象端口调用前已见业务行删除、意图及 `last_attempted_at` 提交。后者是受控存储故障，不声称真实 MinIO 宕机。
+- 恢复真实 MinIO 后，经既有 `purge_requested` 清理原桶对象及意图；临时把进程内训练桶指向另一个 owned 桶，仍只删除意图记录的原桶。同 key 的另一桶字节保持。两类精确 fixture、S3 对象和临时函数/触发器均已清理；未启动 worker、模型或 GPU，普通字节不是训练产物资格。原始观察与全部样本在 `.worktree/training-deletion-owner-main-smoke.json`。
+- 预算只比较旧 helper 写入前半段的内联复现（意图 add、ORM delete、Session commit、读取意图 ID）与当前所有者命令加调用方 commit；同一已提交记录，各侧预热后交错三次，外层事务回滚复原夹具。这里 Session commit 释放 SAVEPOINT，不是网络 COMMIT；不含加载、权威/锁、外层回滚、purge、对象 I/O 或观察，不推断端到端延迟、RSS 或吞吐。每次均 3 条 SQL、0 次对象 I/O：
+
+| Python 堆峰值增量中位数（字节） | 旧写入前半段 | 当前所有者组合 |
+| ------------------------------- | -----------: | -------------: |
+| 数据版本                        |      290,409 |        290,393 |
+| 训练运行                        |      290,233 |        290,233 |
+
+- 既有回归保留提交失败不删对象、两段清理提交故障保留可恢复意图，以及确切目标桶不随配置变化等消费者状态；删除日志文字、调用参数/次数回声和无意义返回值固定，维护测试直接运行存储所有者，不扫描或派发无关评估。正式分层和训练存储说明同步；无 API/schema、依赖、配置、版本或任务签名变更，纯结构迁移不增加 CHANGELOG。
+- 主线定向存储故障/提交窗口、版本/运行/Study 删除保护、SCC 及精确 OpenAPI 合跑：179 passed、77 skipped、零失败/错误；JUnit 为 `/tmp/aap-training-deletion-owner-main.xml`。六个 Python 文件固定 Ruff 格式/check 通过；临时原生探针已移除。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试及样本评估执行/删除意图已收口；仍有训练记录删除组合事务（运行及数据版本两类调用）、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共八组剩余边界。通用存储 helper 同时删除两类 ORM 记录，须一起迁到各自所有者。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图及训练记录删除组合事务已收口；仍有训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护、训练数据构建和主动学习执行，共七组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。

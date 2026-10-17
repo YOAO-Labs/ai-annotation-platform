@@ -1,4 +1,4 @@
-"""Commit training deletion before IO; retry through evaluation maintenance."""
+"""Durable storage cleanup staged with business deletion before IO."""
 
 import asyncio
 import logging
@@ -12,14 +12,14 @@ from app.services.storage import storage_service as storage
 log = logging.getLogger(__name__)
 
 
-async def delete_record(db, record, prefix):
-    # The database checks every remaining FK before storage can be destroyed.
+def stage_deletion(db, prefix):
     # No FK from the tombstone: project removal must not cancel pending cleanup.
     intent = TrainingStorageDeletion(bucket=storage.training_bucket, prefix=prefix)
     db.add(intent)
-    await db.delete(record)
-    await db.commit()
-    intent_id = intent.id
+    return intent
+
+
+async def purge_committed(db, intent_id):
     try:
         await purge_requested(db, intent_id)
     except Exception:
