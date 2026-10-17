@@ -4,9 +4,11 @@ import asyncio
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -19,6 +21,7 @@ from app.db.models.annotation_operation import (
 from app.db.models.audit_log import AuditLog
 from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
@@ -32,11 +35,18 @@ from app.services.mask_mutation import (
     _combine_rles,
     scope_fingerprint,
 )
+from app.services.annotation_evidence import (
+    capture_first_review_contributor_snapshot,
+    freeze_review_contributor_evidence,
+    task_contributor_snapshot,
+)
+from app.services.labeling_tasks import LabelingTaskService
 from app.services.raster_mask_storage import (
     build_rle_reference,
     prepare_mask_payload_for_write,
 )
-from tests.factory import create_membership
+from app.services.task_access import resolve_task_access
+from tests.factory import create_membership, create_user
 
 
 RLE_A = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
@@ -1852,3 +1862,239 @@ async def test_ordinary_mask_prepare_waits_for_task_before_rle_advisory(
                 await cleanup.execute(delete(Dataset).where(Dataset.id == dataset_id))
                 await cleanup.execute(delete(User).where(User.id == user_id))
                 await cleanup.commit()
+
+
+async def _cleanup_mask_task_refresh_rows(maker, ids: dict[str, Any]) -> None:
+    async with maker() as cleanup:
+        operation_ids = list(
+            (
+                await cleanup.scalars(
+                    select(AnnotationOperation.id).where(
+                        AnnotationOperation.task_id == ids["task"]
+                    )
+                )
+            ).all()
+        )
+        if operation_ids:
+            await cleanup.execute(
+                delete(AuditLog).where(
+                    AuditLog.target_type == "annotation_operation",
+                    AuditLog.target_id.in_([str(value) for value in operation_ids]),
+                )
+            )
+            await cleanup.execute(
+                delete(AnnotationLineageEdge).where(
+                    AnnotationLineageEdge.operation_id.in_(operation_ids)
+                )
+            )
+        await cleanup.execute(
+            delete(AnnotationOperation).where(
+                AnnotationOperation.task_id == ids["task"]
+            )
+        )
+        await cleanup.execute(
+            delete(Annotation).where(Annotation.task_id == ids["task"])
+        )
+        await cleanup.execute(
+            delete(RasterMaskUpload).where(RasterMaskUpload.task_id == ids["task"])
+        )
+        await cleanup.execute(delete(TaskLock).where(TaskLock.task_id == ids["task"]))
+        await cleanup.execute(delete(Task).where(Task.id == ids["task"]))
+        await cleanup.execute(delete(DatasetItem).where(DatasetItem.id == ids["item"]))
+        await cleanup.execute(delete(Dataset).where(Dataset.id == ids["dataset"]))
+        await cleanup.execute(
+            delete(ProjectMember).where(ProjectMember.project_id == ids["project"])
+        )
+        await cleanup.execute(delete(Project).where(Project.id == ids["project"]))
+        await cleanup.execute(delete(User).where(User.id.in_(ids["users"])))
+        await cleanup.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed_state", ["assignment", "review"])
+async def test_mask_commit_uses_current_task_after_lock(
+    changed_state, test_engine, mask_content
+):
+    """A committed task change after Session A's read must gate its Mask write."""
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    suffix = uuid.uuid4().hex
+    cleanup_ids: dict[str, Any] | None = None
+
+    try:
+        async with maker() as seed:
+            owner = await create_user(
+                seed,
+                "super_admin",
+                f"mask-refresh-owner-{suffix}@example.test",
+                "Owner",
+            )
+            actor = await create_user(
+                seed, "employee", f"mask-refresh-actor-{suffix}@example.test", "Actor"
+            )
+            replacement = await create_user(
+                seed,
+                "employee",
+                f"mask-refresh-replacement-{suffix}@example.test",
+                "Replacement",
+            )
+            task = await _seed_image_task(seed, owner.id)
+            task.status = "in_progress"
+            task.assignee_id = actor.id
+            task.assignee_is_override = True
+            task.assigned_at = datetime.now(timezone.utc)
+            task.annotation_contributor_ids = [str(actor.id)]
+            await create_membership(
+                seed,
+                project_id=task.project_id,
+                user_id=actor.id,
+                role="annotator",
+                assigned_by=owner.id,
+            )
+            await create_membership(
+                seed,
+                project_id=task.project_id,
+                user_id=replacement.id,
+                role="annotator",
+                assigned_by=owner.id,
+            )
+            source = await _seed_annotation(seed, task, actor.id)
+            reference = build_rle_reference(RLE_COMPONENT)
+            seed.add(
+                RasterMaskUpload(
+                    task_id=task.id,
+                    object_key=reference["object_key"],
+                    linked_at=datetime.now(timezone.utc),
+                )
+            )
+            payload = MaskMutationCommitRequest.model_validate(
+                _payload(
+                    source,
+                    _scope(),
+                    reference=reference,
+                    key=f"mask-refresh-{changed_state}-{suffix}",
+                )
+            )
+            item = await seed.get(DatasetItem, task.dataset_item_id)
+            assert item is not None
+            cleanup_ids = {
+                "task": task.id,
+                "item": item.id,
+                "dataset": item.dataset_id,
+                "project": task.project_id,
+                "source": source.id,
+                "actor": actor.id,
+                "replacement": replacement.id,
+                "owner": owner.id,
+                "users": [owner.id, actor.id, replacement.id],
+            }
+            await seed.commit()
+
+        async with maker() as session_a:
+            task_a = await session_a.get(Task, cleanup_ids["task"])
+            actor_a = await session_a.get(User, cleanup_ids["actor"])
+            assert task_a is not None and actor_a is not None
+            access = await resolve_task_access(
+                session_a, task_a, actor_a, lock_membership=True
+            )
+            assert task_a.status == "in_progress"
+            assert task_a.assignee_id == cleanup_ids["actor"]
+
+            async with maker() as session_b:
+                task_b = await session_b.get(Task, cleanup_ids["task"])
+                assert task_b is not None
+                now = datetime.now(timezone.utc)
+                if changed_state == "assignment":
+                    task_b.assignee_id = cleanup_ids["replacement"]
+                    task_b.assignee_is_override = True
+                    task_b.assigned_at = now
+                else:
+                    await LabelingTaskService(session_b).submit_task(
+                        task_b, actor_id=cleanup_ids["actor"], now=now
+                    )
+                    contributors = await task_contributor_snapshot(session_b, task_b)
+                    capture_first_review_contributor_snapshot(task_b, contributors)
+                    freeze_review_contributor_evidence(
+                        task_b,
+                        submitter_id=cleanup_ids["actor"],
+                        contributor_ids=contributors,
+                    )
+                    assert task_b.review_round_id is not None
+                    assert str(task_b.review_submitter_id) == str(cleanup_ids["actor"])
+                    assert task_b.review_contributor_ids == [str(cleanup_ids["actor"])]
+                    assert task_b.first_review_contributor_ids == [
+                        str(cleanup_ids["actor"])
+                    ]
+                await session_b.commit()
+
+            # Session A deliberately retains the pre-lock ORM instance.
+            assert task_a.status == "in_progress"
+            assert task_a.assignee_id == cleanup_ids["actor"]
+            with pytest.raises(HTTPException) as exc_info:
+                await MaskMutationService(session_a)._commit(
+                    cleanup_ids["task"], payload, actor_a, access=access
+                )
+            if changed_state == "assignment":
+                assert exc_info.value.status_code == 404
+                assert exc_info.value.detail == "Task not found"
+                assert task_a.assignee_id == cleanup_ids["replacement"]
+            else:
+                assert exc_info.value.status_code == 409
+                assert exc_info.value.detail == {
+                    "reason": "task_locked",
+                    "status": "review",
+                }
+                assert task_a.status == "review"
+            mask_content.assert_not_awaited()
+            await session_a.rollback()
+
+        async with maker() as verify:
+            task_after = await verify.get(Task, cleanup_ids["task"])
+            source_after = await verify.get(Annotation, cleanup_ids["source"])
+            assert task_after is not None and source_after is not None
+            if changed_state == "assignment":
+                assert task_after.status == "in_progress"
+                assert task_after.assignee_id == cleanup_ids["replacement"]
+                assert task_after.annotation_contributor_ids == [
+                    str(cleanup_ids["actor"])
+                ]
+            else:
+                assert task_after.status == "review"
+                assert task_after.review_round_id is not None
+                assert task_after.review_submitter_id == cleanup_ids["actor"]
+                assert task_after.review_contributor_ids == [str(cleanup_ids["actor"])]
+                assert task_after.first_review_contributor_ids == [
+                    str(cleanup_ids["actor"])
+                ]
+            assert source_after.version == 1
+            assert source_after.geometry["mask"] == build_rle_reference(RLE_A)
+            assert (
+                await verify.scalar(
+                    select(func.count())
+                    .select_from(Annotation)
+                    .where(Annotation.task_id == cleanup_ids["task"])
+                )
+                == 1
+            )
+            assert (
+                await verify.scalar(
+                    select(func.count())
+                    .select_from(AnnotationOperation)
+                    .where(AnnotationOperation.task_id == cleanup_ids["task"])
+                )
+                == 0
+            )
+            assert (
+                await verify.scalar(
+                    select(func.count())
+                    .select_from(AuditLog)
+                    .where(
+                        AuditLog.action == "annotation.mask_mutation",
+                        AuditLog.detail_json["task_id"].astext
+                        == str(cleanup_ids["task"]),
+                    )
+                )
+                == 0
+            )
+    finally:
+        if cleanup_ids is not None:
+            await _cleanup_mask_task_refresh_rows(maker, cleanup_ids)

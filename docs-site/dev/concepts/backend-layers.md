@@ -152,6 +152,8 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 `annotation_slice_contracts` 持有纯错误、摘要、固定恢复期限与 `AnnotationSlicePort`，`mask_mutation_contract` 持有 `MaskMutationPort` 和原 Mask 错误。三个 HTTP 命令只传任务/actor/operation UUID、原请求模型及 `AuditOriginContext`；`application/mask_annotation_slices.py` 私有绑定原 Session、actor 和 access，再调用原 SQL owner。HTTP 保留原错误回滚和成功提交位置，Mask Repair 内部继续调用同一私有 SQL 实现。Polygon/Mask 重放仍先于可编辑性检查，恢复下层不反向导入切割编排；原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
 
+Mask 的 Task 行锁查询同时刷新 identity map，后续可见性、审核证据和可编辑性检查读取锁后的分派/状态；不增加查询或改变资源锁顺序。已成功操作的同键回执仍沿用原先的重放位置。
+
 `mask_formats.registry` 只定义登记、查询、过滤和版本快照原语，不在查询时导入或注册内置实现。`mask_formats.catalog.registry` 在明确的装配模块绑定原描述符及具体 adapter；HTTP、格式导入 worker 和导出消费者直接导入该实例。package root 不重导出或 eager-load catalog，adapter 也不反向导入 registry；格式 ID、能力、选项、版本和原有输入输出不变。
 
 `services/video_context.py` 持有共享 `VideoContext` 与源帧采样纯函数。上下文只含经验证的 `VideoMetadata`、素材 UUID/源对象键/缩略图/顶层宽高和可选任务/项目 UUID；帧服务从原先已读行投影，消费者不再携带 DatasetItem/Task。回滚后上下文仍可供实际帧缓存查询使用，不触发隐式身份加载。导出、追踪、质检、HTTP 和逐帧 worker 都直接读取这些值，旧 ORM 属性没有兼容别名。

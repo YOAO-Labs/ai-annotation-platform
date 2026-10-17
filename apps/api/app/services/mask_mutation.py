@@ -633,7 +633,10 @@ class MaskMutationService:
     async def _lock_task(self, task_id: uuid.UUID) -> Task:
         task = (
             await self.db.execute(
-                select(Task).where(Task.id == task_id).with_for_update()
+                select(Task)
+                .where(Task.id == task_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if task is None:
