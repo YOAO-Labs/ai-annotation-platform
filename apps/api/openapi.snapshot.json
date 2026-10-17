@@ -33601,7 +33601,7 @@
         "type": "object"
       },
       "ReviewAction": {
-        "description": "v0.10.16 · reviewer 驳回 payload。`reason_type` 自 v0.10.16 起必填，\n`reason` 仍为可空自由文本补充。",
+        "description": "审核员驳回请求；reason_type 必填，reason 保留可空自由文本补充。",
         "properties": {
           "reason": {
             "anyOf": [
@@ -64989,7 +64989,7 @@
     },
     "/api/v1/projects/{project_id}/batches/{batch_id}/submit-review": {
       "post": {
-        "description": "整批送审：把批次内所有未送审任务（pending / in_progress）提交质检。\n\n与单任务提交共用 `perform_task_submit`，因此审核轮次、任务锁释放、Mask QC\n自动运行与 contributor 快照语义完全一致；结束后由 `check_auto_transitions`\n把批次推进到 reviewing。`rejected` 任务需先 accept-rejection 重做，不在此\n批量集合内（会通过 remaining_tasks 暴露）。\n\n只接受 `annotating` / `reviewing` 两种来源状态（与 Web 入口一致），并按固定\n分块提交/提交，避免大批次一次性物化全部 task 行锁与事务。",
+        "description": "整批送审：把批次内所有未送审任务（pending / in_progress）提交质检。\n\n与单任务提交共用 `TaskSubmissionWorkflow`，因此审核轮次、任务锁释放、Mask QC\n自动运行与 contributor 快照语义完全一致；结束后由 `check_auto_transitions`\n把批次推进到 reviewing。`rejected` 任务需先 accept-rejection 重做，不在此\n批量集合内；remaining_tasks 只统计仍为 pending / in_progress 的任务。\n\n只接受 `annotating` / `reviewing` 两种来源状态（与 Web 入口一致），并按固定\n分块处理/提交，避免大批次一次性物化全部 task 行锁与事务。",
         "operationId": "submit_batch_review_api_v1_projects__project_id__batches__batch_id__submit_review_post",
         "parameters": [
           {
@@ -77946,7 +77946,7 @@
     },
     "/api/v1/tasks/{task_id}/accept-rejection": {
       "post": {
-        "description": "M1 · 标注员接受退回，将 task 从 rejected 转回 in_progress 开始重做。\n不清空 reject_reason（保留审核员退回原因，前端可降级为\"重做中\"提示）。",
+        "description": "接受退回，将任务从 rejected 转回 in_progress。\n\n保留 reject_reason，供重做时查看原审核原因。",
         "operationId": "accept_rejection_api_v1_tasks__task_id__accept_rejection_post",
         "parameters": [
           {
@@ -81042,7 +81042,7 @@
     },
     "/api/v1/tasks/{task_id}/reopen": {
       "post": {
-        "description": "v0.6.5: 标注员对已通过任务单方面重开编辑。\n前提：status=completed 且 assignee == 当前用户（admin 兜底）。\n清空 reviewer_* 但 detail 留 original_reviewer_id 用于通知；\nannotations 原地保留可继续改，依赖 audit_logs 回溯历史。",
+        "description": "有效标注员重新打开已通过任务，管理者按现有授权兜底。\n\n清空当前审核字段，保留原标注；审计记录原审核人并沿用原通知时序。",
         "operationId": "reopen_task_api_v1_tasks__task_id__reopen_post",
         "parameters": [
           {
@@ -81152,7 +81152,7 @@
     },
     "/api/v1/tasks/{task_id}/review/claim": {
       "post": {
-        "description": "v0.6.5: 审核员进入审核页时调用（幂等）。\n第一个调用者写 reviewer_id + reviewer_claimed_at；\n后续调用者读取已存在的认领信息（不覆盖）。\n`reviewer_claimed_at` 一经设置即冻结标注员的 withdraw 入口。",
+        "description": "审核员幂等认领任务。\n\n首次认领记录审核员和时间，后续调用不覆盖；认领后标注员不能撤回送审。",
         "operationId": "claim_review_api_v1_tasks__task_id__review_claim_post",
         "parameters": [
           {
@@ -81723,7 +81723,7 @@
     },
     "/api/v1/tasks/{task_id}/skip": {
       "post": {
-        "description": "v0.8.7 F7 · 标注员跳过任务并附原因，自动转 reviewer 复核。\n\n状态机：\n  - pending / in_progress → review（与 submit 行为一致，但不要求有标注）\n  - 其他状态 → 409\n业务约束：\n  - reason ∈ {image_corrupt, no_target, unclear, other}；其他 422\n  - reason=\"other\" 时建议带 note，但 note 可空（前端兜底）",
+        "description": "标注员跳过任务并附原因，送交审核员复核。\n\npending / in_progress 转为 review，不要求已有标注；其他状态返回 409。\nreason 只能为 image_corrupt / no_target / unclear / other；note 可空。",
         "operationId": "skip_task_api_v1_tasks__task_id__skip_post",
         "parameters": [
           {
@@ -83614,7 +83614,7 @@
     },
     "/api/v1/tasks/{task_id}/withdraw": {
       "post": {
-        "description": "v0.6.5: 标注员撤回质检提交。\n前提：status=review、assignee == 当前用户、reviewer_claimed_at IS NULL。\n审核员一旦 claim 就锁死撤回入口，避免与审核动作打架。",
+        "description": "有效标注员撤回尚未认领的送审任务。\n\n仅允许 review 且 reviewer_claimed_at 为空；审核员认领后不能撤回。",
         "operationId": "withdraw_task_api_v1_tasks__task_id__withdraw_post",
         "parameters": [
           {

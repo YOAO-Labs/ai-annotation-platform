@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,17 +50,16 @@ from app.services.batch import (
 )
 from app.services.project_access import ProjectAccess, ProjectCapability
 from app.services.management import preview_batch_distribution
-from app.services.audit import AuditService, AuditAction
+from app.services.audit import AuditOriginContext, AuditService, AuditAction
 from app.services.notification import NotificationService
 from app.services.user_brief import resolve_briefs_with_project_role
 from app.db.models.audit_log import AuditLog
-from sqlalchemy import func
 from sqlalchemy import select as sa_select
 
-router = APIRouter()
+from app.application.task_submission import TaskSubmissionWorkflow
+from app.application.task_workflow_errors import TaskWorkflowError
 
-# 整批送审的分块大小：避免大批次一次性物化全部 task 行锁与事务。
-_SUBMIT_REVIEW_CHUNK_SIZE = 200
+router = APIRouter()
 
 
 def _batch_to_out(batch, briefs: dict | None = None) -> BatchOut:
@@ -385,181 +383,26 @@ async def submit_batch_review(
 ):
     """整批送审：把批次内所有未送审任务（pending / in_progress）提交质检。
 
-    与单任务提交共用 `perform_task_submit`，因此审核轮次、任务锁释放、Mask QC
+    与单任务提交共用 `TaskSubmissionWorkflow`，因此审核轮次、任务锁释放、Mask QC
     自动运行与 contributor 快照语义完全一致；结束后由 `check_auto_transitions`
     把批次推进到 reviewing。`rejected` 任务需先 accept-rejection 重做，不在此
-    批量集合内（会通过 remaining_tasks 暴露）。
+    批量集合内；remaining_tasks 只统计仍为 pending / in_progress 的任务。
 
     只接受 `annotating` / `reviewing` 两种来源状态（与 Web 入口一致），并按固定
-    分块提交/提交，避免大批次一次性物化全部 task 行锁与事务。
+    分块处理/提交，避免大批次一次性物化全部 task 行锁与事务。
     """
-    from app.db.models.task import Task
-    from app.api.v1.tasks._shared import perform_task_submit
-
-    svc = BatchService(db)
-    batch = await svc.get(batch_id)
-    if not batch or batch.project_id != project_id:
-        raise HTTPException(status_code=404, detail="Batch not found")
-
-    actor_is_owner = access.is_manager
-    actor_is_assigned_annotator = (
-        access.project_role == "annotator"
-        and batch.annotator_id is not None
-        and batch.annotator_id == current_user.id
-    )
-    if not (actor_is_owner or actor_is_assigned_annotator):
-        raise HTTPException(
-            status_code=403,
-            detail="only the assigned annotator or a project owner can submit the batch",
-        )
-
-    # draft / active / rejected / approved / archived 无法被 check_auto_transitions
-    # 归一化，直接提交会留下「批次状态与 review 任务不匹配」的组合，因此拒绝。
-    if batch.status not in (BatchStatus.ANNOTATING, BatchStatus.REVIEWING):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": "batch_not_submittable",
-                "status": batch.status,
-                "message": "只有「标注中」或「审核中」的批次可以整批送审",
-            },
-        )
-
-    before_status = batch.status
-    candidate_ids = [
-        row[0]
-        for row in (
-            await db.execute(
-                sa_select(Task.id)
-                .where(
-                    Task.batch_id == batch_id,
-                    Task.status.in_(("pending", "in_progress")),
-                )
-                .order_by(Task.created_at, Task.id)
-            )
-        ).all()
-    ]
-
-    now = datetime.now(timezone.utc)
-    submitted = 0
-    for start in range(0, len(candidate_ids), _SUBMIT_REVIEW_CHUNK_SIZE):
-        chunk_ids = candidate_ids[start : start + _SUBMIT_REVIEW_CHUNK_SIZE]
-        tasks = (
-            (
-                await db.execute(
-                    sa_select(Task)
-                    .where(Task.id.in_(chunk_ids))
-                    .order_by(Task.created_at, Task.id)
-                    .with_for_update()
-                )
-            )
-            .scalars()
-            .all()
-        )
-        mask_qc_dispatches: list[tuple[uuid.UUID, uuid.UUID]] = []
-        for task in tasks:
-            if task.status not in ("pending", "in_progress"):
-                continue
-            if (
-                not actor_is_owner
-                and task.assignee_id is not None
-                and task.assignee_id != current_user.id
-            ):
-                continue
-
-            result = await perform_task_submit(db, task, actor=current_user, now=now)
-            mask_qc_run = result["mask_qc_run"]
-            await AuditService.log(
-                db,
-                actor=current_user,
-                action=AuditAction.TASK_SUBMIT,
-                target_type="task",
-                target_id=str(task.id),
-                request=request,
-                status_code=200,
-                detail={
-                    "project_id": str(task.project_id),
-                    "batch_id": str(batch_id),
-                    "assignee_id": str(task.assignee_id) if task.assignee_id else None,
-                    "contributor_ids": result["contributor_ids"],
-                    "review_contributor_ids": result["review_contributor_ids"],
-                    "review_submitter_id": (
-                        str(result["review_submitter_id"])
-                        if result["review_submitter_id"]
-                        else None
-                    ),
-                    "review_round_id": str(result["review_round_id"]),
-                    "result": "submitted",
-                    "trigger": "batch_submit_review",
-                    "mask_qc_run_id": str(mask_qc_run.id) if mask_qc_run else None,
-                    "mask_qc_status": result["mask_qc_status"],
-                },
-            )
-            submitted += 1
-            if (
-                result["mask_qc_created"]
-                and mask_qc_run is not None
-                and result["mask_qc_job"] is not None
-            ):
-                mask_qc_dispatches.append((mask_qc_run.id, result["mask_qc_job"].id))
-
-        # Commit per chunk: release task row locks and bound transaction size.
-        await db.commit()
-        if mask_qc_dispatches:
-            from app.services.mask_qc.service import MaskQCError, dispatch_mask_qc_run
-
-            for run_id, job_id in mask_qc_dispatches:
-                try:
-                    await dispatch_mask_qc_run(
-                        db,
-                        run_id=run_id,
-                        async_job_id=job_id,
-                        dispatcher=quality_dispatcher,
-                    )
-                except MaskQCError:
-                    continue
-
-    await svc.check_auto_transitions(batch_id)
-    await svc.recalculate_counters(batch_id)
-    await db.refresh(batch)
-    # 仅在批次确实发生状态迁移时写状态变更审计（附 before/after）；补充 reviewing
-    # 或仍有 rejected 留存的场景不产生迁移，只保留逐任务 task.submit 审计。
-    if batch.status != before_status:
-        await AuditService.log(
-            db,
+    try:
+        result = await TaskSubmissionWorkflow(db).submit_batch_review(
+            project_id,
+            batch_id,
             actor=current_user,
-            action=AuditAction.BATCH_STATUS_CHANGED,
-            target_type="batch",
-            target_id=str(batch_id),
-            request=request,
-            status_code=200,
-            detail={
-                "before": before_status,
-                "after": batch.status,
-                "submitted_tasks": submitted,
-                "trigger": "batch_submit_review",
-            },
+            access=access,
+            origin=AuditOriginContext.from_request(request),
+            quality_dispatcher=quality_dispatcher,
         )
-    await db.commit()
-    await db.refresh(batch)
-
-    remaining = (
-        await db.scalar(
-            sa_select(func.count())
-            .select_from(Task)
-            .where(
-                Task.batch_id == batch_id,
-                Task.status.in_(("pending", "in_progress")),
-            )
-        )
-    ) or 0
-    return BatchSubmitResult(
-        batch_id=batch_id,
-        status=batch.status,
-        submitted_tasks=submitted,
-        skipped_tasks=max(0, len(candidate_ids) - submitted),
-        remaining_tasks=int(remaining),
-    )
+    except TaskWorkflowError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return BatchSubmitResult(**result)
 
 
 @router.post("/split")

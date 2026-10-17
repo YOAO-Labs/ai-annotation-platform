@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,12 +9,14 @@ from sqlalchemy.sql.selectable import FromClause
 
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services import async_job as async_job_svc
+from app.services import async_job as async_job_svc, task_access
+from app.services.annotation_evidence import ensure_review_round, start_review_round
 from app.services.dataset_task_facts import (
     PreparedDatasetItem,
     PreparedPointCloudFrame,
 )
 from app.services.task_dataset_link import link_items
+from app.services.task_lock import TaskLockService
 
 
 class LabelingTaskService:
@@ -21,6 +24,148 @@ class LabelingTaskService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def _submission_assignment_start(
+        self, task_id: uuid.UUID, user_id: uuid.UUID, now: datetime
+    ) -> datetime:
+        """Preserve the actor's active work start before releasing its lock."""
+        from app.db.models.task_lock import TaskLock
+
+        started_at = await self.db.scalar(
+            select(TaskLock.created_at).where(
+                TaskLock.task_id == task_id,
+                TaskLock.user_id == user_id,
+                TaskLock.expire_at > now,
+                TaskLock.created_at <= now,
+            )
+        )
+        return started_at or now
+
+    async def submit_task(
+        self, task: Task, *, actor_id: uuid.UUID, now: datetime
+    ) -> uuid.UUID:
+        if task.assignee_id is None:
+            task.assignee_id = (
+                await task_access.resolve_effective_task_assignee_id(self.db, task)
+                or actor_id
+            )
+            task.assigned_at = await self._submission_assignment_start(
+                task.id, task.assignee_id, now
+            )
+
+        review_round_id = start_review_round(task)
+        task.status = "review"
+        task.submitted_at = now
+        task.reviewer_id = None
+        task.reviewer_is_override = False
+        task.reviewer_claimed_at = None
+        task.reviewed_at = None
+        task.reject_reason = None
+        task.reject_reason_type = None
+        await TaskLockService(self.db).release(task.id, actor_id)
+        return review_round_id
+
+    async def skip_task(
+        self, task: Task, *, reason: str, actor_id: uuid.UUID, now: datetime
+    ) -> tuple[uuid.UUID, uuid.UUID | None]:
+        inherited_assignee_id = await task_access.resolve_effective_task_assignee_id(
+            self.db, task
+        )
+        if task.assignee_id is None:
+            task.assignee_id = actor_id
+            task.assigned_at = await self._submission_assignment_start(
+                task.id, actor_id, now
+            )
+
+        review_round_id = start_review_round(task)
+        task.status = "review"
+        task.skip_reason = reason
+        task.skipped_at = now
+        task.submitted_at = now
+        task.reviewer_id = None
+        task.reviewer_is_override = False
+        task.reviewer_claimed_at = None
+        task.reviewed_at = None
+        task.reject_reason = None
+        task.reject_reason_type = None
+        await TaskLockService(self.db).release(task.id, actor_id)
+        return review_round_id, inherited_assignee_id
+
+    @staticmethod
+    def withdraw_task(task: Task) -> None:
+        task.status = "in_progress"
+        task.submitted_at = None
+
+    @staticmethod
+    def reopen_task(task: Task, *, now: datetime) -> uuid.UUID | None:
+        original_reviewer_id = task.reviewer_id
+        task.status = "in_progress"
+        task.reopened_count = (task.reopened_count or 0) + 1
+        task.last_reopened_at = now
+        task.reviewer_id = None
+        task.reviewer_is_override = False
+        task.reviewer_claimed_at = None
+        task.reviewed_at = None
+        task.reject_reason = None
+        task.reject_reason_type = None
+        task.submitted_at = None
+        return original_reviewer_id
+
+    @staticmethod
+    def accept_rejection(task: Task) -> None:
+        task.status = "in_progress"
+
+    @staticmethod
+    def claim_review(
+        task: Task, *, reviewer_id: uuid.UUID, claimed_at: datetime
+    ) -> uuid.UUID:
+        task.reviewer_id = reviewer_id
+        task.reviewer_claimed_at = claimed_at
+        return ensure_review_round(task)
+
+    @staticmethod
+    def approve_review(
+        task: Task, *, reviewer_id: uuid.UUID, reviewed_at: datetime
+    ) -> uuid.UUID:
+        task.status = "completed"
+        task.reviewed_at = reviewed_at
+        if task.reviewer_id is None:
+            task.reviewer_id = reviewer_id
+        if task.reviewer_claimed_at is None:
+            task.reviewer_claimed_at = reviewed_at
+        return ensure_review_round(task)
+
+    @staticmethod
+    def reject_review(
+        task: Task,
+        *,
+        reviewer_id: uuid.UUID,
+        reviewed_at: datetime,
+        reason_type: str,
+        reason: str | None,
+    ) -> uuid.UUID:
+        task.status = "rejected"
+        task.reviewed_at = reviewed_at
+        task.reject_reason_type = reason_type
+        task.reject_reason = reason
+        if task.reviewer_id is None:
+            task.reviewer_id = reviewer_id
+        if task.reviewer_claimed_at is None:
+            task.reviewer_claimed_at = reviewed_at
+        return ensure_review_round(task)
+
+    @staticmethod
+    def decrement_project_review_count(project: Project) -> None:
+        project.review_tasks = max((project.review_tasks or 0) - 1, 0)
+
+    @staticmethod
+    def decrement_project_completed_count(project: Project) -> None:
+        project.completed_tasks = max((project.completed_tasks or 0) - 1, 0)
+
+    @staticmethod
+    def record_project_review_approval(project: Project) -> None:
+        project.completed_tasks = (project.completed_tasks or 0) + 1
+        project.review_tasks = max((project.review_tasks or 0) - 1, 0)
 
     async def create_initial_generic(
         self,

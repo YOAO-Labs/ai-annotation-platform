@@ -38,17 +38,19 @@ last_reviewed: 2026-07-29
 
 ## 代码入口
 
-| 位置                                                    | 作用                                                           |
-| ------------------------------------------------------- | -------------------------------------------------------------- |
-| `apps/api/app/api/v1/tasks/lifecycle.py` · `review.py`  | task 级 submit / withdraw / review / reopen / accept-rejection |
-| `apps/api/app/api/v1/batches.py`                        | batch 级 transition / reject / reset                           |
-| `apps/api/app/services/batch.py`                        | batch 状态校验、reject_batch、counter 回写                     |
-| `apps/api/app/services/scheduler.py`                    | reviewer 可见性的 batch 过滤                                   |
-| `apps/web/src/api/tasks.ts`                             | 前端 task review API                                           |
-| `apps/web/src/pages/Review/ReviewPage.tsx`              | reviewer 列表页与批量审核                                      |
-| `apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx` | `mode="review"` 的审核工作台外壳                               |
-| `apps/web/src/pages/Workbench/modes/useReviewMode.tsx`  | reviewer claim / approve / reject / diffMode 策略              |
-| `apps/web/src/pages/Annotate/AnnotatePage.tsx`          | annotator 侧整批送审                                           |
+| 位置                                                                                   | 作用                                                     |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `apps/api/app/api/v1/tasks/lifecycle.py` · `review.py`                                 | task HTTP 准入、请求/响应与工作流错误映射                |
+| `apps/api/app/application/task_lifecycle.py` · `task_review.py` · `task_submission.py` | 单题和整批用例组合、事务、反馈/审计/通知及提交后质检派发 |
+| `apps/api/app/services/labeling_tasks.py`                                              | task 生命周期、领取/审核状态及对应 Project 计数写入      |
+| `apps/api/app/api/v1/batches.py`                                                       | batch 级 transition / reject / reset                     |
+| `apps/api/app/services/batch.py`                                                       | batch 状态校验、reject_batch、counter 回写               |
+| `apps/api/app/services/scheduler.py`                                                   | reviewer 可见性的 batch 过滤                             |
+| `apps/web/src/api/tasks.ts`                                                            | 前端 task review API                                     |
+| `apps/web/src/pages/Review/ReviewPage.tsx`                                             | reviewer 列表页与批量审核                                |
+| `apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx`                                | `mode="review"` 的审核工作台外壳                         |
+| `apps/web/src/pages/Workbench/modes/useReviewMode.tsx`                                 | reviewer claim / approve / reject / diffMode 策略        |
+| `apps/web/src/pages/Annotate/AnnotatePage.tsx`                                         | annotator 侧整批送审                                     |
 
 ## Review 不是单一状态机
 
@@ -281,7 +283,7 @@ approve 还受 Mask QC 摘要新鲜度、阻断项与 warning 确认门禁约束
 - 离开 review（`withdraw` / `reopen` / `accept-rejection` / `review/reject` / 批次退回或重置 / 视频分段重开）会清空当前轮的 review 证据；标注累积集合按“保守”原则保留（删除、重置、改派、重开都不清除）。
 - 审核阶段的修改属于审核动作，不把审核员加入标注贡献者集合。首次审核统计（`first_review_*`）保持不变。
 
-本增量只记录证据，不据此放行/拒绝；基于该证据的自审拦截属于后续项目级角色增量。
+领取、通过、退回和审核微调均消费当前轮冻结证据：贡献者、提交者或有效标注员不能自审，缺失或畸形证据按未知拒绝，而不是按空集合放行。首次审核事实独立保留，不因后续重开、重审或退回覆盖。
 
 ## Batch 级审核细节
 
@@ -295,6 +297,10 @@ approve 还受 Mask QC 摘要新鲜度、阻断项与 warning 确认门禁约束
 - `target_status = "reviewing"`
 
 因此手工路径不要求每条 task 都已 `completed`；批次 counters 和 reviewer 页面会立刻反映整批送审。
+
+### 整批逐题送审
+
+`POST /projects/{project_id}/batches/{batch_id}/submit-review` 不同于上面的手工 batch transition。它调用 `TaskSubmissionWorkflow`，只处理预收集的 `pending / in_progress` task，默认每 200 题加锁、迁移、写入各自的审核轮次/贡献证据与审计后提交，再派发该块的质检；最后单独重算批次、写批次审计并提交。此前已提交块不因后续块失败而回滚。`remaining_tasks` 只统计仍为 `pending / in_progress` 的候选，不包含保持原状的 `rejected` task。
 
 ### reviewing → approved
 

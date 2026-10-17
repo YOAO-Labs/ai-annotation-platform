@@ -168,7 +168,7 @@ last_reviewed: 2026-07-29
 - `reopen`
 - `accept-rejection`
 
-虽然其中有些路径还手工先改了部分 project 字段，但最终仍会回到 batch 重算链路，由 Task 真值扫描覆盖为当前快照。
+`TaskLifecycleWorkflow`、`TaskReviewWorkflow` 与 `TaskSubmissionWorkflow` 持有调用顺序；Task 状态和部分 Project 字段增减归 `LabelingTaskService`，最终仍回到 batch 重算链路，由 Task 真值扫描覆盖为当前快照。整批送审保留分块提交，最后另行重算批次，不能把计数重算提前成一个覆盖全部块的原子事务。
 
 ### 3. Batch 级操作
 

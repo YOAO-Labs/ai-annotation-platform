@@ -85,6 +85,10 @@ last_reviewed: 2026-10-16
    解绑/素材删除、项目删除和无源任务清理由 `application/dataset_deletion.py`、
    `project_deletion.py`、`project_task_cleanup.py` 组合领域所有者；
    保留原本地原子事务、不同清理子集、计数口径和提交后派生存储清理，不是远程删除协议。
+   生命周期、审核及单题/整批送审经 `application/task_lifecycle.py`、`task_review.py`、
+   `task_submission.py`；状态/部分项目计数写入归 `LabelingTaskService`，证据归
+   `annotation_evidence`，应用组合反馈、审计和通知。整批默认 200 题分块提交，
+   不与单题事务或最终批次投影提交合并。
 5. 领域执行派发：
    - 质量：`app/services/quality_job_dispatch.py::QualityJobDispatcher` →
      `app/deps.py::get_quality_job_dispatcher` 装配
@@ -116,7 +120,7 @@ last_reviewed: 2026-10-16
    事务仍由路由提交，列表/明细/取消的外部协议未变。
    失败项重试经 `app/application/prediction_retry.py`，先提交占用再派发；
    发布异常仅释放派发调用尚未返回成功的项，保留已返回成功项的排队标记。该多阶段事务不与取消用例混为一谈。
-7. 通知：审核入口保存持久通知并 `commit()` 后调用
+7. 通知：`application/task_review.py` / `task_lifecycle.py` 保存审核/重开持久通知并 `commit()` 后调用
    `NotificationService.publish_committed()`；通用作业终态仍按
    `app/services/async_job_notify.py::notify_job_terminal` 的既有合同在调用方提交前写入和发布。
    列表/投递分别用 `_scope_conditions()` 与 `_allowed_delivery_indices()` 复用

@@ -37,18 +37,20 @@ Task 是系统中的最小工作单元，一条数据最终总是落实到一条
 
 ## 代码入口
 
-| 位置                                  | 作用                                                                                                                                                     |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/api/app/db/models/task.py`      | Task 主模型                                                                                                                                              |
-| `apps/api/app/db/enums.py`            | `TaskStatus` 枚举                                                                                                                                        |
-| `apps/api/app/schemas/task.py`        | Task 响应模型与 lock 响应                                                                                                                                |
-| `apps/api/app/api/v1/tasks/`          | task 路由包(list / video / annotations / predictions / lifecycle / review / locks 子模块 + `_shared.py` 共享依赖):task 路由、状态机、审核动作、lock 端点 |
-| `apps/api/app/services/scheduler.py`  | 下一题派发、batch 可见性过滤                                                                                                                             |
-| `apps/api/app/services/task_lock.py`  | task 锁服务                                                                                                                                              |
-| `apps/api/app/services/annotation.py` | annotation 写入对 task 的状态回写                                                                                                                        |
-| `apps/web/src/api/tasks.ts`           | 前端 task API wrapper                                                                                                                                    |
-| `apps/web/src/hooks/useTaskLock.ts`   | 前端 task lock 生命周期                                                                                                                                  |
-| `apps/web/src/pages/Workbench/`       | 工作台主消费方                                                                                                                                           |
+| 位置                                                                                   | 作用                                                                   |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `apps/api/app/db/models/task.py`                                                       | Task 主模型                                                            |
+| `apps/api/app/db/enums.py`                                                             | `TaskStatus` 枚举                                                      |
+| `apps/api/app/schemas/task.py`                                                         | Task 响应模型与 lock 响应                                              |
+| `apps/api/app/api/v1/tasks/`                                                           | task HTTP 路由、请求/响应与错误映射；lifecycle / review 不持有状态写入 |
+| `apps/api/app/application/task_lifecycle.py` · `task_review.py` · `task_submission.py` | 组合送审/恢复/审核、贡献证据、计数、审计、反馈、通知与提交后质检派发   |
+| `apps/api/app/services/labeling_tasks.py`                                              | Task 生命周期状态、审核领取/结果和对应 Project 计数写入                |
+| `apps/api/app/services/scheduler.py`                                                   | 下一题派发、batch 可见性过滤                                           |
+| `apps/api/app/services/task_lock.py`                                                   | task 锁服务                                                            |
+| `apps/api/app/services/annotation.py`                                                  | annotation 写入对 task 的状态回写                                      |
+| `apps/web/src/api/tasks.ts`                                                            | 前端 task API wrapper                                                  |
+| `apps/web/src/hooks/useTaskLock.ts`                                                    | 前端 task lock 生命周期                                                |
+| `apps/web/src/pages/Workbench/`                                                        | 工作台主消费方                                                         |
 
 ## 数据模型
 
@@ -92,9 +94,9 @@ review
 
 但业务上还叠加了一个事实：
 
-- 审核退回时，task 路由会把 `status` 写成字符串 `"rejected"`
+- 审核退回时，`LabelingTaskService.reject_review()` 会把 `status` 写成字符串 `"rejected"`
 
-这意味着现仓里存在“枚举定义”和“运行时业务状态”并不完全对齐的历史现象。开发时不要只看 `TaskStatus` 枚举，还要看 `tasks/lifecycle.py`、`tasks/review.py` 和 `services/annotation.py` 的真实分支。
+这意味着现仓里存在“枚举定义”和“运行时业务状态”并不完全对齐的历史现象。开发时不要只看 `TaskStatus` 枚举，还要看 `services/labeling_tasks.py`、三个 task 应用工作流和 `services/annotation.py` 的真实分支。
 
 ### 主要工作流
 
@@ -190,6 +192,8 @@ review
 - `POST /tasks/{id}/review/reject`
 - `POST /tasks/{id}/reopen`
 - `POST /tasks/{id}/accept-rejection`
+
+状态修改由 `LabelingTaskService` 持有；应用工作流组合贡献证据、首次审核事实、反馈镜像、计数与审计。单题状态、证据、反馈和持久通知仍在原本地事务内提交，审核/重开通知在提交后经 `publish_committed()` 发布并复核接收人；这不代表批次自动迁移事件等其他发布也已改成提交后。请求侧只构造不可变 `AuditOriginContext`，工作流不接收 FastAPI `Request`。
 
 ### 语义要点
 

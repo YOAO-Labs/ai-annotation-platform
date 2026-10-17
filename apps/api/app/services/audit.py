@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -160,6 +161,23 @@ def extract_client_ip(request: Request | None) -> str | None:
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class AuditOriginContext:
+    """Immutable HTTP provenance captured before entering an application workflow."""
+
+    method: str | None
+    path: str | None
+    ip: str | None
+
+    @classmethod
+    def from_request(cls, request: Request) -> AuditOriginContext:
+        return cls(
+            method=request.method,
+            path=str(request.url.path),
+            ip=extract_client_ip(request),
+        )
+
+
 def export_detail(
     *,
     actor: User | None,
@@ -217,11 +235,23 @@ class AuditService:
         target_type: str | None = None,
         target_id: str | int | None = None,
         request: Request | None = None,
+        origin: AuditOriginContext | None = None,
         status_code: int | None = None,
         detail: dict[str, Any] | None = None,
     ) -> AuditLog:
         action_str = action.value if isinstance(action, AuditAction) else str(action)
         rid = request_id_var.get()
+        method = (
+            origin.method if origin is not None else getattr(request, "method", None)
+        )
+        path = (
+            origin.path
+            if origin is not None
+            else str(request.url.path)
+            if request is not None
+            else None
+        )
+        ip = origin.ip if origin is not None else extract_client_ip(request)
         entry = AuditLog(
             actor_id=getattr(actor, "id", None),
             actor_email=getattr(actor, "email", None),
@@ -229,10 +259,10 @@ class AuditService:
             action=action_str,
             target_type=target_type,
             target_id=str(target_id) if target_id is not None else None,
-            method=getattr(request, "method", None),
-            path=str(request.url.path) if request is not None else None,
+            method=method,
+            path=path,
             status_code=status_code,
-            ip=extract_client_ip(request),
+            ip=ip,
             detail_json=detail,
             request_id=rid or None,
         )

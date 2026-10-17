@@ -1604,9 +1604,13 @@ class TestBatchSubmitReview:
         tasks[0].status = "in_progress"
         await db_session.commit()
 
+        batch_origin = {
+            **_bearer(token),
+            "X-Forwarded-For": "198.51.100.29, 10.0.0.2",
+        }
         resp = await httpx_client.post(
             f"/api/v1/projects/{p.id}/batches/{batch.id}/submit-review",
-            headers=_bearer(token),
+            headers=batch_origin,
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -1619,6 +1623,25 @@ class TestBatchSubmitReview:
         await db_session.refresh(batch)
         assert batch.status == "reviewing"
         assert batch.review_tasks == 3
+        task_audits = (
+            (
+                await db_session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "task.submit",
+                        AuditLog.target_id.in_([str(task.id) for task in tasks]),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(task_audits) == 3
+        assert all(row.method == "POST" for row in task_audits)
+        assert all(
+            row.path == f"/api/v1/projects/{p.id}/batches/{batch.id}/submit-review"
+            for row in task_audits
+        )
+        assert all(str(row.ip) == "198.51.100.29" for row in task_audits)
 
     @pytest.mark.asyncio
     async def test_rejected_tasks_are_skipped(

@@ -331,9 +331,11 @@ class TestTaskLockFlow:
         )
         tid = str(task.id)
 
-        await httpx_client.post(
-            f"/api/v1/tasks/{tid}/submit", headers=_bearer(ann_token)
-        )
+        submit_origin = {
+            **_bearer(ann_token),
+            "X-Forwarded-For": "198.51.100.17, 10.0.0.2",
+        }
+        await httpx_client.post(f"/api/v1/tasks/{tid}/submit", headers=submit_origin)
         await httpx_client.post(
             f"/api/v1/tasks/{tid}/withdraw", headers=_bearer(ann_token)
         )
@@ -370,6 +372,9 @@ class TestTaskLockFlow:
             "task.approve",
             "task.reopen",
         ]
+        assert rows[0].method == "POST"
+        assert rows[0].path == f"/api/v1/tasks/{tid}/submit"
+        assert str(rows[0].ip) == "198.51.100.17"
         # reopen 的 detail 含 original_reviewer_id
         reopen_log = rows[-1]
         assert reopen_log.detail_json.get("original_reviewer_id") is not None
