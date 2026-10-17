@@ -139,6 +139,14 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="project_membership", legacy_facades=()),
     DomainSpec(package="user_lifecycle", legacy_facades=()),
     DomainSpec(package="identity_commands", legacy_facades=()),
+    DomainSpec(
+        package="notification_preferences_command",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.db.models.notification_preference",
+            "app.services.notification_preferences",
+        ),
+    ),
     DomainSpec(package="account_groups", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),
     DomainSpec(package="mask_repair", legacy_facades=()),

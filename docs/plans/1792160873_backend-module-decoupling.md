@@ -795,6 +795,22 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 三组原始 SQL/heap 样本在 `/tmp/aap-scene-patch-evidence.json`。该窄预算排除 HTTP/认证、API 启动、存储、worker 与进程 RSS；旧路径缺少持久化提交，两侧持久化保证不同，不把 SQL 数或堆差当成等价事务成本、吞吐或优化结论。
 - 主线冷进程导入 Scene owner 未加载 API/worker；默认 DB 依赖的 ASGI/JWT 使用非项目负责人的 employee 身份，PATCH 与新 GET 均为 200，独立 PostgreSQL 连接读到已提交的名称/来源/metadata。随后空 metadata 持久化，显式 null 保留现值；没有新增项目角色策略或存储/worker/模型调用。移除响应键全集与固定解释文案断言后，仅补验受影响的持久化回归，行为断言仍通过。
 
+### 通知偏好命令
+
+- `services/notification_preferences.py` 保持标准库专用 catalog；`notification_preferences_command.py` 持有新行默认构造与 PostgreSQL `channels || patch` 原子 upsert，不提交事务。偏好路由继续绑定 JWT 当前用户，保留缺失/null/未知类型错误、调用方 commit 与成功后发布 `notifications.sync reason=preferences` 的既有顺序；email 与未知扩展键不丢失，不创建 Notification 行、不增加重试/outbox，也不改变公开 schema 或用户行为。
+- 在自有隔离测试模式用 ASGI/JWT、PostgreSQL 和实际 Redis Pub/Sub 验证只提交 `in_app` 的新行使用目录 toast 默认、更新/默认 GET 与提交可见性；独立连接确认两个并发会话的 PostgreSQL backend PID 不同，写入 `in_app` / `toast` 后仍恰好一行且保留 email/扩展键。真实 Redis 订阅收到同步事件后立即从另一 PostgreSQL 会话读到提交值；实际延迟约束提交失败未持久化且无事件，连接拒绝时请求仍成功并保留已提交偏好。新旧通知类型/空请求与显式 null 验证保持原 HTTP 合同。
+- 窄范围全路径预算：相同用户/环境预热后各采样三次真实 JWT-ASGI PUT（包含用户查找、偏好 upsert 和 Redis 发布），SQLAlchemy `before_cursor_execute` 每请求均 2 句；`tracemalloc` Python heap 峰值中位数如下：
+
+  | 指标                           |  抽取前 |  抽取后 |
+  | ------------------------------ | ------: | ------: |
+  | SQL 语句数 / 请求              |       2 |       2 |
+  | Python heap 峰值中位数（字节） | 396,100 | 395,819 |
+
+- 原始采样值（SQL 次数 / Python heap 峰值字节）：抽取前 `[2, 2, 2]` / `[398724, 396100, 395198]`，抽取后 `[2, 2, 2]` / `[399406, 395819, 395197]`。原始数据保留在此计划，而非会随测试模式清理的运行目录。
+- SQL/heap 仅描述该冻结单请求与其 Python 分配，不代表进程 RSS、原生内存、并发吞吐或优化收益；该路径不执行对象存储、worker 或模型。
+- 相关 API、命令、架构回归共 261 项：186 passed、75 skipped、无失败；真实数据库/Redis 用例来自 `tests/test_notification_preference_commands.py`。固定 Ruff 0.15.22 检查及格式检查均通过，`scripts/export_openapi.py --check` 精确匹配快照。原临时预算探针与因中断产生的 PostgreSQL 触发器/账号已移除。
+- 主线默认 DB 依赖的 ASGI/JWT PUT/PUT/GET 均为 200，并行订阅真实 Redis，在同步事件到达时以独立 PostgreSQL 连接读到新行已提交的频道值；后续单键更新保留其他频道，未创建 Notification 行。命令冷导入未加载 API/worker。删除 catalog 非空断言，延迟失败触发器限制到当前测试账号，保留纯标准库隔离与真实提交失败的行为检查；不影响其他测试账号。
+
 ### 剩余范围
 
-- 全入口复核的剩余写入切片为通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 全入口复核的剩余写入切片为非夹具运维导入/重置及软删评论附件清理的评论行写入，已单独跟踪。入口/数据台账复核另定位学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影及剩余通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

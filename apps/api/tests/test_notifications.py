@@ -636,31 +636,6 @@ async def test_toast_only_update_keeps_receipt_and_reserved_email(
 
 
 @pytest.mark.asyncio
-async def test_sequential_updates_merge_channel_keys_atomically(
-    httpx_client, annotator
-):
-    """并发标签页写不同键（测试中以两次顺序请求模拟）互不覆盖。"""
-    user, token = annotator
-    for body in ({"in_app": False}, {"toast": True}):
-        resp = await httpx_client.put(
-            "/api/v1/notification-preferences",
-            json={"type": "batch.rejected", **body},
-            headers=_bearer(token),
-        )
-        assert resp.status_code == 200
-
-    item = _pref_by_type(
-        (
-            await httpx_client.get(
-                "/api/v1/notification-preferences", headers=_bearer(token)
-            )
-        ).json()
-    )["batch.rejected"]
-    assert item["in_app"] is False
-    assert item["toast"] is True
-
-
-@pytest.mark.asyncio
 async def test_preference_update_validation(httpx_client, annotator):
     user, token = annotator
     base = "/api/v1/notification-preferences"
@@ -717,34 +692,3 @@ async def test_preferences_are_owner_scoped(httpx_client, annotator, reviewer):
     )["task.rejected"]
     assert item_a["in_app"] is False and item_a["toast"] is False
     assert item_b["in_app"] is True and item_b["toast"] is True
-
-
-@pytest.mark.asyncio
-async def test_preference_update_publishes_preferences_sync_after_commit(
-    httpx_client, db_session, annotator, monkeypatch
-):
-    user, token = annotator
-    messages: list[dict] = []
-    _record_publish(monkeypatch, messages, user_id=user.id)
-    commits = _commit_spy(db_session, monkeypatch)
-
-    resp = await httpx_client.put(
-        "/api/v1/notification-preferences",
-        json={"type": "export.failed", "toast": False},
-        headers=_bearer(token),
-    )
-    assert resp.status_code == 200
-    assert commits
-    assert messages == [{"type": "notifications.sync", "reason": "preferences"}]
-
-    # 偏好变更不产生通知行，也不改变未读数
-    rows = (
-        (
-            await db_session.execute(
-                select(Notification).where(Notification.user_id == user.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert rows == []

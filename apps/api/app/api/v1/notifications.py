@@ -18,19 +18,20 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, model_validator
-from sqlalchemy import func, literal, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_current_user
-from app.db.models.user import User
 from app.db.models.notification_preference import NotificationPreference
+from app.db.models.user import User
+from app.deps import get_db, get_current_user
 from app.schemas.notification import NotificationList, NotificationOut, UnreadCount
 from app.services.notification import NotificationService
 from app.services.notification_preferences import (
     KNOWN_NOTIFICATION_TYPES,
     default_toast_for,
+)
+from app.services.notification_preferences_command import (
+    NotificationPreferenceCommandService,
 )
 
 
@@ -223,30 +224,11 @@ async def update_preference(
         patch["in_app"] = data.in_app
     if data.toast is not None:
         patch["toast"] = data.toast
-    insert_channels = {
-        "in_app": True,
-        "email": False,
-        "toast": default_toast_for(data.type),
-    }
-    insert_channels.update(patch)
-
-    # 新行写入完整默认；冲突时原子合并已存 channels 与本次 patch（右侧优先）。
-    merged_channels = NotificationPreference.channels.op("||", return_type=JSONB)(
-        literal(patch, JSONB)
+    await NotificationPreferenceCommandService(db).merge_channels(
+        user_id=user.id,
+        notification_type=data.type,
+        patch=patch,
     )
-    stmt = (
-        pg_insert(NotificationPreference)
-        .values(
-            user_id=user.id,
-            type=data.type,
-            channels=insert_channels,
-        )
-        .on_conflict_do_update(
-            index_elements=["user_id", "type"],
-            set_={"channels": merged_channels, "updated_at": func.now()},
-        )
-    )
-    await db.execute(stmt)
     await db.commit()
     await NotificationService(db).publish_sync(user.id, reason="preferences")
     return {"ok": True}

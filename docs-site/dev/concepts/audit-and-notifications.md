@@ -32,25 +32,27 @@ last_reviewed: 2026-09-12
 
 ## 代码入口
 
-| 位置                                                | 作用                                                 |
-| --------------------------------------------------- | ---------------------------------------------------- |
-| `apps/api/app/services/audit.py`                    | `AuditAction`、`AuditService.log()`、`log_many()`    |
-| `apps/api/app/middleware/audit.py`                  | HTTP 写请求响应后的 `http.*` 元数据审计              |
-| `apps/api/app/workers/audit.py`                     | 异步持久化 HTTP 审计；投递失败时中间件同步回退       |
-| `apps/api/app/db/models/audit_log.py`               | `AuditLog` 数据模型                                  |
-| `apps/api/app/api/v1/audit_logs.py`                 | audit 查询与导出                                     |
-| `apps/api/app/services/notification.py`             | 通知写表与 Redis PubSub                              |
-| `apps/api/app/services/discussion_notifications.py` | 讨论事件收件人、原始目标身份与延迟发布记录           |
-| `apps/api/app/services/async_job_notify.py`         | `async_jobs` 终态 → 通用 `job.*` 通知 helper         |
-| `apps/api/app/services/async_job_terminal.py`       | 不含 ORM/传输的不可变 `JobTerminal` 事实             |
-| `apps/api/app/application/job_terminal.py`          | 领域终态绑定与信号兜底工作流，同事务协调状态/通知    |
-| `apps/api/app/application/job_cancellation.py`      | 取消准入、领域命令与执行停止请求组合，提交由入口持有 |
-| `apps/api/app/services/job_execution_control.py`    | 不依赖 broker 的协作取消执行端口                     |
-| 各领域服务的 `reconcile_job_terminal`               | 只回填所属账本，保留各自终态语义                     |
-| `apps/api/app/workers/signals.py`                   | Celery 信号适配、连接与调用方提交/释放               |
-| `apps/api/app/db/models/notification.py`            | `Notification` 模型                                  |
-| `apps/api/app/api/v1/notifications.py`              | 通知列表、已读、偏好设置                             |
-| `apps/api/app/api/v1/ws.py`                         | `/ws/notifications` 在线推送                         |
+| 位置                                                        | 作用                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------- |
+| `apps/api/app/services/audit.py`                            | `AuditAction`、`AuditService.log()`、`log_many()`       |
+| `apps/api/app/middleware/audit.py`                          | HTTP 写请求响应后的 `http.*` 元数据审计                 |
+| `apps/api/app/workers/audit.py`                             | 异步持久化 HTTP 审计；投递失败时中间件同步回退          |
+| `apps/api/app/db/models/audit_log.py`                       | `AuditLog` 数据模型                                     |
+| `apps/api/app/api/v1/audit_logs.py`                         | audit 查询与导出                                        |
+| `apps/api/app/services/notification.py`                     | 通知写表与 Redis PubSub                                 |
+| `apps/api/app/services/notification_preferences.py`         | 只依赖标准库的通知类型与 toast 默认目录                 |
+| `apps/api/app/services/notification_preferences_command.py` | 通知偏好 JSONB 原子写入与新行默认值；不提交             |
+| `apps/api/app/services/discussion_notifications.py`         | 讨论事件收件人、原始目标身份与延迟发布记录              |
+| `apps/api/app/services/async_job_notify.py`                 | `async_jobs` 终态 → 通用 `job.*` 通知 helper            |
+| `apps/api/app/services/async_job_terminal.py`               | 不含 ORM/传输的不可变 `JobTerminal` 事实                |
+| `apps/api/app/application/job_terminal.py`                  | 领域终态绑定与信号兜底工作流，同事务协调状态/通知       |
+| `apps/api/app/application/job_cancellation.py`              | 取消准入、领域命令与执行停止请求组合，提交由入口持有    |
+| `apps/api/app/services/job_execution_control.py`            | 不依赖 broker 的协作取消执行端口                        |
+| 各领域服务的 `reconcile_job_terminal`                       | 只回填所属账本，保留各自终态语义                        |
+| `apps/api/app/workers/signals.py`                           | Celery 信号适配、连接与调用方提交/释放                  |
+| `apps/api/app/db/models/notification.py`                    | `Notification` 模型                                     |
+| `apps/api/app/api/v1/notifications.py`                      | 通知列表/已读及偏好的 HTTP 鉴权、校验、提交与提交后同步 |
+| `apps/api/app/api/v1/ws.py`                                 | `/ws/notifications` 在线推送                            |
 
 ## Audit：记录发生了什么
 
