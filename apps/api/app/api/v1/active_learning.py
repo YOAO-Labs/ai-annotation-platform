@@ -17,7 +17,13 @@ from app.db.models.active_learning import (
 )
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_training_authority,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.active_learning import (
     DecisionCreate,
     FeedbackCreate,
@@ -39,6 +45,7 @@ from app.services.labeling_active_learning_sources import (
 )
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/active-learning-rounds",
@@ -78,6 +85,7 @@ async def preview(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
     candidate_sources = SqlAlchemyLabelingActiveLearningSources(
         db,
@@ -92,6 +100,7 @@ async def preview(
             user.id,
             getattr(request.state, "api_key_id", None),
             candidate_sources=candidate_sources,
+            training_authority=training_authority,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
@@ -124,6 +133,7 @@ async def create(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     digest = content_digest(body.model_dump(mode="json"))
     existing = await db.scalar(
@@ -152,6 +162,7 @@ async def create(
             user.id,
             getattr(request.state, "api_key_id", None),
             candidate_sources=candidate_sources,
+            training_authority=training_authority,
         )
         round = await service.create_round(
             db,
@@ -162,6 +173,7 @@ async def create(
             getattr(request.state, "api_key_id", None),
             candidate_sources=candidate_sources,
             assets_fence=assets_fence,
+            training_authority=training_authority,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
@@ -227,6 +239,7 @@ async def retry(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     await lock_project_manager(db, user.id, project.id)
     round = await service.load_round(db, project.id, round_id, lock=True)
@@ -242,7 +255,12 @@ async def retry(
             "仅原窗口内的失联执行或尚未推理的失败可恢复；取消、封存或过期须新建轮次",
         )
     try:
-        await service.authority(db, round)
+        await training_authority.assert_authority(
+            project_id=round.project_id,
+            actor_id=round.creator_id,
+            api_key_id=round.authorization.get("api_key_id"),
+            required_scopes=pool.SCOPES,
+        )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await attempt_for(db, round, round.current_attempt_id)
@@ -356,6 +374,7 @@ async def decide(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
     candidate_sources = SqlAlchemyLabelingActiveLearningSources(
         db,
@@ -373,6 +392,7 @@ async def decide(
             getattr(request.state, "api_key_id", None),
             candidate_sources=candidate_sources,
             assets_fence=assets_fence,
+            training_authority=training_authority,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
@@ -409,6 +429,7 @@ async def record_feedback(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
     try:
         row = await feedback.snapshot(
@@ -418,6 +439,7 @@ async def record_feedback(
             round_id,
             body,
             getattr(request.state, "api_key_id", None),
+            training_authority=training_authority,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc

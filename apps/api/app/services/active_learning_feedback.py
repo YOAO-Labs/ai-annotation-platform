@@ -24,7 +24,7 @@ from app.services import active_learning_references as source_references
 from app.services.project_performance import _union_minutes
 from app.services.task_event_ingestion import validate_interval
 from app.services.training_dataset_bridge import content_digest
-from app.services.training_datasets import assert_training_authority
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 MAX_FACT_ROWS = 4096
 
@@ -172,13 +172,21 @@ async def evaluation_facts(db, project, round, references):
     }
 
 
-async def snapshot(db, project, user, round_id, body, api_key_id=None):
+async def snapshot(
+    db,
+    project,
+    user,
+    round_id,
+    body,
+    api_key_id=None,
+    *,
+    training_authority: TrainingAuthorityPort,
+):
     digest = content_digest(body.model_dump(mode="json"))
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await assert_training_authority(
-        db,
+    await training_authority.assert_authority(
         project_id=project.id,
         actor_id=user.id,
         api_key_id=api_key_id,

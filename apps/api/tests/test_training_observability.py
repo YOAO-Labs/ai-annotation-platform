@@ -29,6 +29,7 @@ from app.services import training_observability as observations
 from app.services import training_runs as training
 from app.services import training_artifacts as artifact_service
 from app.services.training_dataset_bridge import content_digest
+from app.services.training_datasets import bind_training_authority
 from tests.factory import create_project
 from tests import test_training_runs as training_fixtures
 from tests.test_training_runs import (
@@ -88,8 +89,21 @@ async def test_observations_replay_independently_without_renewing_liveness_or_ad
         lease.attempt_id,
     )
     body = batch(claim, assignment, samples=[telemetry(1, claim.boot_id)])
-    first = await observations.ingest(db_session, attempt.id, body)
-    assert await observations.ingest(db_session, attempt.id, body) == first
+    first = await observations.ingest(
+        db_session,
+        attempt.id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
+    assert (
+        await observations.ingest(
+            db_session,
+            attempt.id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
+        == first
+    )
     assert (
         run.status,
         attempt.status,
@@ -112,11 +126,21 @@ async def test_observations_replay_independently_without_renewing_liveness_or_ad
     conflicting = body.model_copy(deep=True)
     conflicting.telemetry[0].phase_elapsed_seconds = 1
     with pytest.raises(HTTPException) as error:
-        await observations.ingest(db_session, attempt.id, conflicting)
+        await observations.ingest(
+            db_session,
+            attempt.id,
+            conflicting,
+            training_authority=bind_training_authority(db_session),
+        )
     assert error.value.detail["code"] == "observation_request_conflict"
     wrong_boot = body.model_copy(update={"boot_id": uuid.uuid4()})
     with pytest.raises(HTTPException) as error:
-        await observations.ingest(db_session, attempt.id, wrong_boot)
+        await observations.ingest(
+            db_session,
+            attempt.id,
+            wrong_boot,
+            training_authority=bind_training_authority(db_session),
+        )
     assert error.value.detail["code"] == "stale_attempt"
     forged = body.model_dump(mode="json")
     forged["request_id"] = str(uuid.uuid4())
@@ -140,7 +164,10 @@ async def test_observations_replay_independently_without_renewing_liveness_or_ad
         },
     }
     await observations.ingest(
-        db_session, attempt.id, ExecutorObservations.model_validate(forged)
+        db_session,
+        attempt.id,
+        ExecutorObservations.model_validate(forged),
+        training_authority=bind_training_authority(db_session),
     )
     accepted = attempt.observation_state["summary"]
     assert accepted["latest"]["phase"] == "training"
@@ -161,7 +188,12 @@ async def test_restart_producer_identity_and_independent_log_cursor_with_seconda
         db_session, httpx_client, token, project, dataset
     )
     body = batch(claim, assignment, samples=[telemetry(1, claim.boot_id)])
-    await observations.ingest(db_session, run.current_attempt_id, body)
+    await observations.ingest(
+        db_session,
+        run.current_attempt_id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     producer = uuid.uuid4()
     log = {
         "sequence": 1,
@@ -171,7 +203,12 @@ async def test_restart_producer_identity_and_independent_log_cursor_with_seconda
     }
     second = batch(claim, assignment, stream=body.stream_id, logs=[log])
     second.producer_boot_id = producer
-    ack = await observations.ingest(db_session, run.current_attempt_id, second)
+    ack = await observations.ingest(
+        db_session,
+        run.current_attempt_id,
+        second,
+        training_authority=bind_training_authority(db_session),
+    )
     assert ack["telemetry_cursor"] == 1 and ack["logs_cursor"] == 1
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     page = LogPage.model_validate(await observations.page(db_session, attempt, "logs"))
@@ -184,7 +221,12 @@ async def test_restart_producer_identity_and_independent_log_cursor_with_seconda
         stream=body.stream_id,
         skipped={"logs": {"after": 1, "through": 10}},
     )
-    await observations.ingest(db_session, attempt.id, skipped)
+    await observations.ingest(
+        db_session,
+        attempt.id,
+        skipped,
+        training_authority=bind_training_authority(db_session),
+    )
     tail = await observations.page(db_session, attempt, "logs", after=1)
     assert tail["items"] == [] and tail["next_cursor"] == 10
     assert not tail["has_more"] and tail["latest_cursor"] == 10
@@ -192,7 +234,12 @@ async def test_restart_producer_identity_and_independent_log_cursor_with_seconda
         claim, assignment, stream=uuid.uuid4(), samples=[telemetry(2, producer)]
     )
     with pytest.raises(HTTPException) as error:
-        await observations.ingest(db_session, attempt.id, old)
+        await observations.ingest(
+            db_session,
+            attempt.id,
+            old,
+            training_authority=bind_training_authority(db_session),
+        )
     assert error.value.detail["code"] == "observation_stream_conflict"
 
 
@@ -227,6 +274,7 @@ async def test_bounded_windows_keep_high_watermarks_gaps_and_hourly_cleanup_summ
             db_session,
             run.current_attempt_id,
             batch(claim, assignment, stream=stream, samples=samples, logs=logs),
+            training_authority=bind_training_authority(db_session),
         )
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     for model, count in ((TrainingTelemetrySample, 720), (TrainingLogChunk, 512)):
@@ -248,6 +296,7 @@ async def test_bounded_windows_keep_high_watermarks_gaps_and_hourly_cleanup_summ
             batch(
                 claim, assignment, stream=stream, samples=[telemetry(1, claim.boot_id)]
             ),
+            training_authority=bind_training_authority(db_session),
         )
     assert error.value.detail["code"] == "observation_cursor_retired"
     payload_bytes = await db_session.scalar(
@@ -298,9 +347,14 @@ async def test_bounded_windows_keep_high_watermarks_gaps_and_hourly_cleanup_summ
         samples=[telemetry(740, claim.boot_id)],
         skipped={"telemetry": {"after": 732, "through": 739}},
     )
-    assert (await observations.ingest(db_session, attempt.id, following))[
-        "telemetry_cursor"
-    ] == 740
+    assert (
+        await observations.ingest(
+            db_session,
+            attempt.id,
+            following,
+            training_authority=bind_training_authority(db_session),
+        )
+    )["telemetry_cursor"] == 740
     assert (await observations.page(db_session, attempt, "telemetry"))["gaps"][-1][
         "reason"
     ] == "producer_retention"
@@ -341,13 +395,19 @@ async def test_public_scope_authentication_and_final_tail_are_attempt_owned(
         ExecutorFinish(
             **fence(claim, assignment), status="failed", process_exited=True
         ),
+        training_authority=bind_training_authority(db_session),
     )
     tail = batch(
         claim, assignment, stream=body.stream_id, samples=[telemetry(2, claim.boot_id)]
     )
-    assert (await observations.ingest(db_session, run.current_attempt_id, tail))[
-        "telemetry_cursor"
-    ] == 2
+    assert (
+        await observations.ingest(
+            db_session,
+            run.current_attempt_id,
+            tail,
+            training_authority=bind_training_authority(db_session),
+        )
+    )["telemetry_cursor"] == 2
 
 
 def test_schema_bounds_reject_boolean_nonfinite_invalid_units_and_encoded_expansion():
@@ -467,8 +527,13 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
         ExecutorFinish(
             **fence(claim, assignment), status="failed", process_exited=True
         ),
+        training_authority=bind_training_authority(db_session),
     )
-    assert not (await observations.recovery(db_session, run))["eligible"]
+    assert not (
+        await observations.recovery(
+            db_session, run, training_authority=bind_training_authority(db_session)
+        )
+    )["eligible"]
     checkpoint = {
         "role": "checkpoint",
         "epoch": 1,
@@ -485,20 +550,35 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
             "Metadata": {"attempt-id": str(attempt.id), "sha256": "1" * 64},
         },
     )
-    assert (await observations.recovery(db_session, run))["eligible"]
+    assert (
+        await observations.recovery(
+            db_session, run, training_authority=bind_training_authority(db_session)
+        )
+    )["eligible"]
     attempt.artifacts = {"checkpoint.pt": {**checkpoint, "key": "other/checkpoint.pt"}}
     assert (
         "checkpoint_unavailable"
-        in (await observations.recovery(db_session, run))["reasons"]
+        in (
+            await observations.recovery(
+                db_session, run, training_authority=bind_training_authority(db_session)
+            )
+        )["reasons"]
     )
     attempt.artifacts = {"checkpoint.pt": checkpoint}
     lease = await db_session.get(TrainingResourceLease, run.config["resource_id"])
     lease.last_seen_at = training.now() - timedelta(minutes=1)
-    offline = await observations.recovery(db_session, run)
+    offline = await observations.recovery(
+        db_session, run, training_authority=bind_training_authority(db_session)
+    )
     assert offline["eligible"] and not offline["executor_online"]
     lease.runtime = {}
     assert (
-        "runtime_unknown" in (await observations.recovery(db_session, run))["reasons"]
+        "runtime_unknown"
+        in (
+            await observations.recovery(
+                db_session, run, training_authority=bind_training_authority(db_session)
+            )
+        )["reasons"]
     )
     lease.runtime = claim.runtime
     monkeypatch.setattr(
@@ -508,7 +588,11 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
     )
     assert (
         "checkpoint_unavailable"
-        in (await observations.recovery(db_session, run))["reasons"]
+        in (
+            await observations.recovery(
+                db_session, run, training_authority=bind_training_authority(db_session)
+            )
+        )["reasons"]
     )
 
 
@@ -537,17 +621,35 @@ async def test_structured_failure_is_bound_sanitized_and_exactly_replayable(
             "exception_type": "OutOfMemoryError",
         },
     )
-    attempt = await training.finish(db_session, run.current_attempt_id, body)
+    attempt = await training.finish(
+        db_session,
+        run.current_attempt_id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     assert (
         attempt.failure["code"] == "cuda_oom" and attempt.failure["source"] == "native"
     )
     for secret in (TOKEN, "private", assignment["lease_token"], "signed=value"):
         assert secret not in str(attempt.failure) + str(attempt.error_message)
-    assert await training.finish(db_session, attempt.id, body) is attempt
+    assert (
+        await training.finish(
+            db_session,
+            attempt.id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
+        is attempt
+    )
     changed = body.model_copy(deep=True)
     changed.failure.code = "native_exception"
     with pytest.raises(HTTPException) as error:
-        await training.finish(db_session, attempt.id, changed)
+        await training.finish(
+            db_session,
+            attempt.id,
+            changed,
+            training_authority=bind_training_authority(db_session),
+        )
     assert error.value.status_code == 409
 
 
@@ -594,10 +696,20 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
     )
     if status == "succeeded":
         with pytest.raises(HTTPException) as error:
-            await training.finish(db_session, attempt.id, body)
+            await training.finish(
+                db_session,
+                attempt.id,
+                body,
+                training_authority=bind_training_authority(db_session),
+            )
         assert error.value.status_code == 422
         summary["attempt_id"] = str(attempt.id)
-    completed = await training.finish(db_session, attempt.id, body)
+    completed = await training.finish(
+        db_session,
+        attempt.id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     assert completed.status == status
     assert ("observability.json" in completed.artifacts) is (status == "succeeded")
 

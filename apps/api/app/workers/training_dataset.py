@@ -30,7 +30,7 @@ from app.services.training_dataset_bridge import (
 )
 from app.services.training_datasets import (
     MAX_IMAGE_BYTES,
-    assert_dataset_authority,
+    bind_training_authority,
     fail_dataset_build,
     mark_dataset_running,
     publish_dataset_package,
@@ -173,7 +173,12 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
         if version is None:
             return
         try:
-            await assert_dataset_authority(db, version)
+            training_authority = bind_training_authority(db)
+            await training_authority.assert_authority(
+                project_id=version.project_id,
+                actor_id=version.creator_id,
+                api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+            )
             version = (
                 await db.execute(
                     select(TrainingDatasetVersion)
@@ -250,7 +255,13 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                 )
                 package_digest = await asyncio.to_thread(file_digest, package)
                 package_size = package.stat().st_size
-                await assert_dataset_authority(db, version)
+                await training_authority.assert_authority(
+                    project_id=version.project_id,
+                    actor_id=version.creator_id,
+                    api_key_id=version.snapshot.get("authorization", {}).get(
+                        "api_key_id"
+                    ),
+                )
                 version = (
                     await db.execute(
                         select(TrainingDatasetVersion)

@@ -30,6 +30,7 @@ from app.db.models.training_run import TrainingAttempt, TrainingResourceLease
 from app.services import training_runs as training
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 STREAMS = {
     "telemetry": (TrainingTelemetrySample, SAMPLE_LIMIT),
@@ -41,13 +42,18 @@ def conflict(code, message):
     raise HTTPException(status_code=409, detail={"code": code, "message": message})
 
 
-async def ingest(db, attempt_id, body):
+async def ingest(db, attempt_id, body, *, training_authority: TrainingAuthorityPort):
     lease, run, attempt = await training.fenced(
         db, attempt_id, body, allow_terminal=True
     )
     if attempt.status not in training.TERMINAL and lease.attempt_id != attempt.id:
         conflict("stale_attempt", "GPU 租约已变化，观测不能恢复执行所有权")
-    await training.authority(db, run)
+    await training.authority(
+        training_authority,
+        project_id=run.project_id,
+        actor_id=run.creator_id,
+        api_key_id=run.authorization.get("api_key_id"),
+    )
     state = dict(attempt.observation_state or {})
     stream_id = str(body.stream_id)
     if state and state["stream_id"] != stream_id:
@@ -310,7 +316,14 @@ def checkpoint_available(run, attempt, checkpoint):
         return False
 
 
-async def recovery(db, run, *, check_storage=True, lease=None):
+async def recovery(
+    db,
+    run,
+    *,
+    training_authority: TrainingAuthorityPort,
+    check_storage=True,
+    lease=None,
+):
     attempt = (
         await db.get(TrainingAttempt, run.current_attempt_id)
         if run.current_attempt_id
@@ -357,7 +370,12 @@ async def recovery(db, run, *, check_storage=True, lease=None):
         except HTTPException:
             reasons.append("study_budget_unavailable")
     try:
-        await training.authority(db, run)
+        await training.authority(
+            training_authority,
+            project_id=run.project_id,
+            actor_id=run.creator_id,
+            api_key_id=run.authorization.get("api_key_id"),
+        )
     except HTTPException:
         reasons.append("authority_unavailable")
     if (

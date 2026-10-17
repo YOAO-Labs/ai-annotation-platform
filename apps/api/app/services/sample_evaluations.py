@@ -51,7 +51,6 @@ from app.services.training_dataset_bridge import (
     contract_of,
     TrainingDatasetError,
 )
-from app.services.training_datasets import assert_training_authority
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -72,16 +71,6 @@ def now():
 
 def reject(code, message, status=409):
     return HTTPException(status_code=status, detail={"code": code, "message": message})
-
-
-async def authority(db, run):
-    await assert_training_authority(
-        db,
-        project_id=run.project_id,
-        actor_id=run.creator_id,
-        api_key_id=run.authorization.get("api_key_id"),
-        required_scopes=SCOPES,
-    )
 
 
 async def load_run(db, project_id, run_id, *, lock=False):

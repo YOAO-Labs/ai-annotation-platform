@@ -21,13 +21,21 @@ from app.services import (
     training_storage_cleanup,
 )
 from app.services.project_write_guard import lock_project_manager
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 
 async def resume_run(
-    db: AsyncSession, project_id: uuid.UUID, run_id: uuid.UUID, user: User
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    user: User,
+    *,
+    training_authority: TrainingAuthorityPort,
 ) -> TrainingRun:
     preliminary = await training_runs.load_run(db, project_id, run_id)
-    eligibility = await training_observability.recovery(db, preliminary)
+    eligibility = await training_observability.recovery(
+        db, preliminary, training_authority=training_authority
+    )
     if not eligibility["eligible"]:
         raise HTTPException(
             status_code=409,
@@ -67,9 +75,18 @@ async def resume_run(
         or lease.attempt_id == run.current_attempt_id
     ):
         raise HTTPException(status_code=409, detail="旧训练必须确认停止后才可恢复")
-    await training_runs.authority(db, run)
+    await training_runs.authority(
+        training_authority,
+        project_id=run.project_id,
+        actor_id=run.creator_id,
+        api_key_id=run.authorization.get("api_key_id"),
+    )
     eligibility = await training_observability.recovery(
-        db, run, check_storage=False, lease=lease
+        db,
+        run,
+        check_storage=False,
+        lease=lease,
+        training_authority=training_authority,
     )
     if not eligibility["eligible"]:
         raise HTTPException(

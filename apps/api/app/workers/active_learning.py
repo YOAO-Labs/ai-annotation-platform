@@ -26,6 +26,7 @@ from app.services import (
     managed_inference as managed,
 )
 from app.services.training_dataset_bridge import TrainingDatasetError
+from app.services.training_datasets import bind_training_authority
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,12 @@ async def fenced(db, attempt_id, claim_id, *, check_authority=False):
     if not round:
         raise FencedOut
     if check_authority:
-        await service.authority(db, round)
+        await bind_training_authority(db).assert_authority(
+            project_id=round.project_id,
+            actor_id=round.creator_id,
+            api_key_id=round.authorization.get("api_key_id"),
+            required_scopes=service.pool.SCOPES,
+        )
     round = await service.load_round(db, round.project_id, round.id, lock=True)
     attempt = await db.get(Attempt, attempt_id, populate_existing=True)
     if (
@@ -68,7 +74,12 @@ async def claim(factory, attempt_id, celery_task_id):
         if not round:
             return None
         try:
-            await service.authority(db, round)
+            await bind_training_authority(db).assert_authority(
+                project_id=round.project_id,
+                actor_id=round.creator_id,
+                api_key_id=round.authorization.get("api_key_id"),
+                required_scopes=service.pool.SCOPES,
+            )
         except TrainingDatasetError as exc:
             round = await service.load_round(db, round.project_id, round.id, lock=True)
             if round.current_attempt_id == attempt_id and round.status == "queued":

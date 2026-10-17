@@ -11,6 +11,7 @@ from app.deps import (
     get_db,
     get_labeling_task_source_reader,
     get_training_dataset_dispatcher,
+    get_training_authority,
     require_project_owner,
     require_scopes,
 )
@@ -24,6 +25,7 @@ from app.services import learning_policies as service
 from app.services.dataset_task_facts import ProjectTaskSourceReader
 
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/learning-policy",
@@ -92,8 +94,15 @@ async def check_policy(
         get_training_dataset_dispatcher
     ),
     source_reader: ProjectTaskSourceReader = Depends(get_labeling_task_source_reader),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
-    policy = await service.check_project(db, project, user, source_reader=source_reader)
+    policy = await service.check_project(
+        db,
+        project,
+        user,
+        source_reader=source_reader,
+        training_authority=training_authority,
+    )
     await db.commit()
     await service.dispatch_pending(db, policy.id, dispatcher=dataset_dispatcher)
     await db.refresh(policy)

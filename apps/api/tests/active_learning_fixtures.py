@@ -17,6 +17,7 @@ from app.services.assets_active_learning_fence import (
 from app.services.labeling_active_learning_sources import (
     SqlAlchemyLabelingActiveLearningSources,
 )
+from app.services.training_datasets import bind_training_authority
 from tests.factory import create_task
 from tests.sample_evaluation_fixtures import Objects, prediction, seed as seed_model
 
@@ -71,6 +72,7 @@ async def create(db, owner, world):
         world.selection,
         owner.id,
         candidate_sources=candidate_sources,
+        training_authority=bind_training_authority(db),
     )
     body = RoundCreate(
         **world.selection.model_dump(),
@@ -86,6 +88,7 @@ async def create(db, owner, world):
         prepared,
         candidate_sources=candidate_sources,
         assets_fence=assets_fence,
+        training_authority=bind_training_authority(db),
     )
     await db.flush()
     return round, await db.get(Attempt, round.current_attempt_id), body
@@ -111,6 +114,7 @@ async def prepare_with_ports(db, project, selection, actor_id, api_key_id=None):
         actor_id,
         api_key_id,
         candidate_sources=candidate_sources,
+        training_authority=bind_training_authority(db),
     )
 
 
@@ -125,6 +129,7 @@ async def decide_with_ports(db, project, user, round_id, body, api_key_id=None):
         api_key_id,
         candidate_sources=candidate_sources,
         assets_fence=assets_fence,
+        training_authority=bind_training_authority(db),
     )
 
 

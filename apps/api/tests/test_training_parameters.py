@@ -13,6 +13,7 @@ from training_contract.catalog import supported_identities
 from app.config import settings
 from app.db.models.training_run import TrainingRun, TrainingAttempt
 from app.schemas.training_run import ExecutorFinish, TrainingRunCreate
+from app.services.training_datasets import bind_training_authority
 from app.services import training_runs as service
 from app.services import training_adapters as adapters
 from app.services import training_artifacts as artifact_service
@@ -297,15 +298,32 @@ async def test_old_executors_cannot_claim_v2_and_new_executor_must_advertise_exa
     assert data["config"]["parameters"]["epochs"] == 2
     assert data["config"]["configuration"]["effective_values"]["optimizer"] == "AdamW"
     claim = executor_claim()
-    assert await service.claim(db_session, claim) is None
+    assert (
+        await service.claim(
+            db_session, claim, training_authority=bind_training_authority(db_session)
+        )
+        is None
+    )
     claim.runtime.update(executor_protocol=2, supported_configs=[])
-    assert await service.claim(db_session, claim) is None
+    assert (
+        await service.claim(
+            db_session, claim, training_authority=bind_training_authority(db_session)
+        )
+        is None
+    )
     wrong = schema_identity(definition("ultralytics"))
     wrong["schema_digest"] = "0" * 64
     claim.runtime["supported_configs"] = [wrong]
-    assert await service.claim(db_session, claim) is None
+    assert (
+        await service.claim(
+            db_session, claim, training_authority=bind_training_authority(db_session)
+        )
+        is None
+    )
     claim.runtime["supported_configs"] = supported_identities()
-    assignment = await service.claim(db_session, claim)
+    assignment = await service.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     assert assignment["run_id"] == data["id"]
     repeated = await httpx_client.post(
         f"/api/v1/projects/{project.id}/training-runs",
@@ -376,7 +394,9 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
     data, _ = await new_v2(httpx_client, token, project, dataset)
     claim = executor_claim()
     claim.runtime.update(executor_protocol=2, supported_configs=supported_identities())
-    assignment = await service.claim(db_session, claim)
+    assignment = await service.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     run = await db_session.get(TrainingRun, uuid.UUID(data["id"]))
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     attempt.upload_inventory = {
@@ -394,7 +414,12 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
         **fence(claim, assignment), status="succeeded", process_exited=True
     )
     with pytest.raises(HTTPException) as error:
-        await service.finish(db_session, attempt.id, body)
+        await service.finish(
+            db_session,
+            attempt.id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
     assert error.value.status_code == 422
     assert (await service.lock_resource(db_session)).attempt_id == attempt.id
     options = {
@@ -428,9 +453,21 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
     )
     blob["observed"]["optimizer"] = "SGD"
     with pytest.raises(HTTPException):
-        await service.finish(db_session, attempt.id, body)
+        await service.finish(
+            db_session,
+            attempt.id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
     blob["observed"]["optimizer"] = "AdamW"
-    assert (await service.finish(db_session, attempt.id, body)).status == "succeeded"
+    assert (
+        await service.finish(
+            db_session,
+            attempt.id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
+    ).status == "succeeded"
 
 
 def test_training_request_task_aliases_conflicts_and_legacy_payload():

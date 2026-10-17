@@ -26,6 +26,7 @@ from app.services import (
     managed_inference as managed,
 )
 from app.services.training_dataset_bridge import TrainingDatasetError
+from app.services.training_datasets import bind_training_authority
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -44,7 +45,12 @@ async def fenced(db, attempt_id, claim_id, *, check_authority=False):
     if not run:
         raise FencedOut
     if check_authority:
-        await service.authority(db, run)
+        await bind_training_authority(db).assert_authority(
+            project_id=run.project_id,
+            actor_id=run.creator_id,
+            api_key_id=run.authorization.get("api_key_id"),
+            required_scopes=service.SCOPES,
+        )
     run = await service.load_run(db, run.project_id, run.id, lock=True)
     attempt = await db.get(Attempt, attempt_id, populate_existing=True)
     if (
@@ -65,7 +71,12 @@ async def claim(factory, attempt_id, celery_task_id):
         if not run:
             return None
         try:
-            await service.authority(db, run)
+            await bind_training_authority(db).assert_authority(
+                project_id=run.project_id,
+                actor_id=run.creator_id,
+                api_key_id=run.authorization.get("api_key_id"),
+                required_scopes=service.SCOPES,
+            )
         except TrainingDatasetError as exc:
             run = await service.load_run(db, run.project_id, run.id, lock=True)
             if run.current_attempt_id == attempt_id and run.status == "queued":
@@ -386,7 +397,12 @@ async def settle_cancel(factory, run_id):
     async with factory() as db:
         authorized = True
         try:
-            await service.authority(db, run)
+            await bind_training_authority(db).assert_authority(
+                project_id=run.project_id,
+                actor_id=run.creator_id,
+                api_key_id=run.authorization.get("api_key_id"),
+                required_scopes=service.SCOPES,
+            )
         except TrainingDatasetError:
             authorized = False
         current = await service.load_run(db, run.project_id, run.id, lock=True)
@@ -418,7 +434,12 @@ async def settle_cancel(factory, run_id):
             # Stop confirmation survives revoked authority; report publication does not.
             try:
                 if artifact:
-                    await service.authority(db, current)
+                    await bind_training_authority(db).assert_authority(
+                        project_id=current.project_id,
+                        actor_id=current.creator_id,
+                        api_key_id=current.authorization.get("api_key_id"),
+                        required_scopes=service.SCOPES,
+                    )
             except TrainingDatasetError:
                 await db.rollback()
                 artifact = None

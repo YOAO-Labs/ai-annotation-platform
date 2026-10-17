@@ -19,7 +19,13 @@ from app.db.models.training_run import (
     TrainingRun,
 )
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_training_authority,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.training_run import (
     ExecutorClaim,
     ExecutorClaimResponse,
@@ -49,6 +55,7 @@ from app.services import training_initialization as initialization
 from app.services import training_adapters as adapters
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-runs",
@@ -313,8 +320,11 @@ async def resume_run(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
-    run = await training_control.resume_run(db, project.id, run_id, user)
+    run = await training_control.resume_run(
+        db, project.id, run_id, user, training_authority=training_authority
+    )
     await db.commit()
     return run
 
@@ -395,8 +405,12 @@ async def delete_run(
     response_model=ExecutorClaimResponse,
     response_model_exclude_unset=True,
 )
-async def claim(body: ExecutorClaim, db: AsyncSession = Depends(get_db)) -> dict:
-    result = await service.claim(db, body)
+async def claim(
+    body: ExecutorClaim,
+    db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
+) -> dict:
+    result = await service.claim(db, body, training_authority=training_authority)
     await db.commit()
     return {"assignment": result}
 
@@ -405,9 +419,14 @@ async def claim(body: ExecutorClaim, db: AsyncSession = Depends(get_db)) -> dict
     "/attempts/{attempt_id}/heartbeat", response_model=ExecutorHeartbeatResponse
 )
 async def heartbeat(
-    attempt_id: uuid.UUID, body: ExecutorHeartbeat, db: AsyncSession = Depends(get_db)
+    attempt_id: uuid.UUID,
+    body: ExecutorHeartbeat,
+    db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
-    result = await service.heartbeat(db, attempt_id, body)
+    result = await service.heartbeat(
+        db, attempt_id, body, training_authority=training_authority
+    )
     await db.commit()
     return result
 
@@ -427,9 +446,14 @@ async def uploads(
     "/attempts/{attempt_id}/finish", response_model=TrainingAttemptOut
 )
 async def finish(
-    attempt_id: uuid.UUID, body: ExecutorFinish, db: AsyncSession = Depends(get_db)
+    attempt_id: uuid.UUID,
+    body: ExecutorFinish,
+    db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
-    result = await service.finish(db, attempt_id, body)
+    result = await service.finish(
+        db, attempt_id, body, training_authority=training_authority
+    )
     await db.commit()
     return result
 

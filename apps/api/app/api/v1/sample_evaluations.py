@@ -17,7 +17,13 @@ from app.db.models.sample_evaluation import (
 from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_training_authority,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.sample_evaluation import (
     ErrorFilter,
     EvaluationReport,
@@ -33,6 +39,7 @@ from app.services.labeling_evaluation_source import (
     SqlAlchemyLabelingEvaluationSourceReader,
 )
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/sample-evaluations",
@@ -306,6 +313,7 @@ async def retry(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     await lock_project_manager(db, user.id, project.id)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
@@ -319,7 +327,12 @@ async def retry(
             "仅失联或失败且请求未过期的评估可恢复；取消或过期须新建评估",
         )
     try:
-        await service.authority(db, run)
+        await training_authority.assert_authority(
+            project_id=run.project_id,
+            actor_id=run.creator_id,
+            api_key_id=run.authorization.get("api_key_id"),
+            required_scopes=service.SCOPES,
+        )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     await service.retry_run(db, run)
@@ -443,6 +456,7 @@ async def source(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     run = await service.load_run(db, project.id, evaluation_id)
     await attempt_for(db, run, attempt_id)
@@ -459,6 +473,7 @@ async def source(
             user,
             getattr(request.state, "api_key_id", None),
             source_reader=SqlAlchemyLabelingEvaluationSourceReader(db),
+            training_authority=training_authority,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc

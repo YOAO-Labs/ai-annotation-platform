@@ -19,6 +19,7 @@ from app.deps import (
     get_db,
     get_labeling_task_source_reader,
     get_training_dataset_dispatcher,
+    get_training_authority,
     require_project_owner,
     require_scopes,
 )
@@ -40,6 +41,7 @@ from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.dataset_task_facts import ProjectTaskSourceReader
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-datasets",
@@ -213,6 +215,7 @@ async def retry_version(
     dataset_dispatcher: TrainingDatasetDispatcher = Depends(
         get_training_dataset_dispatcher
     ),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     await lock_project_manager(db, user.id, project.id)
     try:
@@ -223,7 +226,11 @@ async def retry_version(
     if version.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=409, detail="仅失败或已取消的版本可重试")
     try:
-        await service.assert_dataset_authority(db, version)
+        await training_authority.assert_authority(
+            project_id=version.project_id,
+            actor_id=version.creator_id,
+            api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+        )
     except TrainingDatasetError as exc:
         fail(exc)
     await service.enqueue_dataset(db, version)

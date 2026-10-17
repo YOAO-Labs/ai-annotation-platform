@@ -16,7 +16,7 @@ from app.services.labeling_evaluation_source_contract import (
 )
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import detection_labels
-from app.services.training_datasets import assert_training_authority
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 
 def read_current_media(snapshot, *, include_raw=False):
@@ -89,6 +89,7 @@ async def resolve_source(
     api_key_id=None,
     *,
     source_reader: CurrentTaskSourceReader,
+    training_authority: TrainingAuthorityPort,
 ):
     frozen = run.spec["samples"][ordinal]
     task_id = uuid.UUID(frozen["task_id"])
@@ -112,8 +113,8 @@ async def resolve_source(
         "negative_confirmed": None,
         "reason": None,
     }
-    await assert_training_authority(
-        db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
+    await training_authority.assert_authority(
+        project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
     )
     source_request = CurrentTaskSourceRead(
         project_id=run.project_id,
@@ -134,8 +135,8 @@ async def resolve_source(
     except Exception:
         media_error = True
     # Recheck authority and a new statement snapshot after object IO.
-    await assert_training_authority(
-        db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
+    await training_authority.assert_authority(
+        project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
     )
     after = await source_reader.read_current_task_source(source_request)
     await db.commit()

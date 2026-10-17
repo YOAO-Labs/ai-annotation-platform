@@ -40,6 +40,10 @@ from training_contract.dataset import (
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.training_authority_contract import (
+    DEFAULT_TRAINING_SCOPES,
+    TrainingAuthorityPort,
+)
 from app.services.dataset_task_facts import (
     ProjectTaskSourceRead,
     ProjectTaskSourceReader,
@@ -95,66 +99,65 @@ def selection_of(body) -> TrainingDatasetSelection:
     )
 
 
-async def assert_dataset_authority(
-    db: AsyncSession, version: TrainingDatasetVersion
-) -> None:
-    await assert_training_authority(
-        db,
-        project_id=version.project_id,
-        actor_id=version.creator_id,
-        api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
-    )
+class SqlTrainingAuthority(TrainingAuthorityPort):
+    """Bind the shared current-authority check to the caller's Session."""
 
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
 
-async def assert_training_authority(
-    db: AsyncSession,
-    *,
-    project_id: uuid.UUID,
-    actor_id: uuid.UUID | None,
-    api_key_id: str | None = None,
-    required_scopes: frozenset[str] = frozenset({"datasets:read", "annotations:read"}),
-) -> None:
-    if actor_id is None:
-        raise TrainingDatasetError(
-            "authority_revoked", "数据版本创建者已不存在", status_code=403
-        )
-    await lock_actor_project_authority(db, actor_id, project_id)
-    actor = await db.get(User, actor_id, populate_existing=True)
-    project = await db.get(Project, project_id, populate_existing=True)
-    if actor is None or project is None:
-        raise TrainingDatasetError(
-            "authority_revoked", "项目或创建者已不存在", status_code=403
-        )
-    try:
-        access = await resolve_project_access(db, user=actor, project=project)
-    except HTTPException as exc:
-        raise TrainingDatasetError(
-            "authority_revoked", "数据版本创建权限已撤销", status_code=403
-        ) from exc
-    if not access.is_manager:
-        raise TrainingDatasetError(
-            "authority_revoked", "数据版本创建权限已撤销", status_code=403
-        )
-    key_id = api_key_id
-    if key_id:
-        key = (
-            await db.execute(
-                select(ApiKey)
-                .where(ApiKey.id == uuid.UUID(key_id))
-                .with_for_update(read=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
-        if (
-            key is None
-            or key.user_id != actor.id
-            or key.revoked_at
-            or (key.expires_at and key.expires_at <= datetime.now(timezone.utc))
-            or ("*" not in key.scopes and not required_scopes <= set(key.scopes))
-        ):
+    async def assert_authority(
+        self,
+        *,
+        project_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        api_key_id: str | None = None,
+        required_scopes: frozenset[str] = DEFAULT_TRAINING_SCOPES,
+    ) -> None:
+        if actor_id is None:
             raise TrainingDatasetError(
-                "api_key_revoked", "训练数据请求的 API Key 已失效", status_code=403
+                "authority_revoked", "数据版本创建者已不存在", status_code=403
             )
+        await lock_actor_project_authority(self._db, actor_id, project_id)
+        actor = await self._db.get(User, actor_id, populate_existing=True)
+        project = await self._db.get(Project, project_id, populate_existing=True)
+        if actor is None or project is None:
+            raise TrainingDatasetError(
+                "authority_revoked", "项目或创建者已不存在", status_code=403
+            )
+        try:
+            access = await resolve_project_access(self._db, user=actor, project=project)
+        except HTTPException as exc:
+            raise TrainingDatasetError(
+                "authority_revoked", "数据版本创建权限已撤销", status_code=403
+            ) from exc
+        if not access.is_manager:
+            raise TrainingDatasetError(
+                "authority_revoked", "数据版本创建权限已撤销", status_code=403
+            )
+        if api_key_id:
+            key = (
+                await self._db.execute(
+                    select(ApiKey)
+                    .where(ApiKey.id == uuid.UUID(api_key_id))
+                    .with_for_update(read=True)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            if (
+                key is None
+                or key.user_id != actor.id
+                or key.revoked_at
+                or (key.expires_at and key.expires_at <= datetime.now(timezone.utc))
+                or ("*" not in key.scopes and not required_scopes <= set(key.scopes))
+            ):
+                raise TrainingDatasetError(
+                    "api_key_revoked", "训练数据请求的 API Key 已失效", status_code=403
+                )
+
+
+def bind_training_authority(db: AsyncSession) -> TrainingAuthorityPort:
+    """Bind the authority port to the Session owned by HTTP or worker composition."""
+    return SqlTrainingAuthority(db)
 
 
 def capture_source_media(sample: dict) -> dict:

@@ -23,6 +23,7 @@ from app.services import training_datasets as service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.dataset_task_facts import ProjectTaskSourceRead
 from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
+from app.services.training_datasets import bind_training_authority
 from tests.factory import create_batch, create_membership, create_project, create_task
 
 dispatch_dataset = service.dispatch_dataset
@@ -609,7 +610,11 @@ async def test_revoked_creator_cannot_publish(db_session, super_admin, source_he
     owner.is_active = False
     await db_session.flush()
     with pytest.raises(TrainingDatasetError) as error:
-        await service.assert_dataset_authority(db_session, version)
+        await bind_training_authority(db_session).assert_authority(
+            project_id=version.project_id,
+            actor_id=version.creator_id,
+            api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+        )
     assert error.value.code == "authority_revoked"
 
 
@@ -959,7 +964,11 @@ async def test_api_key_scopes_and_post_queue_revocation(
     key.revoked_at = datetime.now(timezone.utc)
     await db_session.flush()
     with pytest.raises(TrainingDatasetError) as error:
-        await service.assert_dataset_authority(db_session, version)
+        await bind_training_authority(db_session).assert_authority(
+            project_id=version.project_id,
+            actor_id=version.creator_id,
+            api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+        )
     assert error.value.code == "api_key_revoked"
 
 
@@ -1106,19 +1115,21 @@ async def test_real_storage_materialization_retry_preserves_originals(
         cancelled_attempt = version.attempt_id
         monkeypatch.setattr(worker, "build_training_package", original_bridge)
         authority_calls = 0
-        original_authority = worker.assert_dataset_authority
+        original_authority = service.SqlTrainingAuthority.assert_authority
 
-        async def cancel_before_publication(db, current):
+        async def cancel_before_publication(authority, **facts):
             nonlocal authority_calls
             authority_calls += 1
-            await original_authority(db, current)
+            await original_authority(authority, **facts)
             if authority_calls == 2:
+                db = authority._db
+                current = await db.get(TrainingDatasetVersion, version.id)
                 current.status = "cancelled"
                 await service.jobs.mark_cancelled(db, current.async_job_id)
                 await db.commit()
 
         monkeypatch.setattr(
-            worker, "assert_dataset_authority", cancel_before_publication
+            service.SqlTrainingAuthority, "assert_authority", cancel_before_publication
         )
         await worker.build_dataset(
             version.id, version.async_job_id, cancelled_attempt, sessions

@@ -22,6 +22,7 @@ from app.services import (
     active_learning as service,
     active_learning_feedback as feedback,
 )
+from app.services.training_datasets import bind_training_authority
 from tests.active_learning_fixtures import (
     complete,
     create,
@@ -361,7 +362,14 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
     )
     await db_session.flush()
     body = FeedbackCreate(request_id=uuid.uuid4())
-    row = await feedback.snapshot(db_session, world.project, owner, round.id, body)
+    row = await feedback.snapshot(
+        db_session,
+        world.project,
+        owner,
+        round.id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     snapshot = copy.deepcopy(row.snapshot)
     active, control = snapshot["arms"]
     assert active["reviewed_tasks"] == 1 and active["reviewer_rejection_count"] == 1
@@ -372,7 +380,14 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
         not snapshot["efficiency_claim"] and not snapshot["evaluations"]["comparable"]
     )
     task.status = "in_progress"
-    again = await feedback.snapshot(db_session, world.project, owner, round.id, body)
+    again = await feedback.snapshot(
+        db_session,
+        world.project,
+        owner,
+        round.id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     assert again.id == row.id and again.snapshot == snapshot
     assert (
         await db_session.scalar(

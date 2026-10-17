@@ -16,6 +16,7 @@ from app.application import learning_policy_execution
 from app.services import training_claims as claims
 from app.services.training_dataset_bridge import semantic_partitions
 from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
+from app.services.training_datasets import bind_training_authority
 from tests.test_training_runs import ready_dataset, executor_claim
 
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
@@ -28,6 +29,7 @@ async def check_policy_with_db_reader(db, policy_id, *, force=False):
         db,
         policy_id,
         source_reader=SqlAlchemyProjectTaskSourceReader(db),
+        training_authority=bind_training_authority(db),
         force=force,
     )
 
@@ -404,7 +406,11 @@ async def test_disable_cancels_only_unclaimed_training(
     )
     trigger, data, run = await build_candidate(db_session, policy)
     if started:
-        assignment = await runs.claim(db_session, executor_claim())
+        assignment = await runs.claim(
+            db_session,
+            executor_claim(),
+            training_authority=bind_training_authority(db_session),
+        )
         assert assignment["run_id"] == str(run.id)
     response = await httpx_client.post(
         path + "/disable?expected_revision=1",
@@ -425,7 +431,14 @@ async def test_claim_rechecks_policy_revision_even_when_tick_has_not_cancelled(
     trigger, data, run = await build_candidate(db_session, policy)
     policy.revision += 1
     await db_session.flush()
-    assert await runs.claim(db_session, executor_claim()) is None
+    assert (
+        await runs.claim(
+            db_session,
+            executor_claim(),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     assert run.status == "cancelled"
 
 
@@ -643,7 +656,11 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
     assert r.status_code == 200
     r = await httpx_client.post(url, headers={"Authorization": "Bearer " + token})
     assert r.status_code == 202, r.text
-    assignment = await runs.claim(db_session, executor_claim())
+    assignment = await runs.claim(
+        db_session,
+        executor_claim(),
+        training_authority=bind_training_authority(db_session),
+    )
     assert assignment["run_id"] == str(run.id)
     assert assignment["resume"]["epoch"] == 1
 
@@ -682,6 +699,7 @@ async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
         await learning_policy_execution.tick(
             factory,
             dispatcher=dataset_dispatcher,
+            training_authority_factory=bind_training_authority,
         )
     assert set(seen) == set(identities)
 

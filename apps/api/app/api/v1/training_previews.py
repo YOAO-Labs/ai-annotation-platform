@@ -14,7 +14,13 @@ from app.api.v1.training_runs import executor_auth
 from app.db.models.project import Project
 from app.db.models.training_preview import TrainingPreview
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_training_authority,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.training_preview import (
     PreviewCapabilities,
     PreviewClaim,
@@ -30,6 +36,7 @@ from app.schemas.training_preview import (
 from app.schemas.training_run import ExecutorFence
 from app.services import training_previews as service
 from app.services.training_dataset_analysis import stream_media
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-previews",
@@ -180,8 +187,12 @@ async def image(
 
 
 @executor_router.post("/claim", response_model=PreviewClaimResponse)
-async def claim(body: PreviewClaim, db: AsyncSession = Depends(get_db)):
-    result = await service.claim(db, body)
+async def claim(
+    body: PreviewClaim,
+    db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
+):
+    result = await service.claim(db, body, training_authority=training_authority)
     await db.commit()
     return {"assignment": result}
 
@@ -190,26 +201,41 @@ async def claim(body: PreviewClaim, db: AsyncSession = Depends(get_db)):
     "/{preview_id}/heartbeat", response_model=PreviewHeartbeatResponse
 )
 async def heartbeat(
-    preview_id: uuid.UUID, body: ExecutorFence, db: AsyncSession = Depends(get_db)
+    preview_id: uuid.UUID,
+    body: ExecutorFence,
+    db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
-    result = await service.heartbeat(db, preview_id, body)
+    result = await service.heartbeat(
+        db, preview_id, body, training_authority=training_authority
+    )
     await db.commit()
     return result
 
 
 @executor_router.post("/{preview_id}/uploads", response_model=PreviewUploadsResponse)
 async def uploads(
-    preview_id: uuid.UUID, body: PreviewUploads, db: AsyncSession = Depends(get_db)
+    preview_id: uuid.UUID,
+    body: PreviewUploads,
+    db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
-    result = await service.uploads(db, preview_id, body)
+    result = await service.uploads(
+        db, preview_id, body, training_authority=training_authority
+    )
     await db.commit()
     return result
 
 
 @executor_router.post("/{preview_id}/finish", response_model=PreviewFinishResponse)
 async def finish(
-    preview_id: uuid.UUID, body: PreviewFinish, db: AsyncSession = Depends(get_db)
+    preview_id: uuid.UUID,
+    body: PreviewFinish,
+    db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
-    preview = await service.finish(db, preview_id, body)
+    preview = await service.finish(
+        db, preview_id, body, training_authority=training_authority
+    )
     await db.commit()
     return {"id": str(preview.id), "status": preview.status}

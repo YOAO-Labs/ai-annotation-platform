@@ -40,6 +40,7 @@ from app.services.training_dataset_bridge import (
     content_digest,
     detection_labels,
 )
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
@@ -354,7 +355,7 @@ async def assignment(preview, *, stop=False):
     )
 
 
-async def claim(db, body):
+async def claim(db, body, *, training_authority: TrainingAuthorityPort):
     if body.resource_id != resource_id():
         raise HTTPException(status_code=409, detail="CPU 预览资源不属于当前节点")
     lease = await lock_resource(db)
@@ -375,7 +376,12 @@ async def claim(db, body):
             # A lost response/restart may only recover this exact durable claim.
             stop = bool(due_to_stop(preview))
             try:
-                await training.authority(db, preview)
+                await training.authority(
+                    training_authority,
+                    project_id=preview.project_id,
+                    actor_id=preview.creator_id,
+                    api_key_id=preview.authorization.get("api_key_id"),
+                )
             except HTTPException as exc:
                 if exc.status_code != 403:
                     raise
@@ -415,7 +421,12 @@ async def claim(db, body):
         if not training.runtime_compatible(preview.spec["config"], body.runtime):
             continue
         try:
-            await training.authority(db, preview)
+            await training.authority(
+                training_authority,
+                project_id=preview.project_id,
+                actor_id=preview.creator_id,
+                api_key_id=preview.authorization.get("api_key_id"),
+            )
         except HTTPException as exc:
             if exc.status_code != 403:
                 raise
@@ -484,11 +495,16 @@ async def fenced(db, preview_id, body, *, allow_terminal=False):
     return lease, preview
 
 
-async def heartbeat(db, preview_id, body):
+async def heartbeat(db, preview_id, body, *, training_authority: TrainingAuthorityPort):
     lease, preview = await fenced(db, preview_id, body)
     stop = due_to_stop(preview)
     try:
-        await training.authority(db, preview)
+        await training.authority(
+            training_authority,
+            project_id=preview.project_id,
+            actor_id=preview.creator_id,
+            api_key_id=preview.authorization.get("api_key_id"),
+        )
     except HTTPException as exc:
         if exc.status_code != 403:
             raise
@@ -504,9 +520,14 @@ def prefix(preview):
     return f"projects/{preview.project_id}/previews/{preview.id}/"
 
 
-async def uploads(db, preview_id, body):
+async def uploads(db, preview_id, body, *, training_authority: TrainingAuthorityPort):
     _, preview = await fenced(db, preview_id, body)
-    await training.authority(db, preview)
+    await training.authority(
+        training_authority,
+        project_id=preview.project_id,
+        actor_id=preview.creator_id,
+        api_key_id=preview.authorization.get("api_key_id"),
+    )
     if due_to_stop(preview):
         raise HTTPException(
             status_code=409, detail="预览已取消或超过时限，不能授权上传"
@@ -657,7 +678,7 @@ def read_image(preview, output, artifacts=None):
         response["Body"].close()
 
 
-async def finish(db, preview_id, body):
+async def finish(db, preview_id, body, *, training_authority: TrainingAuthorityPort):
     lease, preview = await fenced(db, preview_id, body, allow_terminal=True)
     receipt = content_digest(body.model_dump(mode="json"))
     if preview.status in TERMINAL:
@@ -669,7 +690,12 @@ async def finish(db, preview_id, body):
     stop = due_to_stop(preview)
     status = "cancelled" if stop else body.status
     if status == "succeeded":
-        await training.authority(db, preview)
+        await training.authority(
+            training_authority,
+            project_id=preview.project_id,
+            actor_id=preview.creator_id,
+            api_key_id=preview.authorization.get("api_key_id"),
+        )
         artifacts = {
             name: {**spec, "key": prefix(preview) + name}
             for name, spec in preview.upload_inventory.items()

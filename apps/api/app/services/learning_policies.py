@@ -34,6 +34,7 @@ from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_insight_adapters import adapter_for
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.dataset_task_facts import ProjectTaskSourceReader
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
 log = logging.getLogger(__name__)
@@ -171,9 +172,8 @@ async def save(
     return policy
 
 
-async def eligible(db, policy):
-    await datasets.assert_training_authority(
-        db,
+async def eligible(db, policy, *, training_authority: TrainingAuthorityPort):
+    await training_authority.assert_authority(
         project_id=policy.project_id,
         actor_id=policy.creator_id,
         api_key_id=policy.authorization.get("api_key_id"),
@@ -475,7 +475,12 @@ async def reconcile(db, policy, trigger):
 
 
 async def check_policy(
-    db, policy_id, *, source_reader: ProjectTaskSourceReader, force=False
+    db,
+    policy_id,
+    *,
+    source_reader: ProjectTaskSourceReader,
+    training_authority: TrainingAuthorityPort,
+    force=False,
 ):
     preliminary = await db.get(LearningPolicy, policy_id, populate_existing=True)
     if preliminary is None or not await claims.project_lock(
@@ -485,7 +490,7 @@ async def check_policy(
     project = None
     authorization_error = None
     try:
-        project = await eligible(db, preliminary)
+        project = await eligible(db, preliminary, training_authority=training_authority)
     except TrainingDatasetError as exc:
         authorization_error = str(exc)
     policy = await db.scalar(
@@ -618,6 +623,7 @@ async def check_project(
     user: User,
     *,
     source_reader: ProjectTaskSourceReader,
+    training_authority: TrainingAuthorityPort,
 ) -> LearningPolicy:
     await claims.project_lock(db, project.id)
     await lock_project_manager(db, user.id, project.id)
@@ -626,7 +632,13 @@ async def check_project(
     )
     if not policy:
         raise HTTPException(status_code=404, detail="自动策略尚未配置")
-    await check_policy(db, policy.id, source_reader=source_reader, force=True)
+    await check_policy(
+        db,
+        policy.id,
+        source_reader=source_reader,
+        training_authority=training_authority,
+        force=True,
+    )
     return policy
 
 

@@ -25,6 +25,7 @@ from app.services.labeling_active_learning_source_contract import (
     CandidateSourcesRead,
 )
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_datasets import bind_training_authority
 from tests.sample_evaluation_fixtures import evaluation as create_evaluation
 from tests.active_learning_fixtures import (
     candidate_ports,
@@ -329,6 +330,7 @@ async def test_source_item_contention_maps_to_source_busy_during_create(
         world.selection,
         owner.id,
         candidate_sources=candidate_sources,
+        training_authority=bind_training_authority(db_session),
     )
     body = RoundCreate(
         **world.selection.model_dump(),
@@ -350,6 +352,7 @@ async def test_source_item_contention_maps_to_source_busy_during_create(
             prepared,
             candidate_sources=candidate_sources,
             assets_fence=BusyFence(),
+            training_authority=bind_training_authority(db_session),
         )
     assert error.value.status_code == 409
     assert error.value.detail["code"] == "source_busy"

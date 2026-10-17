@@ -48,7 +48,7 @@ from app.services.labeling_active_learning_source_contract import (
     LabelingActiveLearningSources,
 )
 from app.services.training_dataset_bridge import content_digest, sample_identities
-from app.services.training_datasets import assert_training_authority
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -57,16 +57,6 @@ reject = managed.reject
 
 def now():
     return datetime.now(timezone.utc)
-
-
-async def authority(db, round):
-    await assert_training_authority(
-        db,
-        project_id=round.project_id,
-        actor_id=round.creator_id,
-        api_key_id=round.authorization.get("api_key_id"),
-        required_scopes=pool.SCOPES,
-    )
 
 
 async def load_round(db, project_id, round_id, *, lock=False):
@@ -192,13 +182,13 @@ async def create_round(
     *,
     candidate_sources: LabelingActiveLearningSources,
     assets_fence: AssetsActiveLearningFence,
+    training_authority: TrainingAuthorityPort,
 ):
     digest = content_digest(body.model_dump(mode="json"))
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await assert_training_authority(
-        db,
+    await training_authority.assert_authority(
         project_id=project.id,
         actor_id=user.id,
         api_key_id=api_key_id,
@@ -733,6 +723,7 @@ async def decide(
     *,
     candidate_sources: LabelingActiveLearningSources,
     assets_fence: AssetsActiveLearningFence,
+    training_authority: TrainingAuthorityPort,
 ):
     digest = content_digest(body.model_dump(mode="json"))
     round = await load_round(db, project.id, round_id)
@@ -800,8 +791,7 @@ async def decide(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
-    await assert_training_authority(
-        db,
+    await training_authority.assert_authority(
         project_id=project.id,
         actor_id=user.id,
         api_key_id=api_key_id,

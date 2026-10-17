@@ -28,6 +28,7 @@ from app.schemas.training_run import ExecutorFinish
 from app.schemas.training_study import TrainingStudyCreate
 from app.services import training_studies as studies, training_runs as runs
 from app.services.training_dataset_bridge import content_digest
+from app.services.training_datasets import bind_training_authority
 from tests.conftest import _create_user
 from tests.test_training_parameters import configuration
 from tests.test_training_runs import ready_dataset, executor_claim, fence, create_run
@@ -106,6 +107,7 @@ async def finish(
             process_exited=True,
             native_accounting=accounting,
         ),
+        training_authority=bind_training_authority(db),
     )
 
 
@@ -133,7 +135,9 @@ async def test_preview_is_complete_start_is_idempotent_and_child_is_ordinary(
         await httpx_client.post(path, headers=headers, json=changed)
     ).status_code == 409
     for _ in range(3):
-        await studies.coordinate(db_session, study.id)
+        await studies.coordinate(
+            db_session, study.id, training_authority=bind_training_authority(db_session)
+        )
     assert len(await studies.children(db_session, study.id)) == 1
     assert (
         await db_session.scalar(
@@ -214,10 +218,21 @@ async def test_preview_changes_require_review_and_old_executor_skips_budget_task
     payload["grid"]["lr0"][0] = 0.01
     created = await httpx_client.post(path, headers=headers, json=payload)
     assert created.status_code == 202
-    assert await runs.claim(db_session, native_claim(qualified=False)) is None
+    assert (
+        await runs.claim(
+            db_session,
+            native_claim(qualified=False),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     claim = native_claim()
-    assignment = await runs.claim(db_session, claim)
-    replay = await runs.claim(db_session, claim)
+    assignment = await runs.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
+    replay = await runs.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     assert (
         replay["native_budget"] == assignment["native_budget"]
         and replay["attempt_id"] == assignment["attempt_id"]
@@ -230,7 +245,9 @@ async def test_fenced_accounting_is_mandatory_immutable_and_releases_only_known_
     owner, token = super_admin
     _, _, study, _, _, _, _ = await setup(db_session, httpx_client, owner, token)
     claim = native_claim()
-    assignment = await runs.claim(db_session, claim)
+    assignment = await runs.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     with pytest.raises(HTTPException) as absent:
         await runs.finish(
             db_session,
@@ -238,6 +255,7 @@ async def test_fenced_accounting_is_mandatory_immutable_and_releases_only_known_
             ExecutorFinish(
                 **fence(claim, assignment), status="failed", process_exited=True
             ),
+            training_authority=bind_training_authority(db_session),
         )
     assert absent.value.status_code == 422
     attempt = await finish(db_session, claim, assignment, seconds=3.5)
@@ -245,7 +263,9 @@ async def test_fenced_accounting_is_mandatory_immutable_and_releases_only_known_
     with pytest.raises(HTTPException) as changed:
         await finish(db_session, claim, assignment, seconds=3.0)
     assert changed.value.status_code == 409
-    await studies.coordinate(db_session, study.id)
+    await studies.coordinate(
+        db_session, study.id, training_authority=bind_training_authority(db_session)
+    )
     second = (await studies.describe(db_session, study))["trials"][1]
     child = await db_session.get(TrainingRun, uuid.UUID(second["run_id"]))
     next_attempt = await db_session.get(TrainingAttempt, child.current_attempt_id)
@@ -267,7 +287,9 @@ async def test_unknown_and_exhausted_accounting_prevents_next_child(
     owner, token = super_admin
     _, _, study, _, _, _, _ = await setup(db_session, httpx_client, owner, token)
     claim = native_claim()
-    assignment = await runs.claim(db_session, claim)
+    assignment = await runs.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     await finish(
         db_session,
         claim,
@@ -276,7 +298,9 @@ async def test_unknown_and_exhausted_accounting_prevents_next_child(
         seconds=seconds,
         deadline=state == "exact",
     )
-    await studies.coordinate(db_session, study.id)
+    await studies.coordinate(
+        db_session, study.id, training_authority=bind_training_authority(db_session)
+    )
     result = await studies.describe(db_session, study)
     assert result["status"] == expected and result["trials"][1]["run_id"] is None
     assert result["accounting"]["overrun_seconds"] == (2.5 if seconds == 12.5 else 0)
@@ -292,7 +316,13 @@ async def test_cancel_study_stops_admission_and_preserves_owned_lease(
         db_session, httpx_client, owner, token
     )
     claim = native_claim()
-    assignment = await runs.claim(db_session, claim) if started else None
+    assignment = (
+        await runs.claim(
+            db_session, claim, training_authority=bind_training_authority(db_session)
+        )
+        if started
+        else None
+    )
     response = await httpx_client.post(path + f"/{study.id}/cancel", headers=headers)
     assert response.status_code == 200, response.text
     assert not response.json()["scheduling"]
@@ -306,7 +336,9 @@ async def test_cancel_study_stops_admission_and_preserves_owned_lease(
         assert lease.attempt_id is None
     else:
         assert attempt.native_accounting["state"] == "not_started"
-    await studies.coordinate(db_session, study.id)
+    await studies.coordinate(
+        db_session, study.id, training_authority=bind_training_authority(db_session)
+    )
     assert (
         len(await studies.children(db_session, study.id)) == 1
         and study.status == "cancelled"
@@ -323,23 +355,44 @@ async def test_lost_child_blocks_next_and_manual_queue_shares_same_resource(
     manual, _ = await create_run(httpx_client, token, project, dataset)
     _, _, study, _, _, _, _ = await setup(db_session, httpx_client, owner, token)
     claim = native_claim()
-    assignment = await runs.claim(db_session, claim)
+    assignment = await runs.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     assert assignment["run_id"] == manual["id"] and "native_budget" not in assignment
-    assert await runs.claim(db_session, native_claim()) is None
+    assert (
+        await runs.claim(
+            db_session,
+            native_claim(),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     await runs.finish(
         db_session,
         uuid.UUID(assignment["attempt_id"]),
         ExecutorFinish(
             **fence(claim, assignment), status="failed", process_exited=True
         ),
+        training_authority=bind_training_authority(db_session),
     )
     claim = native_claim()
-    assignment = await runs.claim(db_session, claim)
+    assignment = await runs.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     attempt = await db_session.get(TrainingAttempt, uuid.UUID(assignment["attempt_id"]))
     attempt.heartbeat_at = runs.now() - timedelta(seconds=1000)
     await db_session.flush()
-    assert await runs.claim(db_session, native_claim()) is None
-    await studies.coordinate(db_session, study.id)
+    assert (
+        await runs.claim(
+            db_session,
+            native_claim(),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
+    await studies.coordinate(
+        db_session, study.id, training_authority=bind_training_authority(db_session)
+    )
     assert (
         attempt.status == "lost"
         and len(await studies.children(db_session, study.id)) == 1
@@ -354,7 +407,9 @@ async def test_resume_re_reserves_current_study_balance_after_later_trial_consum
         db_session, httpx_client, owner, token
     )
     first_claim = native_claim()
-    first = await runs.claim(db_session, first_claim)
+    first = await runs.claim(
+        db_session, first_claim, training_authority=bind_training_authority(db_session)
+    )
     first_attempt = await finish(db_session, first_claim, first, seconds=2)
     first_run = await db_session.get(TrainingRun, first_attempt.run_id)
     first_attempt.artifacts = {
@@ -375,13 +430,19 @@ async def test_resume_re_reserves_current_study_balance_after_later_trial_consum
         },
     )
     await db_session.flush()
-    await studies.coordinate(db_session, study.id)
+    await studies.coordinate(
+        db_session, study.id, training_authority=bind_training_authority(db_session)
+    )
     path = f"/api/v1/projects/{project.id}/training-runs/{first_run.id}/resume"
     assert (await httpx_client.post(path, headers=headers)).status_code == 409
     second_claim = native_claim()
-    second = await runs.claim(db_session, second_claim)
+    second = await runs.claim(
+        db_session, second_claim, training_authority=bind_training_authority(db_session)
+    )
     await finish(db_session, second_claim, second, seconds=5)
-    await studies.coordinate(db_session, study.id)
+    await studies.coordinate(
+        db_session, study.id, training_authority=bind_training_authority(db_session)
+    )
     assert study.status == "completed"
     response = await httpx_client.post(path, headers=headers)
     assert response.status_code == 202, response.text
@@ -390,7 +451,11 @@ async def test_resume_re_reserves_current_study_balance_after_later_trial_consum
     )
     assert resumed.native_budget["allowance_seconds"] == 3.0
     assert response.json()["config_digest"] == first_run.config_digest
-    replay = await runs.claim(db_session, native_claim())
+    replay = await runs.claim(
+        db_session,
+        native_claim(),
+        training_authority=bind_training_authority(db_session),
+    )
     assert (
         replay["native_budget"]["allowance_seconds"] == 3.0
         and replay["resume"]["epoch"] == 1
@@ -416,7 +481,9 @@ async def test_authority_revocation_cancels_queued_child_and_protected_deletion_
     ).status_code == 409
     owner.is_active = False
     await db_session.flush()
-    await studies.coordinate(db_session, study.id)
+    await studies.coordinate(
+        db_session, study.id, training_authority=bind_training_authority(db_session)
+    )
     child = (await studies.children(db_session, study.id))[0]
     assert child.status == "cancelled" and not study.scheduling
     owner.is_active = True
@@ -467,7 +534,9 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
             "best.pt": {"role": "weights", **weights},
         }
         await db_session.flush()
-        await studies.coordinate(db_session, study.id)
+        await studies.coordinate(
+            db_session, study.id, training_authority=bind_training_authority(db_session)
+        )
     monkeypatch.setattr(
         runs.storage.client,
         "get_object",
@@ -572,7 +641,9 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
 
         async def coordinate():
             async with maker() as db:
-                await studies.coordinate(db, study_id)
+                await studies.coordinate(
+                    db, study_id, training_authority=bind_training_authority(db)
+                )
                 await db.commit()
 
         await asyncio.wait_for(asyncio.gather(coordinate(), coordinate()), 10)
@@ -585,7 +656,9 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
                     claim = native_claim().model_copy(
                         update={"resource_id": resource_id}
                     )
-                    assignment = await runs.claim(db, claim)
+                    assignment = await runs.claim(
+                        db, claim, training_authority=bind_training_authority(db)
+                    )
                     assert assignment
                     await finish(db, claim, assignment, seconds=1)
                     await db.commit()

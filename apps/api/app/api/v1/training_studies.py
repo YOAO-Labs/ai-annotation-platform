@@ -9,10 +9,17 @@ from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
 from app.db.models.training_study import TrainingStudy
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_current_user,
+    get_db,
+    get_training_authority,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.training_study import TrainingStudyCreate
 from app.services import training_studies as service
 from app.services import training_claims as claims
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-studies",
@@ -44,6 +51,7 @@ async def create(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db=Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
     study, created = await service.create(
         db,
@@ -51,6 +59,7 @@ async def create(
         user,
         body,
         api_key_id=getattr(request.state, "api_key_id", None),
+        training_authority=training_authority,
     )
     if created:
         await db.commit()
@@ -107,7 +116,10 @@ async def cancel(
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db=Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
-    study = await service.cancel(db, project.id, study_id, user)
+    study = await service.cancel(
+        db, project.id, study_id, user, training_authority=training_authority
+    )
     await db.commit()
     return await service.describe(db, study)

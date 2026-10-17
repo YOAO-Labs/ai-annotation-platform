@@ -346,6 +346,11 @@ DOMAIN_PACKAGES = (
             "app.services.role_patterns",
         ),
     ),
+    DomainSpec(
+        package="training_authority_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
     DomainSpec(package="pointcloud_import", legacy_facades=()),
     DomainSpec(package="scene_inference", legacy_facades=()),
     DomainSpec(

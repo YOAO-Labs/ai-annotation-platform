@@ -7,13 +7,17 @@ from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.services.training_studies import tick
+from app.services.training_datasets import bind_training_authority
 from app.workers.celery_app import celery_app
 
 
 async def _tick():
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     try:
-        await tick(async_sessionmaker(engine, expire_on_commit=False))
+        await tick(
+            async_sessionmaker(engine, expire_on_commit=False),
+            training_authority_factory=bind_training_authority,
+        )
     finally:
         await engine.dispose()
 

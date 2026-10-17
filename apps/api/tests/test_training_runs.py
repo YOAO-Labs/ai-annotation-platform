@@ -28,6 +28,7 @@ from app.services import training_runs as service
 from app.services import training_adapters as adapters
 from app.services import training_artifacts as artifact_service
 from app.services.storage import StorageService
+from app.services.training_datasets import bind_training_authority
 from tests.factory import create_membership, create_project
 
 TOKEN = "test-executor-credential-" + "a" * 40
@@ -133,7 +134,9 @@ def fence(claim, assignment):
 async def claimed_run(db, client, owner_token, project, dataset):
     data, _ = await create_run(client, owner_token, project, dataset)
     claim = executor_claim()
-    assignment = await service.claim(db, claim)
+    assignment = await service.claim(
+        db, claim, training_authority=bind_training_authority(db)
+    )
     assert assignment["run_id"] == data["id"]
     await db.flush()
     return await db.get(TrainingRun, uuid.UUID(data["id"])), claim, assignment
@@ -326,14 +329,28 @@ async def test_claim_response_replay_is_identical_and_resource_stays_exclusive(
     run, claim, assignment = await claimed_run(
         db_session, httpx_client, token, project, dataset
     )
-    replay = await service.claim(db_session, claim)
+    replay = await service.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     assert replay == assignment
-    assert await service.claim(db_session, executor_claim()) is None
+    assert (
+        await service.claim(
+            db_session,
+            executor_claim(),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     assert (
         await db_session.get(TrainingResourceLease, "test/" + GPU)
     ).attempt_id == run.current_attempt_id
     unknown = executor_claim().model_copy(update={"recover_only": True})
-    assert await service.claim(db_session, unknown) is None
+    assert (
+        await service.claim(
+            db_session, unknown, training_authority=bind_training_authority(db_session)
+        )
+        is None
+    )
 
 
 async def test_events_replay_identically_and_reject_changed_or_skipped_sequence(
@@ -351,10 +368,20 @@ async def test_events_replay_identically_and_reject_changed_or_skipped_sequence(
         "metrics": {"metrics/mAP50(B)": 0.1},
     }
     body = ExecutorHeartbeat(**fence(claim, assignment), events=[event])
-    assert not (await service.heartbeat(db_session, run.current_attempt_id, body))[
-        "stop"
-    ]
-    await service.heartbeat(db_session, run.current_attempt_id, body)
+    assert not (
+        await service.heartbeat(
+            db_session,
+            run.current_attempt_id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
+    )["stop"]
+    await service.heartbeat(
+        db_session,
+        run.current_attempt_id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     assert len((await db_session.scalars(select(TrainingEvent))).all()) == 1
     for bad in [{**event, "epoch": 2}, {**event, "sequence": 3}]:
         with pytest.raises(HTTPException) as error:
@@ -362,6 +389,7 @@ async def test_events_replay_identically_and_reject_changed_or_skipped_sequence(
                 db_session,
                 run.current_attempt_id,
                 ExecutorHeartbeat(**fence(claim, assignment), events=[bad]),
+                training_authority=bind_training_authority(db_session),
             )
         assert error.value.status_code == 409
 
@@ -389,9 +417,19 @@ async def test_cancel_retains_lease_until_exit_and_completion_ack_replays(
     body = ExecutorFinish(
         **fence(claim, assignment), status="succeeded", process_exited=True
     )
-    done = await service.finish(db_session, attempt.id, body)
+    done = await service.finish(
+        db_session,
+        attempt.id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     assert done.status == "cancelled" and lease.attempt_id is None
-    repeated = await service.finish(db_session, attempt.id, body)
+    repeated = await service.finish(
+        db_session,
+        attempt.id,
+        body,
+        training_authority=bind_training_authority(db_session),
+    )
     assert repeated.status == "cancelled"
 
 
@@ -473,7 +511,14 @@ async def test_lost_heartbeat_does_not_release_gpu_or_allow_new_claim(
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     attempt.heartbeat_at = service.now() - timedelta(hours=1)
     await db_session.flush()
-    assert await service.claim(db_session, executor_claim()) is None
+    assert (
+        await service.claim(
+            db_session,
+            executor_claim(),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     assert run.status == "lost"
     lease = await db_session.get(TrainingResourceLease, "test/" + GPU)
     assert lease.attempt_id == attempt.id
@@ -491,6 +536,7 @@ async def test_lost_heartbeat_does_not_release_gpu_or_allow_new_claim(
                 }
             ],
         ),
+        training_authority=bind_training_authority(db_session),
     )
     assert result == {"stop": True, "reason": "heartbeat_expired"}
     assert run.status == "lost"
@@ -544,25 +590,32 @@ async def test_project_busy_is_retryable_and_not_revocation(
     project, dataset = await ready_dataset(db_session, owner)
     data, _ = await create_run(httpx_client, token, project, dataset)
 
-    async def busy(*args):
+    async def busy(_training_authority, *, project_id, actor_id, api_key_id):
         raise HTTPException(status_code=409, detail="project_busy")
 
     original = service.authority
     monkeypatch.setattr(service, "authority", busy)
     with pytest.raises(HTTPException) as error:
-        await service.claim(db_session, executor_claim())
+        await service.claim(
+            db_session,
+            executor_claim(),
+            training_authority=bind_training_authority(db_session),
+        )
     assert error.value.status_code == 409
     run = await db_session.get(TrainingRun, uuid.UUID(data["id"]))
     assert run.status == "queued"
     monkeypatch.setattr(service, "authority", original)
     claim = executor_claim()
-    assignment = await service.claim(db_session, claim)
+    assignment = await service.claim(
+        db_session, claim, training_authority=bind_training_authority(db_session)
+    )
     monkeypatch.setattr(service, "authority", busy)
     with pytest.raises(HTTPException) as error:
         await service.heartbeat(
             db_session,
             run.current_attempt_id,
             ExecutorHeartbeat(**fence(claim, assignment)),
+            training_authority=bind_training_authority(db_session),
         )
     assert error.value.status_code == 409 and run.status == "preparing"
 
@@ -582,6 +635,7 @@ async def test_resume_requires_committed_checkpoint_and_fences_old_attempt(
         ExecutorFinish(
             **fence(claim, assignment), status="failed", process_exited=True
         ),
+        training_authority=bind_training_authority(db_session),
     )
     path = f"/api/v1/projects/{project.id}/training-runs/{run.id}/resume"
     headers = {"Authorization": f"Bearer {token}"}
@@ -613,7 +667,10 @@ async def test_resume_requires_committed_checkpoint_and_fences_old_attempt(
     assert response.json()["metrics"] == {}
     with pytest.raises(HTTPException) as error:
         await service.heartbeat(
-            db_session, old_id, ExecutorHeartbeat(**fence(claim, assignment))
+            db_session,
+            old_id,
+            ExecutorHeartbeat(**fence(claim, assignment)),
+            training_authority=bind_training_authority(db_session),
         )
     assert error.value.status_code == 409
 
@@ -661,6 +718,7 @@ async def test_artifact_digest_failure_cannot_publish_success_and_failure_frees_
             ExecutorFinish(
                 **fence(claim, assignment), status="succeeded", process_exited=True
             ),
+            training_authority=bind_training_authority(db_session),
         )
     assert error.value.status_code == 422 and run.status == "preparing"
     failed = await service.finish(
@@ -669,6 +727,7 @@ async def test_artifact_digest_failure_cannot_publish_success_and_failure_frees_
         ExecutorFinish(
             **fence(claim, assignment), status="failed", process_exited=True
         ),
+        training_authority=bind_training_authority(db_session),
     )
     assert failed.artifacts == {} and failed.status == "failed"
     assert (

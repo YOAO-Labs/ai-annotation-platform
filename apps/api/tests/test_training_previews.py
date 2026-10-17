@@ -22,6 +22,7 @@ from app.db.models.training_run import TrainingResourceLease
 from app.schemas.training_preview import PreviewClaim, PreviewFinish, PreviewUploads
 from app.schemas.training_run import ExecutorFence
 from app.services import training_artifacts, training_previews as service
+from app.services.training_datasets import bind_training_authority
 from tests.factory import create_membership, create_project
 from tests.test_training_dataset_analysis import inputs
 from tests.test_training_runs import (
@@ -69,7 +70,12 @@ async def preview(db, client, owner, *, boxes=1, create=True):
         classes=["car"],
     )
     await db.flush()
-    assert await service.claim(db, claim_body()) is None
+    assert (
+        await service.claim(
+            db, claim_body(), training_authority=bind_training_authority(db)
+        )
+        is None
+    )
     schema = definition("ultralytics", "yolo11n")
     body = dict(
         dataset_id=str(dataset.id),
@@ -178,7 +184,9 @@ def evidence(row, objects, *, change=None):
 
 async def claimed(db, row):
     claim = claim_body()
-    assignment = await service.claim(db, claim)
+    assignment = await service.claim(
+        db, claim, training_authority=bind_training_authority(db)
+    )
     assert assignment["preview_id"] == str(row.id)
     return claim, assignment
 
@@ -202,7 +210,14 @@ async def test_idle_recovery_after_upgrade_preserves_lease_until_fresh_claim(
     previous = (lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at)
     await db_session.flush()
 
-    assert await service.claim(db_session, old_claim) is None
+    assert (
+        await service.claim(
+            db_session,
+            old_claim,
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     assert (
         lease.executor_id,
         lease.boot_id,
@@ -212,17 +227,23 @@ async def test_idle_recovery_after_upgrade_preserves_lease_until_fresh_claim(
     assert lease.preview_id is None and row.status == "queued"
     with pytest.raises(HTTPException) as rejected:
         await service.claim(
-            db_session, old_claim.model_copy(update={"recover_only": False})
+            db_session,
+            old_claim.model_copy(update={"recover_only": False}),
+            training_authority=bind_training_authority(db_session),
         )
     assert rejected.value.status_code == 409
     with pytest.raises(HTTPException) as wrong_resource:
         await service.claim(
-            db_session, old_claim.model_copy(update={"resource_id": "other"})
+            db_session,
+            old_claim.model_copy(update={"resource_id": "other"}),
+            training_authority=bind_training_authority(db_session),
         )
     assert wrong_resource.value.status_code == 409
 
     current = claim_body()
-    assignment = await service.claim(db_session, current)
+    assignment = await service.claim(
+        db_session, current, training_authority=bind_training_authority(db_session)
+    )
     assert assignment["preview_id"] == str(row.id)
     assert lease.preview_id == row.id and row.status == "running"
     assert lease.boot_id == current.boot_id and lease.runtime == current.runtime
@@ -250,7 +271,9 @@ async def test_old_runtime_recovery_preserves_active_preview_ownership(
     previous = (lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at)
     await db_session.flush()
 
-    recovered = await service.claim(db_session, old_claim)
+    recovered = await service.claim(
+        db_session, old_claim, training_authority=bind_training_authority(db_session)
+    )
     assert recovered == (assignment if same_owner else None)
     assert lease.preview_id == row.id and row.status == "running"
     assert (
@@ -309,8 +332,20 @@ async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
 ):
     row, *_ = await preview(db_session, httpx_client, super_admin)
     claim, assignment = await claimed(db_session, row)
-    assert await service.claim(db_session, claim) == assignment
-    assert await service.claim(db_session, claim_body()) is None
+    assert (
+        await service.claim(
+            db_session, claim, training_authority=bind_training_authority(db_session)
+        )
+        == assignment
+    )
+    assert (
+        await service.claim(
+            db_session,
+            claim_body(),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     row.heartbeat_at = service.now() - timedelta(hours=1)
     await db_session.flush()
     assert (await service.output(row)).status == "lost"
@@ -321,23 +356,44 @@ async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
             db_session,
             row.id,
             ExecutorFence(**{**fence(claim, assignment), "boot_id": uuid.uuid4()}),
+            training_authority=bind_training_authority(db_session),
         )
     assert stale.value.status_code == 409
     await service.cancel(db_session, row)
     assert (
         await service.heartbeat(
-            db_session, row.id, ExecutorFence(**fence(claim, assignment))
+            db_session,
+            row.id,
+            ExecutorFence(**fence(claim, assignment)),
+            training_authority=bind_training_authority(db_session),
         )
     )["stop"]
     body = PreviewFinish(
         **fence(claim, assignment), status="succeeded", process_exited=True
     )
-    assert (await service.finish(db_session, row.id, body)).status == "cancelled"
+    assert (
+        await service.finish(
+            db_session,
+            row.id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
+    ).status == "cancelled"
     assert lease.preview_id is None
-    assert (await service.finish(db_session, row.id, body)).status == "cancelled"
+    assert (
+        await service.finish(
+            db_session,
+            row.id,
+            body,
+            training_authority=bind_training_authority(db_session),
+        )
+    ).status == "cancelled"
     with pytest.raises(HTTPException):
         await service.finish(
-            db_session, row.id, body.model_copy(update={"status": "failed"})
+            db_session,
+            row.id,
+            body.model_copy(update={"status": "failed"}),
+            training_authority=bind_training_authority(db_session),
         )
 
 
@@ -582,6 +638,7 @@ async def test_publish_rejects_mismatched_report_or_image_and_retains_lease(
         db_session,
         row.id,
         PreviewUploads(**fence(claim, assignment), artifacts=inventory),
+        training_authority=bind_training_authority(db_session),
     )
     if corruption == "image":
         key = service.prefix(row) + "preview-0.png"
@@ -594,6 +651,7 @@ async def test_publish_rejects_mismatched_report_or_image_and_retains_lease(
             PreviewFinish(
                 **fence(claim, assignment), status="succeeded", process_exited=True
             ),
+            training_authority=bind_training_authority(db_session),
         )
     assert failure.value.status_code == 422
     assert (
@@ -613,7 +671,10 @@ async def test_deadline_and_revocation_stop_without_releasing_unknown_process(
     claim, assignment = await claimed(db_session, row)
     row.started_at = service.now() - timedelta(seconds=61)
     result = await service.heartbeat(
-        db_session, row.id, ExecutorFence(**fence(claim, assignment))
+        db_session,
+        row.id,
+        ExecutorFence(**fence(claim, assignment)),
+        training_authority=bind_training_authority(db_session),
     )
     assert result["stop"] and row.status == "cancelling"
     lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
@@ -627,6 +688,7 @@ async def test_deadline_and_revocation_stop_without_releasing_unknown_process(
         db_session,
         row.id,
         PreviewFinish(**fence(claim, assignment), status="failed", process_exited=True),
+        training_authority=bind_training_authority(db_session),
     )
     assert done.status == "cancelled" and lease.preview_id is None
 
@@ -674,7 +736,10 @@ async def test_api_expiry_requests_running_cancellation_without_releasing_cpu(
     assert result.json()["status"] == "expired"
     assert (
         await service.heartbeat(
-            db_session, row.id, ExecutorFence(**fence(claim, assignment))
+            db_session,
+            row.id,
+            ExecutorFence(**fence(claim, assignment)),
+            training_authority=bind_training_authority(db_session),
         )
     )["stop"]
 
@@ -788,7 +853,10 @@ async def test_api_key_scopes_and_revocation_are_rechecked_during_execution(
     await db_session.flush()
     assert (
         await service.heartbeat(
-            db_session, row.id, ExecutorFence(**fence(claim, assignment))
+            db_session,
+            row.id,
+            ExecutorFence(**fence(claim, assignment)),
+            training_authority=bind_training_authority(db_session),
         )
     )["stop"]
     assert (
@@ -801,6 +869,7 @@ async def test_api_key_scopes_and_revocation_are_rechecked_during_execution(
             PreviewFinish(
                 **fence(claim, assignment), status="failed", process_exited=True
             ),
+            training_authority=bind_training_authority(db_session),
         )
     ).status == "cancelled"
 
@@ -836,7 +905,9 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
             [{"content": "a"}, {"content": "b", "split": "val"}], classes=["car"]
         )
         await seed.flush()
-        await service.claim(seed, claim_body())
+        await service.claim(
+            seed, claim_body(), training_authority=bind_training_authority(seed)
+        )
         schema = definition("ultralytics", "yolo11n")
         body = TrainingPreviewCreate(
             dataset_id=dataset.id,
@@ -878,7 +949,10 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
     async def beating():
         async with maker() as db:
             result = await service.heartbeat(
-                db, active.id, ExecutorFence(**fence(claim, assignment))
+                db,
+                active.id,
+                ExecutorFence(**fence(claim, assignment)),
+                training_authority=bind_training_authority(db),
             )
             await db.commit()
             return result

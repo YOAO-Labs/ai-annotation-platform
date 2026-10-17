@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.training_runs import executor_auth
 from app.db.models.project import Project
 from app.db.models.training_run import TrainingAttempt
-from app.deps import get_db, require_project_owner, require_scopes
+from app.deps import (
+    get_db,
+    get_training_authority,
+    require_project_owner,
+    require_scopes,
+)
 from app.schemas.training_observability import (
     ExecutorObservations,
     LogPage,
@@ -18,6 +23,7 @@ from app.schemas.training_observability import (
 )
 from app.services import training_observability as service
 from app.services import training_runs as run_service
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-runs",
@@ -72,9 +78,10 @@ async def recovery(
     run_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     run = await run_service.load_run(db, project.id, run_id)
-    return await service.recovery(db, run)
+    return await service.recovery(db, run, training_authority=training_authority)
 
 
 @executor_router.post(
@@ -84,7 +91,10 @@ async def observations(
     attempt_id: uuid.UUID,
     body: ExecutorObservations,
     db: AsyncSession = Depends(get_db),
+    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
-    result = await service.ingest(db, attempt_id, body)
+    result = await service.ingest(
+        db, attempt_id, body, training_authority=training_authority
+    )
     await db.commit()
     return result

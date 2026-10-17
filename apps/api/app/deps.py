@@ -16,6 +16,7 @@ from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.dataset_task_facts import ProjectTaskSourceReader
+from app.services.training_authority_contract import TrainingAuthorityPort
 from app.services.job_execution_control import JobExecutionControl
 from app.services.prediction_retry import PredictionRetryDispatcher
 from app.application.preannotation_contract import BatchPredictionDispatcher
@@ -74,6 +75,15 @@ def get_labeling_task_source_reader(
     from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
 
     return SqlAlchemyProjectTaskSourceReader(db)
+
+
+def get_training_authority(
+    db: AsyncSession = Depends(get_db),
+) -> TrainingAuthorityPort:
+    """Bind current training authority checks to the request's Session."""
+    from app.services.training_datasets import bind_training_authority
+
+    return bind_training_authority(db)
 
 
 def get_job_execution_control() -> JobExecutionControl:

@@ -39,7 +39,7 @@ from app.services.training_dataset_bridge import (
     content_digest,
     contract_of,
 )
-from app.services.training_datasets import assert_training_authority
+from app.services.training_authority_contract import TrainingAuthorityPort
 from app.services import training_adapters as adapters
 from app.services import training_artifacts as artifact_service
 from app.services import training_claims as claims
@@ -161,13 +161,19 @@ def runtime_compatible(config, runtime):
     )
 
 
-async def authority(db, run):
+async def authority(
+    training_authority: TrainingAuthorityPort,
+    *,
+    project_id: uuid.UUID,
+    actor_id: uuid.UUID | None,
+    api_key_id: str | None,
+) -> None:
+    """Preserve executor-facing HTTP error projection without owning SQL access."""
     try:
-        await assert_training_authority(
-            db,
-            project_id=run.project_id,
-            actor_id=run.creator_id,
-            api_key_id=run.authorization.get("api_key_id"),
+        await training_authority.assert_authority(
+            project_id=project_id,
+            actor_id=actor_id,
+            api_key_id=api_key_id,
             required_scopes=SCOPES,
         )
     except TrainingDatasetError as exc:
@@ -670,7 +676,7 @@ async def assignment(db, run, attempt, token):
     return result
 
 
-async def claim(db, body):
+async def claim(db, body, *, training_authority: TrainingAuthorityPort):
     if (
         not adapters.catalog()["enabled"]
         or body.resource_id != adapters.resource_id()
@@ -719,7 +725,12 @@ async def claim(db, body):
             continue
         attempt = await db.get(TrainingAttempt, run.current_attempt_id)
         try:
-            await authority(db, run)
+            await authority(
+                training_authority,
+                project_id=run.project_id,
+                actor_id=run.creator_id,
+                api_key_id=run.authorization.get("api_key_id"),
+            )
         except HTTPException as exc:
             if exc.status_code != 403:
                 raise
@@ -822,13 +833,18 @@ async def claim(db, body):
     return None
 
 
-async def heartbeat(db, attempt_id, body):
+async def heartbeat(db, attempt_id, body, *, training_authority: TrainingAuthorityPort):
     lease, run, attempt = await fenced(db, attempt_id, body)
     lease.last_seen_at = now()
     await observe_lost(db, lease)
     lost = attempt.status == "lost"
     try:
-        await authority(db, run)
+        await authority(
+            training_authority,
+            project_id=run.project_id,
+            actor_id=run.creator_id,
+            api_key_id=run.authorization.get("api_key_id"),
+        )
     except HTTPException as exc:
         if exc.status_code != 403:
             raise
@@ -972,7 +988,7 @@ def verify_native_artifact(run, attempt, artifacts):
         )
 
 
-async def finish(db, attempt_id, body):
+async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityPort):
     lease, run, attempt = await fenced(db, attempt_id, body, allow_terminal=True)
     request_digest = content_digest(body.request_payload())
     if attempt.status in TERMINAL:
@@ -1001,7 +1017,12 @@ async def finish(db, attempt_id, body):
         raise HTTPException(status_code=422, detail="未预留预算的执行不能提交计时账本")
     status = "cancelled" if run.status == "cancelling" else body.status
     if status == "succeeded":
-        await authority(db, run)
+        await authority(
+            training_authority,
+            project_id=run.project_id,
+            actor_id=run.creator_id,
+            api_key_id=run.authorization.get("api_key_id"),
+        )
         # An exact fenced completion receipt can resolve a lost heartbeat after
         # an upload outage. No successor can start while this lease is retained.
     artifacts = {}

@@ -4,9 +4,11 @@ import itertools
 import logging
 import math
 import uuid
+from collections.abc import Callable
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from training_contract import definition
 from training_contract.budget import POLICY_DIGEST, validate_receipt
 
@@ -25,6 +27,7 @@ from app.services import (
 )
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_bridge import content_digest
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +150,7 @@ async def create(
     body: TrainingStudyCreate,
     *,
     api_key_id=None,
+    training_authority: TrainingAuthorityPort,
 ):
     """Return the study and whether this admission created state to commit."""
     await claims.project_lock(db, project.id)
@@ -202,7 +206,7 @@ async def create(
             )
         )
     await db.flush()
-    await coordinate(db, study.id)
+    await coordinate(db, study.id, training_authority=training_authority)
     return study, True
 
 
@@ -277,7 +281,14 @@ async def ledger(db, study, child_runs):
     }, per_run
 
 
-async def cancel(db, project_id, study_id, user: User):
+async def cancel(
+    db,
+    project_id,
+    study_id,
+    user: User,
+    *,
+    training_authority: TrainingAuthorityPort,
+):
     await claims.project_lock(db, project_id)
     await lock_project_manager(db, user.id, project_id)
     study = await load(db, project_id, study_id, lock=True)
@@ -286,11 +297,11 @@ async def cancel(db, project_id, study_id, user: User):
     study.message = "已停止后续试验；活动进程按普通训练取消协议退出"
     for run in await children(db, study.id, lock=True):
         await runs.cancel_study_child(db, run)
-    await coordinate(db, study.id)
+    await coordinate(db, study.id, training_authority=training_authority)
     return study
 
 
-async def coordinate(db, study_id):
+async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort):
     preliminary = await db.get(TrainingStudy, study_id)
     if preliminary is None or not await claims.project_lock(
         db, preliminary.project_id, wait=False
@@ -298,7 +309,12 @@ async def coordinate(db, study_id):
         return
     error = None
     try:
-        await runs.authority(db, preliminary)
+        await runs.authority(
+            training_authority,
+            project_id=preliminary.project_id,
+            actor_id=preliminary.creator_id,
+            api_key_id=preliminary.authorization.get("api_key_id"),
+        )
         project = await db.get(Project, preliminary.project_id, populate_existing=True)
         if project.status != "in_progress":
             error = "项目已停用"
@@ -549,7 +565,11 @@ async def describe(db, study):
     }
 
 
-async def tick(session_factory):
+async def tick(
+    session_factory,
+    *,
+    training_authority_factory: Callable[[AsyncSession], TrainingAuthorityPort],
+):
     async with session_factory() as db:
         ids = list(
             await db.scalars(
@@ -567,7 +587,11 @@ async def tick(session_factory):
     for identity in ids:
         async with session_factory() as db:
             try:
-                await coordinate(db, identity)
+                await coordinate(
+                    db,
+                    identity,
+                    training_authority=training_authority_factory(db),
+                )
                 await db.commit()
             except Exception:
                 await db.rollback()

@@ -32,6 +32,7 @@ from app.services import (
 )
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
+from app.services.training_datasets import bind_training_authority
 from tests.test_training_parameters import configuration
 from tests.test_training_runs import TOKEN, ready_dataset, executor_claim, fence
 from tests.conftest import _create_user
@@ -340,7 +341,12 @@ async def test_claim_requires_capability_and_verifies_source_before_gpu_assignme
     created = await create(httpx_client, token, project, body(dataset, pin))
     old = claim()
     old.runtime.pop("initialization_policy_digest")
-    assert await runs.claim(db_session, old) is None
+    assert (
+        await runs.claim(
+            db_session, old, training_authority=bind_training_authority(db_session)
+        )
+        is None
+    )
     current = claim()
     response = await httpx_client.post(
         "/api/v1/internal/training/claim",
@@ -368,7 +374,12 @@ async def test_source_lost_after_acceptance_fails_initial_claim_but_resume_uses_
     run = await db_session.get(TrainingRun, uuid.UUID(created["id"]))
     first = await db_session.get(TrainingAttempt, run.current_attempt_id)
     del objects[model.artifact["key"]]
-    assert await runs.claim(db_session, claim()) is None
+    assert (
+        await runs.claim(
+            db_session, claim(), training_authority=bind_training_authority(db_session)
+        )
+        is None
+    )
     assert run.status == "failed" and first.failure["code"] == "input_mismatch"
     first.artifacts = {
         "checkpoint-0001.pt": {
@@ -380,7 +391,9 @@ async def test_source_lost_after_acceptance_fails_initial_claim_but_resume_uses_
         }
     }
     following = await runs.new_attempt(db_session, run, resume_from=first.id)
-    assignment = await runs.claim(db_session, claim())
+    assignment = await runs.claim(
+        db_session, claim(), training_authority=bind_training_authority(db_session)
+    )
     assert assignment["attempt_id"] == str(following.id)
     assert assignment["resume"]["key"].endswith("checkpoint-0001.pt")
     assert "initialization" not in assignment
@@ -515,7 +528,9 @@ async def test_success_receipt_must_prove_fresh_loading(
     pin, _ = await source.source_pin(db_session, project.id, model.id)
     created = await create(httpx_client, token, project, body(dataset, pin))
     executor = claim()
-    assignment = await runs.claim(db_session, executor)
+    assignment = await runs.claim(
+        db_session, executor, training_authority=bind_training_authority(db_session)
+    )
     run = await db_session.get(TrainingRun, uuid.UUID(created["id"]))
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     evidence = {
@@ -582,11 +597,23 @@ async def test_success_receipt_must_prove_fresh_loading(
     ]:
         inventory({**receipt, "evidence": {"initialization": invalid}})
         with pytest.raises(HTTPException) as caught:
-            await runs.finish(db_session, attempt.id, completion)
+            await runs.finish(
+                db_session,
+                attempt.id,
+                completion,
+                training_authority=bind_training_authority(db_session),
+            )
         assert caught.value.status_code == 422 and run.status == "preparing"
         assert (await runs.lock_resource(db_session)).attempt_id == attempt.id
     inventory(receipt)
-    assert (await runs.finish(db_session, attempt.id, completion)).status == "succeeded"
+    assert (
+        await runs.finish(
+            db_session,
+            attempt.id,
+            completion,
+            training_authority=bind_training_authority(db_session),
+        )
+    ).status == "succeeded"
     assert (await runs.lock_resource(db_session)).attempt_id is None
 
 
@@ -599,7 +626,12 @@ async def test_withdrawn_actor_cannot_start_accepted_initialized_run(
     created = await create(httpx_client, token, project, body(dataset, pin))
     owner.is_active = False
     await db_session.flush()
-    assert await runs.claim(db_session, claim()) is None
+    assert (
+        await runs.claim(
+            db_session, claim(), training_authority=bind_training_authority(db_session)
+        )
+        is None
+    )
     run = await db_session.get(TrainingRun, uuid.UUID(created["id"]))
     assert run.status == "failed" and "权限" in run.error_message
     assert (await runs.lock_resource(db_session)).attempt_id is None

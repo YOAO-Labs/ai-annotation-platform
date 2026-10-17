@@ -22,7 +22,7 @@ from app.services.training_dataset_bridge import (
     sample_identities,
     split_history,
 )
-from app.services.training_datasets import assert_training_authority
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 MAX_TOTAL_RAW = 128 * 1024 * 1024
 MAX_HISTORICAL_BYTES = 16 * 1024 * 1024
@@ -186,13 +186,13 @@ async def prepare(
     api_key_id=None,
     *,
     candidate_sources: LabelingActiveLearningSources,
+    training_authority: TrainingAuthorityPort,
 ):
     # External qualification and media IO precede final domain locks.
     ref, profile = await qualification(
         db, project, body.model_version_id, body.deployment_id
     )
-    await assert_training_authority(
-        db,
+    await training_authority.assert_authority(
         project_id=project.id,
         actor_id=actor_id,
         api_key_id=api_key_id,
@@ -227,8 +227,7 @@ async def prepare(
                 **media,
             }
         )
-    await assert_training_authority(
-        db,
+    await training_authority.assert_authority(
         project_id=project.id,
         actor_id=actor_id,
         api_key_id=api_key_id,
