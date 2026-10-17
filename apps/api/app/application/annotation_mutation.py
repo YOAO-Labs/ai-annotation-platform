@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,13 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.schemas.annotation import AnnotationOut
+from app.schemas.annotation import AnnotationBulkUpdateResponse, AnnotationOut
+from app.services import task_access
 from app.services.annotation import (
     AnnotationService,
     validate_geometry_type_transition,
 )
 from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_mutation_contract import (
+    AnnotationBulkUpdateCommand,
+    AnnotationBulkUpdatePort,
     AnnotationDeleteCommand,
     AnnotationMutationError,
     AnnotationMutationPort,
@@ -31,6 +36,116 @@ from app.services.video_collaboration import (
     heartbeat_task_lock_for_legacy_video,
 )
 from app.services.workspace_contract import ProjectAccess
+
+
+async def _load_single_task_for_ids(
+    db: AsyncSession,
+    ids: list[UUID],
+) -> Task:
+    """所有 ids 必须属于同一 task; 否则 422.
+    返回该 task (供 task_access.assert_task_editable 与 project_visible 校验)."""
+    if not ids:
+        raise HTTPException(status_code=422, detail="ids must not be empty")
+    rows = (
+        await db.execute(
+            select(Annotation.id, Annotation.task_id).where(Annotation.id.in_(ids))
+        )
+    ).all()
+    if len(rows) != len(ids):
+        missing = set(ids) - {r.id for r in rows}
+        raise HTTPException(
+            status_code=404,
+            detail=f"annotations not found: {sorted(str(m) for m in missing)}",
+        )
+    task_ids = {r.task_id for r in rows}
+    if len(task_ids) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="bulk operation requires all annotations belong to a single task",
+        )
+    task_id = next(iter(task_ids))
+    # Lock the task row before any capability/evidence check so the decision is
+    # made on the current row and concurrent writers are serialized (the bulk
+    # UPDATE itself also takes this lock later).
+    task = (
+        await db.execute(
+            select(Task)
+            .where(Task.id == task_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    return task
+
+
+class _AnnotationBulkUpdateSqlAdapter(AnnotationBulkUpdatePort):
+    """Bind the legacy bulk command to its current actor and write transaction."""
+
+    def __init__(self, db: AsyncSession, *, actor: User) -> None:
+        self._db = db
+        self._actor = actor
+
+    async def update(
+        self, command: AnnotationBulkUpdateCommand
+    ) -> AnnotationBulkUpdateResponse:
+        if command.actor_id != self._actor.id:
+            raise ValueError("annotation bulk update actor does not match binding")
+        try:
+            return await self._update(command)
+        except HTTPException as exc:
+            raise AnnotationMutationError(
+                status_code=exc.status_code,
+                detail=exc.detail,
+                headers=exc.headers,
+            ) from exc
+
+    async def _update(
+        self, command: AnnotationBulkUpdateCommand
+    ) -> AnnotationBulkUpdateResponse:
+        payload = command.payload
+        task = await _load_single_task_for_ids(self._db, payload.ids)
+        access = await task_access.resolve_task_access(
+            self._db, task, self._actor, lock_membership=True
+        )
+        task_access.assert_annotation_write_allowed(task, access)
+        await task_access.assert_review_adjustment_evidence(
+            self._db, task, self._actor, access
+        )
+        await task_access.assert_task_visible(
+            self._db, task, self._actor, access=access
+        )
+        task_access.assert_task_editable(task, self._actor, access=access)
+
+        await record_annotation_actor(self._db, task, self._actor.id)
+        updated = await AnnotationService(self._db).bulk_update(
+            payload.ids,
+            class_name=payload.patch.class_name,
+            attributes=payload.patch.attributes,
+            z_order=payload.patch.z_order,
+            is_locked=payload.patch.is_locked,
+            is_hidden=payload.patch.is_hidden,
+        )
+        await AuditService.log(
+            self._db,
+            actor=self._actor,
+            action=AuditAction.ANNOTATION_BULK_UPDATE,
+            target_type="task",
+            target_id=task.id,
+            origin=command.audit_origin,
+            status_code=200,
+            detail={
+                "annotation_ids": [str(item) for item in payload.ids],
+                "patch": payload.patch.model_dump(exclude_none=True),
+                "count": len(updated),
+            },
+        )
+        await self._db.commit()
+        return AnnotationBulkUpdateResponse(
+            updated_ids=[annotation.id for annotation in updated],
+            updated_count=len(updated),
+        )
 
 
 class _AnnotationMutationSqlAdapter(AnnotationMutationPort):

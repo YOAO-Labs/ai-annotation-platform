@@ -50,8 +50,12 @@ from app.schemas.annotation import (
     AnnotationBulkUpdateRequest,
     AnnotationBulkUpdateResponse,
 )
-from app.services.annotation import AnnotationService
-from app.services.audit import AuditAction, AuditService
+from app.application.annotation_mutation import _AnnotationBulkUpdateSqlAdapter
+from app.services.annotation_mutation_contract import (
+    AnnotationBulkUpdateCommand,
+    AnnotationMutationError,
+)
+from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.raster_mask_storage import (
     COCO_RLE_GZIP_ENCODING,
     RLE_STORAGE_GZIP,
@@ -425,48 +429,6 @@ async def upload_task_mask_content(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-async def _load_single_task_for_ids(
-    db: AsyncSession,
-    ids: list[uuid.UUID],
-) -> Task:
-    """所有 ids 必须属于同一 task; 否则 422.
-    返回该 task (供 task_access.assert_task_editable 与 project_visible 校验)."""
-    if not ids:
-        raise HTTPException(status_code=422, detail="ids must not be empty")
-    rows = (
-        await db.execute(
-            select(Annotation.id, Annotation.task_id).where(Annotation.id.in_(ids))
-        )
-    ).all()
-    if len(rows) != len(ids):
-        missing = set(ids) - {r.id for r in rows}
-        raise HTTPException(
-            status_code=404,
-            detail=f"annotations not found: {sorted(str(m) for m in missing)}",
-        )
-    task_ids = {r.task_id for r in rows}
-    if len(task_ids) != 1:
-        raise HTTPException(
-            status_code=422,
-            detail="bulk operation requires all annotations belong to a single task",
-        )
-    task_id = next(iter(task_ids))
-    # Lock the task row before any capability/evidence check so the decision is
-    # made on the current row and concurrent writers are serialized (the bulk
-    # UPDATE itself also takes this lock later).
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if task is None:
-        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
-    return task
-
-
 @router.post(
     "/annotations/bulk-update",
     response_model=AnnotationBulkUpdateResponse,
@@ -484,45 +446,20 @@ async def bulk_update_annotations(
     - 不允许 bulk 改 geometry (同一 geometry 应用到 N 个 shape 无意义)
     - 不允许 bulk 改 tool_unit_id (会破坏 class_name 校验链)
     """
-    task = await _load_single_task_for_ids(db, payload.ids)
-    access = await task_access.resolve_task_access(db, task, user, lock_membership=True)
-    task_access.assert_annotation_write_allowed(task, access)
-    await task_access.assert_review_adjustment_evidence(db, task, user, access)
-    await task_access.assert_task_visible(db, task, user, access=access)
-    task_access.assert_task_editable(task, user, access=access)
-
-    from app.services.annotation_evidence import record_annotation_actor
-
-    # A2 · take the task row lock before the bulk annotation UPDATEs.
-    await record_annotation_actor(db, task, user.id)
-    service = AnnotationService(db)
-    updated = await service.bulk_update(
-        payload.ids,
-        class_name=payload.patch.class_name,
-        attributes=payload.patch.attributes,
-        z_order=payload.patch.z_order,
-        is_locked=payload.patch.is_locked,
-        is_hidden=payload.patch.is_hidden,
-    )
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.ANNOTATION_BULK_UPDATE,
-        target_type="task",
-        target_id=task.id,
-        request=request,
-        status_code=200,
-        detail={
-            "annotation_ids": [str(i) for i in payload.ids],
-            "patch": payload.patch.model_dump(exclude_none=True),
-            "count": len(updated),
-        },
-    )
-    await db.commit()
-    return AnnotationBulkUpdateResponse(
-        updated_ids=[a.id for a in updated],
-        updated_count=len(updated),
-    )
+    try:
+        return await _AnnotationBulkUpdateSqlAdapter(db, actor=user).update(
+            AnnotationBulkUpdateCommand(
+                actor_id=user.id,
+                payload=payload,
+                audit_origin=audit_origin_from_request(request),
+            )
+        )
+    except AnnotationMutationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
 
 
 # v0.21.3 · 标注编组(Ctrl+G)持久化已删除:group/ungroup 端点下线,批量编辑退化为

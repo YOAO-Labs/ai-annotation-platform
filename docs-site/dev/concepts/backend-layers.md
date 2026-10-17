@@ -130,7 +130,9 @@ services/
 
 手工 PATCH/DELETE 通过 `annotation_mutation_contract.AnnotationMutationPort` 传任务/标注/actor UUID、既有更新 schema、原 If-Match 字符串和纯审计来源。HTTP 仍先取得 Task 锁并检查当前可见性/编辑许可，再绑定原 Session、Task、actor 与 ProjectAccess；错绑身份在 SQL 前拒绝。SQL 实现保留标注预读、视频范围、Mask I/O 前版本检查、Annotation 锁后二次校验、属性溯源、贡献/heartbeat、审计与提交；PATCH 返回 `AnnotationOut`，入口按其 version 设置原 ETag。DELETE 仍软删并保留子框/SceneTrack/相机成员级联和原 204 响应，审计类别在删除前冻结。
 
-两种命令的预期拒绝以 `AnnotationMutationError` 保留 status/detail/headers，再由 HTTP 入口恢复。属性 diff 仍通过 `AuditService.log_many` 一次批量 flush，纯 origin 与单条 log 使用相同优先级；其他 Request 调用保留原路径。批量编辑、预测决策和专项几何操作有各自规则，不能由这两个命令的完成推断已迁移。
+两种命令的预期拒绝以 `AnnotationMutationError` 保留 status/detail/headers，再由 HTTP 入口恢复。属性 diff 仍通过 `AuditService.log_many` 一次批量 flush，纯 origin 与单条 log 使用相同优先级；其他 Request 调用保留原路径。
+
+批量编辑使用同一契约文件中的 `AnnotationBulkUpdatePort`，传 actor UUID、既有批量请求和审计来源，返回原 `AnnotationBulkUpdateResponse`。私有实现绑定请求 Session/actor，按原顺序选取标注 ID、锁定唯一 Task、检查当前许可/审核证据/可见性和编辑阶段，再记录贡献、调用原批量写入、审计并提交。重复 ID 仍拒绝，空或全部为 null 的补丁仍递增版本；不增加去重或跳过逻辑。预测决策和专项几何操作继续独立验收。
 
 `annotation_slice_contracts` 是只依赖标准库的错误、摘要和固定恢复期限所有者。Polygon 切割、Mask mutation 与 `mask_slice_restore` 直接消费该合同，恢复下层不再反向导入切割编排。原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
 

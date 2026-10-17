@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol
 from uuid import UUID
 
-from app.schemas.annotation import AnnotationOut, AnnotationUpdate
+from app.schemas.annotation import (
+    AnnotationBulkUpdateRequest,
+    AnnotationBulkUpdateResponse,
+    AnnotationOut,
+    AnnotationUpdate,
+)
 from app.services.audit_origin_contract import AuditOriginContext
 
 
@@ -25,6 +30,13 @@ class AnnotationDeleteCommand:
     task_id: UUID
     annotation_id: UUID
     actor_id: UUID
+    audit_origin: AuditOriginContext
+
+
+@dataclass(frozen=True, slots=True)
+class AnnotationBulkUpdateCommand:
+    actor_id: UUID
+    payload: AnnotationBulkUpdateRequest
     audit_origin: AuditOriginContext
 
 
@@ -48,4 +60,12 @@ class AnnotationMutationPort(Protocol):
 
     async def delete(self, command: AnnotationDeleteCommand) -> bool:
         """Return the existing deletion success receipt; commit on success."""
+        ...
+
+
+class AnnotationBulkUpdatePort(Protocol):
+    async def update(
+        self, command: AnnotationBulkUpdateCommand
+    ) -> AnnotationBulkUpdateResponse:
+        """Apply the all-or-nothing task-scoped bulk update in the bound session."""
         ...

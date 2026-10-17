@@ -142,7 +142,7 @@ last_reviewed: 2026-10-17
    `state/useTrackerSeedCollection.ts`（种子分组纯模块 `state/trackerSeedPrompts.ts`），
    批量线后端选择在 `state/useBatchBackendSelection.ts`；后端 Mask 写入经
    `app/services/mask_mutation.py`（版本冲突与幂等键在此收口）。
-   手工 PATCH/DELETE 经 `app/application/annotation_mutation.py` 绑定原 Session/Task/actor，消费 `annotation_mutation_contract` 的纯命令；原 Task-first 锁、Mask I/O 前后版本检查、属性 diff 审计、软删级联和 ETag/204 保持。
+   手工 PATCH/DELETE 经 `app/application/annotation_mutation.py` 绑定原 Session/Task/actor，消费 `annotation_mutation_contract` 的纯命令；原 Task-first 锁、Mask I/O 前后版本检查、属性 diff 审计、软删级联和 ETag/204 保持。批量编辑在同一装配文件绑定 Session/actor，经独立的 `AnnotationBulkUpdatePort` 保留 ID 选取、唯一 Task 锁与当前准入、整批写入/审计/提交顺序。
    素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
    `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
    素材/帧传递使用 `services/dataset_task_facts`，共享分组在 `services/dataset_frame_grouping`。
