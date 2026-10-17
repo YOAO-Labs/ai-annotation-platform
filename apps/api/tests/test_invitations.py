@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import secrets
-import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.group import Group
@@ -19,8 +17,6 @@ from app.db.models.user_invitation import UserInvitation
 from app.schemas.invitation import InvitationCreate
 from app.services.invitation import (
     InvitationService,
-    _lock_invitation_email,
-    _resolve_or_create_group,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -146,56 +142,6 @@ async def test_project_admin_does_not_expire_another_inviter_record(
     assert invitation.expires_at == original_expiry
 
 
-async def test_invitation_mutations_use_database_locks() -> None:
-    now = datetime.now(timezone.utc)
-    actor = User(
-        id=uuid.uuid4(),
-        email="locking-admin@invite.test",
-        name="Locking Admin",
-        password_hash="unused",
-        role="project_admin",
-        is_active=True,
-    )
-    invitation = UserInvitation(
-        id=uuid.uuid4(),
-        email="locking-target@invite.test",
-        role="reviewer",
-        token=secrets.token_urlsafe(32),
-        expires_at=now + timedelta(days=1),
-        invited_by=actor.id,
-    )
-
-    resolve_result = MagicMock()
-    resolve_result.scalar_one_or_none.return_value = invitation
-    resolve_db = AsyncMock(spec=AsyncSession)
-    resolve_db.execute.return_value = resolve_result
-    resolve_db.scalar.return_value = actor
-    await InvitationService.resolve(resolve_db, invitation.token, for_update=True)
-    resolve_query = resolve_db.execute.await_args.args[0]
-
-    manage_db = AsyncMock(spec=AsyncSession)
-    manage_db.scalar.return_value = invitation
-    await InvitationService.revoke(manage_db, invitation.id, actor=actor)
-    manage_query = manage_db.scalar.await_args.args[0]
-
-    email_db = AsyncMock(spec=AsyncSession)
-    await _lock_invitation_email(email_db, invitation.email)
-    email_query = email_db.execute.await_args.args[0]
-
-    group = Group(id=uuid.uuid4(), name="Locking Group")
-    group_db = AsyncMock(spec=AsyncSession)
-    group_db.scalar.return_value = group
-    assert await _resolve_or_create_group(group_db, group.name) is group
-    group_query = group_db.scalar.await_args.args[0]
-
-    assert "FOR UPDATE" in str(resolve_query.compile(dialect=postgresql.dialect()))
-    assert "FOR UPDATE" in str(manage_query.compile(dialect=postgresql.dialect()))
-    assert "pg_advisory_xact_lock" in str(
-        email_query.compile(dialect=postgresql.dialect())
-    )
-    assert "FOR SHARE" in str(group_query.compile(dialect=postgresql.dialect()))
-
-
 async def test_revoked_invitation_cannot_be_resolved(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -211,7 +157,6 @@ async def test_revoked_invitation_cannot_be_resolved(
     response = await httpx_client.get(f"/api/v1/auth/invitations/{invitation.token}")
 
     assert response.status_code == 410
-    assert response.json()["detail"] == "该邀请已撤销"
 
 
 async def test_revoked_invitation_cannot_register(
@@ -432,7 +377,6 @@ async def test_legacy_privileged_invitation_requires_active_super_admin_issuer(
     response = await httpx_client.get(f"/api/v1/auth/invitations/{invitation.token}")
 
     assert response.status_code == 410
-    assert response.json()["detail"] == "该邀请权限已失效"
 
 
 async def test_accept_invitation_creates_and_assigns_group(

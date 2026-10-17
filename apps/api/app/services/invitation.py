@@ -25,6 +25,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
+from app.services.identity_commands import IdentityCommandService
 from app.services.project_access import (
     assert_membership_role_compatible,
     membership_role_compatible,
@@ -80,7 +81,7 @@ async def _lock_invitation_email(db: AsyncSession, email: str) -> None:
     )
 
 
-async def _resolve_or_create_group(db: AsyncSession, name: str) -> Group:
+async def resolve_or_create_group(db: AsyncSession, name: str) -> Group:
     query = select(Group).where(Group.name == name).with_for_update(read=True)
     group = await db.scalar(query)
     if group is not None:
@@ -169,7 +170,7 @@ async def _validate_inviter_scope(
     return inviter
 
 
-def _assert_project_role_compatible(project_role: str | None) -> None:
+def assert_project_role_compatible(project_role: str | None) -> None:
     if project_role not in _PROJECT_MEMBER_ROLES:
         raise HTTPException(
             status_code=400,
@@ -177,7 +178,7 @@ def _assert_project_role_compatible(project_role: str | None) -> None:
         )
 
 
-def _assert_existing_role_compatible(user: User, project_role: str) -> None:
+def assert_existing_role_compatible(user: User, project_role: str) -> None:
     """An existing account may accept a project invitation only when its
     platform role is compatible with the project responsibility.
 
@@ -198,33 +199,17 @@ def _assert_existing_role_compatible(user: User, project_role: str) -> None:
     )
 
 
-async def _add_project_membership(
-    db: AsyncSession,
-    *,
-    project_id: uuid.UUID,
-    user_id: uuid.UUID,
-    role: str,
-    assigned_by: uuid.UUID,
-) -> None:
-    """Insert membership atomically and turn a concurrent duplicate into 409."""
+def assert_invitation_platform_role(role: str) -> None:
+    """Reject invitation account roles that cannot be created on this schema."""
 
-    result = await db.execute(
-        pg_insert(ProjectMember)
-        .values(
-            id=uuid.uuid4(),
-            project_id=project_id,
-            user_id=user_id,
-            role=role,
-            assigned_by=assigned_by,
+    if role not in PLATFORM_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="该邀请包含已失效的账号角色，请联系管理员重发",
         )
-        .on_conflict_do_nothing(index_elements=["project_id", "user_id"])
-        .returning(ProjectMember.id)
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=409, detail="该账号已是目标项目成员")
 
 
-async def _acceptance_summary(
+async def acceptance_summary(
     db: AsyncSession,
     *,
     user: User,
@@ -334,7 +319,7 @@ class InvitationService:
         if platform_role not in _ALLOWED_ROLES:
             raise HTTPException(status_code=400, detail=f"非法角色: {role}")
         if project_id is not None:
-            _assert_project_role_compatible(project_role)
+            assert_project_role_compatible(project_role)
             assert_membership_role_compatible(platform_role, project_role)
         elif project_role is not None:
             raise HTTPException(status_code=400, detail="账号级邀请不得包含项目职责")
@@ -382,7 +367,7 @@ class InvitationService:
                 detail=f"邮箱 {email} 已注册，请选择目标项目后邀请该用户加入",
             )
         if existing is not None:
-            _assert_existing_role_compatible(existing, project_role)
+            assert_existing_role_compatible(existing, project_role)
             member = await db.scalar(
                 select(ProjectMember.id).where(
                     ProjectMember.project_id == project_id,
@@ -442,7 +427,7 @@ class InvitationService:
         project = await _project_for_invitation(db, inv, for_update=False)
         await _validate_inviter_scope(db, inv, project)
         if project is not None:
-            _assert_project_role_compatible(invitation_project_role(inv))
+            assert_project_role_compatible(invitation_project_role(inv))
         return inv
 
     @staticmethod
@@ -496,139 +481,76 @@ class InvitationService:
         return inv
 
     @staticmethod
-    async def accept(
+    async def create_registration_account(
         db: AsyncSession,
         *,
-        token: str,
+        invitation: UserInvitation,
         name: str,
         password: str,
-    ) -> tuple[User, UserInvitation, dict[str, object]]:
-        # First resolve gives a useful public error before taking locks.  The
-        # second resolve is the authoritative, row-locked check.
-        initial = await InvitationService.resolve(db, token)
-        await _lock_user(db, initial.invited_by)
-        await _lock_invitation_email(db, initial.email)
-        await _project_for_invitation(db, initial, for_update=True)
-        inv = await InvitationService.resolve(db, token, for_update=True)
-        project = await _project_for_invitation(db, inv, for_update=True)
-        inviter = await _validate_inviter_scope(db, inv, project)
-
-        # 二次防御：注册期间该 email 是否被抢占
-        existing = await db.execute(
-            select(User).where(User.email == inv.email, User.is_active.is_(True))
+    ) -> User:
+        """Prepare invitation-owned group data and stage the identity account."""
+        existing = await db.scalar(
+            select(User).where(
+                User.email == invitation.email,
+                User.is_active.is_(True),
+            )
         )
-        if existing.scalar_one_or_none() is not None:
+        if existing is not None:
             raise HTTPException(
                 status_code=409,
                 detail="该邮箱已注册，请让该用户登录后确认项目邀请",
             )
-
-        group_name = (inv.group_name or "").strip() or None
+        group_name = (invitation.group_name or "").strip() or None
         if group_name is not None and len(group_name) > 100:
             raise HTTPException(
                 status_code=409,
                 detail="邀请中的数据组名称无效，请联系管理员重发邀请",
             )
         group = (
-            await _resolve_or_create_group(db, group_name)
+            await resolve_or_create_group(db, group_name)
             if group_name is not None
             else None
         )
-        inv.group_name = group.name if group else None
-
-        # Defense in depth: a legacy staff role must never reach account
-        # creation.  Rows are normalized on resend (and were converted by
-        # migration 0174), so an unconverted value here means an unmanaged
-        # historical row — fail closed instead of creating an account the
-        # authorization model rejects.
-        if inv.role not in PLATFORM_ROLES:
-            raise HTTPException(
-                status_code=status.HTTP_410_GONE,
-                detail="该邀请包含已失效的账号角色，请联系管理员重发",
-            )
-
-        user = User(
-            email=inv.email,
+        invitation.group_name = group.name if group else None
+        assert_invitation_platform_role(invitation.role)
+        return await IdentityCommandService(db).create_invited_account(
+            email=invitation.email,
             name=name,
             password_hash=hash_password(password),
-            role=inv.role,
+            role=invitation.role,
             group_name=group.name if group else None,
             group_id=group.id if group else None,
-            status="online",
-            is_active=True,
-            # 邀请 token 本身即身份证明，邀请注册恒视为已验证
-            email_verified_at=datetime.now(timezone.utc),
+            now=datetime.now(timezone.utc),
         )
-        db.add(user)
-        await db.flush()
-
-        member_role = invitation_project_role(inv)
-        if project is not None:
-            _assert_project_role_compatible(member_role)
-            await _add_project_membership(
-                db,
-                project_id=project.id,
-                user_id=user.id,
-                role=member_role,
-                assigned_by=inviter.id,
-            )
-
-        inv.accepted_at = datetime.now(timezone.utc)
-        inv.accepted_user_id = user.id
-        await db.flush()
-        acceptance = await _acceptance_summary(
-            db,
-            user=user,
-            project=project,
-            member_role=member_role,
-        )
-        return user, inv, acceptance
 
     @staticmethod
-    async def accept_existing(
-        db: AsyncSession, *, token: str, user: User
-    ) -> tuple[User, UserInvitation, dict[str, object]]:
+    async def lock_acceptance_context(
+        db: AsyncSession, token: str
+    ) -> tuple[UserInvitation, Project | None]:
+        """Resolve, then lock the existing invitation acceptance fences."""
+
         initial = await InvitationService.resolve(db, token)
         await _lock_user(db, initial.invited_by)
         await _lock_invitation_email(db, initial.email)
         await _project_for_invitation(db, initial, for_update=True)
-        inv = await InvitationService.resolve(db, token, for_update=True)
-        project = await _project_for_invitation(db, inv, for_update=True)
-        if project is None:
-            raise HTTPException(
-                status_code=409,
-                detail="该邀请仅用于创建新账号，已有账号只能接受带目标项目的邀请",
-            )
-        inviter = await _validate_inviter_scope(db, inv, project)
+        invitation = await InvitationService.resolve(db, token, for_update=True)
+        project = await _project_for_invitation(db, invitation, for_update=True)
+        return invitation, project
 
-        locked_user = await _lock_user(db, user.id)
-        if locked_user is None or not locked_user.is_active:
-            raise HTTPException(status_code=401, detail="账号已停用，请重新登录")
-        if locked_user.email.strip().lower() != inv.email.strip().lower():
-            raise HTTPException(
-                status_code=403,
-                detail="当前登录邮箱与邀请邮箱不一致，请使用被邀请邮箱登录",
-            )
+    @staticmethod
+    async def validate_acceptance_authority(
+        db: AsyncSession, *, invitation: UserInvitation, project: Project | None
+    ) -> User:
+        return await _validate_inviter_scope(db, invitation, project)
 
-        member_role = invitation_project_role(inv)
-        if project is not None:
-            _assert_project_role_compatible(member_role)
-            _assert_existing_role_compatible(locked_user, member_role)
-            await _add_project_membership(
-                db,
-                project_id=project.id,
-                user_id=locked_user.id,
-                role=member_role,
-                assigned_by=inviter.id,
-            )
+    @staticmethod
+    async def lock_acceptance_user(db: AsyncSession, user_id: uuid.UUID) -> User | None:
+        return await _lock_user(db, user_id)
 
-        inv.accepted_at = datetime.now(timezone.utc)
-        inv.accepted_user_id = locked_user.id
+    @staticmethod
+    async def mark_accepted(
+        db: AsyncSession, *, invitation: UserInvitation, user: User
+    ) -> None:
+        invitation.accepted_at = datetime.now(timezone.utc)
+        invitation.accepted_user_id = user.id
         await db.flush()
-        acceptance = await _acceptance_summary(
-            db,
-            user=locked_user,
-            project=project,
-            member_role=member_role,
-        )
-        return locked_user, inv, acceptance

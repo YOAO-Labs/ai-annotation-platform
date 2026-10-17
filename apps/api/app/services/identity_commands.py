@@ -82,6 +82,33 @@ class IdentityCommandService:
         await self.db.flush()
         return user
 
+    async def create_invited_account(
+        self,
+        *,
+        email: str,
+        name: str,
+        password_hash: str,
+        role: str,
+        group_name: str | None,
+        group_id: uuid.UUID | None,
+        now: datetime,
+    ) -> User:
+        """Stage an account after invitation authority and role checks."""
+        user = User(
+            email=email,
+            name=name,
+            password_hash=password_hash,
+            role=role,
+            group_name=group_name,
+            group_id=group_id,
+            status="online",
+            is_active=True,
+            email_verified_at=now,
+        )
+        self.db.add(user)
+        await self.db.flush()
+        return user
+
     async def ensure_import_admin(self, *, environment: str) -> User:
         """Reuse admin, or bootstrap it only outside production for this CLI."""
         admin = await self.db.scalar(select(User).where(User.email == "admin"))

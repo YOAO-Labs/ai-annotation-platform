@@ -986,6 +986,23 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 
 - 六个原始预算样本及真实 HTTP/独立观察者证据分别在 `/tmp/aap-annotation-receipt-budget.json`、`/tmp/aap-annotation-receipt-smoke.json`。不据此推断吞吐、RSS 或性能优化。正式说明同步标注模块、后端分层与仓库地图；未改 schema、依赖、配置或版本，纯结构迁移不增加 CHANGELOG。本地 Session/ORM/HTTP 错误仍不是语言无关进程协议。
 
+### 邀请接受与成员授予
+
+- `application/invitation_acceptance.py` 组合身份邀请和 workspace 成员授予。邀请规则、原锁围栏、组名及接受状态由 `InvitationService` 持有；主线另把账号构造收回 `IdentityCommandService.create_invited_account`，不将 User DML 留在组合层。`project_membership.grant_invitation_membership` 独占成员 INSERT、`assigned_by` 和并发重复 409，不自行提交。HTTP 保留审计 → commit → refresh → 注册 JWT 的原顺序。
+- 隔离真实 Uvicorn TCP/default 依赖已观察注册 201、返回 JWT 对 `/auth/me` 认证 200、已有账号接受 200、重放 410；独立 SQL 确认两个成员的邀请人归属及两条审计持久化，未投递 SMTP。原始记录在 `/tmp/aap-invitation-evidence/http-smoke.json`，其自有 dev/test 资源已销毁。
+- 主线默认依赖 ASGI/JWT 复验相同成功路径，新 PostgreSQL 事务确认两个 invitation、正确的 annotator/reviewer 成员与邀请人、受邀 employee 账号及两条审计。首次探针误读不存在的 `AuditLog.detail` 后，只修正观察者为真实 `detail_json` 并恢复已提交夹具，没有重复注册/接受；完整说明在 `.worktree/invitation-main-smoke.json`。
+- 仅对自有 invitation UUID 安装 deferred constraint trigger，使 PostgreSQL 在实际 commit 抛错；SQLAlchemy 错误观察者确认命中该触发器，而不是用任意 500 冒充。HTTP 500 后新事务见零新账号、零新审计、原有两个成员保持、目标邀请仍 pending；触发器和函数均已移除。
+- 审查指出两项独立 Session 回归在测试事务之外提交夹具。主线原生复现后，三个用户、两个项目、三张邀请及一个成员确实残留；只按捕获 ID 清理，再为两项测试加 `finally` 清理。完整组合与随后第二次定向运行均通过，新连接读取四个固定夹具邮箱均无用户残留，没有用随机邮箱掩盖泄漏。
+- 主线组合回归实际为 209 passed、77 skipped、零失败/错误，包含邀请权限/过期/撤销/角色/转移、同事务回滚、不同 PostgreSQL PID 的并发接受、SCC 和精确 OpenAPI；两项重复清理资格不叠加计数。移除 SQL 字符串/Mock 接线测试、自由错误文案和固定 token_type 回声，保留真实 JWT 认证与状态/身份断言；七个 Python 文件的固定 Ruff 格式/check 通过。
+- 隔离冻结候选的命令预算以 `cb2051461` 历史方法为 before，各侧预热一次后交错采样三次，命令后 rollback，排除 HTTP/JWT、审计、夹具和事后读取：
+
+| 路径         | SQL（前） | SQL（后） | Python 堆峰值中位数（前，字节） | Python 堆峰值中位数（后，字节） |
+| ------------ | --------: | --------: | ------------------------------: | ------------------------------: |
+| 已有账号接受 |        19 |        19 |                         298,145 |                         298,201 |
+| 新账号注册   |        20 |        20 |                         311,014 |                         304,931 |
+
+- 两份原始样本在 `/tmp/aap-invitation-evidence/{budget,register-budget}.json`；主线补充了账号所有者调用帧，不将该冻结候选的堆数字宣称为主线复测结果，也不推断优化、RSS 或吞吐。后端分层及仓库地图已同步；纯边界迁移不改 schema、依赖、配置、版本或 CHANGELOG，仍是本地 Session 事务而非远程协议。
+
 ### 剩余范围
 
-- 剩余写入切片为邀请接受的成员写入及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余写入切片为通用作业直写，继续迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

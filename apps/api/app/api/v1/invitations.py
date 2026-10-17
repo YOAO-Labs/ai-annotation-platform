@@ -2,9 +2,13 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.invitation_acceptance import (
+    accept_existing_project_invitation,
+    register_account_from_invitation,
+)
 from app.core.security import create_access_token
-from app.deps import get_db, get_current_user
 from app.db.models.user import User
+from app.deps import get_db, get_current_user
 from app.schemas.invitation import (
     AcceptInvitationRequest,
     AcceptInvitationResponse,
@@ -13,8 +17,8 @@ from app.schemas.invitation import (
     RegisterResponse,
 )
 from app.schemas.user import UserOut
-from app.services.invitation import InvitationService, invitation_project_role
 from app.services.audit import AuditService, AuditAction
+from app.services.invitation import InvitationService, invitation_project_role
 
 router = APIRouter()
 
@@ -51,7 +55,7 @@ async def register_via_invitation(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    user, inv, acceptance = await InvitationService.accept(
+    user, inv, acceptance = await register_account_from_invitation(
         db,
         token=payload.token,
         name=payload.name,
@@ -102,7 +106,7 @@ async def accept_invitation_for_existing_user(
 async def _accept_existing_invitation(
     db: AsyncSession, token: str, request: Request, user: User
 ) -> AcceptInvitationResponse:
-    accepted_user, inv, acceptance = await InvitationService.accept_existing(
+    accepted_user, inv, acceptance = await accept_existing_project_invitation(
         db, token=token, user=user
     )
     await AuditService.log(
