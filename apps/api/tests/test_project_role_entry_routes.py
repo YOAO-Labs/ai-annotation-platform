@@ -33,7 +33,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob
-from app.services.project_access import ProjectAccess, ProjectCapability
+from app.services.workspace_contract import ProjectAccess, ProjectCapability
 from app.services.data_management.views import TaskViewService
 from tests.factory import (
     create_batch,

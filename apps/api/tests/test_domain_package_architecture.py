@@ -137,6 +137,11 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="task_access", legacy_facades=()),
     DomainSpec(package="project_write_guard", legacy_facades=()),
     DomainSpec(package="project_membership", legacy_facades=()),
+    DomainSpec(
+        package="workspace_contract",
+        legacy_facades=(),
+        allowed_app_imports=("app.db.enums",),
+    ),
     DomainSpec(package="user_lifecycle", legacy_facades=()),
     DomainSpec(package="identity_commands", legacy_facades=()),
     DomainSpec(

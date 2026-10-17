@@ -15,11 +15,11 @@ from app.deps import (
 )
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.project_access import (
+from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
-    resolve_project_access,
 )
+from app.services.project_access import resolve_project_access
 from app.schemas.data_manager import (
     DataManagerMatchesRequest,
     DataManagerMatchesResponse,

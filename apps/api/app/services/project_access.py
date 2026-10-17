@@ -1,44 +1,25 @@
-"""Immutable project access context and capability matrix.
-
-This is the single authorization source introduced by the project-scoped
-employee-roles plan (Increment B1).  Downstream workflow, delivery and frontend
-work packages consume these contracts instead of reading a global
-``User.role``.
-
-Model
------
-* Platform role lives on the account (``users.role``): ``super_admin``,
-  ``project_admin``, ``employee`` or ``viewer``.
-* Project role lives on the membership (``project_members.role``):
-  ``annotator``, ``reviewer`` or ``viewer``.
-* Managers are a super administrator, or the project owner whose platform role
-  is a valid administrative role.  A platform ``project_admin`` who is only a
-  member of another project receives at most that membership's capabilities,
-  never management.
-* Membership role is never inferred from the account role and an unknown role
-  fails closed.  Legacy ``annotator`` / ``reviewer`` account values are *not*
-  an authorization source; historical readers live in the migration/audit
-  adapters, not here.
-* The resolver always re-reads current account and project state so a stale ORM
-  object cannot authorize a revoked account or a transferred project.
-
-All helpers are read-only unless explicitly documented.  Mutations live in
-``services/project_membership.py``.
-"""
+"""SQL-backed workspace access resolution and transaction locks."""
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from enum import Enum
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.workspace_contract import (
+    ACCESS_KIND_MEMBER as _ACCESS_KIND_MEMBER,
+    ACCESS_KIND_OWNER as _ACCESS_KIND_OWNER,
+    ACCESS_KIND_SUPER_ADMIN as _ACCESS_KIND_SUPER_ADMIN,
+    MANAGER_CAPABILITIES as _MANAGER_CAPABILITIES,
+    ProjectAccess as _ProjectAccess,
+    membership_role_compatible as _membership_role_compatible,
+    platform_role_is_manager as _platform_role_is_manager,
+    project_role_capabilities as _project_role_capabilities,
+)
 from app.db.enums import (
-    MANAGER_PLATFORM_ROLES,
     PLATFORM_ROLES,
     PROJECT_ROLES,
     PlatformRole,
@@ -49,106 +30,8 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 
 
-class ProjectCapability(str, Enum):
-    """Fixed capability set for a project request context."""
-
-    PROJECT_READ = "project.read"
-    PROJECT_MANAGE = "project.manage"
-    MEMBER_READ = "member.read"
-    MEMBER_MANAGE = "member.manage"
-    TASK_READ = "task.read"
-    ANNOTATION_WRITE = "annotation.write"
-    REVIEW_WRITE = "review.write"
-    #: Full project / batch / selected-task annotation export.  Deliberately
-    #: excludes annotators and viewers (plan section 3).
-    EXPORT_ANNOTATIONS = "export.annotations"
-    #: Project performance details and performance CSV.  Owner / super-admin
-    #: only; annotation export does not grant access to others' performance.
-    PERFORMANCE_READ = "performance.read"
-
-
-ACCESS_KIND_SUPER_ADMIN = "super_admin"
-ACCESS_KIND_OWNER = "owner"
-ACCESS_KIND_MEMBER = "member"
-
-_READ_CAPABILITIES = frozenset(
-    {
-        ProjectCapability.PROJECT_READ.value,
-        ProjectCapability.MEMBER_READ.value,
-        ProjectCapability.TASK_READ.value,
-    }
-)
-#: Managers receive the complete capability set for their project.
-MANAGER_CAPABILITIES = frozenset(capability.value for capability in ProjectCapability)
-
-_ANNOTATOR_CAPABILITIES = _READ_CAPABILITIES | {
-    ProjectCapability.ANNOTATION_WRITE.value,
-}
-_REVIEWER_CAPABILITIES = _READ_CAPABILITIES | {
-    ProjectCapability.REVIEW_WRITE.value,
-    ProjectCapability.EXPORT_ANNOTATIONS.value,
-}
-_VIEWER_CAPABILITIES = _READ_CAPABILITIES
-
-_PROJECT_ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
-    ProjectRole.ANNOTATOR.value: frozenset(_ANNOTATOR_CAPABILITIES),
-    ProjectRole.REVIEWER.value: frozenset(_REVIEWER_CAPABILITIES),
-    ProjectRole.VIEWER.value: frozenset(_VIEWER_CAPABILITIES),
-}
-
-
-def project_role_capabilities(project_role: str) -> frozenset[str]:
-    """Return the capability set for a project role; unknown roles fail closed."""
-
-    return _PROJECT_ROLE_CAPABILITIES.get(project_role, frozenset())
-
-
-def platform_role_is_manager(platform_role: str | None) -> bool:
-    return platform_role in MANAGER_PLATFORM_ROLES
-
-
-def is_privileged_for_project(user: User, project: Project) -> bool:
-    """Canonical pure predicate for the manager access kind.
-
-    An active super administrator, or the project owner whose *platform* role
-    is administrative.  This is the pure (already-loaded ORM) mirror of
-    :func:`resolve_project_access` returning ``ACCESS_KIND_SUPER_ADMIN`` or
-    ``ACCESS_KIND_OWNER``; schedulers, workers and aggregate reads call it
-    instead of re-deriving the owner/platform-role rule from ``User.role``.
-
-    Ownership alone never grants authority, and a legacy ``annotator`` /
-    ``reviewer`` account value is not an authority source.
-    """
-
-    if not user.is_active:
-        return False
-    if user.role == PlatformRole.SUPER_ADMIN.value:
-        return True
-    return platform_role_is_manager(user.role) and project.owner_id == user.id
-
-
-def membership_role_compatible(platform_role: str, project_role: str) -> bool:
-    """Whether ``platform_role`` may hold ``project_role`` membership.
-
-    * ``employee`` may hold any project role.
-    * ``viewer`` accounts may only hold a ``viewer`` membership.
-    * Managers, super administrators, unknown and legacy staff values have no
-      membership role (managers act through ownership).  Legacy
-      ``annotator`` / ``reviewer`` account values are rejected here; only the
-      migration/history readers treat them as historical facts.
-    """
-
-    if project_role not in PROJECT_ROLES:
-        return False
-    if platform_role == PlatformRole.VIEWER.value:
-        return project_role == ProjectRole.VIEWER.value
-    if platform_role == PlatformRole.EMPLOYEE.value:
-        return True
-    return False
-
-
 def assert_membership_role_compatible(platform_role: str, project_role: str) -> None:
-    if membership_role_compatible(platform_role, project_role):
+    if _membership_role_compatible(platform_role, project_role):
         return
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
@@ -159,31 +42,6 @@ def assert_membership_role_compatible(platform_role: str, project_role: str) -> 
     )
 
 
-@dataclass(frozen=True, slots=True)
-class ProjectAccess:
-    """Immutable request context for one account in one project.
-
-    The context is resolved once per request and must be rejected when it does
-    not match the resource's actual project.  Never assign
-    ``user.role = member.role`` to reuse legacy helpers.
-    """
-
-    user_id: uuid.UUID
-    project_id: uuid.UUID
-    platform_role: str
-    project_role: str | None
-    membership_id: uuid.UUID | None
-    membership_version: int | None
-    access_kind: str
-    capabilities: frozenset[str]
-    is_super_admin: bool = False
-    is_owner: bool = False
-    is_manager: bool = False
-
-    def has(self, *capabilities: str) -> bool:
-        return all(capability in self.capabilities for capability in capabilities)
-
-
 def _manager_access(
     *,
     user: User,
@@ -191,8 +49,8 @@ def _manager_access(
     access_kind: str,
     is_super_admin: bool,
     is_owner: bool,
-) -> ProjectAccess:
-    return ProjectAccess(
+) -> _ProjectAccess:
+    return _ProjectAccess(
         user_id=user.id,
         project_id=project.id,
         platform_role=user.role,
@@ -200,7 +58,7 @@ def _manager_access(
         membership_id=None,
         membership_version=None,
         access_kind=access_kind,
-        capabilities=MANAGER_CAPABILITIES,
+        capabilities=_MANAGER_CAPABILITIES,
         is_super_admin=is_super_admin,
         is_owner=is_owner,
         is_manager=True,
@@ -215,13 +73,23 @@ def _invalid_account() -> HTTPException:
     )
 
 
+def is_privileged_for_project(user: User, project: Project) -> bool:
+    """An active super administrator or a project owner with an admin role."""
+
+    if not user.is_active:
+        return False
+    if user.role == PlatformRole.SUPER_ADMIN.value:
+        return True
+    return _platform_role_is_manager(user.role) and project.owner_id == user.id
+
+
 async def resolve_project_access(
     db: AsyncSession,
     *,
     user: User,
     project: Project,
     lock_membership: bool = False,
-) -> ProjectAccess:
+) -> _ProjectAccess:
     """Resolve the immutable access context for ``user`` on ``project``.
 
     Always re-reads current account and project state so a revoked account or a
@@ -261,7 +129,7 @@ async def _resolve_current_project_access(
     project: Project,
     lock_membership: bool,
     nowait: bool = False,
-) -> ProjectAccess:
+) -> _ProjectAccess:
     platform_role = user.role
     if platform_role not in PLATFORM_ROLES:
         # Unknown or legacy account roles fail closed; they are not a live
@@ -274,16 +142,16 @@ async def _resolve_current_project_access(
         return _manager_access(
             user=user,
             project=project,
-            access_kind=ACCESS_KIND_SUPER_ADMIN,
+            access_kind=_ACCESS_KIND_SUPER_ADMIN,
             is_super_admin=True,
             is_owner=project.owner_id == user.id,
         )
 
-    if project.owner_id == user.id and platform_role_is_manager(platform_role):
+    if project.owner_id == user.id and _platform_role_is_manager(platform_role):
         return _manager_access(
             user=user,
             project=project,
-            access_kind=ACCESS_KIND_OWNER,
+            access_kind=_ACCESS_KIND_OWNER,
             is_super_admin=False,
             is_owner=True,
         )
@@ -324,15 +192,15 @@ async def _resolve_current_project_access(
             status_code=status.HTTP_403_FORBIDDEN, detail="账号平台角色与项目职责不兼容"
         )
 
-    return ProjectAccess(
+    return _ProjectAccess(
         user_id=user.id,
         project_id=project.id,
         platform_role=platform_role,
         project_role=project_role,
         membership_id=member.id,
         membership_version=member.version,
-        access_kind=ACCESS_KIND_MEMBER,
-        capabilities=project_role_capabilities(project_role),
+        access_kind=_ACCESS_KIND_MEMBER,
+        capabilities=_project_role_capabilities(project_role),
         is_manager=False,
     )
 
@@ -381,7 +249,7 @@ async def lock_current_project_rows(
 
 async def lock_current_project_access(
     db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
-) -> tuple[User, Project, ProjectAccess]:
+) -> tuple[User, Project, _ProjectAccess]:
     """Resolve authority under account -> project -> membership share locks.
 
     Locks are bounded and retained until the caller commits or rolls back.
@@ -405,7 +273,7 @@ async def resolve_project_access_by_id(
     user: User,
     project_id: uuid.UUID,
     lock_membership: bool = False,
-) -> tuple[Project, ProjectAccess]:
+) -> tuple[Project, _ProjectAccess]:
     project = await db.get(Project, project_id, populate_existing=True)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
@@ -416,7 +284,7 @@ async def resolve_project_access_by_id(
 
 
 def assert_context_matches_project(
-    access: ProjectAccess, project_id: uuid.UUID
+    access: _ProjectAccess, project_id: uuid.UUID
 ) -> None:
     """Reject a context/resource project mismatch before any read or write."""
 
@@ -430,7 +298,7 @@ def assert_context_matches_project(
         )
 
 
-def assert_capability(access: ProjectAccess, *capabilities: str) -> None:
+def assert_capability(access: _ProjectAccess, *capabilities: str) -> None:
     missing = sorted(cap for cap in capabilities if cap not in access.capabilities)
     if missing:
         raise HTTPException(

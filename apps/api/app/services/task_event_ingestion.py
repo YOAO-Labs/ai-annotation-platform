@@ -23,7 +23,8 @@ from app.db.models.task import Task
 from app.db.models.task_event import TaskEvent
 from app.db.models.user import User
 from app.schemas.task_event import TaskEventIn
-from app.services.project_access import ProjectCapability, resolve_project_access
+from app.services.workspace_contract import ProjectCapability
+from app.services.project_access import resolve_project_access
 
 MAX_EVENT_DURATION_MS = 4 * 60 * 60 * 1000
 MAX_ANNOTATION_COUNT = 1_000_000

@@ -36,11 +36,9 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
-from app.services.project_access import (
-    assert_membership_role_compatible,
-    is_privileged_for_project,
-    membership_role_compatible,
-)
+from app.services.project_access import is_privileged_for_project
+from app.services.workspace_contract import membership_role_compatible
+from app.services.project_access import assert_membership_role_compatible
 from app.services.scheduler import (
     effective_task_assignee_expr,
     effective_task_reviewer_expr,

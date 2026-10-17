@@ -27,9 +27,11 @@ from app.deps import (
     require_scopes,
     require_active_task_actor,
 )
-from app.services.project_access import (
+from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
+)
+from app.services.project_access import (
     assert_capability,
     resolve_project_access,
 )

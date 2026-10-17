@@ -10,7 +10,8 @@ from app.db.models.user import User
 from app.db.models.project import Project
 from app.core.security import decode_access_token
 from app.core.token_blacklist import is_blacklisted, get_user_generation
-from app.services.project_access import ProjectAccess, resolve_project_access_by_id
+from app.services.workspace_contract import ProjectAccess
+from app.services.project_access import resolve_project_access_by_id
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher

@@ -13,7 +13,8 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services import task_access
-from app.services.project_access import ProjectAccess, lock_current_project_access
+from app.services.workspace_contract import ProjectAccess
+from app.services.project_access import lock_current_project_access
 
 _LOCK_FAILURE_SQLSTATES = {"55P03", "40001", "40P01"}
 

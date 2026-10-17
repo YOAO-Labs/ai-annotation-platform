@@ -19,7 +19,7 @@ from app.api.v1.tasks import annotations
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services import task_access
-from app.services.project_access import (
+from app.services.workspace_contract import (
     ACCESS_KIND_MEMBER,
     MANAGER_CAPABILITIES,
     ProjectAccess,

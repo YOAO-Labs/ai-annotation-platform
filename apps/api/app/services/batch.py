@@ -24,7 +24,7 @@ from app.services.progress import (
     publish_batch_assignment_change,
     publish_batch_status_change,
 )
-from app.services.project_access import membership_role_compatible
+from app.services.workspace_contract import membership_role_compatible
 from app.services.scene import resolve_task_scene_frames
 from app.services.labeling_write_scope import LabelingBatchWriteScope
 from app.services.labeling_write_guard import lock_labeling_batch_write
@@ -1277,10 +1277,8 @@ class BatchService:
         from app.db.models.project import Project
         from app.db.models.user import User
         from app.services.annotation_evidence import lock_tasks_for_evidence
-        from app.services.project_access import (
-            ProjectCapability,
-            resolve_project_access,
-        )
+        from app.services.workspace_contract import ProjectCapability
+        from app.services.project_access import resolve_project_access
         from app.services.task_lock import assert_task_user_active
 
         if actor_id is None:

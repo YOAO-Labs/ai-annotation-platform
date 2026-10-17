@@ -22,7 +22,8 @@ from app.services.labeling_write_scope import (
     LabelingWriteOperation,
     LabelingWriteScope,
 )
-from app.services.project_access import ProjectAccess, lock_current_project_access
+from app.services.workspace_contract import ProjectAccess
+from app.services.project_access import lock_current_project_access
 from app.services.task_lock import TaskLockService
 
 _MANAGER_OPERATIONS = frozenset(

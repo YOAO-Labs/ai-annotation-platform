@@ -36,7 +36,7 @@ from app.schemas.video_tracker_job import (
     VideoTrackerJobOut,
 )
 from app.services.audit import AuditAction, AuditService
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.raster_mask_storage import load_coco_rle
 from app.services.video_tracking.jobs import (
     accept_tracker_job,

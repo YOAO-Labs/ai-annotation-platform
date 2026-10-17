@@ -15,7 +15,7 @@ from app.api.v1.async_jobs import _build_async_job_query
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.project_access import platform_role_is_manager
+from app.services.workspace_contract import platform_role_is_manager
 from app.services.project_aggregates import (
     ANNOTATOR_ROLE,
     DASHBOARD_PLATFORM_ROLES,

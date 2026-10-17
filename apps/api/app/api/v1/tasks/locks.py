@@ -10,7 +10,7 @@ from app.db.models.user import User
 from app.schemas.task import (
     TaskLockResponse,
 )
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.task_lock import TaskLockService
 from app.services.user_brief import resolve_briefs
 

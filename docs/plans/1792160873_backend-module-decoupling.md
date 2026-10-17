@@ -1375,6 +1375,12 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 同一隔离 PostgreSQL 的模型/部署/发布、推理路由、谱系、评估、主动学习及预标注消费者 116 passed，无跳过；新回归覆盖新发布后旧排队引用仍有效、显式 null/缺失/未知字段及 403 映射。合同冷加载不装配 FastAPI、SQLAlchemy 或 Celery；架构 195 passed、83 skipped，公开 OpenAPI check 通过。
 - 与 `ca9f6262d` 实际旧函数对照，同一已加载请求 Session、一个模型/两个类别、无发布选择；预热后交错三轮，freeze 均八条 SQL，Python 堆峰值 314,295 / 314,719 B、9.625 / 11.052 ms；validate 均三条 SQL，292,526 / 294,068 B、4.699 / 4.347 ms。两侧每次 SQL 顺序完全相同，返回引用/实例一致；夹具同事务回滚。范围不含授权、HTTP/模型/对象 I/O、commit 或 RSS，不作为性能提升结论。原始记录 `.worktree/model-reference-budget.json`。
 
+### Workspace 访问值与 SQL 适配分离
+
+- `workspace_contract` 持有 `ProjectAccess`、`ProjectCapability`、能力矩阵和标量角色规则，54 个文件直接消费新所有者；原纯符号公开路径移除，无重导出 facade。现有角色枚举保持原共享来源，纯值冷加载不需要 FastAPI、SQLAlchemy 或 Celery。
+- `project_access` 继续持有 SQL 解析、账号→项目→成员锁、原错误及读取已加载 User/Project 的管理者谓词；12 个保留函数体在只规范化私有导入别名后与 `e290815aa` AST 等价。未新增查询、JSON 复制或 I/O；未改 `get_current_user`、API key 的独立提交、JWT/WS、凭据撤销或 audience 规则。
+- 隔离 PostgreSQL 的能力矩阵、identity-map 刷新、撤权串行、任务/worker 写入围栏、成员并发、聚合/角色入口及 API key 回归共 101 passed；架构 198 passed、84 skipped，公开 OpenAPI check 通过。这是访问值边界，不把仍接收本地 Session/ORM 的解析器宣称为远程授权协议。
+
 ### 剩余范围
 
 已识别的 Python 依赖方向、写入所有权与完整台账有逐片验收记录；这不等于所有模块都已具备独立部署合同。后续遗留按以下条件推进：

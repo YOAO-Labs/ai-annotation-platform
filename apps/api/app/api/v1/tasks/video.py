@@ -108,7 +108,7 @@ from app.api.v1.tasks._shared import (
     VIDEO_MANIFEST_URL_EXPIRES_IN,
     logger,
 )
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 
 router = APIRouter()
 

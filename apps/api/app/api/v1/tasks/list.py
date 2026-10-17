@@ -16,11 +16,11 @@ from app.schemas.task import (
     TaskListResponse,
 )
 from app.schemas.scene import NeighborsResponse
-from app.services.project_access import (
+from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
-    resolve_project_access,
 )
+from app.services.project_access import resolve_project_access
 from app.services.scheduler import (
     get_next_task,
     task_visibility_clause,

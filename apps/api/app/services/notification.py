@@ -39,7 +39,7 @@ from app.db.models.notification_preference import NotificationPreference
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
-from app.services.project_access import platform_role_is_manager
+from app.services.workspace_contract import platform_role_is_manager
 from app.services.project_aggregates import valid_membership_conditions
 
 
@@ -523,7 +523,7 @@ class NotificationService:
         The membership SQL contract comes from
         :func:`app.services.project_aggregates.valid_membership_conditions` and
         the management predicate from
-        :func:`app.services.project_access.platform_role_is_manager`; this
+        :func:`app.services.workspace_contract.platform_role_is_manager`; this
         helper only adapts them to the correlated text expression of the
         notification row.
         """

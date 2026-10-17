@@ -40,7 +40,7 @@ from app.api.v1.tasks._shared import (
     _load_task_or_404,
     require_task_annotation_write,
 )
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 
 router = APIRouter()
 

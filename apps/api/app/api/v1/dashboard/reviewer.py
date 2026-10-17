@@ -13,7 +13,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.task_batch import TaskBatch
 from app.services.storage import storage_service
 from app.services.scheduler import batch_visibility_clause
-from app.services.project_access import platform_role_is_manager
+from app.services.workspace_contract import platform_role_is_manager
 from app.services.project_aggregates import (
     DASHBOARD_PLATFORM_ROLES,
     REVIEWER_ROLE,

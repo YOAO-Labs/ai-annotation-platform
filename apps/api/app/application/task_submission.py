@@ -31,7 +31,7 @@ from app.services.audit import AuditAction, AuditOriginContext, AuditService
 from app.services.batch import BatchService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.mask_qc.config import load_mask_qc_config
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import task_access
 

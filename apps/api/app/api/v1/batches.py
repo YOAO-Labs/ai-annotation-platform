@@ -48,7 +48,7 @@ from app.services.batch import (
     assert_can_transition,
     REVERSE_TRANSITIONS,
 )
-from app.services.project_access import ProjectAccess, ProjectCapability
+from app.services.workspace_contract import ProjectAccess, ProjectCapability
 from app.services.management import preview_batch_distribution
 from app.services.audit import AuditOriginContext, AuditService, AuditAction
 from app.services.notification import NotificationService

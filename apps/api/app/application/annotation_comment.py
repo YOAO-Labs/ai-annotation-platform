@@ -30,7 +30,7 @@ from app.services.discussion_notifications import (
 )
 from app.services.feedback import FeedbackService
 from app.services.notification import NotificationService
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.task_discussion import require_visible_annotation
 
 

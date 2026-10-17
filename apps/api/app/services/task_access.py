@@ -19,11 +19,11 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services.annotation_evidence import assert_review_evidence_current
-from app.services.project_access import (
+from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
-    resolve_project_access,
 )
+from app.services.project_access import resolve_project_access
 from app.services.scheduler import (
     annotator_can_rework_task,
     effective_task_assignee_id,

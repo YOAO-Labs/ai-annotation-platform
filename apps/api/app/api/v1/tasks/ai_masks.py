@@ -13,7 +13,7 @@ from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.ai_mask import AiMaskAcceptRequest, AiMaskAcceptResponse
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.ai_mask_accept import AiMaskAcceptError, accept_ai_mask_candidate
 from app.services.raster_mask_storage import RasterMaskContractError
 from app.services.video_collaboration import assert_video_annotation_write_scope

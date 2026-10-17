@@ -18,11 +18,11 @@ from app.schemas.task import (
 from app.schemas.image_pyramid import ImagePyramidSummary
 from app.deps import get_current_user, get_db
 from app.services import task_access
-from app.services.project_access import (
+from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
-    resolve_project_access,
 )
+from app.services.project_access import resolve_project_access
 from app.services.storage import storage_service
 from app.db.models.project_member import ProjectMember
 

@@ -10,7 +10,8 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services import task_access
-from app.services.project_access import ProjectCapability, resolve_project_access
+from app.services.workspace_contract import ProjectCapability
+from app.services.project_access import resolve_project_access
 
 EXPORT_JOB_KIND = "export"
 

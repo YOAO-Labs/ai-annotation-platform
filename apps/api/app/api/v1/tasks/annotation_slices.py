@@ -11,7 +11,7 @@ from app.schemas.annotation_slice import (
     AnnotationSliceRestoreRequest,
     PolygonSliceCommitRequest,
 )
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.annotation_slice import AnnotationSliceService
 from app.services.annotation_slice_contracts import AnnotationSliceError
 

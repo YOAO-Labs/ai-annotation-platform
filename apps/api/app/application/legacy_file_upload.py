@@ -18,8 +18,8 @@ from app.services.labeling_tasks import (
     LabelingUploadTargetChanged,
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
+from app.services.workspace_contract import ProjectAccess
 from app.services.project_access import (
-    ProjectAccess,
     lock_current_project_access,
     resolve_project_access_by_id,
 )

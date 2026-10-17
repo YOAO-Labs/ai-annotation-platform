@@ -10,21 +10,18 @@ aggregate reads.  The request-path counterpart is
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
-from app.db.models.project import Project
-from app.db.models.user import User
-from app.services.project_access import (
-    is_privileged_for_project,
-    platform_role_is_manager,
-)
+from app.services.project_access import is_privileged_for_project
+from app.services.workspace_contract import platform_role_is_manager
 
 
-def _user(role: str, *, active: bool = True) -> User:
-    return User(id=uuid.uuid4(), role=role, is_active=active)
+def _user(role: str, *, active: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(id=uuid.uuid4(), role=role, is_active=active)
 
 
-def _project(owner_id: uuid.UUID) -> Project:
-    return Project(owner_id=owner_id)
+def _project(owner_id: uuid.UUID) -> SimpleNamespace:
+    return SimpleNamespace(owner_id=owner_id)
 
 
 def test_platform_role_is_manager_matches_administrative_roles():

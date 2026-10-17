@@ -26,10 +26,8 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.services.identity_commands import IdentityCommandService
-from app.services.project_access import (
-    assert_membership_role_compatible,
-    membership_role_compatible,
-)
+from app.services.workspace_contract import membership_role_compatible
+from app.services.project_access import assert_membership_role_compatible
 from app.services.system_settings_service import SystemSettingsService
 
 

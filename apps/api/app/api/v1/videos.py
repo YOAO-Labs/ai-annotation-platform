@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.db.models.dataset import VideoChunk, VideoFrameIndex
 from app.db.models.task import Task
 from app.db.models.user import User

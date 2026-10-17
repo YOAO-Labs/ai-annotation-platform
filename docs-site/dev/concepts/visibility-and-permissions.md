@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 可见性与权限
@@ -13,6 +12,7 @@ last_reviewed: 2026-10-17
 代码真值源：
 
 - `apps/api/app/services/project_access.py`
+- `apps/api/app/services/workspace_contract.py`
 - `apps/api/app/deps.py`
 - `apps/api/app/services/scheduler.py`
 - `apps/api/app/api/v1/tasks/_shared.py`
@@ -46,10 +46,12 @@ last_reviewed: 2026-10-17
 
 统一解析在 `apps/api/app/services/project_access.py`：`resolve_project_access()` 产出不可变上下文（平台角色、项目角色、membership ID/version、管理者分类）与固定能力集 `project.read` / `project.manage` / `member.read` / `member.manage` / `task.read` / `annotation.write` / `review.write` / `export.annotations` / `performance.read`。未知角色 fail closed，请求上下文与资源项目不一致直接拒绝。能力是**必要非充分**条件：任务级指派覆盖、批次默认、开放池、预留审核、管理员锁、乐观版本、Mask QC 与视频边界检查全部保留。API key scope 只做附加交集，`*` 不授予项目访问；Socket 与异步作业在各自边界重新解析当前权限。
 
+上下文类型 `ProjectAccess`、`ProjectCapability` 与标量角色/能力规则由 `services/workspace_contract.py` 持有，仅依赖标准库与既有纯角色枚举。schema 和消费者读取这些值不再载入 SQL/FastAPI；解析、HTTP 错误映射和事务锁仍留在 `project_access.py`。
+
 项目访问还有两个**纯函数**真值，供已持有 ORM 行的调用方复用，避免各处自行拼装 owner / 平台角色判断：
 
-- `platform_role_is_manager(platform_role)`：平台角色是否属于管理角色（`super_admin` / `project_admin`），只描述“需要配合所有权”。
-- `is_privileged_for_project(user, project)`：活跃账号且是超管，或**该项目的 owner 且平台角色为管理角色**。它等价于 `resolve_project_access()` 的 `ACCESS_KIND_SUPER_ADMIN` / `ACCESS_KIND_OWNER`，被 scheduler、worker、批次状态机、成员变更与聚合读取共用；所有权本身不授权，`annotator` / `reviewer` 历史账号值也不是授权来源。
+- `workspace_contract.platform_role_is_manager(platform_role)`：平台角色是否属于管理角色（`super_admin` / `project_admin`），只描述“需要配合所有权”。
+- `project_access.is_privileged_for_project(user, project)`：活跃账号且是超管，或**该项目的 owner 且平台角色为管理角色**。它等价于 `resolve_project_access()` 的 `ACCESS_KIND_SUPER_ADMIN` / `ACCESS_KIND_OWNER`，被 scheduler、worker、批次状态机、成员变更与聚合读取共用；所有权本身不授权，`annotator` / `reviewer` 历史账号值也不是授权来源。该本地谓词继续消费已加载行，不属于纯值接口。
 
 这两者与 `resolve_project_access()` 是同一套规则的不同入口：请求路径需要每次重读当前账号 / 项目状态（撤权、转移后立即失效），因此用 async 解析器；worker 与聚合已经锁定或加载了行，则用纯函数复用同一判定。
 

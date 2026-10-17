@@ -26,11 +26,11 @@ from app.services.batch import BatchService
 from app.services.feedback import FeedbackService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.notification import NotificationService
-from app.services.project_access import (
+from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
-    assert_capability,
 )
+from app.services.project_access import assert_capability
 from app.services.scheduler import effective_task_reviewer_id
 
 

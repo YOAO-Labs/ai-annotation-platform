@@ -10,7 +10,7 @@ from app.schemas.mask_mutation import (
     MaskMutationCommitRequest,
     MaskMutationCommitResponse,
 )
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.mask_mutation import MaskMutationError, MaskMutationService
 
 

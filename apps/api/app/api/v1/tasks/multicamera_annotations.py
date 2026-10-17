@@ -40,7 +40,7 @@ from app.services.multicamera_annotation import (
     restore_camera_member,
     update_camera_member,
 )
-from app.services.project_access import ProjectAccess
+from app.services.workspace_contract import ProjectAccess
 from app.services.sensor_calibration import (
     SensorCalibrationError,
     list_calibration_revisions,

@@ -14,7 +14,8 @@ from app.api.v1.tasks import (
 from app.deps import get_current_user, get_db
 from app.db.models.project_task_view import ProjectTaskView
 from app.db.models.user import User
-from app.services.project_access import ProjectAccess, resolve_project_access_by_id
+from app.services.workspace_contract import ProjectAccess
+from app.services.project_access import resolve_project_access_by_id
 from app.schemas.task_view import (
     DataManagerTaskOut,
     ProjectTaskQueryRequest,

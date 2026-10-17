@@ -15,7 +15,7 @@ from app.schemas._jsonb_types import (
 from app.db.enums import PlatformRole, ProjectRole
 from app.schemas.mask_qc import MaskQCConfig
 from app.schemas.point_cloud_quality import PointCloudQualityConfig
-from app.services.project_access import ProjectCapability
+from app.services.workspace_contract import ProjectCapability
 from pydantic import field_validator
 
 
