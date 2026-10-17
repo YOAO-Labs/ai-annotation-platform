@@ -11,7 +11,7 @@ from app.core.security import create_access_token
 from app.db.models.dataset import Dataset
 from app.db.models.task import Task
 from app.services import scene as scene_svc
-from app.services.api_key_service import create_key
+from app.services.api_key_service import _create_key_for_owner
 from tests.factory import create_membership, create_project, create_task, create_user
 
 pytestmark = pytest.mark.asyncio
@@ -264,8 +264,12 @@ async def test_scene_reads_enforce_dataset_scope_for_api_keys(
     scene = await scene_svc.create_scene(
         db_session, dataset_id=dataset.id, name="scope"
     )
-    _, no_scope_token = await create_key(db_session, owner, "scene-none", [])
-    _, read_token = await create_key(db_session, owner, "scene-read", ["datasets:read"])
+    _, no_scope_token = await _create_key_for_owner(
+        db_session, owner.id, "scene-none", []
+    )
+    _, read_token = await _create_key_for_owner(
+        db_session, owner.id, "scene-read", ["datasets:read"]
+    )
     no_scope = {"Authorization": f"Bearer {no_scope_token}"}
     can_read = {"Authorization": f"Bearer {read_token}"}
     requests = (

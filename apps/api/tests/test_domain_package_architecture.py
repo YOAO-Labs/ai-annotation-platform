@@ -162,6 +162,12 @@ DOMAIN_PACKAGES = (
         legacy_facades=(),
         allowed_app_imports=(),
     ),
+    DomainSpec(package="api_key_service", legacy_facades=()),
+    DomainSpec(
+        package="api_key_contracts",
+        legacy_facades=(),
+        allowed_app_imports=("app.schemas.api_key",),
+    ),
     DomainSpec(
         package="audit_summary",
         legacy_facades=(),

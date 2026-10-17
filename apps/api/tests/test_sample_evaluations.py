@@ -551,9 +551,11 @@ async def test_source_rechecks_the_current_request_key_after_object_io(
     owner, _token = super_admin
     world = await seed(db_session, owner, objects)
     run, attempt = await evaluation(db_session, owner, world)
-    from app.services.api_key_service import create_key
+    from app.services.api_key_service import _create_key_for_owner
 
-    key, token = await create_key(db_session, owner, "source-resolution", ["*"])
+    key, token = await _create_key_for_owner(
+        db_session, owner.id, "source-resolution", ["*"]
+    )
     frozen = run.spec["samples"][0]
     task = Task(
         id=uuid.UUID(frozen["task_id"]),

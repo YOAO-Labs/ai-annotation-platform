@@ -8,97 +8,72 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_current_user, get_db, require_active_task_actor
-from app.db.models.user import User
+from app.deps import get_current_user_id, get_db, require_active_task_actor
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyOut, ApiKeyUpdate
-from app.services import api_key_service
+from app.services.api_key_contracts import ApiKeyManagementPort
+from app.services.api_key_service import SqlApiKeyManagement
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
 
-def _expires_at_from_days(days: int | None) -> datetime | None:
-    if days is None:
-        return None
-    return datetime.now(timezone.utc) + timedelta(days=days)
+def get_api_key_management(
+    db: AsyncSession = Depends(get_db),
+) -> ApiKeyManagementPort:
+    """Bind API key management to the request's existing SQL session."""
+    return SqlApiKeyManagement(db)
 
 
 @router.get("", response_model=list[ApiKeyOut])
 async def list_my_keys(
-    db: AsyncSession = Depends(get_db),
-    me: User = Depends(get_current_user),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
+    api_keys: ApiKeyManagementPort = Depends(get_api_key_management),
 ):
-    keys = await api_key_service.list_keys(db, me.id)
-    return keys
+    return await api_keys.list_keys(owner_id)
 
 
 @router.post("", response_model=ApiKeyCreated, status_code=201)
 async def create_my_key(
     data: ApiKeyCreate,
-    db: AsyncSession = Depends(get_db),
-    me: User = Depends(get_current_user),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
+    api_keys: ApiKeyManagementPort = Depends(get_api_key_management),
 ):
-    key, plaintext = await api_key_service.create_key(
-        db, me, data.name, data.scopes, _expires_at_from_days(data.expires_in_days)
-    )
-    await db.commit()
-    await db.refresh(key)
-    return ApiKeyCreated(
-        **ApiKeyOut.model_validate(key).model_dump(), plaintext=plaintext
-    )
+    return await api_keys.create_key(owner_id, data)
 
 
 @router.patch("/{key_id}", response_model=ApiKeyOut)
 async def update_my_key(
     key_id: uuid.UUID,
     data: ApiKeyUpdate,
-    db: AsyncSession = Depends(get_db),
-    me: User = Depends(get_current_user),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
+    api_keys: ApiKeyManagementPort = Depends(get_api_key_management),
 ):
-    fields = data.model_fields_set
-    kwargs = {}
-    if "name" in fields:
-        kwargs["name"] = data.name
-    if "scopes" in fields:
-        kwargs["scopes"] = data.scopes
-    if "expires_in_days" in fields:
-        kwargs["expires_at"] = _expires_at_from_days(data.expires_in_days)
-    key = await api_key_service.update_key(db, me.id, key_id, **kwargs)
-    if key is None:
+    updated = await api_keys.update_key(owner_id, key_id, data)
+    if updated is None:
         raise HTTPException(status_code=404, detail="API key 不存在或已吊销")
-    await db.commit()
-    await db.refresh(key)
-    return key
+    return updated
 
 
 @router.post("/{key_id}/rotate", response_model=ApiKeyCreated)
 async def rotate_my_key(
     key_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    me: User = Depends(get_current_user),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
+    api_keys: ApiKeyManagementPort = Depends(get_api_key_management),
 ):
-    result = await api_key_service.rotate_key(db, me.id, key_id)
-    if result is None:
+    rotated = await api_keys.rotate_key(owner_id, key_id)
+    if rotated is None:
         raise HTTPException(status_code=404, detail="API key 不存在或已吊销")
-    key, plaintext = result
-    await db.commit()
-    await db.refresh(key)
-    return ApiKeyCreated(
-        **ApiKeyOut.model_validate(key).model_dump(), plaintext=plaintext
-    )
+    return rotated
 
 
 @router.delete("/{key_id}", status_code=204)
 async def revoke_my_key(
     key_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    me: User = Depends(get_current_user),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
+    api_keys: ApiKeyManagementPort = Depends(get_api_key_management),
 ):
-    ok = await api_key_service.revoke_key(db, me.id, key_id)
-    if not ok:
+    if not await api_keys.revoke_key(owner_id, key_id):
         raise HTTPException(status_code=404, detail="API key 不存在或已吊销")
-    await db.commit()

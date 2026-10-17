@@ -763,13 +763,16 @@ async def test_api_key_scopes_and_revocation_are_rechecked_during_execution(
     httpx_client,
     training_config,
 ):
-    from app.services.api_key_service import create_key
+    from app.services.api_key_service import _create_key_for_owner
 
     _, _, path, _, body = await preview(
         db_session, httpx_client, super_admin, create=False
     )
-    key, token = await create_key(
-        db_session, super_admin[0], "preview", ["datasets:read", "annotations:read"]
+    key, token = await _create_key_for_owner(
+        db_session,
+        super_admin[0].id,
+        "preview",
+        ["datasets:read", "annotations:read"],
     )
     headers = {"Authorization": "Bearer " + token}
     assert (

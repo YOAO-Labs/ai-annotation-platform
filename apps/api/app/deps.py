@@ -172,6 +172,13 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_id(
+    current_user: User = Depends(get_current_user),
+) -> uuid.UUID:
+    """Return the authenticated account ID from the shared request resolution."""
+    return current_user.id
+
+
 def require_roles(*roles: str) -> Callable:
     """工厂函数：返回一个依赖，要求当前用户持有指定角色之一。"""
 

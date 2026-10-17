@@ -699,11 +699,11 @@ async def test_dispatch_exception_never_overwrites_an_accepted_attempt(
 async def test_api_key_scopes_and_post_queue_revocation(
     db_session, super_admin, httpx_client, source_headers
 ):
-    from app.services.api_key_service import create_key
+    from app.services.api_key_service import _create_key_for_owner
 
     owner, _ = super_admin
     project, _ = await reviewed_project(db_session, owner)
-    key, token = await create_key(db_session, owner, "training", [])
+    key, token = await _create_key_for_owner(db_session, owner.id, "training", [])
     path = f"/api/v1/projects/{project.id}/training-datasets"
     denied = await httpx_client.get(path, headers={"Authorization": f"Bearer {token}"})
     assert denied.status_code == 403

@@ -260,3 +260,91 @@ async def test_patch_key(httpx_client, super_admin):
         f"/api/v1/me/api-keys/{key_id}", headers=headers, json={"expires_in_days": None}
     )
     assert cleared.status_code == 200 and cleared.json()["expires_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_api_key_management_reuses_auth_and_commits_last_used_independently(
+    test_engine, app_module, monkeypatch
+):
+    import httpx
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.db.models.api_key import ApiKey
+    from app.db.models.user import User
+    from app.deps import get_db
+    from app.services import api_key_service
+    from app.services.api_key_service import _create_key_for_owner
+    from tests.factory import make_user_dict
+
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    owner_id = None
+    key_id = None
+    missing = object()
+    previous_get_db = app_module.dependency_overrides.get(get_db, missing)
+    try:
+        async with maker() as db:
+            owner = User(
+                **make_user_dict(
+                    "super_admin",
+                    f"api-key-owner-{uuid.uuid4()}@test.local",
+                    "API Key Owner",
+                )
+            )
+            db.add(owner)
+            await db.flush()
+            owner_id = owner.id
+            key, plaintext = await _create_key_for_owner(
+                db, owner_id, "last-used durability", []
+            )
+            key_id = key.id
+            await db.commit()
+
+        async with maker() as db:
+            key_before = await db.get(ApiKey, key_id)
+            assert key_before is not None and key_before.last_used_at is None
+
+        resolve_count = 0
+        resolve_token = api_key_service.resolve_token
+
+        async def count_resolve_token(db, token):
+            nonlocal resolve_count
+            resolve_count += 1
+            return await resolve_token(db, token)
+
+        monkeypatch.setattr(api_key_service, "resolve_token", count_resolve_token)
+        session_count = 0
+
+        async def get_independent_db():
+            nonlocal session_count
+            session_count += 1
+            async with maker() as db:
+                yield db
+
+        app_module.dependency_overrides[get_db] = get_independent_db
+        transport = httpx.ASGITransport(app=app_module)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/api/v1/me/api-keys",
+                headers={"Authorization": f"Bearer {plaintext}"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert [row["id"] for row in response.json()] == [str(key_id)]
+        assert resolve_count == 1
+        assert session_count == 1
+        async with maker() as db:
+            persisted_key = await db.get(ApiKey, key_id)
+            assert persisted_key is not None and persisted_key.last_used_at is not None
+    finally:
+        if previous_get_db is missing:
+            app_module.dependency_overrides.pop(get_db, None)
+        else:
+            app_module.dependency_overrides[get_db] = previous_get_db
+        if owner_id is not None:
+            async with maker() as db:
+                await db.execute(delete(ApiKey).where(ApiKey.user_id == owner_id))
+                await db.execute(delete(User).where(User.id == owner_id))
+                await db.commit()

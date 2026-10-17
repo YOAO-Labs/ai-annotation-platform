@@ -600,9 +600,11 @@ async def test_comparison_scope_removed_rows_and_cache_rebuild_then_cascade(
             path, headers={"Authorization": "Bearer " + employee_token}
         )
     ).status_code == 403
-    from app.services.api_key_service import create_key
+    from app.services.api_key_service import _create_key_for_owner
 
-    key, key_token = await create_key(db_session, owner, "analysis", ["datasets:read"])
+    key, key_token = await _create_key_for_owner(
+        db_session, owner.id, "analysis", ["datasets:read"]
+    )
     assert (
         await httpx_client.get(path, headers={"Authorization": "Bearer " + key_token})
     ).status_code == 403
