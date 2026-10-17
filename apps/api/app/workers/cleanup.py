@@ -1,19 +1,16 @@
 """Celery cleanup adapters for attachment and raster-mask retention.
 
-软删评论附件 7 天 grace 期后从 MinIO 删除。MinIO bucket lifecycle 已配
-180 天硬兜底，本任务作为更精确的近期清理路径。
+软删评论附件 7 天 grace 期后从 MinIO 删除。
+annotations 桶的 comment-attachments/ 前缀有 90 天过期兜底，本任务提供更精确的近期清理路径。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-
-from sqlalchemy import select, update
 
 from app.application.raster_mask_retention import RasterMaskRetentionWorkflow
-from app.db.models.annotation_comment import AnnotationComment
+from app.services.annotation_comment import AnnotationCommentService
 from app.services.storage import storage_service
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
@@ -23,29 +20,22 @@ log = logging.getLogger(__name__)
 
 @celery_app.task(name="app.workers.cleanup.purge_soft_deleted_attachments")
 def purge_soft_deleted_attachments() -> dict:
-    """v0.7.0 · celery beat 每日 03:00 UTC 触发：扫 7 天前软删的评论附件并从 MinIO 删除。
+    """每日 03:00 UTC 清理已软删超过 7 天的评论附件。
 
-    每次最多处理 500 条；硬删除完成后把 attachments 字段置为 [] 避免重复扫。
+    每次最多选择 500 条评论（包括空附件行）。对象删除失败只记录日志，附件行仍会清空并提交；
+    数据库提交失败可回滚行，但不能恢复此前已从 MinIO 删除的对象。
     """
     return asyncio.run(_purge_async())
 
 
 async def _purge_async() -> dict:
-    """实际的清理逻辑（async）。"""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    """领域服务选择评论和清空附件行，worker 编排对象删除及最终提交。"""
     deleted_objects = 0
     processed_comments = 0
 
     async with task_session() as db:
-        result = await db.execute(
-            select(AnnotationComment)
-            .where(
-                AnnotationComment.is_active.is_(False),
-                AnnotationComment.updated_at < cutoff,
-            )
-            .limit(500)
-        )
-        comments = list(result.scalars().all())
+        comment_service = AnnotationCommentService(db)
+        comments = await comment_service.select_expired_attachment_comments()
 
         for comment in comments:
             attachments = comment.attachments or []
@@ -56,18 +46,14 @@ async def _purge_async() -> dict:
                 if not key:
                     continue
                 try:
-                    # v0.23.5 · WS-D · D5 · boto3 sync delete wrapped in to_thread
-                    # so the async GC loop isn't blocked per-object.
+                    # Run blocking boto3 deletion in a thread so the async GC loop
+                    # is not blocked per object.
                     await asyncio.to_thread(storage_service.delete_object, key)
                     deleted_objects += 1
                 except Exception as e:
                     log.warning("delete object %s failed: %s", key, e)
             # 标记已清空，避免下次重复扫
-            await db.execute(
-                update(AnnotationComment)
-                .where(AnnotationComment.id == comment.id)
-                .values(attachments=[])
-            )
+            await comment_service.clear_attachments(comment.id)
             processed_comments += 1
 
         await db.commit()

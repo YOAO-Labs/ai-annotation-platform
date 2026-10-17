@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import MANAGER_PLATFORM_ROLES, PlatformRole
@@ -19,6 +20,29 @@ class AnnotationCommentService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def select_expired_attachment_comments(
+        self, *, now: datetime | None = None
+    ) -> list[AnnotationComment]:
+        """Select inactive comments older than seven days, including empty attachments."""
+        cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=7)
+        result = await self.db.execute(
+            select(AnnotationComment)
+            .where(
+                AnnotationComment.is_active.is_(False),
+                AnnotationComment.updated_at < cutoff,
+            )
+            .limit(500)
+        )
+        return list(result.scalars().all())
+
+    async def clear_attachments(self, comment_id: uuid.UUID) -> None:
+        """Clear one comment's attachment row without committing the caller's transaction."""
+        await self.db.execute(
+            update(AnnotationComment)
+            .where(AnnotationComment.id == comment_id)
+            .values(attachments=[])
+        )
 
     async def validate_mentions(
         self, project_id: uuid.UUID, user_ids: list[uuid.UUID]

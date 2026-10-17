@@ -831,6 +831,22 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 隔离检查点聚焦回归为 216 passed、74 项 lazy-root 不适用；主线删除 AST/导入与 mock 转发检查、提交调用计数和文案/复制值断言，保留数据库回滚、延迟素材计数、引用解除、身份不被重置等行为。5 个受影响用例定向通过，不重复累计隔离阶段用例。
 - 主线冷导入导入装配未加载 API/worker；两个真实 CLI 在默认运行配置、PostgreSQL/MinIO 上成功。独立连接读到图片素材 1 个、原嵌套 key，3×2 PNG 的完整 SHA 与来源一致；nuScenes 5 个素材、1 个场景、2 个 pose、2 个任务和 1 个项目关联，相机字节实际解码为 1×1。未启动消费者/模型，也不声明浏览器、GPU、全量官方数据集或 PCD 渲染资格。
 
+### 软删评论附件清理
+
+- `AnnotationCommentService` 持有软删评论的候选选择与附件行清空命令：只选 inactive 且 `updated_at` 严格早于当前时刻减 7 天的最多 500 条评论，空附件也占候选名额；不增加排序或二次补充批次。worker 保留非空附件判断、legacy `storage_key` 的原样解释、MinIO 调用与唯一一次最终提交。
+- 对象删除异常仍记录日志并清空该评论附件行；成功对象数只计 SDK 调用成功。数据库提交失败可以回滚附件行，但不能恢复此前已物理删除的字节。未增加重试或 outbox，也未改变跨资源非原子性。
+- 真实隔离运行时以默认路由投递 Celery 任务，worker 已注册且订阅 `cleanup`。实际 MinIO 字节验证了仅匹配的两把 `storage_key` 被删，任务返回 `comments=2, objects=2`；active、近截止、camelCase 和无关 key 保留，空附件跳过。真实 boto3 SDK 的单对象 403 由本地 S3 兼容代理控制，验证字节保留、附件行仍清空且 `objects=0`；PostgreSQL 延迟约束触发真实提交失败，附件行回滚而此前对象删除不回滚。完整原始证据：`/tmp/aap-boundary-comment-attachments-final-live-evidence.log`。
+- 冻结 DB-only 投影含 64 条过期评论，每版本采样 5 次：
+
+| 采样指标                    | 旧 worker 直写 | 当前服务所有者 |
+| --------------------------- | -------------: | -------------: |
+| SQL 语句数（每次）          |             65 |             65 |
+| Python 堆峰值中位数（字节） |        485,242 |        476,588 |
+
+- SQL 为一次选择及逐行清空；该窄范围仅含 SQL 选择/行清空与 Python 分配，是预算记录而非内存优化结论，不包含 MinIO、Celery、网络 I/O 或全进程 RSS；完整样本见 `/tmp/aap-boundary-comment-attachments-final-budget-evidence.log`。
+- 所选验收集（新增清理测试、服务架构守卫、OpenAPI contract）163 passed、74 skipped；OpenAPI snapshot `--check` 通过，Ruff 0.15.22 `check` 与三份 Python 文件 `format --check` 通过。无既有 `purge_soft_deleted_attachments` / `_purge_async` 测试需要删除或重钉；新增测试验证真实数据库候选、时间边界及 500 条总行上限。
+- 主线冷导入评论 owner 未加载 API/worker；未覆盖队列的派发在真实 Redis `cleanup` 中读到原注册名及任务 ID，随后启动新进程并核对已注册且只订阅 `cleanup`。真实任务 `5d943679-aa4c-4d9f-9b5c-10c5b3d1e7fc` 为 SUCCESS、`comments=1, objects=1`；独立 PostgreSQL 连接确认过期行清空、active 行不变，MinIO 确认过期对象不存在而 active 对象字节完整保留。消费者已温和退出，退出码 0；未请求模型或 GPU。
+
 ### 剩余范围
 
-- 剩余写入切片为软删评论附件清理的评论行、学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余写入切片为学习命令、媒体重试/索引、标注幂等收据、邀请接受的成员写入、金字塔任务投影、剩余运维引导/回填/时刻表及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

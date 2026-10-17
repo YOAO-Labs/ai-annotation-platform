@@ -40,6 +40,14 @@ MEDIA_CACHE_PREFIXES = ("thumbnails/", "videos/", "playback/")
 
 匹配则走 `media-cache` 桶,否则回退到调用方传入的 default(通常 `datasets` 或 `annotations`)。
 
+## 软删评论附件清理
+
+每天 03:00 UTC 的 `purge_soft_deleted_attachments` 在 `cleanup` 队列中清理 inactive 且 `updated_at` 严格早于当前时刻减 7 天的评论。数据库查询每次最多选 500 条评论，选择没有指定顺序；空附件评论仍占用候选名额，但 worker 会跳过它们。
+
+对于非空附件，worker 只把 JSON 项中的 `storage_key` 原样交给 MinIO，不会把 `storageKey` 或其他形状转换成新格式。单对象删除异常会记日志，但该评论附件行仍清空；`objects` 只计入成功返回的删除调用。没有自动重试或 outbox。
+
+MinIO 删除与数据库提交不是原子事务：所有附件行清空命令后只执行一次提交。若提交失败，数据库可回滚而已删除的对象无法恢复；若对象删除失败，数据库行仍会清空，之后不会由此任务自动重试。
+
 ## Raster Mask 引用与清理
 
 原生 Mask 的普通 JSON 与 gzip 对象均保存在 `MINIO_BUCKET` 的 `raster-masks/sha256/` 下，不套用媒体缓存桶的生命周期。内容摘要地址由标注持有；共享 S3 transport 不决定是否可以删除。
