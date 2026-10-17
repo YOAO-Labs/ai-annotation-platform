@@ -1186,7 +1186,9 @@ class AnnotationService:
         """
         from fastapi import HTTPException
 
-        src = await self.db.get(Annotation, source_annotation_id)
+        src = await self.db.get(
+            Annotation, source_annotation_id, populate_existing=True
+        )
         if src is None or not src.is_active:
             raise HTTPException(status_code=404, detail="source annotation not found")
 
@@ -1410,6 +1412,7 @@ class AnnotationService:
                         .where(Annotation.is_active.is_(True))
                         .where(Annotation.geometry["type"].astext == "box_3d")
                         .order_by(Annotation.created_at, Annotation.id)
+                        .execution_options(populate_existing=True)
                     )
                 )
                 .scalars()
@@ -1425,7 +1428,9 @@ class AnnotationService:
             rows = (
                 (
                     await self.db.execute(
-                        select(Annotation).where(Annotation.id.in_(annotation_ids))
+                        select(Annotation)
+                        .where(Annotation.id.in_(annotation_ids))
+                        .execution_options(populate_existing=True)
                     )
                 )
                 .scalars()
@@ -1484,6 +1489,7 @@ class AnnotationService:
         user_id: uuid.UUID,
         assert_task_editable=None,
         assert_task_visible=None,
+        lock_task_for_write=None,
     ) -> tuple[list[Annotation], bool, list[int]]:
         """v0.15.1 · 关键帧区间插值: 同 track_id 链上帧 i 与帧 k 各有一框,
         给区间 (i,k) 内每个有 task 的中间帧生成插值框(source="interpolated")。
@@ -1501,6 +1507,7 @@ class AnnotationService:
         - assert_task_visible: API 层注入的 batch 可见性/分派校验(async)。两端 task
           已在端点校验,但中间帧 task 由 group 链 + scene 反查得到,必须逐帧再校验,
           否则 annotator 凭两端可见即可往不可见/未分派的中间批次写入(权限漂移)。
+        - lock_task_for_write: API 层在中间帧未命中幂等跳过时,写入前刷新并校验该 task。
 
         返回 (新建 annotations, motion_compensated, skipped_frames)。
         """
@@ -1563,6 +1570,7 @@ class AnnotationService:
                         .where(Annotation.track_id == track_id)
                         .where(Annotation.is_active.is_(True))
                         .where(Annotation.geometry["type"].astext == "box_3d")
+                        .execution_options(populate_existing=True)
                     )
                 )
                 .scalars()
@@ -1637,6 +1645,9 @@ class AnnotationService:
             if existing:
                 skipped_frames.append(f)
                 continue
+
+            if lock_task_for_write is not None:
+                mid_task = await lock_task_for_write(mid_task)
 
             # A2 · lock this mid task (NOWAIT) before writing its interpolation.
             await record_annotation_actor(self.db, mid_task, user_id, nowait=True)

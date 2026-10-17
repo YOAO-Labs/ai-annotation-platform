@@ -20,6 +20,8 @@ from app.schemas.annotation import (
     PropagateRequest,
     PropagateResponse,
 )
+from app.application.task_workflow_errors import TaskWorkflowError
+from app.application.task_workflow_locks import lock_current_task_target
 from app.services.annotation import AnnotationService
 from app.services.annotation_cross_frame_contract import (
     AnnotationCrossFramePort,
@@ -61,6 +63,30 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
         if task_id != self._source_task.id or actor_id != self._actor.id:
             raise ValueError("cross-frame command identity does not match binding")
 
+    async def _lock_current_tasks_for_write(
+        self, task_ids: set[UUID]
+    ) -> dict[UUID, Task]:
+        """Recheck cross-frame authority against ordered, freshly locked rows."""
+        locked: dict[UUID, Task] = {}
+        for task_id in sorted(task_ids, key=str):
+            task, actor, _project, access = await lock_current_task_target(
+                self._db,
+                task_id=task_id,
+                actor_id=self._actor.id,
+                expected_access=self._access,
+            )
+            await task_access.assert_task_visible(self._db, task, actor, access=access)
+            task_access.assert_annotation_write_allowed(task, access)
+            task_access.assert_task_editable(task, actor, access=access)
+            await task_access.assert_review_adjustment_evidence(
+                self._db, task, actor, access
+            )
+            await TaskLockService(self._db).assert_final_write_available(
+                task.id, actor.id, allow_own=True
+            )
+            locked[task.id] = task
+        return locked
+
     async def _target_task_for_write(self, target_task_id: UUID) -> Task:
         target_task = await _load_task_or_404(self._db, target_task_id)
         target_access = await task_access.resolve_task_access(
@@ -93,6 +119,14 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 )
 
             target_task = await self._target_task_for_write(payload.target_task_id)
+            if target_task.project_id != self._source_task.project_id:
+                raise HTTPException(
+                    status_code=422, detail="跨 project propagate 不被允许"
+                )
+            locked_tasks = await self._lock_current_tasks_for_write(
+                {self._source_task.id, target_task.id}
+            )
+            target_task = locked_tasks[target_task.id]
             new_annotation, motion_compensated = await self._annotations._propagate(
                 source_annotation_id=annotation_id,
                 target_task_id=target_task.id,
@@ -124,11 +158,11 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 annotation=AnnotationOut.model_validate(new_annotation),
                 motion_compensated=motion_compensated,
             )
-        except HTTPException as exc:
+        except (HTTPException, TaskWorkflowError) as exc:
             raise AnnotationMutationError(
                 status_code=exc.status_code,
                 detail=exc.detail,
-                headers=exc.headers,
+                headers=exc.headers if isinstance(exc, HTTPException) else None,
             ) from exc
 
     async def propagate_batch(
@@ -142,6 +176,14 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
         self._assert_bound(source_task_id, actor_id)
         try:
             target_task = await self._target_task_for_write(payload.target_task_id)
+            if target_task.project_id != self._source_task.project_id:
+                raise HTTPException(
+                    status_code=422, detail="跨 project propagate 不被允许"
+                )
+            locked_tasks = await self._lock_current_tasks_for_write(
+                {self._source_task.id, target_task.id}
+            )
+            target_task = locked_tasks[target_task.id]
             results, motion_compensated = await self._annotations._propagate_batch(
                 source_task_id=self._source_task.id,
                 target_task_id=target_task.id,
@@ -178,11 +220,11 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 ],
                 motion_compensated=motion_compensated,
             )
-        except HTTPException as exc:
+        except (HTTPException, TaskWorkflowError) as exc:
             raise AnnotationMutationError(
                 status_code=exc.status_code,
                 detail=exc.detail,
-                headers=exc.headers,
+                headers=exc.headers if isinstance(exc, HTTPException) else None,
             ) from exc
 
     async def interpolate_range(
@@ -196,6 +238,12 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
         self._assert_bound(from_task_id, actor_id)
         try:
             target_task = await self._target_task_for_write(payload.to_task_id)
+            if target_task.project_id != self._source_task.project_id:
+                raise HTTPException(status_code=422, detail="跨 project 插值不被允许")
+            locked_tasks = await self._lock_current_tasks_for_write(
+                {self._source_task.id, target_task.id}
+            )
+            target_task = locked_tasks[target_task.id]
 
             async def assert_middle_task_visible(task: Task) -> None:
                 await task_access.assert_task_visible(
@@ -212,6 +260,9 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                     access=self._access,
                 )
 
+            async def lock_middle_task_for_write(task: Task) -> Task:
+                return (await self._lock_current_tasks_for_write({task.id}))[task.id]
+
             (
                 created,
                 motion_compensated,
@@ -223,6 +274,7 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 user_id=self._actor.id,
                 assert_task_editable=assert_middle_task_editable,
                 assert_task_visible=assert_middle_task_visible,
+                lock_task_for_write=lock_middle_task_for_write,
             )
             await AuditService.log(
                 self._db,
@@ -254,11 +306,11 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 motion_compensated=motion_compensated,
                 skipped_frames=skipped_frames,
             )
-        except HTTPException as exc:
+        except (HTTPException, TaskWorkflowError) as exc:
             raise AnnotationMutationError(
                 status_code=exc.status_code,
                 detail=exc.detail,
-                headers=exc.headers,
+                headers=exc.headers if isinstance(exc, HTTPException) else None,
             ) from exc
 
 

@@ -144,6 +144,8 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 单框/整批跨帧传播和区间插值消费 `annotation_cross_frame_contract.AnnotationCrossFramePort`，只传命名 UUID、原请求 schema 和纯审计来源，返回原响应 schema。HTTP 保留源 Task 准入，`application/annotation_cross_frame.py` 绑定原 Session/source Task/actor/access，保留源标注归属、目标读取/权限、几何与 SceneTrack、heartbeat/审计/提交顺序；先 refresh 全部输出，再投影 DTO。中间帧的可见性/编辑回调留在私有 SQL 组合，端口不传 ORM 或回调。
 
+手工跨帧写入在初检后按稳定 Task ID 顺序取得源、目标的当前权威与批次/Task 围栏，重验可见性、写权限、可编辑状态、审核证据及编辑占用；源框在围栏后重新读取，拒绝已删除内容并保留并发更新后的轨迹/版本。插值只对未命中既有框跳过规则的中间帧执行最终准入。后台跨帧作业仍使用其既有的逐目标作用域和源版本围栏。
+
 异步跨帧作业使用独立的 `CrossFrameBatchStager`，在同一 Session 绑定一次，按目标返回创建数量；写入只 flush，进度、回滚、逐帧提交和取消仍由原 worker 持有。手工与作业实现复用 `AnnotationService` 的三个私有 SQL 方法，保留原上下文/位姿读取及补偿算法。共用纯 `AnnotationMutationError` 在 HTTP/worker 装配恢复原拒绝，worker 再执行原失败分类；没有统一提交开关或新作业协议。
 
 `annotation_slice_contracts` 是只依赖标准库的错误、摘要和固定恢复期限所有者。Polygon 切割、Mask mutation 与 `mask_slice_restore` 直接消费该合同，恢复下层不再反向导入切割编排。原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
