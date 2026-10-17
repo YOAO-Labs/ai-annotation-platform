@@ -36,6 +36,10 @@ def set_primary_backend_binding(*, project: Project, pool_id: UUID | None) -> No
     project.ml_backend_pool_id = pool_id
 
 
+def set_point_cloud_quality_config(*, project: Project, config: dict[str, Any]) -> None:
+    project.point_cloud_quality_config = config
+
+
 async def clear_primary_backend_binding_for_pool(
     db: AsyncSession, pool_id: UUID
 ) -> None:

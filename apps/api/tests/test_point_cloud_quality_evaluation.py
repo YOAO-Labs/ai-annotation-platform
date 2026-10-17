@@ -244,6 +244,14 @@ async def test_quality_evaluation_api_promotes_candidate_once(
     assert response.status_code == 200, response.text
     assert "sample_snapshot" not in response.json()
 
+    stale_candidate = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/point-cloud-quality/evaluations",
+        json={"candidate_config": candidate.model_dump(mode="json")},
+        headers=headers,
+    )
+    assert stale_candidate.status_code == 201, stale_candidate.text
+    stale_id = stale_candidate.json()["id"]
+
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/point-cloud-quality/evaluations/{body['id']}/promote",
         headers=headers,
@@ -261,6 +269,15 @@ async def test_quality_evaluation_api_promotes_candidate_once(
     assert response.status_code == 409
     assert response.json()["detail"]["reason"] == (
         "point_cloud_quality_evaluation_already_promoted"
+    )
+
+    stale_promotion = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/point-cloud-quality/evaluations/{stale_id}/promote",
+        headers=headers,
+    )
+    assert stale_promotion.status_code == 409
+    assert stale_promotion.json()["detail"]["reason"] == (
+        "point_cloud_quality_evaluation_baseline_changed"
     )
 
 

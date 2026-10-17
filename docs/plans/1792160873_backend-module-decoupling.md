@@ -1231,6 +1231,16 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 夹具保持独立的显式状态种子，不通过被验证的状态命令构造预期；删除新增 mock 参数/调用回声测试及既有自由错误文案固定，保留真实消费者的预算错误码、冻结规格/请求身份、取消、旧 claim 拒写与证据 producer 围栏。临时原生探针已移除，受控模型元信息、收据和内存 Objects 不是 broker/consumer、MinIO、模型或 GPU 资格。
 - 主线正确选择 `tests/test_active_learning.py` 等六个消费者/SCC/精确 OpenAPI 文件，199 passed、77 skipped、零失败/错误；JUnit `/tmp/aap-active-learning-owner-main.xml`。首次误写不存在的 API 测试文件名导致未收集，不计入通过。三个实际变更 Python 文件固定 Ruff 格式/check 通过。
 
+### 点云评估晋升的 workspace 配置所有权
+
+- 最终源码复核发现 `services/point_cloud_quality/evaluation.py::promote_evaluation` 仍直接写 workspace 的 `Project.point_cloud_quality_config`。已删除该跨域写入口；唯一 HTTP 调用者迁移到既有 `WorkspaceConfigurationWorkflow.promote_point_cloud_quality_evaluation`，没有兼容别名或服务到 application 的反向依赖。
+- 质量所有者分开准备晋升配置与记录晋升元数据；项目配置赋值由 `services/project_workspace.py::set_point_cloud_quality_config` 持有。工作流保留原项目阻塞式 `FOR UPDATE`、评估归属/已晋升/gate/基线 revision＋digest 检查、下一 revision 与 flush；HTTP 当前管理权威、审计、commit、refresh 顺序不变，没有把同事务组合改成 RPC。
+- 主线真实 PostgreSQL/default ASGI JWT smoke：受控延迟提交错误返回 500，随后新事务仍见原项目配置、未晋升评估和零晋升审计；同 revision 的 digest 冲突返回 409 并保留当前配置；同一基线的两个并发请求恰好一个 200、一个 409，最终配置 revision 2、minimum_points 1、一个已晋升评估和一条晋升审计。重复晋升 409、跨项目评估 404，拒绝后状态不变。
+- 完整 HTTP 与新事务观察在 `.worktree/point-cloud-promotion-main-smoke.json`。首次探针在清理账号时触发不可变审计的外键 UPDATE 保护，未计为成功；只读观察确认三个冻结评估尚未晋升后复用原夹具继续，按实际 Content-Type 记录普通文本 500。先前未落盘的 HTTP/堆样本不作为证据；未重复造数或堆采样循环。领域夹具和受控 SQL 对象已清理，历史审计及其账号保留到自有测试运行时整体销毁，不绕过审计保护。
+- 为定位未保留的 SQL 计数关卡，旧函数与当前工作流各单次运行完整查找、赋值及 flush 后回滚；两侧均为 4 条 SQL。它不是 HTTP 总查询数或吞吐/堆优化结论。没有运行点云扫描、渲染器、模型、MinIO 或 Celery consumer。
+- 已有 API 回归增加第二个同基线评估在首次晋升后被拒绝的消费者断言；开发分层说明同步。五个变更 Python 文件固定 Ruff 格式/check 通过；API/OpenAPI、schema、依赖、配置与版本不变，纯重构不增加 CHANGELOG。
+- 主线四个消费者／完整领域图／精确 OpenAPI 文件 181 passed、77 skipped，零失败/错误；JUnit `/tmp/aap-point-cloud-promotion-owner-main.xml`。未将按既有声明跳过的项目当作执行通过。
+
 ### 剩余范围
 
-- 已识别的剩余执行写入边界完成所有者迁移；完整入口、数据及存储台账与最终验证继续交付，不能用 SCC 或单一作业收口代替全后端验收。本地 Session、ORM 和 HTTPException 不是进程协议；未选择目标语言，不执行语言替换。
+- 最终源码复核新增的点云评估晋升配置写入已收口；数据集尺寸回填仍需迁移到既有素材命令。完整入口、数据及存储台账与最终验证继续交付，不能用 SCC 或单一作业收口代替全后端验收。本地 Session、ORM 和 HTTPException 不是进程协议；未选择目标语言，不执行语言替换。

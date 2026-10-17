@@ -12,6 +12,7 @@ from app.db.enums import UserRole
 from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.project import Project
+from app.db.models.point_cloud_quality import PointCloudQualityEvaluation
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
 from app.schemas.project import VideoCollaborationConfig
@@ -25,6 +26,7 @@ from app.services.project_workspace import (
     duplicate_template as duplicate_template_command,
     increment_template_usage,
     prepare_project_create_payload,
+    set_point_cloud_quality_config,
     update_template as update_template_command,
 )
 from app.services.project_access import (
@@ -39,6 +41,11 @@ from app.services.project_template import (
 )
 from app.services.project_write_guard import lock_actor_account
 from app.services.video_collaboration import validate_project_collaboration_update
+from app.services.point_cloud_quality.evaluation import (
+    prepare_evaluation_promotion,
+    record_evaluation_promotion,
+)
+from app.services.point_cloud_quality.service import PointCloudQualityError
 
 _MANAGER_ROLES = (UserRole.SUPER_ADMIN.value, UserRole.PROJECT_ADMIN.value)
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
@@ -311,6 +318,38 @@ class WorkspaceConfigurationWorkflow:
 
         apply_project_update(project, payload)
         return project
+
+    async def promote_point_cloud_quality_evaluation(
+        self,
+        *,
+        project_id: uuid.UUID,
+        evaluation_id: uuid.UUID,
+        actor_id: uuid.UUID,
+    ) -> tuple[PointCloudQualityEvaluation, Project]:
+        project = (
+            await self.db.execute(
+                select(Project).where(Project.id == project_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        evaluation = await self.db.get(PointCloudQualityEvaluation, evaluation_id)
+        if project is None or evaluation is None or evaluation.project_id != project_id:
+            raise PointCloudQualityError(
+                404, "point_cloud_quality_evaluation_not_found"
+            )
+        candidate = prepare_evaluation_promotion(
+            evaluation,
+            current_config=project.point_cloud_quality_config,
+        )
+        set_point_cloud_quality_config(
+            project=project, config=candidate.model_dump(mode="json")
+        )
+        record_evaluation_promotion(
+            evaluation,
+            actor_id=actor_id,
+            config_revision=candidate.config_revision,
+        )
+        await self.db.flush()
+        return evaluation, project
 
     async def create_template(
         self, payload: dict, *, actor_id: uuid.UUID

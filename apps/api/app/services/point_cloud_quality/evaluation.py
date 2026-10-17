@@ -442,21 +442,11 @@ async def list_evaluations(
     return rows, total
 
 
-async def promote_evaluation(
-    db: AsyncSession,
+def prepare_evaluation_promotion(
+    evaluation: PointCloudQualityEvaluation,
     *,
-    project_id: uuid.UUID,
-    evaluation_id: uuid.UUID,
-    actor_id: uuid.UUID,
-) -> tuple[PointCloudQualityEvaluation, Project]:
-    project = (
-        await db.execute(
-            select(Project).where(Project.id == project_id).with_for_update()
-        )
-    ).scalar_one_or_none()
-    evaluation = await db.get(PointCloudQualityEvaluation, evaluation_id)
-    if project is None or evaluation is None or evaluation.project_id != project_id:
-        raise PointCloudQualityError(404, "point_cloud_quality_evaluation_not_found")
+    current_config: dict[str, Any] | None,
+) -> PointCloudQualityConfig:
     if evaluation.promoted_at is not None:
         raise PointCloudQualityError(
             409, "point_cloud_quality_evaluation_already_promoted"
@@ -467,7 +457,7 @@ async def promote_evaluation(
             "point_cloud_quality_evaluation_gate_not_passed",
             gate_status=evaluation.gate_status,
         )
-    current = load_point_cloud_quality_config(project.point_cloud_quality_config)
+    current = load_point_cloud_quality_config(current_config)
     if (
         current.config_revision != evaluation.baseline_config_revision
         or point_cloud_quality_config_digest(current)
@@ -476,12 +466,17 @@ async def promote_evaluation(
         raise PointCloudQualityError(
             409, "point_cloud_quality_evaluation_baseline_changed"
         )
-    candidate = PointCloudQualityConfig.model_validate(
+    return PointCloudQualityConfig.model_validate(
         evaluation.candidate_config_snapshot
     ).model_copy(update={"config_revision": current.config_revision + 1})
-    project.point_cloud_quality_config = candidate.model_dump(mode="json")
+
+
+def record_evaluation_promotion(
+    evaluation: PointCloudQualityEvaluation,
+    *,
+    actor_id: uuid.UUID,
+    config_revision: int,
+) -> None:
     evaluation.promoted_by_id = actor_id
     evaluation.promoted_at = datetime.now(timezone.utc)
-    evaluation.promoted_config_revision = candidate.config_revision
-    await db.flush()
-    return evaluation, project
+    evaluation.promoted_config_revision = config_revision
