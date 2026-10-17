@@ -255,6 +255,11 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(),
     ),
     DomainSpec(package="image_pyramid", legacy_facades=()),
+    DomainSpec(
+        package="image_pyramid_contract",
+        legacy_facades=(),
+        allowed_app_imports=("app.schemas.image_pyramid",),
+    ),
     DomainSpec(package="training_dataset_dispatch", legacy_facades=()),
     DomainSpec(package="training_datasets", legacy_facades=()),
     DomainSpec(

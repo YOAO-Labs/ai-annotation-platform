@@ -236,7 +236,7 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 `services/media_materialization.py::MediaMaterializationWriter` 只定义 UUID、尺寸、缩略图/blurhash、视频 JSON 和帧时间表的写入端口。worker 的 `SqlAlchemyMediaMaterializationWriter` 在同一 Session 绑定 `DatasetService` 与 `LabelingTaskService`，由它们写素材/任务元信息与持久帧索引；codec、对象 I/O、视频帧/分块技术缓存仍由媒体执行适配器持有。`LabelingTaskService.set_task_thumbnail` 只修改调用者事务，由调用者提交；金字塔发布在确认当前 generation lease 后，通过该端口投影 Task overview 并与 worker 提交同一事务，DatasetItem 缩略图仍由 assets 写入。保留视频尺寸和帧索引在海报 I/O 前的提交、最终元信息/海报提交及图片金字塔失效语义。端口不传二进制正文、ORM 或 Celery 对象，但当前绑定和跨域权威围栏仍是本地数据库实现，不是已交付的远程协议。
 
-`services/image_pyramid.py::touch_generation_access` 持有符合条件的 ready manifest 响应对应的 `ImagePyramidGeneration.last_accessed_at` 写入。API 继续负责任务授权、源对象/派生对象检查、URL 准备和缓存处理；所有者保留严格十分钟节流及原提交点。该元数据不属于 `AsyncJob`，也不是 Task 缩略图投影。
+`image_pyramid_contract.ImagePyramidApiPort` 统一交付批量任务摘要、manifest、签名 URL 与重试计划，只传已加载 Task 的四个源标量和原请求模型，返回原响应及 304/派发所需值。`application/image_pyramid.py` 绑定原 Session，SQL owner 私下持有 Asset/Generation；批量摘要保留原两次集合读取，不重新查询 Task。API 保留任务授权、缓存响应和实际队列派发；源/派生对象检查、URL 准备及代次失效由所有者承接。私有 `_touch_generation_access` 保持 ready 响应对应的访问时间写入、严格十分钟节流及原提交点；304 提前返回，不触达。该元数据不属于 AsyncJob 或 Task 缩略图投影。
 
 视频追踪经纯端口 `video_tracking.dispatch.VideoTrackerJobDispatcher` 派发，只传作业 UUID 并返回执行 ID。HTTP 的 `deps.get_video_tracker_job_dispatcher()` 或 Mask 修复 worker 入口装配 `workers/video_tracker_dispatch.py`；领域 `jobs` 不再导入 Celery 或持有任务注册名。原 `gpu` 队列、单个字符串 UUID 参数、执行 ID 提交和失败补偿不变；仅仍为 queued 的行才被补偿为失败，`fail_closed` 保留 503，发布后数据库失败仍不能证明消息未入队。
 

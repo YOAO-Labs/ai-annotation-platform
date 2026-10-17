@@ -129,6 +129,8 @@ pressure 先释放非可见 detail，不能淘汰 dirty Mask 或撤销历史。
 
 Task 列表和详情只附带 `image_pyramid` 轻量摘要，不附完整 levels 或 URL。
 
+批量摘要和下面三个操作通过 `ImagePyramidApiPort` 交付。HTTP 将已加载 Task 的 ID、素材 ID、文件路径和类型投影为源事实，SQL 实现绑定原 Session，Asset/Generation 行留在所有者内；摘要沿用原集合查询，避免逐任务查询。API 继续负责权限、缓存响应和实际派发，返回值中的重试计划不代表队列已完成投递。
+
 ```text
 GET  /api/v1/tasks/{task_id}/image-pyramid
 POST /api/v1/tasks/{task_id}/image-pyramid/asset-urls
@@ -139,7 +141,7 @@ GET 返回状态 envelope；ready 时返回 manifest 和短期 overview URL，�
 `asset-urls` 最多接受 128 个 overview/tile 逻辑请求，去重后按首次出现顺序返回。服务端验证 Task 可见性、
 generation、level/grid 坐标和对象存在性，再统一签发到期时间。
 
-只有通过 URL 准备的 ready 响应才写入 `last_accessed_at`；带 `If-None-Match` 的 304 会在该写入前返回。`services/image_pyramid.py::touch_generation_access` 持有该代次元数据，仅在时间为空或严格早于十分钟前时更新，并保留原提交点。该元数据独立于 AsyncJob 状态和 Task 缩略图发布。
+只有通过 URL 准备的 ready 响应才写入 `last_accessed_at`；带 `If-None-Match` 的 304 会在该写入前返回。`services/image_pyramid.py::_touch_generation_access` 持有该代次元数据，仅在时间为空或严格早于十分钟前时更新，并保留原提交点。该元数据独立于 AsyncJob 状态和 Task 缩略图发布。
 
 对象缺失或 source fence 不匹配时，不返回 URL，并把 active generation 标记为不一致或陈旧。retry 对
 pending/building 是幂等的，对失败请求有冷却和频率限制。

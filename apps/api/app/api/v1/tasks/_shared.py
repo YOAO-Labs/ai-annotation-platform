@@ -15,6 +15,10 @@ from app.schemas.task import (
     VideoMetadata,
 )
 from app.schemas.image_pyramid import ImagePyramidSummary
+from app.services.image_pyramid_contract import (
+    ImagePyramidApiPort,
+    ImagePyramidTaskSource,
+)
 from app.deps import get_current_user, get_db
 from app.services import task_access
 from app.services.workspace_contract import (
@@ -324,24 +328,25 @@ async def _attach_dimensions_batch(
 
 
 async def _attach_image_pyramids_batch(
-    db: AsyncSession,
+    image_pyramid: ImagePyramidApiPort,
     tasks: list[Task],
     dimensions: dict[
         uuid.UUID,
         tuple[int | None, int | None, str | None, str | None, dict | None],
     ],
 ) -> dict[uuid.UUID, ImagePyramidSummary]:
-    from app.services.image_pyramid import pyramid_summary, task_pyramid_assets
+    sources = tuple(_image_pyramid_task_source(task) for task in tasks)
+    image_dimensions = {
+        task_id: (summary[0], summary[1]) for task_id, summary in dimensions.items()
+    }
+    return await image_pyramid.task_summaries(sources, image_dimensions)
 
-    assets = await task_pyramid_assets(db, tasks)
-    result: dict[uuid.UUID, ImagePyramidSummary] = {}
-    for task in tasks:
-        pair = assets.get(task.id)
-        if pair is None:
-            continue
-        _, generation = pair
-        width, height, *_ = dimensions.get(task.id, (None, None, None, None, None))
-        summary = pyramid_summary(generation, width=width, height=height)
-        if summary is not None:
-            result[task.id] = summary
-    return result
+
+def _image_pyramid_task_source(task: Task) -> ImagePyramidTaskSource:
+    """Project only the already-loaded Task fields needed by the media owner."""
+    return ImagePyramidTaskSource(
+        task_id=task.id,
+        dataset_item_id=task.dataset_item_id,
+        file_path=task.file_path,
+        file_type=task.file_type,
+    )

@@ -21,15 +21,16 @@ from app.db.models.user import User
 from app.services.image_pyramid import (
     build_manifest,
     expected_tile_dimensions,
-    get_asset_for_owner,
-    owner_for_dataset_item,
+    _get_asset_for_owner,
+    _owner_for_dataset_item,
     publish_generation,
     prepare_generation,
     pyramid_levels,
     sha256_digest,
-    touch_generation_access,
+    _touch_generation_access,
 )
 from app.services.storage import StorageService
+from app.services import image_pyramid as image_pyramid_service
 from app.workers import image_pyramid as image_pyramid_worker
 from app.workers.media_materialization import SqlAlchemyMediaMaterializationWriter
 from tests.factory import build_tool_bindings, create_user
@@ -275,7 +276,7 @@ async def test_prepare_generation_is_singleflight_and_fences_source_replacement(
 ):
     user, _ = super_admin
     _, item = await _make_image_task(db_session, user.id)
-    owner = owner_for_dataset_item(item)
+    owner = _owner_for_dataset_item(item)
     identity = ["etag:a:bytes:1234"]
     monkeypatch.setattr(
         "app.services.image_pyramid.source_identity",
@@ -288,7 +289,7 @@ async def test_prepare_generation_is_singleflight_and_fences_source_replacement(
     assert duplicate is first
     assert first.status == "pending"
 
-    asset = await get_asset_for_owner(db_session, owner)
+    asset = await _get_asset_for_owner(db_session, owner)
     assert asset is not None
     first.status = "ready"
     first.width = item.width
@@ -352,23 +353,22 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     db_session.add(generation)
     await db_session.flush()
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.source_matches_generation",
+        "app.services.image_pyramid._source_matches_generation",
         lambda owner, generation: True,
     )
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.generation_manifest",
+        "app.services.image_pyramid._generation_manifest",
         lambda generation: manifest,
     )
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.storage_service.verify_upload",
+        "app.services.image_pyramid.storage_service.verify_upload",
         lambda key, bucket=None: {"ContentLength": 1},
     )
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.storage_service.generate_download_url",
+        "app.services.image_pyramid.storage_service.generate_download_url",
         lambda key, **kwargs: f"https://storage.invalid/{key}",
     )
     now = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
-    monkeypatch.setattr("app.api.v1.tasks.image_pyramid.utcnow", lambda: now[0])
     monkeypatch.setattr("app.services.image_pyramid.utcnow", lambda: now[0])
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -458,7 +458,7 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     }
 
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.storage_service.verify_upload",
+        "app.services.image_pyramid.storage_service.verify_upload",
         lambda key, bucket=None: False,
     )
     missing_object_response = await httpx_client.post(
@@ -516,7 +516,7 @@ async def test_generation_access_commit_is_visible_and_rollback_preserves_touch(
         async with sessions() as command:
             generation = await command.get(ImagePyramidGeneration, (asset_id, 1))
             assert generation is not None
-            await touch_generation_access(command, generation)
+            await _touch_generation_access(command, generation)
             committed_touch = generation.last_accessed_at
 
         assert committed_touch is not None
@@ -548,7 +548,7 @@ async def test_generation_access_commit_is_visible_and_rollback_preserves_touch(
 
             monkeypatch.setattr(rollback_session, "commit", unavailable_commit)
             with pytest.raises(RuntimeError):
-                await touch_generation_access(rollback_session, generation)
+                await _touch_generation_access(rollback_session, generation)
             assert await read_committed_touch() == committed_touch
             await rollback_session.rollback()
 
@@ -602,7 +602,7 @@ async def test_source_replacement_invalidates_ready_generation(
     db_session.add(generation)
     await db_session.flush()
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.source_matches_generation",
+        "app.services.image_pyramid._source_matches_generation",
         lambda owner, generation: False,
     )
 
@@ -725,6 +725,55 @@ async def test_retry_is_idempotent_while_generation_is_pending(
         "status": "pending",
         "celery_task_id": None,
     }
+
+
+async def test_retry_cooldown_preserves_retry_after_error_headers(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    user, token = super_admin
+    task, item = await _make_image_task(db_session, user.id)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        image_pyramid_service,
+        "settings",
+        image_pyramid_service.settings.model_copy(
+            update={"image_pyramid_retry_cooldown_seconds": 30}
+        ),
+    )
+    monkeypatch.setattr(image_pyramid_service, "utcnow", lambda: now)
+    monkeypatch.setattr(
+        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
+        lambda *args, **kwargs: pytest.fail("cooldown must not enqueue"),
+    )
+    asset = ImagePyramidAsset(
+        dataset_item_id=item.id,
+        profile_version="pyramid-v1",
+    )
+    db_session.add(asset)
+    await db_session.flush()
+    db_session.add(
+        ImagePyramidGeneration(
+            asset_id=asset.id,
+            generation=1,
+            source_identity="etag:failed:bytes:1234",
+            status="failed",
+            updated_at=now - timedelta(seconds=20),
+            normalization_version="exif-autorotate-srgb-v1",
+        )
+    )
+    await db_session.flush()
+
+    response = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/image-pyramid/retry",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == {
+        "reason": "retry_cooldown",
+        "retry_after_seconds": 10,
+    }
+    assert response.headers["Retry-After"] == "10"
 
 
 async def test_task_summary_is_lightweight(

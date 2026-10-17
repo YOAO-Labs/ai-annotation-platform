@@ -6,7 +6,7 @@ import math
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, Mapping
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -19,17 +19,33 @@ from app.db.models.image_pyramid import (
     ImagePyramidGeneration,
 )
 from app.db.models.task import Task
+from app.observability.metrics import IMAGE_PYRAMID_ASSET_URL_ITEMS_TOTAL
 from app.services.storage import StorageService, storage_service
 from app.services.media_materialization import MediaMaterializationWriter
-from app.schemas.image_pyramid import ImagePyramidSummary
+from app.schemas.image_pyramid import (
+    ImagePyramidAssetUrl,
+    ImagePyramidAssetUrlsRequest,
+    ImagePyramidAssetUrlsResponse,
+    ImagePyramidManifest,
+    ImagePyramidOverviewUrl,
+    ImagePyramidResponse,
+    ImagePyramidSummary,
+)
+from app.services.image_pyramid_contract import (
+    ImagePyramidApiPort,
+    ImagePyramidDispatchTarget,
+    ImagePyramidFailure,
+    ImagePyramidManifestResult,
+    ImagePyramidOwnerKind,
+    ImagePyramidRetryPlan,
+    ImagePyramidTaskSource,
+)
 
 PYRAMID_SCHEMA = "aap-image-pyramid/v1"
 PYRAMID_TILE_SIZE = 512
 PYRAMID_OVERLAP = 1
 PYRAMID_FORMAT = "webp"
 PYRAMID_PREFIX = "image-pyramids"
-
-OwnerKind = Literal["dataset_item", "task"]
 
 
 class ImagePyramidError(RuntimeError):
@@ -40,7 +56,7 @@ class ImagePyramidError(RuntimeError):
 
 @dataclass(frozen=True)
 class ImagePyramidOwner:
-    kind: OwnerKind
+    kind: ImagePyramidOwnerKind
     id: uuid.UUID
     file_path: str
     bucket: str
@@ -177,15 +193,17 @@ def sha256_digest(data: bytes) -> str:
     return f"sha256:{hashlib.sha256(data).hexdigest()}"
 
 
-async def owner_for_task(db: AsyncSession, task: Task) -> ImagePyramidOwner:
+async def _owner_for_task(
+    db: AsyncSession, task: ImagePyramidTaskSource
+) -> ImagePyramidOwner:
     if task.dataset_item_id:
         item = await db.get(DatasetItem, task.dataset_item_id)
         if item is None:
             raise ImagePyramidError("source_missing")
-        return owner_for_dataset_item(item)
+        return _owner_for_dataset_item(item)
     return ImagePyramidOwner(
         kind="task",
-        id=task.id,
+        id=task.task_id,
         file_path=task.file_path,
         bucket=storage_service.bucket,
         width=None,
@@ -195,7 +213,7 @@ async def owner_for_task(db: AsyncSession, task: Task) -> ImagePyramidOwner:
     )
 
 
-def owner_for_dataset_item(item: DatasetItem) -> ImagePyramidOwner:
+def _owner_for_dataset_item(item: DatasetItem) -> ImagePyramidOwner:
     return ImagePyramidOwner(
         kind="dataset_item",
         id=item.id,
@@ -209,13 +227,13 @@ def owner_for_dataset_item(item: DatasetItem) -> ImagePyramidOwner:
 
 
 async def load_owner(
-    db: AsyncSession, owner_kind: OwnerKind, owner_id: uuid.UUID
+    db: AsyncSession, owner_kind: ImagePyramidOwnerKind, owner_id: uuid.UUID
 ) -> ImagePyramidOwner:
     if owner_kind == "dataset_item":
         item = await db.get(DatasetItem, owner_id)
         if item is None:
             raise ImagePyramidError("source_missing")
-        return owner_for_dataset_item(item)
+        return _owner_for_dataset_item(item)
     task = await db.get(Task, owner_id)
     if task is None:
         raise ImagePyramidError("source_missing")
@@ -267,7 +285,7 @@ def _asset_owner_clause(owner: ImagePyramidOwner):
     return ImagePyramidAsset.task_id == owner.id
 
 
-async def get_asset_for_owner(
+async def _get_asset_for_owner(
     db: AsyncSession,
     owner: ImagePyramidOwner,
     *,
@@ -282,16 +300,16 @@ async def get_asset_for_owner(
     return (await db.execute(statement)).scalar_one_or_none()
 
 
-async def invalidate_ready_generation(
+async def _invalidate_ready_generation(
     db: AsyncSession,
-    asset: ImagePyramidAsset,
-    generation: ImagePyramidGeneration,
+    asset_id: uuid.UUID,
+    generation_number: int,
     error_code: str,
 ) -> None:
     locked_asset = (
         await db.execute(
             select(ImagePyramidAsset)
-            .where(ImagePyramidAsset.id == asset.id)
+            .where(ImagePyramidAsset.id == asset_id)
             .with_for_update()
         )
     ).scalar_one()
@@ -299,13 +317,13 @@ async def invalidate_ready_generation(
         await db.execute(
             select(ImagePyramidGeneration)
             .where(
-                ImagePyramidGeneration.asset_id == generation.asset_id,
-                ImagePyramidGeneration.generation == generation.generation,
+                ImagePyramidGeneration.asset_id == asset_id,
+                ImagePyramidGeneration.generation == generation_number,
             )
             .with_for_update()
         )
     ).scalar_one()
-    if locked_asset.active_generation == locked_generation.generation:
+    if locked_asset.active_generation == generation_number:
         locked_asset.active_generation = None
     locked_generation.status = "failed"
     locked_generation.error_code = error_code
@@ -332,7 +350,7 @@ async def prepare_generation(
         .values(id=uuid.uuid4(), **_asset_owner_values(owner))
         .on_conflict_do_nothing()
     )
-    asset = await get_asset_for_owner(db, owner, for_update=True)
+    asset = await _get_asset_for_owner(db, owner, for_update=True)
     if asset is None:  # pragma: no cover - defensive after INSERT/ON CONFLICT
         raise ImagePyramidError("state_conflict")
 
@@ -550,13 +568,15 @@ async def fail_generation(
     await db.flush()
 
 
-async def task_pyramid_assets(
-    db: AsyncSession, tasks: list[Task]
-) -> dict[uuid.UUID, tuple[ImagePyramidAsset, ImagePyramidGeneration | None]]:
+async def _task_pyramid_summaries(
+    db: AsyncSession,
+    tasks: tuple[ImagePyramidTaskSource, ...],
+    dimensions: Mapping[uuid.UUID, tuple[int | None, int | None]],
+) -> dict[uuid.UUID, ImagePyramidSummary]:
     if not tasks:
         return {}
     item_ids = {task.dataset_item_id for task in tasks if task.dataset_item_id}
-    direct_task_ids = {task.id for task in tasks if task.dataset_item_id is None}
+    direct_task_ids = {task.task_id for task in tasks if task.dataset_item_id is None}
     owner_filters = []
     if item_ids:
         owner_filters.append(ImagePyramidAsset.dataset_item_id.in_(item_ids))
@@ -604,14 +624,12 @@ async def task_pyramid_assets(
         elif asset.task_id:
             owner_assets[("task", asset.task_id)] = asset
 
-    result: dict[
-        uuid.UUID, tuple[ImagePyramidAsset, ImagePyramidGeneration | None]
-    ] = {}
+    result: dict[uuid.UUID, ImagePyramidSummary] = {}
     for task in tasks:
         owner_key = (
             ("dataset_item", task.dataset_item_id)
             if task.dataset_item_id
-            else ("task", task.id)
+            else ("task", task.task_id)
         )
         asset = owner_assets.get(owner_key)
         if asset is None:
@@ -638,26 +656,29 @@ async def task_pyramid_assets(
             )
         if selected is None and candidates:
             selected = candidates[0]
-        result[task.id] = (asset, selected)
+        width, height = dimensions.get(task.task_id, (None, None))
+        summary = _pyramid_summary(selected, width=width, height=height)
+        if summary is not None:
+            result[task.task_id] = summary
     return result
 
 
-async def get_active_generation_for_task(
-    db: AsyncSession, task: Task
+async def _active_generation_for_task(
+    db: AsyncSession, task: ImagePyramidTaskSource
 ) -> tuple[ImagePyramidOwner, ImagePyramidAsset | None, ImagePyramidGeneration | None]:
-    owner = await owner_for_task(db, task)
-    asset = await get_asset_for_owner(db, owner)
+    owner = await _owner_for_task(db, task)
+    asset = await _get_asset_for_owner(db, owner)
     if asset is None:
         return owner, None, None
-    generation = None
-    if asset.active_generation is not None:
-        generation = await db.get(
-            ImagePyramidGeneration, (asset.id, asset.active_generation)
-        )
+    generation = (
+        await db.get(ImagePyramidGeneration, (asset.id, asset.active_generation))
+        if asset.active_generation is not None
+        else None
+    )
     return owner, asset, generation
 
 
-async def touch_generation_access(
+async def _touch_generation_access(
     db: AsyncSession, generation: ImagePyramidGeneration
 ) -> None:
     """Commit a rate-limited access timestamp for a served ready generation."""
@@ -669,7 +690,7 @@ async def touch_generation_access(
         await db.commit()
 
 
-def generation_manifest(
+def _generation_manifest(
     generation: ImagePyramidGeneration,
     storage: StorageService = storage_service,
 ) -> dict[str, Any]:
@@ -699,12 +720,12 @@ def generation_manifest(
     return manifest
 
 
-def manifest_etag(generation: ImagePyramidGeneration) -> str:
+def _manifest_etag(generation: ImagePyramidGeneration) -> str:
     digest = (generation.manifest_digest or "missing").replace("sha256:", "")
     return f'"pyramid-{generation.generation}-{digest}"'
 
 
-def source_matches_generation(
+def _source_matches_generation(
     owner: ImagePyramidOwner,
     generation: ImagePyramidGeneration,
     storage: StorageService = storage_service,
@@ -716,7 +737,7 @@ def source_matches_generation(
     return identity == generation.source_identity
 
 
-def pyramid_summary(
+def _pyramid_summary(
     generation: ImagePyramidGeneration | None,
     *,
     width: int | None,
@@ -735,3 +756,382 @@ def pyramid_summary(
         format=generation.format,
         required=pyramid_required(logical_width, logical_height),
     )
+
+
+async def _latest_generation(
+    db: AsyncSession, asset: ImagePyramidAsset
+) -> ImagePyramidGeneration | None:
+    return (
+        await db.execute(
+            select(ImagePyramidGeneration)
+            .where(ImagePyramidGeneration.asset_id == asset.id)
+            .order_by(ImagePyramidGeneration.generation.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _building_generation(
+    db: AsyncSession, asset: ImagePyramidAsset
+) -> ImagePyramidGeneration | None:
+    if asset.building_generation is None:
+        return None
+    return await db.get(ImagePyramidGeneration, (asset.id, asset.building_generation))
+
+
+def _status_response(
+    *,
+    task_id: uuid.UUID,
+    status_value: str,
+    required: bool,
+    generation: ImagePyramidGeneration | None = None,
+    retryable: bool = False,
+    retry_after_ms: int | None = None,
+    error_code: str | None = None,
+) -> ImagePyramidResponse:
+    return ImagePyramidResponse(
+        task_id=task_id,
+        status=status_value,  # type: ignore[arg-type]
+        required=required,
+        retryable=retryable,
+        retry_after_ms=retry_after_ms,
+        generation=generation.generation if generation else None,
+        error_code=error_code,
+    )
+
+
+class SqlAlchemyImagePyramidApi(ImagePyramidApiPort):
+    """Bind task-scoped image-pyramid API behavior to one SQL transaction."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def task_summaries(
+        self,
+        tasks: tuple[ImagePyramidTaskSource, ...],
+        dimensions: Mapping[uuid.UUID, tuple[int | None, int | None]],
+    ) -> dict[uuid.UUID, ImagePyramidSummary]:
+        return await _task_pyramid_summaries(self._db, tasks, dimensions)
+
+    async def manifest(
+        self, task: ImagePyramidTaskSource, *, if_none_match: str | None
+    ) -> ImagePyramidManifestResult:
+        owner, asset, generation = await _active_generation_for_task(self._db, task)
+        required = pyramid_required(owner.width, owner.height)
+        cache_control = "private, no-store"
+        if owner.file_type != "image":
+            return ImagePyramidManifestResult(
+                body=_status_response(
+                    task_id=task.task_id,
+                    status_value="not_available",
+                    required=False,
+                ),
+                etag=None,
+                cache_control=cache_control,
+                outcome="not_available",
+            )
+
+        if asset is None:
+            outcome = (
+                "missing"
+                if pyramid_eligible(owner.width, owner.height)
+                else "not_available"
+            )
+            return ImagePyramidManifestResult(
+                body=_status_response(
+                    task_id=task.task_id,
+                    status_value=outcome,
+                    required=required,
+                    retryable=outcome == "missing",
+                ),
+                etag=None,
+                cache_control=cache_control,
+                outcome=outcome,
+            )
+
+        if generation is None or generation.status != "ready":
+            latest = await _latest_generation(self._db, asset)
+            if latest is None:
+                status_value = "missing"
+                retryable = True
+                retry_after_ms = None
+                error_code = None
+            elif latest.status in {"pending", "building"}:
+                status_value = latest.status
+                retryable = False
+                retry_after_ms = 2_000
+                error_code = None
+            else:
+                status_value = "failed"
+                retryable = True
+                elapsed = max(0.0, (utcnow() - latest.updated_at).total_seconds())
+                retry_after_ms = max(
+                    0,
+                    int(
+                        (settings.image_pyramid_retry_cooldown_seconds - elapsed) * 1000
+                    ),
+                )
+                error_code = latest.error_code
+            return ImagePyramidManifestResult(
+                body=_status_response(
+                    task_id=task.task_id,
+                    status_value=status_value,
+                    required=required,
+                    generation=latest,
+                    retryable=retryable,
+                    retry_after_ms=retry_after_ms,
+                    error_code=error_code,
+                ),
+                etag=None,
+                cache_control=cache_control,
+                outcome=status_value,
+            )
+
+        if not _source_matches_generation(owner, generation):
+            await _invalidate_ready_generation(
+                self._db, asset.id, generation.generation, "source_changed"
+            )
+            dispatch = (
+                ImagePyramidDispatchTarget(owner.kind, owner.id, True)
+                if settings.image_pyramid_auto_generate
+                else None
+            )
+            return ImagePyramidManifestResult(
+                body=_status_response(
+                    task_id=task.task_id,
+                    status_value="stale",
+                    required=required,
+                    generation=generation,
+                    retryable=True,
+                    error_code="source_changed",
+                ),
+                etag=None,
+                cache_control=cache_control,
+                outcome="stale",
+                dispatch=dispatch,
+            )
+
+        try:
+            manifest = _generation_manifest(generation)
+            if not generation.overview_key or not storage_service.verify_upload(
+                generation.overview_key,
+                bucket=storage_service.media_cache_bucket,
+            ):
+                raise ImagePyramidError("object_missing")
+        except ImagePyramidError as exc:
+            await _invalidate_ready_generation(
+                self._db, asset.id, generation.generation, exc.code
+            )
+            dispatch = (
+                ImagePyramidDispatchTarget(owner.kind, owner.id, True)
+                if settings.image_pyramid_auto_generate
+                else None
+            )
+            return ImagePyramidManifestResult(
+                body=_status_response(
+                    task_id=task.task_id,
+                    status_value="inconsistent",
+                    required=required,
+                    generation=generation,
+                    retryable=True,
+                    error_code=exc.code,
+                ),
+                etag=None,
+                cache_control=cache_control,
+                outcome="inconsistent",
+                dispatch=dispatch,
+            )
+
+        etag = _manifest_etag(generation)
+        cache_control = "private, max-age=60"
+        if if_none_match == etag:
+            return ImagePyramidManifestResult(
+                body=None,
+                etag=etag,
+                cache_control=cache_control,
+                outcome="not_modified",
+            )
+
+        expiry = utcnow() + timedelta(seconds=settings.image_pyramid_url_expiry_seconds)
+        overview_url = storage_service.generate_download_url(
+            generation.overview_key,
+            expires_in=settings.image_pyramid_url_expiry_seconds,
+            bucket=storage_service.media_cache_bucket,
+            align=False,
+        )
+        building = await _building_generation(self._db, asset)
+        await _touch_generation_access(self._db, generation)
+        return ImagePyramidManifestResult(
+            body=ImagePyramidResponse(
+                task_id=task.task_id,
+                status="ready",
+                required=pyramid_required(generation.width, generation.height),
+                generation=generation.generation,
+                building_generation=building.generation if building else None,
+                building_status=(
+                    building.status
+                    if building is not None
+                    and building.status in {"pending", "building"}
+                    else None
+                ),
+                manifest=ImagePyramidManifest.model_validate(manifest),
+                overview=ImagePyramidOverviewUrl(url=overview_url, expires_at=expiry),
+            ),
+            etag=etag,
+            cache_control=cache_control,
+            outcome="ready",
+        )
+
+    async def asset_urls(
+        self, task: ImagePyramidTaskSource, payload: ImagePyramidAssetUrlsRequest
+    ) -> ImagePyramidAssetUrlsResponse:
+        owner, asset, generation = await _active_generation_for_task(self._db, task)
+        if asset is None or generation is None or generation.status != "ready":
+            raise ImagePyramidFailure(
+                409,
+                {"reason": "asset_not_ready"},
+                metric_outcome="not_ready",
+            )
+        if not _source_matches_generation(owner, generation):
+            await _invalidate_ready_generation(
+                self._db, asset.id, generation.generation, "source_changed"
+            )
+            raise ImagePyramidFailure(
+                409,
+                {"reason": "stale_generation", "active_generation": None},
+            )
+
+        try:
+            manifest = _generation_manifest(generation)
+        except ImagePyramidError as exc:
+            await _invalidate_ready_generation(
+                self._db, asset.id, generation.generation, exc.code
+            )
+            raise ImagePyramidFailure(409, {"reason": "inconsistent_ready"}) from exc
+        levels = {int(level["level"]): level for level in manifest["levels"]}
+        unique: list[Any] = []
+        seen: set[tuple[Any, ...]] = set()
+        for item in payload.items:
+            if item.kind == "overview":
+                identity = ("overview", item.generation)
+            else:
+                identity = ("tile", item.generation, item.level, item.x, item.y)
+            if identity not in seen:
+                seen.add(identity)
+                unique.append(item)
+
+        expiry = utcnow() + timedelta(seconds=settings.image_pyramid_url_expiry_seconds)
+        output: list[ImagePyramidAssetUrl] = []
+        for item in unique:
+            if item.generation != generation.generation:
+                raise ImagePyramidFailure(
+                    409,
+                    {
+                        "reason": "stale_generation",
+                        "active_generation": generation.generation,
+                    },
+                )
+            if item.kind == "overview":
+                key = generation.overview_key
+                if not key:
+                    raise ImagePyramidFailure(409, {"reason": "inconsistent_ready"})
+                output_item = {
+                    "kind": "overview",
+                    "generation": generation.generation,
+                }
+            else:
+                level = levels.get(item.level)
+                if (
+                    level is None
+                    or item.x >= int(level["columns"])
+                    or item.y >= int(level["rows"])
+                ):
+                    raise ImagePyramidFailure(422, {"reason": "invalid_coordinate"})
+                key = tile_key(
+                    asset.id,
+                    generation.generation,
+                    item.level,
+                    item.x,
+                    item.y,
+                )
+                output_item = {
+                    "kind": "tile",
+                    "generation": generation.generation,
+                    "level": item.level,
+                    "x": item.x,
+                    "y": item.y,
+                }
+            if not storage_service.verify_upload(
+                key, bucket=storage_service.media_cache_bucket
+            ):
+                await _invalidate_ready_generation(
+                    self._db, asset.id, generation.generation, "object_missing"
+                )
+                raise ImagePyramidFailure(
+                    409,
+                    {"reason": "inconsistent_ready"},
+                    metric_outcome="object_missing",
+                )
+            url = storage_service.generate_download_url(
+                key,
+                expires_in=settings.image_pyramid_url_expiry_seconds,
+                bucket=storage_service.media_cache_bucket,
+                align=False,
+            )
+            output.append(ImagePyramidAssetUrl(**output_item, url=url))
+            IMAGE_PYRAMID_ASSET_URL_ITEMS_TOTAL.labels(kind=item.kind).inc()
+
+        return ImagePyramidAssetUrlsResponse(
+            task_id=task.task_id,
+            generation=generation.generation,
+            expires_at=expiry,
+            items=output,
+        )
+
+    async def retry(self, task: ImagePyramidTaskSource) -> ImagePyramidRetryPlan:
+        owner, asset, generation = await _active_generation_for_task(self._db, task)
+        if owner.file_type != "image":
+            raise ImagePyramidFailure(409, {"reason": "not_image"})
+        if (
+            owner.width is not None
+            and owner.height is not None
+            and not pyramid_eligible(owner.width, owner.height)
+        ):
+            raise ImagePyramidFailure(409, {"reason": "not_eligible"})
+
+        invalidated_stale = False
+        if generation is not None and generation.status == "ready":
+            if _source_matches_generation(owner, generation):
+                raise ImagePyramidFailure(409, {"reason": "already_ready"})
+            if asset is not None:
+                await _invalidate_ready_generation(
+                    self._db, asset.id, generation.generation, "source_changed"
+                )
+                invalidated_stale = True
+
+        if asset is not None:
+            latest = await _latest_generation(self._db, asset)
+            if latest is not None and latest.status in {"pending", "building"}:
+                return ImagePyramidRetryPlan(status=latest.status)
+            if (
+                latest is not None
+                and latest.status == "failed"
+                and not invalidated_stale
+            ):
+                next_retry = latest.updated_at + timedelta(
+                    seconds=settings.image_pyramid_retry_cooldown_seconds
+                )
+                if next_retry > utcnow():
+                    retry_after = max(1, int((next_retry - utcnow()).total_seconds()))
+                    raise ImagePyramidFailure(
+                        429,
+                        {
+                            "reason": "retry_cooldown",
+                            "retry_after_seconds": retry_after,
+                        },
+                        headers={"Retry-After": str(retry_after)},
+                    )
+
+        return ImagePyramidRetryPlan(
+            status="queued", owner_kind=owner.kind, owner_id=owner.id
+        )

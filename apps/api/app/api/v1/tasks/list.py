@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, or_, and_, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.image_pyramid import bind_image_pyramid_api
 from app.deps import (
     get_db,
     get_current_user,
@@ -148,7 +149,9 @@ async def list_tasks(
     is_first_page = cursor is None and offset == 0
     total = ((await db.execute(count_q)).scalar() or 0) if is_first_page else None
     dims = await _attach_dimensions_batch(db, tasks)
-    pyramids = await _attach_image_pyramids_batch(db, tasks, dims)
+    pyramids = await _attach_image_pyramids_batch(
+        bind_image_pyramid_api(db), tasks, dims
+    )
     # v0.7.2 · 一次 IN 查询解析所有 assignee_id / reviewer_id → UserBrief
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
@@ -203,7 +206,9 @@ async def next_task(
     await db.commit()
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
     dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
-    pyramids = await _attach_image_pyramids_batch(db, [task], dimensions)
+    pyramids = await _attach_image_pyramids_batch(
+        bind_image_pyramid_api(db), [task], dimensions
+    )
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
         task,
@@ -227,7 +232,9 @@ async def get_task(
     await task_access.assert_task_visible(db, task, current_user)
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
     dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
-    pyramids = await _attach_image_pyramids_batch(db, [task], dimensions)
+    pyramids = await _attach_image_pyramids_batch(
+        bind_image_pyramid_api(db), [task], dimensions
+    )
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
         task,

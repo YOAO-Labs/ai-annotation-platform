@@ -41,7 +41,6 @@ from app.services.image_pyramid import (
     PYRAMID_TILE_SIZE,
     ImagePyramidError,
     ImagePyramidOwner,
-    OwnerKind,
     acquire_generation_lease,
     build_manifest,
     canonical_manifest_bytes,
@@ -60,6 +59,7 @@ from app.services.image_pyramid import (
     utcnow,
     validate_dimensions,
 )
+from app.services.image_pyramid_contract import ImagePyramidOwnerKind
 from app.services.storage import StorageService
 from app.workers.celery_app import celery_app
 from app.workers.media_materialization import SqlAlchemyMediaMaterializationWriter
@@ -484,7 +484,7 @@ def _build_generation(
 
 
 async def _run_image_pyramid(
-    owner_kind: OwnerKind, owner_id: str, *, force: bool
+    owner_kind: ImagePyramidOwnerKind, owner_id: str, *, force: bool
 ) -> None:
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(
@@ -591,7 +591,7 @@ async def _run_image_pyramid(
 
 
 def enqueue_image_pyramid(
-    owner_kind: OwnerKind, owner_id: uuid.UUID | str, *, force: bool = False
+    owner_kind: ImagePyramidOwnerKind, owner_id: uuid.UUID | str, *, force: bool = False
 ) -> str:
     result = generate_image_pyramid.delay(owner_kind, str(owner_id), force)
     return str(result.id)
@@ -605,7 +605,7 @@ def enqueue_image_pyramid(
     time_limit=settings.image_pyramid_job_timeout_seconds + 60,
 )
 def generate_image_pyramid(
-    self, owner_kind: OwnerKind, owner_id: str, force: bool = False
+    self, owner_kind: ImagePyramidOwnerKind, owner_id: str, force: bool = False
 ) -> None:
     asyncio.run(_run_image_pyramid(owner_kind, owner_id, force=force))
 

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.image_pyramid import bind_image_pyramid_api
 from app.api.v1.tasks import (
     _attach_dimensions_batch,
     _attach_image_pyramids_batch,
@@ -428,7 +429,9 @@ async def query_project_tasks(
     )
     tasks = [row[0] for row in rows]
     dims = await _attach_dimensions_batch(db, tasks)
-    pyramids = await _attach_image_pyramids_batch(db, tasks, dims)
+    pyramids = await _attach_image_pyramids_batch(
+        bind_image_pyramid_api(db), tasks, dims
+    )
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
     }
