@@ -125,6 +125,125 @@ def test_projects_list_json(respx_mock):
     assert data[0]["total_tasks"] == 10
 
 
+def test_projects_list_filters_reach_api(respx_mock):
+    route = respx_mock.get(f"{API}/projects").mock(
+        return_value=httpx.Response(200, json=[PROJECT])
+    )
+    member_id = str(uuid4())
+    result = runner.invoke(
+        app,
+        [
+            "projects",
+            "list",
+            "--type-key",
+            "object_detection",
+            "--type-key",
+            "segment",
+            "--data-type",
+            "image",
+            "--member-id",
+            member_id,
+            "--project-role",
+            "reviewer",
+            "--created-from",
+            "2026-01-01",
+            "--created-to",
+            "2026-06-30",
+            "--json",
+        ],
+        env=ENV,
+    )
+    assert result.exit_code == 0, result.output
+    params = route.calls.last.request.url.params
+    assert params.get_list("type_key") == ["object_detection", "segment"]
+    assert params.get_list("data_type") == ["image"]
+    assert params["member_id"] == member_id
+    assert params["project_role"] == "reviewer"
+    assert params["created_from"] == "2026-01-01"
+    assert params["created_to"] == "2026-06-30"
+
+
+def test_datasets_list_exposes_boolean_filter(respx_mock):
+    route = respx_mock.get(f"{API}/datasets").mock(
+        return_value=httpx.Response(
+            200, json={"items": [], "total": 0, "limit": 50, "offset": 0}
+        )
+    )
+    result = runner.invoke(app, ["datasets", "list", "--no-scenes", "--json"], env=ENV)
+    assert result.exit_code == 0, result.output
+    assert route.calls.last.request.url.params["has_scenes"] == "false"
+
+
+def test_tasks_list_exposes_project_filters(respx_mock):
+    route = respx_mock.get(f"{API}/tasks").mock(
+        return_value=httpx.Response(
+            200,
+            json={"items": [], "total": 0, "limit": 50, "offset": 0},
+        )
+    )
+    assignee_id = str(uuid4())
+    batch_id = str(uuid4())
+    result = runner.invoke(
+        app,
+        [
+            "tasks",
+            "list",
+            "--project",
+            PROJECT["id"],
+            "--assignee-id",
+            assignee_id,
+            "--batch-id",
+            batch_id,
+            "--unbatched",
+            "--reject-reason-type",
+            "wrong_label",
+            "--class-name",
+            "car",
+            "--json",
+        ],
+        env=ENV,
+    )
+    assert result.exit_code == 0, result.output
+    params = route.calls.last.request.url.params
+    assert params["project_id"] == PROJECT["id"]
+    assert params["assignee_id"] == assignee_id
+    assert params["batch_id"] == batch_id
+    assert params["unbatched"] == "true"
+    assert params["reject_reason_type"] == "wrong_label"
+    assert params["class_name"] == "car"
+    result = runner.invoke(
+        app,
+        ["tasks", "list", "--project", PROJECT["id"], "--all-batches", "--json"],
+        env=ENV,
+    )
+    assert result.exit_code == 0, result.output
+    assert route.calls.last.request.url.params["unbatched"] == "false"
+
+
+def test_annotations_list_exposes_video_segment_filter(respx_mock):
+    task_id = str(uuid4())
+    segment_id = str(uuid4())
+    route = respx_mock.get(f"{API}/tasks/{task_id}/annotations").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    result = runner.invoke(
+        app,
+        ["annotations", "list", task_id, "--video-segment-id", segment_id, "--json"],
+        env=ENV,
+    )
+    assert result.exit_code == 0, result.output
+    assert route.calls.last.request.url.params["video_segment_id"] == segment_id
+
+
+def test_jobs_list_preserves_empty_search_filter(respx_mock):
+    route = respx_mock.get(f"{API}/async-jobs").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+    result = runner.invoke(app, ["jobs", "list", "--search=", "--json"], env=ENV)
+    assert result.exit_code == 0, result.output
+    assert route.calls.last.request.url.params["search"] == ""
+
+
 def test_projects_create(respx_mock):
     route = respx_mock.post(f"{API}/projects").mock(
         return_value=httpx.Response(200, json=PROJECT)
@@ -632,6 +751,143 @@ def test_export_project_wait_requires_out(respx_mock):
     # --wait (默认) 但缺 --out → BadParameter, 非 0 退出
     result = runner.invoke(app, ["export", "project", pid, "--target", "coco"], env=ENV)
     assert result.exit_code != 0
+
+
+def test_export_project_body_option_sends_typed_json_body(respx_mock, tmp_path):
+    pid = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/export").mock(
+        return_value=httpx.Response(202, json={"job_id": JOB_ID})
+    )
+    body_path = tmp_path / "body.json"
+    body_path.write_text(
+        json.dumps(
+            {
+                "scope": {
+                    "task_id": str(uuid4()),
+                    "selection": {"kind": "frames", "from_frame": 1, "to_frame": 2},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "project",
+            pid,
+            "--target",
+            "aap_json",
+            "--body",
+            str(body_path),
+            "--no-wait",
+            "--json",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    request = route.calls.last.request
+    assert "scope" not in request.url.params and "lidar" not in request.url.params
+    assert json.loads(request.content)["scope"]["selection"]["kind"] == "frames"
+
+
+def test_export_project_voc_download_has_no_fake_job_id(respx_mock, tmp_path):
+    pid = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/export").mock(
+        return_value=httpx.Response(200, content=b"voc zip")
+    )
+    out = tmp_path / "voc.zip"
+
+    result = runner.invoke(
+        app,
+        ["export", "project", pid, "--target", "voc", "--out", str(out), "--json"],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {"out": str(out)}
+    assert out.read_bytes() == b"voc zip"
+    request = route.calls.last.request
+    assert request.headers["Authorization"] == "Bearer ak_test"
+    assert request.url.params.get_list("targets") == ["voc"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--target", "voc", "--no-wait"],
+        ["--target", "voc"],
+    ],
+)
+def test_export_project_voc_rejects_async_or_missing_out_options(
+    respx_mock, tmp_path, args
+):
+    pid = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/export")
+    result = runner.invoke(app, ["export", "project", pid, *args], env=ENV)
+    assert result.exit_code != 0
+    assert not route.called
+
+
+def test_batch_export_body_option_sends_typed_json_body(respx_mock, tmp_path):
+    pid, batch_id = str(uuid4()), str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/batches/{batch_id}/export").mock(
+        return_value=httpx.Response(202, json={"job_id": JOB_ID})
+    )
+    body_path = tmp_path / "body.json"
+    body_path.write_text(json.dumps({"lidar": {"kitti_camera_role": "camera_front"}}))
+
+    result = runner.invoke(
+        app,
+        [
+            "batches",
+            "export",
+            pid,
+            batch_id,
+            "--target",
+            "kitti",
+            "--body",
+            str(body_path),
+            "--json",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    request = route.calls.last.request
+    assert "lidar" not in request.url.params
+    assert json.loads(request.content) == {
+        "lidar": {"kitti_camera_role": "camera_front"}
+    }
+
+
+def test_batch_download_voc_command_streams_binary_json_result(respx_mock, tmp_path):
+    pid, batch_id = str(uuid4()), str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{pid}/batches/{batch_id}/export").mock(
+        return_value=httpx.Response(200, content=b"batch voc zip")
+    )
+    out = tmp_path / "batch-voc.zip"
+
+    result = runner.invoke(
+        app,
+        [
+            "batches",
+            "download-voc",
+            pid,
+            batch_id,
+            "--out",
+            str(out),
+            "--json",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {"out": str(out)}
+    assert out.read_bytes() == b"batch voc zip"
+    assert route.calls.last.request.url.params.get_list("targets") == ["voc"]
 
 
 # ---------- batches / members / me ----------

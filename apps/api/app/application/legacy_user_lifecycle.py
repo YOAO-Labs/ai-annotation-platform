@@ -616,6 +616,13 @@ async def assign_user_group(
     user, actor = await _lock_legacy_lifecycle_target(db, user_id, actor)
     if user is None or not user.is_active:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if (
+        await db.scalar(
+            select(User.id).where(User.id == user.id, user_scope_clause(actor))
+        )
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="用户不存在")
 
     new_group: Group | None = None
     if group_id:

@@ -2,12 +2,16 @@
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-07-22
+last_reviewed: 2026-10-17
 ---
 
 # Video Tracker Jobs
 
 Video Tracker Job API 用于视频工作台里的异步 AI 追踪。它与批量预标 `Prediction` API 分开：推理结果先暂存为 job candidate，客户端可整批或按目标与帧窗口决定，接受后才写入 annotation。
+
+Python SDK 的 `video_tracker` 提供创建、任务恢复、preview 与候选决策，`video_review` 提供 Mask 内容／关键帧、质量与轨迹操作；CLI 对应 `aap video-tracker` 和 `aap video-review`。创建没有幂等键，结果不确定时先查询 task active/reviewable jobs。计算完成不代表候选已接纳；决策须保留原 job_revision、expected_source_versions 和 selector/digest，409 后重新读取并明确决定。完整流程见 [视频、模板与存储运维](../../dev/sdk/video-and-templates)。
+
+相关素材 `GET /videos/{dataset_item_id}/frames/{frame_index}`／`chunks/{chunk_id}` 及 task-scoped 同类路径返回 JSON 描述，未就绪时为 HTTP 202，包含 status、retry_after 和 Retry-After 头；ready 后通过短期签名 URL 读取媒体字节。查询可能创建缓存记录或排队生成，宜限定帧范围并按提示间隔观察。
 
 ## 创建追踪任务
 
@@ -121,7 +125,7 @@ POST /api/v1/tasks/{task_id}/video/tracks/{annotation_id}:propagate
 响应是 `VideoTrackerJobOut`，其中 `event_channel` 可用于订阅 WebSocket：
 
 ```text
-WS /api/v1/ws/video-tracker-jobs/{job_id}?token=<jwt>
+WS /ws/video-tracker-jobs/{job_id}?token=<jwt>
 ```
 
 ## 保存 Mask 纠错帧并定向重传播

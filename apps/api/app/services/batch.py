@@ -733,6 +733,11 @@ class BatchService:
         task_ids = await self._splittable_task_ids(project_id, default)
         if not task_ids:
             raise HTTPException(status_code=400, detail="No unassigned tasks to split")
+        if n > len(task_ids):
+            raise HTTPException(
+                status_code=400,
+                detail="n_batches cannot exceed the number of tasks to split",
+            )
 
         # v0.11.22：shuffle=False 时保留 _splittable_task_ids 的创建顺序（顺序切分 / 顺序注入）。
         if data.shuffle:

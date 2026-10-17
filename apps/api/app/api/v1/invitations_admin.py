@@ -273,7 +273,12 @@ async def export_invitations(
             detail=export_detail(
                 actor=actor,
                 request=request,
-                base={"format": "json", "count": len(rows), "scope": scope},
+                base={
+                    "format": "json",
+                    "count": len(rows),
+                    "scope": scope,
+                    "project_id": str(project_id) if project_id else None,
+                },
             ),
         )
         await db.commit()
@@ -332,7 +337,12 @@ async def export_invitations(
         detail=export_detail(
             actor=actor,
             request=request,
-            base={"format": "csv", "count": len(items), "scope": scope},
+            base={
+                "format": "csv",
+                "count": len(items),
+                "scope": scope,
+                "project_id": str(project_id) if project_id else None,
+            },
         ),
     )
     await db.commit()

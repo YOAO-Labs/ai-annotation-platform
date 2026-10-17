@@ -535,12 +535,13 @@ async def propagate_annotation_to_task(
 ):
     """v0.14.1 · 跨帧目标延续: 把源 annotation 复制到 target_task(同 project 同 scene)。
 
-    源 task 需对当前用户可见; 目标 task 需可见且可写(未进 review/completed 锁态)。
+    源 task 与目标 task 均需可见且可编辑；审核态调整沿用权限与证据冻结规则。
     复制 geometry/class/attributes + 共享 track_id 跨帧链; box_3d 的 convention_at_create
     取目标 dataset 的 axis_convention(详 service.propagate)。
     """
     source_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, source_task, current_user, access=access)
+    task_access.assert_task_editable(source_task, current_user, access=access)
 
     # 归属校验: annotation 必须属于 URL 里的源 task, 否则越权(借可见 task_id
     # 复制同 project 内不可见 batch 的他人草稿)。
@@ -607,6 +608,7 @@ async def propagate_annotations_batch(
     """
     source_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, source_task, current_user, access=access)
+    task_access.assert_task_editable(source_task, current_user, access=access)
 
     target_task = await _load_task_or_404(db, data.target_task_id)
     target_access = await task_access.resolve_task_access(db, target_task, current_user)
@@ -674,10 +676,12 @@ async def interpolate_annotations_range(
     """
     from_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, from_task, current_user, access=access)
+    task_access.assert_task_editable(from_task, current_user, access=access)
 
     to_task = await _load_task_or_404(db, data.to_task_id)
     to_access = await task_access.resolve_task_access(db, to_task, current_user)
     await task_access.assert_task_visible(db, to_task, current_user, access=to_access)
+    task_access.assert_task_editable(to_task, current_user, access=to_access)
 
     svc = AnnotationService(db)
     created, motion_compensated, skipped_frames = await svc.interpolate_range(

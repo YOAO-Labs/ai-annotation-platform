@@ -21,6 +21,33 @@ PROJECT = {
 }
 
 
+@pytest.mark.parametrize("schema_version", [2, 3])
+def test_project_quality_config_is_typed_and_additive(
+    client, respx_mock, schema_version
+):
+    from ai_annotation import PointCloudQualityConfigRead
+
+    config = {
+        "schema_version": schema_version,
+        "config_revision": 4,
+        "thresholds": {"minimum_points": 9, "future_threshold": 0.125},
+        "governance": {"future_gate": {"required": True}},
+        "future_config": {"enabled": True},
+    }
+    respx_mock.get(f"{API}/projects/{PROJECT['id']}").respond(
+        200, json={**PROJECT, "point_cloud_quality_config": config}
+    )
+    project = client.projects.get(PROJECT["id"])
+    quality = project.point_cloud_quality_config
+    assert isinstance(quality, PointCloudQualityConfigRead)
+    assert quality.schema_version == schema_version
+    assert quality.thresholds.future_threshold == 0.125
+    assert quality.governance.future_gate == {"required": True}
+    assert project.model_dump(mode="json")["point_cloud_quality_config"][
+        "future_config"
+    ] == {"enabled": True}
+
+
 def test_list_projects(client, respx_mock):
     route = respx_mock.get(f"{API}/projects").mock(
         return_value=httpx.Response(200, json=[PROJECT])
@@ -49,6 +76,61 @@ def test_create_project_fills_type_label(client, respx_mock):
     # 后端 ProjectCreate.type_label 必填, SDK 按 type_key 兜底
     assert body["type_label"] == "object_detection"
     assert p.name == "demo"
+
+
+@pytest.mark.parametrize("parent", ["template_id", "source_project_id"])
+def test_create_inherits_server_type_without_synthetic_label(
+    client, respx_mock, parent
+):
+    source_id = uuid4()
+    route = respx_mock.post(f"{API}/projects").respond(201, json=PROJECT)
+    client.projects.create("copy", **{parent: source_id})
+    assert json.loads(route.calls.last.request.content) == {
+        "name": "copy",
+        parent: str(source_id),
+    }
+
+
+def test_create_template_preserves_explicit_overrides(client, respx_mock):
+    source_id = uuid4()
+    route = respx_mock.post(f"{API}/projects").respond(201, json=PROJECT)
+    client.projects.create(
+        "copy",
+        template_id=source_id,
+        data_type="lidar",
+        type_label="Custom",
+        tool_bindings=[],
+    )
+    assert json.loads(route.calls.last.request.content) == {
+        "name": "copy",
+        "template_id": str(source_id),
+        "data_type": "lidar",
+        "type_label": "Custom",
+        "tool_bindings": [],
+    }
+
+
+def test_create_source_guide_is_explicit(client, respx_mock):
+    source_id = uuid4()
+    route = respx_mock.post(f"{API}/projects").respond(201, json=PROJECT)
+    client.projects.create(
+        "copy", source_project_id=source_id, copy_annotation_guide=True
+    )
+    assert json.loads(route.calls.last.request.content)["copy_annotation_guide"] is True
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"template_id": "a", "source_project_id": "b"},
+        {"template_id": "a", "copy_annotation_guide": True},
+        {"copy_annotation_guide": True},
+    ],
+)
+def test_create_invalid_inheritance_has_no_http(client, respx_mock, fields):
+    with pytest.raises(ValueError):
+        client.projects.create("invalid", **fields)
+    assert not respx_mock.calls
 
 
 def test_get_project(client, respx_mock):

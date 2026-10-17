@@ -3,6 +3,7 @@
 from enum import Enum
 
 import typer
+from rich.table import Table
 
 from ai_annotation.cli._output import cli_errors, console, get_client, print_json
 
@@ -32,6 +33,59 @@ def _print_result(result, json_output: bool) -> None:
         print_json(result.model_dump(mode="json"))
     else:
         console.print(f"[green]{result.status}[/green] task={result.task_id}")
+
+
+@app.command("list")
+def list_(
+    project_id: str = typer.Option(..., "--project", help="项目 ID"),
+    status: str | None = typer.Option(None, "--status", help="任务状态"),
+    assignee_id: str | None = typer.Option(None, "--assignee-id", help="标注人用户 ID"),
+    batch_id: str | None = typer.Option(None, "--batch-id", help="批次 ID"),
+    unbatched: bool | None = typer.Option(
+        None, "--unbatched/--all-batches", help="仅未分批 / 包含全部批次"
+    ),
+    reject_reason_type: str | None = typer.Option(
+        None, "--reject-reason-type", help="退回原因类型"
+    ),
+    class_name: str | None = typer.Option(None, "--class-name", help="类别名称"),
+    limit: int = typer.Option(50, "--limit", min=1, max=200, help="返回条数"),
+    offset: int = typer.Option(0, "--offset", min=0, help="起始偏移"),
+    cursor: str | None = typer.Option(None, "--cursor", help="游标"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """按项目与可选条件列出任务。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            page = client.tasks.list(
+                project_id,
+                status=status,
+                limit=limit,
+                offset=offset,
+                cursor=cursor,
+                assignee_id=assignee_id,
+                batch_id=batch_id,
+                unbatched=unbatched,
+                reject_reason_type=reject_reason_type,
+                class_name=class_name,
+            )
+    if json_output:
+        print_json(page.model_dump(mode="json"))
+        return
+    table = Table()
+    table.add_column("ID")
+    table.add_column("状态")
+    table.add_column("文件名")
+    table.add_column("标注人")
+    table.add_column("批次")
+    for task in page.items:
+        table.add_row(
+            task.display_id,
+            task.status,
+            task.file_name,
+            str(task.assignee_id or "-"),
+            str(task.batch_id or "-"),
+        )
+    console.print(table)
 
 
 @app.command("submit")

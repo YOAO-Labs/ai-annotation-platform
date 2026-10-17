@@ -63,7 +63,24 @@ class WorkspaceConfigurationWorkflow:
         payload = dict(payload)
         actor = await self._current_actor(actor_id)
         self._assert_project_creator(actor)
-        prepare_project_create_payload(payload)
+        template_id = payload.pop("template_id", None)
+        source_project_id = payload.pop("source_project_id", None)
+        copy_guide = payload.pop("copy_annotation_guide", False)
+        source_project: Project | None = None
+        if source_project_id is not None:
+            source_project, _access = await resolve_project_access_by_id(
+                self.db, user=actor, project_id=source_project_id
+            )
+        template: ProjectTemplate | None = None
+        if template_id is not None:
+            template = await self._visible_template_for_actor(template_id, actor)
+
+        inherited_kind = source_project or template
+        prepare_project_create_payload(
+            payload,
+            inherited_type_key=getattr(inherited_kind, "type_key", None),
+            inherited_data_type=getattr(inherited_kind, "data_type", None),
+        )
 
         if "video_collaboration" in payload:
             collaboration = VideoCollaborationConfig.model_validate(
@@ -93,14 +110,7 @@ class WorkspaceConfigurationWorkflow:
                     status_code=400, detail="ml_backend_source_id not found"
                 )
 
-        template_id = payload.pop("template_id", None)
-        source_project_id = payload.pop("source_project_id", None)
-        copy_guide = payload.pop("copy_annotation_guide", False)
-        source_project: Project | None = None
-        if source_project_id is not None:
-            source_project, _access = await resolve_project_access_by_id(
-                self.db, user=actor, project_id=source_project_id
-            )
+        if source_project is not None:
             from app.services.project_clone import merge_from_source
 
             payload = merge_from_source(payload, source_project)
@@ -130,9 +140,7 @@ class WorkspaceConfigurationWorkflow:
                 detail="copy_annotation_guide requires source_project_id",
             )
 
-        template: ProjectTemplate | None = None
-        if template_id is not None:
-            template = await self._visible_template_for_actor(template_id, actor)
+        if template is not None:
             payload = merge_template_into_payload(template, payload)
 
         if requested_main_backend_id:

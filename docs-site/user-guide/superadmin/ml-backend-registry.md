@@ -1,9 +1,8 @@
 ---
 audience: [super_admin]
 type: how-to
-since: v0.9.0
 status: stable
-last_reviewed: 2026-07-20
+last_reviewed: 2026-10-17
 ---
 
 # ML Backend 注册（全局注册表）
@@ -61,6 +60,8 @@ dev 环境 placeholder 已默认填 `172.17.0.1:8001`。
 注册后系统会自动调用 `GET <url>/health`。失败不阻断创建（避免临时网络问题让你卡住），但会在列表里显示红色徽章，状态值为 **`error`**（不是 `unreachable`；`state` 字段枚举：`disconnected` / `connected` / `error`，见 `apps/api/app/services/ml_backend.py:122`）。
 
 **注册前连通性测试**：`POST /admin/ml-integrations/probe` 提供无 DB 副作用的探测（`/probe`），注册表单「测试连接」按钮即调用此端点。
+
+探测和试启动保留管理员对内网与新后端地址的诊断能力，URL 须为有效 HTTP(S) base URL，不含内嵌凭据、查询参数或 fragment；认证 token 单独填写。网络失败只回报安全的错误类别。项目 warmup 还要求 backend 已启用于该项目；共享 reload/unload 继续按超级管理员全局权限执行。
 
 ## 全局注册 CRUD（超管）
 

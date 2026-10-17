@@ -44,6 +44,23 @@ def test_detail_dict_preserved(client, respx_mock):
     assert ei.value.detail == detail
 
 
+def test_request_id_and_retry_after_are_preserved(client, respx_mock):
+    respx_mock.get(f"{API}/projects").mock(
+        return_value=httpx.Response(
+            503,
+            json={"detail": "busy"},
+            headers={"X-Request-ID": "req-123", "Retry-After": "3"},
+        )
+    )
+    client._http.retry_backoff = 0
+
+    with pytest.raises(APIStatusError) as error:
+        client.projects.list()
+
+    assert error.value.request_id == "req-123"
+    assert error.value.retry_after == "3"
+
+
 def test_non_json_body_falls_back_to_text(client, respx_mock):
     respx_mock.get(f"{API}/projects").mock(
         return_value=httpx.Response(502, text="Bad Gateway")

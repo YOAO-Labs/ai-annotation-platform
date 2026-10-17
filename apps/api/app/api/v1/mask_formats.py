@@ -18,6 +18,7 @@ from app.deps import (
     require_project_owner,
     require_project_visible,
     require_scopes,
+    require_project_capability,
 )
 from app.schemas.mask_format import (
     MaskFormatDescriptorOut,
@@ -45,6 +46,7 @@ from app.services.mask_formats.service import (
     staged_prefix,
 )
 from app.services.storage import storage_service
+from app.services.project_access import ProjectAccess, ProjectCapability
 
 
 router = APIRouter()
@@ -78,6 +80,9 @@ async def preflight_mask_format_export(
     body: MaskFormatExportPreflightRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
+    _access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
+    ),
 ) -> MaskFormatExportPreflightResponse:
     from app.services.exporting.video_scope import normalize_video_export_scope
 

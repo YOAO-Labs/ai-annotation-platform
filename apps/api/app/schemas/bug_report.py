@@ -73,6 +73,13 @@ class BugReportUpdate(BaseModel):
     fixed_in_version: str | None = None
     resolution: str | None = None
 
+    @field_validator("title", "description", "severity")
+    @classmethod
+    def non_nullable_content(cls, value):
+        if value is None:
+            raise ValueError("title, description and severity cannot be null")
+        return value
+
 
 class BugCommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=10000)

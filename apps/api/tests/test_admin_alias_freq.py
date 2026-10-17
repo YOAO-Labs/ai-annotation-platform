@@ -33,6 +33,35 @@ async def test_alias_freq_requires_admin(httpx_client, annotator):
 
 
 @pytest.mark.asyncio
+async def test_alias_freq_requires_project_manager(
+    httpx_client, db_session, super_admin, project_admin
+):
+    super_user, super_token = super_admin
+    owner, owner_token = project_admin
+    owned = await create_project(db_session, owner_id=owner.id, name="owned")
+    foreign = await create_project(db_session, owner_id=super_user.id, name="foreign")
+    await db_session.commit()
+
+    owned_result = await httpx_client.get(
+        f"/api/v1/admin/projects/{owned.id}/alias-frequency",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert owned_result.status_code == 200, owned_result.text
+
+    foreign_result = await httpx_client.get(
+        f"/api/v1/admin/projects/{foreign.id}/alias-frequency",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert foreign_result.status_code == 404
+
+    super_result = await httpx_client.get(
+        f"/api/v1/admin/projects/{foreign.id}/alias-frequency",
+        headers={"Authorization": f"Bearer {super_token}"},
+    )
+    assert super_result.status_code == 200, super_result.text
+
+
+@pytest.mark.asyncio
 async def test_alias_freq_404_when_project_missing(httpx_client, super_admin):
     _, token = super_admin
     res = await httpx_client.get(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typer
+from rich.table import Table
 from rich.progress import (
     BarColumn,
     Progress,
@@ -17,7 +18,9 @@ from ai_annotation.cli._output import (
     confirm_destructive,
     console,
     get_client,
+    get_error_format,
     print_json,
+    print_learning_result,
     progress_console,
 )
 from ai_annotation.models import Job
@@ -43,6 +46,7 @@ def wait_job(client: Client, job_id: str, json_mode: bool = False) -> Job:
         TaskProgressColumn(),
         TimeElapsedColumn(),
         console=progress_console,
+        disable=get_error_format() == "json",
     ) as progress:
         task = progress.add_task(f"等待 job {job_id}", total=100)
 
@@ -57,6 +61,59 @@ def wait_job(client: Client, job_id: str, json_mode: bool = False) -> Job:
         progress.update(task, completed=100)
     console.print(f"[green]job {job.id} completed[/green] (kind={job.kind})")
     return job
+
+
+@app.command("list")
+def list_(
+    status: list[str] | None = typer.Option(None, "--status", help="任务状态，可重复"),
+    kind: list[str] | None = typer.Option(None, "--kind", help="任务类型，可重复"),
+    project_id: str | None = typer.Option(None, "--project", help="项目 ID"),
+    search: str | None = typer.Option(None, "--search", help="任务名称或 ID"),
+    limit: int = typer.Option(50, "--limit", min=1, max=200, help="返回条数"),
+    offset: int = typer.Option(0, "--offset", min=0, help="起始偏移"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """列出异步任务。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            page = client.jobs.list(
+                status=status,
+                kind=kind,
+                project_id=project_id,
+                search=search,
+                limit=limit,
+                offset=offset,
+            )
+    if json_output:
+        print_json(page.model_dump(mode="json"))
+        return
+    table = Table()
+    table.add_column("ID")
+    table.add_column("类型")
+    table.add_column("状态")
+    table.add_column("进度")
+    table.add_column("项目")
+    for job in page.items:
+        table.add_row(
+            str(job.id),
+            job.kind,
+            job.status,
+            f"{job.progress_pct}%",
+            str(job.project_id or "-"),
+        )
+    console.print(table)
+
+
+@app.command("get")
+def get(
+    job_id: str = typer.Argument(..., help="Job ID"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """读取一项现有 Job 的当前状态，不等待或修改它。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            job = client.jobs.get(job_id)
+    print_learning_result(job, json_output)
 
 
 @app.command("wait")

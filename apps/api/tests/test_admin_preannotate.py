@@ -439,6 +439,51 @@ async def test_bulk_clear_rechecks_current_project_owner(
     ]
 
 
+async def test_preannotate_reads_are_scoped_to_project_admin_owner(
+    httpx_client, db_session, super_admin, project_admin
+):
+    super_user, super_token = super_admin
+    owner, owner_token = project_admin
+    owned = await create_project(
+        db_session, owner_id=owner.id, name="owned-preannotate"
+    )
+    foreign = await create_project(
+        db_session, owner_id=super_user.id, name="foreign-preannotate"
+    )
+    owned_batch, _ = await _seed_batch_with_predictions(
+        db_session, owned.id, status="pre_annotated"
+    )
+    foreign_batch, _ = await _seed_batch_with_predictions(
+        db_session, foreign.id, status="pre_annotated"
+    )
+    await db_session.commit()
+
+    queue = await httpx_client.get(
+        "/api/v1/admin/preannotate-queue",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert queue.status_code == 200, queue.text
+    assert [item["batch_id"] for item in queue.json()["items"]] == [str(owned_batch.id)]
+
+    summary = await httpx_client.get(
+        "/api/v1/admin/preannotate-summary",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert summary.status_code == 200, summary.text
+    assert {item["project_id"] for item in summary.json()["items"]} == {str(owned.id)}
+
+    global_summary = await httpx_client.get(
+        "/api/v1/admin/preannotate-summary",
+        headers={"Authorization": f"Bearer {super_token}"},
+    )
+    assert global_summary.status_code == 200, global_summary.text
+    assert {item["project_id"] for item in global_summary.json()["items"]} >= {
+        str(owned.id),
+        str(foreign.id),
+    }
+    assert foreign_batch.id != owned_batch.id
+
+
 # ── v0.9.12 · /admin/preannotate-summary (B-17) ──────────────────────────────
 
 

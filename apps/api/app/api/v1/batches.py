@@ -274,7 +274,12 @@ async def delete_batch(
         target_id=str(batch_id),
         request=request,
         status_code=204,
-        detail={"name": batch.name, "affected_tasks": affected, "forced": force},
+        detail={
+            "project_id": str(project_id),
+            "name": batch.name,
+            "affected_tasks": affected,
+            "forced": force,
+        },
     )
     await db.commit()
 
@@ -1032,6 +1037,10 @@ async def list_batch_audit_logs(
     """
     from sqlalchemy import or_
 
+    batch = await BatchService(db).get(batch_id)
+    if batch is not None and batch.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
     bulk_actions = (
         AuditAction.BULK_BATCH_ARCHIVE.value,
         AuditAction.BULK_BATCH_DELETE.value,
@@ -1039,6 +1048,13 @@ async def list_batch_audit_logs(
         AuditAction.BULK_BATCH_ACTIVATE.value,
     )
     direct = (AuditLog.target_type == "batch") & (AuditLog.target_id == str(batch_id))
+    if batch is None:
+        path = f"/api/v1/projects/{project_id}/batches/{batch_id}"
+        direct &= or_(
+            AuditLog.detail_json["project_id"].astext == str(project_id),
+            AuditLog.path == path,
+            AuditLog.path.startswith(path + "/", autoescape=True),
+        )
     bulk_match = (
         (AuditLog.target_type == "project")
         & (AuditLog.target_id == str(project_id))
@@ -1084,6 +1100,9 @@ async def preflight_batch_lidar_export(
     body: LidarExportPreflightRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
+    _access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
+    ),
 ) -> LidarExportPreflightResponse:
     if project.data_type != "lidar":
         raise HTTPException(status_code=422, detail="project is not a lidar project")
@@ -1140,6 +1159,9 @@ async def export_batch(
     project: Project = Depends(require_project_visible),
     actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _access: ProjectAccess = Depends(
+        require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
+    ),
 ):
     # v0.10.27 · 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
     # v0.10.43 · 多目标（方案 B）。VOC 仅可单选，走同步 blob；不删避免破坏 API 契约。

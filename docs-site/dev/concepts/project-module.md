@@ -221,6 +221,7 @@ Project 决定 task 的这些上层语义：
 项目主路由覆盖的主要能力：
 
 - 列表 / 详情 / 创建 / 更新 / 删除
+- 项目克隆与模板套用（`source_project_id` 与 `template_id`）
 - 类目重命名
 - 项目 owner 转移
 - 成员列表 / 新增 / 删除
@@ -228,6 +229,15 @@ Project 决定 task 的这些上层语义：
 - 项目级 AI 预标注触发
 - orphan tasks 预览与清理
 - 关联 datasets 查询
+
+### 项目克隆与模板继承
+
+创建项目（`POST /api/v1/projects`）支持通过 `source_project_id`（从已有可见项目复制配置）或 `template_id`（从模板库创建）快速初始化（二者互斥）：
+
+- **类型继承与一致性推导**：服务层通过 `resolve_project_kind` 解析。调用方未显式提供 `type_key` 或 `data_type` 时，服务端自动从源项目或模板中继承；若显式指定了任意一项，另一项由系统自动派生并严格断言二者一致。
+- **标注指引与素材**：`copy_annotation_guide=True` 仅当 `source_project_id` 给定时有效，会将源项目的标注指引文本深拷贝并复用 `guide_assets` 存储 key（不重复上传原图）；模板套用只继承模板中的指引文本，不复制素材资源。
+- **覆盖规则**：调用方显式传入的配置优先于继承值。任务、标注、数据集关联、项目成员与批次不会被复制。
+- **模板库管理**：由 `/api/v1/project-templates` 路由支持，提供私有／公开模板的 CRUD、基于源项目的模板生成，以及无正文一键复制 `duplicate`。
 
 如果你新增 project 能力，优先判断它属于：
 

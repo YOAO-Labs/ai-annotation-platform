@@ -14,6 +14,7 @@ from dataclasses import asdict
 import re
 import time
 from typing import Literal
+from urllib.parse import urlsplit
 
 import uuid
 from datetime import datetime
@@ -21,7 +22,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -231,6 +232,49 @@ async def get_overview(
 # ── v0.9.6 · /probe + /runtime-hints ──────────────────────────────────
 
 
+_HTTP_BASE_URL = TypeAdapter(AnyHttpUrl)
+
+
+def _validate_probe_base_url(value: str) -> None:
+    """Validate URL syntax while allowing private, loopback, and internal hosts."""
+    error = "URL must be HTTP(S) with a valid host and port, without credentials, query, fragment, or control characters"
+    if (
+        any(ord(char) < 0x20 or ord(char) == 0x7F or char.isspace() for char in value)
+        or "?" in value
+        or "#" in value
+    ):
+        raise HTTPException(status_code=422, detail=error)
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+        _HTTP_BASE_URL.validate_python(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=error) from None
+    if (
+        not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.netloc.endswith(":")
+        or port == 0
+    ):
+        raise HTTPException(status_code=422, detail=error)
+
+
+def _safe_probe_error(exc: Exception) -> str:
+    """Return a stable failure category without echoing a request URL or secret."""
+    if isinstance(exc, httpx.TimeoutException):
+        return "连接超时"
+    if isinstance(exc, httpx.ConnectError):
+        return "连接失败"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.RequestError):
+        return "网络请求失败"
+    if isinstance(exc, ValueError):
+        return "响应格式无效"
+    return "探测失败"
+
+
 class ProbeRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=500)
     auth_method: Literal["none", "token"] = "none"
@@ -257,6 +301,7 @@ async def probe_backend(
     _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
 ):
     """探测一个 ML backend URL 的 /health 端点; 不写 DB."""
+    _validate_probe_base_url(payload.url)
     headers = {"Content-Type": "application/json"}
     if payload.auth_method == "token" and payload.auth_token:
         headers["Authorization"] = f"Bearer {payload.auth_token}"
@@ -282,6 +327,13 @@ async def probe_backend(
                 status_code=resp.status_code,
                 error="响应非 JSON",
             )
+        if not isinstance(data, dict):
+            return ProbeResponse(
+                ok=False,
+                latency_ms=latency_ms,
+                status_code=resp.status_code,
+                error="响应 JSON 格式无效",
+            )
         # ML backend /health 返回示例: { ok, gpu, gpu_info, cache, model_version, loaded }
         return ProbeResponse(
             ok=bool(data.get("ok", True)),
@@ -291,12 +343,12 @@ async def probe_backend(
             cache=data.get("cache"),
             model_version=data.get("model_version"),
         )
-    except (httpx.TimeoutException, httpx.RequestError) as e:
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
         return ProbeResponse(
             ok=False,
             latency_ms=latency_ms,
-            error=str(e)[:200] or "连接失败",
+            error=_safe_probe_error(exc),
         )
 
 
@@ -1196,19 +1248,28 @@ async def _probe_one(client: httpx.AsyncClient, base: str) -> ObserveTarget:
                 error=f"HTTP {resp.status_code}",
             )
         health = resp.json()
-    except (httpx.TimeoutException, httpx.RequestError) as e:
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
         return ObserveTarget(
             url=base,
             ok=False,
             latency_ms=int((time.monotonic() - start) * 1000),
-            error=str(e)[:200] or "连接失败",
+            error=_safe_probe_error(exc),
         )
-    except Exception as e:  # noqa: BLE001 — 响应非 JSON 等
+    except Exception:  # noqa: BLE001 — 响应非 JSON 等
         return ObserveTarget(
             url=base,
             ok=False,
             latency_ms=int((time.monotonic() - start) * 1000),
-            error=f"响应解析失败: {str(e)[:120]}",
+            error="响应解析失败",
+        )
+
+    if not isinstance(health, dict):
+        return ObserveTarget(
+            url=base,
+            ok=False,
+            latency_ms=latency_ms,
+            status_code=200,
+            error="响应 JSON 格式无效",
         )
 
     setup: dict | None = None
@@ -1304,6 +1365,7 @@ async def smoke_test_backend(
     若容器已有变体常驻 (很可能某注册 backend 正在用), 不预热也不卸载 —— 既然已载着
     就证明能启, 避免驱逐在用模型 (不和注册的 backend 冲突)。
     """
+    _validate_probe_base_url(payload.url)
     base = payload.url.rstrip("/")
     registered_backend = (
         await db.execute(select(MLBackendRegistry).where(MLBackendRegistry.url == base))
@@ -1365,9 +1427,11 @@ async def smoke_test_backend(
                 )
                 hresp.raise_for_status()
                 health = hresp.json()
-        except Exception as e:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             r = SmokeTestResponse(
-                ok=False, message="试启动失败：/health 不可达", error=str(e)[:200]
+                ok=False,
+                message="试启动失败：/health 不可达",
+                error=_safe_probe_error(exc),
             )
             await _audit(r)
             return r
@@ -1554,9 +1618,11 @@ async def smoke_test_backend(
                 reload_data = rresp.json()
         except GPUArbiterDispatchError:
             raise
-        except Exception as e:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             r = SmokeTestResponse(
-                ok=False, message="试启动失败：模型未能加载", error=str(e)[:200]
+                ok=False,
+                message="试启动失败：模型未能加载",
+                error=_safe_probe_error(exc),
             )
             await _audit(r)
             return r

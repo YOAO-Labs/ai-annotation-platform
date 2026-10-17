@@ -344,6 +344,7 @@ async def test_renders_tabs_and_status_bar():
             "tab-projects",
             "tab-datasets",
             "tab-jobs",
+            "tab-training",
             "tab-ml-backends",
             "tab-stats",
             "tab-people",

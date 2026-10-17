@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from ai_annotation.errors import PermissionDeniedError
+from ai_annotation.dataset_operation_models import DatasetImportFromConnectionRequest
 from ai_annotation.models import (
     Dataset,
     DatasetItem,
@@ -297,3 +298,96 @@ def test_link_project_async(client, respx_mock):
     assert isinstance(result, LinkResult)
     assert result.status == "linking"
     assert str(result.async_job_id) == job_id
+
+
+def test_dataset_operation_routes_and_typed_responses(client, respx_mock):
+    dimensions = respx_mock.post(f"{API}/datasets/{DS_ID}/backfill-dimensions").mock(
+        return_value=httpx.Response(
+            200, json={"processed": 10, "failed": 1, "remaining_hint": True}
+        )
+    )
+    result = client.datasets.backfill_dimensions(DS_ID, batch=25)
+    assert result.processed == 10
+    assert result.failed == 1
+    assert result.remaining_hint is True
+    assert dimensions.calls.last.request.url.params["batch"] == "25"
+
+    media = respx_mock.post(f"{API}/datasets/{DS_ID}/backfill-media").mock(
+        return_value=httpx.Response(200, json={"status": "queued", "dataset_id": DS_ID})
+    )
+    assert client.datasets.backfill_media(DS_ID).status == "queued"
+    assert media.called
+
+    scenes = respx_mock.post(f"{API}/datasets/{DS_ID}/scenes/backfill").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "dataset_id": DS_ID,
+                "created_scenes": 2,
+                "assigned_items": 6,
+                "skipped_items": 1,
+                "dry_run": True,
+                "notes": ["inferred by subdirectory"],
+            },
+        )
+    )
+    scene_result = client.datasets.backfill_scenes(
+        DS_ID, mode="per_subdirectory", dry_run=True
+    )
+    scene_params = scenes.calls.last.request.url.params
+    assert scene_result.created_scenes == 2
+    assert scene_params["mode"] == "per_subdirectory"
+    assert scene_params["dry_run"].lower() == "true"
+
+    connection_id = str(uuid4())
+    job_id = str(uuid4())
+    imported = respx_mock.post(f"{API}/datasets/{DS_ID}/import-from-connection").mock(
+        return_value=httpx.Response(202, json={"job_id": job_id})
+    )
+    import_request = DatasetImportFromConnectionRequest(
+        connection_id=connection_id,
+        source_path="incoming/images",
+        recursive=False,
+        include_globs=["*.jpg"],
+    )
+    import_result = client.datasets.import_from_connection(DS_ID, import_request)
+    assert str(import_result.job_id) == job_id
+    assert json.loads(imported.calls.last.request.content) == {
+        "connection_id": connection_id,
+        "source_path": "incoming/images",
+        "recursive": False,
+        "include_globs": ["*.jpg"],
+    }
+
+    scan = respx_mock.post(f"{API}/datasets/{DS_ID}/items/scan").mock(
+        return_value=httpx.Response(
+            200, json={"status": "ok", "new_items": 3, "linked_tasks": 2}
+        )
+    )
+    assert client.datasets.scan_items(DS_ID).new_items == 3
+    assert scan.called
+
+    camera_item_id = str(uuid4())
+    sniff = respx_mock.post(f"{API}/datasets/{DS_ID}/sniff-axis-convention").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "best": "apollo",
+                "score": 0.9,
+                "candidates": [{"convention": "apollo", "score": 0.9}],
+                "source": "dataset_item",
+                "camera_role": "camera_front",
+                "camera_item_id": camera_item_id,
+                "per_camera": [
+                    {"camera_role": "camera_front", "best": "apollo", "score": 0.9}
+                ],
+                "agreement": 1,
+                "future_extension": "preserved",
+            },
+        )
+    )
+    sniff_result = client.datasets.sniff_axis_convention(DS_ID)
+    assert sniff_result.best == "apollo"
+    assert sniff_result.per_camera[0].score == 0.9
+    assert sniff_result.future_extension == "preserved"
+    assert sniff.called

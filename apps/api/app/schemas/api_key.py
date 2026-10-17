@@ -1,6 +1,6 @@
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ApiKeyCreate(BaseModel):
@@ -19,6 +19,13 @@ class ApiKeyUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=60)
     scopes: list[str] | None = None
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+
+    @model_validator(mode="after")
+    def _reject_null_identity(self) -> "ApiKeyUpdate":
+        for field in ("name", "scopes"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null; omit it to leave unchanged")
+        return self
 
 
 class ApiKeyOut(BaseModel):

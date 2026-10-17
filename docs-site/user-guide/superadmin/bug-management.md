@@ -1,9 +1,8 @@
 ---
 audience: [super_admin]
 type: how-to
-since: v0.7.0
 status: stable
-last_reviewed: 2026-06-10
+last_reviewed: 2026-10-17
 ---
 
 # BUG 反馈管理
@@ -13,6 +12,8 @@ last_reviewed: 2026-06-10
 工作台顶栏及其他页面右下角的反馈入口收集到的反馈会持久化在系统中。`super_admin` 和 `project_admin` 均可查阅工单列表并按状态与严重度进行筛选（详见 [筛选操作说明](/user-guide/reference/filtering)）。侧边栏 **管理 → BUG 反馈**（`/bugs`）入口仅对 `super_admin` 开放。
 
 > 非管理员用户提交反馈后只能在「设置 → 我的反馈」里查看自己提交的工单。
+
+提交者可编辑自身工单的标题、描述与严重程度；处理状态、分派、重复关系和处理结果由管理员维护。标题、描述和严重程度不能清空为 null。提交者需要重开已关闭工单时，通过发表评论触发下述重开流程。
 
 ## 截图附件约束
 
@@ -100,7 +101,7 @@ last_reviewed: 2026-06-10
 
 ## 后端 API
 
-详见 [API 文档](../../api/) 的 `/api/v1/bug-reports/*` 端点；服务实现位于 `apps/api/app/services/bug_report.py`。
+详见 [API 文档](../../api/) 的 `/api/v1/bug_reports/*` 端点；服务实现位于 `apps/api/app/services/bug_report.py`。
 
 ::: tip 提交者排查路径
 当用户报告问题时，可让其点击工作台顶栏或其他页面右下角的反馈按钮提交：系统会**自动附带**最近 10 条 API 调用日志与 console error 日志，大幅减少复现成本。无需手工抓 HAR / DevTools。

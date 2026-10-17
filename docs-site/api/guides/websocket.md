@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-17
 ---
 
 # WebSocket
@@ -57,3 +56,5 @@ ws://<api-host>/ws/batches/project/{project_id}?token=<encoded-token>
 - 视频 tracker：`GET /api/v1/tasks/{task_id}/video/tracker-jobs/reviewable`，再读取每条 job 的 `/preview`；候选接受前不在 annotation 中。
 
 视频 tracker 的 `job_started`、`job_progress`、`frame_result`、`job_completed`、`job_failed`、`job_cancelled`、`job_accepted` 和 `job_discarded` 的完整语义见 [Video Tracker Jobs](./video-tracker-jobs) 与 [WebSocket 协议](../../dev/reference/ws-protocol#6-wsvideo-tracker-jobsjob_id)。
+
+Python SDK 与有时间／条数限制的 NDJSON 监听见 [公开事件流与有界监听](../../dev/sdk/streams)。六条频道独立于 REST 覆盖统计；仅连接时需要 streams extra，离线发现不需要。

@@ -10,6 +10,7 @@ TUI 是 Client 公开 API 的纯消费方, 不碰 _http / 内部实现。
 
 from __future__ import annotations
 
+import json
 import sys
 from collections import deque
 from datetime import datetime
@@ -57,6 +58,10 @@ from ai_annotation.models import (
 # job 状态 → 着色 (pending 灰 / running 黄 / completed 绿 / failed 红 / cancelled 暗)
 _STATUS_STYLE = {
     "pending": "grey50",
+    "preparing": "yellow",
+    "training": "yellow",
+    "evaluating": "yellow",
+    "uploading": "yellow",
     "running": "yellow",
     "completed": "green",
     "failed": "red",
@@ -72,6 +77,43 @@ _ML_STATE_STYLE = {"connected": "green", "error": "red"}
 # 仅 pending/running 的 job 可在 TUI 发起取消 (其余终态后端必拒, 不发请求)
 _CANCELLABLE_STATUS = frozenset({"pending", "running"})
 _PAGE_SIZE = 50
+_TRAINING_PAGE_SIZE = 20
+_TRAINING_OBSERVATION_LIMIT = 120
+_TRAINING_STATUS_STYLE = {
+    "queued": "grey50",
+    "pending": "grey50",
+    "running": "yellow",
+    "cancelling": "yellow",
+    "succeeded": "green",
+    "failed": "red",
+    "cancelled": "dim",
+    "lost": "red",
+}
+
+
+def _field(value: Any, name: str, default: Any = None) -> Any:
+    return (
+        value.get(name, default)
+        if isinstance(value, dict)
+        else getattr(value, name, default)
+    )
+
+
+def _brief(value: Any, limit: int = 180) -> str:
+    if value is None:
+        return "-"
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            text = str(value)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
 
 # 导出格式目录: data_type → [(target_id, 中文标签)]; 与 web ExportModal / 后端 export_packaging 对齐。
 # voc 走后端同步返回 (非 job), TUI 不暴露; 裸 "yolo" 后端接受但 web/TUI 用细分变体。
@@ -1611,6 +1653,286 @@ def _project_overview(p: Project) -> str:
     return "\n".join(lines)
 
 
+class TrainingRunDetailScreen(Screen[None]):
+    """Read-only run detail with bounded observation reads."""
+
+    BINDINGS = [
+        Binding("r", "refresh", "刷新"),
+        Binding("escape", "back", "返回"),
+    ]
+    CSS = """
+    TrainingRunDetailScreen { layout: vertical; }
+    #training-run-tabs { height: 1fr; }
+    #training-run-status { height: 1; padding: 0 1; color: $text-muted; }
+    #training-run-footer { height: 3; dock: bottom; }
+    #training-run-actions { height: 1; padding: 0 1; }
+    #training-run-actions Button {
+        height: 1; min-width: 0; border: none; padding: 0 1; margin-right: 1;
+    }
+    #training-run-summary { height: auto; max-height: 8; padding: 0 1; }
+    #training-run-attempts { height: 1fr; }
+    #training-telemetry-table { height: 1fr; }
+    #training-logs-table { height: 1fr; }
+    """
+
+    def __init__(self, client: Any, project_id: Any, run_id: Any):
+        super().__init__()
+        self._client = client
+        self._project_id = str(project_id)
+        self._run_id = str(run_id)
+        self._observed_attempt_id: str | None = None
+        self._telemetry_rows: list[Any] = []
+        self._logs_rows: list[Any] = []
+        self._refreshing = False
+        self._refresh_pending = False
+        self._request = 0
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with TabbedContent(id="training-run-tabs"):
+            with TabPane("概览", id="training-run-overview"):
+                yield Static("加载中…", id="training-run-summary")
+                yield Static("资格与恢复信息加载中…", id="training-run-eligibility")
+                yield DataTable(
+                    id="training-run-attempts",
+                    cursor_type="row",
+                    zebra_stripes=True,
+                )
+            with TabPane("遥测", id="training-run-telemetry"):
+                yield DataTable(
+                    id="training-telemetry-table",
+                    cursor_type="row",
+                    zebra_stripes=True,
+                )
+            with TabPane("日志", id="training-run-logs"):
+                yield DataTable(
+                    id="training-logs-table", cursor_type="row", zebra_stripes=True
+                )
+        with Vertical(id="training-run-footer"):
+            yield Static("", id="training-run-status")
+            with Horizontal(id="training-run-actions"):
+                yield Button("◀ 返回", id="training-run-back", variant="primary")
+                yield Button("🔄 刷新", id="training-run-refresh")
+            yield Footer()
+
+    def on_mount(self) -> None:
+        attempts = self.query_one("#training-run-attempts", DataTable)
+        attempts.add_columns("序号", "状态", "attempt", "失败原因")
+        attempts.fixed_columns = 1
+        attempts.border_title = "执行尝试"
+        telemetry = self.query_one("#training-telemetry-table", DataTable)
+        telemetry.add_columns("序号", "采集时间", "阶段", "耗时", "指标", "进度")
+        telemetry.fixed_columns = 1
+        telemetry.border_title = "遥测 · 最近 120 条"
+        logs = self.query_one("#training-logs-table", DataTable)
+        logs.add_columns("序号", "采集时间", "日志")
+        logs.fixed_columns = 1
+        logs.border_title = "日志 · 最近最多 120 条"
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if self._refreshing:
+            self._refresh_pending = True
+            return
+        self._refreshing = True
+        self._request += 1
+        request = self._request
+        self.query_one("#training-run-status", Static).update("正在读取训练运行…")
+        self.run_worker(
+            lambda: self._load(request),
+            thread=True,
+            group="training-run-detail",
+        )
+
+    def _load(self, request: int) -> None:
+        try:
+            detail = self._client.training_runs.get(self._project_id, self._run_id)
+        except Exception as exc:  # noqa: BLE001
+            self.app.call_from_thread(self._detail_failed, exc, request)
+            return
+        run = _field(detail, "run", {})
+        attempt_id = _field(run, "current_attempt_id")
+        recovery = telemetry = logs = None
+        errors: dict[str, str] = {}
+        try:
+            recovery = self._client.training_runs.recovery(
+                self._project_id, self._run_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors["恢复资格"] = str(exc)
+        if attempt_id is not None:
+            attempt_id = str(attempt_id)
+            try:
+                telemetry = self._client.training_runs.telemetry(
+                    self._project_id,
+                    self._run_id,
+                    attempt_id,
+                    after=None,
+                    limit=_TRAINING_OBSERVATION_LIMIT,
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors["遥测"] = str(exc)
+            try:
+                logs = self._client.training_runs.logs(
+                    self._project_id,
+                    self._run_id,
+                    attempt_id,
+                    after=None,
+                    before=None,
+                    limit=_TRAINING_OBSERVATION_LIMIT,
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors["日志"] = str(exc)
+        self.app.call_from_thread(
+            self._render_detail,
+            detail,
+            recovery,
+            telemetry,
+            logs,
+            attempt_id,
+            errors,
+            request,
+        )
+
+    def _detail_failed(self, exc: Exception, request: int) -> None:
+        if request == self._request:
+            self.query_one("#training-run-status", Static).update(
+                f"运行详情加载失败: {exc} · 保留上次成功数据"
+            )
+        self._finish_refresh()
+
+    def _render_detail(
+        self,
+        detail: Any,
+        recovery: Any,
+        telemetry: Any,
+        logs: Any,
+        attempt_id: str | None,
+        errors: dict[str, str],
+        request: int,
+    ) -> None:
+        if request != self._request:
+            self._finish_refresh()
+            return
+        run = _field(detail, "run", {})
+        attempts = list(_field(detail, "attempts", []) or [])
+        changed_attempt = attempt_id != self._observed_attempt_id
+        if changed_attempt:
+            self._telemetry_rows = []
+            self._logs_rows = []
+            self.query_one("#training-telemetry-table", DataTable).clear()
+            self.query_one("#training-logs-table", DataTable).clear()
+        self._observed_attempt_id = attempt_id
+        metrics = _field(run, "metrics")
+        name = _field(run, "name", self._run_id)
+        status = _field(run, "status", "未知")
+        dataset_id = _field(run, "dataset_id", "-")
+        task = _field(run, "task", "-")
+        self.query_one("#training-run-summary", Static).update(
+            "\n".join(
+                (
+                    f"{name} · {status}",
+                    f"项目 {self._project_id} · 数据版本 {dataset_id}",
+                    f"任务 {task} · 当前尝试 {attempt_id or '-'}",
+                    f"最新指标 {_brief(metrics, 260)}",
+                )
+            )
+        )
+        eligibility = _field(detail, "registration_eligibility")
+        if eligibility is None:
+            eligibility_text = "模型登记资格: 不适用或暂无结果"
+        else:
+            qualified = _field(eligibility, "qualified", "-")
+            reason = _brief(_field(eligibility, "reason"), 240)
+            eligibility_text = f"模型登记资格: qualified={qualified}; 原因={reason}"
+        if recovery is not None:
+            eligibility_text += (
+                f"\n恢复资格: eligible={_field(recovery, 'eligible', '-')}; "
+                f"原因={_brief(_field(recovery, 'reasons'), 240)}"
+            )
+        elif "恢复资格" in errors:
+            eligibility_text += f"\n恢复资格读取失败: {errors['恢复资格']}"
+        self.query_one("#training-run-eligibility", Static).update(eligibility_text)
+
+        table = self.query_one("#training-run-attempts", DataTable)
+        table.clear()
+        for item in attempts:
+            status = str(_field(item, "status", "未知"))
+            table.add_row(
+                str(_field(item, "ordinal", "-")),
+                Text(status, style=_TRAINING_STATUS_STYLE.get(status, "")),
+                str(_field(item, "id", "-")),
+                _brief(_field(item, "failure")),
+                key=str(_field(item, "id", len(table.rows))),
+            )
+        table.border_title = f"执行尝试 · {len(attempts)}"
+
+        if telemetry is not None:
+            telemetry_items = list(_field(telemetry, "items", []) or [])
+            self._telemetry_rows = telemetry_items[-_TRAINING_OBSERVATION_LIMIT:]
+            self._render_telemetry_rows()
+        elif "遥测" in errors:
+            self.query_one(
+                "#training-telemetry-table", DataTable
+            ).border_title = f"遥测 · ⚠ {errors['遥测']}"
+        if logs is not None:
+            log_items = list(_field(logs, "items", []) or [])
+            self._logs_rows = log_items[-_TRAINING_OBSERVATION_LIMIT:]
+            self._render_logs_rows()
+        elif "日志" in errors:
+            self.query_one(
+                "#training-logs-table", DataTable
+            ).border_title = f"日志 · ⚠ {errors['日志']}"
+        messages = [f"{label}: {error}" for label, error in errors.items()]
+        self.query_one("#training-run-status", Static).update(
+            " · ".join(messages) if messages else "训练运行详情已更新"
+        )
+        self._finish_refresh()
+
+    def _render_telemetry_rows(self) -> None:
+        table = self.query_one("#training-telemetry-table", DataTable)
+        table.clear()
+        for item in self._telemetry_rows:
+            table.add_row(
+                str(_field(item, "sequence", "-")),
+                str(_field(item, "captured_at", _field(item, "received_at", "-"))),
+                str(_field(item, "phase", "-")),
+                _brief(_field(item, "phase_elapsed_seconds")),
+                _brief(_field(item, "metrics")),
+                _brief(_field(item, "progress")),
+            )
+        table.border_title = f"遥测 · 最近 {len(self._telemetry_rows)} 条"
+
+    def _render_logs_rows(self) -> None:
+        table = self.query_one("#training-logs-table", DataTable)
+        table.clear()
+        for item in self._logs_rows:
+            table.add_row(
+                str(_field(item, "sequence", "-")),
+                str(_field(item, "captured_at", _field(item, "received_at", "-"))),
+                _brief(_field(item, "text"), 300),
+            )
+        table.border_title = f"日志 · {len(self._logs_rows)} 条"
+
+    def _finish_refresh(self) -> None:
+        self._refreshing = False
+        if self._refresh_pending:
+            self._refresh_pending = False
+            self._refresh()
+
+    def action_refresh(self) -> None:
+        self._refresh()
+
+    def action_back(self) -> None:
+        self.dismiss()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "training-run-back":
+            self.dismiss()
+        elif event.button.id == "training-run-refresh":
+            self._refresh()
+
+
 class AapTuiApp(App[None]):
     """监控面板主 App。client 由构造方注入 (测试可传 stub)。"""
 
@@ -1731,6 +2053,13 @@ class AapTuiApp(App[None]):
         self._jobs_refreshing = False
         self._jobs_refresh_pending = False
         self._after_jobs_refresh: str | None = None
+        self._training_offset = 0
+        self._training_total = 0
+        self._training_filter = ("", "all")
+        self._training_request = 0
+        self._training_refreshing = False
+        self._training_refresh_pending = False
+        self._training_runs: dict[str, Any] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1837,6 +2166,46 @@ class AapTuiApp(App[None]):
                     yield Button("›", id="jobs-next")
                     yield Static("第 0 条 / 0", id="jobs-page", classes="page-note")
                 yield DataTable(id="jobs-table", cursor_type="row", zebra_stripes=True)
+            with TabPane("🧪 Training", id="tab-training"):
+                with Horizontal(classes="action-bar"):
+                    yield Button(
+                        "🔄 刷新",
+                        id="training-refresh",
+                        variant="default",
+                        classes="secondary-action",
+                    )
+                    yield Button(
+                        "↳ 打开",
+                        id="training-open",
+                        variant="primary",
+                        classes="secondary-action",
+                    )
+                with Horizontal(classes="filter-bar"):
+                    yield Select(
+                        [("全部项目", "")],
+                        value="",
+                        allow_blank=False,
+                        compact=True,
+                        id="training-project",
+                    )
+                    yield Select(
+                        [
+                            ("全部状态", "all"),
+                            ("进行中", "active"),
+                            ("已结束", "finished"),
+                            ("失败", "failed"),
+                        ],
+                        value="all",
+                        allow_blank=False,
+                        compact=True,
+                        id="training-state",
+                    )
+                    yield Button("‹", id="training-prev")
+                    yield Button("›", id="training-next")
+                    yield Static("第 0 条 / 0", id="training-page", classes="page-note")
+                yield DataTable(
+                    id="training-table", cursor_type="row", zebra_stripes=True
+                )
             with TabPane("🖥 ML Backends", id="tab-ml-backends"):
                 with Horizontal(classes="action-bar"):
                     yield Button(
@@ -1915,6 +2284,10 @@ class AapTuiApp(App[None]):
         jobs_table.add_columns("kind", "status", "progress", "created_at")
         jobs_table.fixed_columns = 1
         jobs_table.border_title = "异步任务"
+        training_table = self.query_one("#training-table", DataTable)
+        training_table.add_columns("项目", "运行", "任务", "状态", "尝试", "指标")
+        training_table.fixed_columns = 1
+        training_table.border_title = "训练运行"
         ml_table = self.query_one("#ml-backends-table", DataTable)
         ml_table.add_columns(
             "name", "项目", "state", "model_version", "GPU", "显存", "last_checked"
@@ -1960,12 +2333,13 @@ class AapTuiApp(App[None]):
         if action == "cancel_job":
             return active == "tab-jobs"
         if action in {"previous_page", "next_page"}:
-            return active in {"tab-datasets", "tab-jobs"}
+            return active in {"tab-datasets", "tab-jobs", "tab-training"}
         if action in {"focus_filter", "clear_filter"}:
             return active in {
                 "tab-projects",
                 "tab-datasets",
                 "tab-jobs",
+                "tab-training",
                 "tab-ml-backends",
             }
         return True
@@ -1982,6 +2356,7 @@ class AapTuiApp(App[None]):
                 "tab-projects": self._refresh_projects,
                 "tab-datasets": self._refresh_datasets,
                 "tab-jobs": self._refresh_jobs,
+                "tab-training": self._refresh_training,
                 "tab-ml-backends": self._refresh_ml_backends,
                 "tab-stats": self._refresh_stats,
                 "tab-people": self._refresh_people,
@@ -2004,6 +2379,8 @@ class AapTuiApp(App[None]):
             self._refresh_stats()
         elif active == "tab-people":
             self._refresh_people()
+        elif active == "tab-training":
+            self._refresh_training()
         else:
             self._refresh_jobs()
 
@@ -2013,6 +2390,7 @@ class AapTuiApp(App[None]):
             "tab-projects": "#projects-search",
             "tab-datasets": "#datasets-search",
             "tab-jobs": "#jobs-status",
+            "tab-training": "#training-project",
             "tab-ml-backends": "#ml-search",
         }.get(active)
         if target:
@@ -2030,6 +2408,10 @@ class AapTuiApp(App[None]):
             self.query_one("#jobs-status", Select).value = ""
             self.query_one("#jobs-kind", Select).value = ""
             self._jobs_offset = 0
+        elif active == "tab-training":
+            self.query_one("#training-project", Select).value = ""
+            self.query_one("#training-state", Select).value = "all"
+            self._training_offset = 0
         elif active == "tab-ml-backends":
             self.query_one("#ml-search", Input).value = ""
             self.query_one("#ml-project", Select).value = ""
@@ -2038,6 +2420,7 @@ class AapTuiApp(App[None]):
             "tab-projects": "#projects-table",
             "tab-datasets": "#datasets-table",
             "tab-jobs": "#jobs-table",
+            "tab-training": "#training-table",
             "tab-ml-backends": "#ml-backends-table",
         }.get(active)
         if table_id:
@@ -2051,6 +2434,9 @@ class AapTuiApp(App[None]):
         elif active == "tab-jobs" and self._jobs_offset:
             self._jobs_offset = max(0, self._jobs_offset - _PAGE_SIZE)
             self._refresh_jobs()
+        elif active == "tab-training" and self._training_offset:
+            self._training_offset = max(0, self._training_offset - _TRAINING_PAGE_SIZE)
+            self._refresh_training()
 
     def action_next_page(self) -> None:
         active = self.query_one("#tabs", TabbedContent).active
@@ -2063,6 +2449,12 @@ class AapTuiApp(App[None]):
         elif active == "tab-jobs" and self._jobs_offset + _PAGE_SIZE < self._jobs_total:
             self._jobs_offset += _PAGE_SIZE
             self._refresh_jobs()
+        elif (
+            active == "tab-training"
+            and self._training_offset + _TRAINING_PAGE_SIZE < self._training_total
+        ):
+            self._training_offset += _TRAINING_PAGE_SIZE
+            self._refresh_training()
 
     def _debounce(self, callback: Any) -> None:
         if self._filter_timer is not None:
@@ -2098,6 +2490,17 @@ class AapTuiApp(App[None]):
                 return
             self._jobs_offset = 0
             self._refresh_jobs()
+        elif sid in {"training-project", "training-state"}:
+            if self.query_one("#tabs", TabbedContent).active != "tab-training":
+                return
+            current = (
+                str(self.query_one("#training-project", Select).value or ""),
+                str(self.query_one("#training-state", Select).value or ""),
+            )
+            if current == self._training_filter:
+                return
+            self._training_offset = 0
+            self._refresh_training()
         elif sid in {"ml-project", "ml-state"}:
             self._apply_ml_filters()
 
@@ -2166,6 +2569,35 @@ class AapTuiApp(App[None]):
             thread=True,
             exclusive=True,
             group="jobs",
+        )
+
+    def _training_visible(self) -> bool:
+        try:
+            return (
+                self.query_one("#tabs", TabbedContent).active == "tab-training"
+                and len(self.screen_stack) == 1
+            )
+        except Exception:  # noqa: BLE001 — before the main screen is mounted
+            return False
+
+    def _refresh_training(self) -> None:
+        if not self._training_visible():
+            return
+        if self._training_refreshing:
+            self._training_refresh_pending = True
+            return
+        self._training_refreshing = True
+        project_id = str(self.query_one("#training-project", Select).value or "")
+        state = str(self.query_one("#training-state", Select).value or "all")
+        self._training_filter = (project_id, state)
+        offset = self._training_offset
+        self._training_request += 1
+        request = self._training_request
+        self._begin_view("tab-training")
+        self.run_worker(
+            lambda: self._load_training(project_id or None, state, offset, request),
+            thread=True,
+            group="training",
         )
 
     def _refresh_ml_backends(self) -> None:
@@ -2239,6 +2671,22 @@ class AapTuiApp(App[None]):
             return
         self.call_from_thread(self._render_jobs, page, offset, request)
 
+    def _load_training(
+        self, project_id: str | None, state: str | None, offset: int, request: int
+    ) -> None:
+        try:
+            page = self._client.training.runs(
+                state=state,
+                project_id=project_id,
+                framework=None,
+                limit=_TRAINING_PAGE_SIZE,
+                offset=offset,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.call_from_thread(self._training_failed, exc, request)
+            return
+        self.call_from_thread(self._render_training, page, offset, request)
+
     def _finish_jobs_refresh(self) -> None:
         self._jobs_refreshing = False
         if self._jobs_refresh_pending:
@@ -2255,6 +2703,58 @@ class AapTuiApp(App[None]):
     ) -> None:
         self._view_failed_if_current(tab, label, exc, request_attr, request)
         self._finish_jobs_refresh()
+
+    def _render_training(self, page: Any, offset: int, request: int) -> None:
+        if offset != self._training_offset or request != self._training_request:
+            self._finish_training_refresh()
+            return
+        items = list(_field(page, "items", []) or [])
+        runs = [_field(item, "run", item) for item in items]
+        self._training_runs = {
+            str(_field(run, "id")): run for run in runs if _field(run, "id") is not None
+        }
+        table = self.query_one("#training-table", DataTable)
+        table.clear()
+        for item, run in zip(items, runs, strict=True):
+            project_id = str(_field(run, "project_id", ""))
+            project = self._projects.get(project_id)
+            project_label = (
+                _field(item, "project_display_id")
+                or _field(item, "project_name")
+                or (project.display_id if project is not None else project_id)
+            )
+            run_id = str(_field(run, "id", "-"))
+            status = str(_field(run, "status", "未知"))
+            attempt_id = str(_field(run, "current_attempt_id", "") or "")
+            table.add_row(
+                project_label or "-",
+                str(_field(run, "name", run_id)),
+                str(_field(run, "task", "-")),
+                Text(status, style=_TRAINING_STATUS_STYLE.get(status, "")),
+                attempt_id[:8] or "-",
+                _brief(_field(run, "metrics"), 110),
+                key=run_id,
+            )
+        self._restore_cursor(table, "training-table")
+        total = int(_field(page, "total", len(runs)))
+        table.border_title = f"训练运行 · {total}"
+        self._training_total = total
+        self._update_page("training", offset, total, _TRAINING_PAGE_SIZE)
+        self._mark_refreshed("tab-training")
+        self._finish_training_refresh()
+
+    def _training_failed(self, exc: Exception, request: int) -> None:
+        self._view_failed_if_current(
+            "tab-training", "training", exc, "_training_request", request
+        )
+        self._finish_training_refresh()
+
+    def _finish_training_refresh(self) -> None:
+        self._training_refreshing = False
+        if self._training_refresh_pending:
+            self._training_refresh_pending = False
+            if self._training_visible():
+                self._refresh_training()
 
     def _load_ml_backends(self) -> None:
         """ml-backends 列表是 project-scoped: 遍历项目逐个聚合 (N+1, 单 worker 内串行)。
@@ -2343,6 +2843,7 @@ class AapTuiApp(App[None]):
             "tab-projects": "projects-table",
             "tab-datasets": "datasets-table",
             "tab-jobs": "jobs-table",
+            "tab-training": "training-table",
             "tab-ml-backends": "ml-backends-table",
             "tab-people": "people-table",
         }.get(tab)
@@ -2411,6 +2912,17 @@ class AapTuiApp(App[None]):
             ]
         )
         project_filter.value = current if current in {"", *self._projects} else ""
+        training_project_filter = self.query_one("#training-project", Select)
+        training_project = training_project_filter.value
+        training_project_filter.set_options(
+            [
+                ("全部项目", ""),
+                *[(f"{p.display_id} · {p.name}", str(p.id)) for p in projects],
+            ]
+        )
+        training_project_filter.value = (
+            training_project if training_project in {"", *self._projects} else ""
+        )
         self._mark_refreshed("tab-projects")
 
     def _render_datasets(self, page: Any, offset: int, request: int) -> None:
@@ -2600,16 +3112,16 @@ class AapTuiApp(App[None]):
         )
         self._mark_refreshed("tab-people")
 
-    def _update_page(self, prefix: str, offset: int, total: int) -> None:
+    def _update_page(
+        self, prefix: str, offset: int, total: int, page_size: int = _PAGE_SIZE
+    ) -> None:
         start = offset + 1 if total else 0
-        end = min(offset + _PAGE_SIZE, total)
+        end = min(offset + page_size, total)
         self.query_one(f"#{prefix}-page", Static).update(
             f"第 {start}–{end} 条 / {total}"
         )
         self.query_one(f"#{prefix}-prev", Button).disabled = offset == 0
-        self.query_one(f"#{prefix}-next", Button).disabled = (
-            offset + _PAGE_SIZE >= total
-        )
+        self.query_one(f"#{prefix}-next", Button).disabled = offset + page_size >= total
 
     # ---- 下钻: 打开选中行的详情子路由 (回车 / o / 「打开」按钮) ----
 
@@ -2620,6 +3132,7 @@ class AapTuiApp(App[None]):
             "tab-projects": "projects-table",
             "tab-datasets": "datasets-table",
             "tab-jobs": "jobs-table",
+            "tab-training": "training-table",
             "tab-ml-backends": "ml-backends-table",
         }.get(active)
         if table_id is None:
@@ -2644,6 +3157,16 @@ class AapTuiApp(App[None]):
             job = self._jobs.get(key)
             if job is not None:
                 self.push_job_detail(job)
+        elif table_id == "training-table":
+            run = self._training_runs.get(key)
+            if run is not None:
+                self.push_screen(
+                    TrainingRunDetailScreen(
+                        self._client,
+                        _field(run, "project_id"),
+                        _field(run, "id"),
+                    )
+                )
         elif table_id == "ml-backends-table":
             backend = self._ml_backends.get(key)
             if backend is not None:
@@ -2712,6 +3235,11 @@ class AapTuiApp(App[None]):
             self.action_previous_page()
         elif bid in {"datasets-next", "jobs-next"}:
             self.action_next_page()
+        elif bid in {"training-prev", "training-next"}:
+            if bid == "training-prev":
+                self.action_previous_page()
+            else:
+                self.action_next_page()
 
     # ---- 动作: 导出 (Projects) / 取消 (Jobs), 均经二次确认 ----
 

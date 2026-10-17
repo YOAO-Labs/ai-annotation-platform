@@ -3,7 +3,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-07-20
+last_reviewed: 2026-10-17
 ---
 
 # ML Backend
@@ -48,7 +48,7 @@ URL 校验拒绝 host 精确为 `localhost / 127.0.0.1 / 0.0.0.0 / ::1`（[ADR 0
 
 ## 健康检查
 
-注册前可用 `/probe` 测试远端 `/health` 与 `/setup`，不会写数据库。注册后的 `/registry/:registry_id/health` 会刷新连接状态、能力快照和 singleton 服务池能力指纹；能力合同漂移时，相关成员会停止接流等待重新校验。远端暂时不可达不会阻断创建，但 registry 会显示错误状态。
+注册前可用 `/probe` 测试远端 `/health` 与 `/setup`，不会写数据库。请求的 `url` 必须是有效 HTTP(S) 地址，携带合法 host 与端口，不得包含内嵌凭据（用户名/密码）、查询参数（`?`）、fragment（`#`）或控制字符，否则返回 422；网络错误使用安全错误分类，不回显目标 URL 或令牌。注册后的 `/registry/:registry_id/health` 会刷新连接状态、能力快照和 singleton 服务池能力指纹；能力合同漂移时，相关成员会停止接流等待重新校验。远端暂时不可达不会阻断创建，但 registry 会显示错误状态。
 
 ## 项目启用与主后端
 
@@ -68,7 +68,7 @@ PUT /api/v1/projects/:id/ml-backends/:registry_id/enablement
 项目作用域端点同时执行角色门与项目范围门：
 
 - list / get / setup / capabilities / interactive inference：调用者必须能看见该项目；读指定 backend 时还要求它已对本项目启用。
-- create / update / delete(enablement disable) / health / capabilities refresh / warmup / predict-test：要求项目 owner（超级管理员仍按全局特权放行）。仅有 `project_admin` 角色但不是该项目 owner 不足以执行写操作。
+- create / update / delete(enablement disable) / health / capabilities refresh / warmup / predict-test：要求项目 owner（超级管理员仍按全局特权放行）。仅有 `project_admin` 角色但不是该项目 owner 不足以执行写操作。此外，`warmup` 要求目标 backend 已在当前项目中启用，否则在上游操作之前直接返回 404。
 - reload / unload：**仅超级管理员**。二者改写的是「全局 backend 显存驻留 / 常驻变体」——同一物理 backend 被多个项目共用，项目 owner 若能触发就会驱逐 / 换掉其他项目正在用的权重。故这类破坏性驻留操作收口到平台管理员，与「运行时观测」面板（super_admin only）及 admin `observe/smoke-test` 运维基线一致。纳入服务池的实例执行 unload 前还必须处于 `enforce + draining`，且 Redis 路由账本能提供新鲜的 exact `inflight=0` 证明；任一值缺失或 Redis 失联都返回 409/503，不会将未知解释为空闲。构造性的 warmup 是项目自身预标 / 交互推理的前置（如预热加载类别表），刻意保留在项目 owner。
 - 带 `task_id` 的测试 / 交互端点还会校验 task 确实属于 URL 中的 project；不属于时统一返回 404，避免跨项目 IDOR 与存在性泄露。
 

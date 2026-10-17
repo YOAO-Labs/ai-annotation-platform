@@ -54,7 +54,7 @@ class VideoCollaborationConfig(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str
-    type_label: str
+    type_label: str | None = None
     # v0.10.28 · B 路线: 新建项目以 data_type (媒体维度) 为主. type_key 可缺省,
     # 由 data_type 派生兼容值 (见 api/v1/projects.create_project) 保旧分流不破.
     type_key: str | None = None
@@ -116,6 +116,13 @@ class ProjectCreate(BaseModel):
     def _validate_source_template_exclusive(self) -> "ProjectCreate":
         if self.template_id is not None and self.source_project_id is not None:
             raise ValueError("template_id 与 source_project_id 互斥, 不能同时给")
+        if self.type_label is None:
+            if "type_label" in self.model_fields_set:
+                raise ValueError("type_label 不能为 null")
+            if self.template_id is None and self.source_project_id is None:
+                raise ValueError(
+                    "type_label 必填，除非提供 template_id 或 source_project_id"
+                )
         if self.template_id is not None and self.copy_annotation_guide:
             # 模板自带 annotation_guide, copy_annotation_guide 只对 source_project_id 生效
             raise ValueError("copy_annotation_guide 仅在 source_project_id 给定时有效")

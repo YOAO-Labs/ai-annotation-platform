@@ -215,7 +215,7 @@ async def test_dataset_link_requires_target_project_management(
 # ── annotation history: canonical project visibility ─────────────────────────
 
 
-async def test_annotation_history_uses_project_visibility(
+async def test_annotation_history_uses_task_and_project_visibility(
     httpx_client, db_session: AsyncSession, super_admin
 ):
     admin, _ = super_admin
@@ -226,6 +226,8 @@ async def test_annotation_history_uses_project_visibility(
     await _add_member(
         db_session, project_id=project.id, user=member, role="annotator", by=admin.id
     )
+    task.assignee_id = member.id
+    await db_session.flush()
     outsider = await _employee(db_session, prefix="hist-out")
 
     visible = await httpx_client.get(

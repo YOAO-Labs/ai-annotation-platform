@@ -355,6 +355,39 @@ def assert_project_kind_consistent(type_key: str | None, data_type: str | None) 
         )
 
 
+def resolve_project_kind(
+    type_key: str | None,
+    data_type: str | None,
+    *,
+    inherited_type_key: str | None = None,
+    inherited_data_type: str | None = None,
+) -> tuple[str, str]:
+    """Resolve a create request's project kind before legacy class conversion."""
+    type_key = type_key or None
+    data_type = data_type or None
+    if type_key and data_type:
+        assert_project_kind_consistent(type_key, data_type)
+    elif type_key:
+        data_type = data_type_from_type_key(type_key)
+    elif data_type:
+        type_key = legacy_type_key_from_data_type(data_type)
+    else:
+        type_key = inherited_type_key or None
+        data_type = inherited_data_type or None
+        if type_key and data_type:
+            assert_project_kind_consistent(type_key, data_type)
+        elif type_key:
+            data_type = data_type_from_type_key(type_key)
+        elif data_type:
+            type_key = legacy_type_key_from_data_type(data_type)
+        else:
+            data_type = "image"
+            type_key = legacy_type_key_from_data_type(data_type)
+
+    assert type_key is not None and data_type is not None
+    return type_key, data_type
+
+
 def lookup_classes_for_tool_unit(
     tool_bindings: dict[str, Any] | None,
     tool_unit_id: str,
@@ -372,18 +405,22 @@ def lookup_classes_for_tool_unit(
     ]
 
 
-def prepare_project_create_payload(payload: dict[str, Any]) -> None:
+def prepare_project_create_payload(
+    payload: dict[str, Any],
+    *,
+    inherited_type_key: str | None = None,
+    inherited_data_type: str | None = None,
+) -> None:
     """Normalize the request-owned project fields before source/template fallback."""
 
     from app.services.project_kind import scene_mode_allowed
 
-    data_type = payload.get("data_type")
-    type_key = payload.get("type_key")
-    assert_project_kind_consistent(type_key, data_type)
-    if not type_key:
-        payload["type_key"] = legacy_type_key_from_data_type(data_type)
-    if not data_type:
-        payload["data_type"] = data_type_from_type_key(payload.get("type_key"))
+    payload["type_key"], payload["data_type"] = resolve_project_kind(
+        payload.get("type_key"),
+        payload.get("data_type"),
+        inherited_type_key=inherited_type_key,
+        inherited_data_type=inherited_data_type,
+    )
     if payload.get("scene_mode"):
         if not scene_mode_allowed(payload.get("data_type")):
             raise HTTPException(
@@ -502,13 +539,26 @@ async def create_template(
     )
 
     source_project_id = payload.pop("source_project_id", None)
+    payload["type_key"], payload["data_type"] = resolve_project_kind(
+        payload.get("type_key"),
+        payload.get("data_type"),
+        inherited_type_key=(
+            source_project.type_key if source_project is not None else None
+        ),
+        inherited_data_type=(
+            source_project.data_type if source_project is not None else None
+        ),
+    )
+    coalesce_legacy_into_tool_bindings(payload, None, payload["type_key"])
+    for legacy_key in ("classes", "classes_config", "attribute_schema"):
+        payload.pop(legacy_key, None)
+
     if source_project_id is not None:
         merged = dump_project_to_template_payload(source_project)
         for key, value in merged.items():
             payload.setdefault(key, value)
         payload.setdefault("name", f"{source_project.name} 模板")
         payload.setdefault("type_label", source_project.type_label)
-        payload.setdefault("type_key", source_project.type_key)
 
     if (
         not payload.get("name")
@@ -519,10 +569,6 @@ async def create_template(
             status_code=400,
             detail="name / type_label / type_key 必填 (或通过 source_project_id 兜底)",
         )
-
-    coalesce_legacy_into_tool_bindings(payload, None, payload.get("type_key"))
-    for legacy_key in ("classes", "classes_config", "attribute_schema"):
-        payload.pop(legacy_key, None)
 
     template = ProjectTemplate(
         id=uuid.uuid4(),

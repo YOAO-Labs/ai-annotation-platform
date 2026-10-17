@@ -4,6 +4,8 @@ AI 标注平台官方 Python SDK(beta)。同步 Client 覆盖 projects / dataset
 feedbacks / predictions / jobs / exports / ml_backends / batches / members / dashboard / api_keys 等稳定自动化工作流；
 并提供全局 ML registry 与 service pool 运维；extras 提供 `aap` CLI 与终端监控面板。
 
+在线学习命名空间覆盖冻结训练数据、训练实验与观测、配方和增强预览、逐样本评估、受控模型回流与发布、学习策略、有预算的参数搜索和人工主动学习；CLI 使用 `aap learning`，TUI 提供按需加载的训练监控。
+
 SDK、CLI 与 TUI 使用独立于 AAP 的 SemVer。AAP target 表示该 SDK release 最近一次完成测试与
 OpenAPI 对账的平台基线，不代表未经验证的完整兼容范围。主仓库发布新版本时无需同步更新该字段，
 也不会仅因 target 落后于当前主仓库版本而让契约测试失败；定期优化 SDK 时再更新它：
@@ -96,7 +98,7 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 
 ## Issue 与反馈
 
-`client.feedbacks.create()` 创建反馈，`client.feedbacks.list()` 按 `items` / `next_cursor` 翻页。
+`client.feedbacks.create()` 创建反馈，`client.feedbacks.list()` 按 `items` / `next_cursor` 翻页；`root_only=True` 只读根反馈，`include_counts=True` 同时读取可见范围的 `total` 和 `status_counts`。
 任务级 Issue 使用 `anchor_type="task"`，不绑定像素或帧；图片像素锚继续只需 x/y。
 
 视频像素 Issue 的上下文使用严格 V1 模型，并保留旧 `frame`。源帧范围是闭区间，必须包含
@@ -134,7 +136,52 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 ```
 
 响应的 `anchor_position` 保留完整原始字典；`issue.video_context` 只返回可识别的有效 V1，
-未知版本返回 `None`，仍可读取旧 x/y/frame 做兼容定位。SDK 当前未提供修改、删除或回复反馈的方法。
+未知版本返回 `None`，仍可读取旧 x/y/frame 做兼容定位。`feedbacks.thread()` 读取完整线程的一页后代；`reply()` 与 `patch()` 接收类型化请求，`delete()` 执行软删除。线程游标绑定根反馈，回复没有幂等键，不自动重试；补丁保留省略与显式 null。
+
+## 通知与预标注
+
+`client.notifications` 提供当前账号的有界通知列表、未读计数、已读处理、清理和偏好更新。偏好只修改明确给出的频道，保留其它设置。
+
+`client.pipelines` 管理可见编排库；`apply()` 将模板复制到项目，`preannotate()` 才提交推理。使用明确的范围和稳定的 `Idempotency-Key`，通过现有 `jobs.get/wait` 查询受理后的状态。服务器继续校验项目／组织权限、backend 启用、模型能力、任务归属与锁状态，不提供独立的 dry-run。
+
+```bash
+aap notifications list --unread-only --limit 20 --json
+aap feedbacks thread "$ROOT_ID" --limit 50 --json
+aap pipelines list --scope private --project "$PROJECT_ID" --json
+aap pipelines preannotate --project "$PROJECT_ID" --body request.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
+aap jobs get "$JOB_ID" --json
+```
+
+详见 `docs-site/dev/sdk/workflows.md`；所有新操作也可通过随包离线目录读取请求 schema 与限制。
+
+## Data Explorer 与保存视图
+
+`client.data_manager` 读取项目 schema、聚合、对象／轨迹与定位，提供选中任务的分配预览／应用和导出；`client.task_views` 保存／复制筛选配置并执行任务查询。筛选保留动态字段与分组，不在客户端执行；查询、分配应用和导出各有独立权限与范围。
+
+```bash
+aap data-manager schema --project "$PROJECT_ID" --entity-scope objects --json
+aap data-manager query-objects --project "$PROJECT_ID" --body query.json --json
+aap task-views query --project "$PROJECT_ID" --body tasks.json --json
+aap data-manager assignment-preview --project "$PROJECT_ID" --body selection.json --json
+aap data-manager assignment-apply --project "$PROJECT_ID" --body apply.json --yes --json
+aap data-manager export-tasks --project "$PROJECT_ID" --body export.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
+```
+
+任务查询用 offset，实体查询用不透明 cursor；内置视图的 id 为空，不能传给保存视图 UUID 路由。分配提交保留 preview_version，选中任务导出保留精确任务集合与幂等键，不隐式等待或扩大范围。详见 `docs-site/dev/sdk/data-explorer.md`。
+
+## 视频、项目模板与存储
+
+使用 `client.videos`／`task_videos` 读取素材或任务媒体及管理分段租约，`video_tracker` 创建、恢复与审阅追踪，`video_review` 操作 Mask 内容、关键帧、质量与轨迹。frame/chunk 的 202 是 JSON 待就绪状态，读取可能触发生成；下载和轮询分别明确执行。候选接纳保留 revision/digest/source versions，Mask 写入携带 If-Match，变更不自动重试。
+
+`client.project_templates` 管理模板；`projects.create(name, template_id=...)` 或 `source_project_id=...` 继承服务端配置与类型，明确覆盖优先。`client.storage` 提供 bucket 诊断及管理员视频失败查询／重试，queued 只代表已排队。对应 CLI 为 `videos`、`task-videos`、`video-tracker`、`video-review`、`templates`、`storage`。详见 `docs-site/dev/sdk/video-and-templates.md`。
+
+公开 REST 覆盖路线包括运维与管理员操作，仅内部执行器训练协议排除；尚未实现的公开接口继续明确列为 uncovered。
+
+项目、批次、数据集和看板补齐分页／维护、预览分派、送审／锁定、回填与导入；`project_performance`、`search`、`guide_assets`、`failed_predictions` 提供绩效证据、搜索、指引图片三步上传和失败恢复。LiDAR 项目／批次预检共用模型，标注导入保留同步部分回执。完整 CLI 和限制见 `docs-site/dev/sdk/project-workflows.md`。
+
+账户与运维入口提供 `auth`、`account`、`avatars`、`users`、`groups`、`invitations`、`health`、`ml_capabilities`、`system_settings`、`audit_logs`、`storage_connections`、`admin_operations`、`ml_diagnostics` 和 `project_ml`；`api_keys.patch` 保留显式 null 清除有效期。对应 CLI 使用同名 kebab-case 命令组。先用 `describe` 查看精确参数；敏感输出、部分失败退出码、权限与真实网络／邮件边界见 `docs-site/dev/sdk/account-and-operations.md`。
+
+`client.files` 提供初始化、无平台凭据的签名字节上传、明确完成和任务文件 URL；`client.scenes` 读取数据集场景／有序位姿并执行管理员元数据更新。对应命令为 `aap files` 和 `aap scenes`，权限、分步恢复及 null 语义见 `docs-site/dev/sdk/files-and-scenes.md`。
 
 ## CLI
 
@@ -176,12 +223,44 @@ aap service-pools topology --json                  # 路由拓扑的机器可读
 aap tui        # 按需加载的终端监控与轻运维台；需要 [tui] extras
 ```
 
-所有命令支持 `--json`:输出裸 JSON、无 rich 装饰/进度条,退出码非 0 表示失败,供 CI/脚本使用。破坏性命令的 JSON 模式必须显式传 `--yes`；本地确认不会绕过服务端权限。错误统一一行 stderr 提示(401 时提示先 `aap login`)。
+所有命令支持 `--json`:输出裸 JSON、无 rich 装饰/进度条,退出码非 0 表示失败,供 CI/脚本使用。破坏性命令的 JSON 模式必须显式传 `--yes`；本地确认不会绕过服务端权限。错误默认写到 stderr 文本提示；根选项 `--error-format json` 可选择结构化错误，成功输出与退出码约定不变。
 
 `ml-backends list` 只返回本项目已启用的 backend；`MLBackend.id` 是全局物理 registry ID，同一实例
 在不同项目中保持同一 ID。service pool 是独立的逻辑路由身份，使用 `service-pools` 命令管理，不与
 registry ID 混用。删除、卸载、drain 和能力漂移接受等保护操作需要显式确认，且不会绕过服务端的
 409/503 静默守卫。
+
+## 在线学习自动化
+
+项目级接口要求项目管理权限以及 `annotations:read`、`datasets:read` scope，写接口还需要 `datasets:write`。全局 `client.training` 还要求平台角色为 `project_admin` 或 `super_admin`。
+
+新建接口接收顶层导出的 Pydantic 请求对象，例如 `TrainingDatasetCreate`、`TrainingRunCreate`、`TrainedModelCreateRequest`、`TrainingStudyCreate` 和 `ActiveLearningRoundCreate`。预检／预览与提交分开执行；重放同一请求时复用原 `request_id` 和原始请求体。响应 `202` 只表示已受理，训练状态从 run/attempt 读取，不能把 `async_job_id` 当作训练完成证明。
+
+```bash
+aap learning training catalog --json
+aap learning task-datasets list --project "$PROJECT_ID" --json
+aap learning datasets preflight --project "$PROJECT_ID" --body selection.json --json
+aap learning datasets create --project "$PROJECT_ID" --body dataset-request.json --json
+aap learning runs create --project "$PROJECT_ID" --body run-request.json --json
+aap learning runs get "$RUN_ID" --project "$PROJECT_ID" --json
+aap learning runs logs "$RUN_ID" "$ATTEMPT_ID" --project "$PROJECT_ID" --after 0 --json
+```
+
+`--body` 必须是 UTF-8 JSON 对象，包含接口要求的幂等 ID、预检摘要、修订或显式预算；`--body -` 从 stdin 读取，应用相同校验。删除、取消、重试、恢复、部署、发布、策略变更、参数搜索与人工决策需要交互确认；JSON 模式需传 `--yes`。下载使用 `--out`，校验可用的 SHA-256／大小后原子替换目标文件，中断和校验失败不会覆盖已有文件。
+
+方法、分页和完整示例见 `docs-site/dev/sdk/python-client.md`、`cli.md` 与 `cookbook.md`。执行器 claim、heartbeat、uploads 等内部协议不属于用户 SDK。
+
+## Agent 能力发现与导出
+
+```bash
+aap capabilities --status covered --limit 20 --json
+aap describe learning.runs.create --json
+aap --error-format json learning runs create --project "$PROJECT_ID" --body - --json < run-request.json
+```
+
+核心 Python 包提供 `list_capabilities()` 和 `describe_operation()`，无需连接 API 或安装 CLI/TUI extras。目录随 wheel 分发，全量记录 API 的已覆盖、主动排除和尚未接入状态；描述包含参数、请求 schema 与操作级要求。覆盖路由不等于每个业务分支都完整实现，具体限制和服务器资格仍需核对。
+
+项目与批次异步导出使用 `body=ExportRequestBody(...)` 传视频范围和点云选项，不能将 `scope` / `lidar` 塞入 query kwargs。同步 VOC 使用 `exports.download_voc()` / `batches.download_voc()` 或对应 CLI 下载命令，没有异步 Job ID。完整操作说明见 `docs-site/dev/sdk/agents.md`；安装包还附带英文 `ai_annotation/AGENT_GUIDE.md`。
 
 ## 测试
 
@@ -190,10 +269,14 @@ pip install -e '.[test]'
 pytest
 ```
 
-其中 `tests/test_openapi_contract.py` 会从 `client.py` 的真实 HTTP 调用点提取 method/path，与
-`apps/api/openapi.snapshot.json` 对账，并检查 `api-coverage.toml` 中 SDK 关注领域的端点分类
+其中 `tests/test_openapi_contract.py` 会从 SDK 资源模块的真实 HTTP/流式调用点提取 method/path，与
+`apps/api/openapi.snapshot.json` 对账，并检查 `api-coverage.toml` 中全量 API 的端点分类
 (仅 monorepo 内生效)。
 
 ## 更多文档
 
 参见仓库文档站 `docs-site/dev/sdk/`。
+
+新增 `comments`、`annotation_history`、`bug_reports`、`mask_formats`、`mask_qc`、`point_cloud_quality`。讨论与历史沿用实际任务权限，格式导入／修复保留精确回执和摘要，点云评估晋升校验基线版本。完整工作流见 `docs-site/dev/sdk/annotation-quality.md`。
+
+SDK 覆盖全部 558 项稳定公开 REST（含运维），十项执行器私有操作排除，另提供六条公开 WebSocket。任务、租约、相机／轨迹和几何提交见 [任务工作流](../../docs-site/dev/sdk/task-workflows.md)；可选 `streams` extra 与有界 NDJSON 监听见 [公开事件流](../../docs-site/dev/sdk/streams.md)。

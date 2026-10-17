@@ -15,9 +15,18 @@ class AAPError(Exception):
 class APIStatusError(AAPError):
     """HTTP 4xx / 5xx 统一异常。"""
 
-    def __init__(self, status_code: int, detail: Any):
+    def __init__(
+        self,
+        status_code: int,
+        detail: Any,
+        *,
+        request_id: str | None = None,
+        retry_after: str | None = None,
+    ):
         self.status_code = status_code
         self.detail = detail
+        self.request_id = request_id
+        self.retry_after = retry_after
         super().__init__(f"HTTP {status_code}: {detail}")
 
 
@@ -53,3 +62,20 @@ class JobFailedError(AAPError):
 
 class JobTimeoutError(AAPError):
     """jobs.wait 超时仍未到终态。"""
+
+
+class StreamError(AAPError):
+    """A sanitized WebSocket failure; refresh owning REST state before reconnecting."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        close_code: int | None = None,
+        status_code: int | None = None,
+    ):
+        self.code = code
+        self.close_code = close_code
+        self.status_code = status_code
+        super().__init__(message)

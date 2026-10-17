@@ -2,12 +2,14 @@
 audience: [dev, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-09-10
+last_reviewed: 2026-10-17
 ---
 
 # 系统设置
 
 以下端点只允许超级管理员调用。设置写入数据库覆盖，环境变量仍是部署默认值；连接器主机白名单继续使用[专属端点](./storage-connections.md)。
+
+SDK 使用 `client.system_settings`，CLI 使用 `aap system-settings`；SMTP 测试会真实发送邮件，须明确确认。版本、密码与重置示例见 [账户、管理与运维](../../dev/sdk/account-and-operations)。
 
 | 方法与路径                               | 行为                                       |
 | ---------------------------------------- | ------------------------------------------ |

@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # AI 预标注接管
@@ -51,17 +51,25 @@ AI 预标注的目标不是直接把 task 变成“完成”，而是：
 
 ## 代码入口
 
-| 位置                                       | 作用                                                 |
-| ------------------------------------------ | ---------------------------------------------------- |
-| `apps/api/app/api/v1/projects.py`          | 触发 `POST /projects/{project_id}/preannotate`       |
-| `apps/api/app/workers/tasks.py`            | Celery worker `_run_batch()`                         |
-| `apps/api/app/services/prediction.py`      | prediction / failed prediction 写入                  |
-| `apps/api/app/db/models/prediction.py`     | `Prediction` / `PredictionMeta` / `FailedPrediction` |
-| `apps/api/app/db/models/async_job.py`      | `AsyncJob` 汇总表                                    |
-| `apps/api/app/api/v1/admin_preannotate.py` | `/admin/preannotate-queue` 与批量清理                |
-| `apps/api/app/services/batch.py`           | `pre_annotated` 相关状态迁移与 reset                 |
-| `apps/web/src/pages/AIPreAnnotate/`        | 管理端 AI 预标入口与历史表                           |
-| `apps/web/src/hooks/usePredictions.ts`     | 前端 prediction 查询与采纳                           |
+| 位置                                       | 作用                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| `apps/api/app/api/v1/projects.py`          | 触发 `POST /projects/{project_id}/preannotate`                      |
+| `apps/api/app/workers/tasks.py`            | Celery worker `_run_batch()`                                        |
+| `apps/api/app/services/prediction.py`      | prediction / failed prediction 写入                                 |
+| `apps/api/app/db/models/prediction.py`     | `Prediction` / `PredictionMeta` / `FailedPrediction`                |
+| `apps/api/app/db/models/async_job.py`      | `AsyncJob` 汇总表                                                   |
+| `apps/api/app/api/v1/admin_preannotate.py` | `/admin/preannotate-queue`、`/admin/preannotate-summary` 与批量清理 |
+| `apps/api/app/services/batch.py`           | `pre_annotated` 相关状态迁移与 reset                                |
+| `apps/web/src/pages/AIPreAnnotate/`        | 管理端 AI 预标入口与历史表                                          |
+| `apps/web/src/hooks/usePredictions.ts`     | 前端 prediction 查询与采纳                                          |
+
+### 管理端队列与项目聚合的范围门禁
+
+`GET /admin/preannotate-queue` 与 `GET /admin/preannotate-summary` 面向管理端提供预标看板数据，严格遵守管理者权限范围：
+
+- 项目管理员（非超级管理员）仅可查询其作为 owner 负责的项目卡片聚合及对应的 `pre_annotated` 批次列表，计数与分页均限定在所管项目范围内；
+- 超级管理员不指定项目时可总览全平台。
+- 项目级预热端点 `POST /api/v1/projects/{project_id}/ml-backends/{backend_id}/warmup` 强制校验目标 backend 当前已在项目中启用，未绑定或不存在均返回 404，杜绝跨项目探测。
 
 ## 触发入口
 

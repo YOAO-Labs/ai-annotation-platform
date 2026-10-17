@@ -162,6 +162,14 @@ last_reviewed: 2026-10-17
 
 视频 Mask 纠错创建审计可记录源 annotation / track、纠错帧、窗口、方向、源版本、corrected digest、精确 backend / pool / model、segment lease、seed mode 与 fallback reason；取消审计记录人工关键帧保留和 staged candidate 清除。允许记录 digest 用于完整性追溯，但不得记录 RLE counts、scribble 坐标、logits、receipt、原始文本 prompt 或对象正文。
 
+### 审计查询与权限边界
+
+HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于角色的管理范围隔离：
+
+- **超级管理员**：具备全平台全局可见性，可检索任意用户、实体与系统级别的动作，并独占按月聚合、冷归档（`POST /audit/archive`）与全量 CSV 导出功能。
+- **项目管理员**：系统强制注入 `_managed_audit_scope`，在分页与 `total` 统计之前将查询范围限定在其作为 owner 负责的项目内。涵盖项目实体自身、关联任务、批次、标注、反馈、成员邀请以及携带 project_id 的上下文事件；无可靠项目归属的系统级事件不可见。
+- **已删除实体的追溯**：批次硬删除时在审计 detail 显式写入 `project_id`；即使批次行已从 `task_batches` 移除，项目管理员依然能通过上下文 `project_id` 或历史路径前缀追溯删除事实与影响任务数。
+
 ## Notification：提醒谁该处理什么
 
 ### 核心模型

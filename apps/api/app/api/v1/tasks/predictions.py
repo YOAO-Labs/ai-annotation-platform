@@ -45,7 +45,11 @@ from app.services.project_access import ProjectAccess
 router = APIRouter()
 
 
-@router.get("/{task_id}/predictions", response_model=list[PredictionOut])
+@router.get(
+    "/{task_id}/predictions",
+    response_model=list[PredictionOut],
+    dependencies=[Depends(require_scopes("annotations:read"))],
+)
 async def get_predictions(
     task_id: uuid.UUID,
     model_version: str | None = None,

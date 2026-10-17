@@ -1,12 +1,13 @@
 ---
 audience: [project_admin, super_admin]
 type: how-to
-since: v0.11.16
 status: stable
-last_reviewed: 2026-09-10
+last_reviewed: 2026-10-17
 ---
 
 # 存储连接器
+
+S3 endpoint 只填写服务地址，用户名和密码放入密钥字段；地址内嵌凭据会被拒绝，历史读回会移除该部分。配置拼写错误也会直接报错。SFTP 密码与私钥二选一，须匹配所选认证方式。超级管理员保存显式空主机白名单将拒绝所有连接目标，恢复部署默认应删除覆盖。
 
 > 适用角色：项目管理员 / 超级管理员
 

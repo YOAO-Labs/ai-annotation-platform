@@ -13,6 +13,7 @@ from app.observability.raster_mask import (
     refresh_raster_mask_active_geometries_safely,
 )
 from app.services.storage import storage_service
+from app.schemas.health import HealthCheck, HealthReport
 from app.workers.celery_app import celery_app
 
 router = APIRouter()
@@ -181,35 +182,69 @@ def _read_celery_queue_lengths() -> dict[str, int]:
     return counts
 
 
-@router.get("/db")
+def _public_check(result: dict) -> dict:
+    if result.get("status") != "ok" and result.get("detail"):
+        return {
+            **result,
+            "detail": "Health check failed; inspect authenticated system diagnostics.",
+        }
+    return result
+
+
+@router.get(
+    "/db",
+    response_model=HealthCheck,
+    responses={503: {"model": HealthCheck, "description": "Component unavailable"}},
+)
 async def health_db():
     result = await _check_db()
     code = 200 if result["status"] == "ok" else 503
-    return JSONResponse(status_code=code, content=result)
+    return JSONResponse(status_code=code, content=_public_check(result))
 
 
-@router.get("/redis")
+@router.get(
+    "/redis",
+    response_model=HealthCheck,
+    responses={503: {"model": HealthCheck, "description": "Component unavailable"}},
+)
 async def health_redis():
     result = await _check_redis()
     code = 200 if result["status"] == "ok" else 503
-    return JSONResponse(status_code=code, content=result)
+    return JSONResponse(status_code=code, content=_public_check(result))
 
 
-@router.get("/minio")
+@router.get(
+    "/minio",
+    response_model=HealthCheck,
+    responses={503: {"model": HealthCheck, "description": "Component unavailable"}},
+)
 async def health_minio():
     result = _check_minio()
     code = 200 if result["status"] == "ok" else 503
-    return JSONResponse(status_code=code, content=result)
+    return JSONResponse(status_code=code, content=_public_check(result))
 
 
-@router.get("/celery")
+@router.get(
+    "/celery",
+    response_model=HealthCheck,
+    responses={503: {"model": HealthCheck, "description": "Component unavailable"}},
+)
 async def health_celery():
     result = await asyncio.to_thread(_check_celery)
     code = 200 if result["status"] == "ok" else 503
-    return JSONResponse(status_code=code, content=result)
+    return JSONResponse(status_code=code, content=_public_check(result))
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=HealthReport,
+    responses={
+        503: {
+            "model": HealthReport,
+            "description": "One or more components unavailable",
+        }
+    },
+)
 async def health_all():
     db_r, redis_r = await asyncio.gather(_check_db(), _check_redis())
     minio_r, celery_r = await asyncio.gather(
@@ -221,5 +256,9 @@ async def health_all():
     code = 200 if overall == "ok" else 503
     return JSONResponse(
         status_code=code,
-        content={"status": overall, "version": settings.app_version, "checks": checks},
+        content={
+            "status": overall,
+            "version": settings.app_version,
+            "checks": {name: _public_check(result) for name, result in checks.items()},
+        },
     )

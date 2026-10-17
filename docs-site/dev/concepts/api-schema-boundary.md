@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.1.0
 status: stable
-last_reviewed: 2026-07-13
+last_reviewed: 2026-10-17
 ---
 
 # API Schema 边界 (DB ↔ API ↔ 前端)
@@ -118,6 +118,20 @@ pre-commit 会在 capability registry、schema 或 API 序列化文件变更时�
 **单源真值**：`projects` / `project_templates` 的旧扁平列 `classes` / `classes_config` / `attribute_schema` 已删除，`tool_bindings` 是唯一存储真值。`ProjectOut` / `ProjectTemplateOut` 仍暴露三个扁平字段（API 契约不变），但由 `model_validator` 用 `derive_*` 从 `tool_bindings` **读时派生**（响应序列化 / COCO·YOLO·AAP 导出共用）。输入侧 `coalesce_legacy_into_tool_bindings` 保留，把旧客户端 / 旧 AAP JSON 1.0 的扁平字段反推到对应 unit。
 
 **AAP JSON**：当前 schema 1.3 包含 `project.tool_bindings`、媒体块与 portable `mask_objects`。图片 `raster_mask`、视频单帧 `video_mask` 与视频轨迹 `video_track_mask` geometry 都保留 `coco_rle_ref`，envelope 以 SHA-256 为键携带实际 RLE；导入先校验引用与对象一致性，再写不可变对象并创建 annotation。旧 envelope 仍按宽松 reader 兼容。
+
+## 运维、健康与请求体边界
+
+### 1. 根健康响应模型
+
+根路径 `/health` 及子路由 `/health/db`、`/health/redis`、`/health/minio`、`/health/celery` 绑定强类型 Pydantic 模型 `HealthCheck` 与 `HealthReport`：
+
+- 成功返回 `200`，任意组件异常返回 `503` 并提供类型化的失败响应体。
+- 未认证公开调用在异常时自动脱敏（`_public_check`），抹平内部连接明细，仅提示通过已认证诊断排查；超级管理员可通过运维端点获取完整细节。
+
+### 2. 导出请求与结构化错误边界
+
+- **导出结构化请求**：`ExportRequestBody` 为项目与批次导出提供可选请求体，承载视频帧／分段连续范围（`VideoExportScopeRequest`）与点云相机角色（`LidarExportOptions`），避免把范围参数混淆进 URL 查询参数。
+- **结构化错误输出**：CLI 引入根选项 `--error-format json`，在失败时向 stderr 输出包含错误类型、HTTP 状态、错误代码与安全字段位置的单个 JSON 对象，不污染成功的 stdout。
 
 ## Raster mask 引用边界
 

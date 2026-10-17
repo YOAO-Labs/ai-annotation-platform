@@ -64,9 +64,7 @@ class ConnectorAllowlistOut(BaseModel):
 
 
 class ConnectorAllowlistUpdate(BaseModel):
-    entries: list[Annotated[str, Field(max_length=253)]] = Field(
-        default_factory=list, max_length=256
-    )
+    entries: list[Annotated[str, Field(max_length=253)]] = Field(max_length=256)
 
 
 class ConnectorDeploymentSftpPresetOut(BaseModel):

@@ -4,7 +4,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import NotFoundError, ValidationError
+from ai_annotation.errors import AAPError, NotFoundError, ValidationError
 from ai_annotation.models import Annotation, AnnotationBulkUpdateResult
 
 from .conftest import API
@@ -112,3 +112,48 @@ def test_bulk_update_annotations_maps_validation_error(client, respx_mock):
     )
     with pytest.raises(ValidationError):
         client.annotations.bulk_update([ANN_ID], class_name="bad")
+
+
+def test_import_annotations_multipart_preserves_partial_receipt(
+    client, respx_mock, tmp_path
+):
+    path = tmp_path / "annotations.json"
+    path.write_text('{"schema_version":"1.0","tasks":[]}', encoding="utf-8")
+    project_id = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{project_id}/annotations/import").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "imported": 2,
+                "skipped": 1,
+                "errors": [
+                    {"task_match": {"file_name": "missing.jpg"}, "reason": "not found"}
+                ],
+                "dry_run": True,
+            },
+        )
+    )
+    result = client.annotations.import_file(
+        project_id, path, dry_run=True, overwrite=True
+    )
+
+    request = route.calls.last.request
+    assert request.url.params["format"] == "aap_json"
+    assert request.url.params["dry_run"] == "true"
+    assert b'name="file"' in request.content
+    assert b'name="overwrite"' in request.content and b"true" in request.content
+    assert result.errors[0].task_match == {"file_name": "missing.jpg"}
+    assert result.errors[0].reason == "not found"
+    assert result.imported == 2
+    assert result.dry_run is True
+
+
+def test_import_annotations_file_limit_is_checked_before_http(
+    client, respx_mock, tmp_path
+):
+    path = tmp_path / "too-large.json"
+    with path.open("wb") as file:
+        file.truncate(64 * 1024 * 1024 + 1)
+    with pytest.raises(AAPError, match="64 MiB"):
+        client.annotations.import_file("project-1", path)
+    assert not respx_mock.calls

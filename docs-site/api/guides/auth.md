@@ -1,12 +1,13 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-17
 ---
 
 # 认证
+
+SDK/CLI 的显式会话、个人账户、分页用户管理与敏感输入说明见 [账户、管理与运维](../../dev/sdk/account-and-operations)。登录／刷新返回的 JWT 不会自动替换 SDK Client 凭据。项目管理员的直接分组修改与批量分组共用可管理用户范围，外部项目管理员目标不可修改。
 
 ## 登录
 
@@ -236,6 +237,8 @@ Authorization: Bearer ak_xxxxxxxxxxxx
 ```
 
 **有效期**：创建时可选 `expires_in_days`（省略 = 永不过期）；过期后认证返回 401。
+
+PATCH 省略 `expires_in_days` 保留原值，显式 `null` 清除有效期。名称与 scopes 可以省略，但不能显式设为 null（返回 422）。SDK 的 typed `api_keys.patch` 保留这一区别，旧便利 `update(..., expires_in_days=None)` 继续省略该字段。
 
 **权限 scope**：
 

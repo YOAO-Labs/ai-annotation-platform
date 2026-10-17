@@ -201,15 +201,23 @@ async def create_run(
         _raise_quality_error(exc)
     await db.commit()
     if created and job is not None:
+        run_id, job_id = run.id, job.id
         try:
             await dispatch_quality_run(
-                db, run_id=run.id, async_job_id=job.id, dispatcher=quality_dispatcher
+                db, run_id=run_id, async_job_id=job_id, dispatcher=quality_dispatcher
             )
         except PointCloudQualityError as exc:
-            await record_dispatch_failure(db, run_id=run.id, error=str(exc.detail))
-            await async_job_svc.mark_failed(db, job.id, error=str(exc.detail))
+            await record_dispatch_failure(db, run_id=run_id, error=str(exc.detail))
+            await async_job_svc.mark_failed(db, job_id, error=str(exc.detail))
             await db.commit()
-            _raise_quality_error(exc)
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={
+                    **exc.detail,
+                    "run_id": str(run_id),
+                    "async_job_id": str(job_id),
+                },
+            ) from exc
     await db.refresh(run)
     return _run_out(run, reused=not created)
 

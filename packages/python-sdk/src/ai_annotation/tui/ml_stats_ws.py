@@ -1,6 +1,6 @@
 """ML Backend 实时统计 WS 消费器（仅 TUI 用）。
 
-订阅后端 `/api/v1/ws/ml-backend-stats`（每 1s 推 `{"backends": [...], "timestamp": ...}`），
+订阅后端 `/ws/ml-backend-stats`（每 1s 推 `{"backends": [...], "timestamp": ...}`），
 反序列化为 `MLBackendStatsSnapshot` 列表后回调给 TUI。跑在 Textual 的 asyncio loop 里，
 **不**碰同步 `Client` / httpx；连接失败 / 断线时指数退避重连，由调用方 cancel 停止。
 
@@ -13,9 +13,9 @@ import asyncio
 import json
 import logging
 from typing import Awaitable, Callable
-from urllib.parse import quote
 
 from ai_annotation.models import MLBackendStatsSnapshot
+from ai_annotation.streams import _build_ws_url, _SOCKET_LOG
 
 log = logging.getLogger(__name__)
 
@@ -30,12 +30,7 @@ def build_ws_url(base_url: str, api_key: str) -> str:
 
     注意：ws_router 在后端 main.py 无 prefix 注册，路径是 `/ws/...` 而非 `/api/v1/ws/...`。
     """
-    root = base_url.rstrip("/")
-    if root.startswith("https://"):
-        root = "wss://" + root[len("https://") :]
-    elif root.startswith("http://"):
-        root = "ws://" + root[len("http://") :]
-    return f"{root}/ws/ml-backend-stats?token={quote(api_key, safe='')}"
+    return _build_ws_url(base_url, "/ws/ml-backend-stats", api_key)
 
 
 def parse_frame(text: str) -> list[MLBackendStatsSnapshot] | None:
@@ -51,7 +46,7 @@ def parse_frame(text: str) -> list[MLBackendStatsSnapshot] | None:
         try:
             out.append(MLBackendStatsSnapshot.model_validate(raw))
         except Exception as exc:  # 单条坏数据不拖垮整帧
-            log.debug("ml-stats snapshot parse skip: %s", exc)
+            log.debug("ml-stats snapshot parse skip: %s", type(exc).__name__)
     return out
 
 
@@ -87,7 +82,9 @@ class MlStatsStream:
         backoff = 1.0
         while True:
             try:
-                async with websockets.connect(self._url, open_timeout=10) as ws:
+                async with websockets.connect(
+                    self._url, open_timeout=10, logger=_SOCKET_LOG
+                ) as ws:
                     backoff = 1.0  # 连上即重置退避
                     async for message in ws:
                         text = message if isinstance(message, str) else message.decode()
@@ -104,6 +101,6 @@ class MlStatsStream:
                     return  # 鉴权问题不重连
                 if self._on_error:
                     self._on_error(f"实时统计连接中断，{backoff:g}s 后重连")
-                log.debug("ml-stats ws error: %s", exc)
+                log.debug("ml-stats ws error: %s", type(exc).__name__)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, self._max_backoff)

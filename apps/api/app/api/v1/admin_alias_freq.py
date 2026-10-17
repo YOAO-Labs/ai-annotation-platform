@@ -15,15 +15,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.deps import get_db, require_roles
+from app.deps import get_db, require_project_owner, require_roles
 
 router = APIRouter()
 
@@ -46,13 +46,9 @@ async def get_alias_frequency(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    _project: Project = Depends(require_project_owner),
 ) -> AliasFrequencyResponse:
     """统计本项目 predictions 中各 detected label 出现次数, 按 count desc 排."""
-    # project 存在性检查 (非 admin 拿不到 404 vs 403, 这里仅 admin 才能调)
-    proj = await db.execute(select(Project.id).where(Project.id == project_id))
-    if proj.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="project not found")
-
     # total predictions
     total_q = await db.execute(
         text(

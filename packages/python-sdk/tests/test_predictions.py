@@ -1,7 +1,13 @@
+import json
 from uuid import uuid4
 
 import httpx
+import pytest
 
+from ai_annotation.management_operation_models import (
+    PredictionPurgeRequest,
+    PredictionPurgeResponse,
+)
 from ai_annotation.models import ImportResult
 
 from .conftest import API
@@ -58,3 +64,46 @@ def test_import_file_yolo_params(client, respx_mock, tmp_path):
     assert req.url.params["dry_run"] == "true"
     assert b'name="overwrite_existing"' in req.content and b"true" in req.content
     assert result.dry_run is True
+
+
+def test_purge_predictions_sends_typed_request_once(client, respx_mock):
+    task_id = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/{PROJECT_ID}/predictions/purge").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "source_scope": "external_import",
+                "task_ids": [task_id],
+                "dry_run": True,
+                "counts": {
+                    "ml_backend": 0,
+                    "external_import": 3,
+                    "unknown": 0,
+                    "total": 3,
+                },
+            },
+        )
+    )
+    result = client.predictions.purge(
+        PROJECT_ID,
+        PredictionPurgeRequest(
+            source_scope="external_import", task_ids=[task_id], dry_run=True
+        ),
+    )
+
+    assert isinstance(result, PredictionPurgeResponse)
+    assert result.counts.external_import == 3
+    assert route.calls.call_count == 1
+    assert json.loads(route.calls.last.request.content) == {
+        "source_scope": "external_import",
+        "task_ids": [task_id],
+        "dry_run": True,
+    }
+
+
+def test_purge_invalid_source_fails_before_http(client, respx_mock):
+    with pytest.raises(ValueError):
+        PredictionPurgeRequest(source_scope="predictions")
+    with pytest.raises(ValueError):
+        PredictionPurgeRequest(dry_rnu=True)
+    assert not respx_mock.calls

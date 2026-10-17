@@ -27,6 +27,7 @@ from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
+from app.deps import get_db
 from tests.factory import build_tool_bindings
 
 
@@ -320,6 +321,75 @@ async def test_create_from_source_project_dumps_fields(
     assert data["source_project_id"] == str(src.id)
 
 
+async def test_create_template_with_source_only_inherits_label_and_lidar_kind(
+    httpx_client, db_session, super_admin
+):
+    user, token = super_admin
+    src = Project(
+        id=uuid.uuid4(),
+        display_id=f"P-LIDAR-{uuid.uuid4().hex[:6]}",
+        name="雷达源",
+        type_label="激光雷达",
+        type_key="lidar",
+        data_type="lidar",
+        owner_id=user.id,
+        annotation_guide="# 点云指引",
+        tool_bindings=build_tool_bindings(["car"]),
+    )
+    db_session.add(src)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/project-templates",
+        json={"source_project_id": str(src.id)},
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 201, response.text
+    result = response.json()
+    assert result["name"] == "雷达源 模板"
+    assert result["type_label"] == "激光雷达"
+    assert result["type_key"] == "lidar"
+    assert result["data_type"] == "lidar"
+    assert result["annotation_guide"] == "# 点云指引"
+    assert result["source_project_id"] == str(src.id)
+
+
+async def test_create_template_rejects_explicit_null_with_source(
+    httpx_client, db_session, super_admin
+):
+    user, token = super_admin
+    src = Project(
+        id=uuid.uuid4(),
+        display_id=f"P-NULL-{uuid.uuid4().hex[:6]}",
+        name="Null 源",
+        type_label="图像-检测",
+        type_key="image-det",
+        owner_id=user.id,
+    )
+    db_session.add(src)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/project-templates",
+        json={"source_project_id": str(src.id), "type_label": None},
+        headers=_auth(token),
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_create_template_requires_source_for_missing_fields(
+    httpx_client, super_admin
+):
+    _, token = super_admin
+    response = await httpx_client.post(
+        "/api/v1/project-templates",
+        json={"type_key": "image-det", "type_label": "图像-检测"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 422, response.text
+
+
 async def test_duplicate_creates_private_copy(httpx_client, db_session, super_admin):
     user, token = super_admin
     src = await _seed_template(
@@ -353,6 +423,9 @@ async def test_apply_template_creates_project_and_bumps_usage(
         db_session,
         user.id,
         scope="public",
+        type_label="视频跟踪",
+        type_key="video-track",
+        data_type="video",
         tool_bindings=build_tool_bindings(["car"]),
         ai_enabled=True,
         annotation_guide="# 模板指引",
@@ -362,13 +435,19 @@ async def test_apply_template_creates_project_and_bumps_usage(
 
     body = {
         "name": "由模板创建",
-        "type_label": "图像-检测",
-        "type_key": "image-det",
         "template_id": str(t_id),
+        "video_collaboration": {"enabled": True, "overlap_frames": 1},
     }
     resp = await httpx_client.post("/api/v1/projects", json=body, headers=_auth(token))
     assert resp.status_code == 200, resp.text
     project_data = resp.json()
+    assert project_data["type_label"] == "视频跟踪"
+    assert project_data["type_key"] == "video-track"
+    assert project_data["data_type"] == "video"
+    assert project_data["video_collaboration"] == {
+        "enabled": True,
+        "overlap_frames": 1,
+    }
     assert project_data["classes"] == ["car"]
     assert project_data["ai_enabled"] is True
     assert project_data["annotation_guide"] == "# 模板指引"
@@ -381,6 +460,42 @@ async def test_apply_template_creates_project_and_bumps_usage(
     )
     assert resp2.status_code == 200
     assert resp2.json()["usage_count"] == 1
+
+
+async def test_apply_template_explicit_kind_and_legacy_classes_win(
+    httpx_client, db_session, super_admin
+):
+    user, token = super_admin
+    template = await _seed_template(
+        db_session,
+        user.id,
+        name="点云模板",
+        type_label="点云模板标签",
+        type_key="lidar",
+        data_type="lidar",
+        scope="public",
+        tool_bindings=build_tool_bindings(["source-class"]),
+    )
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/projects",
+        json={
+            "name": "覆盖后的图像项目",
+            "template_id": str(template.id),
+            "type_key": "image-seg",
+            "classes": ["manual-class"],
+        },
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["type_label"] == "点云模板标签"
+    assert result["type_key"] == "image-seg"
+    assert result["data_type"] == "image"
+    assert result["classes"] == ["manual-class"]
+    assert result["tool_bindings"]["region"]["classes"][0]["name"] == "manual-class"
 
 
 async def test_template_id_and_source_project_id_mutually_exclusive(
@@ -427,9 +542,16 @@ async def test_private_template_detail_404_for_others(
 
 
 async def test_locked_private_template_operations_remain_concealed(
-    app_module, test_engine
+    app_module, test_engine, monkeypatch
 ):
     session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+
+    async def request_db():
+        async with session_factory() as db:
+            yield db
+
+    monkeypatch.setitem(app_module.dependency_overrides, get_db, request_db)
+
     suffix = uuid.uuid4().hex
     owner_id = outsider_id = private_template_id = public_template_id = None
     owner_lock = None
@@ -595,9 +717,16 @@ async def test_locked_private_template_operations_remain_concealed(
 
 
 async def test_workspace_configuration_routes_persist_and_rollback_independently(
-    app_module, test_engine
+    app_module, test_engine, monkeypatch
 ):
     session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+
+    async def request_db():
+        async with session_factory() as db:
+            yield db
+
+    monkeypatch.setitem(app_module.dependency_overrides, get_db, request_db)
+
     suffix = uuid.uuid4().hex
     template_name = f"workspace-template-{suffix}"
     updated_template_name = f"workspace-template-updated-{suffix}"

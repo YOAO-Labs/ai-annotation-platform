@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 
 import anyio
 import boto3
@@ -74,25 +75,79 @@ def assert_connection_admin(user: User, conn: StorageConnection) -> None:
 
 
 def _validate_and_sanitize_config(kind: str, config: dict) -> dict:
+    config = config or {}
+    unknown = set(config) - _ALLOWED_CONFIG[kind]
+    if unknown:
+        raise ConnectorValidationError(
+            f"{kind} 不支持配置项: {', '.join(sorted(unknown))}"
+        )
     missing = _REQUIRED_CONFIG[kind] - set(config or {})
     if missing:
         raise ConnectorValidationError(
             f"{kind} 缺少必填配置: {', '.join(sorted(missing))}"
         )
-    return {k: config[k] for k in _ALLOWED_CONFIG[kind] if k in config}
+    clean_config = {k: config[k] for k in _ALLOWED_CONFIG[kind] if k in config}
+    if kind == "s3":
+        _reject_endpoint_userinfo(clean_config["endpoint"])
+    return clean_config
 
 
-def _validate_secret(kind: str, secret: dict) -> None:
+def _reject_endpoint_userinfo(endpoint: str) -> None:
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        raise ConnectorValidationError("s3 endpoint 必须为非空文本")
+    candidate = endpoint if "://" in endpoint else f"//{endpoint}"
+    try:
+        parsed = urlsplit(candidate)
+        has_userinfo = parsed.username is not None or parsed.password is not None
+    except ValueError as exc:
+        raise ConnectorValidationError("s3 endpoint URL 无效") from exc
+    if has_userinfo:
+        raise ConnectorValidationError("s3 endpoint URL 不能包含用户名或密码")
+
+
+def _redact_endpoint_userinfo(endpoint: str) -> str:
+    candidate = endpoint if "://" in endpoint else f"//{endpoint}"
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return "[invalid endpoint]"
+    if "@" not in parsed.netloc:
+        return endpoint
+    safe_netloc = parsed.netloc.rsplit("@", 1)[-1]
+    safe = urlunsplit(
+        (parsed.scheme, safe_netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+    return safe if parsed.scheme else safe.removeprefix("//")
+
+
+def _validate_secret(kind: str, secret: dict, config: dict | None = None) -> str | None:
     secret = secret or {}
     if kind == "s3":
-        if not secret.get("access_key") or not secret.get("secret_key"):
+        if any(
+            not isinstance(secret.get(key), str) or not secret.get(key)
+            for key in ("access_key", "secret_key")
+        ):
             raise ConnectorValidationError("s3 需提供 access_key 与 secret_key")
     elif kind == "sftp":
-        auth = (secret.get("private_key") and "key") or (
-            secret.get("password") and "password"
-        )
-        if not auth:
-            raise ConnectorValidationError("sftp 需提供 password 或 private_key")
+        for key in ("private_key", "password", "passphrase"):
+            value = secret.get(key)
+            if value is not None and (
+                not isinstance(value, str)
+                or (key in {"private_key", "password"} and not value)
+            ):
+                raise ConnectorValidationError("sftp 凭据必须为文本")
+        has_key = bool(secret.get("private_key"))
+        has_password = bool(secret.get("password"))
+        if has_key == has_password:
+            raise ConnectorValidationError(
+                "sftp 必须且只能提供 password 或 private_key 其中之一"
+            )
+        auth = "key" if has_key else "password"
+        configured_auth = (config or {}).get("auth_type")
+        if configured_auth is not None and configured_auth != auth:
+            raise ConnectorValidationError("sftp auth_type 必须与凭据类型一致")
+        return auth
+    return None
 
 
 def target_host(conn: StorageConnection) -> str:
@@ -104,11 +159,14 @@ def target_host(conn: StorageConnection) -> str:
 
 def to_out_dict(conn: StorageConnection) -> dict:
     """转 Out（脱敏：不含 secret，仅 secret_set）。"""
+    config = dict(conn.config or {})
+    if conn.kind == "s3" and isinstance(config.get("endpoint"), str):
+        config["endpoint"] = _redact_endpoint_userinfo(config["endpoint"])
     return {
         "id": conn.id,
         "name": conn.name,
         "kind": conn.kind,
-        "config": conn.config or {},
+        "config": config,
         "scope": "global" if conn.scope == "global" else "owner",
         "project_id": conn.project_id,
         "secret_set": conn.secret_enc is not None,
@@ -132,7 +190,9 @@ class StorageConnectionService:
         project_id: uuid.UUID | None = None,
     ) -> StorageConnection:
         clean_config = _validate_and_sanitize_config(kind, config)
-        _validate_secret(kind, secret)
+        inferred_auth = _validate_secret(kind, secret, clean_config)
+        if inferred_auth is not None and clean_config.get("auth_type") is None:
+            clean_config["auth_type"] = inferred_auth
         conn = StorageConnection(
             name=name,
             kind=kind,
@@ -181,12 +241,23 @@ class StorageConnectionService:
         if name is not None:
             conn.name = name
         if config is not None:
-            conn.config = _validate_and_sanitize_config(conn.kind, config)
+            clean_config = _validate_and_sanitize_config(conn.kind, config)
+        else:
+            clean_config = dict(conn.config or {})
+        candidate_secret = secret
+        if candidate_secret is None and config is not None and conn.secret_enc:
+            candidate_secret = decrypt_secret(conn.secret_enc)
+        if candidate_secret is not None:
+            inferred_auth = _validate_secret(conn.kind, candidate_secret, clean_config)
+            if inferred_auth is not None and clean_config.get("auth_type") is None:
+                clean_config["auth_type"] = inferred_auth
+                conn.config = clean_config
+        if config is not None:
+            conn.config = clean_config
             await connector_guard.assert_connection_target_allowed(
                 db, target_host(conn)
             )
         if secret is not None:
-            _validate_secret(conn.kind, secret)
             conn.secret_enc = encrypt_secret(secret)
         await db.flush()
         return conn

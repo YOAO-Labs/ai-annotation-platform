@@ -960,7 +960,17 @@ async def get_video_chunks(
     )
 
 
-@router.get("/{task_id}/video/chunks/{chunk_id}", response_model=VideoChunkOut)
+@router.get(
+    "/{task_id}/video/chunks/{chunk_id}",
+    response_model=VideoChunkOut,
+    responses={
+        202: {
+            "model": VideoChunkOut,
+            "description": "Asset is not ready; inspect status and retry_after before another request.",
+            "headers": {"Retry-After": {"schema": {"type": "string"}}},
+        }
+    },
+)
 async def get_video_chunk(
     task_id: uuid.UUID,
     chunk_id: int,
@@ -979,7 +989,17 @@ async def get_video_chunk(
     return body
 
 
-@router.get("/{task_id}/video/frames/{frame_index}", response_model=VideoFrameOut)
+@router.get(
+    "/{task_id}/video/frames/{frame_index}",
+    response_model=VideoFrameOut,
+    responses={
+        202: {
+            "model": VideoFrameOut,
+            "description": "Asset is not ready; inspect status and retry_after before another request.",
+            "headers": {"Retry-After": {"schema": {"type": "string"}}},
+        }
+    },
+)
 async def get_video_frame(
     task_id: uuid.UUID,
     frame_index: int,
