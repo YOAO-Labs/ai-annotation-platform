@@ -395,16 +395,18 @@ async def test_legacy_comment_commands_recheck_current_authority(
         if operation == "create":
             await workflow.create(
                 annotation.id,
-                owner,
+                owner.id,
                 AnnotationCommentCreate(body="unauthorized new comment"),
                 origin=origin,
             )
         elif operation == "update":
             await workflow.update(
-                comment.id, owner, AnnotationCommentUpdate(body="unauthorized edit")
+                comment.id,
+                owner.id,
+                AnnotationCommentUpdate(body="unauthorized edit"),
             )
         else:
-            await workflow.delete(comment.id, owner, origin=origin)
+            await workflow.delete(comment.id, owner.id, origin=origin)
     assert caught.value.status_code == expected_status
     rows = (
         await db_session.execute(
@@ -432,7 +434,7 @@ async def test_legacy_comment_update_refreshes_concurrent_deactivation(
     await db_session.commit()
     with pytest.raises(HTTPException) as caught:
         await AnnotationCommentWorkflow(db_session).update(
-            comment.id, owner, AnnotationCommentUpdate(body="stale edit")
+            comment.id, owner.id, AnnotationCommentUpdate(body="stale edit")
         )
     assert caught.value.status_code == 404
     body = await db_session.scalar(
@@ -457,7 +459,7 @@ async def test_legacy_comment_body_clear_uses_current_content_support(
     await db_session.commit()
     with pytest.raises(HTTPException) as caught:
         await AnnotationCommentWorkflow(db_session).update(
-            comment.id, owner, AnnotationCommentUpdate(body="")
+            comment.id, owner.id, AnnotationCommentUpdate(body="")
         )
     assert caught.value.status_code == 422
     body = await db_session.scalar(
@@ -515,7 +517,7 @@ async def test_legacy_comment_body_clear_accepts_newly_added_content_support(
     )
     await db_session.commit()
     await AnnotationCommentWorkflow(db_session).update(
-        comment.id, owner, AnnotationCommentUpdate(body="")
+        comment.id, owner.id, AnnotationCommentUpdate(body="")
     )
     body = await db_session.scalar(
         select(AnnotationComment.body).where(AnnotationComment.id == comment.id)

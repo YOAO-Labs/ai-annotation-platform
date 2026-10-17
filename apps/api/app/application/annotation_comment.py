@@ -46,15 +46,22 @@ class AnnotationCommentWorkflow:
     async def create(
         self,
         annotation_id: uuid.UUID,
-        actor: User,
+        actor_id: uuid.UUID,
         data: AnnotationCommentCreate,
         *,
         origin: AuditOriginContext,
-    ) -> AnnotationComment:
+    ) -> tuple[AnnotationComment, IdentityActorFacts]:
+        actor = await self.db.get(User, actor_id)
+        if actor is None:
+            raise HTTPException(
+                status_code=401,
+                detail="账号已停用或不存在",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         annotation, task = await require_visible_annotation(
             self.db,
             annotation_id,
-            actor,
+            actor_id,
             require_active=True,
         )
         expected_access = await task_access.resolve_task_access(self.db, task, actor)
@@ -125,16 +132,16 @@ class AnnotationCommentWorkflow:
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
         await self.db.refresh(comment)
-        return comment
+        return comment, actor
 
     async def update(
         self,
         comment_id: uuid.UUID,
-        actor: User,
+        actor_id: uuid.UUID,
         data: AnnotationCommentUpdate,
     ) -> AnnotationComment:
-        comment, annotation, task, expected_access = await self._read_comment(
-            comment_id, actor, operation="edit"
+        comment, annotation, task, actor, expected_access = await self._read_comment(
+            comment_id, actor_id, operation="edit"
         )
         comment, actor = await self._lock_comment(
             comment,
@@ -152,12 +159,12 @@ class AnnotationCommentWorkflow:
     async def delete(
         self,
         comment_id: uuid.UUID,
-        actor: User,
+        actor_id: uuid.UUID,
         *,
         origin: AuditOriginContext,
     ) -> None:
-        comment, annotation, task, expected_access = await self._read_comment(
-            comment_id, actor, operation="delete"
+        comment, annotation, task, actor, expected_access = await self._read_comment(
+            comment_id, actor_id, operation="delete"
         )
         comment, actor = await self._lock_comment(
             comment,
@@ -209,19 +216,26 @@ class AnnotationCommentWorkflow:
     async def _read_comment(
         self,
         comment_id: uuid.UUID,
-        actor: User,
+        actor_id: uuid.UUID,
         *,
         operation: Literal["edit", "delete"],
-    ) -> tuple[AnnotationComment, Annotation, Task, ProjectAccess]:
+    ) -> tuple[AnnotationComment, Annotation, Task, User, ProjectAccess]:
         comment = await self.db.get(AnnotationComment, comment_id)
         if comment is None or not comment.is_active:
             raise HTTPException(status_code=404, detail="Comment not found")
+        actor = await self.db.get(User, actor_id)
+        if actor is None:
+            raise HTTPException(
+                status_code=401,
+                detail="账号已停用或不存在",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         annotation, task = await require_visible_annotation(
-            self.db, comment.annotation_id, actor
+            self.db, comment.annotation_id, actor_id
         )
         access = await task_access.resolve_task_access(self.db, task, actor)
         self._assert_action(comment, actor, access, operation=operation)
-        return comment, annotation, task, access
+        return comment, annotation, task, actor, access
 
     async def _lock_annotation_target(
         self,

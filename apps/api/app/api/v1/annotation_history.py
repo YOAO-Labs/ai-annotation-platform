@@ -15,11 +15,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_current_user, get_db
+from app.deps import get_current_user_id, get_db
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.audit_log import AuditLog
-from app.db.models.user import User
 from app.schemas.annotation_history import (
     AnnotationHistoryResponse,
     HistoryEntry,
@@ -49,9 +48,9 @@ _RELEVANT_TASK_ACTIONS = (
 async def get_annotation_history(
     annotation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    ann, _task = await require_visible_annotation(db, annotation_id, current_user)
+    ann, _task = await require_visible_annotation(db, annotation_id, actor_id)
 
     # 1. annotation 级 audit
     ann_audits = (
@@ -157,7 +156,7 @@ async def get_annotation_history(
 async def get_task_audit_history(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """I4 · 任务级时间线 — DiscussionPanel 在未选中标注时降级展示.
 
@@ -165,7 +164,7 @@ async def get_task_audit_history(
     1. audit_logs.target_type='task' AND target_id=:task_id (含 _RELEVANT_TASK_ACTIONS + bulk_update + group/ungroup)
     2. task 下所有 annotation 的 annotation 级 audit (压平 + 排序; 单题量大时仍可读).
     """
-    await require_visible_task(db, task_id, current_user)
+    await require_visible_task(db, task_id, actor_id)
 
     task_audits = (
         (

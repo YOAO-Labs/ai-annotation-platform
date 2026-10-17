@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.annotation_comment import AnnotationCommentWorkflow
 from app.deps import (
     get_db,
+    get_current_user_id,
     require_roles,
     require_active_task_actor,
 )
@@ -81,15 +82,17 @@ def _to_out(
 
 
 @router.get(
-    "/annotations/{annotation_id}/comments", response_model=list[AnnotationCommentOut]
+    "/annotations/{annotation_id}/comments",
+    response_model=list[AnnotationCommentOut],
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
 )
 async def list_comments(
     annotation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """v0.8.8 · 旧端点保留作向后兼容；新调用方走 ``/comments/page`` keyset 分页。"""
-    await require_visible_annotation(db, annotation_id, current_user)
+    await require_visible_annotation(db, annotation_id, actor_id)
     rows = (
         await db.execute(
             select(AnnotationComment, User.name)
@@ -122,6 +125,7 @@ def _decode_comment_cursor(raw: str) -> tuple[datetime, uuid.UUID]:
 @router.get(
     "/tasks/{task_id}/discussion/page",
     response_model=TaskDiscussionPage,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
 )
 async def list_task_discussion_page(
     task_id: uuid.UUID,
@@ -130,7 +134,7 @@ async def list_task_discussion_page(
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """Read the authoritative, mixed comments feed for one visible task."""
 
@@ -147,21 +151,21 @@ async def list_task_discussion_page(
             detail="annotation_id is only valid for annotation scope",
         )
 
-    task = await require_visible_task(db, task_id, current_user)
+    task = await require_visible_task(db, task_id, actor_id)
     if scope == "annotation":
         # Resolve the persisted annotation against the requested task.  This also
         # intentionally permits soft-deleted annotations for historical comments.
         await require_visible_annotation(
             db,
             annotation_id,
-            current_user,
+            actor_id,
             task_id=task_id,
         )
 
     return await list_task_discussion(
         db,
         task=task,
-        user=current_user,
+        actor_id=actor_id,
         scope=scope,
         annotation_id=annotation_id,
         limit=limit,
@@ -172,15 +176,16 @@ async def list_task_discussion_page(
 @router.get(
     "/tasks/{task_id}/discussion/annotation-counts",
     response_model=AnnotationCommentCountsOut,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
 )
 async def list_annotation_comment_counts(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """Return sparse counts for active comments on available saved annotations."""
 
-    task = await require_visible_task(db, task_id, current_user)
+    task = await require_visible_task(db, task_id, actor_id)
     rows = (
         await db.execute(
             select(AnnotationComment.annotation_id, func.count(AnnotationComment.id))
@@ -203,19 +208,20 @@ async def list_annotation_comment_counts(
 @router.get(
     "/tasks/{task_id}/comments/page",
     response_model=AnnotationCommentListPage,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
 )
 async def list_task_comments_paged(
     task_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """I4 · 任务级评论 — DiscussionPanel 在未选中标注时降级展示.
 
     聚合该 task 下所有 annotation 的 active 评论, DESC(created_at, id) keyset 分页.
     """
-    await require_visible_task(db, task_id, current_user)
+    await require_visible_task(db, task_id, actor_id)
     q = (
         select(AnnotationComment, User.name)
         .join(User, User.id == AnnotationComment.author_id)
@@ -251,20 +257,21 @@ async def list_task_comments_paged(
 @router.get(
     "/annotations/{annotation_id}/comments/page",
     response_model=AnnotationCommentListPage,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
 )
 async def list_comments_paged(
     annotation_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """v0.8.8 · keyset 分页：DESC(created_at, id)。
 
     单条标注 100+ 评论时初始化卡顿明显（CommentsPanel 全量拉），改为「最新 50
     + 加载更早」按需拉取。返回 ``next_cursor=None`` 即末尾。
     """
-    await require_visible_annotation(db, annotation_id, current_user)
+    await require_visible_annotation(db, annotation_id, actor_id)
     q = (
         select(AnnotationComment, User.name)
         .join(User, User.id == AnnotationComment.author_id)
@@ -301,44 +308,53 @@ async def list_comments_paged(
     "/annotations/{annotation_id}/comments",
     response_model=AnnotationCommentOut,
     status_code=201,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
 )
 async def create_comment(
     annotation_id: uuid.UUID,
     data: AnnotationCommentCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    comment = await AnnotationCommentWorkflow(db).create(
+    comment, actor = await AnnotationCommentWorkflow(db).create(
         annotation_id,
-        current_user,
+        actor_id,
         data,
         origin=audit_origin_from_request(request),
     )
-    return _to_out(comment, current_user.name)
+    return _to_out(comment, actor.name)
 
 
-@router.patch("/comments/{comment_id}", response_model=AnnotationCommentOut)
+@router.patch(
+    "/comments/{comment_id}",
+    response_model=AnnotationCommentOut,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
+)
 async def patch_comment(
     comment_id: uuid.UUID,
     data: AnnotationCommentUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    comment = await AnnotationCommentWorkflow(db).update(comment_id, current_user, data)
+    comment = await AnnotationCommentWorkflow(db).update(comment_id, actor_id, data)
     return _to_out(comment)
 
 
-@router.delete("/comments/{comment_id}", status_code=204)
+@router.delete(
+    "/comments/{comment_id}",
+    status_code=204,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
+)
 async def delete_comment(
     comment_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     await AnnotationCommentWorkflow(db).delete(
         comment_id,
-        current_user,
+        actor_id,
         origin=audit_origin_from_request(request),
     )
 
@@ -346,12 +362,13 @@ async def delete_comment(
 @router.post(
     "/annotations/{annotation_id}/comment-attachments/upload-init",
     response_model=CommentAttachmentUploadInitResponse,
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
 )
 async def comment_attachment_upload_init(
     annotation_id: uuid.UUID,
     data: CommentAttachmentUploadInitRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """v0.6.2：评论附件签发预签名 PUT URL。
 
@@ -360,7 +377,7 @@ async def comment_attachment_upload_init(
     _ann, _task = await require_visible_annotation(
         db,
         annotation_id,
-        current_user,
+        actor_id,
         require_active=True,
     )
     safe_name = data.file_name.replace("/", "_").replace("\\", "_")
@@ -373,13 +390,16 @@ async def comment_attachment_upload_init(
     )
 
 
-@router.get("/annotations/{annotation_id}/comment-attachments/download")
+@router.get(
+    "/annotations/{annotation_id}/comment-attachments/download",
+    dependencies=[Depends(require_roles(*_ALL_ANNOTATORS))],
+)
 async def comment_attachment_download(
     annotation_id: uuid.UUID,
     key: str,
     as_json: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """Authorize the original annotation before issuing a short-lived download URL.
 
@@ -392,7 +412,7 @@ async def comment_attachment_download(
         raise HTTPException(status_code=400, detail="invalid attachment key")
     # Resolve the annotation's actual task/project.  The path parameter is only an
     # identifier; access must not be granted from a stale denormalized project_id.
-    await require_visible_annotation(db, annotation_id, current_user)
+    await require_visible_annotation(db, annotation_id, actor_id)
     # 评论附件私链要求严格 5 分钟有效期, 不走缓存对齐 (否则可能被拉长到 ~15 分钟)。
     url = storage_service.generate_download_url(key, expires_in=300, align=False)
     if as_json:

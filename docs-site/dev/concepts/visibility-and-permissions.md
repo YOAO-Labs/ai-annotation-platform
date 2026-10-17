@@ -65,6 +65,8 @@ last_reviewed: 2026-10-18
 
 WebSocket 身份 helper 返回在原会话内取得的 `IdentityActorFacts`，各流用其 ID/当前全局角色完成原握手流程。项目与任务重验仍重新读取账号、项目和成员状态；即使先前事实中的账号仍为 active，随后停用也会阻止投递。JWT/API key 的通道差异和 API key 使用时间提交位置保留，身份事实不能跨重验窗口充当许可。
 
+评论的十个入口和历史的两个入口也只把主体 UUID 交给业务读取/命令。评论仍先检查原平台角色，历史不增加角色门槛；共享认证和 Session 不重复创建。创建评论的作者名与 mention 通知取锁后身份事实，最终权限仍由同事务的当前账号、项目、成员和资源围栏决定。
+
 成员输出 `ProjectMemberOut` 是**扁平**的：`role` 是项目角色，另有独立的 `platform_role`；邀请 HTTP 字段仍叫 `project_member_role`，映射到数据库 `project_role`。项目列表 / 详情带 `my_project_role`，列表按 `project_role` 过滤。
 
 ### 导出收紧（有意行为变化）

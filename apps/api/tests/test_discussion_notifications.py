@@ -6,13 +6,15 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from app.application.annotation_comment import AnnotationCommentWorkflow
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.notification import Notification
 from app.db.models.notification_preference import NotificationPreference
+from app.db.models.user import User
 from app.services.notification import NotificationService
 from tests.factory import (
     create_batch,
@@ -401,6 +403,36 @@ async def test_annotation_mentions_notify_original_comment_only_and_filter_acces
         published.append((user_id, message))
 
     monkeypatch.setattr("app.services.notification._publish", fake_publish)
+    locked_actor_name = f"Locked name {uuid4().hex}"
+    original_lock_target = AnnotationCommentWorkflow._lock_annotation_target
+
+    async def rename_before_lock(
+        workflow,
+        annotation,
+        task,
+        actor,
+        *,
+        expected_access,
+        require_active,
+    ):
+        await workflow.db.execute(
+            update(User)
+            .where(User.id == actor.id)
+            .values(name=locked_actor_name)
+            .execution_options(synchronize_session=False)
+        )
+        return await original_lock_target(
+            workflow,
+            annotation,
+            task,
+            actor,
+            expected_access=expected_access,
+            require_active=require_active,
+        )
+
+    monkeypatch.setattr(
+        AnnotationCommentWorkflow, "_lock_annotation_target", rename_before_lock
+    )
     mentions = [
         {
             "userId": str(qa.id),
@@ -439,6 +471,10 @@ async def test_annotation_mentions_notify_original_comment_only_and_filter_acces
         headers=_headers(owner, owner_token),
     )
     assert response.status_code == 201, response.text
+    assert response.json()["author_name"] == locked_actor_name
+    # The lock query refreshes the same request-session identity-map row held by
+    # the original auth dependency, so preserve this legacy output timing.
+    assert owner.name == locked_actor_name
     comment_id = UUID(response.json()["id"])
 
     notifications = list(
@@ -459,7 +495,7 @@ async def test_annotation_mentions_notify_original_comment_only_and_filter_acces
         "project_id": str(project.id),
         "task_id": str(task.id),
         "source": "annotation_comment",
-        "actor_name": owner.name,
+        "actor_name": locked_actor_name,
         "annotation_id": str(annotation.id),
     }
     assert [user_id for user_id, _message in published] == [qa.id]

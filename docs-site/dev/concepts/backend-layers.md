@@ -126,6 +126,8 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 讨论读模型与通知接收人筛选直接调用 `project_access.resolve_project_access_by_id`，再检查 `task_access.assert_task_visible`，不消费 HTTP 依赖助手。`deps.assert_project_visible` 仍是 HTTP 侧对同一解析器的适配，不另建权限实现。当前成员状态、任务批次/分派限制及 404 隐藏语义不变；讨论回复和通知行仍同事务写入，提交后再发布并复核投递权限。
 
+评论与历史的十二个 HTTP 处理器只接收认证主体 UUID；评论保留原平台角色依赖，历史不新增角色限制。`task_discussion` 与 `AnnotationCommentWorkflow` 在原 Session 内解析已有身份，继续执行原项目/任务权限重读和最终行锁。评论创建将锁后的 `IdentityActorFacts` 交给响应与 mention 通知，保留当前姓名及提交/投递时序；讨论 SQL 投影和评论行仍是本地组合。
+
 `services/annotation_evidence.py` 持有标注贡献累积、审核轮次创建/确保、贡献者快照、提交审计缺失时的保留行回退，以及首次审核事实记录。HTTP 提交/跳过/审核和视频片段服务直接调用该所有者，不再消费 `_shared.py` 的私有快照函数；当前轮授权证据与历史绩效归属仍是不同记录，不互相替代。
 
 手工创建通过 `annotation_create_contract.AnnotationCreatePort` 接收任务/actor UUID、原 `AnnotationCreate`、幂等键和纯审计来源，首次创建与重放均返回 `AnnotationOut`。HTTP 继续先锁 Task、核验当前权限和视频写入范围，再将原 Session 与已加载行绑定给 `application/annotation_create.py` 的 SQL 实现；命令 ID 与绑定不符时在数据库访问前拒绝，不额外查询身份行。

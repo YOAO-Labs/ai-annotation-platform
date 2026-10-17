@@ -48,6 +48,18 @@ _MAX_CURSOR_LENGTH = 2048
 _DISCUSSION_SOURCES = frozenset(("annotation_comment", "feedback"))
 
 
+async def _cached_request_user(db: AsyncSession, actor_id: uuid.UUID) -> User:
+    """Resolve the authenticated user already loaded in this request session."""
+    user = await db.get(User, actor_id)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="账号已停用或不存在",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
 @dataclass(frozen=True)
 class DiscussionCursor:
     """Decoded position plus the query binding carried by a cursor."""
@@ -176,13 +188,14 @@ def decode_discussion_cursor(
 async def require_visible_task(
     db: AsyncSession,
     task_id: uuid.UUID,
-    user: User,
+    actor_id: uuid.UUID,
 ) -> Task:
     """Resolve a task and apply the repository's batch/project visibility rules."""
 
     task = await db.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    user = await _cached_request_user(db, actor_id)
     # Task visibility applies batch/status and assignment rules, but it is
     # intentionally usable by a few cross-project task flows and does not establish
     # project membership.  Discussion routes must require both checks.
@@ -194,7 +207,7 @@ async def require_visible_task(
 async def require_visible_annotation(
     db: AsyncSession,
     annotation_id: uuid.UUID,
-    user: User,
+    actor_id: uuid.UUID,
     *,
     task_id: uuid.UUID | None = None,
     require_active: bool = False,
@@ -214,7 +227,7 @@ async def require_visible_annotation(
     if require_active and (not annotation.is_active or bool(annotation.was_cancelled)):
         raise HTTPException(status_code=404, detail="Annotation not found")
 
-    task = await require_visible_task(db, annotation.task_id, user)
+    task = await require_visible_task(db, annotation.task_id, actor_id)
     return annotation, task
 
 
@@ -272,7 +285,7 @@ def _actions_for(
     *,
     source: DiscussionSource,
     author_id: uuid.UUID,
-    user: User,
+    actor_id: uuid.UUID,
     project_role: str | None = None,
     is_manager: bool = False,
 ):
@@ -284,7 +297,7 @@ def _actions_for(
     return discussion_actions(
         source,
         "comment",
-        is_author=author_id == user.id,
+        is_author=author_id == actor_id,
         is_admin=is_manager,
         is_reviewer=project_role == ProjectRole.REVIEWER.value,
         is_accessible=True,
@@ -370,13 +383,14 @@ async def list_task_discussion(
     db: AsyncSession,
     *,
     task: Task,
-    user: User,
+    actor_id: uuid.UUID,
     scope: DiscussionScope,
     annotation_id: uuid.UUID | None,
     limit: int,
     cursor: str | None = None,
 ) -> TaskDiscussionPage:
     """Read one correctly ordered page from both authoritative comment sources."""
+    user = await _cached_request_user(db, actor_id)
 
     source_selects = _identifier_selects(
         task_id=task.id,
@@ -500,7 +514,7 @@ async def list_task_discussion(
             actions = _actions_for(
                 source="annotation_comment",
                 author_id=comment.author_id,
-                user=user,
+                actor_id=actor_id,
                 project_role=access.project_role,
                 is_manager=access.is_manager,
             )
@@ -514,7 +528,7 @@ async def list_task_discussion(
             actions = _actions_for(
                 source="feedback",
                 author_id=feedback.author_id,
-                user=user,
+                actor_id=actor_id,
                 project_role=access.project_role,
                 is_manager=access.is_manager,
             )

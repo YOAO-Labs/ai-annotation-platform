@@ -20,6 +20,7 @@ from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.notification import Notification
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import resolve_project_access_by_id
 from app.services.feedback import FeedbackService
 from app.services.notification import NotificationService
@@ -225,7 +226,7 @@ async def prepare_annotation_comment_mention_notifications(
     *,
     comment: AnnotationComment,
     task: Task,
-    actor: User,
+    actor: IdentityActorFacts,
     mentioned_user_ids: list[uuid.UUID],
 ) -> list[Notification]:
     """Persist deferred notifications for validated legacy comment mentions."""
