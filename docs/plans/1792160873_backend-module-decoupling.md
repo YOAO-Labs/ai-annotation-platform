@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备、流水线模板命令/预标注 schema、质检执行/决策、Schema 清理、项目配置/模板行命令与 Mask 修复/导入执行已分片迁移；完整入口/数据所有权复核继续推进，尚未实施语言替换。
+> Status: Python 内已识别依赖/写入所有权与完整入口/数据/存储台账已验收；跨进程独立性与语言替换仍属目标设计，阶段 E 未实施。
 >
 > 创建日期：2026-10-16。
 >
@@ -234,8 +234,8 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 ## 10. 证据范围
 
 - 设计基线来自源码抽查、既有架构决策和 Compose 配置解析；它不代表完整业务域的运行验证。
-- 当前实施与验证覆盖任务访问/写入准入、质量/媒体/训练数据集执行派发、视频上下文/审核证据、训练公共下层、作业终态/取消/失败重试、素材建题所有权、共享预测准备及流水线模板命令/共享结构校验；没有修改数据库 schema 或受版本管理的运行配置。首片 OpenAPI 仅同步邻帧端点描述中的帮助函数名称，之后切片未改变快照，均未改变路径、字段或响应合同。
-- 后续业务域及语言替换仍按第 8、9 节分别验收；不得把局部结果扩展为全后端已完成解耦。
+- 当前实施覆盖 Outcome 中逐片列出的依赖、准入/派发、领域写入、执行账本与跨域组合；最终源码复核包含生产 API/application/services/workers 和九个非夹具 CLI，新增发现的点云评估晋升与尺寸回填均已按独立里程碑迁移。完整入口/公开契约、映射数据/字段所有者、对象前缀与其他状态介质已分别写入正式开发文档；注册表与目录观察的具体口径见文末。
+- 没有修改数据库 schema、依赖或受版本管理的运行配置。首片 OpenAPI 仅同步邻帧端点描述中的帮助函数名称，后续保持路径、字段和响应合同；本地 Session/ORM、共享 API schema、同库外键/强事务仍明确保留。第 3–9 节的独立边界及语言替换目标仍需按模块验收，不能把所有权收口扩展为全后端已经独立部署或跨语言可替换。
 
 ## Outcome
 
@@ -1256,6 +1256,27 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 一个变更 Python 文件固定 Ruff 格式/check 通过；开发分层说明同步。没有改变公共 API/OpenAPI、schema、依赖、配置或版本，纯所有权重构不增加 CHANGELOG，也不添加 setter/转发回声测试。
 - 主线既有上传/导入消费者两个文件 36 passed、零跳过/失败/错误；JUnit `/tmp/aap-dataset-dimensions-owner-main.xml`。本切片没有新增导入边或公共契约，不为扩大计数重跑已完成的完整领域图验收。
 
+### 全入口、数据与存储台账
+
+- 正式文档按职责分开：`repository-map.md` 的公开契约/HTTP/WS/Celery/CLI/独立执行器索引，`backend-layers.md` 的完整表/字段所有权与事务矩阵，`storage-buckets.md` 的桶配置、对象前缀、删除及 Redis/DuckDB/SQLite/文件系统责任。完整路由与任务身份仍由 canonical snapshot/注册源码持有，不复制成第二套运行时配置。
+- 在自有 Main test 环境导入实际 FastAPI/OpenAPI、ORM metadata 与 first-party Celery 注册表，探针自身不连接数据库、不消费 broker、不执行 task/model 或对象 I/O；证据 `.worktree/backend-boundary-inventory.json`：
+
+  | 核对对象             | 实际覆盖                                                                                                   |
+  | -------------------- | ---------------------------------------------------------------------------------------------------------- |
+  | 主 OpenAPI           | 485 paths、568 operations、57 tags、852 schemas，operationId 全部唯一                                      |
+  | 独立入口             | 6 WS；两个应用隐藏 GET；开启 seed 的测试装配实际有 21 个受控 seed 操作；executor 的 10 POST 是公开快照子集 |
+  | Celery Python 注册表 | 54 first-party tasks、34 task-bearing 模块、36 includes、50 exact routes、11 队列、24 beat 项              |
+  | ORM                  | 66 个模型模块、110 张映射表                                                                                |
+  | 源码辅助入口         | 9 个非夹具运维命令、15 个 fixture/恢复入口、6 个诊断/契约工具；另有独立训练执行器与五个 ML 应用            |
+
+- 只读 PostgreSQL 目录核对匹配全部映射表，无缺失；普通 view 为 `v_annotation_feedback_unified`，物化 view 为 `mv_user_perf_daily`、`mv_audit_bi_daily`，不是新的权威写入表。原始 `.worktree/backend-boundary-catalog.json` 已保存查询；末尾探针错误地把 asyncpg internal-char 的 bytes 与 str 比较而退出 1，随后仅对保存值严格解码验证，未重复查询。规范化及原退出状态见 `.worktree/backend-boundary-catalog-qualified.json`，不把原失败进程冒充成功。
+- 同一目录探针只读取九个已配置桶角色，不声称验证所有部署的桶可用性/lifecycle。补正存储文档遗漏的 `image-pyramids/` 路由前缀，记录训练包/运行/预览/评估/主动学习对象、外部连接器不授权删除源对象、SQL 删除不等于对象删除及既有 cache-prefix 命名歧义；不追加数据名称校验、GC、重试或配置变更。
+- 最终三个只读复核分别覆盖入口/application、服务跨域写入、worker/CLI；除已另行修复的晋升/尺寸回填外，未再证实具体持久化跨所有者写入或可执行的服务到入口反向边。技术素材行、tracker 同域账本、审计自有写入和 labeling 的 Project 计数投影不是遗漏。该结论限定于源码搜索与调用/类型追踪，不是全系统独立性证明。
+- 一次性台账核对将 19 个所有者分组与实际 ORM metadata 做集合/计数对照，全部映射表无遗漏、重复、未知名称或分组计数错误，HTTP 家族与 Celery/beat 汇总也与注册观察一致；`.worktree/backend-boundary-doc-ledger-check.json`。这是文档数据核对，不新增源码文本/转发回声永久测试。
+- `pnpm docs:build` 的生成器、snippet、Excalidraw 引用检查及 VitePress 构建通过；实际页面发现前缀长 key 遮挡所有者列后，仅调整路径分段拼接表示，再次构建通过。保留 promql/env 高亮回退与大 chunk 提示，未压制警告或修改打包配置。
+- 隔离真实 Chromium 在桌面 1440×1000 检查三页与跨页锚点链接，渲染中核对全部映射表、HTTP/WS/Celery/CLI 汇总及九桶/17 个前缀家族/11 类其他状态。最终前缀表不需桌面横向滚动即可看到所有者列，页面无整体横向溢出；截图已实际查看，仅为本地诊断证据，不发布媒体或制造 review 批准。
+- 重建期间未重启的旧 preview 对实际存在的新 hash 资源返回 404，失败记录完整保留。仅停止自有旧预览并重启新进程，重新加载确认 Vue hydration；新请求窗口 76 条请求均为 200，页面错误、console 消息与 HTTP 错误为空。完整图像路径、布局、汇总与刷新前后观察在 `.worktree/backend-boundary-browser-evidence.json`。自有浏览器及两个预览进程均已关闭，不触碰用户会话。
+
 ### 剩余范围
 
-- 最终源码复核新增的点云评估晋升与尺寸回填写入均完成所有者迁移；完整入口、数据及存储台账与最终验证继续交付，不能用 SCC 或单一作业收口代替全后端验收。本地 Session、ORM 和 HTTPException 不是进程协议；未选择目标语言，不执行语言替换。
+- 当前已交付的是 Python 内已识别依赖/写入所有权及完整台账，不是第 3–9 节所有独立部署目标。仍保留本地 Session/ORM/HTTPException、共享 API DTO、跨域外键和强事务；提取前必须选择模块/目标语言并明确这些本地耦合与一致性责任。阶段 E 的新语言进程、RPC、真实失败/重启/回退与在途切换尚未实施，继续保留其完整验收条件，不用本轮结果代替。

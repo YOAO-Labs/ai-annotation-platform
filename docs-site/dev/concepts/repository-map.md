@@ -251,3 +251,123 @@ last_reviewed: 2026-10-17
   没有领域账本的作业（如 batch_predict）保持只有通用作业行，正常 worker 完成路径不变。
 - 页面 URL 规则放 `*UrlState.ts` 并配纯函数测试；页面保留代表性集成用例。
 - 共享包新增能力前，先确认消费 backend 是否同契约；per-model 语义留在 backend 本地。
+
+## 公开契约与入口台账
+
+此处是入口覆盖索引，不建立第二套路由、任务注册或数据真值。完整公开操作以 `apps/api/openapi.snapshot.json` 为准；`docs-site/api/guides/_routes.generated.md` 是源码装饰器索引，不能代替运行时注册表。数据写入见[所有权台账](./backend-layers#权威数据与写入所有权)，外部状态见[存储台账](../reference/storage-buckets#对象前缀所有者与删除边界)。
+
+### 主 API 的 HTTP 覆盖
+
+“公开”指被 OpenAPI 导出，不等于免鉴权或可从公网访问。按现有 tags/入口职责分组如下；这不是数据库所有者分组，例如推理结果入库和人工接受仍由 labeling 持有。
+
+| 入口家族                       | paths | operations | 覆盖                                                                                   |
+| ------------------------------ | ----: | ---------: | -------------------------------------------------------------------------------------- |
+| identity                       |    52 |         61 | auth、邀请、me、users、groups、API keys、头像                                          |
+| workspace                      |    31 |         41 | projects、项目模板、保存的流水线、指南资产                                             |
+| assets                         |    40 |         51 | datasets、scenes、videos、files、存储连接器                                            |
+| labeling                       |   123 |        138 | tasks、batches、annotations、history、comments、feedback                               |
+| inference / tracking / quality |    82 |         94 | ML registry/pool、能力/集成、predictions、tracker、Mask/点云质检、格式与 alias 统计    |
+| learning                       |    87 |        105 | dataset、run/study/executor/preview、recipe、evaluation、active-learning、model/policy |
+| insights                       |    34 |         37 | Data Manager、dashboard、performance、task views、search、analytics                    |
+| supporting                     |    36 |         41 | notifications、storage、settings、jobs、audit、bug reports、health                     |
+| 合计                           |   485 |        568 | operationId 全部唯一；另含 57 个 tag、852 个 schema                                    |
+
+源码路由索引只收集非空字面量路径，当前为 82 个模块、509 行；根路径操作、独立 executor/health 装配、隐藏路径的口径不同，不应为了对齐数字删改 API。以下入口单独核对：
+
+| 边界               | 当前注册                                                    | 导出 / 准入                                                                                         |
+| ------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 应用隐藏 HTTP      | `GET /metrics`、`GET /api/v1/internal/metrics-targets`      | 不导出 OpenAPI                                                                                      |
+| 受控 seed          | 21 个操作，19 POST / 2 GET，位于 `/api/v1/__test/seed/*`    | 仅非生产且 seed 开关开启时挂载，逐请求验证隔离测试数据库；不计入公开快照                            |
+| 训练 executor HTTP | 10 POST，属于上表 learning 子集                             | 内部路径也导出 OpenAPI；使用 executor token，不能套普通用户授权；当前 Nginx edge 阻断 internal 前缀 |
+| 框架文档           | `/openapi.json`、`/docs`、`/docs/oauth2-redirect`、`/redoc` | 框架默认入口，不计入业务操作                                                                        |
+
+### WebSocket 入口
+
+| path                                    | 数据 / 派送责任              |
+| --------------------------------------- | ---------------------------- |
+| `/ws/projects/{project_id}/preannotate` | 项目预标注进度与当前访问重查 |
+| `/ws/batches/project/{project_id}`      | 项目批次进度                 |
+| `/ws/prediction-jobs`                   | 预测作业进度                 |
+| `/ws/video-tracker-jobs/{job_id}`       | 视频追踪作业进度与可见性     |
+| `/ws/ml-backend-stats`                  | backend 运行观察             |
+| `/ws/notifications`                     | 用户持久通知的实时派送       |
+
+这些 socket 使用 Redis pub/sub，不形成第二套业务账本或持久重放协议。鉴权是 socket 特定合同：共享 JWT/API-key 解析与 notifications 的 JWT 握手不能被合并成一种可互换认证。
+
+### Celery 执行入口
+
+`workers/celery_app.py` 与各模块装饰器是注册名/签名真值；下表覆盖全部 first-party task-bearing 模块，不含 Celery 内建任务。Python 注册表导入核对不是 broker、消费者或真实模型资格。
+
+| 家族               | task-bearing 模块（模块内 task 数）                                                                                                                                                                                  | tasks | beat 项 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----: | ------: |
+| 推理 / 追踪 / 控制 | `tasks`(1)、`predictions_retry`(1)、`frame_preannotate`(4)、`video_tracker`(1)、`ml_health`(3)                                                                                                                       |    10 |       3 |
+| 素材派生           | `media`(8)、`image_pyramid`(2)                                                                                                                                                                                       |    10 |       2 |
+| 质检 / Mask 执行   | `video_track_quality`(1)、`mask_qc`(1)、`point_cloud_quality`(1)、`mask_repair`(2)、`mask_format_import`(1)                                                                                                          |     6 |       0 |
+| 导入 / 建题 / 导出 | `dataset_import`(1)、`create_tasks`(1)、`cross_frame_job`(1)、`export`(1)、`training_dataset`(1)                                                                                                                     |     5 |       0 |
+| 学习编排 / 保留    | `sample_evaluations`(2)、`active_learning`(2)、`learning_policy`(1)、`training_study`(1)、`training_preview_cleanup`(1)、`training_observability_cleanup`(1)                                                         |     8 |       6 |
+| 支撑持久化 / 维护  | `cleanup`(4)、`audit`(1)、`audit_partition`(2)、`task_events`(1)、`presence`(1)、`deactivation`(1)、`analytics`(1)、`async_jobs_cleanup`(1)、`export_cleanup`(1)、`prediction_partition`(1)、`feedback_reconcile`(1) |    15 |      13 |
+| 合计               | 34 个模块                                                                                                                                                                                                            |    54 |      24 |
+
+include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不是 task/beat。任务、结果与 accepted content 保持 JSON，调度使用 UTC。静态 exact-name 路由如下；未覆盖项走 default，项目/设备选择的动态队列不等同于该表，队列声明也不证明消费者正在运行。
+
+| 队列            | exact-name 路由数 |
+| --------------- | ----------------: |
+| `default`       |                 9 |
+| `ml`            |                 3 |
+| `media`         |                16 |
+| `image-pyramid` |                 1 |
+| `cleanup`       |                 8 |
+| `gpu`           |                 1 |
+| `export`        |                 2 |
+| `ml.cpu`        |                 2 |
+| `audit`         |                 2 |
+| `maintenance`   |                 5 |
+| `gpu.control`   |                 1 |
+| 合计            |                50 |
+
+注册名不是函数名的简单推导：质检保留 `app.workers.point_cloud_quality.run` 和 `app.workers.video_track_quality.run`。训练数据构建保留 version/job/attempt 与明确执行身份，质检传 run ID、修复/导入传 batch ID；不能在不迁移生产者和在途消息的情况下改名、重排参数或把它们宣称为跨语言公共协议。
+
+### 运维入口与独立执行器
+
+主 API 的 Python 可执行入口口径为 `apps/api/scripts/*.py` 与 `app/cli/**/*.py` 中的 `__main__`：29 个脚本和一个 application CLI。分类是审计索引，不表示可以安全地对任意数据库执行。
+
+| 入口 / 分类                       | 所有权与提交责任                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootstrap_admin`                 | bootstrap 应用组合 identity 创建与 audit；CLI 提交                                                                                                                                                                                                                                                                                             |
+| `import_images`                   | Dataset/Item 命令归 assets；对象上传先于最终 SQL 提交                                                                                                                                                                                                                                                                                          |
+| `import_nuscenes_scene`           | nuScenes 应用组合 assets、workspace、labeling；入口最终 SQL 提交                                                                                                                                                                                                                                                                               |
+| `reset_datasets`                  | 应用组合 labeling 源引用清除与 assets 行删除；入口提交                                                                                                                                                                                                                                                                                         |
+| `backfill_scenes`                 | 场景所有者命令，逐 dataset 提交/回滚                                                                                                                                                                                                                                                                                                           |
+| `backfill_frame_poses`            | pose upsert 归 assets，CLI 最终提交                                                                                                                                                                                                                                                                                                            |
+| `backfill_image_pyramids`         | 只读选择后派发素材派生，不直接改业务行                                                                                                                                                                                                                                                                                                         |
+| `backfill_task_datasets`          | 应用组合 task-dataset 成员命令；apply 按批提交，其余模式 SQL read-only                                                                                                                                                                                                                                                                         |
+| `app.cli.video.rebuild_timetable` | 应用组合素材时刻表/错误命令；逐 item 提交并在回滚后刷新后续身份                                                                                                                                                                                                                                                                                |
+| seed / fixture / 恢复清理（15）   | `seed`、`seed_assets`、`seed_coco8`、`seed_large_images`、`seed_ocr`、`seed_pointcloud`、`seed_scale`、`seed_video`、`nuscenes_fixture`、`prepare_e2e_db`、`restore_screenshot_user_preferences`、`cleanup_screenshot_ocr_flow`、`screenshot_background_export_fixture`、`screenshot_job_recovery_fixture`、`screenshot_review_reject_fixture` |
+| 诊断 / 契约 / 产物工具（6）       | `audit_project_roles`、`benchmark_image_pyramid`、`check_removed_service_modules`、`dump-openapi`、`freeze_gpu_ledger_lua`、`validate_gpu_arbitration`；诊断分类不保证只读，benchmark/资格工具可能创建夹具并执行负载                                                                                                                           |
+
+`entrypoint.sh` 的迁移/进程启动、权限维护 SQL、诊断 SQL 和根目录的部署/worktree 管理器是运行时装配，不混入上述业务命令。训练执行器是 `python -m training_executor.worker` 的独立 HTTP 拉取式进程，不是 Celery task；CPU preview 与训练子进程监督共享其既有运行边界。Python SDK 的 `aap` CLI/TUI 是 HTTP/WS 消费者，不是额外的数据库写入口；此台账不代表 SDK 能力覆盖验收。
+
+### 独立 ML 服务与契约真值
+
+五个 ML FastAPI 应用不是主 API 的 mounts。以下仅是各 `main.py` 装饰器的源码声明计数，不代表已导入/启动模型或取得设备资格；其中 SAM3/Grounded SAM2 各含一个隐藏 metrics 声明，框架文档不计入。
+
+| 独立应用                     | HTTP 声明数 |
+| ---------------------------- | ----------: |
+| `apps/yolo-backend`          |          17 |
+| `apps/sam3-backend`          |          13 |
+| `apps/grounded-sam2-backend` |          13 |
+| `apps/rapidocr-backend`      |          10 |
+| `apps/onnxtools-backend`     |          10 |
+| 合计                         |          63 |
+
+| 合同                                                              | canonical source                                                                                              |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| HTTP 请求 / 响应                                                  | `apps/api/app/schemas/*.py` 及路由内导出 DTO；`scripts/export_openapi.py` 导出主快照，docs 同步副本不另立真值 |
+| 预标注请求 / stage                                                | `schemas/preannotate.py`，不是 projects 路由中的类型                                                          |
+| 几何 / tool bindings / attributes / calibration                   | `schemas/_jsonb_types.py`                                                                                     |
+| 视频媒体元信息                                                    | `schemas/task.py::VideoMetadata`                                                                              |
+| 视觉任务词表与归一化                                              | `apps/_shared/task_contract`                                                                                  |
+| ML wire / lifecycle / masks                                       | `apps/_shared/protocol_v2`                                                                                    |
+| 冻结训练、原生执行、preview / observation / budget / model return | `apps/_shared/training_contract`                                                                              |
+
+API-owned DTO 仍被多个领域消费，`schemas/project.py` 仍依赖服务侧 capability，部分本地 contracts 仍暴露 Session/ORM。它们是已知本地耦合，不因放进 schemas/contracts 文件就成为语言中立协议。提取条件与强事务限制以[后端分层](./backend-layers#跨语言提取前的条件)为准。
