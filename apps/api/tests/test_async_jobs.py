@@ -663,7 +663,7 @@ class TestAsyncJobsAPI:
         )
 
         assert r.status_code == 200
-        assert r.json()["status"] == "cancel_requested"
+        assert r.json() == {"status": "cancel_requested", "id": str(aj.id)}
         await db_session.refresh(aj)
         assert aj.status == AsyncJobStatus.RUNNING.value
         assert aj.payload["cancel_requested"] is True
@@ -708,7 +708,7 @@ class TestAsyncJobsAPI:
         )
 
         assert r.status_code == 200
-        assert r.json()["status"] == "cancelled"
+        assert r.json() == {"status": "cancelled", "id": str(aj.id)}
         await db_session.refresh(aj)
         assert aj.status == AsyncJobStatus.CANCELLED.value
         assert aj.result["done_count"] == 0
@@ -729,6 +729,7 @@ class TestAsyncJobsAPI:
             f"/api/v1/async-jobs/{aj.id}/cancel", headers=_bearer(token)
         )
         assert r.status_code == 200
+        assert r.json() == {"status": "cancelled", "id": str(aj.id)}
         # 刷新看库
         await db_session.refresh(aj)
         assert aj.status == AsyncJobStatus.CANCELLED.value

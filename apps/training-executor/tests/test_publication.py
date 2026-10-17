@@ -83,7 +83,7 @@ def test_permanent_api_rejection_publishes_persisted_failure(
                 json.loads(supervisor.journal_path.read_text())["finish_body"] == body
             )
             finishes.append(copy.deepcopy(body))
-        return {"stop": False}
+        return {"stop": False, "reason": None}
 
     supervisor.api = api
     assert supervisor.upload_and_finish(journal, directory)
@@ -147,7 +147,7 @@ def test_named_authority_lock_conflict_retries_without_failed_terminal(
             return httpx.Response(200, json=targets(body))
         if suffix == "finish":
             finishes.append(copy.deepcopy(body))
-        return httpx.Response(200, json={"stop": False})
+        return httpx.Response(200, json={"stop": False, "reason": None})
 
     with httpx.Client(
         base_url="https://api.test/", transport=httpx.MockTransport(respond)

@@ -172,7 +172,7 @@ def test_final_events_are_drained_before_artifact_finish(tmp_path, monkeypatch):
                 }
                 for item in payload["artifacts"]
             }
-        return {"stop": False}
+        return {"stop": False, "reason": None}
 
     supervisor.api = api
     monkeypatch.setattr(
@@ -207,14 +207,21 @@ def test_claim_request_is_replayable_after_lost_http_response(tmp_path):
         supervisor.claim(journal)
     recovered = json.loads(supervisor.journal_path.read_text())
     assert recovered["claim"]["claim_id"] == "same-id"
-    supervisor.api = lambda endpoint, payload: {
-        "assignment": {"attempt_id": "same-attempt"}
+    assignment = {
+        "run_id": str(uuid.uuid4()),
+        "attempt_id": str(uuid.uuid4()),
+        "lease_token": "a" * 64,
+        "config": {"parameters": {"epochs": 2}},
+        "config_digest": "b" * 64,
+        "dataset_url": "https://storage.test/dataset.zip",
+        "resume": None,
     }
+    supervisor.api = lambda endpoint, payload: {"assignment": assignment}
     supervisor.claim(recovered)
-    assert (
-        json.loads(supervisor.journal_path.read_text())["assignment"]["attempt_id"]
-        == "same-attempt"
-    )
+    saved = json.loads(supervisor.journal_path.read_text())["assignment"]
+    assert saved == assignment
+    assert saved["resume"] is None
+    assert "native_budget" not in saved and "initialization" not in saved
 
 
 def test_cancel_after_resume_download_preserves_input_before_child_starts(tmp_path):

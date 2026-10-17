@@ -33,7 +33,7 @@ from app.services import (
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 from tests.test_training_parameters import configuration
-from tests.test_training_runs import ready_dataset, executor_claim, fence
+from tests.test_training_runs import TOKEN, ready_dataset, executor_claim, fence
 from tests.conftest import _create_user
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
 from tests.test_learning_policies import build_candidate
@@ -342,10 +342,19 @@ async def test_claim_requires_capability_and_verifies_source_before_gpu_assignme
     old.runtime.pop("initialization_policy_digest")
     assert await runs.claim(db_session, old) is None
     current = claim()
-    assignment = await runs.claim(db_session, current)
+    response = await httpx_client.post(
+        "/api/v1/internal/training/claim",
+        headers={"x-training-executor-token": TOKEN},
+        json=current.model_dump(mode="json"),
+    )
+    assert response.status_code == 200, response.text
+    assignment = response.json()["assignment"]
     assert assignment["run_id"] == created["id"]
     assert assignment["initialization"]["sha256"] == model.artifact["sha256"]
     assert assignment["initialization"]["source_digest"] == pin["source_digest"]
+    assert assignment["initialization"]["url"] == (
+        "http://owned-storage/" + model.artifact["key"]
+    )
     assert assignment["resume"] is None
 
 

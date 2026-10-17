@@ -22,10 +22,14 @@ from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_run import (
     ExecutorClaim,
+    ExecutorClaimResponse,
     ExecutorFinish,
     ExecutorHeartbeat,
+    ExecutorHeartbeatResponse,
     ExecutorRecovery,
+    ExecutorRecoveryResponse,
     ExecutorUpload,
+    ExecutorUploadResponse,
     TrainingAttemptOut,
     TrainingRunCreate,
     TrainingRunOut,
@@ -386,14 +390,20 @@ async def delete_run(
     await training_control.delete_run(db, project.id, run_id, user)
 
 
-@executor_router.post("/claim")
+@executor_router.post(
+    "/claim",
+    response_model=ExecutorClaimResponse,
+    response_model_exclude_unset=True,
+)
 async def claim(body: ExecutorClaim, db: AsyncSession = Depends(get_db)) -> dict:
     result = await service.claim(db, body)
     await db.commit()
     return {"assignment": result}
 
 
-@executor_router.post("/attempts/{attempt_id}/heartbeat")
+@executor_router.post(
+    "/attempts/{attempt_id}/heartbeat", response_model=ExecutorHeartbeatResponse
+)
 async def heartbeat(
     attempt_id: uuid.UUID, body: ExecutorHeartbeat, db: AsyncSession = Depends(get_db)
 ) -> dict:
@@ -402,7 +412,9 @@ async def heartbeat(
     return result
 
 
-@executor_router.post("/attempts/{attempt_id}/uploads")
+@executor_router.post(
+    "/attempts/{attempt_id}/uploads", response_model=ExecutorUploadResponse
+)
 async def uploads(
     attempt_id: uuid.UUID, body: ExecutorUpload, db: AsyncSession = Depends(get_db)
 ) -> dict:
@@ -422,7 +434,9 @@ async def finish(
     return result
 
 
-@executor_router.post("/attempts/{attempt_id}/recover")
+@executor_router.post(
+    "/attempts/{attempt_id}/recover", response_model=ExecutorRecoveryResponse
+)
 async def recover(
     attempt_id: uuid.UUID, body: ExecutorRecovery, db: AsyncSession = Depends(get_db)
 ) -> dict:

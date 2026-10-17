@@ -23842,7 +23842,14 @@
       ],
       "responses": {
         "200": {
-          "description": "Successful Response"
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AsyncJobCancelResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -25803,9 +25810,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Response Heartbeat Api V1 Internal Training Attempts  Attempt Id  Heartbeat Post",
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/ExecutorHeartbeatResponse"
               }
             }
           }
@@ -25943,9 +25948,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Response Recover Api V1 Internal Training Attempts  Attempt Id  Recover Post",
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/ExecutorRecoveryResponse"
               }
             }
           }
@@ -26014,9 +26017,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Response Uploads Api V1 Internal Training Attempts  Attempt Id  Uploads Post",
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/ExecutorUploadResponse"
               }
             }
           }
@@ -26075,9 +26076,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "title": "Response Claim Api V1 Internal Training Claim Post",
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/ExecutorClaimResponse"
               }
             }
           }

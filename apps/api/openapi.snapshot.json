@@ -3667,6 +3667,29 @@
         "title": "ApproveTaskRequest",
         "type": "object"
       },
+      "AsyncJobCancelResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "cancelled",
+              "cancel_requested"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "AsyncJobCancelResponse",
+        "type": "object"
+      },
       "AsyncJobListResponse": {
         "properties": {
           "items": {
@@ -13575,6 +13598,85 @@
         "title": "EvaluationSpec",
         "type": "object"
       },
+      "ExecutorAssignment": {
+        "additionalProperties": true,
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Config",
+            "type": "object"
+          },
+          "config_digest": {
+            "title": "Config Digest",
+            "type": "string"
+          },
+          "dataset_url": {
+            "title": "Dataset Url",
+            "type": "string"
+          },
+          "initialization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutorInitializationArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lease_token": {
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "native_budget": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Budget"
+          },
+          "resume": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutorResumeArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "attempt_id",
+          "lease_token",
+          "config",
+          "config_digest",
+          "dataset_url",
+          "resume"
+        ],
+        "title": "ExecutorAssignment",
+        "type": "object"
+      },
       "ExecutorClaim": {
         "additionalProperties": false,
         "properties": {
@@ -13618,6 +13720,26 @@
           "runtime"
         ],
         "title": "ExecutorClaim",
+        "type": "object"
+      },
+      "ExecutorClaimResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutorAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "assignment"
+        ],
+        "title": "ExecutorClaimResponse",
         "type": "object"
       },
       "ExecutorEvent": {
@@ -13814,6 +13936,72 @@
         "title": "ExecutorHeartbeat",
         "type": "object"
       },
+      "ExecutorHeartbeatResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "stop": {
+            "title": "Stop",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stop",
+          "reason"
+        ],
+        "title": "ExecutorHeartbeatResponse",
+        "type": "object"
+      },
+      "ExecutorInitializationArtifact": {
+        "additionalProperties": true,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "role": {
+            "const": "weights",
+            "title": "Role",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_digest": {
+            "title": "Source Digest",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "role",
+          "sha256",
+          "size_bytes",
+          "source_digest",
+          "url"
+        ],
+        "title": "ExecutorInitializationArtifact",
+        "type": "object"
+      },
       "ExecutorObservations": {
         "additionalProperties": false,
         "properties": {
@@ -13942,6 +14130,78 @@
         "title": "ExecutorRecovery",
         "type": "object"
       },
+      "ExecutorRecoveryResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "recovered": {
+            "const": true,
+            "title": "Recovered",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recovered"
+        ],
+        "title": "ExecutorRecoveryResponse",
+        "type": "object"
+      },
+      "ExecutorResumeArtifact": {
+        "additionalProperties": true,
+        "properties": {
+          "epoch": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epoch"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "const": "checkpoint",
+            "title": "Role",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "sha256",
+          "size_bytes",
+          "key",
+          "url"
+        ],
+        "title": "ExecutorResumeArtifact",
+        "type": "object"
+      },
       "ExecutorUpload": {
         "additionalProperties": false,
         "properties": {
@@ -13979,6 +14239,35 @@
           "artifacts"
         ],
         "title": "ExecutorUpload",
+        "type": "object"
+      },
+      "ExecutorUploadGrant": {
+        "additionalProperties": true,
+        "properties": {
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "headers"
+        ],
+        "title": "ExecutorUploadGrant",
+        "type": "object"
+      },
+      "ExecutorUploadResponse": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/ExecutorUploadGrant"
+        },
+        "title": "ExecutorUploadResponse",
         "type": "object"
       },
       "ExportRequestBody": {
@@ -53993,7 +54282,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AsyncJobCancelResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -59018,9 +59309,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Heartbeat Api V1 Internal Training Attempts  Attempt Id  Heartbeat Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ExecutorHeartbeatResponse"
                 }
               }
             },
@@ -59146,9 +59435,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Recover Api V1 Internal Training Attempts  Attempt Id  Recover Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ExecutorRecoveryResponse"
                 }
               }
             },
@@ -59211,9 +59498,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Uploads Api V1 Internal Training Attempts  Attempt Id  Uploads Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ExecutorUploadResponse"
                 }
               }
             },
@@ -59266,9 +59551,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Claim Api V1 Internal Training Claim Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ExecutorClaimResponse"
                 }
               }
             },

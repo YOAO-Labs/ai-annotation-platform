@@ -218,6 +218,17 @@ last_reviewed: 2026-10-16
 
 状态包括 `queued`、`preparing`、`training`、`evaluating`、`uploading`，停止时为 `cancelling`，终态为 `succeeded`、`failed`、`cancelled`。`lost` 表示心跳超时但仍持有资源，不能当作已停止。事件带当前 `attempt_id` 和连续 `sequence`，重复序号必须具有相同内容。
 
+独立执行器经 `X-Training-Executor-Token` 访问 `/api/v1/internal/training`；这些控制操作不属于普通 SDK 的用户能力。OpenAPI 明确定义以下响应，原 attempt、boot 与租约围栏保持有效：
+
+| 操作                              | 响应                                                                                             |
+| --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `claim`                           | `assignment: null` 表示空闲；有分配时包含 run/attempt UUID、租约、配置及摘要、数据 URL、`resume` |
+| `attempts/{attempt_id}/heartbeat` | `stop: boolean`、`reason: string \| null`；停止要求不等于终态确认                                |
+| `attempts/{attempt_id}/uploads`   | 按产物名称返回 `{url, headers}` 上传授权                                                         |
+| `attempts/{attempt_id}/recover`   | `{recovered: true}` 表示恢复回执已接受                                                           |
+
+分配中的 `resume: null` 明确表示没有续训输入；`native_budget`、`initialization` 在不适用时省略，旧检查点可能没有 `name`。客户端须保留缺失与 null 的区别，并允许响应扩展字段。签名 URL 只在有效期内使用，不作为冻结产物身份；租约凭据不得写入普通日志。
+
 事件读取可指定 `attempt_id` 和 `after` 游标，每次最多 100 条，默认按序递增。客户端用最后一条 `sequence` 继续分页，并为各次执行分别维护曲线；`latest=true` 用于单独读取最近事件。新执行清空 `run.metrics`，直到该执行再次上报；历史曲线与比较读取指定执行的事件。最终最佳权重评估保存在已校验的 `metrics` 产物中。
 
 `evaluation` 只读取指定实验、成功执行及其已发布的唯一指标和最佳权重清单。每次读取均核验不超过 8 MiB 的实际报告字节、大小、SHA-256 和执行元数据；纯解析结果按摘要及解析修订缓存，不缓存授权或上下文绑定。执行不存在或跨实验返回 `404`，尚未成功发布或缺少唯一产物返回 `409`，缺失、损坏或身份冲突返回 `422`。

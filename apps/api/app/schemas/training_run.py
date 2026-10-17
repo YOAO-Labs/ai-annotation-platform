@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    RootModel,
     field_validator,
     model_validator,
 )
@@ -292,6 +293,73 @@ class ExecutorClaim(BaseModel):
     recover_only: bool = False
     resource_id: str = Field(min_length=1, max_length=200)
     runtime: dict
+
+
+class ExecutorResumeArtifact(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    name: str | None = None
+    role: Literal["checkpoint"]
+    sha256: str
+    size_bytes: int
+    key: str
+    url: str
+    epoch: int | None = None
+
+
+class ExecutorInitializationArtifact(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    key: str
+    role: Literal["weights"]
+    sha256: str
+    size_bytes: int
+    source_digest: str
+    url: str
+
+
+class ExecutorAssignment(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    run_id: uuid.UUID
+    attempt_id: uuid.UUID
+    lease_token: str
+    config: dict[str, JsonValue]
+    config_digest: str
+    dataset_url: str
+    resume: ExecutorResumeArtifact | None
+    native_budget: dict[str, JsonValue] | None = None
+    initialization: ExecutorInitializationArtifact | None = None
+
+
+class ExecutorClaimResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    assignment: ExecutorAssignment | None
+
+
+class ExecutorHeartbeatResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    stop: bool
+    reason: str | None
+
+
+class ExecutorUploadGrant(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    url: str
+    headers: dict[str, str]
+
+
+class ExecutorUploadResponse(RootModel[dict[str, ExecutorUploadGrant]]):
+    pass
+
+
+class ExecutorRecoveryResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    recovered: Literal[True]
 
 
 class ExecutorFence(BaseModel):

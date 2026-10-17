@@ -30,6 +30,7 @@ from app.services.job_execution_control import JobExecutionControl
 from app.services.prediction_retry import PredictionRetryDispatcher
 from app.services.project_aggregates import project_scope_clause
 from app.schemas.async_job import (
+    AsyncJobCancelResponse,
     AsyncJobListResponse,
     AsyncJobOut,
     AsyncJobRetryFailedResponse,
@@ -193,13 +194,13 @@ async def get_async_job(
     return await _to_async_job_out(db, job)
 
 
-@router.post("/async-jobs/{job_id}/cancel")
+@router.post("/async-jobs/{job_id}/cancel", response_model=AsyncJobCancelResponse)
 async def cancel_async_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     execution_control: JobExecutionControl = Depends(get_job_execution_control),
-):
+) -> AsyncJobCancelResponse:
     """v0.10.51 · 软取消。
 
     batch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，
@@ -209,7 +210,7 @@ async def cancel_async_job(
         db, job_id, current_user, execution_control=execution_control
     )
     await db.commit()
-    return {"status": status, "id": str(job_id)}
+    return AsyncJobCancelResponse(status=status, id=job_id)
 
 
 @router.post(

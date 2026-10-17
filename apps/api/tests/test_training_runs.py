@@ -229,6 +229,95 @@ async def test_members_and_unauthenticated_executor_cannot_run_training(
     assert response.status_code == 403
 
 
+async def test_executor_http_responses_match_worker_contract(
+    db_session, super_admin, httpx_client, training_config, monkeypatch
+):
+    owner, token = super_admin
+    executor_headers = {"x-training-executor-token": TOKEN}
+    claim = executor_claim()
+    claim_body = claim.model_dump(mode="json")
+
+    idle = await httpx_client.post(
+        "/api/v1/internal/training/claim",
+        headers=executor_headers,
+        json=claim_body,
+    )
+    assert idle.status_code == 200
+    assert idle.json() == {"assignment": None}
+
+    project, dataset = await ready_dataset(db_session, owner)
+    run_data, _ = await create_run(httpx_client, token, project, dataset)
+    claimed = await httpx_client.post(
+        "/api/v1/internal/training/claim",
+        headers=executor_headers,
+        json=claim_body,
+    )
+    assert claimed.status_code == 200, claimed.text
+    assignment = claimed.json()["assignment"]
+    assert assignment["run_id"] == run_data["id"]
+    assert assignment["attempt_id"] == run_data["current_attempt_id"]
+    assert assignment["lease_token"]
+    assert assignment["config_digest"] == run_data["config_digest"]
+    assert assignment["dataset_url"] == "http://owned-storage/owned/dataset.zip"
+    assert assignment["resume"] is None
+    assert "native_budget" not in assignment
+    assert "initialization" not in assignment
+
+    attempt_id = uuid.UUID(assignment["attempt_id"])
+    executor_fence = fence(claim, assignment)
+    heartbeat = await httpx_client.post(
+        f"/api/v1/internal/training/attempts/{attempt_id}/heartbeat",
+        headers=executor_headers,
+        json=ExecutorHeartbeat(**executor_fence).model_dump(mode="json"),
+    )
+    assert heartbeat.status_code == 200
+    assert heartbeat.json() == {"stop": False, "reason": None}
+
+    monkeypatch.setattr(
+        service.storage.client,
+        "generate_presigned_url",
+        lambda *args, **kwargs: "https://storage.test/signed-upload",
+    )
+    upload = await httpx_client.post(
+        f"/api/v1/internal/training/attempts/{attempt_id}/uploads",
+        headers=executor_headers,
+        json=ExecutorUpload(
+            **executor_fence,
+            artifacts=[
+                {
+                    "name": "metrics.json",
+                    "role": "metrics",
+                    "sha256": "a" * 64,
+                    "size_bytes": 32,
+                }
+            ],
+        ).model_dump(mode="json"),
+    )
+    assert upload.status_code == 200
+    assert upload.json() == {
+        "metrics.json": {
+            "url": "https://storage.test/signed-upload",
+            "headers": {
+                "x-amz-meta-sha256": "a" * 64,
+                "x-amz-meta-attempt-id": str(attempt_id),
+            },
+        }
+    }
+
+    recovery = await httpx_client.post(
+        f"/api/v1/internal/training/attempts/{attempt_id}/recover",
+        headers=executor_headers,
+        json=ExecutorRecovery(
+            **executor_fence,
+            new_boot_id=uuid.uuid4(),
+            exclusive_resource_lock=True,
+            process_exited=True,
+        ).model_dump(mode="json"),
+    )
+    assert recovery.status_code == 200
+    assert recovery.json() == {"recovered": True}
+
+
 async def test_claim_response_replay_is_identical_and_resource_stays_exclusive(
     db_session, super_admin, httpx_client, training_config
 ):
@@ -527,6 +616,20 @@ async def test_resume_requires_committed_checkpoint_and_fences_old_attempt(
             db_session, old_id, ExecutorHeartbeat(**fence(claim, assignment))
         )
     assert error.value.status_code == 409
+
+    resumed_claim = executor_claim()
+    resumed_response = await httpx_client.post(
+        "/api/v1/internal/training/claim",
+        headers={"x-training-executor-token": TOKEN},
+        json=resumed_claim.model_dump(mode="json"),
+    )
+    assert resumed_response.status_code == 200, resumed_response.text
+    resumed_assignment = resumed_response.json()["assignment"]
+    resume = resumed_assignment["resume"]
+    assert resume["key"].endswith("/checkpoint.pt")
+    assert resume["sha256"] == "1" * 64 and resume["size_bytes"] == 10
+    assert resume["epoch"] == 1
+    assert "name" not in resume
 
 
 async def test_artifact_digest_failure_cannot_publish_success_and_failure_frees_lease(

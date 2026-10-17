@@ -40,3 +40,8 @@ class AsyncJobRetryFailedResponse(BaseModel):
     job_id: uuid.UUID
     queued: int
     skipped: int
+
+
+class AsyncJobCancelResponse(BaseModel):
+    id: uuid.UUID
+    status: Literal["cancelled", "cancel_requested"]
