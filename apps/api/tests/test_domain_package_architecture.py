@@ -144,6 +144,14 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(
+        package="annotation_mutation_contract",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.schemas.annotation",
+            "app.services.audit_origin_contract",
+        ),
+    ),
+    DomainSpec(
         package="audit_origin_contract",
         legacy_facades=(),
         allowed_app_imports=(),

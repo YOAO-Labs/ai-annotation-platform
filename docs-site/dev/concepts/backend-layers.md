@@ -128,6 +128,10 @@ services/
 
 预期 HTTP 拒绝通过纯 `AnnotationCreateError` 的 status/detail/headers 交付，入口还原原状态和正文；Mask 的既有领域错误映射继续保留。数据库或未知内部错误不伪装成可重放成功回执。
 
+手工 PATCH/DELETE 通过 `annotation_mutation_contract.AnnotationMutationPort` 传任务/标注/actor UUID、既有更新 schema、原 If-Match 字符串和纯审计来源。HTTP 仍先取得 Task 锁并检查当前可见性/编辑许可，再绑定原 Session、Task、actor 与 ProjectAccess；错绑身份在 SQL 前拒绝。SQL 实现保留标注预读、视频范围、Mask I/O 前版本检查、Annotation 锁后二次校验、属性溯源、贡献/heartbeat、审计与提交；PATCH 返回 `AnnotationOut`，入口按其 version 设置原 ETag。DELETE 仍软删并保留子框/SceneTrack/相机成员级联和原 204 响应，审计类别在删除前冻结。
+
+两种命令的预期拒绝以 `AnnotationMutationError` 保留 status/detail/headers，再由 HTTP 入口恢复。属性 diff 仍通过 `AuditService.log_many` 一次批量 flush，纯 origin 与单条 log 使用相同优先级；其他 Request 调用保留原路径。批量编辑、预测决策和专项几何操作有各自规则，不能由这两个命令的完成推断已迁移。
+
 `annotation_slice_contracts` 是只依赖标准库的错误、摘要和固定恢复期限所有者。Polygon 切割、Mask mutation 与 `mask_slice_restore` 直接消费该合同，恢复下层不再反向导入切割编排。原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
 
 `mask_formats.registry` 只定义登记、查询、过滤和版本快照原语，不在查询时导入或注册内置实现。`mask_formats.catalog.registry` 在明确的装配模块绑定原描述符及具体 adapter；HTTP、格式导入 worker 和导出消费者直接导入该实例。package root 不重导出或 eager-load catalog，adapter 也不反向导入 registry；格式 ID、能力、选项、版本和原有输入输出不变。

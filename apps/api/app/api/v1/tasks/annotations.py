@@ -44,13 +44,16 @@ from app.schemas.annotation_conversion import (
     AnnotationConversionExecuteResponse,
 )
 from app.application.annotation_create import _AnnotationCreateSqlAdapter
-from app.services.annotation import (
-    AnnotationService,
-    validate_geometry_type_transition,
-)
+from app.application.annotation_mutation import _AnnotationMutationSqlAdapter
+from app.services.annotation import AnnotationService
 from app.services.annotation_create_contract import (
     AnnotationCreateCommand,
     AnnotationCreateError,
+)
+from app.services.annotation_mutation_contract import (
+    AnnotationDeleteCommand,
+    AnnotationMutationError,
+    AnnotationUpdateCommand,
 )
 from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.annotation_conversion import (
@@ -63,10 +66,7 @@ from app.services.gpu_arbitration.contracts import (
 )
 from app.services.ml_backend import MLBackendService
 from app.services.pipeline_validation import check_capability_violations
-from app.services.raster_mask_storage import (
-    RasterMaskContractError,
-    prepare_mask_geometry_for_annotation_write,
-)
+from app.services.raster_mask_storage import RasterMaskContractError
 from app.services.secondary_inference import run_secondary_inference
 from app.services.task_lock import TaskLockService
 from app.db.models.project import Project
@@ -86,7 +86,6 @@ from app.api.v1.tasks._shared import (
 )
 from app.services.workspace_contract import ProjectAccess
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from app.services.annotation_evidence import record_annotation_actor
 
 router = APIRouter()
 
@@ -767,186 +766,28 @@ async def update_annotation(
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, _task, current_user, access=access)
     task_access.assert_task_editable(_task, current_user, access=access)
-    svc = AnnotationService(db)
-    fields = data.model_dump(exclude_unset=True)
-    if not fields:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    # 早 load 一次：用于 If-Match 校验 + 字段级审计 diff（attributes 变更）
-    # Read metadata without a row lock first.  For Mask geometry, content and
-    # upload locks must be acquired before the Annotation row lock; the Task row
-    # above prevents another compliant Mask writer from changing this object in
-    # between.
-    existing = (
-        await db.execute(select(Annotation).where(Annotation.id == annotation_id))
-    ).scalar_one_or_none()
-    if existing is None or not existing.is_active:
-        raise HTTPException(status_code=404, detail="Annotation not found")
-    if existing.task_id != task_id:
-        raise HTTPException(
-            status_code=400, detail="Annotation does not belong to this task"
-        )
-    await assert_video_annotation_write_scope(
-        db,
-        task=_task,
-        user=current_user,
-        segment_id=existing.video_segment_id,
-        geometry=fields.get("geometry", existing.geometry),
-    )
-    if "geometry" in fields and existing.is_locked:
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "annotation_locked"},
-        )
-
-    # Reject missing/malformed/stale preconditions before any object-storage I/O.
-    # The Task row lock serializes Mask writers, and the same version is checked
-    # again after the Annotation row lock below.
-    if_match = request.headers.get("If-Match", "").strip()
-    expected_v: int | None = None
-    if "geometry" in fields:
-        previous_type = str((existing.geometry or {}).get("type") or "")
-        proposed_geometry = fields["geometry"]
-        proposed_type = str((proposed_geometry or {}).get("type") or "")
-        requires_precondition = previous_type != proposed_type or proposed_type in {
-            "raster_mask",
-            "video_mask",
-        }
-        if requires_precondition and not if_match:
-            raise HTTPException(
-                status_code=428,
-                detail={"reason": "if_match_required"},
-            )
-    if if_match:
-        expected_version = if_match.removeprefix('W/"').removesuffix('"')
-        try:
-            expected_v = int(expected_version)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid If-Match format")
-        if existing.version != expected_v:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": "version_mismatch",
-                    "current_version": existing.version,
-                },
-            )
-
-    mask_payload_prepared = False
-    next_geometry = fields.get("geometry")
-    if isinstance(next_geometry, dict):
-        validate_geometry_type_transition(
-            tool_unit_id=existing.tool_unit_id,
-            previous_geometry=existing.geometry,
-            next_geometry=next_geometry,
-        )
-    if isinstance(next_geometry, dict) and next_geometry.get("type") in {
-        "raster_mask",
-        "video_mask",
-        "video_track_mask",
-    }:
-        try:
-            await prepare_mask_geometry_for_annotation_write(db, _task, next_geometry)
-        except RasterMaskContractError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-        mask_payload_prepared = True
-
-    # Lock before checking If-Match. Under READ COMMITTED a waiter observes the
-    # committed version from the preceding writer, so two requests carrying the
-    # same ETag cannot both pass and publish version N+1.
-    existing = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == annotation_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if existing is None or not existing.is_active or existing.task_id != task_id:
-        raise HTTPException(status_code=404, detail="Annotation not found")
-    if "geometry" in fields and existing.is_locked:
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "annotation_locked"},
-        )
-
-    before_attributes: dict | None = None
-    if "attributes" in fields:
-        before_attributes = dict(existing.attributes or {})
-
-    # 乐观并发控制：行锁后再次校验相同 ETag。
-    if expected_v is not None:
-        if existing.version != expected_v:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": "version_mismatch",
-                    "current_version": existing.version,
-                },
-            )
-
     try:
-        annotation = await svc.update(
-            annotation_id,
-            mask_payload_prepared=mask_payload_prepared,
-            **fields,
+        annotation = await _AnnotationMutationSqlAdapter(
+            db,
+            task=_task,
+            actor=current_user,
+            access=access,
+        ).update(
+            AnnotationUpdateCommand(
+                task_id=_task.id,
+                annotation_id=annotation_id,
+                actor_id=current_user.id,
+                data=data,
+                if_match=request.headers.get("If-Match"),
+                audit_origin=audit_origin_from_request(request),
+            )
         )
-    except RasterMaskContractError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    if not annotation:
-        raise HTTPException(status_code=404, detail="Annotation not found")
-    await record_annotation_actor(db, _task, current_user.id)
-    await heartbeat_task_lock_for_legacy_video(db, _task, current_user.id)
-    _audit_action = (
-        AuditAction.TASK_REVIEWER_EDIT
-        if _task.status == "review"
-        and (access.is_manager or access.project_role == "reviewer")
-        else AuditAction.ANNOTATION_UPDATE
-    )
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=_audit_action,
-        target_type="annotation",
-        target_id=str(annotation.id),
-        request=request,
-        status_code=200,
-        detail={"task_id": str(task_id), "fields": list(fields.keys())},
-    )
-    # 字段级审计：每个变更的 attribute key 单独记一行，便于 GIN 索引按 field_key 过滤
-    # v0.6.3 Q-2：N 个属性变更 → 一次 add_all + 一次 flush（原本 N 次 flush）
-    if before_attributes is not None:
-        after_attributes = dict(annotation.attributes or {})
-        all_keys = set(before_attributes.keys()) | set(after_attributes.keys())
-        change_items: list[dict] = []
-        for key in sorted(all_keys):
-            before_v = before_attributes.get(key)
-            after_v = after_attributes.get(key)
-            if before_v == after_v:
-                continue
-            change_items.append(
-                {
-                    "target_id": str(annotation.id),
-                    "detail": {
-                        "task_id": str(task_id),
-                        "field_key": key,
-                        "before": before_v,
-                        "after": after_v,
-                    },
-                }
-            )
-        if change_items:
-            await AuditService.log_many(
-                db,
-                actor=current_user,
-                action=AuditAction.ANNOTATION_ATTRIBUTE_CHANGE,
-                target_type="annotation",
-                request=request,
-                status_code=200,
-                items=change_items,
-            )
-    await db.commit()
-    await db.refresh(annotation)
+    except AnnotationMutationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
     response.headers["ETag"] = f'W/"{annotation.version}"'
     return annotation
 
@@ -1160,38 +1001,25 @@ async def delete_annotation(
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user, access=access)
     task_access.assert_task_editable(task, current_user, access=access)
-    # 先取一份 detail 供 audit 用（soft delete 之后字段仍能读，但安全起见提前）
-    pre = await db.get(Annotation, annotation_id)
-    if pre is None or pre.task_id != task_id or not pre.is_active:
-        raise HTTPException(status_code=404, detail="Annotation not found")
-    if pre.is_locked:
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "annotation_locked"},
+    try:
+        deleted = await _AnnotationMutationSqlAdapter(
+            db,
+            task=task,
+            actor=current_user,
+            access=access,
+        ).delete(
+            AnnotationDeleteCommand(
+                task_id=task.id,
+                annotation_id=annotation_id,
+                actor_id=current_user.id,
+                audit_origin=audit_origin_from_request(request),
+            )
         )
-    await assert_video_annotation_write_scope(
-        db,
-        task=task,
-        user=current_user,
-        segment_id=pre.video_segment_id,
-        geometry=pre.geometry,
-    )
-    pre_class = pre.class_name
-    svc = AnnotationService(db)
-    ok = await svc.delete(annotation_id)
-    if not ok:
+    except AnnotationMutationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=exc.headers,
+        ) from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="Annotation not found")
-    await record_annotation_actor(db, task, current_user.id)
-    await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
-    # v0.7.2 · annotation 编辑历史可追溯
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_DELETE,
-        target_type="annotation",
-        target_id=str(annotation_id),
-        request=request,
-        status_code=204,
-        detail={"task_id": str(task_id), "soft": True, "class_name": pre_class},
-    )
-    await db.commit()

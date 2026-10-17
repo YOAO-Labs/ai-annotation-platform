@@ -465,7 +465,7 @@ async def test_invalid_mask_type_transition_rejects_before_storage_io(
     )
     prepare = AsyncMock()
     monkeypatch.setattr(
-        "app.api.v1.tasks.annotations.prepare_mask_geometry_for_annotation_write",
+        "app.application.annotation_mutation.prepare_mask_geometry_for_annotation_write",
         prepare,
     )
     await db_session.commit()

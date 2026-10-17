@@ -17,6 +17,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.db.models.prediction import Prediction
+from app.db.models.task import Task
 from app.services.annotation import AnnotationService
 from tests.factory import create_project, create_task
 from app.services.labeling_write_scope import capture_labeling_write_scope
@@ -383,6 +384,32 @@ async def test_update_class_name_not_in_allowed_raises_422(db_session, super_adm
         await svc.update(ann.id, class_name="ghost")
     assert exc_info.value.status_code == 422
     assert "ghost" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_patch_restores_annotation_error_at_http_boundary(
+    db_session, httpx_client, super_admin
+):
+    user, token = super_admin
+    proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
+    proj.tool_bindings = _tb("bbox", [{"name": "person", "order": 0}])
+    _, ann = await _make_annotation(db_session, user=user, proj=proj)
+    task = await db_session.get(Task, ann.task_id)
+    task.status = "in_progress"
+    await db_session.flush()
+    with pytest.raises(HTTPException) as rejected:
+        await AnnotationService(db_session).update(ann.id, class_name="ghost")
+
+    response = await httpx_client.patch(
+        f"/api/v1/tasks/{task.id}/annotations/{ann.id}",
+        json={"class_name": "ghost"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == rejected.value.detail
+    await db_session.refresh(ann)
+    assert ann.class_name == "person"
 
 
 @pytest.mark.asyncio

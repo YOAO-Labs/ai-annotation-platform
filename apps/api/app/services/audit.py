@@ -292,6 +292,7 @@ class AuditService:
         action: str | AuditAction,
         target_type: str | None = None,
         request: Request | None = None,
+        origin: _AuditOriginContext | None = None,
         status_code: int | None = None,
         items: list[dict[str, Any]],
     ) -> list[AuditLog]:
@@ -301,9 +302,17 @@ class AuditService:
             return []
         action_str = action.value if isinstance(action, AuditAction) else str(action)
         rid = request_id_var.get()
-        method = getattr(request, "method", None)
-        path = str(request.url.path) if request is not None else None
-        ip = extract_client_ip(request)
+        method = (
+            origin.method if origin is not None else getattr(request, "method", None)
+        )
+        path = (
+            origin.path
+            if origin is not None
+            else str(request.url.path)
+            if request is not None
+            else None
+        )
+        ip = origin.ip if origin is not None else extract_client_ip(request)
         actor_id = getattr(actor, "id", None)
         actor_email = getattr(actor, "email", None)
         actor_role = getattr(actor, "role", None)

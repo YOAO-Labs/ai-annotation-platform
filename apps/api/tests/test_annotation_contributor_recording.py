@@ -16,9 +16,10 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.models.audit_log import AuditLog
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
@@ -127,6 +128,29 @@ async def test_update_records_the_editing_actor(httpx_client, db_session, super_
 
     await db_session.refresh(task)
     assert task.annotation_contributor_ids == sorted([str(owner.id), str(editor.id)])
+    audit_rows = list(
+        (
+            await db_session.scalars(
+                select(AuditLog).where(
+                    AuditLog.target_type == "annotation",
+                    AuditLog.target_id == annotation_id,
+                    AuditLog.action.in_(
+                        {"annotation.update", "annotation.attribute_change"}
+                    ),
+                )
+            )
+        ).all()
+    )
+    assert {row.action for row in audit_rows} == {
+        "annotation.update",
+        "annotation.attribute_change",
+    }
+    assert all(row.method == "PATCH" for row in audit_rows)
+    assert all(
+        row.path == f"/api/v1/tasks/{task.id}/annotations/{annotation_id}"
+        for row in audit_rows
+    )
+    assert len({row.ip for row in audit_rows}) == 1
 
 
 async def test_delete_records_the_deleting_actor_and_retains_authors(

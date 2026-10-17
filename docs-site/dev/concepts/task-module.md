@@ -49,11 +49,15 @@ Task 是系统中的最小工作单元，一条数据最终总是落实到一条
 | `apps/api/app/services/scheduler.py`                                                   | 下一题派发、batch 可见性过滤                                           |
 | `apps/api/app/services/task_lock.py`                                                   | task 锁服务                                                            |
 | `apps/api/app/services/annotation.py`                                                  | annotation 写入对 task 的状态回写                                      |
+| `apps/api/app/services/annotation_mutation_contract.py`                                | 手工 PATCH/DELETE 的数据命令、结果及预期错误                           |
+| `apps/api/app/application/annotation_mutation.py`                                      | 绑定原 Task/actor/Session，组合标注修改、删除、审计与提交              |
 | `apps/web/src/api/tasks.ts`                                                            | 前端 task API wrapper                                                  |
 | `apps/web/src/hooks/useTaskLock.ts`                                                    | 前端 task lock 生命周期                                                |
 | `apps/web/src/pages/Workbench/`                                                        | 工作台主消费方                                                         |
 
 审核认领、通过与退回，跳过、撤回、重开、接受退回，以及单题和整批送审都向对应工作流传 actor UUID。共享锁 helper 保留当前账号/项目/成员及批次/任务锁，在原访问绑定和目标复核后返回 `IdentityActorFacts`；用例继续执行能力和可见性检查，由这些最新标量填入审计与通知姓名。整批送审仍按 200 项分块提交，并在后续分块和最终计数/状态回填前重新取权、生成新事实。初始认证缓存不提供锁后身份事实；全局 role 与项目职责/能力保持分离。Task/Project 仍在本地事务内，原证据、计数、反馈、通知与提交时序不变。
+
+手工标注 PATCH/DELETE 在 HTTP 中保留 Task-first 锁和当前编辑许可，再通过纯命令进入绑定该事务的实现。修改保留 If-Match 首次检查、Mask 准备及 Annotation 锁后二次核验，返回 `AnnotationOut` 后按 version 设置原 ETag；删除保留软删、贡献、计数、级联和 204。预期错误保留原 HTTP status/detail/headers，属性 diff 审计与普通修改继续同事务提交。
 
 ## 数据模型
 
