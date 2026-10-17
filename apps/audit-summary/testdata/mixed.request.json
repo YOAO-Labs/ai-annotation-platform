@@ -1,0 +1,38 @@
+{
+  "month": "2024-02",
+  "materialized_through": null,
+  "rows": [
+    {
+      "day": "2024-02-01",
+      "action": "alpha",
+      "target_type": "",
+      "actor_role": "",
+      "status_family": 2,
+      "event_count": "9007199254740993"
+    },
+    {
+      "day": "2024-02-01",
+      "action": "beta",
+      "target_type": "task",
+      "actor_role": "reviewer",
+      "status_family": 5,
+      "event_count": "9007199254740993"
+    },
+    {
+      "day": "2024-02-29",
+      "action": "alpha",
+      "target_type": "",
+      "actor_role": "",
+      "status_family": 4,
+      "event_count": "1"
+    },
+    {
+      "day": "2024-02-29",
+      "action": "beta",
+      "target_type": "task",
+      "actor_role": "reviewer",
+      "status_family": 3,
+      "event_count": "1"
+    }
+  ]
+}
