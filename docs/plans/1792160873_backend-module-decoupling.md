@@ -970,6 +970,22 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 预算包含 helper、owner 锁/查询、membership 写入和 flush，排除提交/回滚、夹具、session checkout、CLI 报告、MinIO、auth 和 HTTP；不代表整条 CLI、故障路径、吞吐或 RSS 优化。完整样本在 `/tmp/aap-ops-evidence/ops-budget.json`。隔离九个定向文件合跑及冷导入已通过；未与本轮主线补验重复累计。未改数据库/API schema、依赖、配置或版本，保留 Main 已验的 seed SQL 提交后旧对象清理。
 - 主线十六个定向消费者回归通过，覆盖凭据重放保持、时间表只读/稀疏替换、双项失败后继续，以及 packet/codec 样本行为；十七个变更 Python 文件的 Ruff 格式/check 和精确 OpenAPI 通过。移除初始化状态/时间戳/字段回声及固定错误文案断言，保留身份、审计、索引、metadata 合并和事务状态不变量。
 
+### 标注创建收据
+
+- `AnnotationCreateWorkflow` 承接 HTTP 锁定 Task、核验当前权限和视频写入范围之后的创建编排；工作流 trim 并校验 key，`AnnotationService` 独占创建收据查找和写入。actor + task + key 范围、canonical 请求摘要、409 reason 与原 operation ID 均不变；没有新增通用幂等框架或重试策略。
+- 首次创建仍按标注/任务统计 flush → heartbeat → refresh/冻结收据 → 审计 → commit → 最终 refresh。精确重放直接返回冻结响应，后续编辑不会改变历史响应，也不重复贡献、历史、审计或心跳工作；未带 key 的路径仍非幂等。保留 Main 已完成的 Schema 孤儿标注清理所有权。
+- 隔离真实 Uvicorn TCP/JWT/default `get_db` 已观察创建/重放 201、改 payload 409、不同 actor/task/key 隔离及 PATCH 后冻结响应。不同 PostgreSQL PID 的并发请求实际观察到 `PgSleep` 和 `transactionid` 锁等待，两个 201 读取同一响应，新连接只有一条标注/收据/审计。仅本地 deferred audit constraint 使真实 commit 失败为 500，新连接三类记录均为零；探针触发器已移除。
+- 主线默认依赖 ASGI/JWT 和实际 PostgreSQL 另验 trim-key 创建/重放、payload 冲突、编辑后历史重放：201/201、409、200/201。新事务观察到标注仍为已编辑的 `person`，冻结响应仍为 `car`；一条标注、一条收据、两条审计、贡献者及设为 2100 年的锁期限在重放前后完全相同。夹具是非协作图片 Task；通用心跳 helper 对其适用，但不据此宣称视频 scope、RasterMask 对象或 renderer 资格。完整主线观察在 `.worktree/annotation-receipt-main-smoke.json`，临时脚本已移除。
+- 主线标注幂等文件、SCC 边界守卫与精确 OpenAPI 组合运行到 `[100%]` 并正常结束；终端未保留计数摘要，不累计为虚构测试总数。回归保留 key 顺序/长度、actor/task/key 隔离、冲突身份、冻结历史与无重复副作用，移除自由错误文案固定断言。四个 Python 文件的固定 Ruff 格式/check 通过。
+- 隔离命令预算以历史直接路由块与当前工作流对照，各预热一次、三轮交错采样，包含 flush、commit、refresh，排除相同 Task 锁/actor 装载、授权/视频 scope、夹具及 HTTP 传输；同一 owned-test 连接以外层 savepoint 重置，不是独立并发证明：
+
+| 指标                        | 历史直接路由块 | 当前创建工作流 |
+| --------------------------- | -------------: | -------------: |
+| SQL 语句数                  |             17 |             17 |
+| Python 堆峰值中位数（字节） |        369,516 |        370,076 |
+
+- 六个原始预算样本及真实 HTTP/独立观察者证据分别在 `/tmp/aap-annotation-receipt-budget.json`、`/tmp/aap-annotation-receipt-smoke.json`。不据此推断吞吐、RSS 或性能优化。正式说明同步标注模块、后端分层与仓库地图；未改 schema、依赖、配置或版本，纯结构迁移不增加 CHANGELOG。本地 Session/ORM/HTTP 错误仍不是语言无关进程协议。
+
 ### 剩余范围
 
-- 剩余写入切片为标注幂等收据、邀请接受的成员写入及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余写入切片为邀请接受的成员写入及通用作业直写，继续逐片迁移；不把静态抽样冒充剩余边界已清空。完整台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。

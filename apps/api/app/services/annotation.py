@@ -15,6 +15,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.scene_track import SceneTrack
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
@@ -367,6 +368,63 @@ class AnnotationService:
 
         await self._update_task_stats(task_id)
         return annotation
+
+    async def annotation_create_receipt_response(
+        self,
+        *,
+        task_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        idempotency_key: str,
+        request_digest: str,
+    ) -> dict | None:
+        """Load a frozen create response or reject reuse of another operation key."""
+        operation = await self.db.scalar(
+            select(AnnotationOperation).where(
+                AnnotationOperation.task_id == task_id,
+                AnnotationOperation.actor_id == actor_id,
+                AnnotationOperation.idempotency_key == idempotency_key,
+            )
+        )
+        if operation is None:
+            return None
+        if (
+            operation.kind != ANNOTATION_CREATE_OPERATION_KIND
+            or operation.request_digest != request_digest
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "idempotency_conflict",
+                    "message": "idempotency key was already used with another request",
+                    "operation_id": str(operation.id),
+                },
+            )
+        return operation.response_json
+
+    def record_annotation_create_receipt(
+        self,
+        *,
+        task_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        idempotency_key: str,
+        request_digest: str,
+        response_json: dict,
+    ) -> None:
+        """Stage the historical create response in the labeling transaction."""
+        self.db.add(
+            AnnotationOperation(
+                task_id=task_id,
+                actor_id=actor_id,
+                kind=ANNOTATION_CREATE_OPERATION_KIND,
+                idempotency_key=idempotency_key,
+                request_digest=request_digest,
+                scope_fingerprint=request_digest,
+                source_versions={},
+                result_versions={},
+                report={},
+                response_json=response_json,
+            )
+        )
 
     async def accept_prediction(
         self,

@@ -43,7 +43,8 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 | `apps/api/app/db/models/task_lock.py`                                                        | `AnnotationDraft` 模型，当前与 `TaskLock` 同文件     |
 | `apps/api/app/schemas/annotation.py`                                                         | annotation 请求 / 响应 schema                        |
 | `apps/api/app/services/annotation.py`                                                        | create / update / delete / accept_prediction / draft |
-| `apps/api/app/db/models/annotation_operation.py`                                             | 原子多对象操作与 lineage 账本                        |
+| `apps/api/app/application/annotation_create.py`                                              | 锁后创建编排、持久创建收据、审计与提交顺序           |
+| `apps/api/app/db/models/annotation_operation.py`                                             | 创建收据、原子多对象操作与 lineage 账本              |
 | `apps/api/app/services/mask_mutation.py`                                                     | Mask split / copy / join / overlap 事务边界          |
 | `apps/api/app/services/annotation_slice.py`                                                  | Polygon 切割及共享受限恢复                           |
 | `apps/api/app/services/annotation_slice_contracts.py`                                        | 纯错误合同、规范摘要与固定恢复期限                   |
@@ -56,6 +57,14 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 | `apps/web/src/hooks/useTasks.ts`                                                             | React Query mutation 与 optimistic update            |
 | `apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts`                     | 图片工作台 annotation action 主消费方                |
 | `apps/web/src/pages/Workbench/stages/video/useVideoAnnotationActions.ts`                     | 视频工作台 annotation action 主消费方                |
+
+## 创建收据与重放
+
+`POST /tasks/{task_id}/annotations` 仍由 HTTP 入口先锁定 Task，再核验当前可见/可编辑权限与视频写入范围；`application/annotation_create.py::AnnotationCreateWorkflow` 随后编排创建。`services/annotation.py::AnnotationService` 独占标注创建操作收据的查询与写入，HTTP 不直接访问 `AnnotationOperation`。
+
+可选 `Idempotency-Key` 先 trim，再按 1–128 个字符校验。收据范围是 actor + task + key；摘要来自规范化 `AnnotationCreate.model_dump(mode="json")`，使用排序后的 canonical JSON。相同操作种类和摘要返回收据中冻结的 `response_json`，即使标注后来编辑也不重建响应；同键用于其他操作或不同摘要时仍为 409，并返回原 `operation_id`。
+
+首次创建保持原顺序：写入并 flush 标注/任务统计，更新 legacy video heartbeat，刷新标注并冻结收据响应，记录 `annotation.create` 审计，提交后再次 refresh。命中收据在标注创建之前直接返回，不新增标注、贡献者、历史/审计或 heartbeat 工作；未带 key 的创建仍按原非幂等路径执行。本切片不引入通用幂等框架、重试策略或新 HTTP 合同。
 
 ## 切割与受限恢复
 

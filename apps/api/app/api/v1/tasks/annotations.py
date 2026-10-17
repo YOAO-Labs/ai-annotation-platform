@@ -15,7 +15,6 @@ from app.deps import (
 )
 from app.db.models.user import User
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.task import Task
 from app.schemas.annotation import (
     AnnotationCreate,
@@ -44,10 +43,9 @@ from app.schemas.annotation_conversion import (
     AnnotationConversionExecuteRequest,
     AnnotationConversionExecuteResponse,
 )
+from app.application.annotation_create import AnnotationCreateWorkflow
 from app.services.annotation import (
-    ANNOTATION_CREATE_OPERATION_KIND,
     AnnotationService,
-    annotation_create_request_digest,
     validate_geometry_type_transition,
 )
 from app.services.audit import AuditAction, AuditService
@@ -340,10 +338,7 @@ async def create_annotation(
         description="Optional durable creation identity (1–128 characters). Reuse only with the same request.",
     ),
 ):
-    # Every create, including an idempotent replay, is serialized by the task
-    # row.  The lock must be acquired before authorization and the ledger lookup
-    # so a handoff/deactivation cannot race a retry into a stale authorization
-    # decision, and concurrent tabs cannot both miss the same receipt.
+    # Serialize creates before authorization and command-owned receipt lookup.
     task = (
         await db.execute(
             select(Task)
@@ -364,95 +359,16 @@ async def create_annotation(
         geometry=data.geometry.model_dump(),
     )
 
-    if idempotency_key is not None:
-        idempotency_key = idempotency_key.strip()
-        if not idempotency_key or len(idempotency_key) > 128:
-            raise HTTPException(
-                status_code=400,
-                detail="Idempotency-Key must contain 1 to 128 characters",
-            )
-        request_digest = annotation_create_request_digest(data.model_dump(mode="json"))
-        existing = await db.scalar(
-            select(AnnotationOperation).where(
-                AnnotationOperation.task_id == task_id,
-                AnnotationOperation.actor_id == current_user.id,
-                AnnotationOperation.idempotency_key == idempotency_key,
-            )
-        )
-        if existing is not None:
-            if (
-                existing.kind != ANNOTATION_CREATE_OPERATION_KIND
-                or existing.request_digest != request_digest
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "reason": "idempotency_conflict",
-                        "message": "idempotency key was already used with another request",
-                        "operation_id": str(existing.id),
-                    },
-                )
-            return AnnotationOut.model_validate(existing.response_json)
-
-    svc = AnnotationService(db)
     try:
-        annotation = await svc.create(
-            task_id=task_id,
-            user_id=current_user.id,
-            annotation_type=data.annotation_type,
-            tool_unit_id=data.tool_unit_id,
-            class_name=data.class_name,
-            geometry=data.geometry.model_dump(),
-            confidence=data.confidence,
-            parent_prediction_id=data.parent_prediction_id,
-            parent_annotation_id=data.parent_annotation_id,
-            lead_time=data.lead_time,
-            attributes=data.attributes,
-            video_segment_id=data.video_segment_id,
+        return await AnnotationCreateWorkflow(db).create(
+            task=task,
+            data=data,
+            actor=current_user,
+            request=request,
+            idempotency_key=idempotency_key,
         )
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
-
-    if idempotency_key is not None:
-        # ``AnnotationService.create`` flushes the annotation and task stats;
-        # refresh server defaults before persisting the historical response.
-        await db.refresh(annotation)
-        annotation_response = AnnotationOut.model_validate(annotation)
-        db.add(
-            AnnotationOperation(
-                task_id=task_id,
-                actor_id=current_user.id,
-                kind=ANNOTATION_CREATE_OPERATION_KIND,
-                idempotency_key=idempotency_key,
-                request_digest=request_digest,
-                scope_fingerprint=request_digest,
-                source_versions={},
-                result_versions={},
-                report={},
-                response_json=annotation_response.model_dump(mode="json"),
-            )
-        )
-
-    # v0.7.2 · annotation 编辑历史可追溯
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_CREATE,
-        target_type="annotation",
-        target_id=str(annotation.id),
-        request=request,
-        status_code=201,
-        detail={
-            "task_id": str(task_id),
-            "class_name": annotation.class_name,
-            "annotation_type": annotation.annotation_type,
-            "source": annotation.source,
-        },
-    )
-    await db.commit()
-    await db.refresh(annotation)
-    return annotation
 
 
 @router.post(
