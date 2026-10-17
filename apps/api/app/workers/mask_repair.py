@@ -186,12 +186,27 @@ async def _run_sam_candidate(
     *,
     item: dict[str, Any],
     batch_id: uuid.UUID,
+    actor: User,
+    job_id: uuid.UUID,
     dispatch_context_factory,
 ) -> dict[str, Any]:
     task = await db.get(Task, uuid.UUID(str(item["task_id"])))
     annotation = await db.get(Annotation, uuid.UUID(str(item["annotation_id"])))
     if task is None or annotation is None or not annotation.is_active:
         raise RuntimeError("candidate_source_missing")
+    from app.services.labeling_write_scope import capture_labeling_write_scope
+
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=actor.id,
+        actor_known=True,
+        operation="mask_repair",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=job_id,
+        job_id_known=True,
+        source_annotation=annotation,
+    )
     if int(annotation.version or 1) != int(item["source_version"]):
         raise RuntimeError("candidate_source_version_conflict")
     action = dict(item["action"])
@@ -285,6 +300,7 @@ async def _run_sam_candidate(
                     "model_id": model_id,
                 }
             },
+            write_scope=write_scope,
         )
         prediction_ids.append(str(prediction.id))
     return {
@@ -554,6 +570,8 @@ async def _run_mask_repair(
                             db,
                             item=item,
                             batch_id=repair_id,
+                            actor=actor,
+                            job_id=async_job_id,
                             dispatch_context_factory=dispatch_context_factory,
                         )
                         await db.commit()

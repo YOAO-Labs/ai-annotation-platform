@@ -1405,6 +1405,7 @@ async def predict_frame(
     与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。
     """
     from app.services.prediction_context import build_predict_context
+    from app.services.labeling_write_scope import capture_labeling_write_scope
 
     svc = MLBackendService(db)
     backend = await svc.get(backend_id)
@@ -1414,6 +1415,16 @@ async def predict_frame(
     await _require_ai_interactive_enabled(db, project_id)
     task = await _get_task_in_project(db, task_id, project_id)
     access = await _assert_annotation_write_access(db, task, current_user)
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=current_user.id,
+        actor_known=True,
+        operation="interactive_frame_prediction",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
     await task_access.assert_task_visible(db, task, current_user, access=access)
 
     try:
@@ -1505,6 +1516,7 @@ async def predict_frame(
         result=video_shapes,
         score=score,
         ml_backend_pool_id=client.pool_id,
+        write_scope=write_scope,
     )
     await db.commit()
     return {

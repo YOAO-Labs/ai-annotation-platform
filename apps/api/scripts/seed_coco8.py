@@ -310,6 +310,8 @@ async def seed_coco8(
         db,
         project_id,
         _build_yolo_zip(fixture),
+        actor_id=owner_id,
+        job_id=None,
         yolo_variant="det",
         model_version_fallback=prediction_model_version,
     )

@@ -78,6 +78,13 @@ async def update_progress(
         job.payload = {**(job.payload or {}), **extra_payload}
 
 
+async def replace_result(db: AsyncSession, job_id: uuid.UUID, *, result: dict) -> None:
+    """Replace the result projection without changing the job lifecycle."""
+    job = await db.get(AsyncJob, job_id)
+    if job is not None:
+        job.result = result
+
+
 async def mark_complete(
     db: AsyncSession, job_id: uuid.UUID, *, result: dict | None = None
 ) -> None:

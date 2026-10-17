@@ -83,6 +83,7 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write_strict,
 )
 from app.services.project_access import ProjectAccess
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.annotation_evidence import record_annotation_actor
 
 router = APIRouter()
@@ -530,11 +531,23 @@ async def secondary_inference(
     if violations:
         raise HTTPException(status_code=422, detail=violations[0].detail)
 
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=current_user.id,
+        actor_known=True,
+        operation="secondary_inference",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+        source_annotation=annotation,
+    )
+
     # 释放当前只读事务再进入 10-30s 的远程 predict, 避免 async 连接池在高并发下饥饿
     # (expire_on_commit=False, annotation / task / backend 对象保持 attached 可继续使用)。
     await db.commit()
 
-    updated, children = await run_secondary_inference(
+    inference_result = await run_secondary_inference(
         db,
         annotation=annotation,
         task=task,
@@ -550,12 +563,16 @@ async def secondary_inference(
         prompt=data.prompt,
         class_filter=data.class_filter,
         pad=data.pad,
-        user_id=current_user.id,
         shadow_session_factory=shadow_session_factory,
         dispatch_context_factory=dispatch_context_factory,
     )
+    updated, children = await AnnotationService(db).apply_secondary_inference(
+        task=task,
+        annotation=annotation,
+        result=inference_result,
+        write_scope=write_scope,
+    )
     await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
-    await record_annotation_actor(db, task, current_user.id)
     await AuditService.log(
         db,
         actor=current_user,

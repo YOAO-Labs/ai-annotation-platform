@@ -2925,6 +2925,7 @@ async def trigger_preannotation(
             )
             precreated_payload: dict = {
                 "batch_id": str(body.batch_id) if body.batch_id else None,
+                "execution_scope": body.execution_scope,
                 "ml_backend_id": str(source_backend_id),
                 "total_tasks": (
                     len(scoped_ids) if scoped_ids is not None else total_tasks_hint
@@ -2972,6 +2973,7 @@ async def trigger_preannotation(
             project_id=project.id,
             payload={
                 "batch_id": str(body.batch_id) if body.batch_id else None,
+                "execution_scope": body.execution_scope,
                 "ml_backend_id": str(source_backend_id),
                 "total_tasks": len(scoped_ids)
                 if scoped_ids is not None

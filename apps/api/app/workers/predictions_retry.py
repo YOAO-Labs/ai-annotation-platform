@@ -85,8 +85,15 @@ async def _do_retry_with_factory(
                 celery_task_id=celery_task_id,
             ) as job:
                 await db.commit()
-                result = await _run_retry_attempt(session_factory, failed_id, user_id)
-                job.result = _retry_result_payload(result)
+                result = await _run_retry_attempt(
+                    session_factory,
+                    failed_id,
+                    user_id,
+                    job_id=job.id,
+                )
+                await async_job_svc.replace_result(
+                    db, job.id, result=_retry_result_payload(result)
+                )
                 if result.get("status") != "succeeded":
                     raise _PredictionRetryTerminalFailure(result)
         except _PredictionRetryTerminalFailure as exc:
@@ -157,7 +164,9 @@ def _retry_result_payload(result: dict) -> dict:
     return out
 
 
-async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> dict:
+async def _run_retry_attempt(
+    session_factory, failed_id: str, user_id: str, *, job_id: uuid.UUID
+) -> dict:
     """重试业务逻辑。终态通知由外层 async_jobs 统一发。"""
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.db.models.prediction import FailedPrediction
@@ -169,6 +178,7 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.notification import NotificationService
     from app.services.prediction import PredictionService
+    from app.services.labeling_write_scope import capture_labeling_write_scope
     from app.services.storage import resolve_task_url
 
     fid = uuid.UUID(failed_id)
@@ -272,6 +282,16 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
             inference_time_ms=first.inference_time_ms,
             ml_backend_pool_id=retry_pool_id,
             token_meta=first.meta,
+            write_scope=capture_labeling_write_scope(
+                task,
+                actor_id=uid,
+                actor_known=True,
+                operation="prediction_retry",
+                execution_scope=None,
+                execution_scope_known=True,
+                job_id=job_id,
+                job_id_known=True,
+            ),
             **(
                 {"model_provenance": request_context["frozen_model_ref"]}
                 if request_context and request_context.get("frozen_model_ref")

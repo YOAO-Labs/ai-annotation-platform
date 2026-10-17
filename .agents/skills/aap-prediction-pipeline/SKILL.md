@@ -5,13 +5,15 @@ description: Change or diagnose preannotation pipeline payloads and execution ac
 
 # Preannotation pipeline contracts
 
-Trace the requested operation from the frontend composer through `apps/api/app/api/v1/projects.py`, `app/services/pipeline_validation.py`, `app/workers/tasks.py`, `app/workers/roi.py`, and the selected backend's advertised capabilities. Backend paths after the first are relative to `apps/api/`.
+Trace the requested operation from the frontend composer through `apps/api/app/api/v1/projects.py`, `app/services/pipeline_validation.py`, `app/workers/tasks.py`, `app/services/prediction_context.py`, `app/services/prediction_roi.py`, and the selected backend's advertised capabilities. Backend paths after the first are relative to `apps/api/`.
 
 UI support and execution support must agree. A payload accepted by the composer can still be rejected by crop/attributes-only API validation. Check supported output types and stage relationships at the shared validation boundary before adding per-entrypoint exceptions.
 
 Keep execution scopes distinct in `projects.py`: workbench current-task requests use `_validate_workbench_task_scope`, while Data Manager/batch preannotation uses `_validate_preannotate_task_scope`. The workbench scope follows the current user's task editability, lock, and terminal-state rules and can operate on an in-progress task or an eligible task in a draft batch. Bulk preannotation remains limited to pending tasks in active batches or completely unassigned draft batches. The latter must remain draft after inference, retain its predictions for later assignment, and become ineligible immediately if annotator/reviewer assignment changes. Do not relax one scope by bypassing the other's guards.
 
 When changing those rules, align the project-card count, batch/task selectors, API canonicalization, queued payload, and worker revalidation. Test both scopes explicitly, including draft-to-assigned races, another user's edit lock, terminal tasks, and persisted predictions after later assignment/activation.
+
+Carry explicit `labeling_write_scope` facts across inference; never infer a missing actor or execution scope. Persist `execution_scope` in the durable job before frame fan-out. Final labeling owners use `labeling_write_guard` and `project_access.lock_current_project_access` to re-read and fence current authority, task/batch/editor preconditions, source annotation versions and actual job terminal state. A frozen scope is not a permission token or a portable transaction. Secondary inference returns immutable facts; only `AnnotationService.apply_secondary_inference` writes attributes/children and advances changed attribute versions. Preserve the difference between a running item's cooperative cancellation request and an actual terminal job.
 
 Root identity is structural: inspect `parent_stage is None`, not an assumed stage ID of zero. Trace geometry and index lineage through intermediate stages; an index into intermediate results is not automatically an index into root boxes. Cover nonzero root IDs and multi-level geometry chains when modifying fan-out or merging.
 

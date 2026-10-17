@@ -175,6 +175,15 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="sample_evaluations", legacy_facades=()),
     DomainSpec(package="prediction_retry", legacy_facades=(), allowed_app_imports=()),
     DomainSpec(package="labeling_tasks", legacy_facades=()),
+    DomainSpec(
+        package="labeling_write_scope", legacy_facades=(), allowed_app_imports=()
+    ),
+    DomainSpec(package="labeling_write_guard", legacy_facades=()),
+    DomainSpec(package="secondary_inference", legacy_facades=()),
+    DomainSpec(
+        package="secondary_inference_result", legacy_facades=(), allowed_app_imports=()
+    ),
+    DomainSpec(package="test_seed_access", legacy_facades=()),
     DomainSpec(package="dataset_task_facts", legacy_facades=(), allowed_app_imports=()),
     DomainSpec(
         package="dataset_frame_grouping",

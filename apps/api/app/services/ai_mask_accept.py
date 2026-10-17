@@ -595,6 +595,18 @@ async def accept_ai_mask_candidate(
         if data.inference.inference_time_ms is not None
         else None
     )
+    from app.services.labeling_write_scope import capture_labeling_write_scope
+
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=current_user.id,
+        actor_known=True,
+        operation="interactive_mask_accept",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
     prediction = await PredictionService(db).create_from_ml_result(
         task_id=task.id,
         project_id=task.project_id,
@@ -618,6 +630,7 @@ async def accept_ai_mask_candidate(
                 "prompt_source": receipt_claims.get("prompt_source"),
             }
         },
+        write_scope=write_scope,
     )
 
     if source is None:

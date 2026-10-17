@@ -17,6 +17,9 @@ from app.db.models.prediction import Prediction, PredictionMeta, FailedPredictio
 from app.db.models.task import Task
 from app.schemas._jsonb_types import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 from app.services.annotation_propagation import _new_track_id
+from app.services.labeling_write_scope import LabelingWriteScope
+from app.services.labeling_write_guard import lock_labeling_write
+from app.services.test_seed_access import assert_isolated_test_seed_database
 from app.services.project_access import resolve_project_access
 from app.services.raster_mask_storage import prepare_mask_payload_for_write
 
@@ -519,10 +522,25 @@ class PredictionService:
         pipeline_extra: dict | None = None,
         ml_backend_pool_id: uuid.UUID | None = None,
         model_provenance: dict | None = None,
+        *,
+        write_scope: LabelingWriteScope,
     ) -> Prediction:
+        if write_scope.task_id != task_id or write_scope.project_id != project_id:
+            raise ValueError("prediction write scope does not match its target")
+        task, _actor, _access = await lock_labeling_write(
+            self.db,
+            write_scope,
+            operations=(
+                "interactive_frame_prediction",
+                "interactive_mask_accept",
+                "mask_repair",
+                "preannotation",
+                "prediction_import",
+                "prediction_retry",
+            ),
+        )
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         result = _remap_track_ids(result)
-        task = await self.db.get(Task, task_id)
         await prepare_mask_payload_for_write(self.db, task, result)
         prediction = Prediction(
             id=uuid.uuid4(),
@@ -563,11 +581,52 @@ class PredictionService:
         )
         self.db.add(meta)
 
-        await self.db.execute(select(Task).where(Task.id == task_id).with_for_update())
-        task = await self.db.get(Task, task_id)
-        if task:
-            task.total_predictions = (task.total_predictions or 0) + 1
+        task.total_predictions = (task.total_predictions or 0) + 1
 
+        await self.db.flush()
+        return prediction
+
+    async def create_test_seed_prediction(
+        self,
+        *,
+        task_id: uuid.UUID,
+        project_id: uuid.UUID,
+        result: list[dict],
+        score: float | None = None,
+        model_version: str | None = None,
+        rejected_shape_indexes: list[int] | None = None,
+        tool_unit_id: str | None = None,
+        write_scope: LabelingWriteScope,
+    ) -> Prediction:
+        """Persist a hidden E2E fixture candidate without normal inference projections."""
+        if write_scope.operation != "test_seed":
+            raise ValueError("test seed prediction requires a test_seed scope")
+        if write_scope.actor_id is not None or not write_scope.actor_known:
+            raise ValueError("test seed requires an explicitly actorless scope")
+        if write_scope.task_id != task_id or write_scope.project_id != project_id:
+            raise ValueError("prediction write scope does not match its target")
+        await assert_isolated_test_seed_database(self.db)
+        task = (
+            await self.db.execute(
+                select(Task)
+                .where(Task.id == task_id, Task.project_id == project_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        prediction = Prediction(
+            task_id=task_id,
+            project_id=project_id,
+            score=score,
+            model_version=model_version,
+            result=result,
+            **({"tool_unit_id": tool_unit_id} if tool_unit_id is not None else {}),
+        )
+        if rejected_shape_indexes is not None:
+            prediction.rejected_shape_indexes = rejected_shape_indexes
+        self.db.add(prediction)
         await self.db.flush()
         return prediction
 

@@ -42,6 +42,12 @@ from app.services.annotation_evidence import (
     record_annotation_actors_for_tasks,
 )
 from app.services.annotation_track_identity import prepare_compact_track_identity
+from app.services.labeling_write_scope import LabelingWriteScope
+from app.services.labeling_write_guard import lock_labeling_write
+from app.services.secondary_inference_result import (
+    SecondaryInferenceResult,
+    thaw_json,
+)
 from app.services.raster_mask_storage import (
     prepare_mask_geometry_for_annotation_write,
     prepare_mask_payload_for_write,
@@ -316,11 +322,12 @@ class AnnotationService:
     async def accept_prediction(
         self,
         prediction_id: uuid.UUID,
-        user_id: uuid.UUID,
         shape_index: int | None = None,
         override_class_name: str | None = None,
         attribute_overrides: dict | None = None,
         video_segment_id: uuid.UUID | None = None,
+        *,
+        write_scope: LabelingWriteScope,
     ) -> list[Annotation] | None:
         """采纳预测 → 转 annotation。
 
@@ -335,16 +342,28 @@ class AnnotationService:
           原实现只返回循环最后一条, 上游 route 忽略返回值、另跑 `list_by_task` 回整题全量,
           导致前端把整题当作"刚新建"逐条 PATCH 合并 AI 候选属性 → 污染人工标注 (改动 1 根因)。
         """
+        user_id = write_scope.actor_id
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
         # v0.10.25 · predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
         prediction = (
             await self.db.execute(
                 select(Prediction).where(Prediction.id == prediction_id)
             )
         ).scalar_one_or_none()
-        if not prediction:
+        if (
+            prediction is None
+            or prediction.task_id != write_scope.task_id
+            or prediction.project_id != write_scope.project_id
+        ):
             return None
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
+        await lock_labeling_write(
+            self.db,
+            write_scope,
+            operations=("candidate_accept", "interactive_mask_accept"),
+        )
 
         # Convert and validate every selected geometry before constructing or adding
         # any Annotation row.  This closes the accept path that previously bypassed
@@ -555,6 +574,149 @@ class AnnotationService:
         await self.db.flush()
         await self._update_task_stats(prediction.task_id)
         return anns
+
+    async def apply_secondary_inference(
+        self,
+        *,
+        task: Task,
+        annotation: Annotation,
+        result: SecondaryInferenceResult,
+        write_scope: LabelingWriteScope,
+    ) -> tuple[Annotation, list[Annotation]]:
+        """Apply immutable secondary-inference facts in the caller's transaction."""
+        actor_id = write_scope.actor_id
+        if actor_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if (
+            write_scope.task_id != task.id
+            or write_scope.project_id != task.project_id
+            or write_scope.source_annotation_id != annotation.id
+        ):
+            raise HTTPException(status_code=404, detail="annotation not found")
+        task, _actor, _access = await lock_labeling_write(
+            self.db, write_scope, operations=("secondary_inference",)
+        )
+        annotation = await self.db.get(Annotation, write_scope.source_annotation_id)
+        await record_annotation_actor(self.db, task, actor_id)
+
+        if result.write_target == "attributes":
+            current_attributes = dict(annotation.attributes or {})
+            current_meta = dict(annotation.attributes_meta or {})
+            model_ref = dict(result.model_ref)
+            changed = False
+            for key, frozen_value in result.attributes:
+                if (
+                    key in current_attributes
+                    and (current_meta.get(key) or {}).get("origin") != "ai"
+                ):
+                    continue
+                current_attributes[key] = thaw_json(frozen_value)
+                current_meta[key] = {"origin": "ai", "model_ref": model_ref}
+                changed = True
+            if changed:
+                annotation.attributes = current_attributes
+                annotation.attributes_meta = current_meta
+                annotation.version += 1
+                await touch_annotation_scene_track(
+                    self.db, annotation, make_keyframe=False
+                )
+                await self.db.flush()
+            return annotation, []
+
+        from app.services.prediction import to_internal_shape
+
+        children: list[Annotation] = []
+        for frozen_shape in result.geometry_shapes:
+            shape = to_internal_shape(thaw_json(frozen_shape))
+            geometry = shape.get("geometry")
+            if not geometry:
+                continue
+            class_name = shape.get("class_name") or annotation.class_name
+            try:
+                child = await self.create(
+                    task_id=task.id,
+                    user_id=actor_id,
+                    annotation_type=shape.get("type", "bbox"),
+                    class_name=class_name,
+                    geometry=geometry,
+                    confidence=shape.get("confidence"),
+                    parent_annotation_id=annotation.id,
+                    tool_unit_id=annotation.tool_unit_id,
+                    video_segment_id=annotation.video_segment_id,
+                )
+            except HTTPException as exc:
+                detail = str(getattr(exc, "detail", ""))
+                if exc.status_code != 422 or "类别集合内" not in detail:
+                    raise
+                logger.info(
+                    "secondary_inference: 子检测类名 %r 不在项目标签集, 回落 __unknown",
+                    class_name,
+                )
+                child = await self.create(
+                    task_id=task.id,
+                    user_id=actor_id,
+                    annotation_type=shape.get("type", "bbox"),
+                    class_name="__unknown",
+                    geometry=geometry,
+                    confidence=shape.get("confidence"),
+                    parent_annotation_id=annotation.id,
+                    tool_unit_id=annotation.tool_unit_id,
+                    video_segment_id=annotation.video_segment_id,
+                )
+            child.source = "prediction_based"
+            children.append(child)
+        if children:
+            await self.db.flush()
+        return annotation, children
+
+    async def reject_prediction(
+        self,
+        prediction_id: uuid.UUID,
+        *,
+        shape_index: int | None,
+        write_scope: LabelingWriteScope,
+    ) -> None:
+        """Persist candidate rejection state for one task-scoped AI prediction."""
+        actor_id = write_scope.actor_id
+        if actor_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        prediction = (
+            await self.db.execute(
+                select(Prediction).where(Prediction.id == prediction_id)
+            )
+        ).scalar_one_or_none()
+        if (
+            prediction is None
+            or prediction.task_id != write_scope.task_id
+            or prediction.project_id != write_scope.project_id
+        ):
+            raise HTTPException(status_code=404, detail="Prediction not found")
+        await lock_labeling_write(
+            self.db, write_scope, operations=("candidate_reject",)
+        )
+
+        total_shapes = len(prediction.result or [])
+        if shape_index is not None and shape_index >= total_shapes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"shape_index {shape_index} out of range (0..{total_shapes - 1})",
+            )
+
+        rejected = list(prediction.rejected_shape_indexes or [])
+        rejected_set = set(rejected)
+        targets = (
+            [shape_index] if shape_index is not None else list(range(total_shapes))
+        )
+        for index in targets:
+            if index not in rejected_set:
+                rejected.append(index)
+                rejected_set.add(index)
+        prediction.rejected_shape_indexes = rejected
+
+        from app.services.task_lock import TaskLockService
+
+        await TaskLockService(self.db).heartbeat(write_scope.task_id, actor_id)
 
     async def list_by_task(
         self,

@@ -2,9 +2,8 @@
 title: 当前题 AI 与二次推理
 audience: [annotator, project_admin]
 type: how-to
-since: v0.18.0
 status: stable
-last_reviewed: 2026-09-07
+last_reviewed: 2026-10-17
 ---
 
 # 当前题 AI 与二次推理
@@ -74,6 +73,8 @@ last_reviewed: 2026-09-07
 4. 结果会立即出现在标注详情和画布中；超时或 backend 不可达时，面板会提供明确错误与重试入口。
 
 二次推理直接更新已确认标注的属性或子标注，不走“AI 待审”候选列表。因此开始前应确认选中的父框与模型输出类型；要对整图重新生成候选，请使用当前题 AI 或批量预标。
+
+推理期间若父对象被移动、改属性或删除，后台会拒绝旧来源版本的结果；刷新后重新选中父对象再运行。账号、项目职责、任务状态或当前编辑锁变化，也会在最终保存时重新检查。成功补写 AI 属性会更新标注版本，旧标签页持有的版本不能覆盖新结果；遇到冲突应先刷新，不要重复发送旧版本更新。
 
 <DocsVideo
   src="/media/ai/secondary-inference-attribute.mp4"

@@ -43,6 +43,8 @@ from app.schemas.aap_json import (
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.prediction import PredictionService, derive_tool_unit_from_result
+from app.services.labeling_write_scope import capture_labeling_write_scope
+from app.services.project_access import lock_current_project_access
 from app.services.mask_formats.image_codecs import normalize_coco_segmentation_rle
 from app.services.project import derive_classes_list
 from app.services.task_matcher import (
@@ -324,6 +326,20 @@ async def _purge_predictions(
     return counts
 
 
+async def _hold_import_authority(
+    db: AsyncSession, *, actor_id: uuid.UUID | None, project_id: uuid.UUID
+) -> None:
+    from fastapi import HTTPException
+
+    if actor_id is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    _actor, _project, access = await lock_current_project_access(
+        db, actor_id=actor_id, project_id=project_id
+    )
+    if not access.is_manager:
+        raise HTTPException(status_code=403, detail="项目管理权限已变化")
+
+
 # ── AAP JSON importer ──────────────────────────────────────────────
 
 
@@ -332,6 +348,8 @@ async def import_aap_json(
     project_id: uuid.UUID,
     file_bytes: bytes,
     *,
+    actor_id: uuid.UUID | None,
+    job_id: uuid.UUID | None,
     model_version_fallback: str | None = None,
     overwrite_existing: bool = False,
     dry_run: bool = False,
@@ -351,6 +369,8 @@ async def import_aap_json(
         envelope = AAPJsonV1Envelope.model_validate(raw)
     except ValidationError as exc:
         raise ValueError(f"AAP JSON envelope 校验失败: {exc.errors()[:3]}") from exc
+    if not dry_run:
+        await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
     result = AAPImportResult(dry_run=dry_run)
     svc = PredictionService(db)
@@ -510,6 +530,16 @@ async def import_aap_json(
                 score=entry.score if entry.score is not None else entry.confidence,
                 model_version=entry.model_version or model_version_fallback,
                 source="external_import",
+                write_scope=capture_labeling_write_scope(
+                    task,
+                    actor_id=actor_id,
+                    actor_known=actor_id is not None,
+                    operation="prediction_import",
+                    execution_scope=None,
+                    execution_scope_known=True,
+                    job_id=job_id,
+                    job_id_known=True,
+                ),
             )
             result.imported += 1
 
@@ -718,6 +748,8 @@ async def import_coco(
     project_id: uuid.UUID,
     file_bytes: bytes,
     *,
+    actor_id: uuid.UUID | None,
+    job_id: uuid.UUID | None,
     model_version_fallback: str | None = None,
     overwrite_existing: bool = False,
     dry_run: bool = False,
@@ -739,6 +771,8 @@ async def import_coco(
 
     if not isinstance(raw, dict):
         raise ValueError("COCO JSON 顶层必须是 object")
+    if not dry_run:
+        await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
     images_raw = raw.get("images") or []
     annotations_raw = raw.get("annotations") or []
@@ -914,6 +948,16 @@ async def import_coco(
             score=confidence,
             model_version=model_version_fallback,
             source="external_import",
+            write_scope=capture_labeling_write_scope(
+                task,
+                actor_id=actor_id,
+                actor_known=actor_id is not None,
+                operation="prediction_import",
+                execution_scope=None,
+                execution_scope_known=True,
+                job_id=job_id,
+                job_id_known=True,
+            ),
         )
         result.imported += 1
 
@@ -931,6 +975,8 @@ async def import_yolo(
     project_id: uuid.UUID,
     file_bytes: bytes,
     *,
+    actor_id: uuid.UUID | None,
+    job_id: uuid.UUID | None,
     yolo_variant: str = "det",
     model_version_fallback: str | None = None,
     overwrite_existing: bool = False,
@@ -959,6 +1005,8 @@ async def import_yolo(
         raise ValueError(
             "YOLO zip 缺少 classes.txt/data.yaml, 且项目没有可回退的类别顺序"
         )
+    if not dry_run:
+        await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
     project_class_set = set(project_classes)
     result = AAPImportResult(dry_run=dry_run)
@@ -1067,6 +1115,16 @@ async def import_yolo(
             score=1.0,  # YOLO label 无分数 → 预测级 score 同样缺省满分(与逐 shape 一致)
             model_version=model_version_fallback,
             source="external_import",
+            write_scope=capture_labeling_write_scope(
+                task,
+                actor_id=actor_id,
+                actor_known=actor_id is not None,
+                operation="prediction_import",
+                execution_scope=None,
+                execution_scope_known=True,
+                job_id=job_id,
+                job_id_known=True,
+            ),
         )
         result.imported += 1
 

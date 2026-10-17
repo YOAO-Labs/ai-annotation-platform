@@ -18,6 +18,7 @@ from app.services import trained_models as service
 from app.services import training_artifacts as artifacts
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from tests.conftest import create_registry_with_pool
 from tests.factory import create_membership, create_project, create_task
 
@@ -588,15 +589,40 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
     assert normalized["class_name"] == "car" and normalized["tool_unit_id"] == "bbox"
     assert normalized["geometry"]["x"] == pytest.approx(0.001)
     task = await create_task(db_session, project_id=project.id)
+    prediction_scope = capture_labeling_write_scope(
+        task,
+        actor_id=owner.id,
+        actor_known=True,
+        operation="prediction_import",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
+    accept_scope = capture_labeling_write_scope(
+        task,
+        actor_id=owner.id,
+        actor_known=True,
+        operation="candidate_accept",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
     prediction = await PredictionService(db_session).create_from_ml_result(
-        task.id, project.id, deployment.registry_id, result.result, model_provenance=ref
+        task_id=task.id,
+        project_id=project.id,
+        ml_backend_id=deployment.registry_id,
+        result=result.result,
+        model_provenance=ref,
+        write_scope=prediction_scope,
     )
     meta = await db_session.scalar(
         select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
     )
     assert meta.extra["trained_model"] == ref
     accepted = await AnnotationService(db_session).accept_prediction(
-        prediction.id, owner.id
+        prediction.id, write_scope=accept_scope
     )
     assert accepted and accepted[0].class_name == "car"
 

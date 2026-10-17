@@ -336,6 +336,7 @@ async def _run_segment(
     job_id: str,
     celery_root_task_id: str | None,
 ) -> dict:
+    from sqlalchemy import inspect
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
@@ -344,6 +345,7 @@ async def _run_segment(
 
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.db.models.task import Task
+    from app.db.models.async_job import AsyncJob
     from app.services.gpu_arbitration.dispatch import (
         build_gpu_dispatch_context_factory,
     )
@@ -355,6 +357,7 @@ async def _run_segment(
     from app.services.prediction import PredictionService, to_video_bbox_result
     from app.services.video_frame_service import build_context_from_task
     from app.services.prediction_context import build_predict_context
+    from app.services.labeling_write_scope import capture_labeling_write_scope
 
     task_id = segment["task_id"]
     frame_indices: list[int] = list(segment["frame_indices"])
@@ -380,6 +383,27 @@ async def _run_segment(
             task = await db.get(Task, uuid.UUID(task_id))
             if backend is None or task is None:
                 return stats
+            async_job = await db.get(AsyncJob, uuid.UUID(job_id))
+            payload = dict(async_job.payload or {}) if async_job is not None else {}
+            actor_id = async_job.user_id if async_job is not None else None
+            execution_scope = payload.get("execution_scope")
+            execution_scope_known = (
+                async_job is not None
+                and "execution_scope" in payload
+                and isinstance(execution_scope, str)
+            )
+            if not execution_scope_known:
+                execution_scope = None
+            write_scope = capture_labeling_write_scope(
+                task,
+                actor_id=actor_id,
+                actor_known=async_job is not None,
+                operation="preannotation",
+                execution_scope=execution_scope,
+                execution_scope_known=execution_scope_known,
+                job_id=uuid.UUID(job_id),
+                job_id_known=True,
+            )
             # 预先解析 requested pool 用于失败前的溯源；实际逐帧派发由
             # RoutedMLBackendClient 获取 route lease 并记录选中的物理实例。
             from app.services.ml_backend import MLBackendService
@@ -435,6 +459,8 @@ async def _run_segment(
                     stats["failed"] += 1
                     continue
                 try:
+                    if inspect(backend).expired:
+                        await db.refresh(backend)
                     results = await client.predict(
                         [{"id": f"{task_id}:{fi}", "file_path": url}], context=context
                     )
@@ -443,7 +469,7 @@ async def _run_segment(
                         raw if isinstance(raw, list) else [], fi
                     )[:box_cap]
                     await pred_svc.create_from_ml_result(
-                        task_id=task.id,
+                        task_id=write_scope.task_id,
                         project_id=uuid.UUID(project_id),
                         ml_backend_id=client.last_instance_id or backend.id,
                         result=video_items,
@@ -454,6 +480,7 @@ async def _run_segment(
                         ),
                         token_meta=results[0].meta if results else None,
                         ml_backend_pool_id=client.pool_id or source_pool_id,
+                        write_scope=write_scope,
                     )
                     await db.commit()
                     stats["frames_done"] += 1

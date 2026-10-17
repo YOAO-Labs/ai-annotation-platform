@@ -15,10 +15,11 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.db.models.prediction import Prediction
-from app.services.prediction import PredictionService
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.ml_backend import MLBackendService
+from app.services.prediction import PredictionService
 from tests.conftest import create_registry_with_pool
-from tests.factory import create_project
+from tests.factory import create_project, create_task
 
 
 def _tiny_jpeg() -> bytes:
@@ -38,13 +39,25 @@ async def test_create_from_ml_result_records_pool_and_instance(
     backend, pool = await create_registry_with_pool(db_session, name="gsam2")
     await db_session.flush()
 
+    task = await create_task(db_session, project_id=proj.id)
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=user.id,
+        actor_known=True,
+        operation="interactive_frame_prediction",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
     pred_svc = PredictionService(db_session)
     pred = await pred_svc.create_from_ml_result(
-        task_id=await _make_task(db_session, proj.id),
+        task_id=task.id,
         project_id=proj.id,
         ml_backend_id=backend.id,
         result=[{"type": "rectangle", "points": [0, 0, 1, 1]}],
         ml_backend_pool_id=pool.id,
+        write_scope=write_scope,
     )
     await db_session.flush()
 

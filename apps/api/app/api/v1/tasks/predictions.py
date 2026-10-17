@@ -27,7 +27,7 @@ from app.services.raster_mask_storage import (
     load_coco_rle,
     validate_mask_geometry_for_task,
 )
-from app.services.task_lock import TaskLockService
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.video_tracks import resolve_track_at_frame
 from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
@@ -258,15 +258,25 @@ async def accept_prediction(
         segment_id=video_segment_id,
         geometry=None,
     )
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=current_user.id,
+        actor_known=True,
+        operation="candidate_accept",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
     svc = AnnotationService(db)
     try:
         anns = await svc.accept_prediction(
             prediction_id,
-            current_user.id,
             shape_index=shape_index,
             override_class_name=override_class_name,
             attribute_overrides=attribute_overrides,
             video_segment_id=video_segment_id,
+            write_scope=write_scope,
         )
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -312,26 +322,20 @@ async def reject_prediction(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user, access=access)
     task_access.assert_task_editable(task, current_user, access=access)
-    # v0.10.25 · predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
-    pred = (
-        await db.execute(select(Prediction).where(Prediction.id == prediction_id))
-    ).scalar_one_or_none()
-    if not pred or pred.task_id != task_id:
-        raise HTTPException(status_code=404, detail="Prediction not found")
-    total_shapes = len(pred.result or [])
-    if shape_index is not None and shape_index >= total_shapes:
-        raise HTTPException(
-            status_code=400,
-            detail=f"shape_index {shape_index} out of range (0..{total_shapes - 1})",
-        )
-    current = list(pred.rejected_shape_indexes or [])
-    current_set = set(current)
-    targets = [shape_index] if shape_index is not None else list(range(total_shapes))
-    for idx in targets:
-        if idx not in current_set:
-            current.append(idx)
-            current_set.add(idx)
-    pred.rejected_shape_indexes = current
-    await TaskLockService(db).heartbeat(task_id, current_user.id)
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=current_user.id,
+        actor_known=True,
+        operation="candidate_reject",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
+    await AnnotationService(db).reject_prediction(
+        prediction_id,
+        shape_index=shape_index,
+        write_scope=write_scope,
+    )
     await db.commit()
     return None

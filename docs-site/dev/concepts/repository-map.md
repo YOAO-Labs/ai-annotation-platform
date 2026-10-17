@@ -46,6 +46,10 @@ last_reviewed: 2026-10-16
   复用上述服务与当前项目授权，保留调用方的锁顺序与事务归属。
 - 管理者写命令：`app/services/project_write_guard.py::lock_project_manager`；
   保留账号→项目共享锁和当前管理能力复核，训练/模型/评估不再依赖训练数据集路由辅助函数。
+- 推理候选最终写入：`app/services/labeling_write_scope.py` 冻结主体/目标/源版本事实，
+  `labeling_write_guard.py` 消费 `project_access.lock_current_project_access()` 的
+  账号→项目→成员当前权威；候选/Meta/计数、标注采纳及批次推进由各自标注所有者写入，
+  不把历史作业或 Scope DTO 当授权。
 - 作业结果可见性：`app/services/async_job_access.py::can_access_job`；
   明细与取消重查当前项目、导出能力及审核任务范围，不把历史作业归属当作当前授权。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；

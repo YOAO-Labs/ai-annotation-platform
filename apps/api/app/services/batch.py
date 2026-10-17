@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import Integer, case, select, func, update, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import BatchStatus
+from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
@@ -25,6 +25,9 @@ from app.services.progress import (
 )
 from app.services.project_access import membership_role_compatible
 from app.services.scene import resolve_task_scene_frames
+from app.services.labeling_write_scope import LabelingBatchWriteScope
+from app.services.labeling_write_guard import lock_labeling_batch_write
+from app.services.task_lock import TaskLockService
 
 # v0.16.x 拆分：角色权限守卫已抽到 batch_permissions.py，此处冗余别名 re-export，
 # 保持 `from app.services.batch import assert_can_transition/REVERSE_TRANSITIONS/...` 旧入口不变。
@@ -964,6 +967,33 @@ class BatchService:
         await self.db.flush()
 
     # ── Auto-transitions ───────────────────────────────────────────────────
+
+    async def mark_preannotated_after_prediction(
+        self, write_scope: LabelingBatchWriteScope
+    ) -> bool:
+        """Advance an active batch after successful prediction work.
+
+        The caller owns the transaction and commit point. Draft batches and
+        batches already moved by another command remain unchanged.
+        """
+        batch = await lock_labeling_batch_write(self.db, write_scope)
+        if batch.status != BatchStatus.ACTIVE or batch.admin_locked:
+            return False
+        allowed_statuses = (
+            WORKBENCH_AI_EDITABLE_TASK_STATUSES
+            if write_scope.execution_scope == "workbench"
+            else frozenset({"pending"})
+        )
+        if not await TaskLockService(self.db).batch_final_write_available(
+            batch.id,
+            write_scope.actor_id,
+            allow_own=write_scope.execution_scope == "workbench",
+            allowed_statuses=allowed_statuses,
+        ):
+            return False
+        batch.status = BatchStatus.PRE_ANNOTATED
+        await self.db.flush()
+        return True
 
     async def check_auto_transitions(self, batch_id: uuid.UUID | None) -> None:
         # v0.9.12 · INFO 日志诊断 B-15: admin 反馈 "标注员开始标注后 batch 未转 annotating".

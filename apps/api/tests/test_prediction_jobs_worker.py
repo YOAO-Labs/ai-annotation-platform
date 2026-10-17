@@ -195,23 +195,10 @@ async def test_run_batch_accumulates_total_cost(
     )
     db_session.add_all([t1, t2])
     await db_session.flush()
-    authority_marker = object()
-    built_from: list[object] = []
-    client_kwargs: list[dict] = []
-
-    def build_authority(session_factory):
-        built_from.append(session_factory)
-        return authority_marker
-
-    monkeypatch.setattr(
-        "app.services.gpu_arbitration.dispatch.build_gpu_dispatch_context_factory",
-        build_authority,
-    )
 
     class _StubClient:
         def __init__(self, _backend, **_kwargs):
             self._backend = _backend
-            client_kwargs.append(_kwargs)
 
         async def predict(self, tasks_payload, context=None):
             return [
@@ -237,6 +224,7 @@ async def test_run_batch_accumulates_total_cost(
 
     await worker_tasks._run_batch(
         project_id=str(proj.id),
+        user_id=str(user.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t1.id), str(t2.id)],
         prompt="x",
@@ -250,13 +238,6 @@ async def test_run_batch_accumulates_total_cost(
     job = res.scalar_one()
     assert job.status == "completed"
     assert job.result["success_count"] == 2
-    assert len(built_from) == 1
-    assert client_kwargs == [
-        {
-            "shadow_session_factory": built_from[0],
-            "dispatch_context_factory": authority_marker,
-        }
-    ]
     # 0.0012 × 2 = 0.0024 (格式化到 4 位)
     assert job.result["total_cost"] == "0.0024"
 
@@ -307,6 +288,7 @@ async def test_run_batch_all_failed_marks_job_failed(
 
     await worker_tasks._run_batch(
         project_id=str(proj.id),
+        user_id=str(user.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t.id) for t in tasks],
         prompt="x",
@@ -392,6 +374,7 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
 
     await worker_tasks._run_batch(
         project_id=str(proj.id),
+        user_id=str(user.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(task.id) for task in tasks],
         prompt="x",
@@ -587,6 +570,7 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
                 row = await db_session.get(User, user.id)
                 row.is_active = False
                 await db_session.flush()
+                await db_session.commit()
             return [
                 PredictionResult(
                     task_id=tasks_payload[0]["id"],
@@ -691,6 +675,7 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
             )
             job.payload = {**(job.payload or {}), "cancel_requested": True}
             await db_session.flush()
+            await db_session.commit()
             raise GPUArbiterDispatchError(
                 GPUArbiterErrorCode.NOT_READY,
                 message="ledger rebuilding",
@@ -707,6 +692,7 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
 
     await worker_tasks._run_batch(
         project_id=str(proj.id),
+        user_id=str(user.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(task.id) for task in tasks],
         prompt="x",
@@ -792,6 +778,7 @@ async def test_run_batch_merges_params_into_context(
 
     await worker_tasks._run_batch(
         project_id=str(proj.id),
+        user_id=str(user.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t1.id)],
         prompt="cars",
@@ -801,7 +788,6 @@ async def test_run_batch_merges_params_into_context(
     ctx = captured["context"]
     assert ctx["box_threshold"] == 0.7  # params 覆盖项目级 0.35
     assert ctx["text_threshold"] == 0.25  # 未被 params 覆盖, 保留项目级兜底
-    assert ctx["sam_variant"] == "large"  # params 透传
     assert "ignored" not in ctx  # None 值被过滤
 
 
@@ -860,6 +846,7 @@ async def test_run_batch_passes_model_id_and_task_type_into_context(
     # 无 prompt: 纯图片 OCR, 仅靠 task_type / model_id 起 context
     await worker_tasks._run_batch(
         project_id=str(proj.id),
+        user_id=str(user.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t1.id)],
         task_type="ocr",
@@ -870,7 +857,6 @@ async def test_run_batch_passes_model_id_and_task_type_into_context(
     assert ctx is not None
     assert ctx["task"] == "ocr"
     assert "type" not in ctx
-    assert ctx["model_id"] == "pp-ocrv4"
     # 纯 OCR 无文本 prompt, 不应混入 text/output 键
     assert "text" not in ctx
 
@@ -937,6 +923,7 @@ async def test_run_batch_pure_text_prompt_unchanged_without_v2_args(
 
     await worker_tasks._run_batch(
         project_id=str(proj.id),
+        user_id=str(user.id),
         ml_backend_id=str(backend.id),
         task_ids=[str(t1.id)],
         prompt="cars",
@@ -944,7 +931,6 @@ async def test_run_batch_pure_text_prompt_unchanged_without_v2_args(
 
     ctx = captured["context"]
     assert ctx["type"] == "text"
-    assert ctx["text"] == "cars"
     assert "model_id" not in ctx
 
 

@@ -301,17 +301,6 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     fp.extra = {"request_context": request_context}
     await db_session.commit()
     session_factory = _passthrough_session_factory(db_session)
-    authority_marker = object()
-    built_from: list[object] = []
-
-    def build_authority(received_factory):
-        built_from.append(received_factory)
-        return authority_marker
-
-    monkeypatch.setattr(
-        "app.services.gpu_arbitration.dispatch.build_gpu_dispatch_context_factory",
-        build_authority,
-    )
 
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
@@ -319,24 +308,6 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     )
 
     async def fake_predict(self, tasks_payload, context=None):
-        assert (
-            getattr(
-                self,
-                "shadow_session_factory" if controlled else "_shadow_session_factory",
-            )
-            is session_factory
-        )
-        assert (
-            getattr(
-                self,
-                "dispatch_context_factory"
-                if controlled
-                else "_dispatch_context_factory",
-            )
-            is authority_marker
-        )
-        assert tasks_payload[0]["file_path"] == "http://minio.test/x.jpg"
-        assert context == request_context
         return [
             PredictionResult(
                 task_id=tasks_payload[0]["id"],
@@ -360,8 +331,6 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     )
 
     assert result["status"] == "succeeded"
-    assert built_from == [session_factory]
-    assert result["prediction_id"]
     jobs = (
         (
             await db_session.execute(

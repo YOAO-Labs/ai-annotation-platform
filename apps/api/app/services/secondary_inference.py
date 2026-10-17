@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 import httpx
 from fastapi import HTTPException
@@ -34,65 +33,13 @@ from app.services.prediction_roi import (
     merge_classify_attributes,
     remap_geometry_to_image,
 )
+from app.services.secondary_inference_result import (
+    SecondaryInferenceResult,
+    freeze_json,
+)
 
 
 logger = logging.getLogger("app.services.secondary_inference")
-
-
-async def _create_child_box(
-    svc,
-    *,
-    task,
-    user_id: uuid.UUID,
-    annotation_type: str,
-    class_name: str,
-    geometry: dict,
-    confidence: float | None,
-    parent: Annotation,
-) -> Annotation:
-    """建子框; **仅** class 不在项目标签集时回落 "__unknown" 哨兵 (不丢 AI 检出框)。
-
-    子检测产出 backend 原生类名 (NG6: 平台不做类→项目标签映射)。若该类名不在项目
-    tool_bindings 允许集, create 的软校验会 422 —— 对 AI 产物不应丢框, 回落"未分类
-    待补", 由用户后续归类。
-
-    历史坑: 早版本吞掉**所有** 422, 未来若 create 加了 geometry / attribute 校验, 也会
-    被静默回落 __unknown, 覆盖真正的 bug。收窄条件: 只对 detail 明确点名"类别集合内"的
-    422 回落, 其它 422 (含未来新增校验) 原样抛。
-    """
-    try:
-        return await svc.create(
-            task_id=task.id,
-            user_id=user_id,
-            annotation_type=annotation_type,
-            class_name=class_name,
-            geometry=geometry,
-            confidence=confidence,
-            parent_annotation_id=parent.id,
-            tool_unit_id=parent.tool_unit_id,
-            video_segment_id=parent.video_segment_id,
-        )
-    except HTTPException as exc:
-        # 判据: AnnotationService._assert_class_allowed 的 detail 稳定串「不在工具单位
-        # '<tool_unit>' 的类别集合内」——用这个哨兵区分"class 不在标签集"vs 其它 422。
-        detail = str(getattr(exc, "detail", ""))
-        if exc.status_code != 422 or "类别集合内" not in detail:
-            raise
-        logger.info(
-            "secondary_inference: 子检测类名 %r 不在项目标签集, 回落 __unknown",
-            class_name,
-        )
-        return await svc.create(
-            task_id=task.id,
-            user_id=user_id,
-            annotation_type=annotation_type,
-            class_name="__unknown",
-            geometry=geometry,
-            confidence=confidence,
-            parent_annotation_id=parent.id,
-            tool_unit_id=parent.tool_unit_id,
-            video_segment_id=parent.video_segment_id,
-        )
 
 
 def _resolve_text_output_mode(backend: MLBackendRegistry, model_id: str | None) -> str:
@@ -133,19 +80,13 @@ async def run_secondary_inference(
     prompt: str | None,
     class_filter: list[int] | None,
     pad: float,
-    user_id: uuid.UUID,
     shadow_session_factory: GPUShadowSessionFactory | None = None,
     dispatch_context_factory: GPUDispatchContextFactory | None = None,
     visual_task: str | None = None,
     prompt_type: str | None = None,
-) -> tuple[Annotation, list[Annotation]]:
-    """在选中框 ROI 上跑一次能力, 产物落库。返回 (更新后的原框, 新建子框列表)。
-
-    - write_target="attributes": 分类 / OCR 属性 union 回原框, 写入键标 origin=ai。
-    - write_target="geometry":   crop 上检出的子物几何回映后建子框, 挂在原框下。
-    """
+) -> SecondaryInferenceResult:
+    """Run secondary inference and return immutable output facts for labeling."""
     from app.services.ml_routing.client import RoutedMLBackendClient
-    from app.services.prediction import to_internal_shape
     from app.services.storage import StorageService
     from app.services.trained_models import is_controlled
 
@@ -270,54 +211,24 @@ async def run_secondary_inference(
     }
 
     if write_target == "attributes":
-        # 6a. 属性型: merge 进 (起始为空的) ls_box, 写入键即 AI 产物。
         merge_classify_attributes([ls_box], results, write_keys=write_keys, label=label)
         ai_attrs = ls_box.get("attributes") or {}
-        if ai_attrs:
-            # 遵守 v0.20.10 溯源规则 (annotation-module.md §属性级溯源):
-            #   attributes_meta 只存 origin=ai 的键, "缺省即 human"; 人工手改会删该键 meta。
-            # 故某键**已有值且 meta 不标 origin=ai** → 视为人工手改过, 二次推理不再顶回;
-            # 键尚未存在 或 meta 标 origin=ai → 可安全覆盖并 (重) 标 origin=ai + 新 model_ref。
-            cur_attrs = dict(annotation.attributes or {})
-            cur_meta = dict(annotation.attributes_meta or {})
-            for k, v in ai_attrs.items():
-                if k in cur_attrs and (cur_meta.get(k) or {}).get("origin") != "ai":
-                    continue
-                cur_attrs[k] = v
-                cur_meta[k] = {"origin": "ai", "model_ref": model_ref}
-            annotation.attributes = cur_attrs
-            annotation.attributes_meta = cur_meta
-            await db.flush()
-        return annotation, []
+        return SecondaryInferenceResult(
+            write_target="attributes",
+            model_ref=tuple(model_ref.items()),
+            attributes=tuple(
+                (key, freeze_json(value)) for key, value in ai_attrs.items()
+            ),
+            geometry_shapes=(),
+        )
 
-    # 6b. 几何型: crop 检出几何回映回原图坐标 → 建子框, 挂原框下。
-    from app.services.annotation import AnnotationService
-
+    # 6b. Remap crop output to original-image coordinates; labeling creates children.
     transform = batch.transforms.get("0")
     raw_shapes = [s for cr in results for s in (cr.result or []) if isinstance(s, dict)]
     remapped = remap_geometry_to_image(raw_shapes, transform) if transform else []
-
-    svc = AnnotationService(db)
-    children: list[Annotation] = []
-    for shp in remapped:
-        internal = to_internal_shape(shp)
-        geometry = internal.get("geometry")
-        if not geometry:
-            continue
-        detected_class = internal.get("class_name") or annotation.class_name
-        child = await _create_child_box(
-            svc,
-            task=task,
-            user_id=user_id,
-            annotation_type=internal.get("type", "bbox"),
-            class_name=detected_class,
-            geometry=geometry,
-            confidence=internal.get("confidence"),
-            parent=annotation,
-        )
-        # AI 产物: 与批量二次推理一致标 prediction_based (create 默认 manual)。
-        child.source = "prediction_based"
-        children.append(child)
-    if children:
-        await db.flush()
-    return annotation, children
+    return SecondaryInferenceResult(
+        write_target="geometry",
+        model_ref=tuple(model_ref.items()),
+        attributes=(),
+        geometry_shapes=tuple(freeze_json(shape) for shape in remapped),
+    )

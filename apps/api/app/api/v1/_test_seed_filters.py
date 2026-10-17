@@ -788,11 +788,41 @@ async def _seed_image_semantics(
     )
 
 
+async def _create_seed_prediction(
+    db: AsyncSession,
+    *,
+    task: Any,
+    model_version: str,
+    result: list[dict[str, Any]],
+    rejected_shape_indexes: list[int],
+) -> Any:
+    from app.services.labeling_write_scope import capture_labeling_write_scope
+    from app.services.prediction import PredictionService
+
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=None,
+        actor_known=True,
+        operation="test_seed",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
+    return await PredictionService(db).create_test_seed_prediction(
+        task_id=task.id,
+        project_id=task.project_id,
+        model_version=model_version,
+        result=result,
+        rejected_shape_indexes=rejected_shape_indexes,
+        write_scope=write_scope,
+    )
+
+
 async def _seed_video_review(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], video_key: str
 ) -> FilteringVideoManifest:
     from app.db.models.annotation import Annotation
-    from app.db.models.prediction import Prediction
     from app.db.models.project_member import ProjectMember
     from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 
@@ -878,43 +908,41 @@ async def _seed_video_review(
     # ponytail: metric-only candidate payloads omit render geometry; Workbench coverage
     # imports valid framed shapes through the product API when geometry is required.
     predictions: dict[str, Any] = {}
-    predictions["low"] = Prediction(
-        task_id=tasks["detection_only"].id,
-        project_id=project.id,
+    predictions["low"] = await _create_seed_prediction(
+        db,
+        task=tasks["detection_only"],
         model_version="filter-detector-low",
         result=[{"type": "rectanglelabels", "value": {}, "score": 0.2}],
         rejected_shape_indexes=[],
     )
-    predictions["at"] = Prediction(
-        task_id=tasks["both"].id,
-        project_id=project.id,
+    predictions["at"] = await _create_seed_prediction(
+        db,
+        task=tasks["both"],
         model_version="filter-detector-at",
         result=[{"type": "rectanglelabels", "value": {}, "score": 0.5}],
         rejected_shape_indexes=[],
     )
-    predictions["above"] = Prediction(
-        task_id=tasks["both"].id,
-        project_id=project.id,
+    predictions["above"] = await _create_seed_prediction(
+        db,
+        task=tasks["both"],
         model_version="filter-detector-above",
         result=[{"type": "rectanglelabels", "value": {}, "score": 0.9}],
         rejected_shape_indexes=[],
     )
-    predictions["accepted"] = Prediction(
-        task_id=tasks["neither"].id,
-        project_id=project.id,
+    predictions["accepted"] = await _create_seed_prediction(
+        db,
+        task=tasks["neither"],
         model_version="filter-detector-accepted",
         result=[{"type": "rectanglelabels", "value": {}, "score": 0.8}],
         rejected_shape_indexes=[],
     )
-    predictions["rejected"] = Prediction(
-        task_id=tasks["neither"].id,
-        project_id=project.id,
+    predictions["rejected"] = await _create_seed_prediction(
+        db,
+        task=tasks["neither"],
         model_version="filter-detector-rejected",
         result=[{"type": "rectanglelabels", "value": {}, "score": 0.9}],
         rejected_shape_indexes=[0],
     )
-    db.add_all(predictions.values())
-    await db.flush()
     accepted = Annotation(
         task_id=tasks["neither"].id,
         project_id=project.id,

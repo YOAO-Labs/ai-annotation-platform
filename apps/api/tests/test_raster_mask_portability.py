@@ -256,6 +256,8 @@ async def test_aap_raster_mask_prediction_rejects_empty_foreground(
         db_session,
         project.id,
         json.dumps(envelope).encode(),
+        actor_id=user.id,
+        job_id=None,
         dry_run=True,
     )
     assert result.imported == 0

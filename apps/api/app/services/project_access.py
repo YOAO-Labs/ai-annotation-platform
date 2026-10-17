@@ -34,6 +34,7 @@ from enum import Enum
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import (
@@ -243,6 +244,19 @@ async def resolve_project_access(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
     user, project = fresh_user, fresh_project
 
+    return await _resolve_current_project_access(
+        db, user=user, project=project, lock_membership=lock_membership
+    )
+
+
+async def _resolve_current_project_access(
+    db: AsyncSession,
+    *,
+    user: User,
+    project: Project,
+    lock_membership: bool,
+    nowait: bool = False,
+) -> ProjectAccess:
     platform_role = user.role
     if platform_role not in PLATFORM_ROLES:
         # Unknown or legacy account roles fail closed; they are not a live
@@ -284,8 +298,11 @@ async def resolve_project_access(
         .execution_options(populate_existing=True)
     )
     if lock_membership:
-        stmt = stmt.with_for_update(read=True)
-    member = (await db.execute(stmt)).scalar_one_or_none()
+        stmt = stmt.with_for_update(read=True, nowait=nowait)
+    if nowait:
+        member = await _locked_access_row(db, stmt, busy_reason="membership_busy")
+    else:
+        member = (await db.execute(stmt)).scalar_one_or_none()
     if member is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
 
@@ -313,6 +330,55 @@ async def resolve_project_access(
         capabilities=project_role_capabilities(project_role),
         is_manager=False,
     )
+
+
+async def _locked_access_row(db: AsyncSession, statement, *, busy_reason: str):
+    try:
+        return (await db.execute(statement)).scalar_one_or_none()
+    except DBAPIError as exc:
+        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+            exc.orig, "pgcode", None
+        )
+        if sqlstate in {"55P03", "40001", "40P01"}:
+            raise HTTPException(
+                status_code=409, detail={"reason": busy_reason}
+            ) from exc
+        raise
+
+
+async def lock_current_project_access(
+    db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
+) -> tuple[User, Project, ProjectAccess]:
+    """Resolve current authority under account -> project -> membership share locks.
+
+    All locks are bounded and retained until the caller commits or rolls back.
+    This is a local database admission boundary, not a portable authority token.
+    """
+    with db.no_autoflush:
+        user = await _locked_access_row(
+            db,
+            select(User)
+            .where(User.id == actor_id)
+            .with_for_update(read=True, nowait=True)
+            .execution_options(populate_existing=True),
+            busy_reason="account_busy",
+        )
+        if user is None or not user.is_active:
+            raise _invalid_account()
+        project = await _locked_access_row(
+            db,
+            select(Project)
+            .where(Project.id == project_id)
+            .with_for_update(read=True, nowait=True)
+            .execution_options(populate_existing=True),
+            busy_reason="project_busy",
+        )
+        if project is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        access = await _resolve_current_project_access(
+            db, user=user, project=project, lock_membership=True, nowait=True
+        )
+    return user, project, access
 
 
 async def resolve_project_access_by_id(

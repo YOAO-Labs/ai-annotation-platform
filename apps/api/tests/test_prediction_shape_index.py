@@ -181,3 +181,56 @@ async def test_predictions_expose_source_for_ml_and_external_import(
     by_id = {row["id"]: row for row in resp.json()}
     assert by_id[str(ml_prediction.id)]["source"] == "ml_backend"
     assert by_id[str(imported_prediction.id)]["source"] == "external_import"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cross_project", [False, True])
+async def test_accept_prediction_cannot_write_another_url_task(
+    httpx_client, db_session, super_admin, cross_project
+):
+    from sqlalchemy import func, select
+
+    from app.db.models.annotation import Annotation
+    from tests.factory import create_project, create_task
+
+    owner, token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    source_project = (
+        await create_project(db_session, owner_id=owner.id)
+        if cross_project
+        else project
+    )
+    requested_task = await create_task(db_session, project_id=project.id)
+    actual_task = await create_task(db_session, project_id=source_project.id)
+    prediction = Prediction(
+        task_id=actual_task.id,
+        project_id=source_project.id,
+        result=[
+            {
+                "type": "rectanglelabels",
+                "value": {
+                    "x": 10,
+                    "y": 20,
+                    "width": 30,
+                    "height": 40,
+                    "rectanglelabels": ["car"],
+                },
+            }
+        ],
+    )
+    db_session.add(prediction)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        f"/api/v1/tasks/{requested_task.id}/predictions/{prediction.id}/accept",
+        headers=_bearer(token),
+    )
+
+    assert response.status_code == 404, response.text
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Annotation)
+            .where(Annotation.task_id.in_([requested_task.id, actual_task.id]))
+        )
+    ) == 0

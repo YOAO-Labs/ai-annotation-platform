@@ -1,7 +1,6 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
 last_reviewed: 2026-10-17
 ---
@@ -283,10 +282,11 @@ SAM / Tracker 重跑项只创建候选，不越过候选审阅直接改写 annot
 
 ### 选中框二次推理（single-box secondary inference）
 
-选中一个已落库的框 → 在它的 bbox ROI（crop）上同步跑一个能力（子物检测 / 属性分类 / OCR），产物按类型归位。端点 `POST /tasks/{task_id}/annotations/{annotation_id}/secondary-inference`，service `run_secondary_inference`（`app/services/secondary_inference.py`）。
+选中一个已落库的框 → 在它的 bbox ROI（crop）上同步跑一个能力（子物检测 / 属性分类 / OCR）。端点 `POST /tasks/{task_id}/annotations/{annotation_id}/secondary-inference`；`run_secondary_inference`（`app/services/secondary_inference.py`）只返回不可变产物事实，`AnnotationService.apply_secondary_inference()` 持有最终标注写入。
 
 - **与批量二次推理同一套投递**：直接消费 `services/prediction_context.py::build_predict_context` 与 `services/prediction_roi.py` 的 `crop_inputs_from_boxes`（裁 ROI + presigned 上传）、`merge_classify_attributes` / `remap_geometry_to_image`，不导入 worker 助手。区别只是「源」是选中的现成框而非检测阶段，且**同步执行、不走 worker**（单框秒回）。
 - **产物归位**：`write_target="attributes"` → 分类 / OCR 属性 union 回原框，写入键标 `attributes_meta.origin=ai`；`write_target="geometry"` → crop 检出几何回映回原图坐标后建**子框**（`parent_annotation_id=选中框`，`source=prediction_based`）。子检出类名不在项目标签集时回落 `__unknown`（不丢框，NG6 平台不做类映射）。
+- **最终写入**：推理前冻结 actor、实际任务及源对象 ID/版本，推理后通过 `labeling_write_guard` 重取当前权威与锁；源对象被修改、删除或任务范围变化时返回 409/404，不应用旧 ROI 的产物。实际 AI 属性更新同步增加 `Annotation.version`，旧 `If-Match` 不能再覆盖它；贡献证据仍与写入同事务。
 - 前端入口是画布顶部 `SecondaryInferenceBar`（选中单框时显），`useSecondaryInference` 跨启用 backend 枚举 `supported_inputs` 含 `crop` 的非交互模型、派生 `write_target`（检测→geometry / 分类·OCR→attributes）。UI 借鉴 `InteractiveToolBar` 悬浮面板：能力收成一个按 task 分组的 `<select>`（`<optgroup>`），选中项旁挂 ⚙ 参数 / ⚠ 补字段，右侧「运行」。
 - **面板显隐**：二次推理不常用时可关闭该工具条（`useSecondaryBarHiddenPref` 读写 `User.preferences.ui.secondary_bar_hidden`，跨设备）；三入口切换、状态一致：工作台设置窗口开关、选中框浮卡（`SelectedAnnotationCard`）头部 ✦ 按钮、标注右键菜单项（`buildImageContextMenuItems`）。gate 在 `useWorkbenchShellModel` 的 `SecondaryInferenceBar` 渲染条件（`!secondaryBarHidden`）。默认显示。
 - **属性可见性闭合**：`AttributeForm` 只渲染项目 `attribute_schema` 里的键，故 attributes-型能力若输出项目没配的属性键，产物会写库却不显示。`SecondaryInferenceBar` 用 `missingAttributeFields` 比对能力输出键与项目已有键（`projectAttributeKeys`），缺则在能力旁给「补 N 字段」CTA，复用工作台的属性字段补全 `applyAttributeFields`（`handleEnsureAttributeFields`，带 `window.confirm`）一次补进所有启用工具单位。
@@ -451,6 +451,8 @@ AI 采纳入口：
 - `GET /tasks/{task_id}/predictions`
 - `POST /tasks/{task_id}/predictions/{prediction_id}/accept`
 - `AnnotationService.accept_prediction()`
+
+采纳与拒绝必须携带 `LabelingWriteScope`，并将 Prediction 的实际 task/project 与 URL 目标逐项比较；不允许用一个可编辑任务的 URL 操作另一个任务的候选。最终准入和当前编辑锁检查由标注所有者执行，错误绑定返回 404，之前的输入转换不构成授权。
 
 ### 预测与 annotation 的边界
 

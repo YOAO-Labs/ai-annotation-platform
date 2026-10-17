@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # 预标注流水线（Prediction Pipeline）
@@ -42,7 +41,7 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
   caption="批量预标端到端主链，共享同一份 canonical 可编辑资产"
 />
 
-触发端点返回 HTTP 200 和 Celery task ID，不是 `async_jobs.id`。worker 后续创建的 AsyncJob UUID 才出现在全局 WS 终端消息与作业列表里。当前 `ProjectDetailPanel` 会把触发返回 ID 交给 `GET /async-jobs/{id}` 轮询，两类 ID 不同会使该详情轮询无法命中；这是当前实现缺口，文档不把它描述成已打通。
+普通批量路径返回 Celery task ID，worker 再创建独立 AsyncJob UUID；Data Manager 幂等请求、工作台明确任务范围和受控模型路径可在派发前预建 AsyncJob，并将其 UUID 同时用作执行 ID。因此不能统一假定两种 ID 总相同或总不同；按入口的持久化身份核对作业明细与终态。
 
 ## 与 `predictions` 表的边界
 
@@ -54,6 +53,22 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 | 工作台读取候选 → 渲染紫框             | `predictions` 经 `to_internal_shape` adapter              |
 
 详见 [API Schema 边界](./api-schema-boundary)。
+
+## 最终候选写入所有权
+
+`labeling_write_scope` 定义不可变任务/批次事实：实际 actor、操作、执行范围、可用的 Task 版本、状态、分派、批次、审核轮次和作业身份；二次推理与 Mask 修复另冻结源 Annotation ID/版本。`known=false` 与明确的 `null` 不互换，作用域对象本身不提供权限，也不构成远程授权令牌。
+
+`PredictionService.create_from_ml_result()` 必须接收该作用域，在任何候选、Meta 和任务预测数写入前调用 `labeling_write_guard`。准入复用 `project_access.lock_current_project_access()`，按账号→项目→成员锁定并读取当前权威，再锁定批次/任务并复核冻结前置条件、当前编辑锁和实际作业的主体、项目、范围与终态。项目行共享锁覆盖所有权迁移，编辑 advisory 锁覆盖写入至提交期间的编辑锁抢占；调用方保留原提交边界。
+
+- 批量仍要求 pending task 与 active / 未分派 draft 批次；工作台仍用同一 `WORKBENCH_AI_EDITABLE_TASK_STATUSES` 白名单并允许本人编辑锁。批次仅在仍为 active、未被管理员锁定且当前任务/编辑集合符合该执行范围时推进；draft 不自动推进。
+- 外部导入保留项目管理准入与原任务阶段范围，不强行套用批量 pending 规则。覆盖清理先持有当前管理权限；失败重试和候选写入同样携带真实 actor，不以项目所有者补造身份。
+- 实际终态作业不能接收迟到候选。运行中 `cancel_requested` 仍只是协作取消意图，保留原单项完成与下一处理边界收敛语义；不将请求取消等同于立即终止。
+- 普通采纳/拒绝同时绑定实际 Prediction 的 task/project 与 URL 作用域，错题或跨项目 ID 返回 404。原生交互接受快照仍不能经普通采纳接口重复创建标注。
+- 专用 `create_test_seed_prediction()` 是唯一明确无主体的夹具命令：再次核对非 production、显式 E2E 开关及数据库实际名称的 `_e2e` / `_test` 后缀，保留不创建 Meta/不增加预测数的夹具语义；这不能授权普通候选命令。
+
+逐帧执行从持久作业恢复 actor、batch 和 `execution_scope`，冻结实际任务的批次；缺失范围不猜成默认 bulk。队列、注册名、模型冻结身份、分区 Meta 的时间键和原分块/逐题提交保持；没有新增自动重试、远程协议或数据库/broker 原子提交。
+
+`Task.version` 不是所有 Annotation 编辑的全局修订号；ROI 结果必须另外核对实际源 Annotation 版本。二次推理引擎仅返回 `secondary_inference_result.SecondaryInferenceResult` 不可变事实，由 `AnnotationService.apply_secondary_inference()` 在最终准入后写属性/子框、贡献证据及实际属性变更的 Annotation 版本；引擎不再写标注 ORM。人工属性优先级、来源和原 HTTP 审计/提交语义不变。
 
 ## 工具单位（tool_unit）维度
 

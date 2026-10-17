@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import delete, select, text
+from fastapi import HTTPException
+from sqlalchemy import String, cast, delete, func, literal, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 
@@ -15,10 +17,15 @@ from app.db.models.user import User
 # 无法用 savepoint 局部恢复，只能 rollback 后整体重试。
 _RETRYABLE_SQLSTATES = {"40P01", "40001"}
 _MAX_DEADLOCK_RETRY = 3
+_TASK_SCOPE_PREFIX = "aap:task-edit-lock:"
 
 
 class TaskLockConflictError(RuntimeError):
     pass
+
+
+def _task_scope_key(task_id: uuid.UUID) -> str:
+    return f"{_TASK_SCOPE_PREFIX}{task_id}"
 
 
 async def assert_task_user_active(
@@ -51,12 +58,79 @@ class TaskLockService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def assert_final_write_available(
+        self, task_id: uuid.UUID, actor_id: uuid.UUID, *, allow_own: bool
+    ) -> None:
+        """Fence editor acquisition through the final write transaction."""
+        available = await self.db.scalar(
+            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": _task_scope_key(task_id)},
+        )
+        if not available:
+            raise HTTPException(status_code=409, detail={"reason": "task_busy"})
+        locks = await self.active_locks(task_id)
+        if any(not allow_own or lock.user_id != actor_id for lock in locks):
+            raise HTTPException(
+                status_code=409, detail={"reason": "task_locked_for_editing"}
+            )
+
+    async def batch_final_write_available(
+        self,
+        batch_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        *,
+        allow_own: bool,
+        allowed_statuses: frozenset[str],
+    ) -> bool:
+        """Fence the finite batch task/editor set without per-task queries."""
+        query = (
+            select(
+                Task.id,
+                Task.status,
+                func.pg_try_advisory_xact_lock(
+                    func.hashtextextended(
+                        literal(_TASK_SCOPE_PREFIX) + cast(Task.id, String), 0
+                    )
+                ),
+            )
+            .where(Task.batch_id == batch_id)
+            .order_by(Task.id)
+            .with_for_update(nowait=True)
+        )
+        try:
+            rows = (await self.db.execute(query)).all()
+        except DBAPIError as exc:
+            sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+                exc.orig, "pgcode", None
+            )
+            if sqlstate in {"55P03", "40001", "40P01"}:
+                raise HTTPException(
+                    status_code=409, detail={"reason": "task_busy"}
+                ) from exc
+            raise
+        if any(
+            not acquired or status not in allowed_statuses
+            for _, status, acquired in rows
+        ):
+            return False
+        locks = (
+            select(TaskLock.id)
+            .join(Task, Task.id == TaskLock.task_id)
+            .where(
+                Task.batch_id == batch_id,
+                TaskLock.expire_at > datetime.now(timezone.utc),
+            )
+        )
+        if allow_own:
+            locks = locks.where(TaskLock.user_id != actor_id)
+        return (await self.db.execute(locks.limit(1))).scalar_one_or_none() is None
+
     async def _lock_task_scope(self, task_id: uuid.UUID) -> None:
         """Serialize lock-table decisions with annotation writes for one task."""
 
         await self.db.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"aap:task-edit-lock:{task_id}"},
+            {"key": _task_scope_key(task_id)},
         )
 
     async def acquire(

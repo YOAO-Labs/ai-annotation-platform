@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from typing import Literal
+
+
+LabelingWriteOperation = Literal[
+    "candidate_accept",
+    "candidate_reject",
+    "interactive_frame_prediction",
+    "interactive_mask_accept",
+    "mask_repair",
+    "preannotation",
+    "prediction_import",
+    "prediction_retry",
+    "secondary_inference",
+    "test_seed",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class LabelingWriteScope:
+    """Immutable actor and target snapshot carried to labeling write commands.
+
+    ``actor_known`` distinguishes a known actorless execution from an unavailable
+    actor identity; a scope object alone never authorizes a remote write.
+    """
+
+    task_id: uuid.UUID
+    project_id: uuid.UUID
+    actor_id: uuid.UUID | None
+    actor_known: bool
+    operation: LabelingWriteOperation
+    execution_scope: str | None
+    execution_scope_known: bool
+    task_version: int | None
+    task_status: str
+    assignee_id: uuid.UUID | None
+    review_round_id: uuid.UUID | None
+    source_annotation_id: uuid.UUID | None
+    source_annotation_version: int | None
+    expected_batch_id: uuid.UUID | None
+    expected_batch_id_known: bool
+    job_id: uuid.UUID | None
+    job_id_known: bool
+
+
+@dataclass(frozen=True, slots=True)
+class LabelingBatchWriteScope:
+    """Immutable actor and target snapshot for a labeling-owned batch command."""
+
+    batch_id: uuid.UUID
+    project_id: uuid.UUID
+    actor_id: uuid.UUID | None
+    actor_known: bool
+    operation: LabelingWriteOperation
+    execution_scope: str | None
+    execution_scope_known: bool
+    job_id: uuid.UUID | None
+    job_id_known: bool
+
+
+def capture_labeling_write_scope(
+    task,
+    *,
+    actor_id: uuid.UUID | None,
+    actor_known: bool,
+    operation: LabelingWriteOperation,
+    execution_scope: str | None,
+    execution_scope_known: bool,
+    job_id: uuid.UUID | None,
+    job_id_known: bool,
+    source_annotation=None,
+) -> LabelingWriteScope:
+    """Capture the task facts available before potentially long inference work."""
+    return LabelingWriteScope(
+        task_id=task.id,
+        project_id=task.project_id,
+        actor_id=actor_id,
+        actor_known=actor_known,
+        operation=operation,
+        execution_scope=execution_scope,
+        execution_scope_known=execution_scope_known,
+        task_version=task.version,
+        task_status=task.status,
+        assignee_id=task.assignee_id,
+        review_round_id=task.review_round_id,
+        source_annotation_id=(
+            source_annotation.id if source_annotation is not None else None
+        ),
+        source_annotation_version=(
+            source_annotation.version if source_annotation is not None else None
+        ),
+        expected_batch_id=task.batch_id,
+        expected_batch_id_known=True,
+        job_id=job_id,
+        job_id_known=job_id_known,
+    )

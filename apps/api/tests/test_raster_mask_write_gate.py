@@ -15,6 +15,7 @@ from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.services.annotation import AnnotationService
 from app.services.prediction import PredictionService
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     build_rle_reference,
@@ -27,6 +28,32 @@ FOREGROUND_RLE = {
     "counts": [1, 2, 3],
 }
 EMPTY_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [6]}
+
+
+def _prediction_write_scope(task, actor_id):
+    return capture_labeling_write_scope(
+        task,
+        actor_id=actor_id,
+        actor_known=True,
+        operation="prediction_import",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
+
+
+def _accept_write_scope(task, actor_id):
+    return capture_labeling_write_scope(
+        task,
+        actor_id=actor_id,
+        actor_known=True,
+        operation="candidate_accept",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
 
 
 async def _seed_image_task(db, owner_id: uuid.UUID, *, item_type: str = "image"):
@@ -143,6 +170,7 @@ async def test_prediction_create_gate_off_rejects_before_flush_or_link(
             project_id=project.id,
             ml_backend_id=None,
             result=[_shape(reference)],
+            write_scope=_prediction_write_scope(task, user.id),
         )
 
     assert exc_info.value.detail["reason"] == "raster_mask_create_disabled"
@@ -184,6 +212,7 @@ async def test_prediction_create_honors_every_effective_rollout_layer(
             project_id=project.id,
             ml_backend_id=None,
             result=[_shape(reference)],
+            write_scope=_prediction_write_scope(task, user.id),
         )
 
     assert exc_info.value.detail["reason"] == "raster_mask_create_disabled"
@@ -210,6 +239,7 @@ async def test_prediction_create_gate_on_validates_then_links(
         project_id=project.id,
         ml_backend_id=None,
         result=[_shape(reference)],
+        write_scope=_prediction_write_scope(task, user.id),
     )
 
     await db_session.refresh(upload)
@@ -255,6 +285,7 @@ async def test_prediction_create_gate_on_keeps_all_contract_validation(
             project_id=project.id,
             ml_backend_id=None,
             result=[_shape(reference)],
+            write_scope=_prediction_write_scope(task, user.id),
         )
 
     assert exc_info.value.detail["reason"] == expected_reason
@@ -304,7 +335,7 @@ async def test_accept_prediction_gate_on_validates_links_and_flushes_annotation(
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
     annotations = await AnnotationService(db_session).accept_prediction(
-        prediction.id, user.id
+        prediction.id, write_scope=_accept_write_scope(task, user.id)
     )
 
     await db_session.refresh(upload)
@@ -329,7 +360,9 @@ async def test_accept_prediction_gate_on_validation_failure_leaves_no_annotation
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
     with pytest.raises(RasterMaskContractError) as exc_info:
-        await AnnotationService(db_session).accept_prediction(prediction.id, user.id)
+        await AnnotationService(db_session).accept_prediction(
+            prediction.id, write_scope=_accept_write_scope(task, user.id)
+        )
 
     assert exc_info.value.detail["reason"] == "raster_mask_empty_foreground"
     assert await _count_for_task(db_session, Annotation, task.id) == 0

@@ -35,23 +35,12 @@ from app.core.security import create_access_token
 from app.deps import get_db
 from app.schemas.user import UserOut
 from app.api.v1._test_seed_filters import FilteringSeedManifest, build_filtering_seed
+from app.services.test_seed_access import assert_isolated_test_seed_database
 
 
 async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None:
     """纵深保护所有 Seed 端点，并复用端点将要使用的同一数据库会话。"""
-    if settings.environment == "production" or not settings.e2e_seed_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="E2E seed routes are disabled",
-        )
-
-    database_name = await db.scalar(text("SELECT current_database()"))
-    normalized_name = str(database_name or "").lower()
-    if not normalized_name.endswith(("_e2e", "_test")):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="E2E seed routes require an isolated _e2e or _test database",
-        )
+    await assert_isolated_test_seed_database(db)
 
 
 router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
@@ -2106,9 +2095,16 @@ async def seed_inject_prediction(
     payload: InjectPredictionRequest,
     db: AsyncSession = Depends(get_db),
 ) -> InjectPredictionResponse:
-    """直插一条 polygonlabels 类型的 prediction。"""
-    from uuid import UUID
-    from app.db.models.prediction import Prediction
+    """Create one polygon-label candidate through the labeling owner."""
+    from app.db.models.task import Task
+    from app.services.labeling_write_scope import capture_labeling_write_scope
+    from app.services.prediction import PredictionService
+
+    task_id = UUID(payload.task_id)
+    project_id = UUID(payload.project_id)
+    task = await db.get(Task, task_id)
+    if task is None or task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="task not found")
 
     # DB 存 LabelStudio 标准 list[shape]，read 路径会走 to_internal_shape 转内部 schema。
     result = [
@@ -2121,14 +2117,23 @@ async def seed_inject_prediction(
             "score": payload.score,
         }
     ]
-    pred = Prediction(
-        task_id=UUID(payload.task_id),
-        project_id=UUID(payload.project_id),
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=None,
+        actor_known=True,
+        operation="test_seed",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
+    pred = await PredictionService(db).create_test_seed_prediction(
+        task_id=task.id,
+        project_id=project_id,
         score=payload.score,
         result=result,
+        write_scope=write_scope,
     )
-    db.add(pred)
-    await db.flush()
     pred_id = str(pred.id)
     await db.commit()
     return InjectPredictionResponse(prediction_id=pred_id)
@@ -3236,11 +3241,10 @@ async def seed_inject_raster_prediction(
     payload: InjectRasterMaskRequest,
     db: AsyncSession = Depends(get_db),
 ) -> InjectRasterPredictionResponse:
-    """构造待接受的 raster prediction，用于验证 accept write gate。"""
-    from uuid import UUID
-
-    from app.db.models.prediction import Prediction
+    """Create a raw raster candidate fixture for the accept write-gate E2E."""
     from app.db.models.task import Task
+    from app.services.labeling_write_scope import capture_labeling_write_scope
+    from app.services.prediction import PredictionService
     from app.services.raster_mask_storage import store_coco_rle
     from app.utils.raster_mask_rle import encode_coco_rle
 
@@ -3249,12 +3253,21 @@ async def seed_inject_raster_prediction(
         raise HTTPException(status_code=404, detail="task not found")
     rle = encode_coco_rle(_make_test_raster_mask("single"), 64, 48)
     reference = await store_coco_rle(rle)
-    prediction = Prediction(
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=None,
+        actor_known=True,
+        operation="test_seed",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
+    prediction = await PredictionService(db).create_test_seed_prediction(
         task_id=task.id,
         project_id=task.project_id,
         tool_unit_id="region",
         score=0.9,
-        source="ml_backend",
         result=[
             {
                 "type": "raster_mask",
@@ -3264,9 +3277,8 @@ async def seed_inject_raster_prediction(
                 "confidence": 0.9,
             }
         ],
+        write_scope=write_scope,
     )
-    db.add(prediction)
-    await db.flush()
     prediction_id = str(prediction.id)
     await db.commit()
     return InjectRasterPredictionResponse(

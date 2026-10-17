@@ -13,41 +13,20 @@ from app.workers.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-async def _preannotation_actor_revoked(db, actor, project_uuid) -> bool:
-    """Fresh-state authority check for the initiating preannotation actor."""
-
+async def _preannotation_actor_revoked(db, actor_id, project_uuid) -> bool:
+    """Read current initiating-account and project authority without holding ML locks."""
     from app.db.models.project import Project
+    from app.db.models.user import User
     from app.services.project_access import is_privileged_for_project
 
-    await db.refresh(actor)
-    fresh_project = await db.get(Project, project_uuid, populate_existing=True)
+    actor = await db.get(User, actor_id, populate_existing=True)
+    project = await db.get(Project, project_uuid, populate_existing=True)
     return (
-        not actor.is_active
-        or fresh_project is None
-        or not is_privileged_for_project(actor, fresh_project)
+        actor is None
+        or not actor.is_active
+        or project is None
+        or not is_privileged_for_project(actor, project)
     )
-
-
-async def _hold_preannotation_authority(db, actor, project_uuid) -> bool:
-    """Re-check actor/project authority under bounded locks and hold it.
-
-    Inference is long: the initiating account may be disabled or the project
-    ownership transferred while it runs, after the pre-inference check passed.
-    Account -> project share locks (matching the lifecycle lock order) make a
-    concurrent disable or ownership transfer conflict with this transaction,
-    so the authority verified here cannot be revoked between this check and
-    the caller's final-write ``commit()`` which releases the locks.
-    """
-
-    from fastapi import HTTPException
-
-    from app.services.project_write_guard import lock_actor_project_authority
-
-    try:
-        await lock_actor_project_authority(db, actor.id, project_uuid, nowait=False)
-    except HTTPException:
-        return False
-    return not await _preannotation_actor_revoked(db, actor, project_uuid)
 
 
 def _stage_totals_snapshot(totals: dict[int, dict]) -> list[dict]:
@@ -445,14 +424,15 @@ async def _run_batch(
     if pipeline_stages is not None:
         pipeline_stages = [normalize_task_fields(stage) for stage in pipeline_stages]
 
-    from sqlalchemy import select
+    from fastapi import HTTPException
+    from sqlalchemy import inspect, select
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
         create_async_engine,
     )
 
-    from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
+    from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
     from app.db.models.async_job import AsyncJob, AsyncJobStatus
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.db.models.project import Project
@@ -471,6 +451,7 @@ async def _run_batch(
     from app.services.ml_backend import MLBackendService
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService
+    from app.services.labeling_write_scope import capture_labeling_write_scope
     from app.services.project_access import is_privileged_for_project
     from app.services.task_lock import TaskLockService
     from app.services.batch_permissions import allows_bulk_preannotation
@@ -528,8 +509,8 @@ async def _run_batch(
                 or not is_privileged_for_project(actor, project)
             ):
                 raise ValueError("preannotation actor is unavailable")
-        elif async_job_id is not None:
-            raise ValueError("preannotation actor is required for a scoped job")
+        else:
+            raise ValueError("preannotation actor is required")
 
         requested_task_ids = (
             sorted({uuid.UUID(task_id) for task_id in task_ids}, key=str)
@@ -715,8 +696,26 @@ async def _run_batch(
         # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
         if predict_mode == "overwrite" and tasks:
             from app.services.batch import BatchService
+            from app.services.labeling_write_guard import lock_labeling_write
 
             overwrite_actor_id = uuid.UUID(user_id) if user_id else None
+            for overwrite_task in tasks:
+                await lock_labeling_write(
+                    db,
+                    capture_labeling_write_scope(
+                        overwrite_task,
+                        actor_id=overwrite_actor_id,
+                        actor_known=True,
+                        operation="preannotation",
+                        execution_scope=execution_scope,
+                        execution_scope_known=True,
+                        job_id=precreated_job.id
+                        if precreated_job is not None
+                        else None,
+                        job_id_known=True,
+                    ),
+                    operations=("preannotation",),
+                )
             await BatchService(db).clean_task_predictions(
                 [t.id for t in tasks], actor_id=overwrite_actor_id
             )
@@ -730,6 +729,7 @@ async def _run_batch(
         # geometry/YOLO paths do not read it, so recording it would imply an unused mask output.
         job_payload: dict = {
             "batch_id": batch_id,
+            "execution_scope": execution_scope,
             "batch_display_id": batch.display_id if batch else None,
             "ml_backend_id": ml_backend_id,
             # job payload 保留请求入口 registry 与逻辑池；逐条 Prediction 另记实际执行实例。
@@ -1037,13 +1037,15 @@ async def _run_batch(
                 await _finish_cancelled(cancelled_at_index=i)
                 await engine.dispose()
                 return
+            if inspect(task).expired:
+                await db.refresh(task)
+            if inspect(backend).expired:
+                await db.refresh(backend)
 
-            # Reauthorize the initiating actor against fresh state before each
-            # final write: a long inference must not keep writing after the
-            # actor's account or project authority was revoked.  A bounded
-            # system job (actor is None) keeps its own explicit authority.
+            # Fail before more model work when the initiating authority is gone.
+            # The labeling owner independently fences the actual final write.
             if actor is not None and await _preannotation_actor_revoked(
-                db, actor, project_uuid
+                db, uuid.UUID(user_id), project_uuid
             ):
                 await async_job_svc.mark_failed(
                     db, async_job_id, error="preannotation_actor_revoked"
@@ -1060,6 +1062,18 @@ async def _run_batch(
                 )
                 await engine.dispose()
                 return
+
+            write_scope = capture_labeling_write_scope(
+                task,
+                actor_id=actor.id if actor is not None else None,
+                actor_known=actor is not None,
+                operation="preannotation",
+                execution_scope=execution_scope,
+                execution_scope_known=True,
+                job_id=async_job_id,
+                job_id_known=True,
+            )
+            final_write_started = False
 
             try:
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
@@ -1079,14 +1093,47 @@ async def _run_batch(
                 )
                 executed_backend_id = stage_clients[0].last_instance_id or backend.id
                 executed_pool_id = stage_clients[0].pool_id or source_pool_id
-                # Re-check under locks after inference: a revocation landing
-                # mid-run must not let this write commit.  The account/project
-                # share locks are held until the commit below, so a concurrent
-                # disable or ownership transfer cannot interleave.
-                if actor is not None and not await _hold_preannotation_authority(
-                    db, actor, project_uuid
+                final_write_started = True
+                for pred_result in results:
+                    await pred_svc.create_from_ml_result(
+                        task_id=task.id,
+                        project_id=uuid.UUID(project_id),
+                        ml_backend_id=executed_backend_id,
+                        result=pred_result.result,
+                        score=pred_result.score,
+                        model_version=pred_result.model_version,
+                        inference_time_ms=pred_result.inference_time_ms,
+                        token_meta=pred_result.meta,
+                        pipeline_extra=pipeline_extra,
+                        ml_backend_pool_id=executed_pool_id,
+                        write_scope=write_scope,
+                        **(
+                            {"model_provenance": frozen_model_ref}
+                            if frozen_model_ref
+                            else {}
+                        ),
+                    )
+                    # v0.9.11 · 单条 cost 累加到 job 级总费用
+                    if pred_result.meta:
+                        cost = pred_result.meta.get("total_cost")
+                        if cost is not None:
+                            running_total_cost += float(cost)
+                await db.commit()
+                success_count += 1
+            except Exception as exc:
+                authority_denied = (
+                    final_write_started
+                    and isinstance(exc, HTTPException)
+                    and exc.status_code in {401, 403}
+                )
+                await db.rollback()
+                if (
+                    authority_denied
+                    or write_scope.actor_id is None
+                    or await _preannotation_actor_revoked(
+                        db, write_scope.actor_id, project_uuid
+                    )
                 ):
-                    await db.rollback()
                     await async_job_svc.mark_failed(
                         db, async_job_id, error="preannotation_actor_revoked"
                     )
@@ -1102,32 +1149,6 @@ async def _run_batch(
                     )
                     await engine.dispose()
                     return
-                for pred_result in results:
-                    await pred_svc.create_from_ml_result(
-                        task_id=task.id,
-                        project_id=uuid.UUID(project_id),
-                        ml_backend_id=executed_backend_id,
-                        result=pred_result.result,
-                        score=pred_result.score,
-                        model_version=pred_result.model_version,
-                        inference_time_ms=pred_result.inference_time_ms,
-                        token_meta=pred_result.meta,
-                        pipeline_extra=pipeline_extra,
-                        ml_backend_pool_id=executed_pool_id,
-                        **(
-                            {"model_provenance": frozen_model_ref}
-                            if frozen_model_ref
-                            else {}
-                        ),
-                    )
-                    # v0.9.11 · 单条 cost 累加到 job 级总费用
-                    if pred_result.meta:
-                        cost = pred_result.meta.get("total_cost")
-                        if cost is not None:
-                            running_total_cost += float(cost)
-                await db.commit()
-                success_count += 1
-            except Exception as exc:
                 gpu_arbiter_error = gpu_arbiter_failure_record(exc)
                 if gpu_arbiter_error is not None:
                     gpu_arbiter_failures.append(gpu_arbiter_error)
@@ -1137,9 +1158,10 @@ async def _run_batch(
                 if gpu_arbiter_error is not None:
                     failure_extra["gpu_arbiter_error"] = gpu_arbiter_error
                 failed = await pred_svc.create_failed(
-                    task_id=task.id,
+                    task_id=write_scope.task_id,
                     project_id=uuid.UUID(project_id),
-                    ml_backend_id=stage_clients[0].last_instance_id or backend.id,
+                    ml_backend_id=stage_clients[0].last_instance_id
+                    or uuid.UUID(ml_backend_id),
                     error_type=(
                         gpu_arbiter_error["error_code"]
                         if gpu_arbiter_error is not None
@@ -1195,9 +1217,24 @@ async def _run_batch(
         # 不隐式分派人员；预测挂在 task 上保留，管理员随后正常分派并 draft → active
         # 激活即可进入人工流程（激活不清预测）。all_failed 时任何状态都不推进。
         if batch_id and not all_failed:
-            batch = await db.get(TaskBatch, uuid.UUID(batch_id))
-            if batch and batch.status == BatchStatus.ACTIVE:
-                batch.status = BatchStatus.PRE_ANNOTATED
+            from app.services.batch import BatchService
+            from app.services.labeling_write_scope import LabelingBatchWriteScope
+
+            batch_write_scope = LabelingBatchWriteScope(
+                batch_id=uuid.UUID(batch_id),
+                project_id=project_uuid,
+                actor_id=actor.id if actor is not None else None,
+                actor_known=actor is not None,
+                operation="preannotation",
+                execution_scope=execution_scope,
+                execution_scope_known=True,
+                job_id=async_job_id,
+                job_id_known=True,
+            )
+            advanced = await BatchService(db).mark_preannotated_after_prediction(
+                batch_write_scope
+            )
+            if advanced:
                 await db.commit()
 
         # v0.10.49 · 结束时点 → 写 async_job final stats (result JSONB)

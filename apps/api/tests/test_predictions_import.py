@@ -35,6 +35,7 @@ from app.db.models.task import Task
 from app.services.annotation import AnnotationService
 from app.services.exporting.packaging import _rotated_corners_norm
 from app.services.prediction import PredictionService, to_internal_shape
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.predictions_import import (
     import_aap_json,
     import_coco,
@@ -646,7 +647,14 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
     monkeypatch.setattr("app.services.raster_mask_storage.store_coco_rle", store)
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
 
-    dry_run = await import_aap_json(db_session, project.id, payload, dry_run=True)
+    dry_run = await import_aap_json(
+        db_session,
+        project.id,
+        payload,
+        actor_id=user.id,
+        job_id=None,
+        dry_run=True,
+    )
     assert dry_run.imported == 3
     assert dry_run.errors == []
     assert (
@@ -660,7 +668,9 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
     )
     store.assert_not_awaited()
 
-    imported = await import_aap_json(db_session, project.id, payload)
+    imported = await import_aap_json(
+        db_session, project.id, payload, actor_id=user.id, job_id=None
+    )
     assert imported.imported == 3
     assert imported.errors == []
     predictions = list(
@@ -689,13 +699,23 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
             assert outside["source"] == "prediction"
 
     service = AnnotationService(db_session)
-    accepted = [
-        annotation
-        for prediction in predictions
-        for annotation in (
-            await service.accept_prediction(prediction.id, user.id) or []
+    accepted = []
+    for prediction in predictions:
+        accepted.extend(
+            await service.accept_prediction(
+                prediction.id,
+                write_scope=capture_labeling_write_scope(
+                    task,
+                    actor_id=user.id,
+                    actor_known=True,
+                    operation="candidate_accept",
+                    execution_scope=None,
+                    execution_scope_known=True,
+                    job_id=None,
+                    job_id_known=True,
+                ),
+            )
         )
-    ]
     assert {annotation.annotation_type for annotation in accepted} == set(geometries)
     assert {annotation.track_id for annotation in accepted if annotation.track_id} == {
         "external-bbox",
@@ -777,7 +797,14 @@ async def test_import_aap_json_video_prediction_contract_errors(
         schema_version="1.3",
     )
 
-    result = await import_aap_json(db_session, project.id, payload, dry_run=True)
+    result = await import_aap_json(
+        db_session,
+        project.id,
+        payload,
+        actor_id=user.id,
+        job_id=None,
+        dry_run=True,
+    )
 
     assert result.imported == 0
     assert result.skipped == 3
@@ -817,6 +844,8 @@ async def test_import_aap_json_video_prediction_requires_video_context(
             ],
             schema_version="1.3",
         ),
+        actor_id=user.id,
+        job_id=None,
         dry_run=True,
     )
     assert missing_media_type.imported == 0
@@ -838,6 +867,8 @@ async def test_import_aap_json_video_prediction_requires_video_context(
             ],
             schema_version="1.3",
         ),
+        actor_id=user.id,
+        job_id=None,
         dry_run=True,
     )
     assert missing_frame_count.imported == 0
@@ -857,6 +888,8 @@ async def test_import_aap_json_video_prediction_requires_video_context(
             ],
             schema_version="1.3",
         ),
+        actor_id=user.id,
+        job_id=None,
         dry_run=True,
     )
     assert wrong_task_type.imported == 0
@@ -875,6 +908,16 @@ async def test_prediction_video_mask_content_is_task_scoped_and_frame_resolved(
     reference = build_rle_reference(rle)
     load = AsyncMock(return_value=rle)
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=user.id,
+        actor_known=True,
+        operation="prediction_import",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
     prediction = await PredictionService(db_session).create_from_ml_result(
         task_id=task.id,
         project_id=project.id,
@@ -897,6 +940,7 @@ async def test_prediction_video_mask_content_is_task_scoped_and_frame_resolved(
                 },
             }
         ],
+        write_scope=write_scope,
     )
     endpoint_load = AsyncMock(return_value=rle)
     monkeypatch.setattr("app.api.v1.tasks.predictions.load_coco_rle", endpoint_load)
@@ -1985,7 +2029,13 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
         create,
     )
 
-    result = await import_coco(db_session, project.id, payload)
+    result = await import_coco(
+        db_session,
+        project.id,
+        payload,
+        actor_id=user.id,
+        job_id=None,
+    )
 
     assert result.imported == 3
     assert result.skipped == 3
@@ -2046,7 +2096,13 @@ async def test_import_coco_rle_respects_create_flag(
         create,
     )
 
-    result = await import_coco(db_session, project.id, payload)
+    result = await import_coco(
+        db_session,
+        project.id,
+        payload,
+        actor_id=user.id,
+        job_id=None,
+    )
 
     assert result.imported == 0
     assert result.skipped == 1

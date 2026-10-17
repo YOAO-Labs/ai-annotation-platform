@@ -8,7 +8,6 @@ mock 掉图像加载 / 对象存储 / ml_client.predict, 只验编排 + 产物�
 
 from __future__ import annotations
 
-import uuid
 import types
 
 import pytest
@@ -16,10 +15,11 @@ from fastapi import HTTPException
 from PIL import Image
 
 import app.services.ml_client as ml_client_mod
-import app.services.storage as storage_mod
 import app.services.prediction_context as prediction_context
-from app.services.ml_client import PredictionResult
+import app.services.storage as storage_mod
 from app.services.annotation import AnnotationService
+from app.services.labeling_write_scope import capture_labeling_write_scope
+from app.services.ml_client import PredictionResult
 from app.services.secondary_inference import run_secondary_inference
 from tests.factory import create_project, create_task
 
@@ -48,13 +48,10 @@ def _patch_io(monkeypatch):
 def _patch_predict(
     monkeypatch,
     results: list[PredictionResult],
-    *,
-    expected_dispatch_factory=None,
 ):
     class _FakeClient:
         def __init__(self, backend, **_kwargs):
-            if expected_dispatch_factory is not None:
-                assert _kwargs["dispatch_context_factory"] is expected_dispatch_factory
+            pass
 
         async def predict(self, inputs, context=None):
             return results
@@ -75,6 +72,31 @@ async def _mk_box(db, task_id, user_id, **kw):
     )
 
 
+async def _run_and_apply_secondary_result(
+    db, *, task, annotation, user_id, **inference_args
+):
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=user_id,
+        actor_known=True,
+        operation="secondary_inference",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+        source_annotation=annotation,
+    )
+    facts = await run_secondary_inference(
+        db, task=task, annotation=annotation, **inference_args
+    )
+    return await AnnotationService(db).apply_secondary_inference(
+        task=task,
+        annotation=annotation,
+        result=facts,
+        write_scope=write_scope,
+    )
+
+
 @pytest.mark.asyncio
 async def test_attributes_written_back_with_ai_origin(
     db_session, super_admin, monkeypatch, _patch_io
@@ -85,7 +107,6 @@ async def test_attributes_written_back_with_ai_origin(
     await db_session.flush()
     box = await _mk_box(db_session, task.id, user.id)
     await db_session.flush()
-    authority_marker = object()
 
     # 下游分类返回 color=blue (crop 输入 id="0" → cr.task_id="0")
     _patch_predict(
@@ -96,10 +117,20 @@ async def test_attributes_written_back_with_ai_origin(
                 result=[{"attributes": {"color": "blue"}, "score": 0.9}],
             )
         ],
-        expected_dispatch_factory=authority_marker,
     )
 
-    updated, children = await run_secondary_inference(
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=user.id,
+        actor_known=True,
+        operation="secondary_inference",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+        source_annotation=box,
+    )
+    inference_result = await run_secondary_inference(
         db_session,
         annotation=box,
         task=task,
@@ -114,8 +145,13 @@ async def test_attributes_written_back_with_ai_origin(
         prompt=None,
         class_filter=None,
         pad=0.08,
-        user_id=user.id,
-        dispatch_context_factory=authority_marker,  # type: ignore[arg-type]
+    )
+    assert box.attributes == {}
+    updated, children = await AnnotationService(db_session).apply_secondary_inference(
+        task=task,
+        annotation=box,
+        result=inference_result,
+        write_scope=write_scope,
     )
 
     assert children == []
@@ -144,7 +180,7 @@ async def test_label_prefix_on_written_keys(
         ],
     )
 
-    updated, _ = await run_secondary_inference(
+    updated, _ = await _run_and_apply_secondary_result(
         db_session,
         annotation=box,
         task=task,
@@ -203,7 +239,7 @@ async def test_attributes_respects_human_edits_and_reuses_ai_slots(
         ],
     )
 
-    updated, children = await run_secondary_inference(
+    updated, children = await _run_and_apply_secondary_result(
         db_session,
         annotation=box,
         task=task,
@@ -276,7 +312,7 @@ async def test_geometry_creates_child_boxes(
         ],
     )
 
-    updated, children = await run_secondary_inference(
+    updated, children = await _run_and_apply_secondary_result(
         db_session,
         annotation=box,
         task=task,
@@ -345,7 +381,7 @@ async def test_geometry_unknown_class_falls_back(
         ],
     )
 
-    _, children = await run_secondary_inference(
+    _, children = await _run_and_apply_secondary_result(
         db_session,
         annotation=box,
         task=task,
@@ -404,7 +440,6 @@ async def test_tiny_crop_raises_422(db_session, super_admin, monkeypatch, _patch
             prompt=None,
             class_filter=None,
             pad=0.08,
-            user_id=user.id,
         )
     assert exc.value.status_code == 422
 
@@ -438,7 +473,6 @@ async def test_non_croppable_geometry_raises_400(db_session, super_admin, monkey
             prompt=None,
             class_filter=None,
             pad=0.08,
-            user_id="user-0001",
         )
     assert exc.value.status_code == 400
     assert "polyline" in exc.value.detail
@@ -516,7 +550,6 @@ async def test_non_croppable_geometry_variants_raise_400(
             prompt=None,
             class_filter=None,
             pad=0.08,
-            user_id="user-0001",
         )
     assert exc.value.status_code == 400
     assert geo_type in exc.value.detail
@@ -605,7 +638,6 @@ async def test_prompt_path_sends_legal_output_in_context(
         prompt="hook",
         class_filter=None,
         pad=0.08,
-        user_id=user.id,
     )
 
     assert seen["context"]["type"] == "text"
@@ -655,7 +687,6 @@ async def test_backend_timeout_surfaces_as_504_not_500(
             prompt="crane hook",
             class_filter=None,
             pad=0.08,
-            user_id=user.id,
         )
     assert exc.value.status_code == 504
     assert "重试" in exc.value.detail
@@ -703,7 +734,6 @@ async def test_backend_5xx_surfaces_as_502_not_500(
             prompt="crane hook",
             class_filter=None,
             pad=0.08,
-            user_id=user.id,
         )
     assert exc.value.status_code == 502
 
@@ -733,6 +763,5 @@ async def test_task_model_conflict_rejected_before_image_or_storage(monkeypatch)
             prompt=None,
             class_filter=None,
             pad=0.08,
-            user_id=uuid.uuid4(),
         )
     assert error.value.status_code == 422

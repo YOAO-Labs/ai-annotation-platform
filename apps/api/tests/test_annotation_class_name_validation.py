@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from app.db.models.prediction import Prediction
 from app.services.annotation import AnnotationService
 from tests.factory import create_project, create_task
+from app.services.labeling_write_scope import capture_labeling_write_scope
 
 
 def _tb(unit: str, classes: list[dict], attribute_schema=None) -> dict:
@@ -29,6 +30,19 @@ def _tb(unit: str, classes: list[dict], attribute_schema=None) -> dict:
             "attribute_schema": attribute_schema or {"fields": []},
         }
     }
+
+
+def _accept_scope(task, actor_id):
+    return capture_labeling_write_scope(
+        task,
+        actor_id=actor_id,
+        actor_known=True,
+        operation="candidate_accept",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -187,7 +201,9 @@ async def test_accept_prediction_alias_scoped_to_prediction_unit(
 
     svc = AnnotationService(db_session)
     # v0.20.22 · accept_prediction 现返回 list[Annotation] | None
-    anns = await svc.accept_prediction(pred.id, user.id)
+    anns = await svc.accept_prediction(
+        pred.id, write_scope=_accept_scope(task, user.id)
+    )
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.class_name == "person"
@@ -221,7 +237,7 @@ async def test_accept_prediction_raises_when_class_not_in_unit(db_session, super
 
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc_info:
-        await svc.accept_prediction(pred.id, user.id)
+        await svc.accept_prediction(pred.id, write_scope=_accept_scope(task, user.id))
     assert exc_info.value.status_code == 422
     assert "ghost" in exc_info.value.detail
 
@@ -254,7 +270,11 @@ async def test_accept_prediction_override_class_name_lands_project_label(
     )
 
     svc = AnnotationService(db_session)
-    anns = await svc.accept_prediction(pred.id, user.id, override_class_name="行人")
+    anns = await svc.accept_prediction(
+        pred.id,
+        override_class_name="行人",
+        write_scope=_accept_scope(task, user.id),
+    )
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.class_name == "行人"
@@ -288,7 +308,11 @@ async def test_accept_prediction_override_not_in_allowed_raises_422(
 
     svc = AnnotationService(db_session)
     with pytest.raises(HTTPException) as exc_info:
-        await svc.accept_prediction(pred.id, user.id, override_class_name="车")
+        await svc.accept_prediction(
+            pred.id,
+            override_class_name="车",
+            write_scope=_accept_scope(task, user.id),
+        )
     assert exc_info.value.status_code == 422
 
 
@@ -319,7 +343,9 @@ async def test_accept_prediction_no_match_pass_through_class_name(
     )
 
     svc = AnnotationService(db_session)
-    anns = await svc.accept_prediction(pred.id, user.id)
+    anns = await svc.accept_prediction(
+        pred.id, write_scope=_accept_scope(task, user.id)
+    )
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.class_name == "person"
