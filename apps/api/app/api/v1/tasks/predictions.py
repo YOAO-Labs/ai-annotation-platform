@@ -46,7 +46,11 @@ from app.services.project_access import ProjectAccess
 router = APIRouter()
 
 
-@router.get("/{task_id}/predictions", response_model=list[PredictionOut])
+@router.get(
+    "/{task_id}/predictions",
+    response_model=list[PredictionOut],
+    dependencies=[Depends(require_scopes("annotations:read"))],
+)
 async def get_predictions(
     task_id: uuid.UUID,
     model_version: str | None = None,
@@ -252,6 +256,11 @@ async def accept_prediction(
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user, access=access)
     _assert_task_editable(task, current_user, access=access)
+    prediction = (
+        await db.execute(select(Prediction).where(Prediction.id == prediction_id))
+    ).scalar_one_or_none()
+    if prediction is None or prediction.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Prediction not found")
     await assert_video_annotation_write_scope(
         db,
         task=task,

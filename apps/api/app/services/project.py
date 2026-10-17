@@ -341,6 +341,39 @@ def assert_project_kind_consistent(type_key: str | None, data_type: str | None) 
         )
 
 
+def resolve_project_kind(
+    type_key: str | None,
+    data_type: str | None,
+    *,
+    inherited_type_key: str | None = None,
+    inherited_data_type: str | None = None,
+) -> tuple[str, str]:
+    """Resolve a create request's project kind before legacy class conversion."""
+    type_key = type_key or None
+    data_type = data_type or None
+    if type_key and data_type:
+        assert_project_kind_consistent(type_key, data_type)
+    elif type_key:
+        data_type = data_type_from_type_key(type_key)
+    elif data_type:
+        type_key = legacy_type_key_from_data_type(data_type)
+    else:
+        type_key = inherited_type_key or None
+        data_type = inherited_data_type or None
+        if type_key and data_type:
+            assert_project_kind_consistent(type_key, data_type)
+        elif type_key:
+            data_type = data_type_from_type_key(type_key)
+        elif data_type:
+            type_key = legacy_type_key_from_data_type(data_type)
+        else:
+            data_type = "image"
+            type_key = legacy_type_key_from_data_type(data_type)
+
+    assert type_key is not None and data_type is not None
+    return type_key, data_type
+
+
 def lookup_classes_for_tool_unit(
     tool_bindings: dict[str, Any] | None,
     tool_unit_id: str,

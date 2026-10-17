@@ -216,7 +216,7 @@ async def test_probe_returns_error_on_timeout(httpx_client, super_admin):
         assert res.status_code == 200
         body = res.json()
         assert body["ok"] is False
-        assert "timed out" in (body["error"] or "")
+        assert body["error"] == "连接超时"
 
 
 @pytest.mark.asyncio

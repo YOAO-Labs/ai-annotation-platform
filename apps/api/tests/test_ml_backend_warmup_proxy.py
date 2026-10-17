@@ -91,10 +91,9 @@ async def test_warmup_returns_404_when_backend_missing(
 
     from app.services import ml_backend as svc_module
 
-    # backend 不存在 → svc.warmup 返回 None → 404
-    monkeypatch.setattr(
-        svc_module.MLBackendService, "warmup", AsyncMock(return_value=None)
-    )
+    # backend 不存在 → hidden 404 before svc.warmup / backend network call
+    mock_warmup = AsyncMock(return_value=None)
+    monkeypatch.setattr(svc_module.MLBackendService, "warmup", mock_warmup)
     fake_bid = uuid.uuid4()
     r = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{fake_bid}/warmup",
@@ -102,6 +101,7 @@ async def test_warmup_returns_404_when_backend_missing(
         headers=auth_headers,
     )
     assert r.status_code == 404
+    mock_warmup.assert_not_awaited()
 
 
 async def test_warmup_propagates_upstream_4xx(

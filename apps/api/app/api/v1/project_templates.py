@@ -29,7 +29,10 @@ from app.schemas.project_template import (
     ProjectTemplateUpdate,
 )
 from app.services.display_id import next_display_id
-from app.services.project import coalesce_legacy_into_tool_bindings
+from app.services.project import (
+    coalesce_legacy_into_tool_bindings,
+    resolve_project_kind,
+)
 from app.services.project_template import (
     TEMPLATE_PAYLOAD_FIELDS,
     assert_can_create_scope,
@@ -119,17 +122,33 @@ async def create_template(
 
     payload = data.model_dump(exclude_unset=True, exclude_none=False)
     source_project_id = payload.pop("source_project_id", None)
-
+    source_project = None
     if source_project_id is not None:
         source_project = await assert_project_visible(source_project_id, db, user)
+
+    payload["type_key"], payload["data_type"] = resolve_project_kind(
+        payload.get("type_key"),
+        payload.get("data_type"),
+        inherited_type_key=(
+            source_project.type_key if source_project is not None else None
+        ),
+        inherited_data_type=(
+            source_project.data_type if source_project is not None else None
+        ),
+    )
+    type_key = payload["type_key"]
+
+    # Coalesce caller legacy fields before source defaults so they remain authoritative.
+    coalesce_legacy_into_tool_bindings(payload, None, type_key)
+    for _legacy_key in ("classes", "classes_config", "attribute_schema"):
+        payload.pop(_legacy_key, None)
+
+    if source_project is not None:
         merged = dump_project_to_template_payload(source_project)
-        # caller 显式给出的字段优先
         for k, v in merged.items():
             payload.setdefault(k, v)
-        # 模板默认沿用源项目 name + type 以减少重复输入 (caller 给则优先)
         payload.setdefault("name", f"{source_project.name} 模板")
         payload.setdefault("type_label", source_project.type_label)
-        payload.setdefault("type_key", source_project.type_key)
 
     if (
         not payload.get("name")
@@ -140,12 +159,6 @@ async def create_template(
             status_code=400,
             detail="name / type_label / type_key 必填 (或通过 source_project_id 兜底)",
         )
-
-    # v0.10.22 · 旧客户端只传 legacy classes / classes_config / attribute_schema 时反向派生
-    # 进 tool_bindings, 派生后剔除扁平字段 (列已删, 不能作 ORM kwarg).
-    coalesce_legacy_into_tool_bindings(payload, None, payload.get("type_key"))
-    for _legacy_key in ("classes", "classes_config", "attribute_schema"):
-        payload.pop(_legacy_key, None)
 
     template = ProjectTemplate(
         id=uuid.uuid4(),

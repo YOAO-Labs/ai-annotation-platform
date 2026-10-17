@@ -1,7 +1,7 @@
-"""v0.7.2 · 全局 ⌘K 搜索：跨实体快速联想（项目 / 任务 / 数据集 / 成员）。
+"""全局 ⌘K 搜索：跨实体快速联想（项目 / 任务 / 数据集 / 成员）。
 
 每类调用现有 service.search 或最小 SQL，统一遵守该用户的可见性边界
-（项目按 _visible_project_filter；任务跟项目可见性绑定；数据集是公开资源）。
+（项目按 _visible_project_filter；任务复用分派/批次范围及协作视频例外；数据集是公开资源）。
 单次返回 limit×4 条，前端渲染 group + 键盘导航 + 跳转。
 """
 
@@ -10,17 +10,19 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user, get_db
-from app.db.enums import PlatformRole
+from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.dataset import Dataset
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
+from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.api.v1.projects import _visible_project_filter
+from app.services.scheduler import task_visibility_clause
 
 router = APIRouter()
 
@@ -56,7 +58,7 @@ async def global_search(
         for p in projects
     ]
 
-    # 任务（按 display_id 前缀 / file_name 模糊；可见项目内）
+    # Filter task authority before LIMIT so hidden matches cannot starve valid ones.
     visible_proj_ids_q = select(Project.id)
     if cond is not None:
         visible_proj_ids_q = visible_proj_ids_q.where(cond)
@@ -68,6 +70,47 @@ async def global_search(
         .order_by(Task.updated_at.desc())
         .limit(limit)
     )
+    if user.role != PlatformRole.SUPER_ADMIN.value:
+        roles = (
+            [ProjectRole.VIEWER.value]
+            if user.role == PlatformRole.VIEWER.value
+            else [role.value for role in ProjectRole]
+        )
+        membership_scope = or_(
+            *[
+                and_(
+                    ProjectMember.role == role,
+                    or_(
+                        task_visibility_clause(user, project_role=role),
+                        and_(
+                            Task.file_type == "video",
+                            Project.video_collaboration["enabled"]
+                            .as_boolean()
+                            .is_(True),
+                        ),
+                    ),
+                )
+                for role in roles
+            ]
+        )
+        tasks_q = (
+            tasks_q.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id)
+            .outerjoin(
+                ProjectMember,
+                and_(
+                    ProjectMember.project_id == Project.id,
+                    ProjectMember.user_id == user.id,
+                ),
+            )
+            .where(
+                or_(
+                    Project.owner_id == user.id
+                    if user.role == PlatformRole.PROJECT_ADMIN.value
+                    else false(),
+                    membership_scope,
+                )
+            )
+        )
     task_rows = (await db.execute(tasks_q)).all()
     task_items = [
         {

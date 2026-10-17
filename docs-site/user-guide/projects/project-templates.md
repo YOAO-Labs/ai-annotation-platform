@@ -1,9 +1,8 @@
 ---
 audience: [project_admin, super_admin]
 type: how-to
-since: v0.10.14
 status: stable
-last_reviewed: 2026-06-10
+last_reviewed: 2026-10-17
 ---
 
 # 项目模板库（Project Templates）
@@ -64,6 +63,8 @@ last_reviewed: 2026-06-10
 
 在模板卡片点击「应用」→ 跳转到 CreateProjectWizard，顶部出现 banner「已用模板字段预填表单」。
 后续步骤与普通新建相同；任意字段可在某步覆盖（你的修改优先于模板配置）。
+
+脚本也可以通过 SDK 的 `projects.create(name, template_id=...)` 应用模板，或通过 source_project_id 复制已有项目配置。省略类型与类型标签时服务器按来源继承，视频／点云不会被默认改成图像；明确指定的字段继续优先。CLI 支持 `aap projects create --name ... --template ... --json`，详见 [视频、模板与存储运维](../../dev/sdk/video-and-templates)。
 
 提交后：
 

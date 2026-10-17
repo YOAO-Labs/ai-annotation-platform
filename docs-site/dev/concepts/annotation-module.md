@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # 标注模块
@@ -541,6 +541,11 @@ annotation 路径几乎都带两个伴随动作：
 - 锁续期
 - 审计 detail
 - 前端 mutation 成功后的 cache invalidation
+
+## 标注历史与预测采纳授权
+
+- **历史记录鉴权收敛**：`GET /api/v1/annotations/{id}/history` 与 `GET /api/v1/tasks/{id}/history` 统一依据底层任务的当前项目、批次与分派状态判断可见性，最新 revision 在前；已软删除的标注历史依然强制校验该可见性。标注表冗余的 `project_id` 不用于越权放行。
+- **预测采纳校验**：采纳预测（`accept_prediction`）强制断言候选预测确实属于 URL 中的当前 `task_id`，防止跨任务偷渡；API Key 调用时须具备 `annotations:read` 权限。
 
 ## 前端同步点
 

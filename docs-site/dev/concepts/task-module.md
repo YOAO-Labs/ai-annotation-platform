@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # 任务模块
@@ -238,10 +238,19 @@ scene 模式把一段时序录像切成多个 task，每个 task 通过其关联
 - 复制 geometry / class / attributes，并共享 `track_id`（跨帧同一对象的通用标识；源无则 `_new_track_id()` 分配，见 [标注模块 · 跨帧链](./annotation-module)）<!-- since v0.21.2 · ADR-0045 -->
 - `box_3d` 的 `convention_at_create` 取**目标** dataset 的 `axis_convention`（3D 场景，详 service `propagate`）
 - `override_psr`（可空）为扩展位：给定时按 key 覆盖 box_3d 的 center/size/rotation，前端本期总传 `None` = 完全复制源几何
-- 权限：源 task 需对当前用户可见；目标 task 需可见且可写（未进 `review` / `completed` 锁态，走 `_assert_task_editable`）
+- 权限：源 task 与目标 task **均需处于可编辑状态**（源任务若已 completed 返回 `task_locked`，需先 reopen；只读源帧不可借可写目标帧隐式改动轨迹身份）；目标任务走 `_assert_task_editable` 校验未进 `review / completed` 锁态
 - 返回 `201` + `PropagateResponse{ annotation }`（新建的目标 annotation）
 
 > 与 `POST /tasks/{task_id}/video/tracks/{annotation_id}:propagate` 区分：后者是**视频轨迹传播**（提交一个异步 tracker job，沿帧序自动追踪同一目标），`propagate-to-task` 则是**单条标注一次性复制到指定相邻 task**，同步返回结果，二者用途不同，不要混淆。
+
+## 任务文件上传生命周期
+
+任务素材可直接挂载到项目任务上，使用分步上传链路（`apps/api/app/api/v1/files.py`）：
+
+1. **初始化占位**：`POST /files/upload-init` 校验项目管理权限，创建状态为 `uploading` 的 task 占位行，并签发约 15 分钟有效的预签名 S3 PUT URL。
+2. **直传存储**：客户端流式直传原始素材字节，不携带平台业务 Bearer token。
+3. **完成回执**：`POST /files/upload-complete/{task_id}` 验证对象存储中文件存在与大小，将任务状态推进至 `pending`，并为图片格式排队 Celery 缩略图生成任务（回执成功不等于缩略图已渲染完毕）。
+4. **下载与缩略图**：`GET /files/tasks/{task_id}/file-url` 严格按照当前任务的可见性与指派授权签发短期读取 URL；`POST /files/projects/{project_id}/backfill-thumbnails` 允许管理员对缺失缩略图的任务排队异步回填。
 
 ## Task Lock
 

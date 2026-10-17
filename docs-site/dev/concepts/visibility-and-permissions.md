@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-17
 ---
 
 # 可见性与权限
@@ -57,7 +57,12 @@ last_reviewed: 2026-09-19
 
 ### 导出收紧（有意行为变化）
 
-全项目、批次与选定任务 / Data Manager 导出要求显式能力 `export.annotations`，仅项目 `reviewer` 与合法管理者；项目 `annotator` / `viewer` 被拒。这是相对“项目可见即可导出”的**故意收紧**，同样作用于导出创建、worker 执行、缓存命中与结果访问；选定任务导出仍保留逐任务可见性检查。项目绩效明细与 CSV 仍仅 owner / 超管，导出标注不等于可看他人绩效。
+全项目、批次与选定任务 / Data Manager 导出要求显式能力 `export.annotations`，仅项目 `reviewer` 与合法管理者；项目 `annotator` / `viewer` 被拒。批次导出及点云预检（`exports/lidar:preflight`）同样执行该门禁。这是相对“项目可见即可导出”的**故意收紧**，同样作用于导出创建、worker 执行、缓存命中与结果访问；选定任务导出仍保留逐任务可见性检查。项目绩效明细与 CSV 仍仅 owner / 超管，导出标注不等于可看他人绩效。
+
+### 项目管理员审计与搜索权限隔离
+
+- **审计可见性范围**：项目管理员访问审计日志（`/api/v1/audit`）时，系统应用 `_managed_audit_scope`，查询与计数严格限制在其作为 owner 负责的项目内（涵盖项目自身、批次、任务、标注、反馈、邀请及关联上下文）；平台全局用户管理、系统设置和缺少可靠项目归属的事件仅超级管理员可见，审计归档与导出也仅限超级管理员。
+- **全局搜索权限前置**：全局 ⌘K 搜索（`/api/v1/search`）在执行 `LIMIT` 之前，将任务权限子句（`task_visibility_clause`）及协作视频例外与项目成员身份进行联表过滤，确保用户无权查看的任务不会挤占有效匹配配额。
 
 ### 自审与审阅贡献者证据
 

@@ -245,8 +245,149 @@ async def test_create_project_without_source_unchanged(httpx_client, super_admin
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["name"] == "普通新建"
+    assert data["type_key"] == "image-det"
+    assert data["data_type"] == "image"
     assert data["classes"] == []
     assert data["ai_enabled"] is False
+
+
+async def test_create_project_requires_type_label_without_inheritance(
+    httpx_client, super_admin
+):
+    _, token = super_admin
+    response = await httpx_client.post(
+        "/api/v1/projects",
+        json={"name": "缺少类型标签"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_create_project_inherits_lidar_kind_and_guide_from_source(
+    httpx_client, super_admin, db_session
+):
+    user, token = super_admin
+    asset = {
+        "key": f"projects/{uuid.uuid4()}/guide/lidar.png",
+        "original_name": "lidar.png",
+        "content_type": "image/png",
+        "size": 1024,
+        "uploaded_at": "2026-05-18T00:00:00+00:00",
+    }
+    source = await _seed_project(
+        db_session,
+        user.id,
+        type_label="激光雷达",
+        type_key="lidar",
+        data_type="lidar",
+        annotation_guide="# 点云指引",
+        guide_assets=[asset],
+    )
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/projects",
+        json={
+            "name": "继承点云项目",
+            "source_project_id": str(source.id),
+            "copy_annotation_guide": True,
+            "scene_mode": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["type_label"] == "激光雷达"
+    assert result["type_key"] == "lidar"
+    assert result["data_type"] == "lidar"
+    assert result["scene_mode"] is True
+    assert result["annotation_guide"] == "# 点云指引"
+    assert result["guide_assets"] == [asset]
+    assert result["id"] != str(source.id)
+
+
+async def test_create_project_explicit_kind_overrides_source_and_legacy_classes(
+    httpx_client, super_admin, db_session
+):
+    user, token = super_admin
+    source = await _seed_project(
+        db_session,
+        user.id,
+        type_label="点云源",
+        type_key="lidar",
+        data_type="lidar",
+    )
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/projects",
+        json={
+            "name": "显式图像项目",
+            "source_project_id": str(source.id),
+            "type_key": "image-seg",
+            "classes": ["mask"],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["type_label"] == "点云源"
+    assert result["type_key"] == "image-seg"
+    assert result["data_type"] == "image"
+    assert result["classes"] == ["mask"]
+    assert result["tool_bindings"]["region"]["classes"][0]["name"] == "mask"
+
+
+async def test_create_project_rejects_explicit_null_type_label_with_source(
+    httpx_client, super_admin, db_session
+):
+    user, token = super_admin
+    source = await _seed_project(db_session, user.id)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/projects",
+        json={
+            "name": "空标签",
+            "source_project_id": str(source.id),
+            "type_label": None,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_scene_mode_uses_inherited_video_kind(
+    httpx_client, db_session, super_admin
+):
+    from app.db.models.project_template import ProjectTemplate
+
+    user, token = super_admin
+    template = ProjectTemplate(
+        id=uuid.uuid4(),
+        display_id=f"PT-VID-{uuid.uuid4().hex[:6]}",
+        name="视频模板",
+        type_label="视频跟踪",
+        type_key="video-track",
+        data_type="video",
+        scope="public",
+        created_by=user.id,
+    )
+    db_session.add(template)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/projects",
+        json={
+            "name": "错误 scene 模式",
+            "template_id": str(template.id),
+            "scene_mode": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422, response.text
 
 
 async def test_clone_skips_annotation_guide_by_default(

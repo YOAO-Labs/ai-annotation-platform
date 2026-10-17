@@ -1,12 +1,17 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-17
 ---
 
 # 任务与标注
+
+## 任务文件与数据集场景
+
+任务文件使用 `POST /files/upload-init` 创建 uploading 占位并取得 PUT URL，上传字节后明确调用 `POST /files/upload-complete/{task_id}`。初始化和完成在存储签名／验证或排队前要求项目负责人或超级管理员；`GET /files/tasks/{task_id}/file-url` 按当前任务可见性签发短期下载 URL，`POST /files/projects/{project_id}/backfill-thumbnails` 要求项目管理权限。完成或 queued 回执不代表缩略图已生成。
+
+`GET /scenes?dataset_id=...`、`GET /scenes/{scene_id}` 和 `GET /scenes/{scene_id}/trajectory` 沿用全局数据集目录读取策略，API key 需 `datasets:read`。`PATCH /scenes/{scene_id}` 沿用数据集管理员写策略，限 project_admin/super_admin；显式 null 当前不修改字段，空 source_metadata 对象可清空元数据，没有 revision/CAS。SDK 与 CLI 分步用法见 [文件上传与数据集场景](../../dev/sdk/files-and-scenes)。
 
 ## 任务模型
 
@@ -572,6 +577,10 @@ GET /api/v1/tasks/:id/history          # annotation_history 全部 revision
 GET /api/v1/tasks/:id/comments         # 标注评论
 ```
 
+标注级历史使用 `GET /api/v1/annotations/{annotation_id}/history`。两类历史均按实际任务的项目、批次与分派规则鉴权，最新记录在前，软删除记录仍需相同可见权限。annotation 冗余 project_id 不作为授权依据。
+
+Mask 格式导出预检 `POST /api/v1/projects/{project_id}/mask-formats/exports:preflight` 同样要求 `export.annotations`；计划摘要不绑定之后的项目导出。点云质量 run 派发失败时，503 detail 保留已持久化的 `run_id` 和 `async_job_id`，可分别读取领域 run 与 Job。SDK 的讨论、格式、质量与修复工作流见 [讨论、缺陷报告与质量处理](../../dev/sdk/annotation-quality)。
+
 ## 任务锁
 
 | 端点                     | 作用     |
@@ -585,3 +594,5 @@ GET /api/v1/tasks/:id/comments         # 标注评论
 
 - [审核](./predictions)
 - [WebSocket 协作](../../dev/reference/ws-protocol)
+
+任务预测读取要求 API key 的 `annotations:read`；采纳会验证 prediction 属于路径 task。跨帧延续／插值同时校验源任务可编辑，completed 源任务返回 task_locked。相机成员查询验证 SceneTrack 与任务实际 scene 相同；不可见时间线帧不返回轨迹存在信息。完整 SDK 工作流见 [任务上下文、租约与几何工作流](../../dev/sdk/task-workflows)。

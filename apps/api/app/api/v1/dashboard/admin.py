@@ -39,6 +39,7 @@ from app.services.dashboard_stats import (
     _period_window,
     _reject_reason_breakdown,
 )
+from app.api.v1.audit_logs import _managed_audit_scope
 
 router = APIRouter()
 
@@ -264,7 +265,10 @@ async def admin_people_list(
     pm_rows = (
         await db.execute(
             select(ProjectMember.user_id, func.count().label("n"))
-            .where(ProjectMember.user_id.in_(user_ids))
+            .where(
+                ProjectMember.user_id.in_(user_ids),
+                *([ProjectMember.project_id == pid] if pid else []),
+            )
             .group_by(ProjectMember.user_id)
         )
     ).all()
@@ -581,8 +585,8 @@ async def admin_person_detail(
     """v0.8.4 · 个人详情：4 周趋势、耗时直方图、项目分布、timeline。
 
     v0.12.6 (A3)：project 给定时产能/质量/耗时/归因聚合**按该项目切分**；
-    project_admin 必须指定其项目，super_admin 可全局或任意项目。timeline（审计活动流）
-    不含可靠 project 维度，保持全局。
+    project_admin 必须指定其项目，super_admin 可全局或任意项目。
+    项目范围的 timeline 只包含可验证归属的事件，过滤在最近 50 条限制之前。
     """
     pid = await _resolve_people_scope(db, current_user, project)
     ann_proj = [Annotation.project_id == pid] if pid else []
@@ -731,12 +735,15 @@ async def admin_person_detail(
         p95_idx = max(0, int(len(durations_sorted) * 0.95) - 1)
         p95 = int(durations_sorted[p95_idx])
 
-    # timeline：最近 50 条 audit_logs
+    # Scope before LIMIT so unrelated recent activity cannot hide project events.
     timeline_rows = (
         (
             await db.execute(
                 select(AuditLog)
                 .where(AuditLog.actor_id == uid)
+                .where(
+                    _managed_audit_scope(current_user, project_id=pid) if pid else True
+                )
                 .where(
                     AuditLog.action.in_(
                         [
@@ -780,7 +787,10 @@ async def admin_person_detail(
         await db.execute(
             select(func.count())
             .select_from(ProjectMember)
-            .where(ProjectMember.user_id == uid)
+            .where(
+                ProjectMember.user_id == uid,
+                *([ProjectMember.project_id == pid] if pid else []),
+            )
         )
     ).scalar() or 0
 

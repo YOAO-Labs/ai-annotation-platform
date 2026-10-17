@@ -41,7 +41,7 @@ last_reviewed: 2026-10-16
 
 版本摘要／详情增加可空 `task_dataset_id`、`version_ordinal` 和 `contract_profile`。profile 包括原 schema、规范任务、输出／来源媒体、格式、几何与桥接；不加载完整 manifest。序号只在该任务流内唯一，与 `parent_id`、请求 UUID、包名及 release 版本无关。失败／取消版本保留序号，重试／重放沿用原序号，删除不复用。旧写入者的有效但未关联版本仍会出现在任务过滤列表，管理字段为空；不会伪造序号。
 
-任务识别依据完整认可的冻结契约。无法识别行不归入任一任务流；诊断页只返回 `id`、`name`、`status`、`created_at`、可空 `raw_task`、`error_code` 和 `reason`。历史无任务字段只有符合完整检测旧契约时才识别为检测。原无过滤列表／详情仍采用严格版本模型，不是任意损坏 JSON 的诊断接口。新增两个管理 GET 暂列为 Python SDK 的 `web-only` 排除项，没有新增 SDK 方法。
+任务识别依据完整认可的冻结契约。无法识别行不归入任一任务流；诊断页只返回 `id`、`name`、`status`、`created_at`、可空 `raw_task`、`error_code` 和 `reason`。历史无任务字段只有符合完整检测旧契约时才识别为检测。原无过滤列表／详情仍采用严格版本模型，不是任意损坏 JSON 的诊断接口。新增两个管理 GET 已由 Python SDK 的 `client.task_datasets.list` 与 `client.task_datasets.unrecognized_versions` 以及 CLI `aap learning task-datasets` 完整收录。
 
 ### 冻结数据洞察
 
@@ -171,7 +171,7 @@ last_reviewed: 2026-10-16
 
 比较仅在双方报告完整且冻结基准多重集、类别、用途、评估器、预处理、推理语义与阈值兼容时提供 `delta_right_minus_left` 和按冻结内容、标签、尺寸及重复次数对齐的 `sample_pairs`。候选权重和来源不参与兼容键。不兼容时返回明确 `reasons`，不补零或排名。
 
-源解析返回 `source=found|deleted|unavailable`，图片和标签分别标记相同、变化或不可用，另含当前复核／负样本状态。当前标签可能标记 `unsupported`；不将无法读取解释为相同。任务硬删除后历史报告仍可读。原数据版本、模型部署及项目受保留引用保护，删除入口在存储破坏前拒绝；删除评估的存储失败返回 `503 cleanup_pending` 并由维护任务继续清理。上述接口尚未列为 Python SDK 已覆盖能力。
+源解析返回 `source=found|deleted|unavailable`，图片和标签分别标记相同、变化或不可用，另含当前复核／负样本状态。当前标签可能标记 `unsupported`；不将无法读取解释为相同。任务硬删除后历史报告仍可读。原数据版本、模型部署及项目受保留引用保护，删除入口在存储破坏前拒绝；删除评估的存储失败返回 `503 cleanup_pending` 并由维护任务继续清理。上述逐样本评估与比对接口已由 Python SDK 的 `client.sample_evaluations` 以及 CLI `aap learning evaluations` 完整收录。
 
 ## 训练总览 API
 

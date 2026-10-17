@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # WebSocket 协议
@@ -169,10 +168,9 @@ ws://api.example.com/ws/projects/{project_id}/preannotate?token=...
 {
   "type": "batch.status_changed",
   "batch_id": "<uuid>",
-  "project_id": "<uuid>",
-  "from_status": "in_progress",
-  "to_status": "in_review",
-  "actor_id": "<user_uuid>"
+  "from": "annotating",
+  "to": "reviewing",
+  "at": "2026-10-17T00:00:00Z"
 }
 ```
 
@@ -289,7 +287,7 @@ job_accepted | job_discarded                    # 未决集合清空
 
 ### 7.1 鉴权
 
-JWT query param，`role ∈ {super_admin, project_admin}`，否则 close `1008`。
+JWT 或 `ak_` API key 通过 query token 传入；当前账号须为 super_admin／project_admin，否则握手被拒绝。
 
 ### 7.2 订阅计数门控
 
@@ -300,14 +298,10 @@ JWT query param，`role ∈ {super_admin, project_admin}`，否则 close `1008`�
 `ml-backend-stats:global` 上是所有 `is_active=true` ML backend 的 `/health` 快照列表：
 
 ```json
-[
-  {
-    "backend_id": "<uuid>",
-    "name": "grounded-sam2",
-    "status": "healthy" | "degraded" | "down",
-    "meta": { /* health_meta 见 ml-backend-protocol.md */ }
-  }
-]
+{
+  "backends": [{ "backend_id": "<uuid>", "backend_name": "grounded-sam2", "state": "connected" }],
+  "timestamp": "2026-10-17T00:00:00Z"
+}
 ```
 
 ### 7.4 心跳
@@ -385,3 +379,5 @@ client.ts 已自动 logout()  // 路由层会跳 /login
 | 前端通知 hook               | `apps/web/src/hooks/useNotificationSocket.ts`    |
 | 前端预标注 hook             | `apps/web/src/hooks/usePreannotation.ts`         |
 | 前端重连基础                | `apps/web/src/hooks/useReconnectingWebSocket.ts` |
+
+Python 与有界 CLI 消费见 [SDK 公开事件流](../sdk/streams)。SDK 不采用浏览器 hook 的自动重连／refresh 策略；连接期间权限变化可能停止投递而不返回特定关闭码，通知门控也可能丢弃受限消息并保持连接。

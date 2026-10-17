@@ -8855,6 +8855,9 @@
             "type": "array"
           }
         },
+        "required": [
+          "entries"
+        ],
         "title": "ConnectorAllowlistUpdate",
         "type": "object"
       },
@@ -16212,6 +16215,67 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HealthCheck": {
+        "additionalProperties": true,
+        "properties": {
+          "active_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Count"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/components/schemas/HealthQueue"
+            },
+            "title": "Queues",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/HealthWorker"
+            },
+            "title": "Workers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthCheck",
+        "type": "object"
+      },
       "HealthComponent": {
         "properties": {
           "detail": {
@@ -16346,8 +16410,87 @@
         "title": "HealthMeta",
         "type": "object"
       },
+      "HealthQueue": {
+        "properties": {
+          "length": {
+            "title": "Length",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "length"
+        ],
+        "title": "HealthQueue",
+        "type": "object"
+      },
+      "HealthReport": {
+        "properties": {
+          "checks": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HealthCheck"
+            },
+            "title": "Checks",
+            "type": "object"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "checks"
+        ],
+        "title": "HealthReport",
+        "type": "object"
+      },
+      "HealthWorker": {
+        "properties": {
+          "last_heartbeat_seconds_ago": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat Seconds Ago"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pool_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool Max"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "HealthWorker",
+        "type": "object"
+      },
       "HistoryEntry": {
-        "description": "一条历史事件 — audit 或 comment 统一外形。\n\nkind ∈ { audit, comment }；audit 含 action + detail；comment 含 body + comment_id。\n所有事件按 timestamp 升序合并。",
+        "description": "一条历史事件 — audit 或 comment 统一外形。\n\nkind ∈ { audit, comment }；audit 含 action + detail；comment 含 body + comment_id。\n所有事件按 timestamp 倒序合并。",
         "properties": {
           "action": {
             "anyOf": [
@@ -29778,8 +29921,15 @@
             "title": "Type Key"
           },
           "type_label": {
-            "title": "Type Label",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Label"
           },
           "video_collaboration": {
             "anyOf": [
@@ -29803,8 +29953,7 @@
           }
         },
         "required": [
-          "name",
-          "type_label"
+          "name"
         ],
         "title": "ProjectCreate",
         "type": "object"
@@ -31823,10 +31972,17 @@
             "type": "integer"
           },
           "name": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "organization_id": {
             "anyOf": [
@@ -31904,23 +32060,32 @@
             "title": "Tool Bindings"
           },
           "type_key": {
-            "maxLength": 30,
-            "minLength": 1,
-            "title": "Type Key",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Key"
           },
           "type_label": {
-            "maxLength": 50,
-            "minLength": 1,
-            "title": "Type Label",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Label"
           }
         },
-        "required": [
-          "name",
-          "type_label",
-          "type_key"
-        ],
         "title": "ProjectTemplateCreate",
         "type": "object"
       },
@@ -56342,7 +56507,7 @@
     },
     "/api/v1/dashboard/admin/people/{user_id}": {
       "get": {
-        "description": "v0.8.4 · 个人详情：4 周趋势、耗时直方图、项目分布、timeline。\n\nv0.12.6 (A3)：project 给定时产能/质量/耗时/归因聚合**按该项目切分**；\nproject_admin 必须指定其项目，super_admin 可全局或任意项目。timeline（审计活动流）\n不含可靠 project 维度，保持全局。",
+        "description": "v0.8.4 · 个人详情：4 周趋势、耗时直方图、项目分布、timeline。\n\nv0.12.6 (A3)：project 给定时产能/质量/耗时/归因聚合**按该项目切分**；\nproject_admin 必须指定其项目，super_admin 可全局或任意项目。\n项目范围的 timeline 只包含可验证归属的事件，过滤在最近 50 条限制之前。",
         "operationId": "admin_person_detail_api_v1_dashboard_admin_people__user_id__get",
         "parameters": [
           {
@@ -82128,6 +82293,23 @@
             },
             "description": "Successful Response"
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoChunkOut"
+                }
+              }
+            },
+            "description": "Asset is not ready; inspect status and retry_after before another request.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "422": {
             "content": {
               "application/json": {
@@ -82292,6 +82474,23 @@
               }
             },
             "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoFrameOut"
+                }
+              }
+            },
+            "description": "Asset is not ready; inspect status and retry_after before another request.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -85908,6 +86107,23 @@
             },
             "description": "Successful Response"
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoChunkOut"
+                }
+              }
+            },
+            "description": "Asset is not ready; inspect status and retry_after before another request.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "422": {
             "content": {
               "application/json": {
@@ -86129,6 +86345,23 @@
               }
             },
             "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoFrameOut"
+                }
+              }
+            },
+            "description": "Asset is not ready; inspect status and retry_after before another request.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -86371,10 +86604,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReport"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReport"
+                }
+              }
+            },
+            "description": "One or more components unavailable"
           }
         },
         "summary": "Health All",
@@ -86390,10 +86635,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
+              }
+            },
+            "description": "Component unavailable"
           }
         },
         "summary": "Health Celery",
@@ -86409,10 +86666,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
+              }
+            },
+            "description": "Component unavailable"
           }
         },
         "summary": "Health Db",
@@ -86428,10 +86697,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
+              }
+            },
+            "description": "Component unavailable"
           }
         },
         "summary": "Health Minio",
@@ -86447,10 +86728,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheck"
+                }
+              }
+            },
+            "description": "Component unavailable"
           }
         },
         "summary": "Health Redis",

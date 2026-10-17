@@ -2,11 +2,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_current_user
+from app.deps import get_db, get_current_user, require_project_owner
+from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.task import Task
 from app.schemas.task import UploadInitRequest, UploadInitResponse, TaskFileUrlResponse
 from app.services.display_id import next_display_id
+from app.services.project_access import resolve_project_access_by_id
 from app.services.storage import storage_service
 
 router = APIRouter()
@@ -18,6 +20,12 @@ async def upload_init(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    _project, access = await resolve_project_access_by_id(
+        db, user=current_user, project_id=data.project_id
+    )
+    if not access.is_manager:
+        raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可执行")
+
     task_id = uuid.uuid4()
     storage_key = f"{data.project_id}/{task_id}/{data.file_name}"
 
@@ -46,6 +54,11 @@ async def upload_complete(
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    _project, access = await resolve_project_access_by_id(
+        db, user=current_user, project_id=task.project_id
+    )
+    if not access.is_manager:
+        raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可执行")
     if task.status != "uploading":
         raise HTTPException(status_code=400, detail="Task is not in uploading state")
 
@@ -74,6 +87,10 @@ async def get_file_url(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    from app.api.v1.tasks import _assert_task_visible
+
+    await _assert_task_visible(db, task, current_user)
+
     url = storage_service.generate_download_url(task.file_path)
     return TaskFileUrlResponse(url=url, expires_in=3600)
 
@@ -81,8 +98,7 @@ async def get_file_url(
 @router.post("/projects/{project_id}/backfill-thumbnails")
 async def backfill_project_thumbnails(
     project_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _project: Project = Depends(require_project_owner),
 ):
     from app.workers.media import backfill_tasks
 

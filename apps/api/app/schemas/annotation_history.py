@@ -15,7 +15,7 @@ class HistoryEntry(BaseModel):
     """一条历史事件 — audit 或 comment 统一外形。
 
     kind ∈ { audit, comment }；audit 含 action + detail；comment 含 body + comment_id。
-    所有事件按 timestamp 升序合并。
+    所有事件按 timestamp 倒序合并。
     """
 
     kind: str

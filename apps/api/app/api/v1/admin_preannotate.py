@@ -58,19 +58,21 @@ class PreannotateQueueResponse(BaseModel):
 async def list_preannotate_queue(
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
 ) -> PreannotateQueueResponse:
     """列出已预标 (pre_annotated 状态) 的批次, 按最近一次预标时间倒序.
 
     含 prediction / failed 计数 + 项目元数据, 供 AIPreAnnotatePage 历史表渲染.
     """
     # 1. 拉所有 pre_annotated 批次 (limit 前)
-    bres = await db.execute(
-        select(TaskBatch)
-        .where(TaskBatch.status == BatchStatus.PRE_ANNOTATED)
-        .order_by(TaskBatch.updated_at.desc())
-        .limit(limit)
-    )
+    stmt = select(TaskBatch).where(TaskBatch.status == BatchStatus.PRE_ANNOTATED)
+    if admin.role != UserRole.SUPER_ADMIN:
+        stmt = stmt.where(
+            TaskBatch.project_id.in_(
+                select(Project.id).where(Project.owner_id == admin.id)
+            )
+        )
+    bres = await db.execute(stmt.order_by(TaskBatch.updated_at.desc()).limit(limit))
     batches = list(bres.scalars().all())
     if not batches:
         return PreannotateQueueResponse(items=[])
@@ -328,7 +330,7 @@ class PreannotateProjectSummaryResponse(BaseModel):
 )
 async def list_preannotate_project_summary(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
 ) -> PreannotateProjectSummaryResponse:
     """v0.9.12 B-17 · 给 ProjectCardGrid 提供 per-project 聚合.
 
@@ -336,16 +338,17 @@ async def list_preannotate_project_summary(
     v0.10.38 · 撤回 v0.10.36 的 data_type="image" 过滤: 模态分流改到前端 ProjectDetailPanel
     (image 走文本批量预标, video 走引导卡片+job 历史), summary 返回 data_type 供前端路由.
     """
-    pres = await db.execute(
-        select(Project).where(
-            select(ProjectMLBackendPool.id)
-            .where(
-                ProjectMLBackendPool.project_id == Project.id,
-                ProjectMLBackendPool.enabled.is_(True),
-            )
-            .exists(),
+    stmt = select(Project).where(
+        select(ProjectMLBackendPool.id)
+        .where(
+            ProjectMLBackendPool.project_id == Project.id,
+            ProjectMLBackendPool.enabled.is_(True),
         )
+        .exists(),
     )
+    if admin.role != UserRole.SUPER_ADMIN:
+        stmt = stmt.where(Project.owner_id == admin.id)
+    pres = await db.execute(stmt)
     projects = list(pres.scalars().all())
     if not projects:
         return PreannotateProjectSummaryResponse(items=[])

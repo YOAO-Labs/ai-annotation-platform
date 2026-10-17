@@ -3,7 +3,7 @@ audience: [dev]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-05-27
+last_reviewed: 2026-10-17
 ---
 
 # Predictions / Async Jobs
@@ -46,10 +46,14 @@ POST /api/v1/async-jobs/{job_id}/retry-failed
 ## 查询当前快照
 
 ```http
-GET /api/v1/admin/preannotate-queue?project_id=&status=
+GET  /api/v1/admin/preannotate-queue?limit=50
+GET  /api/v1/admin/preannotate-summary
+POST /api/v1/admin/preannotate-queue/bulk-clear
 ```
 
-只看当前 `pre_annotated` 批次（与 jobs 历史区分）。批量清理预标队列仍走 `/admin/preannotate-queue/bulk-clear`。
+`/admin/preannotate-queue` 只看当前 `pre_annotated` 批次（按最近预标时间倒序，含预测与失败计数，与 jobs 历史区分）。`/admin/preannotate-summary` 提供各项目的 ML backend 状态与就绪批次聚合。项目管理员访问这两处端点时结果自动限制为其负责的项目；超级管理员可查看全局。批量清理预标队列走 `/admin/preannotate-queue/bulk-clear`。
+
+项目级模型预热 `POST /api/v1/projects/{project_id}/ml-backends/{backend_id}/warmup` 还会强制校验目标 backend 当前已在项目中启用，未启用或关系不匹配时返回 404。
 
 ## 查询任务预测
 

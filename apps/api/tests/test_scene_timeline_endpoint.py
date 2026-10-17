@@ -241,7 +241,7 @@ async def test_scene_timeline_hides_cross_batch_task_details(
         "task_status": None,
         "annotation_count": 0,
         "selected_track": None,
-        "selected_track_present": False,
+        "selected_track_present": None,
     }
 
 

@@ -638,46 +638,33 @@ async def create_project(
     # 优先用 source_project_id 项目的值, 其次走 Project 模型列默认值.
     payload = data.model_dump(exclude_unset=True)
 
-    # v0.10.28 · B 路线: 新建以 data_type 为主. type_key 缺省时由 data_type 派生兼容值;
-    # data_type 缺省时由 type_key 反推, 二者互填后均落库 (Project.type_key NOT NULL).
-    from app.services.project import (
-        assert_project_kind_consistent,
-        data_type_from_type_key,
-        legacy_type_key_from_data_type,
-    )
-
-    _dt = payload.get("data_type")
-    _tk = payload.get("type_key")
-    # 两侧都给时先断言一致 (cross-fill 只补缺, 不审已给值).
-    assert_project_kind_consistent(_tk, _dt)
-    if not _tk:
-        payload["type_key"] = legacy_type_key_from_data_type(_dt)
-    if not _dt:
-        payload["data_type"] = data_type_from_type_key(payload.get("type_key"))
-    if payload.get("scene_mode"):
-        if not scene_mode_allowed(payload.get("data_type")):
-            raise HTTPException(
-                status_code=422,
-                detail="scene_mode 仅支持 image/lidar 项目",
-            )
-        payload.setdefault("prefer_same_scene_continuation", True)
-    if "video_collaboration" in payload:
-        await validate_project_collaboration_update(
-            db,
-            None,
-            VideoCollaborationConfig.model_validate(payload["video_collaboration"]),
-            data_type=payload["data_type"],
-            requested_video_sampling=payload.get("video_sampling"),
-            requested_tool_bindings=payload.get("tool_bindings"),
+    template_id = payload.pop("template_id", None)
+    source_project_id = payload.pop("source_project_id", None)
+    copy_guide = payload.pop("copy_annotation_guide", False)
+    source_project = None
+    template = None
+    if source_project_id is not None:
+        source_project = await assert_project_visible(
+            source_project_id, db, current_user
         )
-        if (
-            payload["video_collaboration"]["enabled"]
-            and payload["type_key"] != "video-track"
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="video_collaboration 只能用于 video-track 项目",
-            )
+    if template_id is not None:
+        from app.db.models.project_template import ProjectTemplate
+        from app.services.project_template import assert_template_visible
+
+        template = await db.get(ProjectTemplate, template_id)
+        if template is None:
+            raise HTTPException(status_code=404, detail="模板不存在")
+        await assert_template_visible(db, template, current_user)
+
+    inherited_kind = source_project or template
+    from app.services.project import resolve_project_kind
+
+    payload["type_key"], payload["data_type"] = resolve_project_kind(
+        payload.get("type_key"),
+        payload.get("data_type"),
+        inherited_type_key=getattr(inherited_kind, "type_key", None),
+        inherited_data_type=getattr(inherited_kind, "data_type", None),
+    )
 
     # v0.10.22 · 先把客户端显式传入的旧扁平 classes / classes_config / attribute_schema
     # 反向派生进 tool_bindings (按 type_key 推 unit), 再剔除扁平 key. 必须早于下面的
@@ -707,22 +694,9 @@ async def create_project(
                 status_code=400, detail="ml_backend_source_id not found"
             )
 
-    # v0.10.14 · E2 · "从模板创建" — schema 已校验 template_id / source_project_id
-    # 互斥. 应用模板时把模板载荷 deepcopy 进 payload, 并 usage_count += 1.
-    template_id = payload.pop("template_id", None)
-
-    # v0.10.11 · "从已有项目复制配置" — 用源项目兜底未显式给出的字段;
-    # 若源项目带 ml_backend_id 且 caller 未单独指定 ml_backend_source_id,
-    # 自动把源项目的 backend 作为 backend 克隆源.
-    source_project_id = payload.pop("source_project_id", None)
-    # v0.10.13 · E1 · annotation_guide / guide_assets 不在默认克隆白名单 (避免信息错位);
-    # 通过独立 flag 触发, 仅当 source_project_id 给定时有效. 图片资源 storage key
-    # 复用 (不重新上传) — 源项目删除资源会影响新项目, UI 已在 wizard 标注.
-    copy_guide = payload.pop("copy_annotation_guide", False)
-    if source_project_id is not None:
-        source_project = await assert_project_visible(
-            source_project_id, db, current_user
-        )
+    # Source/template visibility was checked before kind inheritance. Keep config
+    # merging after legacy coalescing so explicit legacy fields continue to win.
+    if source_project is not None:
         payload = _merge_from_source_project(payload, source_project)
         if copy_guide:
             import copy as _copy
@@ -752,19 +726,38 @@ async def create_project(
             detail="copy_annotation_guide requires source_project_id",
         )
 
-    template = None
-    if template_id is not None:
-        from app.db.models.project_template import ProjectTemplate
-        from app.services.project_template import (
-            assert_template_visible,
-            merge_template_into_payload,
-        )
+    if template is not None:
+        from app.services.project_template import merge_template_into_payload
 
-        template = await db.get(ProjectTemplate, template_id)
-        if template is None:
-            raise HTTPException(status_code=404, detail="模板不存在")
-        await assert_template_visible(db, template, current_user)
         payload = merge_template_into_payload(template, payload)
+
+    from app.services.project import assert_project_kind_consistent
+
+    assert_project_kind_consistent(payload.get("type_key"), payload.get("data_type"))
+    if payload.get("scene_mode"):
+        if not scene_mode_allowed(payload.get("data_type")):
+            raise HTTPException(
+                status_code=422,
+                detail="scene_mode 仅支持 image/lidar 项目",
+            )
+        payload.setdefault("prefer_same_scene_continuation", True)
+    if "video_collaboration" in payload:
+        await validate_project_collaboration_update(
+            db,
+            None,
+            VideoCollaborationConfig.model_validate(payload["video_collaboration"]),
+            data_type=payload["data_type"],
+            requested_video_sampling=payload.get("video_sampling"),
+            requested_tool_bindings=payload.get("tool_bindings"),
+        )
+        if (
+            payload["video_collaboration"]["enabled"]
+            and payload["type_key"] != "video-track"
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="video_collaboration 只能用于 video-track 项目",
+            )
 
     if requested_main_backend_id:
         # v0.10.37 · 创建即绑定 backend 时同样按 data_type 校验模态 (与 update_project 对称)

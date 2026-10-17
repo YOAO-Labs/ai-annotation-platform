@@ -64,7 +64,21 @@ class ProjectTemplateCreate(ProjectTemplateBase):
     ``annotation_guide`` 始终走 caller 传入或源项目兜底.
     """
 
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    type_label: str | None = Field(default=None, min_length=1, max_length=50)
+    type_key: str | None = Field(default=None, min_length=1, max_length=30)
     source_project_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _require_source_for_missing_fields(self) -> "ProjectTemplateCreate":
+        for name in ("name", "type_label", "type_key"):
+            if getattr(self, name) is not None:
+                continue
+            if name in self.model_fields_set:
+                raise ValueError(f"{name} 不能为 null")
+            if self.source_project_id is None:
+                raise ValueError(f"{name} 必填，除非提供 source_project_id")
+        return self
 
 
 class ProjectTemplateUpdate(BaseModel):

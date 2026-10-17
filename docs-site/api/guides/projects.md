@@ -1,12 +1,17 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-17
 ---
 
 # 项目
+
+批次 `exports/lidar:preflight` 与 `export` 同样要求 `export.annotations`，标注员／观察者的项目可见性不授予导出权。批次审计会核对现存批次的父项目；删除历史须有可靠的项目 detail 或精确项目／批次路径。随机切批份数大于当前可切任务数时返回 400，不创建空批次。
+
+`GET /search` 的任务结果在 limit 之前按成员职责、分派和批次范围筛选，保留启用协作视频的读取规则。项目人员看板的计数、导出和活动流按选定项目过滤；超级管理员未指定项目时可读全局。具体 SDK 请求与恢复语义见 [项目、批次与数据运维](../../dev/sdk/project-workflows)。
+
+项目 ML warmup 要求目标 backend 当前已在该项目启用，关系不匹配时在上游操作之前返回 404。共享 backend 的 reload/unload 仍是超级管理员全局生命周期操作，project_id 用于审计上下文。完整 SDK/CLI 控制与诊断语义见 [账户、管理与运维](../../dev/sdk/account-and-operations)。
 
 ## 列表与分页
 
@@ -28,6 +33,7 @@ GET /api/v1/projects/query?page=1&page_size=20
 POST /api/v1/projects
 {
   "name": "<unique>",
+  "type_label": "图像检测",
   "description": "...",
   "data_type": "image",
   "tool_bindings": {
@@ -45,6 +51,10 @@ POST /api/v1/projects
 `tool_bindings` 是类别与属性的存储真值。`classes_config` / `attribute_schema` 仍会在响应中作为兼容视图派生出来，但新代码应优先写 `tool_bindings`。aliases 用于 AI 预标的 prompt 召回（DINO 对自然语言敏感）。
 
 `ml_backend_source_id` 指向全局注册表里的一个 backend：新建项目时填它即为新项目**启用**该全局注册项（**引用同一全局 id，不复制**），并把它设为项目主后端。留空则新项目不预先启用任何 backend。
+
+`template_id` 与 `source_project_id` 互斥。使用可见模板／源项目时可省略 type_label 和类型字段，由服务器继承；明确给出 type_key 或 data_type 时，另一项按明确类型推导，配置明确字段优先。普通创建仍要求 type_label。copy_annotation_guide 仅用于源项目；模板继承指引文本但不复制 guide-assets。任务、标注、数据集、成员和批次不复制。
+
+模板库提供 `GET/POST /project-templates`、`GET/PATCH/DELETE /project-templates/{template_id}` 和无正文的 `POST /project-templates/{template_id}/duplicate`。创建模板可通过 source_project_id 省略 name/type_label/type_key，普通创建必须提供这些字段；明确 null 不能代替省略。列表是未分页数组，支持 scope、重复 type_key 和 search；PATCH 没有 revision 条件，duplicate 产生当前用户的 private 副本。权限与 SDK 用法见 [视频、模板与存储运维](../../dev/sdk/video-and-templates)。
 
 ## 配置
 

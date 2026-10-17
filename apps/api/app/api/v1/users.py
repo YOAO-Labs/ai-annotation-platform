@@ -1411,7 +1411,11 @@ async def assign_user_group(
 ):
     from app.db.models.group import Group
 
-    user = await db.get(User, user_id)
+    user = await db.scalar(
+        select(User)
+        .where(User.id == user_id, user_scope_clause(actor))
+        .with_for_update()
+    )
     if user is None or not user.is_active:
         raise HTTPException(status_code=404, detail="用户不存在")
 

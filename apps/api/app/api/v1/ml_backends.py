@@ -740,6 +740,9 @@ async def warmup_ml_backend(
         shadow_session_factory=shadow_session_factory,
         dispatch_context_factory=dispatch_context_factory,
     )
+    backend = await svc.get(backend_id)
+    if not backend or not await svc.is_enabled(project_id, backend_id):
+        raise HTTPException(status_code=404, detail="ML Backend not found")
     try:
         result = await svc.warmup(backend_id, body or {})
     except GPUArbiterDispatchError:

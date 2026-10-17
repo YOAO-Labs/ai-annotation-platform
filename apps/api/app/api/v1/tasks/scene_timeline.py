@@ -118,7 +118,7 @@ async def get_task_scene_timeline(
                 SceneTimelineFrameSummary(
                     frame_index=frame_index,
                     state="unavailable",
-                    selected_track_present=selected_track_present,
+                    selected_track_present=None,
                 )
             )
             continue

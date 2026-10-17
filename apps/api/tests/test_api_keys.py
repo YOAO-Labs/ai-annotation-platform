@@ -244,3 +244,19 @@ async def test_patch_key(httpx_client, super_admin):
     assert out["name"] == "renamed"
     assert out["scopes"] == ["*"]
     assert out["expires_at"] is not None
+    for field in ("name", "scopes"):
+        invalid = await httpx_client.patch(
+            f"/api/v1/me/api-keys/{key_id}", headers=headers, json={field: None}
+        )
+        assert invalid.status_code == 422, invalid.text
+    unchanged = await httpx_client.patch(
+        f"/api/v1/me/api-keys/{key_id}", headers=headers, json={}
+    )
+    assert (
+        unchanged.status_code == 200
+        and unchanged.json()["expires_at"] == out["expires_at"]
+    )
+    cleared = await httpx_client.patch(
+        f"/api/v1/me/api-keys/{key_id}", headers=headers, json={"expires_in_days": None}
+    )
+    assert cleared.status_code == 200 and cleared.json()["expires_at"] is None

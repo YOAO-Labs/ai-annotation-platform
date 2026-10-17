@@ -611,6 +611,7 @@ async def propagate_annotation_to_task(
     """
     source_task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, source_task, current_user, access=access)
+    _assert_task_editable(source_task, current_user, access=access)
 
     # 归属校验: annotation 必须属于 URL 里的源 task, 否则越权(借可见 task_id
     # 复制同 project 内不可见 batch 的他人草稿)。
@@ -675,6 +676,7 @@ async def propagate_annotations_batch(
     """
     source_task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, source_task, current_user, access=access)
+    _assert_task_editable(source_task, current_user, access=access)
 
     target_task = await _load_task_or_404(db, data.target_task_id)
     target_access = await _resolve_task_access(db, target_task, current_user)
@@ -740,10 +742,12 @@ async def interpolate_annotations_range(
     """
     from_task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, from_task, current_user, access=access)
+    _assert_task_editable(from_task, current_user, access=access)
 
     to_task = await _load_task_or_404(db, data.to_task_id)
     to_access = await _resolve_task_access(db, to_task, current_user)
     await _assert_task_visible(db, to_task, current_user, access=to_access)
+    _assert_task_editable(to_task, current_user, access=to_access)
 
     svc = AnnotationService(db)
     created, motion_compensated, skipped_frames = await svc.interpolate_range(

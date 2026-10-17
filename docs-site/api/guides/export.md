@@ -3,7 +3,7 @@ audience: [dev]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-08-27
+last_reviewed: 2026-10-17
 ---
 
 # 导出
@@ -61,6 +61,13 @@ Segment 模式把 `selection` 改为
 | `mots_frame_base`      | `0` / `1`                                            | MOTS 输出帧号基准；默认 0-based                                                                                       |
 
 非 VOC 目标返回 `202 {job_id}`；勾选多个目标时产物 ZIP 内各目标落 `{target}/` 子目录，单目标落包根。`video-track` 项目只接受视频目标，选图片目标会返回 400。
+
+**权限约束**：项目与批次导出均要求调用者具备 `export.annotations` 权限（仅项目 reviewer 或合法管理员，标注员与观察者不可导出）。批次 `exports/lidar:preflight` 同样执行该权限门禁。
+
+**SDK 与 CLI 操作**：
+
+- **异步导出**：Python SDK 使用 `client.exports.create(project_id, targets, body=...)` 与 `client.batches.export(project_id, batch_id, targets, body=...)`，通过 `ExportRequestBody` 指定 `scope`（视频帧／分段范围）或 `lidar` 选项；CLI 对应 `aap export project <project-id> --body <file>` 与 `aap batches export <project-id> <batch-id> --body <file>`。
+- **同步 VOC 下载**：VOC 为同步 ZIP blob，SDK 提供专用的 `client.exports.download_voc(project_id, dest)` 与 `client.batches.download_voc(project_id, batch_id, dest)`；CLI 对应 `aap export project <project-id> --target voc --out <file>` 与 `aap batches download-voc`。下载使用带认证的流式 POST，不解析为异步 Job ID。
 
 导出会按项目当前类别 / 属性定义做兜底收敛：`class_name` 已不在当前类别集合内的标注不会进入任何导出格式；`annotation.attributes` 只保留当前 attribute schema 内的用户属性 key。这样即使尚未执行 cleanup，导出文件的 schema 与 data 也保持一致。
 

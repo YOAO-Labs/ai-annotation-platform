@@ -22,6 +22,7 @@ from app.services.pointcloud_projection import (
     project_iso_box,
     projection_residual,
 )
+from app.services.scene import resolve_task_scene_frames
 from app.services.sensor_calibration import (
     SensorCalibrationState,
     resolve_calibration_states,
@@ -587,6 +588,10 @@ async def list_camera_members(
     track_ids = {row.scene_track_id for row in rows if row.scene_track_id is not None}
     if scene_track_id is not None:
         track_ids.add(scene_track_id)
+        task_scene = (await resolve_task_scene_frames(db, [task.id]))[task.id]
+        task_scene_id = task_scene.scene_id
+    else:
+        task_scene_id = None
     tracks = list(
         (
             await db.execute(select(SceneTrack).where(SceneTrack.id.in_(track_ids)))
@@ -597,6 +602,7 @@ async def list_camera_members(
     if scene_track_id is not None and (
         track is None
         or track.project_id != task.project_id
+        or track.scene_id != task_scene_id
         or track.retired_at is not None
     ):
         raise MulticameraAnnotationError(

@@ -292,6 +292,10 @@ async def update_bug_report(
         raise HTTPException(status_code=403, detail="只能编辑自己提交的反馈")
     old_status = report.status
     update_fields = data.model_dump(exclude_unset=True)
+    if not is_admin and set(update_fields) - {"title", "description", "severity"}:
+        raise HTTPException(
+            status_code=403, detail="仅管理员可修改处理状态、分派和处理结果"
+        )
     new_status = update_fields.get("status")
     report = await svc.update(report_id, **update_fields)
     await AuditService.log(

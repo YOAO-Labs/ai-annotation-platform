@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.11.14
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-17
 ---
 
 # 存储连接器（Storage Connections）
@@ -53,6 +53,12 @@ S3   config: { endpoint, bucket, region?, base_prefix?, use_ssl? }
 SFTP config: { host, username, port?, base_path?, auth_type }
      secret: { password }  或  { private_key, passphrase? }
 ```
+
+校验与安全边界：
+
+- **未知配置严格拒绝**：`_validate_and_sanitize_config` 严格限制各类型的白名单配置字段，传入未知 key 抛出校验异常，防止意外污染或脏配置落库。
+- **S3 Endpoint 凭据隔离**：S3 `endpoint` 禁止在 URL 中内嵌用户名或密码（如 `http://user:pass@host`），创建与更新时校验拒绝；对外转 Out 响应时自动对历史残存 userinfo 执行脱敏。
+- **SFTP 认证互斥与一致性**：SFTP 凭据中 `password` 与 `private_key` **严格二选一且互斥**，不得同时提供或均为空；配置项 `auth_type` 必须与所选凭据一致（未显式提供时由服务层自动推导并回填 `password` 或 `key`）。
 
 ## 作用域模型
 

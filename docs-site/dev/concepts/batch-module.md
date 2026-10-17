@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # 批次模块
@@ -322,12 +322,19 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 
 `POST /api/v1/projects/{project_id}/batches/{batch_id}/export` 与项目级导出共享导出目标语义。请求可通过 `targets` 同时选择多个输出；通常创建 `AsyncJob(kind=export)` 并返回 `job_id`，VOC 单目标保留同步下载特例。`format` 仍是兼容入口，不应作为新增调用的唯一表达。
 
+批次导出与点云预检（`exports/lidar:preflight`）均强制要求 `export.annotations` 能力，仅项目 reviewer 与合法管理员有权发起；标注员与观察者无权导出。
+
 视频轨迹导出可透传：
 
 - `include_attributes`：控制是否输出属性 schema 与标注属性。
 - `video_frame_mode=keyframes|all_frames`：控制视频轨迹只导出关键帧，或展开插值后的逐帧 bbox。
 
 批次级 Video JSON 文件名使用 `*_video_tracks.json` 后缀，避免与图片 COCO JSON 混淆。
+
+### 批次切分与审计追溯
+
+- **随机切批下限校验**：`POST /batches/{batch_id}/split-random` 要求期望切分数不得超出当前可切分的未指派任务数，超出时返回 400，拒绝创建空批次。
+- **批次审计隔离**：`GET /projects/{project_id}/batches/{batch_id}/audit-logs` 严格核验批次归属（非本项目返回 404）；对于已删除批次，通过审计条目 `detail_json["project_id"]` 及历史路径前缀追溯，杜绝跨项目审计信息泄露。删除审计的 detail 明确包含 `project_id`、`name`、`affected_tasks` 与 `forced`。
 
 ## 前端同步点
 

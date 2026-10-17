@@ -5,16 +5,23 @@ import json
 import re
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, outerjoin, select, text
+from sqlalchemy import String, and_, cast, func, or_, outerjoin, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, require_roles
 from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
+from app.db.models.project import Project
+from app.db.models.task import Task
+from app.db.models.task_batch import TaskBatch
+from app.db.models.annotation import Annotation
+from app.db.models.annotation_feedback import AnnotationFeedback
+from app.db.models.user_invitation import UserInvitation
 from app.config import settings
 from app.schemas.audit import (
     AuditArchiveOut,
@@ -233,10 +240,114 @@ def _build_base_query(
 
 def _row_to_out(row) -> AuditLogOut:
     log, u_email = row
-    # actor_email 优先使用 JOIN 结果，兼容历史已存名字段
-    if log.actor_email is None and u_email is not None:
-        log.actor_email = u_email
-    return AuditLogOut.model_validate(log)
+    result = AuditLogOut.model_validate(log)
+    if result.actor_email is None and u_email is not None:
+        result.actor_email = u_email
+    return result
+
+
+def _managed_audit_scope(actor: User, *, project_id: UUID | None = None):
+    conditions = (
+        [] if actor.role == UserRole.SUPER_ADMIN else [Project.owner_id == actor.id]
+    )
+    if project_id is not None:
+        conditions.append(Project.id == project_id)
+    project_ids = select(Project.id).where(*conditions)
+    projects = select(cast(Project.id, String)).where(*conditions)
+    tasks = select(cast(Task.id, String)).where(Task.project_id.in_(project_ids))
+    batches = select(cast(TaskBatch.id, String)).where(
+        TaskBatch.project_id.in_(project_ids)
+    )
+    annotations = (
+        select(cast(Annotation.id, String))
+        .join(Task, Task.id == Annotation.task_id)
+        .where(Task.project_id.in_(project_ids))
+    )
+    feedbacks = select(cast(AnnotationFeedback.id, String)).where(
+        AnnotationFeedback.project_id.in_(project_ids)
+    )
+    invitations = select(cast(UserInvitation.id, String)).where(
+        UserInvitation.project_id.in_(project_ids)
+    )
+    video_items = select(cast(Task.dataset_item_id, String)).where(
+        Task.project_id.in_(project_ids), Task.dataset_item_id.is_not(None)
+    )
+    primary = ("project", "task", "batch", "annotation", "feedback", "invitation")
+    contexts = (
+        "project_member",
+        "project_task_view",
+        "dataset",
+        "annotation_comment",
+        "annotation_operation",
+        "camera_annotation_member",
+        "async_job",
+        "job",
+        "export",
+        "failed_prediction",
+        "mask_format_import",
+        "mask_repair_batch",
+        "point_cloud_quality_evaluation",
+        "point_cloud_quality_issue",
+        "scene_track_operation",
+        "video_bbox",
+        "video_chapter",
+        "video_segment",
+        "video_track_mask",
+        "video_tracker_job",
+    )
+    path_scope = or_(
+        and_(
+            AuditLog.path.like("/api/v1/projects/%"),
+            func.split_part(AuditLog.path, "/", 5).in_(projects),
+        ),
+        and_(
+            AuditLog.path.like("/api/v1/tasks/%"),
+            func.split_part(AuditLog.path, "/", 5).in_(tasks),
+        ),
+        and_(
+            AuditLog.path.like("/api/v1/annotations/%"),
+            func.split_part(AuditLog.path, "/", 5).in_(annotations),
+        ),
+        and_(
+            AuditLog.path.like("/api/v1/admin/projects/%"),
+            func.split_part(AuditLog.path, "/", 6).in_(projects),
+        ),
+    )
+    return or_(
+        and_(AuditLog.target_type == "project", AuditLog.target_id.in_(projects)),
+        and_(AuditLog.target_type == "task", AuditLog.target_id.in_(tasks)),
+        and_(AuditLog.target_type == "batch", AuditLog.target_id.in_(batches)),
+        and_(AuditLog.target_type == "annotation", AuditLog.target_id.in_(annotations)),
+        and_(AuditLog.target_type == "feedback", AuditLog.target_id.in_(feedbacks)),
+        and_(AuditLog.target_type == "invitation", AuditLog.target_id.in_(invitations)),
+        and_(
+            AuditLog.target_type == "invitation",
+            AuditLog.target_id.is_(None),
+            AuditLog.action == "invitation.export",
+            AuditLog.detail_json["project_id"].astext.in_(projects),
+        ),
+        and_(
+            AuditLog.target_type == "video_chapter",
+            AuditLog.detail_json["dataset_item_id"].astext.in_(video_items),
+        ),
+        and_(
+            AuditLog.target_type == "batch",
+            AuditLog.action == "batch.deleted",
+            ~AuditLog.target_id.in_(select(cast(TaskBatch.id, String))),
+            or_(AuditLog.detail_json["project_id"].astext.in_(projects), path_scope),
+        ),
+        and_(
+            AuditLog.target_type.in_(contexts),
+            or_(
+                AuditLog.detail_json["project_id"].astext.in_(projects),
+                AuditLog.detail_json["task_id"].astext.in_(tasks),
+            ),
+        ),
+        and_(
+            or_(AuditLog.target_type.is_(None), ~AuditLog.target_type.in_(primary)),
+            path_scope,
+        ),
+    )
 
 
 def _encode_cursor(created_at: datetime, id_: int) -> str:
@@ -271,7 +382,7 @@ async def list_audit_logs(
         None, description="A.3：detail_json 字段级过滤——键值"
     ),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)),
+    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)),
 ):
     base, count_q = _build_base_query(
         action,
@@ -284,6 +395,11 @@ async def list_audit_logs(
         detail_key,
         detail_value,
     )
+
+    if actor.role != UserRole.SUPER_ADMIN:
+        scope = _managed_audit_scope(actor)
+        base = base.where(scope)
+        count_q = count_q.where(scope)
 
     total = (await db.execute(count_q)).scalar_one()
 

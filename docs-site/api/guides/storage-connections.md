@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.11.14
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-17
 ---
 
 # 存储连接器 API
@@ -61,6 +60,8 @@ SFTP config: { host, username, port?, base_path?, auth_type: "password"|"key" }
 
 PATCH 中 `secret` 可省略——省略表示不轮换，沿用已存密钥；提供则整体替换。`kind` 与 `scope` 创建后不可变更。
 
+config 拒绝未支持的键，避免拼写错误被忽略。S3 endpoint 不得内嵌用户名／密码；历史响应会移除 endpoint 的 userinfo，凭据应放入 secret。SFTP 密码和私钥必须二选一，并与 `auth_type` 一致；省略认证方式时可按唯一凭据推断，config-only 更新也会核对已存密钥。SDK/CLI 用法见 [账户、管理与运维](../../dev/sdk/account-and-operations)。
+
 ### 响应体（`StorageConnectionOut`）
 
 ```jsonc
@@ -117,6 +118,8 @@ DELETE /api/v1/storage-connections/allowlist
 ```
 
 条目形态：CIDR、单 IP、精确域名、前导点后缀域名（匹配任意子域）。PUT 会规范化并去重后写入系统设置，覆盖部署 env `CONNECTOR_HOST_ALLOWLIST`；DELETE 删除数据库覆盖。loopback / link-local / 保留地址等**无条件拒绝**，白名单也无法放行。
+
+PUT 必须明确提交 `entries`；`entries=[]` 表示拒绝所有目标。省略字段返回参数错误，恢复部署默认使用 DELETE。
 
 ## 部署主机 SFTP 预设（仅超管）
 

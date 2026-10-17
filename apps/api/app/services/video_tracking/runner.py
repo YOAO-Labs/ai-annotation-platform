@@ -118,7 +118,9 @@ def _event(job: VideoTrackerJob, type_: str, **extra: object) -> dict:
         "job_id": str(job.id),
         "task_id": str(job.task_id),
         "dataset_item_id": str(job.dataset_item_id),
-        "annotation_id": str(job.annotation_id),
+        "annotation_id": str(job.annotation_id)
+        if job.annotation_id is not None
+        else None,
         "at": _now().isoformat(),
         **extra,
     }

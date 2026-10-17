@@ -14,17 +14,23 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.enums import UserRole
 from app.db.models.user import User
-from app.deps import get_current_user, get_db
+from app.deps import get_current_user, get_db, require_roles, require_scopes
 from app.schemas.scene import SceneOut, SceneUpdate
 from app.schemas.scene_pose import TrajectoryResponse
 from app.services import scene as scene_svc
 from app.services import scene_pose as scene_pose_svc
 
 router = APIRouter()
+_MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
 
-@router.get("", response_model=list[SceneOut])
+@router.get(
+    "",
+    response_model=list[SceneOut],
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def list_scenes(
     dataset_id: uuid.UUID = Query(..., description="按 dataset 过滤"),
     db: AsyncSession = Depends(get_db),
@@ -35,7 +41,11 @@ async def list_scenes(
     return [SceneOut.model_validate(s) for s in scenes]
 
 
-@router.get("/{scene_id}", response_model=SceneOut)
+@router.get(
+    "/{scene_id}",
+    response_model=SceneOut,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def get_scene(
     scene_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -47,7 +57,11 @@ async def get_scene(
     return SceneOut.model_validate(scene)
 
 
-@router.get("/{scene_id}/trajectory", response_model=TrajectoryResponse)
+@router.get(
+    "/{scene_id}/trajectory",
+    response_model=TrajectoryResponse,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def get_scene_trajectory(
     scene_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -70,7 +84,7 @@ async def update_scene(
     scene_id: uuid.UUID,
     payload: SceneUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
     """更新 scene 元数据(name / source_format / source_metadata)。
 
