@@ -322,6 +322,51 @@ async def new_attempt(db, round):
     return attempt
 
 
+def claim_attempt(round, attempt):
+    claim_id = uuid.uuid4()
+    round.status = attempt.status = "running"
+    attempt.claim_id = claim_id
+    started = now()
+    attempt.started_at = attempt.heartbeat_at = started
+    return claim_id
+
+
+def record_heartbeat(attempt):
+    attempt.heartbeat_at = now()
+
+
+def record_inference_dispatch(round):
+    round.inference_dispatches += 1
+
+
+def record_candidate_inflight(row, request, media):
+    row.request, row.status, row.media = request, "inflight", media
+
+
+def record_candidate_success(row, attempt, evidence):
+    row.evidence = evidence
+    row.status, row.produced_attempt_id = "succeeded", attempt.id
+    row.error_code = row.error_message = None
+
+
+def mark_lost(round, attempt, *, code, message):
+    round.status = attempt.status = "lost"
+    round.error_code = attempt.error_code = code
+    round.error_message = attempt.error_message = message
+
+
+def release_claim(attempt):
+    attempt.claim_id = None
+
+
+def record_dispatched(attempt):
+    attempt.dispatched_at = now()
+
+
+def record_maintenance(attempt, at):
+    attempt.maintenance_at = at
+
+
 def media_descriptor(round, sample):
     return {
         "key": f"projects/{round.project_id}/active-learning/{round.id}/media/{sample['ordinal']}.png",
@@ -567,14 +612,11 @@ async def signal_interrupted(db, job, *, cancelled):
     if cancelled or round.status == "cancelling":
         await request_cancel(db, round)
     else:
-        round.status = attempt.status = "lost"
-        round.error_code = attempt.error_code = "execution_lost"
-        round.error_message = attempt.error_message = (
-            "选样执行失联；原请求可能仍在运行，恢复前须核对同一请求收据"
-        )
-        await jobs.mark_failed(db, job.id, error=round.error_message)
+        message = "选样执行失联；原请求可能仍在运行，恢复前须核对同一请求收据"
+        mark_lost(round, attempt, code="execution_lost", message=message)
+        await jobs.mark_failed(db, job.id, error=message)
         await notify_job_terminal(db, job_id=job.id)
-    attempt.claim_id = None
+    release_claim(attempt)
 
 
 async def output(db, round):

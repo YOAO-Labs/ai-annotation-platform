@@ -1206,6 +1206,31 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 隔离命令预算以 ebe9234c7 冻结 worker 的直接字段赋值为 before，真实 owner 命令为 current；四类命令每侧预热一次、三轮交错，当前和历史每次均为 0 SQL、0 MinIO API 调用。tracemalloc 峰值两侧分别相等：running/progress 为 0 B，publish/failure 为 240 B。明确排除查询/围栏、commit/flush、S3/ZIP 与 HTTP/Celery，不代表吞吐、RSS、端到端延迟或优化；原始样本在 `/tmp/aap-training-dataset-builder-evidence/budget.json`。文档同步 backend layers 与 training-datasets；未改 schema、依赖、配置或版本，纯边界迁移不增加 CHANGELOG。
 - 主线构建测试全文件 19 passed，三文件固定 Ruff 格式/check 通过；保留发布、失败重试、旧 attempt 和上传后取消的状态/对象断言，移除新增自由错误文案固定。隔离真实包为 2,946 字节，SHA-256 `78b435f2daf7c58c97810d7ceb986276bde9a4f0fe765f6e70497b0f48ae9d55`，已逐项核对原始 API/PG/MinIO 证据，未重复相同原生构建。
 
+### 主动学习执行账本
+
+- `services.active_learning` 现持有 Round／Attempt 的 claim、状态与错误、心跳／派发／维护时间戳和派发计数，以及 Candidate 请求、媒体引用、成功证据、产出 attempt 与错误清理。Worker 保留权威／当前尝试围栏、预算和冻结请求检查、模型／媒体 I/O、Celery 编排、提交窗口、进度、取消和收据协调；没有共享主动学习／样本评估状态机、服务到 worker 导入或额外提交。
+- 实际隔离 PostgreSQL 控制面观察：claim 命中当前 attempt；一次 debit 将计数增至 1；checkpoint 的 spec/request digest、Candidate request ID、来源 SHA 与 produced attempt 身份一致，进度为 15。busy 取消收据保持 `cancelling`／job `running`，sealed 后按既有错误原因转失败并保留请求。失联 attempt 清 claim；新 attempt 获得当前身份后，旧 claim 的 checkpoint 被拒绝且不写证据。原始逐阶段 JSON：`/tmp/aap-active-ledger-1792240740/.worktree/active-learning-owner-observations.json`。
+- 隔离阶段六个测试文件涵盖 active-learning worker／API／pool／engine、领域包 SCC 与精确 OpenAPI：JUnit 共 277 项，200 passed、77 skipped、0 failures/errors；报告为 `/tmp/aap-active-ledger-1792240740/.worktree/active-learning-regressions-final.xml`。该阶段四个变更 Python 文件经 Ruff 0.15.22 check 与 format --check。
+- 冻结基线 `ebe9234c768ef92b02604a8f5cdc8fab6ca9d7bc` 的 inline assignment 与隔离抽取版本命令在同一 PostgreSQL fixture 上各预热一次、交错采样三次；只计 owner 字段变更及 flush，不含实体/夹具 SELECT、rollback、端到端 worker 运行或模型 I/O。下表记录该隔离版本；主线为保持信号通知顺序拆分 Lost 的 claim 释放，该路径已单独重测，见后文：
+
+  | 命令路径           | SQL（基线／当前） | Python 堆峰值中位数（基线／当前，字节） |
+  | ------------------ | ----------------: | --------------------------------------: |
+  | Claim + AsyncJob   |              3／3 |                        281,375／281,419 |
+  | Heartbeat          |              1／1 |                        277,573／277,573 |
+  | 派发预算计数       |              1／1 |                        277,409／277,409 |
+  | Candidate inflight |              1／1 |                        344,314／344,314 |
+  | Candidate success  |              1／1 |                        277,781／277,781 |
+  | Lost               |              2／2 |                        279,116／279,260 |
+  | 派发时间戳 + 绑定  |              2／2 |                        279,264／279,264 |
+  | 维护时间戳         |              1／1 |                        277,525／277,525 |
+
+- 八条路径的每次采样均为零 fixture 对象存储 head/get/put；媒体路径没有在此基准内运行。所有原始 SQL、存储调用和堆峰值样本见 `/tmp/aap-active-ledger-1792240740/.worktree/active-learning-owner-budget.json`；这些窄范围采样不表示全 worker 的吞吐、RSS 或性能优化。checkpoint／收据使用受控预测与内存对象夹具，未执行真实模型、Celery consumer、GPU 或 MinIO 资格工作。
+- 同步更新开发分层说明 `docs-site/dev/concepts/backend-layers.md`。未改变 API／OpenAPI、schema、依赖、配置或版本；纯所有权迁移不增加 CHANGELOG。
+- 主线审查将 lost 字段命令与 `release_claim` 分开：worker 在通用 Job failed/通知前释放，`signal_interrupted` 在通知后释放，恢复抽取前的 SQL/autoflush 窗口。真实 PG smoke 运行实际 worker claim/lost 与信号入口，通知观察端口执行真实 flush 后仍读到原 claim，再调用真实通知；最终新事务见两类 lost、Job failed、claim 已清空，规格摘要不变。完整观察在 `.worktree/active-learning-owner-main-smoke.json`；同一事务内的通知前读数不冒充独立连接观察。
+- 主线 Lost 对照是旧 worker 内联赋值与当前 `mark_lost + release_claim` 后 flush；同一已加载 running Round/Attempt，各侧预热后交错三次，每次 2 条 SQL、0 次 fixture 对象 head/get/put，堆峰值增量中位数两侧均为 283,972 字节。不含加载、rollback、通用作业/通知、commit、媒体/模型工作，不推断吞吐或优化；其余七条未改命令沿用隔离预算，不重复采样。
+- 夹具保持独立的显式状态种子，不通过被验证的状态命令构造预期；删除新增 mock 参数/调用回声测试及既有自由错误文案固定，保留真实消费者的预算错误码、冻结规格/请求身份、取消、旧 claim 拒写与证据 producer 围栏。临时原生探针已移除，受控模型元信息、收据和内存 Objects 不是 broker/consumer、MinIO、模型或 GPU 资格。
+- 主线正确选择 `tests/test_active_learning.py` 等六个消费者/SCC/精确 OpenAPI 文件，199 passed、77 skipped、零失败/错误；JUnit `/tmp/aap-active-learning-owner-main.xml`。首次误写不存在的 API 测试文件名导致未收集，不计入通过。三个实际变更 Python 文件固定 Ruff 格式/check 通过。
+
 ### 剩余范围
 
-- 全入口写入复核定位的素材上传完成、点云派发失败、Study 子运行/尝试、Mask 格式导入执行、失败预测处置/重试、样本评估执行/删除意图、训练记录删除组合事务、训练预览过期、分析样本媒体观测、金字塔访问元数据、审计输出投影、在线状态维护及训练数据构建已收口；仍有主动学习执行一组剩余边界。完整入口/数据/存储台账继续交付；本地 Session、ORM 和 HTTPException 不是进程协议，未选择目标语言，不执行语言替换。
+- 已识别的剩余执行写入边界完成所有者迁移；完整入口、数据及存储台账与最终验证继续交付，不能用 SCC 或单一作业收口代替全后端验收。本地 Session、ORM 和 HTTPException 不是进程协议；未选择目标语言，不执行语言替换。

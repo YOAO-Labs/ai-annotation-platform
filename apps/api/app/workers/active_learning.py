@@ -85,10 +85,7 @@ async def claim(factory, attempt_id, celery_task_id):
             or attempt.claim_id
         ):
             return None
-        claim_id = uuid.uuid4()
-        round.status = attempt.status = "running"
-        attempt.claim_id = claim_id
-        attempt.started_at = attempt.heartbeat_at = service.now()
+        claim_id = service.claim_attempt(round, attempt)
         await jobs.mark_running(db, attempt.async_job_id, celery_task_id=celery_task_id)
         await db.commit()
         return claim_id
@@ -104,7 +101,7 @@ async def heartbeat(factory, attempt_id, claim_id, stop):
         try:
             async with factory() as db:
                 _round, attempt = await fenced(db, attempt_id, claim_id)
-                attempt.heartbeat_at = service.now()
+                service.record_heartbeat(attempt)
                 await db.commit()
         except FencedOut:
             return
@@ -126,7 +123,7 @@ async def debit(factory, attempt_id, claim_id):
                 "inference_budget_exhausted",
                 "推理派发预算已用尽；未退还超时或失败的派发",
             )
-        round.inference_dispatches += 1
+        service.record_inference_dispatch(round)
         await db.commit()
 
 
@@ -208,9 +205,8 @@ async def checkpoint(factory, attempt_id, claim_id, ordinal, result):
         if row.evidence:
             service.verified_evidence(round, row)
             return
-        row.evidence = service.successful_evidence(round, attempt, row, result)
-        row.status, row.produced_attempt_id = "succeeded", attempt.id
-        row.error_code = row.error_message = None
+        evidence = service.successful_evidence(round, attempt, row, result)
+        service.record_candidate_success(row, attempt, evidence)
         rows = await service.candidate_rows(db, round)
         await jobs.update_progress(
             db,
@@ -229,12 +225,13 @@ async def mark_lost(factory, attempt_id, claim_id):
         round, attempt = await fenced(db, attempt_id, claim_id)
         if round.status != "running":
             return
-        round.status = attempt.status = "lost"
-        round.error_code = attempt.error_code = "remote_execution_uncertain"
-        round.error_message = attempt.error_message = (
-            "远端执行或结果尚未确认；恢复将先读取同一请求的原始收据"
+        service.mark_lost(
+            round,
+            attempt,
+            code="remote_execution_uncertain",
+            message="远端执行或结果尚未确认；恢复将先读取同一请求的原始收据",
         )
-        attempt.claim_id = None
+        service.release_claim(attempt)
         await jobs.mark_failed(db, attempt.async_job_id, error=round.error_message)
         await service.notify_job_terminal(db, job_id=attempt.async_job_id)
         await db.commit()
@@ -303,10 +300,8 @@ async def execute(factory, attempt_id, celery_task_id=None):
                     raise RoundFailure(
                         "request_invalid", "持久化请求与本轮冻结输入身份不一致"
                     )
-                row.request, row.status, row.media = (
-                    request,
-                    "inflight",
-                    service.media_descriptor(round, sample),
+                service.record_candidate_inflight(
+                    row, request, service.media_descriptor(round, sample)
                 )
                 await db.commit()
             result = await obtain_result(factory, round, row, png, attempt_id, claim_id)
@@ -392,7 +387,7 @@ async def dispatch(db, round):
     if round.status != "queued" or not attempt or attempt.claim_id:
         return
     task_id = str(uuid.uuid4())
-    attempt.dispatched_at = service.now()
+    service.record_dispatched(attempt)
     job = await db.get(AsyncJob, attempt.async_job_id)
     if job:
         jobs.bind_execution_id(job, task_id)
@@ -447,17 +442,18 @@ async def maintain(factory):
             if not round:
                 continue
             attempt = await db.get(Attempt, round.current_attempt_id)
-            attempt.maintenance_at = cutoff
+            service.record_maintenance(attempt, cutoff)
             if round.status == "running" and (
                 not attempt.heartbeat_at
                 or attempt.heartbeat_at < cutoff - timedelta(seconds=45)
             ):
-                round.status = attempt.status = "lost"
-                attempt.claim_id = None
-                round.error_code = attempt.error_code = "execution_lost"
-                round.error_message = attempt.error_message = (
-                    "执行心跳超时；原请求可能仍在运行，恢复须核对收据"
+                service.mark_lost(
+                    round,
+                    attempt,
+                    code="execution_lost",
+                    message="执行心跳超时；原请求可能仍在运行，恢复须核对收据",
                 )
+                service.release_claim(attempt)
                 await jobs.mark_failed(
                     db, attempt.async_job_id, error=round.error_message
                 )

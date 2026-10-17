@@ -120,16 +120,28 @@ async def test_duplicate_claim_and_late_checkpoint_are_fenced(world):
     assert sum(value is not None for value in claims) == 1
     claim_id = next(value for value in claims if value)
     round, row, _ = await prepared(world, claim_id)
+    frozen_spec = copy.deepcopy(round.spec)
+    frozen_digest = round.spec_digest
+    request = copy.deepcopy(row.request)
     result = prediction(round, row)
+    await worker.mark_lost(world.factory, world.attempt.id, claim_id)
     async with world.factory() as db:
         current = await db.get(Round, round.id)
-        current.status = "lost"
-        await service.new_attempt(db, current)
+        newer = await service.new_attempt(db, current)
         await db.commit()
+    new_claim = await worker.claim(world.factory, newer.id, "replacement")
+    assert new_claim
     with pytest.raises(worker.FencedOut):
         await worker.checkpoint(world.factory, world.attempt.id, claim_id, 0, result)
     async with world.factory() as db:
-        assert (await db.get(Candidate, (round.id, 0))).evidence is None
+        current = await db.get(Round, round.id)
+        old_attempt = await db.get(Attempt, world.attempt.id)
+        candidate = await db.get(Candidate, (round.id, 0))
+        assert current.status == "running"
+        assert current.current_attempt_id == newer.id
+        assert current.spec == frozen_spec and current.spec_digest == frozen_digest
+        assert old_attempt.status == "lost" and old_attempt.claim_id is None
+        assert candidate.request == request and candidate.evidence is None
 
 
 async def test_timeout_debit_is_retained_on_retry_and_original_identity_never_refreshes(
@@ -156,6 +168,11 @@ async def test_timeout_debit_is_retained_on_retry_and_original_identity_never_re
     await worker.mark_lost(world.factory, world.attempt.id, claim_id)
     async with world.factory() as db:
         current = await db.get(Round, round.id)
+        old_attempt = await db.get(Attempt, world.attempt.id)
+        assert current.status == "lost"
+        assert current.current_attempt_id == old_attempt.id
+        assert old_attempt.status == "lost"
+        assert old_attempt.claim_id is None
         assert current.inference_dispatches == 1
         newer = await service.new_attempt(db, current)
         await db.commit()
@@ -163,8 +180,9 @@ async def test_timeout_debit_is_retained_on_retry_and_original_identity_never_re
     async with world.factory() as db:
         current, _ = await worker.fenced(db, newer.id, new_claim)
         candidate = await db.get(Candidate, (round.id, 0))
+        assert current.current_attempt_id == newer.id
+        assert current.spec == round.spec and current.spec_digest == round.spec_digest
         assert candidate.request == original
-        assert current.spec["expires_at"] == round.spec["expires_at"]
     # A second dispatch is charged again, even for the same bound request.
     with pytest.raises(worker.RemoteUncertain):
         await worker.obtain_result(
@@ -203,6 +221,7 @@ async def test_cancel_busy_receipt_stays_nonterminal_and_revocation_still_seals(
 ):
     claim_id = await worker.claim(world.factory, world.attempt.id, "cancel")
     round, row, _ = await prepared(world, claim_id)
+    candidate_request = copy.deepcopy(row.request)
     async with world.factory() as db:
         current = await db.get(Round, round.id)
         await service.request_cancel(
@@ -228,6 +247,8 @@ async def test_cancel_busy_receipt_stays_nonterminal_and_revocation_still_seals(
     async with world.factory() as db:
         current = await db.get(Round, round.id)
         assert current.status == "failed" and current.error_code == "authority_revoked"
+        candidate = await db.get(Candidate, (round.id, 0))
+        assert candidate.request == candidate_request
 
 
 async def test_prepost_budget_is_hard_cap_and_original_expiry_cannot_dispatch(
@@ -239,14 +260,18 @@ async def test_prepost_budget_is_hard_cap_and_original_expiry_cannot_dispatch(
         current.inference_dispatches = current.spec["max_inference_dispatches"] - 1
         await db.commit()
     await worker.debit(world.factory, world.attempt.id, claim_id)
-    with pytest.raises(worker.RoundFailure, match="预算"):
+    with pytest.raises(worker.RoundFailure) as budget_error:
         await worker.debit(world.factory, world.attempt.id, claim_id)
+    assert budget_error.value.code == "inference_budget_exhausted"
     monkeypatch.setattr(worker.time, "time", lambda: world.round.spec["expires_at"] + 1)
-    with pytest.raises(worker.RoundFailure, match="窗口"):
+    with pytest.raises(worker.RoundFailure) as expiry_error:
         await worker.debit(world.factory, world.attempt.id, claim_id)
+    assert expiry_error.value.code == "request_expired"
 
 
 async def test_execute_publishes_only_verified_complete_evidence(world, monkeypatch):
+    frozen_spec = copy.deepcopy(world.round.spec)
+    frozen_digest = world.round.spec_digest
     monkeypatch.setattr(managed, "private_client", AsyncMock(return_value=object()))
     monkeypatch.setattr(
         managed,
@@ -270,6 +295,18 @@ async def test_execute_publishes_only_verified_complete_evidence(world, monkeypa
         current = await db.get(Round, world.round.id)
         attempt = await db.get(Attempt, world.attempt.id)
         assert current.status == "succeeded" and current.inference_dispatches == 6
+        assert current.current_attempt_id == attempt.id
+        assert current.spec == frozen_spec and current.spec_digest == frozen_digest
+        candidates = await service.candidate_rows(db, current)
+        assert len(candidates) == 6
+        for row in candidates:
+            sample = current.spec["samples"][row.ordinal]
+            assert row.status == "succeeded"
+            assert row.produced_attempt_id == attempt.id
+            assert row.request == managed.request_identity(
+                current.spec, row, sample["preprocessing"]
+            )
+            assert row.media == service.media_descriptor(current, sample)
         report = await service.read_report(db, current, attempt)
         assert report["missing_signal_count"] == 6
         assert sum(item["recommended"] for item in report["ranking"]) == 4
