@@ -8,15 +8,12 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.api_key import ApiKey
-from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
@@ -42,6 +39,8 @@ from training_contract.dataset import (
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
+from app.services.labeling_assets import read_project_task_source_facts
+from app.services.dataset_task_facts import thaw_source_json
 from app.services.job_execution_control import JobExecutionControl
 
 log = logging.getLogger(__name__)
@@ -192,57 +191,32 @@ async def freeze_selection(
             if selection.task == SEGMENTATION
             else DETECTION_CONTRACT,
         )
-    annotation_json = (
-        select(
-            func.jsonb_agg(
-                func.jsonb_build_object(
-                    "id",
-                    cast(Annotation.id, String),
-                    "version",
-                    Annotation.version,
-                    "class_name",
-                    Annotation.class_name,
-                    "tool_unit_id",
-                    Annotation.tool_unit_id,
-                    "geometry",
-                    Annotation.geometry,
-                )
-            )
-        )
-        .where(
-            Annotation.task_id == Task.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-        )
-        .correlate(Task)
-        .scalar_subquery()
+    segmentation = selection.task == SEGMENTATION
+    tool_unit_id = "region" if segmentation else "bbox"
+    source_facts = await read_project_task_source_facts(
+        db,
+        project.id,
+        tool_unit_id=tool_unit_id,
+        batch_id=selection.batch_id,
+        task_ids=selection.task_ids,
+        limit=MAX_SAMPLES + 1,
     )
-    # Classes, task eligibility, media references and annotations share one PG
-    # statement snapshot, even when the request session uses READ COMMITTED.
-    stmt = (
-        select(Task, DatasetItem, Project.tool_bindings, annotation_json)
-        .join(Project, Project.id == Task.project_id)
-        .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-        .where(Task.project_id == project.id)
-        .order_by(Task.id)
-        .limit(MAX_SAMPLES + 1)
-    )
-    if selection.batch_id:
-        stmt = stmt.where(Task.batch_id == selection.batch_id)
-    if selection.task_ids:
-        stmt = stmt.where(Task.id.in_(selection.task_ids))
-    rows = (await db.execute(stmt.execution_options(populate_existing=True))).all()
-    if len(rows) > MAX_SAMPLES:
+    task_facts = source_facts.tasks
+    selected_count = len(task_facts)
+    if selected_count > MAX_SAMPLES:
         raise TrainingDatasetError("sample_limit", "单个版本最多包含 20000 张图片")
-    if selection.task_ids and {row[0].id for row in rows} != set(selection.task_ids):
+    if selection.task_ids and {fact.task_id for fact in task_facts} != set(
+        selection.task_ids
+    ):
         raise TrainingDatasetError(
             "task_not_found", "选中的任务不属于当前项目或批次", status_code=404
         )
-    segmentation = selection.task == SEGMENTATION
     contract = dict(SEGMENTATION_CONTRACT) if segmentation else dict(DETECTION_CONTRACT)
-    tool_unit_id = "region" if segmentation else "bbox"
-    bindings = rows[0][2] if rows else project.tool_bindings
+    bindings = source_facts.tool_bindings if task_facts else project.tool_bindings
     binding = bindings.get(tool_unit_id, {})
+    if task_facts:
+        binding = thaw_source_json(binding)
+    del bindings, source_facts
     raw_classes = binding.get("classes", []) if binding.get("enabled") else []
     classes = [item["name"] if isinstance(item, dict) else item for item in raw_classes]
     if not classes or len(set(classes)) != len(classes):
@@ -263,37 +237,29 @@ async def freeze_selection(
     samples, excluded, issues = [], [], []
     excluded_annotations = 0
     negatives = {str(value) for value in selection.confirmed_negative_ids}
-    for task, item, _, active_annotations in rows:
-        task_id = str(task.id)
-        all_annotations = sorted(active_annotations or [], key=lambda a: a["id"])
-        active_annotations = [
-            a for a in all_annotations if a["tool_unit_id"] == tool_unit_id
-        ]
-        excluded_annotations += len(all_annotations) - len(active_annotations)
-        current_skip = (
-            task.skipped_at is not None and task.skipped_at == task.submitted_at
+    for fact in task_facts:
+        task_id = str(fact.task_id)
+        active_annotation_facts = sorted(
+            fact.annotations, key=lambda annotation: annotation.id
         )
-        reviewed = task.status == "completed" and task.reviewed_at is not None
+        excluded_annotations += fact.excluded_annotation_count
         reason = None
-        if task.file_type != "image":
+        if fact.file_type != "image":
             reason = "unsupported_media"
-        elif current_skip and task.skip_reason in {"image_corrupt", "unclear", "other"}:
+        elif fact.unusable:
             reason = "unusable_sample"
-        elif selection.mode == "reviewed" and not reviewed:
+        elif selection.mode == "reviewed" and not fact.reviewed:
             reason = "not_reviewed"
-        elif not active_annotations and not (
-            (
-                reviewed
-                and current_skip
-                and task.skip_reason == "no_target"
-                and not all_annotations
-            )
-            or task_id in negatives
+        elif not active_annotation_facts and not (
+            fact.reviewed_negative or task_id in negatives
         ):
             reason = "unconfirmed_negative"
         if reason:
             excluded.append({"task_id": task_id, "code": reason})
             continue
+        active_annotations = [
+            annotation.as_json() for annotation in active_annotation_facts
+        ]
         try:
             native_labels(active_annotations, classes, contract)
         except TrainingDatasetError as exc:
@@ -302,23 +268,24 @@ async def freeze_selection(
         samples.append(
             {
                 "task_id": task_id,
-                "task_version": task.version,
+                "task_version": fact.task_version,
                 "annotations": active_annotations,
-                "scene_id": str(item.scene_id) if item and item.scene_id else None,
+                "scene_id": str(fact.scene_id) if fact.scene_id else None,
                 "source_bucket": storage_service.datasets_bucket
-                if task.dataset_item_id
+                if fact.dataset_item_id
                 else storage_service.bucket,
-                "source_key": task.file_path,
-                "expected_width": item.width if item else None,
-                "expected_height": item.height if item else None,
+                "source_key": fact.file_path,
+                "expected_width": fact.width,
+                "expected_height": fact.height,
                 "eligibility": {
                     "mode": selection.mode,
-                    "reviewed": reviewed,
-                    "negative": not active_annotations,
+                    "reviewed": fact.reviewed,
+                    "negative": not active_annotation_facts,
                     "confirmed_by": str(actor_id),
                 },
             }
         )
+    del task_facts
     semaphore = asyncio.Semaphore(8)
 
     async def capture(sample):
@@ -375,7 +342,7 @@ async def freeze_selection(
         "digest": content_digest(snapshot),
         "classes": classes,
         "summary": {
-            "selected": len(rows),
+            "selected": selected_count,
             "eligible": len(samples),
             "positives": sum(bool(s["annotations"]) for s in samples),
             "negatives": sum(not s["annotations"] for s in samples),

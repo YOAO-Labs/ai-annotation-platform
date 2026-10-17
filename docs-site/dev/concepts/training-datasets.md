@@ -3,7 +3,7 @@ title: 在线学习与训练体系
 audience: [developer, ops]
 type: explanation
 status: stable
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # 在线学习与训练体系
@@ -138,7 +138,9 @@ stdout/stderr 由独立管道线程持续读取。整行上限 8192 原始字节
 
 镜像更新不改写冻结配置。修订 1 继续使用明确的历史镜像列表；修订 2 仅可通过目录 `compatible_config_images` 中「来源镜像 → 完整既有 schema identity 列表」授权已经实际验证续训的检测组合。不能只凭版本或框架名称放行。共享包变化需重建实际训练／推理镜像，并刷新相应 API、worker 和 beat。取舍见 [简单多边形实例训练](../adr/0085-qualified-polygon-instance-training)。
 
-`services/training_datasets.py` 用一个 PostgreSQL 查询读取工具类别、任务审核状态、素材引用和活跃标注，保证同一语句快照。随后记录 S3 ETag、版本和大小；大文件复制不持有这次数据库读取事务。
+`services/labeling_assets.py::read_project_task_source_facts` 用单条 PostgreSQL 语句固定当前工具配置、任务/素材引用及活跃标注；已审核、当前跳过不可用和已审核空样本资格也由该标注所有者判定。查询只聚合所选工具的几何，其他活跃工具只计数，不能因忽略其几何就把样本认定为空。结果经 `dataset_task_facts.py` 的标准库不可变 DTO 交付，嵌套 JSON 不携带 ORM 或可变引用。
+
+`training_datasets.py` 不再查询生产任务/标注表或重算审核轮次资格；它消费固定事实，保留训练选择模式、显式空样本确认、类别/几何规范化、样本预算和摘要。随后记录 S3 ETag、版本和大小。空选择沿用原配置与准备错误；大文件复制在后续构建中完成，不延长此次来源查询的事务。
 
 export 队列执行 `workers/training_dataset.py`。它以条件读取验证源对象，流式落到临时目录，校验 SHA-256、完整解码和逻辑图片尺寸，再保存至训练桶的版本前缀。重试优先读取此前保存的素材，并验证快照身份与字节摘要。
 
@@ -187,6 +189,17 @@ export 队列执行 `workers/training_dataset.py`。它以条件读取验证源�
 ## 模型身份与回流
 
 `TrainedModelVersion` 固定权重、完整类别绑定及训练来源；`ModelDeployment` 表示该版本在某物理 registry 实例上的检查回执；`ModelRelease` 保存不可变发布历史；`ProjectModelSelection` 以 generation 比较交换更新当前发布。它们不与服务池或 AsyncJob 共用身份。来源实验删除前先检查引用，数据库外键再次保护。
+
+模型加载检查由 `application/trained_model_deployment.py` 组合；`trained_models` 独占检查行及结果，`trained_model_backend` 保留原认证 `/managed-models`、回执核验及固定验证图片预测。它们不新增模型协议或 Celery 任务，注册、检查、候选决策和发布的项目串行化共用 `training_claims.project_lock`，路由之间不再导入锁助手。
+
+| 分支/阶段               | 持久化与事务                                                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 已 ready 的在线回执复查 | 沿用原入场事务和锁；回执有效则复用，临时不可用返回 503，不把已有部署改成 checking 或 failed。                                                                         |
+| 需要安装                | 写入新的 `check_id` 与 checking 并先提交；再执行安装/试用。此分支释放先前的账号、项目、检查行与项目 advisory 锁；后续查询仍可能开启数据库读事务，不能称为全程无事务。 |
+| 检查结果回填            | 重新获取当前项目管理权限和项目 advisory，锁定并刷新检查行，只允许相同 `check_id` 保存 ready/failed、回执与试用结果，再提交。旧检查返回 409，不覆盖新检查。            |
+| I/O 期间撤权            | 最终管理准入拒绝回填，已提交的 checking 保留；不把未获授权的迟到结果保存为成功，也不伪造失败终态。                                                                    |
+
+`ModelRelease` 的 generation CAS、不可变发布历史与既有预测冻结身份保持独立，部署检查完成不等于模型已被发布。
 
 预测入队前解析模型与发布，完整引用和摘要写入 AsyncJob，并作为受控参数传给 worker。幂等重放先读取已有任务，沿用旧引用。worker 和路由客户端验证固定引用及当前项目类别，路由只接受部署确切实例，保留原有准入、租约和借用保护。即使路由关闭或只观察，也不绕过版本与健康检查。
 

@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.trained_models import serialize
+from app.services.training_claims import project_lock
 from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -62,7 +62,7 @@ async def create_decision(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await serialize(db, project)
+    await project_lock(db, project.id)
     await lock_project_manager(db, user, project.id)
     item = await service.append_decision(db, project.id, version_id, user, body)
     await db.commit()

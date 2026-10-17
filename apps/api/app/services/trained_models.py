@@ -21,7 +21,6 @@ from app.db.models.trained_model import (
     ProjectModelSelection,
     TrainedModelVersion,
 )
-from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services.ml_backend import MLBackendService
 from app.services.ml_client import MLBackendClient
@@ -176,6 +175,56 @@ async def load_version(db, project_id, version_id):
     return version
 
 
+async def lock_deployment(db, version_id, registry_id):
+    return await db.scalar(
+        select(ModelDeployment)
+        .where(
+            ModelDeployment.model_version_id == version_id,
+            ModelDeployment.registry_id == registry_id,
+        )
+        .with_for_update()
+    )
+
+
+async def begin_deployment_check(db, version, registry_id, deployment=None):
+    if deployment is None:
+        deployment = ModelDeployment(
+            model_version_id=version.id, registry_id=registry_id
+        )
+        db.add(deployment)
+    check_id = uuid.uuid4()
+    deployment.check_id = check_id
+    deployment.status = "checking"
+    deployment.error_message = None
+    await db.flush()
+    return deployment, check_id
+
+
+async def complete_deployment_check(
+    db,
+    deployment_id,
+    check_id,
+    *,
+    receipt: dict,
+    trial: dict,
+    error: str | None,
+):
+    deployment = await db.scalar(
+        select(ModelDeployment)
+        .where(ModelDeployment.id == deployment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if deployment.check_id != check_id:
+        raise HTTPException(status_code=409, detail="该部署已有更新的检查，请刷新")
+    deployment.status = "failed" if error else "ready"
+    deployment.error_message = error
+    deployment.receipt = receipt
+    deployment.trial = trial
+    deployment.checked_at = now()
+    return deployment
+
+
 def expected_receipt(version):
     receipt = {
         "model_version_id": str(version.id),
@@ -262,49 +311,6 @@ async def assert_routable_backend(db, project_id, registry_id):
 
 def download_url(key):
     return storage.rewrite_host_for_ml_backend(internal_download(key))
-
-
-async def install_and_trial(db, project, version, deployment):
-    backend = await enabled_backend(db, project.id, deployment.registry_id)
-    await assert_routable_backend(db, project.id, deployment.registry_id)
-    client = MLBackendClient(backend)
-    receipt = await client.install_trained_model(
-        {
-            **expected_receipt(version),
-            "size_bytes": version.artifact["size_bytes"],
-            "download_url": download_url(version.artifact["key"]),
-        }
-    )
-    check_receipt(version, receipt)
-    dataset = await db.get(
-        TrainingDatasetVersion, uuid.UUID(version.provenance["dataset_id"])
-    )
-    sample = next((s for s in dataset.manifest["samples"] if s["split"] == "val"), None)
-    if not sample:
-        raise HTTPException(status_code=409, detail="缺少固定验证样本")
-    ref = frozen_reference(version, deployment)
-    results = await client.predict(
-        [
-            {
-                "id": sample["task_id"],
-                "file_path": download_url(
-                    f"projects/{project.id}/datasets/{dataset.id}/media/{sample['task_id']}"
-                ),
-            },
-        ],
-        context=wire_context(ref, {"conf": 0.01}),
-    )
-    if len(results) != 1 or str(results[0].task_id) != sample["task_id"]:
-        raise HTTPException(status_code=422, detail="样本试用返回的任务身份不匹配")
-    validate_and_map_results(results, ref)
-    return receipt, {
-        "task_id": sample["task_id"],
-        "validation_digest": version.provenance["validation_digest"],
-        "inference_time_ms": results[0].inference_time_ms,
-        "result": results[0].result,
-        "score": results[0].score,
-        "sample_scope": "one_fixed_validation_image",
-    }
 
 
 def frozen_reference(version, deployment, release=None):

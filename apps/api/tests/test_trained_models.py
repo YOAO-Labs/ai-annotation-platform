@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
@@ -15,6 +15,7 @@ from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import trained_models as service
+from app.services import trained_model_backend as backend_io
 from app.services import training_artifacts as artifacts
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
@@ -475,7 +476,7 @@ async def test_ready_deployment_retry_does_not_interrupt_existing_predictions(
     version = await db_session.get(TrainedModelVersion, uuid.UUID(first["id"]))
     backend, deployment = await ready_deployment(db_session, project, version)
     install = AsyncMock()
-    monkeypatch.setattr(service, "install_and_trial", install)
+    monkeypatch.setattr(backend_io, "install_and_trial", install)
     mock_live_receipts(monkeypatch, db_session)
     ref = service.frozen_reference(version, deployment)
     response = await httpx_client.post(
@@ -519,7 +520,7 @@ async def test_ready_deployment_restores_a_missing_backend_installation(
     install = AsyncMock(
         return_value=(service.expected_receipt(version), {"result": []})
     )
-    monkeypatch.setattr(service, "install_and_trial", install)
+    monkeypatch.setattr(backend_io, "install_and_trial", install)
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/trained-models/{version.id}/deploy",
         headers=headers(token),
@@ -533,6 +534,47 @@ async def test_ready_deployment_restores_a_missing_backend_installation(
     assert response.status_code == 200 and response.json()["status"] == "ready"
     install.assert_awaited_once()
     assert response.json()["id"] == str(deployment.id)
+
+
+async def test_stale_deployment_check_cannot_publish_older_trial(
+    db_session,
+    super_admin,
+    httpx_client,
+    controlled_artifacts,
+    monkeypatch,
+):
+    owner, token = super_admin
+    project, run, attempt = await seed_source(db_session, owner)
+    first, _ = await register(httpx_client, token, project, run, attempt)
+    version = await db_session.get(TrainedModelVersion, uuid.UUID(first["id"]))
+    backend, deployment = await ready_deployment(db_session, project, version)
+    deployment.status = "failed"
+    await db_session.flush()
+    newer_check_id = uuid.uuid4()
+
+    async def supersede_during_backend_io(db, _project, model, current):
+        await db.execute(
+            update(ModelDeployment)
+            .where(ModelDeployment.id == current.id)
+            .values(check_id=newer_check_id, status="checking")
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+        return service.expected_receipt(model), {"stale": True}
+
+    monkeypatch.setattr(backend_io, "install_and_trial", supersede_during_backend_io)
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/trained-models/{version.id}/deploy",
+        headers=headers(token),
+        json={"registry_id": str(backend.id)},
+    )
+
+    assert response.status_code == 409
+    await db_session.refresh(deployment)
+    assert deployment.check_id == newer_check_id
+    assert deployment.status == "checking"
+    assert deployment.receipt == service.expected_receipt(version)
+    assert deployment.trial == {"result": []}
 
 
 def prediction_result(ref, **extra):

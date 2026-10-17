@@ -9,14 +9,18 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from PIL import Image
+from sqlalchemy import select, update
 
 from app.deps import get_training_dataset_dispatcher
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
+from app.db.models.project import Project
+from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import training_datasets as service
 from app.services.training_dataset_bridge import TrainingDatasetError
+from app.services.labeling_assets import read_project_task_source_facts
 from tests.factory import create_membership, create_project, create_task
 
 dispatch_dataset = service.dispatch_dataset
@@ -61,6 +65,92 @@ async def reviewed_project(db, owner):
         tasks.append(task)
     await db.flush()
     return project, tasks
+
+
+async def test_selection_refreshes_live_source_without_mutating_prior_cut(
+    db_session, super_admin, source_headers
+):
+    owner, _ = super_admin
+    project, tasks = await reviewed_project(db_session, owner)
+    task = tasks[0]
+    annotation = await db_session.scalar(
+        select(Annotation).where(Annotation.task_id == task.id)
+    )
+    annotation.geometry = {
+        **annotation.geometry,
+        "source": {"points": [[1, 2]]},
+    }
+    await db_session.flush()
+    prior = await read_project_task_source_facts(
+        db_session, project.id, tool_unit_id="bbox", task_ids=[task.id], limit=2
+    )
+    prior_annotation = prior.tasks[0].annotations[0]
+    exported = prior_annotation.as_json()
+    exported["geometry"]["source"]["points"][0][0] = 99
+    assert prior_annotation.as_json()["geometry"]["source"]["points"] == [[1, 2]]
+    with pytest.raises(TypeError):
+        prior.tool_bindings["bbox"]["classes"][0]["name"] = "changed"
+
+    previous_task_version = task.version
+    previous_annotation_version = annotation.version
+    await db_session.execute(
+        update(Task)
+        .where(Task.id == task.id)
+        .values(
+            version=Task.version + 1,
+            status="in_progress",
+            reviewed_at=None,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.execute(
+        update(Annotation)
+        .where(Annotation.id == annotation.id)
+        .values(
+            version=Annotation.version + 1,
+            class_name="truck",
+            geometry={**annotation.geometry, "x": 0.4},
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.execute(
+        update(Project)
+        .where(Project.id == project.id)
+        .values(
+            tool_bindings={"bbox": {"enabled": True, "classes": [{"name": "truck"}]}}
+        )
+        .execution_options(synchronize_session=False)
+    )
+    excluded_snapshot, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(task_ids=[task.id]),
+        actor_id=owner.id,
+    )
+    assert excluded_snapshot["samples"] == []
+    assert report["excluded"] == [{"task_id": str(task.id), "code": "not_reviewed"}]
+    snapshot, _ = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(mode="manager_confirmed", task_ids=[task.id]),
+        actor_id=owner.id,
+    )
+    sample = snapshot["samples"][0]
+    assert snapshot["classes"] == ["truck"]
+    assert sample["task_version"] == previous_task_version + 1
+    assert sample["eligibility"]["reviewed"] is False
+    assert sample["annotations"] == [
+        {
+            **prior_annotation.as_json(),
+            "version": previous_annotation_version + 1,
+            "class_name": "truck",
+            "geometry": {**annotation.geometry, "x": 0.4},
+        }
+    ]
+    assert prior.tasks[0].task_version == previous_task_version
+    assert prior.tasks[0].reviewed is True
+    assert prior_annotation.class_name == "car"
+    assert prior_annotation.geometry["x"] == 0.1
 
 
 async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_list(

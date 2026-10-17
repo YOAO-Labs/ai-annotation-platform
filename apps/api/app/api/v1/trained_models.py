@@ -3,11 +3,12 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_write_guard import lock_project_manager
+from app.services.training_claims import project_lock
 from app.db.models.project import Project
 from app.db.models.trained_model import (
     ModelDeployment,
@@ -25,6 +26,7 @@ from app.schemas.trained_model import (
     TrainedModelCreate,
     TrainedModelOut,
 )
+from app.application import trained_model_deployment
 from app.services import trained_models as service
 from app.services import model_lineage as lineage
 from app.schemas.model_lineage import ArchiveFilter
@@ -33,12 +35,6 @@ router = APIRouter(
     prefix="/projects/{project_id}",
     dependencies=[Depends(require_scopes("annotations:read", "datasets:read"))],
 )
-
-
-async def serialize(db, project):
-    await db.execute(
-        select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
-    )
 
 
 @router.post(
@@ -53,7 +49,7 @@ async def register_model(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await serialize(db, project)
+    await project_lock(db, project.id)
     await lock_project_manager(db, user, project.id)
     result = await service.register(db, project, user, body)
     await db.commit()
@@ -155,75 +151,9 @@ async def deploy_model(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await serialize(db, project)
-    await lock_project_manager(db, user, project.id)
-    version = await service.load_version(db, project.id, version_id)
-    service.validate_bindings(project, version.classes, version.bindings)
-    backend = await service.enabled_backend(db, project.id, body.registry_id)
-    deployment = await db.scalar(
-        select(ModelDeployment)
-        .where(
-            ModelDeployment.model_version_id == version.id,
-            ModelDeployment.registry_id == body.registry_id,
-        )
-        .with_for_update()
+    return await trained_model_deployment.deploy_model(
+        db, project, user, version_id, body.registry_id
     )
-    if not deployment:
-        deployment = ModelDeployment(
-            model_version_id=version.id, registry_id=body.registry_id
-        )
-        db.add(deployment)
-    elif deployment.status == "ready":
-        try:
-            receipt = await service.MLBackendClient(backend).trained_model_receipt(
-                str(version.id)
-            )
-            service.check_receipt(version, receipt)
-        except HTTPException as exc:
-            if exc.status_code != 409:
-                raise HTTPException(
-                    status_code=503, detail="暂时无法复查推理实例，请稍后重试"
-                ) from exc
-        except ValueError:
-            pass
-        except Exception as exc:
-            raise HTTPException(
-                status_code=503, detail="暂时无法复查推理实例，请稍后重试"
-            ) from exc
-        else:
-            return deployment
-    check_id = uuid.uuid4()
-    deployment.check_id = check_id
-    deployment.status = "checking"
-    deployment.error_message = None
-    await db.flush()
-    deployment_id = deployment.id
-    await db.commit()
-    error = None
-    try:
-        receipt, trial = await service.install_and_trial(
-            db, project, version, deployment
-        )
-    except Exception as exc:
-        receipt, trial = {}, {}
-        error = f"加载或样本试用未通过（{type(exc).__name__}）"
-    await serialize(db, project)
-    await lock_project_manager(db, user, project.id)
-    deployment = await db.scalar(
-        select(ModelDeployment)
-        .where(ModelDeployment.id == deployment_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if deployment.check_id != check_id:
-        raise HTTPException(status_code=409, detail="该部署已有更新的检查，请刷新")
-    deployment.status = "failed" if error else "ready"
-    deployment.error_message = error
-    deployment.receipt = receipt
-    deployment.trial = trial
-    deployment.checked_at = service.now()
-    await db.commit()
-    return deployment
 
 
 @router.get("/trained-models/{version_id}/download")
@@ -306,7 +236,7 @@ async def publish_model(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await serialize(db, project)
+    await project_lock(db, project.id)
     await lock_project_manager(db, user, project.id)
     result = await service.publish(db, project, user, body)
     await db.commit()
