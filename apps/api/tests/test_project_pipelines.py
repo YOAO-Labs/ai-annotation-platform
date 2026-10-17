@@ -108,6 +108,31 @@ async def test_create_private_pipeline_and_switch_default(
 
 
 @pytest.mark.asyncio
+async def test_create_pipeline_does_not_check_backend_enablement(
+    httpx_client, super_admin, db_session
+):
+    user, token = super_admin
+    project = await _seed_project(db_session, user.id)
+    missing_backend_id = uuid.uuid4()
+
+    response = await httpx_client.post(
+        "/api/v1/project-pipelines",
+        json={
+            "name": "保存时仅校验结构",
+            "scope": "private",
+            "project_id": str(project.id),
+            "stages": [
+                {"stage": 0, "ml_backend_id": str(missing_backend_id)},
+            ],
+        },
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["stages"][0]["ml_backend_id"] == str(missing_backend_id)
+
+
+@pytest.mark.asyncio
 async def test_update_pipeline_scope_validation_returns_422(
     httpx_client, super_admin, db_session
 ):
@@ -135,19 +160,28 @@ async def test_update_pipeline_scope_validation_returns_422(
         headers=_auth(token),
     )
     assert resp.status_code == 422, resp.text
-    assert "public 编排不能指定 project_id" in resp.text
 
 
 @pytest.mark.asyncio
 async def test_apply_public_pipeline_copies_private_and_bumps_usage(
-    httpx_client, super_admin, db_session
+    httpx_client, project_admin, db_session
 ):
-    user, token = super_admin
+    user, token = project_admin
     target = await _seed_project(db_session, user.id, name="target")
     detect = await _seed_backend(db_session, "detect")
     classify = await _seed_backend(db_session, "classify")
     await _enable(db_session, target, detect)
     await _enable(db_session, target, classify)
+
+    previous_default = ProjectPipeline(
+        id=uuid.uuid4(),
+        scope="private",
+        project_id=target.id,
+        name="previous default",
+        stages=_stages(detect.id, classify.id),
+        is_default=True,
+        created_by=user.id,
+    )
     template = ProjectPipeline(
         id=uuid.uuid4(),
         scope="public",
@@ -155,7 +189,7 @@ async def test_apply_public_pipeline_copies_private_and_bumps_usage(
         stages=_stages(detect.id, classify.id),
         created_by=user.id,
     )
-    db_session.add(template)
+    db_session.add_all((template, previous_default))
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -175,6 +209,17 @@ async def test_apply_public_pipeline_copies_private_and_bumps_usage(
         }
         for stage in template.stages
     ]
+
+    defaults = await db_session.execute(
+        select(ProjectPipeline).where(
+            ProjectPipeline.project_id == target.id,
+            ProjectPipeline.is_default.is_(True),
+        )
+    )
+    selected = defaults.scalars().all()
+    assert [pipeline.id for pipeline in selected] == [uuid.UUID(data["id"])]
+    await db_session.refresh(previous_default)
+    assert previous_default.is_default is False
 
     await db_session.refresh(template)
     assert template.usage_count == 1
@@ -206,3 +251,139 @@ async def test_apply_pipeline_with_unenabled_backend_returns_ids(
     )
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"]["unenabled_backends"] == [str(classify.id)]
+
+    await db_session.refresh(template)
+    assert template.usage_count == 0
+    copies = await db_session.execute(
+        select(ProjectPipeline).where(ProjectPipeline.project_id == target.id)
+    )
+    assert copies.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_read_update_delete_saved_pipeline_and_rejects_invalid_options(
+    httpx_client, super_admin, db_session
+):
+    user, token = super_admin
+    project = await _seed_project(db_session, user.id)
+    stages = [
+        {"stage": 0, "ml_backend_id": str(uuid.uuid4())},
+        {
+            "stage": 1,
+            "ml_backend_id": str(uuid.uuid4()),
+            "parent_stage": 0,
+            "roi": {"mode": "crop"},
+            "write": {"target": "attributes", "keys": ["color"]},
+        },
+    ]
+    created = await httpx_client.post(
+        "/api/v1/project-pipelines",
+        json={
+            "name": "pipeline lifecycle",
+            "scope": "private",
+            "project_id": str(project.id),
+            "stages": stages,
+        },
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    pipeline_id = created.json()["id"]
+
+    fetched = await httpx_client.get(
+        f"/api/v1/project-pipelines/{pipeline_id}", headers=_auth(token)
+    )
+    assert fetched.status_code == 200, fetched.text
+    stored_stages = fetched.json()["stages"]
+
+    invalid = await httpx_client.put(
+        f"/api/v1/project-pipelines/{pipeline_id}",
+        json={
+            "stages": [
+                stages[0],
+                {**stages[1], "input": {"mode": "full_image"}},
+            ]
+        },
+        headers=_auth(token),
+    )
+    assert invalid.status_code == 422, invalid.text
+    persisted = await db_session.get(ProjectPipeline, uuid.UUID(pipeline_id))
+    assert persisted is not None
+    await db_session.refresh(persisted)
+    assert persisted.stages == stored_stages
+
+    updated = await httpx_client.put(
+        f"/api/v1/project-pipelines/{pipeline_id}",
+        json={"name": "pipeline lifecycle updated"},
+        headers=_auth(token),
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "pipeline lifecycle updated"
+    await db_session.refresh(persisted)
+    assert persisted.name == "pipeline lifecycle updated"
+
+    deleted = await httpx_client.delete(
+        f"/api/v1/project-pipelines/{pipeline_id}", headers=_auth(token)
+    )
+    assert deleted.status_code == 204
+    assert await db_session.get(ProjectPipeline, uuid.UUID(pipeline_id)) is None
+
+
+@pytest.mark.asyncio
+async def test_apply_pipeline_rejects_missing_reference_without_changing_default(
+    httpx_client, super_admin, db_session
+):
+    user, token = super_admin
+    project = await _seed_project(db_session, user.id, name="owned")
+    existing_default = ProjectPipeline(
+        id=uuid.uuid4(),
+        scope="private",
+        project_id=project.id,
+        name="existing default",
+        stages=[{"stage": 0, "ml_backend_id": str(uuid.uuid4())}],
+        is_default=True,
+        created_by=user.id,
+    )
+    db_session.add(existing_default)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/pipelines/apply",
+        json={"pipeline_id": str(uuid.uuid4()), "set_default": True},
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 404, response.text
+    await db_session.refresh(existing_default)
+    assert existing_default.is_default is True
+    assert existing_default.name == "existing default"
+
+
+@pytest.mark.asyncio
+async def test_apply_pipeline_rejects_outsider_without_mutation(
+    httpx_client, super_admin, project_admin, db_session
+):
+    owner, _owner_token = super_admin
+    outsider, outsider_token = project_admin
+    project = await _seed_project(db_session, owner.id, name="owned")
+    template = ProjectPipeline(
+        id=uuid.uuid4(),
+        scope="public",
+        name="public template",
+        stages=[{"stage": 0, "ml_backend_id": str(uuid.uuid4())}],
+        created_by=owner.id,
+    )
+    db_session.add(template)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/pipelines/apply",
+        json={"pipeline_id": str(template.id), "set_default": True},
+        headers=_auth(outsider_token),
+    )
+    assert response.status_code == 404, response.text
+    await db_session.refresh(template)
+    assert template.usage_count == 0
+    copies = await db_session.execute(
+        select(ProjectPipeline).where(ProjectPipeline.project_id == project.id)
+    )
+    assert copies.scalars().all() == []

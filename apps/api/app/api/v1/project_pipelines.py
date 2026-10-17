@@ -9,23 +9,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.projects import _validate_saved_pipeline
 from app.db.enums import UserRole
 from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.user import User
-from app.deps import assert_project_visible, get_current_user, get_db
+from app.deps import get_current_user, get_db
 from app.schemas.project_pipeline import (
     ProjectPipelineCreate,
     ProjectPipelineOut,
     ProjectPipelineUpdate,
-    _validate_scope_owner,
 )
 from app.services.pipeline_template import (
-    assert_can_create_pipeline_scope,
     assert_pipeline_visible,
-    can_edit_pipeline,
+    create_pipeline as create_pipeline_command,
+    delete_pipeline as delete_pipeline_command,
     list_user_org_ids,
-    switch_project_default_pipeline,
+    update_pipeline as update_pipeline_command,
 )
 
 router = APIRouter()
@@ -113,30 +111,7 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if user.role not in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN):
-        raise HTTPException(
-            status_code=403, detail="仅项目管理员或超级管理员可创建编排"
-        )
-    await assert_can_create_pipeline_scope(db, data.scope, data.organization_id, user)
-    if data.project_id is not None:
-        await assert_project_visible(data.project_id, db, user)
-    data.stages = _validate_saved_pipeline(data.stages)
-
-    make_default = data.is_default
-    payload = data.model_dump()
-    if make_default:
-        payload["is_default"] = False
-
-    pipeline = ProjectPipeline(
-        id=uuid.uuid4(),
-        created_by=user.id,
-        **payload,
-    )
-    if make_default and pipeline.project_id is not None:
-        await switch_project_default_pipeline(db, pipeline.project_id)
-        pipeline.is_default = True
-    db.add(pipeline)
-    await db.flush()
+    pipeline = await create_pipeline_command(db, data, user)
     await db.commit()
     await db.refresh(pipeline)
     return await _serialize(db, pipeline)
@@ -160,45 +135,7 @@ async def update_pipeline(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    pipeline = await _load_pipeline_or_404(db, pipeline_id)
-    await assert_pipeline_visible(db, pipeline, user)
-    if not await can_edit_pipeline(db, pipeline, user):
-        raise HTTPException(status_code=403, detail="无权编辑该编排")
-
-    payload = data.model_dump(exclude_unset=True)
-    scope = payload.get("scope", pipeline.scope)
-    project_id = payload.get("project_id", pipeline.project_id)
-    organization_id = payload.get("organization_id", pipeline.organization_id)
-    try:
-        _validate_scope_owner(scope, project_id, organization_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await assert_can_create_pipeline_scope(db, scope, organization_id, user)
-    if project_id is not None:
-        await assert_project_visible(project_id, db, user)
-    if payload.get("stages") is not None:
-        payload["stages"] = _validate_saved_pipeline(payload["stages"])
-    # 跨项目搬迁且未显式给 is_default 时, 不继承 default 身份: 换归属不应隐式改「谁是默认」,
-    # 否则会静默降级目标项目既有的默认编排。要设为新项目默认须显式传 is_default=true。
-    if (
-        project_id is not None
-        and project_id != pipeline.project_id
-        and "is_default" not in payload
-    ):
-        payload["is_default"] = False
-    next_is_default = payload.get("is_default", pipeline.is_default)
-    if scope != "private" and next_is_default:
-        raise HTTPException(status_code=422, detail="只有 private 项目编排可以设为默认")
-    if (
-        next_is_default
-        and project_id is not None
-        and (payload.get("is_default") is True or project_id != pipeline.project_id)
-    ):
-        await switch_project_default_pipeline(db, project_id)
-
-    for k, v in payload.items():
-        setattr(pipeline, k, v)
-    await db.flush()
+    pipeline = await update_pipeline_command(db, pipeline_id, data, user)
     await db.commit()
     await db.refresh(pipeline)
     return await _serialize(db, pipeline)
@@ -210,9 +147,5 @@ async def delete_pipeline(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    pipeline = await _load_pipeline_or_404(db, pipeline_id)
-    await assert_pipeline_visible(db, pipeline, user)
-    if not await can_edit_pipeline(db, pipeline, user):
-        raise HTTPException(status_code=403, detail="无权删除该编排")
-    await db.delete(pipeline)
+    await delete_pipeline_command(db, pipeline_id, user)
     await db.commit()

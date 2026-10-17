@@ -199,7 +199,8 @@ class ProjectUpdate(BaseModel):
     # PATCH 用整体替换语义; 前端可只发改动的 backend 桶 (其它桶保留靠业务侧 merge).
     default_variants: dict[str, dict[str, str]] | None = None
     # v0.18.27 · 项目级「已保存的编排」(方案 A). exclude_unset 区分「不改」与「清除」:
-    # 不传 = 不动; 显式 null = 清除。非空时结构由 update_project 端点用 PipelineStage 复核。
+    # 不传 = 不动; 显式 null = 清除。非空时由 update_project 调用服务层
+    # services.pipeline_template.validate_saved_pipeline 复核结构。
     # 用 list[dict] 而非 list[PipelineStage]: 存储态 ml_backend_id 是 str, 且要原样回吐 JSONB。
     preannotate_pipeline: list[dict] | None = None
 

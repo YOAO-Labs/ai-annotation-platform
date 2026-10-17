@@ -56,30 +56,30 @@
 
 ### 3. apply-to-project = copy-on-write 快照实例化
 
-`POST /projects/{id}/pipelines/apply`(`apps/api/app/api/v1/projects.py:721`),入参 `{ pipeline_id, set_default }`。语义**不是活引用,是深拷贝快照**:
+`POST /projects/{id}/pipelines/apply`（`apps/api/app/api/v1/projects.py`），入参 `{ pipeline_id, set_default }`。语义**不是活引用，而是深拷贝快照**：
 
 1. `require_project_owner` 守卫 + `assert_pipeline_visible` 校验来源模板对当前用户可见;
-2. `_validate_saved_pipeline` 结构校验 + `unenabled_backend_ids`(`services/pipeline_template.py:87`)校验编排引用的每个 backend **已在当前项目启用**——直接复用 [ADR-0044](./0044-global-ml-backend-registry-and-project-enablement.md) 的项目级启用门控,未启用则 422 回带 `unenabled_backends` 列表;
-3. `copy_pipeline_stages`(deepcopy)把模板 stages 拷成一条**新的 `scope=private` 项目副本**(`project_id=当前项目`,`created_by=当前用户`,`projects.py:743`);
-4. 源模板 `usage_count += 1`(复用热度埋点,前端列表显示「已套用 N 次」);
-5. `set_default=true` 时先 `switch_project_default_pipeline` 清掉该项目原默认,再把新副本置默认。
+2. `services/pipeline_template.py::validate_saved_pipeline` 做结构校验；`unenabled_backend_ids` 校验每个 backend 已在当前项目启用，未启用则 422 回带 `unenabled_backends` 列表；
+3. `services/pipeline_template.py::apply_pipeline` 把模板 stages 深拷贝成新的 `scope=private` 项目副本（`project_id=当前项目`、`created_by=当前用户`）；
+4. 源模板 `usage_count += 1` 通过原子 SQL 自增；
+5. `set_default=true` 时由 `switch_project_default_pipeline` 清除该项目原默认，再将新副本置为默认；`application/project_pipeline.py::apply_saved_pipeline` 在同一事务中复核当前项目管理权威并组合 backend 启用检查。
 
 **copy-on-write 的后果是解耦**:套用后项目改这条副本不回灌源模板;源模板日后改动也不追灌已套用的项目。全局/组织模板是「出厂样板」,项目拿到的是自己的一份可改快照。
 
 ### 4. 「项目当前编排」= 该项目的默认 private pipeline
 
-历史的 `Project.preannotate_pipeline`(一项目一条 JSONB)被升级为「project 名下多条 `scope=private` 记录 + 一条 `is_default=true` 标记谁是当前」。`switch_project_default_pipeline`(`services/pipeline_template.py:68`)做「先清零旧默认、再置新默认」的原子切换,`uq_project_pipelines_default_per_project` 从 DB 侧兜底「每项目至多一条默认」。旧列不立即拆(见 Consequences 迁移影响)。
+历史的 `Project.preannotate_pipeline`（一项目一条 JSONB）被升级为「project 名下多条 `scope=private` 记录 + 一条 `is_default=true` 标记谁是当前」。`services/pipeline_template.py::switch_project_default_pipeline` 做「先清零旧默认、再置新默认」的原子切换，`uq_project_pipelines_default_per_project` 从 DB 侧兜底「每项目至多一条默认」。旧列不立即拆（见 Consequences 迁移影响）。
 
 ### 5. 与 [ADR-0043](./0043-staged-preannotation-pipeline.md) 的关系:存储层 vs 执行层
 
-- **stages 同构**:模板 `stages` 就是 0043 的 `pipeline_stages`。`_validate_saved_pipeline`(`projects.py:1465`)直接构造 `PreannotateRequest(pipeline_stages=stages)` 复用 0043 同款树形校验——存储态即运行态,零翻译。
-- **执行仍走 0043**:本 ADR 只负责「把 stages 存下来 / 分作用域 / 拷进项目」;真正跑预标时,项目默认编排的 stages 仍沿 0043 的 `PreannotateRequest.pipeline_stages` → worker 路径执行。0046 是 0043 的**持久化与复用层**,不是新执行引擎。
+- **stages 同构**：模板 `stages` 就是 0043 的 `pipeline_stages`。`services/pipeline_template.py::validate_saved_pipeline` 使用 `apps/api/app/schemas/preannotate.py::PreannotateRequest` 复用 0043 同款树形校验；`PipelineStage` / `PreannotateRequest` 的 canonical 定义都在该 schema 模块。
+- **执行仍走 0043**：本 ADR 只负责「把 stages 存下来 / 分作用域 / 拷进项目」；真正运行预标时仍由 `apps/api/app/schemas/preannotate.py::PreannotateRequest.pipeline_stages` → worker 路径执行。0046 是 0043 的**持久化与复用层**，不是新执行引擎。
 
 ### 6. 权限模型
 
-- **创建**(`project_pipelines.py:91` + `assert_can_create_pipeline_scope`,`services/pipeline_template.py:48`):仅 `PROJECT_ADMIN` / `SUPER_ADMIN`;`public` 档**仅** `SUPER_ADMIN`;`organization` 档须指定 `organization_id` 且创建者属于该组织(超管例外)。
-- **可见**(`list_pipelines` + `assert_pipeline_visible`):超管全可见;否则 `public` 人人可见、`private` 仅 `created_by` 本人、`organization` 仅该组织成员。**看不到即 404**(隐藏存在性,不泄露「有这条但你无权」)。
-- **编辑 / 删除**(`can_edit_pipeline`,`services/pipeline_template.py:35`):超管、创建者本人、或组织编排的同组织成员。
+- **创建**（`project_pipelines.py::create_pipeline` + `services/pipeline_template.py::assert_can_create_pipeline_scope`）：仅 `PROJECT_ADMIN` / `SUPER_ADMIN`；`public` 档**仅** `SUPER_ADMIN`；`organization` 档须指定 `organization_id` 且创建者属于该组织（超管例外）。
+- **可见**（`list_pipelines` + `assert_pipeline_visible`）：超管全可见；否则 `public` 人人可见、`private` 仅 `created_by` 本人、`organization` 仅该组织成员。**看不到即 404**（隐藏存在性，不泄露「有这条但你无权」）。
+- **编辑 / 删除**（`can_edit_pipeline`,`services/pipeline_template.py::update_pipeline` / `delete_pipeline`）：超管、创建者本人、或组织编排的同组织成员。
 
 ## Consequences
 
@@ -110,8 +110,9 @@
   - 数据模型:`apps/api/app/db/models/project_pipeline.py`
   - Schema / 作用域校验:`apps/api/app/schemas/project_pipeline.py`(`PipelineScope` / `_validate_scope_owner`)
   - 编排库端点:`apps/api/app/api/v1/project_pipelines.py`(list / create / update / delete + 可见性过滤)
-  - apply 端点 + 结构校验:`apps/api/app/api/v1/projects.py`(`apply_project_pipeline:721` / `_validate_saved_pipeline:1465`)
-  - 权限与应用辅助:`apps/api/app/services/pipeline_template.py`（`assert_pipeline_visible` / `can_edit_pipeline` / `assert_can_create_pipeline_scope` / `switch_project_default_pipeline` / `copy_pipeline_stages` / `unenabled_backend_ids`）
+  - apply 入口：`apps/api/app/api/v1/projects.py::apply_project_pipeline`；组合工作流：`apps/api/app/application/project_pipeline.py::apply_saved_pipeline`
+  - 保存流水线命令：`apps/api/app/services/pipeline_template.py`（`validate_saved_pipeline` / create / update / delete / apply / 默认项切换）
+  - 运行请求 schema：`apps/api/app/schemas/preannotate.py`（`PipelineStage` / `PreannotateRequest`）
   - 前端:`apps/web/src/pages/AIPreAnnotate/GlobalPipelineLibraryPage.tsx`(路由 `/pipelines`,全局库 UI;与 `ProjectDetailPanel` 共用 `usePipelineComposer`)、`apps/web/src/api/projectPipelines.ts`、`apps/web/src/hooks/useProjectPipelines.ts`
 - **相关 alembic**:`0112_project_pipelines.py`(建表 + 四约束 + 回填 + 移除 `projects.ml_backend_id` FK)
 - **相关 ADR**:

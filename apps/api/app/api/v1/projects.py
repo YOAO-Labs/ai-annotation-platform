@@ -1,13 +1,8 @@
-from aap_task_contract import (
-    Task as VisualTaskName,
-    normalize_task,
-    normalize_task_fields,
-)
+from aap_task_contract import normalize_task
 import logging
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Literal
 from app.application.project_workspace import (
     transfer_project_owner as transfer_project_owner_workflow,
 )
@@ -17,9 +12,9 @@ from app.application.project_membership import (
 )
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, update
+from sqlalchemy import select, func, or_, and_
 from app.deps import (
     get_db,
     get_current_user,
@@ -71,6 +66,7 @@ from app.schemas.project import (
     MentionCandidateOut,
 )
 from app.schemas.project_pipeline import ProjectPipelineApplyRequest, ProjectPipelineOut
+import app.schemas.preannotate as preannotate_schemas
 from app.schemas.export import (
     ExportRequestBody,
     LidarExportPreflightRequest,
@@ -87,9 +83,7 @@ from app.services.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
 from app.services.batch_permissions import allows_bulk_preannotation
 from app.services.pipeline_template import (
     assert_pipeline_visible,
-    copy_pipeline_stages,
-    switch_project_default_pipeline,
-    unenabled_backend_ids,
+    validate_saved_pipeline,
 )
 from app.services.project_kind import (
     ProjectKind,
@@ -110,6 +104,7 @@ from app.application.project_task_cleanup import (
     delete_source_less_tasks as cleanup_source_less_tasks,
 )
 from app.application.project_class_rename import rename_project_class
+from app.application.project_pipeline import apply_saved_pipeline
 from app.schemas.project import VideoCollaborationConfig
 from app.services.video_collaboration import validate_project_collaboration_update
 
@@ -1164,7 +1159,7 @@ async def update_project(
     await _assert_project_kind_update_allowed(db, project, payload)
     # v0.18.27 · 项目级编排结构校验 (显式 null = 清除, 跳过校验直接置 None)。
     if payload.get("preannotate_pipeline") is not None:
-        payload["preannotate_pipeline"] = _validate_saved_pipeline(
+        payload["preannotate_pipeline"] = validate_saved_pipeline(
             payload["preannotate_pipeline"]
         )
     # v0.23.3 ADR-0050 · 公共 schema 仍用 ml_backend_id (registry id);
@@ -1230,42 +1225,16 @@ async def apply_project_pipeline(
     if pipeline is None:
         raise HTTPException(status_code=404, detail="编排不存在")
     await assert_pipeline_visible(db, pipeline, current_user)
-    canonical_stages = _validate_saved_pipeline(pipeline.stages)
-
-    missing = await unenabled_backend_ids(db, project.id, pipeline.stages)
-    if missing:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "message": "编排引用的 backend 未在当前项目启用",
-                "unenabled_backends": missing,
-            },
-        )
-
-    new_pipeline = ProjectPipeline(
-        id=uuid.uuid4(),
-        scope="private",
+    copied = await apply_saved_pipeline(
+        db,
+        actor_id=current_user.id,
         project_id=project.id,
-        organization_id=None,
-        name=pipeline.name,
-        stages=copy_pipeline_stages(canonical_stages),
-        is_default=False,
-        created_by=current_user.id,
+        source=pipeline,
+        set_default=body.set_default,
     )
-    # 原子自增, 避免并发套用同一源编排时的 read-modify-write 丢更新。
-    await db.execute(
-        update(ProjectPipeline)
-        .where(ProjectPipeline.id == pipeline.id)
-        .values(usage_count=func.coalesce(ProjectPipeline.usage_count, 0) + 1)
-    )
-    if body.set_default:
-        await switch_project_default_pipeline(db, project.id)
-        new_pipeline.is_default = True
-    db.add(new_pipeline)
-    await db.flush()
     await db.commit()
-    await db.refresh(new_pipeline)
-    return new_pipeline
+    await db.refresh(copied)
+    return copied
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -1981,255 +1950,6 @@ async def export_project(
     return {"job_id": str(job.id)}
 
 
-class PipelineStage(BaseModel):
-    """v0.18.1 · 多阶段预标注的单个阶段声明 (路径 B).
-
-    stage 0 (parent_stage=None) 是源检测阶段, 吃整图产框; 下游阶段 (parent_stage 指向源阶段)
-    平台按父框 bbox 裁 ROI crop 喂入, 把返回的 attributes 合并进父框 (write.target=attributes)。
-    v0.18.2 (M2): 支持单层并行扇出 (多个下游共享同一 parent_stage)、按类别路由
-    (parent_class_filter)、阶段级失败策略 (on_failure)。深度≥3 / new_shape 留 M3。
-    """
-
-    # 脏键在校验期即 422, 不再原样落进 preannotate_pipeline JSONB (见 issue 0008.1);
-    # 前端 PipelineStagePayload 键集与此严格一致, 不会误伤。
-    model_config = ConfigDict(extra="forbid")
-
-    stage: int
-    ml_backend_id: uuid.UUID
-    # v0.21.5 · 初始输入节点 (stage 0) 的数据源描述: {"kind":"dataset","data_type":...,"execution_unit":...}。
-    # 声明「源类型 + 执行单位」维度 (ROADMAP 方向 B/C)。本版仅接受并透传/持久化, 不改派发语义
-    # (video tracker 逐帧/整段编排由 v0.21.6 接线)。下游 stage 无此字段。
-    source: dict | None = None
-    model_id: str | None = None
-    task: VisualTaskName | None = None
-    prompt_type: Literal["text"] | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def canonical_task_fields(cls, value):
-        return normalize_task_fields(value)
-
-    model_variants: dict[str, str] | None = None
-    params: dict | None = None
-    class_filter: list[int] | None = None
-    # 依赖的父阶段 index; None=源阶段 (吃整图)。
-    parent_stage: int | None = None
-    # v0.18.2 · 按类别路由: 本阶段只对这些 class_name 的父框启动 (空/缺=全部父框)。
-    # 不相交类别集=不同类走不同下游模型; 重叠=同类喂多模型 (并行扇出)。声明式过滤, 非分支节点。
-    parent_class_filter: list[str] | None = None
-    # ROI 构造; 认 {"mode":"crop","pad":0.05}, pad∈[0,0.5]。
-    roi: dict | None = None
-    # 结果写回; 认 {"target":"attributes","keys":[...]}。keys 用于并行兄弟键冲突检测。
-    write: dict | None = None
-    # v0.18.2 · 阶段级失败策略: keep_parent (默认, 下游失败保留上游框、属性留空) | drop_box (丢父框)。
-    on_failure: Literal["keep_parent", "drop_box"] = "keep_parent"
-    # v0.18.14 · 卡片显示名 + 写回属性键前缀。设了 label, 写回键加 f"{label}_" 前缀 (子物体
-    # 命名空间, 如 hat_color / shoe_color); 缺省写原始键 (双阶段零退化)。
-    label: str | None = None
-    # v0.18.14 · 显式输入模式覆盖 {"mode": "full_image"|"crop"|"geometry"}; 缺省由 worker 按
-    # write.target 推断 (attributes→crop, geometry/intermediate→geometry-prompt)。
-    input: dict | None = None
-
-
-class PreannotateRequest(BaseModel):
-    ml_backend_id: uuid.UUID | None = None
-    task_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=200)
-    # v0.9.5 · 文本批量预标可选参数
-    prompt: str | None = None
-    output_mode: Literal["box", "mask", "both"] = "mask"
-    batch_id: uuid.UUID | None = None
-    # 执行场景 (issue #121): bulk=数据管理批量预标 (缺省, 保留 pending + active 批次 +
-    # 无有效编辑锁的批量前置条件); workbench=工作台「当前题 AI」单题交互执行, 按当前用户
-    # 对该题的编辑语义校验 (允许 in_progress 任务与 draft 批次, 保留管理员锁 / 他人锁 / 终态保护)。
-    execution_scope: Literal["bulk", "workbench"] = "bulk"
-    # v0.10.38 · 按后端参数面板 (epic 阶段 2): 选中 backend 的 /setup.params 值,
-    # 由前端按 backend 分桶解析后显式带上, worker 合并进 /predict context (覆盖项目级阈值兜底).
-    params: dict | None = None
-    # v0.11.24 · 幂等模式: skip_predicted=跳过已预标 task (默认), overwrite=先清旧预测再预标,
-    # append=保留旧行为 (无脑追加, 仅特殊场景). 避免重复预标叠加重复标注.
-    predict_mode: Literal["skip_predicted", "overwrite", "append"] = "skip_predicted"
-    # v0.14.9 · 能力声明协议 v2 多模型目录: 选中 backend 暴露的某个 model 条目 id,
-    # worker 透传进 /predict context["model_id"], backend 据此路由到对应模型。
-    model_id: str | None = None
-    # v0.14.9 · 任务类型便捷别名 ("ocr"/"doc_layout"/"text"): worker 写 context["type"],
-    # 让纯文本以外的 task (OCR / 版面分析) 也能走批量预标。缺省走老的纯 prompt / image 行为。
-    task: VisualTaskName | None = None
-    prompt_type: Literal["text"] | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def canonical_task_fields(cls, value):
-        return normalize_task_fields(value)
-
-    # v0.14.17 · 协议 v2 结构化路径 (YOLO 等多 task 几何 backend): 选中 variant 组合 (dict[axis,value])。
-    # 非空时 worker 构造 v2 context (model_variants dict + nested params + type=几何 task),
-    # 而非 gsam2 文本路径的扁平形态。修通 YOLO 批量预标 (此前 worker 发 type="text" 被 YOLO 422)。
-    model_variants: dict[str, str] | None = None
-    # v0.14.17 · 类别白名单 (模型原生类别 index 子集): 非空时 backend 只检出这些类。
-    # 平台不做类→项目标签映射 (NG6), 仅透传给 yolo /predict context.classes 做推理层过滤。
-    class_filter: list[int] | None = None
-    # v0.18.1 · 多阶段预标注 (路径 B): 有序阶段列表。非空时走阶段化编排 (detect→ROI→classify),
-    # 缺省时由上面的平铺字段合成单阶段, 与现状逐字等价 (向后兼容)。
-    # v0.18.2 · 支持单层并行扇出 (源 + N 个共享 parent_stage 的下游)。
-    pipeline_stages: list[PipelineStage] | None = None
-    # v0.18.2 · 并行兄弟写同一属性键时的策略: reject (默认, 校验期 422) | last_wins (末位覆盖)。
-    on_key_conflict: Literal["reject", "last_wins"] = "reject"
-
-    @model_validator(mode="after")
-    def _validate_pipeline_stages(self) -> "PreannotateRequest":
-        stages = self.pipeline_stages
-        if not stages:
-            if self.ml_backend_id is None:
-                raise ValueError("ml_backend_id 必填")
-            return self
-        indices = {s.stage for s in stages}
-        if len(indices) != len(stages):
-            raise ValueError("pipeline_stages 的 stage 序号不可重复")
-        # 源阶段: 恰一个 parent_stage=None。顶层 ml_backend_id 是兼容字段, 多阶段时
-        # 自动从源阶段派生, 避免项目主 backend / payload 顶层成为第二真值。
-        roots = [s for s in stages if s.parent_stage is None]
-        if len(roots) != 1:
-            raise ValueError("pipeline_stages 须恰有一个源阶段 (parent_stage=None)")
-        root = roots[0]
-        self.ml_backend_id = root.ml_backend_id
-        self.model_id = root.model_id
-        self.task = root.task
-        self.prompt_type = root.prompt_type
-        self.model_variants = root.model_variants
-        self.params = root.params
-        self.class_filter = root.class_filter
-        # v0.18.14 · 受限树形校验 (max depth 3): 替换原单层扇出约束。
-        # parent_stage 须指向已定义且更早的阶段 (序号严格小于, 自然无环); 父须产可消费几何
-        # (write.target ∈ {geometry, intermediate}); 任一链路深度 ≤ 3。
-        # parent_stage=0 的旧双阶段 payload 在此等价通过 (root depth=1, 子 depth=2)。
-        known_depth: dict[int, int] = {root.stage: 1}
-        known_target: dict[int, str] = {
-            root.stage: (root.write or {}).get("target", "geometry")
-        }
-        for s in sorted(stages, key=lambda x: x.stage):
-            if s.parent_stage is None:
-                continue
-            if s.parent_stage >= s.stage:
-                raise ValueError(
-                    f"stage {s.stage} 的 parent_stage={s.parent_stage} 必须小于子阶段序号"
-                )
-            if s.parent_stage not in known_depth:
-                raise ValueError(
-                    f"stage {s.stage} 的 parent_stage={s.parent_stage} 未在前面定义; "
-                    "受限树形要求父阶段序号严格小于子阶段"
-                )
-            parent_depth = known_depth[s.parent_stage]
-            if parent_depth >= 3:
-                raise ValueError(
-                    f"stage {s.stage} 超过最大深度 3 (父深度={parent_depth})"
-                )
-            parent_target = known_target[s.parent_stage]
-            if parent_target not in {"geometry", "intermediate"}:
-                raise ValueError(
-                    f"stage {s.stage} 的父阶段 {s.parent_stage} write.target={parent_target!r}, "
-                    "不产几何, 无法作为父阶段"
-                )
-            # drop_box 的「丢父框」语义仅在父阶段为源阶段 (root) 时下标才与 root_boxes 对齐;
-            # 深层 (非-root-父) 阶段的父几何是中间产物, worker 误用其下标会删掉无关的 root 框
-            # (见 issue 0001)。深层 drop_box 语义未定义, 此处直接拒绝, 防止静默数据丢失。
-            if s.on_failure == "drop_box" and s.parent_stage != root.stage:
-                raise ValueError(
-                    f"stage {s.stage} 的 on_failure='drop_box' 仅支持父阶段为源阶段 "
-                    f"(stage {root.stage}); 深层阶段请用 on_failure='keep_parent'"
-                )
-            target = (s.write or {}).get("target", "attributes")
-            # geometry: 下游产独立 polygon 追加为 new shape。intermediate: 只产几何给下游消费,
-            # 不落库为候选。attributes: 纯分类下游写回父框 attributes。
-            if target not in {"attributes", "geometry", "intermediate"}:
-                raise ValueError(
-                    "write.target 须为 'attributes' / 'geometry' / 'intermediate', "
-                    f"收到 {target!r}"
-                )
-            # 未来祖先选择扩展点; 本版仅接受 'root' (缺省也按 root 处理)。
-            ts = (s.write or {}).get("target_stage")
-            if ts not in (None, "root"):
-                raise ValueError(
-                    f"stage {s.stage} 的 write.target_stage={ts!r} 暂不支持, 本版仅接受 'root'"
-                )
-            if s.roi is not None:
-                mode = s.roi.get("mode", "crop")
-                # crop: 平台裁父框 ROI 喂下游分类。geometry: 全图 + 父框列表喂 box-seg。
-                if mode not in {"crop", "geometry"}:
-                    raise ValueError(
-                        f"roi.mode 须为 'crop' 或 'geometry', 收到 {mode!r}"
-                    )
-                pad = s.roi.get("pad")
-                if pad is not None and not (0.0 <= float(pad) <= 0.5):
-                    raise ValueError("roi.pad 须在 [0, 0.5] 区间")
-            if s.input is not None:
-                imode = s.input.get("mode")
-                # 下游阶段投递只有 crop (裁父框 ROI) / geometry (整图+父框列表) 两态; worker
-                # _resolve_input_mode 也只认这两个。full_image 不是真实投递模式 (会被 worker
-                # 静默忽略并回落 write.target 启发式), 校验期直接拒绝以保契约一致 (见 issue 0006)。
-                if imode is not None and imode not in {"crop", "geometry"}:
-                    raise ValueError(
-                        f"input.mode 须为 'crop' / 'geometry', 收到 {imode!r}"
-                    )
-            known_depth[s.stage] = parent_depth + 1
-            known_target[s.stage] = target
-        # 属性键冲突: 按"加完 label 前缀的最终键"维度 (写回 root)。无 label 时用原始键 (= 旧双阶段
-        # 行为, 零退化); 设了 label 才加 f"{label}_" 前缀 (子物体命名空间, 与 worker 写回一致)。
-        # geometry/intermediate 不写 attributes, 不参与冲突检测。
-        if self.on_key_conflict == "reject":
-            final_keys: dict[str, int] = {}
-            for s in stages:
-                if s.parent_stage is None or not s.write:
-                    continue
-                if s.write.get("target", "attributes") != "attributes":
-                    continue
-                prefix = f"{s.label}_" if s.label else ""
-                for k in s.write.get("keys") or []:
-                    final = f"{prefix}{k}"
-                    if final in final_keys:
-                        raise ValueError(
-                            f"attribute key 冲突: stage {s.stage} 与 stage {final_keys[final]} "
-                            f"都写 {final!r} 到 root; 设 on_key_conflict=last_wins 以允许末位覆盖"
-                        )
-                    final_keys[final] = s.stage
-        return self
-
-
-def _validate_saved_pipeline(stages) -> list[dict] | None:
-    """v0.18.27 · 校验「保存到项目」的编排结构, 复用预标注端点同款 PipelineStage + 树形校验。
-
-    存储态 ml_backend_id 是 str (PipelineStage 自动 coerce 成 UUID)。顶层 ml_backend_id
-    取源阶段 (parent_stage=None) 的 backend, 以满足 PreannotateRequest「源阶段 backend 须
-    等于顶层」约束。结构非法 → 422 (避免脏编排存进库, 到 v0.18.28 执行时才炸)。
-
-    注意: 仅做结构 / 树形校验, 不校验 backend 存在性与归属 (那是执行期 trigger_preannotation
-    的职责); 本版只存不跑。
-    """
-    if not stages:
-        return stages
-    if not isinstance(stages, list) or not all(isinstance(s, dict) for s in stages):
-        raise HTTPException(
-            status_code=422, detail="preannotate_pipeline 须为阶段对象数组"
-        )
-    roots = [s for s in stages if s.get("parent_stage") is None]
-    if len(roots) != 1:
-        raise HTTPException(
-            status_code=422,
-            detail="preannotate_pipeline 须恰有一个源阶段 (parent_stage=None)",
-        )
-    try:
-        parsed = PreannotateRequest(
-            ml_backend_id=roots[0].get("ml_backend_id"), pipeline_stages=stages
-        )
-        return [
-            stage.model_dump(mode="json", exclude_unset=True)
-            for stage in parsed.pipeline_stages
-        ]
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=422, detail=f"preannotate_pipeline 校验失败: {e}"
-        ) from e
-
-
 def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
     """v0.18.15 · 从 backend 能力快照取某 model 的 supported_inputs (一等输入契约)。
 
@@ -2477,7 +2197,7 @@ async def _validate_workbench_task_scope(
 
 @router.post("/{project_id}/preannotate")
 async def trigger_preannotation(
-    body: PreannotateRequest,
+    body: preannotate_schemas.PreannotateRequest,
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),

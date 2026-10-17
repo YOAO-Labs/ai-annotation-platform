@@ -137,7 +137,7 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 
 ## 按后端动态参数透传
 
-`PreannotateRequest`（`apps/api/app/api/v1/projects.py`）新增 `params: dict | None` 字段，由前端按选中 backend 的 `/setup.params` 用 SchemaForm 渲染并按 backend 记忆（`User.preferences.ai.params_by_backend`）后带上。
+`PreannotateRequest`（`apps/api/app/schemas/preannotate.py`）新增 `params: dict | None` 字段，由前端按选中 backend 的 `/setup.params` 用 SchemaForm 渲染并按 backend 记忆（`User.preferences.ai.params_by_backend`）后带上。
 
 Worker（`apps/api/app/workers/tasks.py::batch_predict`）构建 `/predict` context 时：
 
@@ -150,7 +150,7 @@ if params:
 
 ## 幂等预标模式（predict_mode）
 
-`PreannotateRequest.predict_mode`（`apps/api/app/api/v1/projects.py`）是 `Literal["skip_predicted", "overwrite", "append"]`，默认 `skip_predicted`，由 worker（`apps/api/app/workers/tasks.py::batch_predict` / `_run_batch`）透传决定 task 选取与旧预测处理：
+`PreannotateRequest.predict_mode`（`apps/api/app/schemas/preannotate.py`）是 `Literal["skip_predicted", "overwrite", "append"]`，默认 `skip_predicted`，由 worker（`apps/api/app/workers/tasks.py::batch_predict` / `_run_batch`）透传决定 task 选取与旧预测处理：
 
 | 模式                     | task 选取                                                            | 旧预测处理                                                                                          | 用途                                      |
 | ------------------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------- |
@@ -165,7 +165,9 @@ if params:
 
 ## 多阶段预标注（pipeline_stages，路径 B）
 
-`PreannotateRequest.pipeline_stages` 把单阶段批量预标泛化为**平台层跨 backend 编排**：源阶段（如 detect）产框 → 下游阶段（如 classify / box-seg）对每个父框按各自路由方式投递 → 结果合并回同一框。缺省（无 `pipeline_stages`）与单阶段 `batch_predict` 逐字等价，完全向后兼容。决策与边界见 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)。
+`PreannotateRequest.pipeline_stages`（定义于 `apps/api/app/schemas/preannotate.py`）把单阶段批量预标泛化为**平台层跨 backend 编排**：源阶段（如 detect）产框 → 下游阶段（如 classify / box-seg）对每个父框按各自路由方式投递 → 结果合并回同一框。缺省（无 `pipeline_stages`）与单阶段 `batch_predict` 逐字等价，完全向后兼容。决策与边界见 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)。
+
+保存流水线结构共用 `services/pipeline_template.py::validate_saved_pipeline`；命名流水线的创建、更新、删除、阶段副本与默认项切换也由该所有者持有。`application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威及 backend 启用校验；这些命令不改变本页所述请求 schema 或 worker 执行合同。
 
 ### 请求形态
 

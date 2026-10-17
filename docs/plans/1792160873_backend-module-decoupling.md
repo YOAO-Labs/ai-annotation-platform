@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题及共享预测准备已分片迁移；其余业务域、完整数据所有权与跨语言替换尚未实施。
+> Status: in progress — 任务准入、执行派发、视频/审核证据、训练公共下层、终态/取消/失败重试、素材建题、共享预测准备及流水线模板命令/预标注 schema 已分片迁移；其余业务域、完整数据所有权与跨语言替换尚未实施。
 >
 > 创建日期：2026-10-16。
 >
@@ -234,7 +234,7 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 ## 10. 证据范围
 
 - 设计基线来自源码抽查、既有架构决策和 Compose 配置解析；它不代表完整业务域的运行验证。
-- 当前实施与验证覆盖任务访问/写入准入、质量/媒体/训练数据集执行派发、视频上下文/审核证据、训练公共下层、作业终态/取消/失败重试、素材建题所有权及共享预测准备；没有修改数据库 schema 或受版本管理的运行配置。首片 OpenAPI 仅同步邻帧端点描述中的帮助函数名称，之后切片未改变快照，均未改变路径、字段或响应合同。
+- 当前实施与验证覆盖任务访问/写入准入、质量/媒体/训练数据集执行派发、视频上下文/审核证据、训练公共下层、作业终态/取消/失败重试、素材建题所有权、共享预测准备及流水线模板命令/共享结构校验；没有修改数据库 schema 或受版本管理的运行配置。首片 OpenAPI 仅同步邻帧端点描述中的帮助函数名称，之后切片未改变快照，均未改变路径、字段或响应合同。
 - 后续业务域及语言替换仍按第 8、9 节分别验收；不得把局部结果扩展为全后端已完成解耦。
 
 ## Outcome
@@ -651,6 +651,23 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 十个相关测试文件累计 246 个不同用例通过，75 项 lazy-root 规则不适用。精确 OpenAPI 初轮发现检查点改写了原路由说明，恢复公开说明后补验通过，未改字段、路由或配置/版本。
 - 固定 Ruff、Markdown 格式及 VitePress 预构建/全站渲染通过；用户指南、API 管理清空说明与 Security 变更记录已同步。原生夹具、SQL 触发器和临时程序已回收；独立 Redis 在 reset 时遇宿主 bind 目录的 appendonlydir 启动失败，核对 owner/挂载/退出日志后由本槽 init 恢复，没有改动产品重试或清空策略。
 
+### 保存流水线命令与预标注 schema
+
+- `services/pipeline_template.py` 统一持有已保存流水线的创建、更新、删除、apply、默认项切换及共享 `validate_saved_pipeline`；项目内嵌配置和命名模板共用结构校验。backend 存在 / 项目启用只在 apply 路径核验。`application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威、backend 启用检查与模板 owner；HTTP 层保留提交/响应时序。
+- `PipelineStage` / `PreannotateRequest` 的唯一权威定义迁至 `schemas/preannotate.py`，API、项目配置和测试调用方均直接使用该 schema。字段缺失与显式 null、阶段次序、task/task_type 归一化及原有 options 校验不变；项目 `preannotate_pipeline` 缺省不改、显式 null 清除。
+- 在自有 `aap_wt_6d01ee8f9f063d6a_test` PostgreSQL 上以真实 FastAPI ASGI/JWT 和默认 DB 依赖跑完流水线创建、读取、更新、删除、apply/default 切换与非法 stage/options/backend/reference、owner manager/非成员 outsider 路径。独立 SQLAlchemy 会话核验非法操作不增 usage、不创建副本且不更改旧默认；成功 apply 的副本、来源 usage_count 和唯一默认选择均已持久化验证。原始输出：`/tmp/aap-pipeline-evidence/pipeline-smoke-final.log`；runtime owner/Redis/nine-bucket 校验：`/tmp/aap-pipeline-evidence/doctor-test.log`。
+- 同一项目/默认/公开模板夹具、每次事务回滚后，各三次命令级采样：
+
+| 采样指标                    | 历史 inline 命令 | 当前应用命令 |
+| --------------------------- | ---------------: | -----------: |
+| SQL 语句数                  |                9 |           11 |
+| Python 堆峰值中位数（字节） |          289,128 |      294,261 |
+
+- 当前命令增加的两条查询用于持锁复核当前账号/项目管理权威；采样不含 HTTP 认证依赖与响应序列化，也不代表吞吐或进程 RSS。
+- request schema 接受 `task_type=ocr`、`prompt_type=text`、`output_mode=both` 与 `predict_mode=append` 并归一化为 `task=ocr`；`test_preannotate_text.py` 仍验证真实 HTTP caller 到任务入参的文本/OCR 转发，但 Celery 派发在测试中替身，不声称运行真实 ML。
+- 5 个相关行为/架构测试文件均已执行；改动的 `test_project_pipelines.py` 与 `test_preannotate_text.py` 合计 22 项复验通过，其余项目配置、验证器与架构套件在合跑中通过（含预期跳过项）。精确 OpenAPI snapshot、Ruff 0.15.22、Markdown 格式检查与 VitePress 全站构建通过；构建保留现有 promql/env 高亮 fallback 与 chunk-size 提示。原始证据保存在 `/tmp/aap-pipeline-evidence/` 的测试、OpenAPI、Ruff、Prettier 与 docs-build 日志中。
+- 主线集成后从冷进程加载领域/schema，无 API/worker 导入；真实主线 ASGI/JWT 创建与 apply 均为 201，独立连接核对源与副本的规范阶段一致、来源 usage=1、旧默认取消及唯一新默认。该探针覆盖当前主线账号/项目锁适配器与已迁移请求 schema 的组合，不重复隔离环境完整验收，不接触模型端点。
+
 ### 剩余范围
 
-- 剩余主写入切片为三类质检执行。全入口复核另确认项目/模板配置、保存流水线/共享校验、Schema 孤儿标注清理、注册删除的主绑定、质检问题人工决策、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入仍需完成，已单独跟踪。完整入口/数据/对象前缀台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
+- 剩余主写入切片为三类质检执行。全入口复核另确认项目/模板配置、Schema 孤儿标注清理、注册删除的主绑定、质检问题人工决策、Mask 修复/格式导入执行与派发补偿、Scene 元数据、通知偏好、非夹具运维导入/重置及软删评论附件清理的评论行写入仍需完成，已单独跟踪。完整入口/数据/对象前缀台账及语言替换验收尚未交付；未集成和未验证的隔离检查点不计为完成。当前持久化适配器仍使用本地 Session、ORM 与 HTTPException，不把它们冒充进程协议，也不在未选择目标语言前执行语言替换。
