@@ -122,8 +122,8 @@ class SqlAsyncJobReadAdapter:
         limit: int,
         offset: int,
     ) -> AsyncJobListResponse:
-        user = await self._db.get(User, actor_id)
-        if user is None:
+        user = await self._db.get(User, actor_id, populate_existing=True)
+        if user is None or not user.is_active:
             return AsyncJobListResponse(items=[], total=0)
 
         stmt = _build_async_job_query(

@@ -71,7 +71,14 @@ async def assert_can_manage_failed_prediction(
             detail="仅项目负责人或超级管理员可管理失败预测",
         )
     if user.role == UserRole.SUPER_ADMIN.value:
-        return
+        user = await db.get(User, actor_id, populate_existing=True)
+        if user is None:
+            raise HTTPException(
+                status_code=403,
+                detail="仅项目负责人或超级管理员可管理失败预测",
+            )
+        if user.is_active and user.role == UserRole.SUPER_ADMIN.value:
+            return
     project = await db.get(Project, fp.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")

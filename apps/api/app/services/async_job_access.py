@@ -23,13 +23,24 @@ async def _can_access_job(
     user = await db.get(User, actor_id)
     if user is None:
         return False
-    if user.role == PlatformRole.SUPER_ADMIN.value:
-        return True
     if job.project_id is None:
+        user = await db.get(User, actor_id, populate_existing=True)
+        if user is None or not user.is_active:
+            return False
+        if user.role == PlatformRole.SUPER_ADMIN.value:
+            return True
         # Export has no global mode: a missing project cannot expose its signed URL.
         if job.kind == EXPORT_JOB_KIND:
             return False
         return job.user_id == user.id
+    if user.role == PlatformRole.SUPER_ADMIN.value:
+        user = await db.get(User, actor_id, populate_existing=True)
+        if user is None or not user.is_active:
+            return False
+        if user.role == PlatformRole.SUPER_ADMIN.value:
+            return True
+    elif not user.is_active:
+        return False
     project = await db.get(Project, job.project_id)
     if project is None:
         return False

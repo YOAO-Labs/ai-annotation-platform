@@ -2,9 +2,8 @@
 title: AI 任务与失败恢复
 audience: [project_admin, super_admin]
 type: how-to
-since: v0.9.0
 status: stable
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-18
 ---
 
 # AI 任务与失败恢复
@@ -18,6 +17,8 @@ last_reviewed: 2026-07-11
 3. 确认任务属于当前项目和当前操作；不要只看浏览器右上角的任务铃。任务铃可以隐藏终态记录，完整历史以 Jobs 页面为准。
 
 图片任务的项目、状态、关键词和页码随地址保存；视频页使用独立的状态和模型条件，切换标签不会覆盖图片状态。刷新及浏览器前进后退可以恢复筛选。关键词和模型输入停止 250ms 后应用，改变条件从首页重新查询。
+
+列表、详情和重试会在权限判断时重读当前账号；账号变更后，后续读取和操作按重新校验的当前权限处理，页面打开状态不会保留超管权限。
 
 ![失败预测任务列表](../images/workflows/failed-prediction-recovery-jobs-list.png)
 

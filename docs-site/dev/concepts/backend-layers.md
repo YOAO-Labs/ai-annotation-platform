@@ -124,6 +124,8 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 作业列表/明细、取消和失败重试消费 `application/async_job_contracts.py` 的三个值端口，只传主体/资源 UUID 与原过滤参数，返回原响应或取消状态。`SqlAsyncJobReadAdapter` 私下持有列表谓词、ORM 与响应投影；`services/async_job_access.py::_can_access_job` 保留项目、导出能力和审核范围判断。取消/重试适配器绑定原请求 Session 与控制/派发端口，保留领域取消分支、HTTP 的最终提交，以及重试 claim 提交、派发失败补偿的原顺序。预期失败携带原 status/detail/headers；列表不改为逐行权限查询，初始身份事实不替代各领域的当前写入围栏。
 
+列表范围先读取当前账号；超管快捷判断和无项目作业访问/重试刷新身份，普通项目分支复用原访问解析器的当前读取，避免旧 identity map 沿用高权限。停用账号的取消拒绝仍为原 401/认证响应头，资源不可见仍按原访问规则返回。该重读不构成新的跨进程授权令牌或全程权限原子性保证。
+
 讨论读模型与通知接收人筛选直接调用 `project_access.resolve_project_access_by_id`，再检查 `task_access.assert_task_visible`，不消费 HTTP 依赖助手。`deps.assert_project_visible` 仍是 HTTP 侧对同一解析器的适配，不另建权限实现。当前成员状态、任务批次/分派限制及 404 隐藏语义不变；讨论回复和通知行仍同事务写入，提交后再发布并复核投递权限。
 
 评论与历史的十二个 HTTP 处理器只接收认证主体 UUID；评论保留原平台角色依赖，历史不新增角色限制。`task_discussion` 与 `AnnotationCommentWorkflow` 在原 Session 内解析已有身份，继续执行原项目/任务权限重读和最终行锁。评论创建将锁后的 `IdentityActorFacts` 交给响应与 mention 通知，保留当前姓名及提交/投递时序；讨论 SQL 投影和评论行仍是本地组合。
