@@ -1241,6 +1241,21 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - 已有 API 回归增加第二个同基线评估在首次晋升后被拒绝的消费者断言；开发分层说明同步。五个变更 Python 文件固定 Ruff 格式/check 通过；API/OpenAPI、schema、依赖、配置与版本不变，纯重构不增加 CHANGELOG。
 - 主线四个消费者／完整领域图／精确 OpenAPI 文件 181 passed、77 skipped，零失败/错误；JUnit `/tmp/aap-point-cloud-promotion-owner-main.xml`。未将按既有声明跳过的项目当作执行通过。
 
+### 存量图片尺寸回填所有权
+
+- 最终 HTTP 源码复核发现 `backfill_dimensions` 仍直接赋值素材行宽高；现每个请求只创建一次 `DatasetService`，复用既有 `set_item_dimensions`。原 manager 准入、dataset/image/width-null 筛选、batch 限额、无排序、头部读取、计数及循环后单次 commit 全部保留，没有新校验或自动重试。
+- 在同一自有 PostgreSQL/MinIO 夹具上先运行旧入口，再恢复同一待处理尺寸运行新入口；真实 PNG 与损坏图片共同覆盖成功/失败，已有 width 但缺 height、视频和另一数据集图片保持不变，所有 metadata 保留。目标素材 SQL 和真实 S3 GetObject 观察如下，不是 HTTP 总 SQL 或性能优化结论：
+
+  | 请求场景               | HTTP 响应（旧／新一致）                          | 素材 SELECT（旧／新） | 素材 UPDATE（旧／新） | S3 GET（旧／新） |
+  | ---------------------- | ------------------------------------------------ | --------------------: | --------------------: | ---------------: |
+  | 成功与损坏图片混合批次 | 200；processed 1、failed 1、remaining_hint true  |                  1／1 |                  1／1 |             2／2 |
+  | 再处理剩余损坏图片     | 200；processed 0、failed 1、remaining_hint false |                  1／1 |                  0／0 |             1／1 |
+
+- 新入口的受控延迟提交故障返回普通文本 500；新事务看到两条成功读取的素材都保留原 width-null 与原 height，没有部分提交。移除受控故障后再次请求 200，两条尺寸均持久化为 32×24；未改变生产重试策略。
+- 原始请求与 PostgreSQL 观察在 `.worktree/dataset-dimensions-owner-before.json`、`.worktree/dataset-dimensions-owner-after.json`。三个 Dataset/七个 Item、两个 MinIO 对象、测试账号和受控 SQL 对象已清理；没有执行 worker、模型或渲染器。临时探针已移除。
+- 一个变更 Python 文件固定 Ruff 格式/check 通过；开发分层说明同步。没有改变公共 API/OpenAPI、schema、依赖、配置或版本，纯所有权重构不增加 CHANGELOG，也不添加 setter/转发回声测试。
+- 主线既有上传/导入消费者两个文件 36 passed、零跳过/失败/错误；JUnit `/tmp/aap-dataset-dimensions-owner-main.xml`。本切片没有新增导入边或公共契约，不为扩大计数重跑已完成的完整领域图验收。
+
 ### 剩余范围
 
-- 最终源码复核新增的点云评估晋升配置写入已收口；数据集尺寸回填仍需迁移到既有素材命令。完整入口、数据及存储台账与最终验证继续交付，不能用 SCC 或单一作业收口代替全后端验收。本地 Session、ORM 和 HTTPException 不是进程协议；未选择目标语言，不执行语言替换。
+- 最终源码复核新增的点云评估晋升与尺寸回填写入均完成所有者迁移；完整入口、数据及存储台账与最终验证继续交付，不能用 SCC 或单一作业收口代替全后端验收。本地 Session、ORM 和 HTTPException 不是进程协议；未选择目标语言，不执行语言替换。

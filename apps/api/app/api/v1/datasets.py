@@ -757,13 +757,14 @@ async def backfill_dimensions(
     items = list(rows.scalars().all())
     processed = 0
     failed = 0
+    svc = DatasetService(db)
     for item in items:
         dims = storage_service.read_image_dimensions(
             item.file_path,
             bucket=storage_service.datasets_bucket,
         )
         if dims:
-            item.width, item.height = dims
+            await svc.set_item_dimensions(item.id, dims)
             processed += 1
         else:
             failed += 1
