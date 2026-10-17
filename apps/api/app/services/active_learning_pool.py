@@ -3,26 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import String, and_, cast, func, or_, select
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import String, cast, func, select
 
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
 from app.db.models.sample_evaluation import SampleEvaluationRun as Evaluation
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.training_dataset import TrainingDatasetVersion as Version
 from app.services import active_learning_engine as strategy
 from app.services import sample_evaluation_engine as detection
+from app.services.labeling_active_learning_source_contract import (
+    CandidateSourceError,
+    CandidateSourcesRead,
+    LabelingActiveLearningSources,
+)
 from app.services.managed_inference import qualification, reject
-from app.services.project_write_guard import _busy_lock_error
 from app.services.sample_evaluation_sources import read_current_media
-from app.services.storage import storage_service as storage
-from app.services.task_lock import TaskLockConflictError, TaskLockService
 from app.services.training_dataset_bridge import (
     content_digest,
     sample_identities,
@@ -34,227 +28,6 @@ MAX_TOTAL_RAW = 128 * 1024 * 1024
 MAX_HISTORICAL_BYTES = 16 * 1024 * 1024
 MAX_HISTORICAL_SOURCES = 256
 SCOPES = frozenset({"datasets:read", "datasets:write", "annotations:read"})
-
-
-def eligibility():
-    return and_(
-        Task.file_type == "image",
-        Task.status == "pending",
-        Task.is_labeled.is_(False),
-        Task.total_annotations == 0,
-        Task.assignee_id.is_(None),
-        Task.reviewer_id.is_(None),
-        Task.submitted_at.is_(None),
-        Task.reviewed_at.is_(None),
-        Task.skipped_at.is_(None),
-        Task.skip_reason.is_(None),
-        Task.first_reviewed_at.is_(None),
-        Task.first_review_result.is_(None),
-        Task.reopened_count == 0,
-        or_(
-            Task.batch_id.is_(None),
-            and_(
-                TaskBatch.display_id == "B-DEFAULT",
-                TaskBatch.project_id == Task.project_id,
-                TaskBatch.status != "archived",
-                TaskBatch.admin_locked.is_(False),
-                TaskBatch.annotator_id.is_(None),
-                TaskBatch.reviewer_id.is_(None),
-                TaskBatch.assigned_user_ids == [],
-            ),
-        ),
-        ~select(Annotation.id)
-        .where(
-            Annotation.task_id == Task.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-        )
-        .exists(),
-        ~select(AnnotationDraft.id).where(AnnotationDraft.task_id == Task.id).exists(),
-        ~select(TaskLock.id)
-        .where(
-            TaskLock.task_id == Task.id, TaskLock.expire_at > datetime.now(timezone.utc)
-        )
-        .exists(),
-    )
-
-
-def query(project_id):
-    return (
-        select(Task, DatasetItem, TaskBatch)
-        .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-        .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
-        .where(Task.project_id == project_id, eligibility())
-        .execution_options(populate_existing=True)
-    )
-
-
-def source_snapshot(task, item, batch):
-    fields = (
-        "display_id",
-        "file_name",
-        "file_path",
-        "file_type",
-        "status",
-        "version",
-        "is_labeled",
-        "total_annotations",
-        "assignee_id",
-        "reviewer_id",
-        "assignee_is_override",
-        "reviewer_is_override",
-        "assigned_at",
-        "submitted_at",
-        "reviewed_at",
-        "skipped_at",
-        "skip_reason",
-        "review_round_id",
-        "first_reviewed_at",
-        "first_review_result",
-        "reopened_count",
-        "tags",
-    )
-
-    def plain(value):
-        return (
-            value.isoformat()
-            if isinstance(value, datetime)
-            else str(value)
-            if isinstance(value, uuid.UUID)
-            else value
-        )
-
-    return {
-        "task_id": str(task.id),
-        "project_id": str(task.project_id),
-        "dataset_item_id": str(item.id) if item else None,
-        "scene_id": str(item.scene_id) if item and item.scene_id else None,
-        "source_bucket": storage.datasets_bucket if item else storage.bucket,
-        "source_key": task.file_path,
-        "file_type": task.file_type,
-        "expected_width": item.width if item else None,
-        "expected_height": item.height if item else None,
-        "task": {key: plain(getattr(task, key)) for key in fields},
-        "item": {
-            key: plain(getattr(item, key))
-            for key in (
-                "id",
-                "dataset_id",
-                "file_path",
-                "file_type",
-                "file_size",
-                "content_hash",
-                "width",
-                "height",
-                "scene_id",
-                "frame_index",
-            )
-        }
-        if item
-        else None,
-        "batch": {
-            key: plain(getattr(batch, key))
-            for key in (
-                "id",
-                "display_id",
-                "status",
-                "admin_locked",
-                "annotator_id",
-                "reviewer_id",
-                "assigned_user_ids",
-            )
-        }
-        if batch
-        else None,
-    }
-
-
-async def snapshots(db, project_id, task_ids):
-    rows = (
-        await db.execute(
-            query(project_id).where(Task.id.in_(task_ids)).order_by(Task.id)
-        )
-    ).all()
-    if len(rows) != len(task_ids):
-        raise reject(
-            "pool_stale", "候选须为未分派、无标注或草稿且未被编辑锁定的图片任务"
-        )
-    result = [source_snapshot(*row) for row in rows]
-    if any(
-        row["item"]
-        and (
-            row["item"]["file_path"] != row["source_key"]
-            or row["item"]["file_type"] != "image"
-        )
-        for row in result
-    ):
-        raise reject("source_changed", "任务与素材图片引用不一致")
-    return result
-
-
-async def lock_unedited(db, task_ids, actor_id):
-    locks = TaskLockService(db)
-    for task_id in sorted(task_ids):
-        acquired = await db.scalar(
-            select(
-                func.pg_try_advisory_xact_lock(
-                    func.hashtextextended(f"aap:task-edit-lock:{task_id}", 0)
-                )
-            )
-        )
-        if not acquired:
-            raise reject("pool_busy", "候选编辑锁正在变化，请稍后重新检查")
-        try:
-            await locks.assert_write_allowed(task_id, actor_id)
-        except TaskLockConflictError as exc:
-            raise reject("pool_locked", "候选正在编辑，请关闭工作台后重新选样") from exc
-        if await locks.active_lock(task_id) is not None:
-            raise reject("pool_locked", "候选正在编辑；自己的工作台锁也须先释放")
-
-
-async def lock_source_items(db, item_ids):
-    if not item_ids:
-        return
-    try:
-        await db.execute(
-            select(DatasetItem.id)
-            .where(DatasetItem.id.in_(item_ids))
-            .order_by(DatasetItem.id)
-            .with_for_update(read=True, nowait=True)
-        )
-    except DBAPIError as exc:
-        if _busy_lock_error(exc):
-            raise reject("source_busy", "候选素材正在变化，请稍后重新检查") from exc
-        raise
-
-
-async def list_pool(db, project_id, limit, offset):
-    total = await db.scalar(
-        select(func.count()).select_from(query(project_id).subquery())
-    )
-    rows = (
-        await db.execute(
-            query(project_id)
-            .order_by(Task.created_at, Task.id)
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
-    return {
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "items": [
-            {
-                "task_id": str(task.id),
-                "display_id": task.display_id,
-                "file_name": task.file_name,
-                "dataset_item_id": str(item.id) if item else None,
-                "scene_id": str(item.scene_id) if item and item.scene_id else None,
-            }
-            for task, item, _batch in rows
-        ],
-    }
 
 
 async def exclusions(db, project_id, *, lock=False):
@@ -405,7 +178,15 @@ def read_input(snapshot):
     }
 
 
-async def prepare(db, project, body, actor_id, api_key_id=None):
+async def prepare(
+    db,
+    project,
+    body,
+    actor_id,
+    api_key_id=None,
+    *,
+    candidate_sources: LabelingActiveLearningSources,
+):
     # External qualification and media IO precede final domain locks.
     ref, profile = await qualification(
         db, project, body.model_version_id, body.deployment_id
@@ -417,7 +198,12 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
         api_key_id=api_key_id,
         required_scopes=SCOPES,
     )
-    before = await snapshots(db, project.id, body.sample_task_ids)
+    try:
+        before = await candidate_sources.read_candidate_sources(
+            CandidateSourcesRead(project.id, tuple(body.sample_task_ids))
+        )
+    except CandidateSourceError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
     history = await exclusions(db, project.id)
     await db.commit()
     verified, total = [], 0
@@ -448,9 +234,13 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
         api_key_id=api_key_id,
         required_scopes=SCOPES,
     )
-    if before != await snapshots(
-        db, project.id, body.sample_task_ids
-    ) or history != await exclusions(db, project.id):
+    try:
+        after = await candidate_sources.read_candidate_sources(
+            CandidateSourcesRead(project.id, tuple(body.sample_task_ids))
+        )
+    except CandidateSourceError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
+    if before != after or history != await exclusions(db, project.id):
         raise reject("pool_stale", "核验期间候选来源或历史成员已变化，请重新预览")
     samples, omitted = strategy.grouped_pool(verified, history["identities"])
     samples = strategy.partition(samples, body.seed, body.batch_size)

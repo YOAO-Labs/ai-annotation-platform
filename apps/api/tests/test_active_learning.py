@@ -22,7 +22,12 @@ from app.services import (
     active_learning as service,
     active_learning_feedback as feedback,
 )
-from tests.active_learning_fixtures import complete, create, seed
+from tests.active_learning_fixtures import (
+    complete,
+    create,
+    decide_with_ports,
+    seed,
+)
 
 
 async def test_preview_rejects_libre_through_real_shared_qualification(
@@ -241,8 +246,8 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
         ordinals=selected,
         batch_name="Human review only",
     )
-    decision = await service.decide(db_session, world.project, owner, round.id, body)
-    again = await service.decide(db_session, world.project, owner, round.id, body)
+    decision = await decide_with_ports(db_session, world.project, owner, round.id, body)
+    again = await decide_with_ports(db_session, world.project, owner, round.id, body)
     assert (
         again.id == decision.id
         and again.accepted_batch_id == decision.accepted_batch_id
@@ -266,7 +271,7 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
     rejected = next(
         row["ordinal"] for row in report["ranking"] if row["ordinal"] not in selected
     )
-    await service.decide(
+    await decide_with_ports(
         db_session,
         world.project,
         owner,
@@ -274,7 +279,7 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
         DecisionCreate(request_id=uuid.uuid4(), action="reject", ordinals=[rejected]),
     )
     with pytest.raises(HTTPException) as error:
-        await service.decide(
+        await decide_with_ports(
             db_session,
             world.project,
             owner,
@@ -302,7 +307,7 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
         for row in report["ranking"]
         if row["recommended"] and row["arm"] == "active"
     )
-    decision = await service.decide(
+    decision = await decide_with_ports(
         db_session,
         world.project,
         owner,

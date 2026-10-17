@@ -36,6 +36,17 @@ from app.services import (
 from app.services.async_job_notify import notify_job_terminal
 from app.services.batch import BatchService
 from app.services.storage import storage_service as storage
+from app.services.assets_active_learning_fence_contract import (
+    AssetsActiveLearningFence,
+    CandidateItemFence,
+    CandidateItemFenceBusy,
+)
+from app.services.labeling_active_learning_source_contract import (
+    CandidateEditFence,
+    CandidateSourceError,
+    CandidateSourcesRead,
+    LabelingActiveLearningSources,
+)
 from app.services.training_dataset_bridge import content_digest, sample_identities
 from app.services.training_datasets import assert_training_authority
 
@@ -171,7 +182,17 @@ def validate_spec(round):
     return spec
 
 
-async def create_round(db, project, user, body, prepared, api_key_id=None):
+async def create_round(
+    db,
+    project,
+    user,
+    body,
+    prepared,
+    api_key_id=None,
+    *,
+    candidate_sources: LabelingActiveLearningSources,
+    assets_fence: AssetsActiveLearningFence,
+):
     digest = content_digest(body.model_dump(mode="json"))
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
@@ -231,11 +252,24 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
         for sample in prepared["pool"]
         if sample["snapshot"]["dataset_item_id"]
     ]
-    await pool.lock_source_items(db, item_ids)
-    await pool.lock_unedited(db, ids, user.id)
+    try:
+        await assets_fence.lock_candidate_items(CandidateItemFence(tuple(item_ids)))
+    except CandidateItemFenceBusy as exc:
+        raise reject("source_busy", "候选素材正在变化，请稍后重新检查") from exc
+    try:
+        await candidate_sources.lock_candidate_edits(
+            CandidateEditFence(tuple(ids), user.id)
+        )
+    except CandidateSourceError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
+    try:
+        sources = await candidate_sources.read_candidate_sources(
+            CandidateSourcesRead(project.id, tuple(ids))
+        )
+    except CandidateSourceError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
     if (
-        await pool.snapshots(db, project.id, ids)
-        != [sample["snapshot"] for sample in prepared["pool"]]
+        sources != [sample["snapshot"] for sample in prepared["pool"]]
         or await pool.exclusions(db, project.id, lock=True) != prepared["exclusions"]
     ):
         raise reject("pool_stale", "创建前候选资格或历史排除成员已变化，请重新预览")
@@ -689,7 +723,17 @@ def decision_output(decision):
     }
 
 
-async def decide(db, project, user, round_id, body, api_key_id=None):
+async def decide(
+    db,
+    project,
+    user,
+    round_id,
+    body,
+    api_key_id=None,
+    *,
+    candidate_sources: LabelingActiveLearningSources,
+    assets_fence: AssetsActiveLearningFence,
+):
     digest = content_digest(body.model_dump(mode="json"))
     round = await load_round(db, project.id, round_id)
     existing = await db.scalar(
@@ -732,11 +776,14 @@ async def decide(db, project, user, round_id, body, api_key_id=None):
         ),
         key=lambda source: source["task_id"],
     )
-    before = (
-        await pool.snapshots(db, project.id, group_ids)
-        if body.action == "accept"
-        else None
-    )
+    before = None
+    if body.action == "accept":
+        try:
+            before = await candidate_sources.read_candidate_sources(
+                CandidateSourcesRead(project.id, tuple(group_ids))
+            )
+        except CandidateSourceError as exc:
+            raise reject(exc.code, str(exc), exc.status_code) from exc
     await db.commit()
     if before:
         for sample, snapshot in zip(group_sources, before, strict=True):
@@ -808,9 +855,23 @@ async def decide(db, project, user, round_id, body, api_key_id=None):
                 if snapshot["dataset_item_id"]
             }
         )
-        await pool.lock_source_items(db, item_ids)
-        await pool.lock_unedited(db, group_ids, user.id)
-        if before != await pool.snapshots(db, project.id, group_ids):
+        try:
+            await assets_fence.lock_candidate_items(CandidateItemFence(tuple(item_ids)))
+        except CandidateItemFenceBusy as exc:
+            raise reject("source_busy", "候选素材正在变化，请稍后重新检查") from exc
+        try:
+            await candidate_sources.lock_candidate_edits(
+                CandidateEditFence(tuple(group_ids), user.id)
+            )
+        except CandidateSourceError as exc:
+            raise reject(exc.code, str(exc), exc.status_code) from exc
+        try:
+            after = await candidate_sources.read_candidate_sources(
+                CandidateSourcesRead(project.id, tuple(group_ids))
+            )
+        except CandidateSourceError as exc:
+            raise reject(exc.code, str(exc), exc.status_code) from exc
+        if before != after:
             raise reject("source_stale", "接纳前任务资格、分派或编辑锁已变化")
         history = await pool.exclusions(db, project.id, lock=True)
         excluded = set(history["identities"])

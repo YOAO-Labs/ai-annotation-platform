@@ -30,6 +30,14 @@ from app.services import (
     active_learning_feedback as feedback,
     active_learning_pool as pool,
 )
+from app.services.assets_active_learning_fence import (
+    SqlAlchemyAssetsActiveLearningFence,
+)
+from app.services.labeling_active_learning_source_contract import CandidatePageRead
+from app.services.labeling_active_learning_sources import (
+    SqlAlchemyLabelingActiveLearningSources,
+)
+from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 
 router = APIRouter(
@@ -53,7 +61,14 @@ async def candidate_pool(
     limit: int = Query(32, ge=2, le=32),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    return await pool.list_pool(db, project.id, limit=limit, offset=offset)
+    sources = SqlAlchemyLabelingActiveLearningSources(
+        db,
+        dataset_bucket=storage_service.datasets_bucket,
+        task_bucket=storage_service.bucket,
+    )
+    return await sources.list_candidates(
+        CandidatePageRead(project_id=project.id, limit=limit, offset=offset)
+    )
 
 
 @router.post(":preview", dependencies=WRITE)
@@ -64,9 +79,19 @@ async def preview(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    candidate_sources = SqlAlchemyLabelingActiveLearningSources(
+        db,
+        dataset_bucket=storage_service.datasets_bucket,
+        task_bucket=storage_service.bucket,
+    )
     try:
         prepared = await pool.prepare(
-            db, project, body, user.id, getattr(request.state, "api_key_id", None)
+            db,
+            project,
+            body,
+            user.id,
+            getattr(request.state, "api_key_id", None),
+            candidate_sources=candidate_sources,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
@@ -110,12 +135,23 @@ async def create(
         if existing.request_digest != digest:
             raise service.reject("request_conflict", "同一请求标识不能用于不同选样轮次")
         return await service.output(db, existing)
+    candidate_sources = SqlAlchemyLabelingActiveLearningSources(
+        db,
+        dataset_bucket=storage_service.datasets_bucket,
+        task_bucket=storage_service.bucket,
+    )
+    assets_fence = SqlAlchemyAssetsActiveLearningFence(db)
     try:
         selection = Selection.model_validate(
             body.model_dump(exclude={"request_id", "name", "preview_digest"})
         )
         prepared = await pool.prepare(
-            db, project, selection, user.id, getattr(request.state, "api_key_id", None)
+            db,
+            project,
+            selection,
+            user.id,
+            getattr(request.state, "api_key_id", None),
+            candidate_sources=candidate_sources,
         )
         round = await service.create_round(
             db,
@@ -124,6 +160,8 @@ async def create(
             body,
             prepared,
             getattr(request.state, "api_key_id", None),
+            candidate_sources=candidate_sources,
+            assets_fence=assets_fence,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
@@ -319,6 +357,12 @@ async def decide(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    candidate_sources = SqlAlchemyLabelingActiveLearningSources(
+        db,
+        dataset_bucket=storage_service.datasets_bucket,
+        task_bucket=storage_service.bucket,
+    )
+    assets_fence = SqlAlchemyAssetsActiveLearningFence(db)
     try:
         row = await service.decide(
             db,
@@ -327,6 +371,8 @@ async def decide(
             round_id,
             body,
             getattr(request.state, "api_key_id", None),
+            candidate_sources=candidate_sources,
+            assets_fence=assets_fence,
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc

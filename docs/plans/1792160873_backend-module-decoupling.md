@@ -1381,6 +1381,13 @@ B/C/D 是按切片推进，不要求一次定义所有未来接口，也不要�
 - `project_access` 继续持有 SQL 解析、账号→项目→成员锁、原错误及读取已加载 User/Project 的管理者谓词；12 个保留函数体在只规范化私有导入别名后与 `e290815aa` AST 等价。未新增查询、JSON 复制或 I/O；未改 `get_current_user`、API key 的独立提交、JWT/WS、凭据撤销或 audience 规则。
 - 隔离 PostgreSQL 的能力矩阵、identity-map 刷新、撤权串行、任务/worker 写入围栏、成员并发、聚合/角色入口及 API key 回归共 101 passed；架构 198 passed、84 skipped，公开 OpenAPI check 通过。这是访问值边界，不把仍接收本地 Session/ORM 的解析器宣称为远程授权协议。
 
+### 主动学习候选的来源与围栏契约
+
+- Labeling 的候选分页、选定来源及编辑围栏使用 Session-free 请求/结果/错误；Assets 单独持有素材批量共享 NOWAIT 锁。四个 API 用例绑定原 Session，学习侧保留资格后的历史排除、对象读取/重新授权/来源复核、项目/批次/任务锁及原提交顺序；旧 pool 查询/锁公开函数和全部调用点已迁移。
+- 保留单条 Task/TaskBatch/DatasetItem 联合来源投影及独立 count/page 的两个到期时间切面；空请求、缺失/异项目/重复 ID、排序与原摘要字段不变。只深复制 tags/assigned_user_ids 两个可变 JSON 字段，防止来源值仍引用 ORM 数组；没有媒体复制、逐项网络调用或新的存储/模型请求。这个跨所有者只读 join 与强事务仍明确保留，不宣称独立数据库一致快照。
+- 活跃标注但计数为零、草稿/锁、来源范围和 JSON 脱离、自己的编辑锁、素材竞争、媒体 I/O 后 API key 撤销等 39 项首轮 37 passed、2 个新增夹具失败。分别补齐无 relationship 模型的 FK flush 顺序、改用真正独立连接形成 advisory 竞争后，两项复验通过；生产锁实现未改。架构 208 passed、88 skipped，OpenAPI check 通过。
+- `ca9f6262d` 原查询与当前端口在同一隔离 PostgreSQL 对照：32 个任务、16 个素材、一个默认批次、每题 16 个 tag，预热后交错三轮。分页均两条 SQL，Python 堆峰值 396,665 / 397,361 B、11.477 / 11.064 ms；选定来源均一条 SQL，486,683 / 488,443 B、8.689 / 9.585 ms，返回值一致。范围包含 reader/Session 开关，不含授权、编辑/素材围栏、历史、媒体 I/O、HTTP、派发或 RSS，不推断性能提升。原始记录 `.worktree/active-pool-budget.json`，夹具已按生成 ID 清理。
+
 ### 剩余范围
 
 已识别的 Python 依赖方向、写入所有权与完整台账有逐片验收记录；这不等于所有模块都已具备独立部署合同。后续遗留按以下条件推进：

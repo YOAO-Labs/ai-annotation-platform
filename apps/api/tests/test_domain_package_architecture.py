@@ -175,6 +175,18 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="training_datasets", legacy_facades=()),
     DomainSpec(package="learning_policies", legacy_facades=()),
     DomainSpec(package="labeling_assets", legacy_facades=()),
+    DomainSpec(package="labeling_active_learning_sources", legacy_facades=()),
+    DomainSpec(
+        package="labeling_active_learning_source_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
+    DomainSpec(package="assets_active_learning_fence", legacy_facades=()),
+    DomainSpec(
+        package="assets_active_learning_fence_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
     DomainSpec(package="labeling_evaluation_source", legacy_facades=()),
     DomainSpec(
         package="labeling_evaluation_source_contract",

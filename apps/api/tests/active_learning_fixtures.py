@@ -11,6 +11,12 @@ from sqlalchemy import select
 from app.db.models.active_learning import ActiveLearningAttempt as Attempt
 from app.schemas.active_learning import RoundCreate, Selection
 from app.services import active_learning as service, active_learning_pool as pool
+from app.services.assets_active_learning_fence import (
+    SqlAlchemyAssetsActiveLearningFence,
+)
+from app.services.labeling_active_learning_sources import (
+    SqlAlchemyLabelingActiveLearningSources,
+)
 from tests.factory import create_task
 from tests.sample_evaluation_fixtures import Objects, prediction, seed as seed_model
 
@@ -53,16 +59,73 @@ async def seed(db, owner, monkeypatch, *, count=6, duplicate=False):
 
 
 async def create(db, owner, world):
-    prepared = await pool.prepare(db, world.project, world.selection, owner.id)
+    candidate_sources = SqlAlchemyLabelingActiveLearningSources(
+        db,
+        dataset_bucket=service.storage.datasets_bucket,
+        task_bucket=service.storage.bucket,
+    )
+    assets_fence = SqlAlchemyAssetsActiveLearningFence(db)
+    prepared = await pool.prepare(
+        db,
+        world.project,
+        world.selection,
+        owner.id,
+        candidate_sources=candidate_sources,
+    )
     body = RoundCreate(
         **world.selection.model_dump(),
         request_id=uuid.uuid4(),
         name="Human selection",
         preview_digest=prepared["preview_digest"],
     )
-    round = await service.create_round(db, world.project, owner, body, prepared)
+    round = await service.create_round(
+        db,
+        world.project,
+        owner,
+        body,
+        prepared,
+        candidate_sources=candidate_sources,
+        assets_fence=assets_fence,
+    )
     await db.flush()
     return round, await db.get(Attempt, round.current_attempt_id), body
+
+
+def candidate_ports(db):
+    return (
+        SqlAlchemyLabelingActiveLearningSources(
+            db,
+            dataset_bucket=service.storage.datasets_bucket,
+            task_bucket=service.storage.bucket,
+        ),
+        SqlAlchemyAssetsActiveLearningFence(db),
+    )
+
+
+async def prepare_with_ports(db, project, selection, actor_id, api_key_id=None):
+    candidate_sources, _assets_fence = candidate_ports(db)
+    return await pool.prepare(
+        db,
+        project,
+        selection,
+        actor_id,
+        api_key_id,
+        candidate_sources=candidate_sources,
+    )
+
+
+async def decide_with_ports(db, project, user, round_id, body, api_key_id=None):
+    candidate_sources, assets_fence = candidate_ports(db)
+    return await service.decide(
+        db,
+        project,
+        user,
+        round_id,
+        body,
+        api_key_id,
+        candidate_sources=candidate_sources,
+        assets_fence=assets_fence,
+    )
 
 
 async def complete(db, round, attempt):

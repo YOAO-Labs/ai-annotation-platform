@@ -226,6 +226,10 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 评估的当前任务来源由 `labeling_evaluation_source_contract.CurrentTaskSourceReader` 交付：请求只含项目/任务 UUID 与标注投影上限；路由将 `SqlAlchemyLabelingEvaluationSourceReader` 绑定到原 Session。每次单条语句固定任务、素材尺寸和按 ID 限量的标注投影，返回可变但脱离 ORM 的值，缺失或不属该项目返回 None。learning 保留先取当前权限/读取/提交→条件读取对象→重取当前权限/再次读取/提交的顺序，再比较两个切面；冻结评估真值不随之修改。此查询与主动学习候选的编辑锁/草稿检查分别维护；来源 key 不授予访问权。
 
+主动学习候选使用 `labeling_active_learning_source_contract.LabelingActiveLearningSources` 的分页、选定来源和编辑围栏契约；API 将 `SqlAlchemyLabelingActiveLearningSources` 绑定到同一 Session，并传入既有 bucket 名。候选资格仍检查任务/默认批次、活跃标注、草稿和编辑锁；单条 Task/TaskBatch/DatasetItem 联合投影固定选定来源，分页保持独立 count/page 两条查询及各自的锁到期切面。输出是脱离 ORM 的可变值，只复制 tags/assigned_user_ids 两个 JSON 字段，不复制媒体正文。
+
+素材行的批量共享 NOWAIT 围栏归 `assets_active_learning_fence`，编辑围栏归 Labeling，learning 保留项目/批次/任务锁、历史排除、媒体 I/O、重新授权、摘要比较及提交顺序。`pool_stale/source_changed/pool_busy/pool_locked/source_busy` 在原工作流映射，原所有者内 SQL 联合读与同事务锁仍是明确保留的本地耦合；不把这个端口改成逐项 RPC 或独立数据库快照。
+
 `sample_evaluations` 还持有执行账本与删除意图命令：worker 保留原有 claim/current-attempt/job/claim fence、authority 重查、推理和收据 I/O、报告发布、提交/派发窗口及取消/维护编排；Run/Attempt/Sample 的 claim、heartbeat、checkpoint、失败/lost、dispatch/maintenance 状态和 HTTP `deletion_requested_at` 均由该服务写入。普通 checkpoint 清空样本错误，取消收据恢复仅写证据、状态与 producer 身份，保留已有诊断；调用方显式选择原有字段集合。通用作业字段继续调用 `services.async_job`，不增加 commit、查询或跨进程协议。
 
 主动学习执行写入由 `services.active_learning` 持有：`claim_attempt`、`record_heartbeat`、`record_inference_dispatch`、`record_candidate_inflight`、`record_candidate_success`、`mark_lost`、`release_claim`、`record_dispatched` 与 `record_maintenance` 负责 Round、Attempt、Candidate 账本。Worker 仍负责权威与当前尝试／claim 围栏、预算和冻结请求检查、模型／媒体 I/O、Celery 调度、原提交窗口、进度与取消／收据协调；命令不查询、不提交。失联字段与 claim 释放分开，保持 worker 在通用作业失败前释放、信号协调在通知后释放的既有顺序；不与样本评估合并为共享执行状态机。
