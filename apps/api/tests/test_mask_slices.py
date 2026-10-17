@@ -21,8 +21,8 @@ from app.schemas.mask_mutation import MaskMutationCommitRequest
 from app.services.annotation_slice import AnnotationSliceService
 from app.services.annotation_slice_contracts import AnnotationSliceError
 from app.services.audit import AuditService
+from app.services.mask_mutation_contract import MaskMutationError
 from app.services.mask_mutation import (
-    MaskMutationError,
     MaskMutationService,
     _AlgebraBudget,
 )
@@ -232,7 +232,7 @@ async def test_slice_and_restore_preserve_identity_metadata_and_versions(
     task, source, payload = await _seed(db_session, actor, slice_content, parent=True)
     parent = await db_session.get(Annotation, source.parent_annotation_id)
     before = deepcopy(source.geometry)
-    response = await MaskMutationService(db_session).commit(task.id, payload, actor)
+    response = await MaskMutationService(db_session)._commit(task.id, payload, actor)
     receipt = response.slice_restore
     assert receipt and receipt.source_annotation_id == source.id
     new = await db_session.get(Annotation, receipt.created_annotation_id)
@@ -259,23 +259,23 @@ async def test_slice_and_restore_preserve_identity_metadata_and_versions(
         operation.report
     )
     assert len(response.lineage_edges) == 2
-    undo = await AnnotationSliceService(db_session).restore(
+    undo = await AnnotationSliceService(db_session)._restore(
         task.id, receipt.operation_id, _restore(receipt), actor
     )
     assert source.geometry == before and source.is_active and not new.is_active
     assert undo.result_versions == {str(source.id): 3, str(new.id): 2}
-    redo = await AnnotationSliceService(db_session).restore(
+    redo = await AnnotationSliceService(db_session)._restore(
         task.id, receipt.operation_id, _restore(undo, "after"), actor
     )
     assert new.is_active and source.geometry != before
     assert redo.result_versions == {str(source.id): 4, str(new.id): 3}
     assert redo.restore_expires_at == receipt.restore_expires_at
-    replay = await MaskMutationService(db_session).commit(task.id, payload, actor)
+    replay = await MaskMutationService(db_session)._commit(task.id, payload, actor)
     assert replay.idempotent_replay and replay.operation_id == receipt.operation_id
 
     task.status = "completed"
     await db_session.flush()
-    locked_task_replay = await MaskMutationService(db_session).commit(
+    locked_task_replay = await MaskMutationService(db_session)._commit(
         task.id, payload, actor
     )
     assert locked_task_replay.idempotent_replay
@@ -288,9 +288,9 @@ async def test_undo_gc_redo_and_reference_retention(
     actor, _ = super_admin
     task, source, payload = await _seed(db_session, actor, slice_content)
     receipt = (
-        await MaskMutationService(db_session).commit(task.id, payload, actor)
+        await MaskMutationService(db_session)._commit(task.id, payload, actor)
     ).slice_restore
-    undo = await AnnotationSliceService(db_session).restore(
+    undo = await AnnotationSliceService(db_session)._restore(
         task.id, receipt.operation_id, _restore(receipt), actor
     )
     operation = await db_session.get(AnnotationOperation, receipt.operation_id)
@@ -325,7 +325,7 @@ async def test_undo_gc_redo_and_reference_retention(
     assert await is_raster_mask_key_referenced(
         db_session, new.geometry["mask"]["object_key"]
     )
-    await AnnotationSliceService(db_session).restore(
+    await AnnotationSliceService(db_session)._restore(
         task.id, receipt.operation_id, _restore(undo, "after"), actor
     )
     assert (
@@ -372,7 +372,7 @@ async def test_commit_guards_are_atomic(
     elif invalid == "source_version":
         value["expected_versions"][0]["version"] += 1
     elif invalid == "same_key":
-        await MaskMutationService(db_session).commit(task.id, payload, actor)
+        await MaskMutationService(db_session)._commit(task.id, payload, actor)
         value["cut_path"] = list(reversed(value["cut_path"]))
     await db_session.flush()
     before = deepcopy(source.geometry), source.version
@@ -382,7 +382,7 @@ async def test_commit_guards_are_atomic(
         .where(AnnotationOperation.task_id == task.id)
     )
     with pytest.raises(MaskMutationError):
-        await MaskMutationService(db_session).commit(
+        await MaskMutationService(db_session)._commit(
             task.id, MaskMutationCommitRequest.model_validate(value), actor
         )
     assert (source.geometry, source.version) == before
@@ -413,7 +413,7 @@ async def test_restore_rejects_missing_expired_and_changed_results_atomically(
     actor, _ = super_admin
     task, source, payload = await _seed(db_session, actor, slice_content)
     receipt = (
-        await MaskMutationService(db_session).commit(task.id, payload, actor)
+        await MaskMutationService(db_session)._commit(task.id, payload, actor)
     ).slice_restore
     revision_where = (MaskAnnotationRevision.annotation_id == source.id) & (
         MaskAnnotationRevision.annotation_version == 1
@@ -437,7 +437,7 @@ async def test_restore_rejects_missing_expired_and_changed_results_atomically(
     await db_session.flush()
     before = deepcopy(source.geometry), source.version
     with pytest.raises(AnnotationSliceError):
-        await AnnotationSliceService(db_session).restore(
+        await AnnotationSliceService(db_session)._restore(
             task.id, receipt.operation_id, _restore(receipt), actor
         )
     assert (source.geometry, source.version) == before
@@ -464,7 +464,7 @@ async def test_audit_failure_rolls_back_slice_and_captured_revisions(
     )
     with pytest.raises(RuntimeError, match="audit unavailable"):
         async with db_session.begin_nested():
-            await MaskMutationService(db_session).commit(task.id, payload, actor)
+            await MaskMutationService(db_session)._commit(task.id, payload, actor)
     await db_session.refresh(source)
     assert (source.geometry, source.version) == before
     assert (

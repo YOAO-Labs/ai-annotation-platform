@@ -45,6 +45,8 @@ from app.services.mask_slice_restore import (
 from app.services.annotation_propagation import _new_track_id
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.audit import AuditAction, AuditService
+from app.services.audit_origin_contract import AuditOriginContext
+from app.services.mask_mutation_contract import MaskMutationError as _MaskMutationError
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
@@ -75,20 +77,6 @@ MAX_MASK_MUTATION_OVERLAP_PAIRS = 100_000
 MAX_MASK_MUTATION_ALGEBRA_STEPS = 5_000_000
 
 
-class MaskMutationError(RuntimeError):
-    def __init__(
-        self,
-        *,
-        status_code: int,
-        reason: str,
-        message: str,
-        **detail: Any,
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.detail = {"reason": reason, "message": message, **detail}
-
-
 class _AlgebraBudget:
     def __init__(self) -> None:
         self.steps = 0
@@ -96,7 +84,7 @@ class _AlgebraBudget:
     def consume(self, amount: int = 1) -> None:
         self.steps += amount
         if self.steps > MAX_MASK_MUTATION_ALGEBRA_STEPS:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="operation_too_large",
                 message="mask mutation exceeds the cumulative algebra step budget",
@@ -164,19 +152,19 @@ def _validate_video_update_scope(
         before.get("type") != "video_track_mask"
         or after.get("type") != "video_track_mask"
     ):
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="video mutation requires video_track_mask geometry",
         )
     if before.get("track_id") != after.get("track_id"):
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="video update cannot change track_id",
         )
     if before.get("semantic_label") != after.get("semantic_label"):
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="current-frame mutation cannot change semantic_label",
@@ -184,7 +172,7 @@ def _validate_video_update_scope(
     if normalize_outside_ranges(
         before.get("outside") or []
     ) != normalize_outside_ranges(after.get("outside") or []):
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="current-frame mutation cannot change outside ranges",
@@ -207,7 +195,7 @@ def _validate_video_update_scope(
         ]
 
     if without_frame(before) != without_frame(after):
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="current-frame mutation cannot change other keyframes",
@@ -218,7 +206,7 @@ def _validate_video_update_scope(
         if int(item.get("frame_index", -1)) == frame_index
     ]
     if len(current_after) != 1 or current_after[0]["source"] != "manual":
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="video mutation must materialize one manual current keyframe",
@@ -233,13 +221,13 @@ def _validate_video_update_scope(
             current_after[0]["occluded"] != current_before[0]["occluded"]
             or current_after[0]["attributes"] != current_before[0]["attributes"]
         ):
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="invalid_geometry",
                 message="video mask update cannot change current keyframe metadata",
             )
     elif current_after[0]["occluded"] or current_after[0]["attributes"] is not None:
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="materialized video keyframe must use default metadata",
@@ -320,7 +308,7 @@ def _validate_operation_shape(
         )
 
     if not valid:
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_operation",
             message=f"mutations do not satisfy {payload.operation} contract",
@@ -335,7 +323,7 @@ def _rle_intersects(
     lh, lw, left_counts = validate_coco_rle(left)
     rh, rw, right_counts = validate_coco_rle(right)
     if (lh, lw) != (rh, rw):
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="mask dimensions do not match within mutation scope",
@@ -382,13 +370,13 @@ def _combine_rles(
         lh, lw, left_counts = validate_coco_rle(left)
         rh, rw, right_counts = validate_coco_rle(right)
     except ValueError as exc:
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="mask content is not valid COCO RLE",
         ) from exc
     if (lh, lw) != (rh, rw):
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_geometry",
             message="mask dimensions do not match within mutation scope",
@@ -413,7 +401,7 @@ def _combine_rles(
 
     def append_output_run(length: int) -> None:
         if len(output_counts) >= MAX_MASK_RUNS:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="operation_too_large",
                 message="derived mask exceeds the RLE run budget",
@@ -454,7 +442,7 @@ def _union_rles(
     budget: _AlgebraBudget | None = None,
 ) -> dict:
     if not rles:
-        raise MaskMutationError(
+        raise _MaskMutationError(
             status_code=422,
             reason="invalid_operation",
             message="mask operation requires at least one source result",
@@ -649,7 +637,7 @@ class MaskMutationService:
             )
         ).scalar_one_or_none()
         if task is None:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=404,
                 reason="task_not_found",
                 message="Task not found",
@@ -675,7 +663,7 @@ class MaskMutationService:
         if operation is None:
             return None
         if operation.request_digest != digest:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="idempotency_conflict",
                 message="idempotency key was already used with another request",
@@ -713,7 +701,7 @@ class MaskMutationService:
             query = query.with_for_update().execution_options(populate_existing=True)
         rows = list((await self.db.execute(query)).scalars().all())
         if len(rows) > MAX_MASK_MUTATION_SCOPE_MEMBERS:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="operation_too_large",
                 message="mask mutation scope contains too many candidate annotations",
@@ -765,7 +753,7 @@ class MaskMutationService:
 
         segment = next((row for row in segments if contains_frame(row)), None)
         if segment is None:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="segment_lock_conflict",
                 message="video frame has no matching editable segment",
@@ -778,7 +766,7 @@ class MaskMutationService:
             or segment.lock_expires_at is None
             or segment.lock_expires_at <= now
         ):
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="segment_lock_conflict",
                 message="video segment must be locked by current user",
@@ -802,7 +790,7 @@ class MaskMutationService:
             if cached is not None:
                 return cached
             if len(rle_cache) >= MAX_MASK_MUTATION_RLE_OBJECTS:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="operation_too_large",
                     message="mask mutation references too many RLE objects",
@@ -811,7 +799,7 @@ class MaskMutationService:
                 rle = await load_coco_rle(reference)
                 height, width, counts = validate_coco_rle(rle)
             except Exception as exc:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="invalid_geometry",
                     message="mask content could not be validated",
@@ -820,7 +808,7 @@ class MaskMutationService:
                 payload.scope.media == "image"
                 and height * width > MAX_DENSE_MASK_PIXELS
             ):
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="large_mask_full_scan_required",
                     message=(
@@ -831,7 +819,7 @@ class MaskMutationService:
                 )
             total_runs += len(counts)
             if total_runs > MAX_MASK_MUTATION_TOTAL_RUNS:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="operation_too_large",
                     message="mask mutation exceeds the total RLE run budget",
@@ -842,14 +830,14 @@ class MaskMutationService:
         async def load_geometry(geometry: dict, *, result: bool) -> dict:
             reference = _geometry_for_frame(geometry, payload.scope)
             if reference is None:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="invalid_geometry",
                     message="mutation geometry is not visible in the requested scope",
                 )
             rle = await load_reference(reference)
             if coco_rle_area(rle) <= 0:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="empty_result" if result else "invalid_geometry",
                     message=(
@@ -874,7 +862,7 @@ class MaskMutationService:
                 )
                 source_reference = (source_resolved or {}).get("mask")
                 if source_reference is None:
-                    raise MaskMutationError(
+                    raise _MaskMutationError(
                         status_code=422,
                         reason="invalid_geometry",
                         message="copied source keyframe is not visible",
@@ -1011,7 +999,7 @@ class MaskMutationService:
                             break
                         continue
                     if annotation.is_locked:
-                        raise MaskMutationError(
+                        raise _MaskMutationError(
                             status_code=409,
                             reason="annotation_locked",
                             message="a locked annotation overlaps the primary mask",
@@ -1024,7 +1012,7 @@ class MaskMutationService:
                     target_index, target_mutation = target
                     if coco_rle_area(expected) == 0:
                         if payload.scope.media == "video":
-                            raise MaskMutationError(
+                            raise _MaskMutationError(
                                 status_code=422,
                                 reason="empty_result",
                                 message=(
@@ -1054,7 +1042,7 @@ class MaskMutationService:
             if _rle_equal(source_rle, result_rle, algebra_budget):
                 invalid_message = "mask repair must change at least one pixel"
         if invalid_message is not None:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="invalid_operation",
                 message=invalid_message,
@@ -1167,7 +1155,7 @@ class MaskMutationService:
                 if bbox:
                     materialized.append((annotation, rle, bbox))
             except Exception as exc:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="invalid_geometry",
                     message="mask content could not be validated for overlap",
@@ -1186,7 +1174,7 @@ class MaskMutationService:
                     continue
                 compared_pairs += 1
                 if compared_pairs > MAX_MASK_MUTATION_OVERLAP_PAIRS:
-                    raise MaskMutationError(
+                    raise _MaskMutationError(
                         status_code=422,
                         reason="operation_too_large",
                         message="strict overlap validation exceeds the pair budget",
@@ -1202,14 +1190,14 @@ class MaskMutationService:
                     None,
                 )
                 if locked is not None:
-                    raise MaskMutationError(
+                    raise _MaskMutationError(
                         status_code=409,
                         reason="annotation_locked",
                         message="a locked annotation prevents strict non-overlap",
                         annotation_id=str(locked.id),
                         unresolved=True,
                     )
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=409,
                     reason="overlap_conflict",
                     message="strict non-overlap scope still contains overlapping masks",
@@ -1217,13 +1205,13 @@ class MaskMutationService:
                 )
             active.append((right_annotation, right_rle, right_bbox))
 
-    async def commit(
+    async def _commit(
         self,
         task_id: uuid.UUID,
         payload: MaskMutationCommitRequest,
         actor: User,
         *,
-        request: Any = None,
+        origin: AuditOriginContext | None = None,
         access: Any = None,
     ) -> MaskMutationCommitResponse:
         digest = request_digest(payload)
@@ -1249,7 +1237,7 @@ class MaskMutationService:
         task_access.assert_task_editable(task, actor, access=access)
 
         if payload.operation == "slice_mask" and task.file_type != "image":
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="unsupported_media",
                 message="切割仅支持图片任务",
@@ -1258,7 +1246,7 @@ class MaskMutationService:
         try:
             await assert_task_lock_for_legacy_video(self.db, task, actor.id)
         except TaskLockConflictError as exc:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="task_lock_conflict",
                 message="task is locked by another user",
@@ -1292,7 +1280,7 @@ class MaskMutationService:
         }
         missing = sorted(set(current_versions) - set(expected_versions))
         if missing:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=428,
                 reason="expected_versions_missing",
                 message="expected_versions must cover every annotation in scope",
@@ -1303,7 +1291,7 @@ class MaskMutationService:
         if payload.scope_fingerprint != current_fingerprint or set(
             expected_versions
         ) != set(current_versions):
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="scope_stale",
                 message="mask mutation scope changed; refresh and recompute the preview",
@@ -1316,7 +1304,7 @@ class MaskMutationService:
             if expected_versions[annotation_id] != version
         ]
         if mismatched:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="version_mismatch",
                 message="one or more source annotations changed",
@@ -1346,7 +1334,7 @@ class MaskMutationService:
             str(item) for item in source_ids | target_ids if item not in by_id
         )
         if unknown:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="scope_stale",
                 message="mutation references annotations outside the current scope",
@@ -1358,7 +1346,7 @@ class MaskMutationService:
         if payload.operation == "slice_mask":
             source = by_id[next(iter(source_ids))]
             if source.was_cancelled or source.sensor_role is not None:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=409,
                     reason="annotation_locked",
                     message="切割对象不可编辑",
@@ -1372,7 +1360,7 @@ class MaskMutationService:
                 .limit(1)
             )
             if child:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=409,
                     reason="active_children",
                     message="有活动子对象的标注不能切割",
@@ -1404,7 +1392,7 @@ class MaskMutationService:
                 .first()
             )
             if child is not None:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="invalid_operation",
                     message="mask mutation cannot delete an annotation with active children",
@@ -1416,20 +1404,20 @@ class MaskMutationService:
             payload.scope.overlap_policy != "erase_all"
         )
         if require_same_class and len(source_classes) != 1:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="class_mismatch",
                 message="mask instance operations require one shared class",
             )
         if payload.scope.class_name and source_classes != {payload.scope.class_name}:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="class_mismatch",
                 message="source class does not match mutation scope",
             )
         for annotation_id in source_ids | target_ids:
             if by_id[annotation_id].is_locked:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=409,
                     reason="annotation_locked",
                     message="annotation is locked",
@@ -1452,7 +1440,7 @@ class MaskMutationService:
                 "raster_mask" if payload.scope.media == "image" else "video_track_mask"
             )
             if geometry.get("type") != expected_type:
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=422,
                     reason="invalid_geometry",
                     message=f"{payload.scope.media} scope requires {expected_type} geometry",
@@ -1476,7 +1464,7 @@ class MaskMutationService:
                     or int(keyframes[0].get("frame_index", -1)) != frame_index
                     or geometry.get("outside")
                 ):
-                    raise MaskMutationError(
+                    raise _MaskMutationError(
                         status_code=422,
                         reason="invalid_geometry",
                         message="new video mask instance must contain only the current keyframe",
@@ -1509,7 +1497,7 @@ class MaskMutationService:
             and reference.get("object_key")
         }
         if not submitted_keys:
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=422,
                 reason="missing_ref",
                 message="mask mutation geometry must contain a content reference",
@@ -1525,7 +1513,7 @@ class MaskMutationService:
         except RasterMaskContractError as exc:
             reason = str(exc.detail.get("reason") or "invalid_geometry")
             if reason == "mask_reference_not_reserved":
-                raise MaskMutationError(
+                raise _MaskMutationError(
                     status_code=exc.status_code,
                     reason="missing_ref",
                     message=str(exc.detail.get("message") or exc),
@@ -1543,7 +1531,7 @@ class MaskMutationService:
                 reason = "invalid_geometry"
             elif reason == "raster_mask_empty_foreground":
                 reason = "empty_result"
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=exc.status_code,
                 reason=reason,
                 message=str(exc.detail.get("message") or exc),
@@ -1562,7 +1550,7 @@ class MaskMutationService:
             locked_fingerprint != current_fingerprint
             or locked_versions != current_versions
         ):
-            raise MaskMutationError(
+            raise _MaskMutationError(
                 status_code=409,
                 reason="scope_stale",
                 message="mask mutation scope changed while committing",
@@ -1818,7 +1806,7 @@ class MaskMutationService:
             action=AuditAction.ANNOTATION_MASK_MUTATION,
             target_type="annotation_operation",
             target_id=operation_id,
-            request=request,
+            origin=origin,
             status_code=200,
             detail={
                 "task_id": str(task_id),

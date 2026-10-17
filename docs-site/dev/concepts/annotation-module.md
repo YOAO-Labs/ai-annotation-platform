@@ -47,7 +47,9 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 | `apps/api/app/db/models/annotation_operation.py`                                             | 创建收据、原子多对象操作与 lineage 账本              |
 | `apps/api/app/services/mask_mutation.py`                                                     | Mask split / copy / join / overlap 事务边界          |
 | `apps/api/app/services/annotation_slice.py`                                                  | Polygon 切割及共享受限恢复                           |
-| `apps/api/app/services/annotation_slice_contracts.py`                                        | 纯错误合同、规范摘要与固定恢复期限                   |
+| `apps/api/app/services/annotation_slice_contracts.py`                                        | 切割/恢复端口、纯错误、规范摘要与固定恢复期限        |
+| `apps/api/app/services/mask_mutation_contract.py`                                            | Mask 原子变更端口与纯错误                            |
+| `apps/api/app/application/mask_annotation_slices.py`                                         | 原请求事务内的 Mask/切割/恢复 SQL 适配               |
 | `apps/api/app/services/mask_slice_restore.py`                                                | Mask 版本引用校验及非缩短保留保护                    |
 | `apps/api/app/db/models/annotation_conversion_plan.py` · `services/annotation_conversion.py` | 短期转换计划与原子执行边界                           |
 | `apps/api/app/api/v1/tasks/annotations.py` · `predictions.py`                                | annotation 与 prediction 相关 HTTP 入口              |
@@ -70,9 +72,9 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 
 ## 切割与受限恢复
 
-`annotation_slice_contracts` 是 Polygon 切割、Mask mutation 和 Mask 恢复的共同下层，只依赖标准库；错误携带原 `status_code` / `reason` / `message`，摘要保留原 JSON 编码和非有限数拒绝规则，恢复期限固定为原切割后 30 天。
+`annotation_slice_contracts` 是 Polygon 切割与 Mask 恢复的共同下层，持有 `AnnotationSlicePort`、错误、摘要和恢复期限；`mask_mutation_contract` 持有 `MaskMutationPort` 及原 Mask 错误。两个端口复用现有请求/响应模型，只传 UUID 和纯审计来源；错误携带原 `status_code` / `reason` / `message`，摘要保留原 JSON 编码和非有限数拒绝规则，恢复期限固定为原切割后 30 天。
 
-`AnnotationSliceService` 组合受限恢复，`mask_slice_restore` 校验版本内容并保护 revision，不反向导入切割编排。HTTP 只将共享错误映射为原状态码和响应体。Mask 账本继续只存版本及摘要引用，不复制 RLE 正文或对象 key；撤销/重做保留对象 ID、单调版本、完整结果版本集、原截止时间及同键重放语义。
+`application/mask_annotation_slices.py` 为三个 HTTP 命令绑定原 Session、actor 和 access；`AnnotationSliceService` 的私有方法组合受限恢复，`mask_slice_restore` 校验版本内容并保护 revision，不反向导入切割编排。HTTP 保留共享错误的原状态码/响应体及提交/回滚位置。Mask 账本继续只存版本及摘要引用，不复制 RLE 正文或对象 key；撤销/重做保留对象 ID、单调版本、完整结果版本集、原截止时间及同键重放语义。已完成任务的同键重放仍先通过当前可见性和审核证据检查，再沿用既有回执。
 
 ## 数据模型
 
@@ -411,7 +413,7 @@ refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC
 入口与主流程：
 
 - `POST /tasks/{task_id}/annotations/mask-mutations:commit`
-- `MaskMutationService.commit()`
+- `MaskMutationPort.commit()` → 同 Session SQL 适配 → `MaskMutationService._commit()`
 - 可见性检查先于幂等回放；回放可跳过新事务才需要的版本 / scope 检查，但不能绕过当前 assignment。
 - 响应只返回操作 ID、对象 ID / 版本、删除 ID、lineage、digest 和审计 ID；成功前前端不清除草稿。
 - 图片 join 支持「替换来源」和「创建副本并保留来源」；视频 join 只允许后者，新轨只含当前 manual keyframe。

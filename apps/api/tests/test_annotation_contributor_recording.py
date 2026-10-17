@@ -408,14 +408,14 @@ async def test_slice_commit_and_restore_record_the_actor(db_session, super_admin
     await db_session.flush()
 
     service = AnnotationSliceService(db_session)
-    committed = await service.commit(task.id, _payload(source), owner)
+    committed = await service._commit(task.id, _payload(source), owner)
     await db_session.flush()
 
     await db_session.refresh(task)
     assert task.annotation_contributor_ids == [str(owner.id)]
 
     restore_payload = _restore(committed)
-    await service.restore(
+    await service._restore(
         task.id, committed.slice_operation_id, restore_payload, editor
     )
     await db_session.flush()

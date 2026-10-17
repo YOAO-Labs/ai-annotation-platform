@@ -150,7 +150,7 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 异步跨帧作业使用独立的 `CrossFrameBatchStager`，在同一 Session 绑定一次，按目标返回创建数量；写入只 flush，进度、回滚、逐帧提交和取消仍由原 worker 持有。手工与作业实现复用 `AnnotationService` 的三个私有 SQL 方法，保留原上下文/位姿读取及补偿算法。共用纯 `AnnotationMutationError` 在 HTTP/worker 装配恢复原拒绝，worker 再执行原失败分类；没有统一提交开关或新作业协议。
 
-`annotation_slice_contracts` 是只依赖标准库的错误、摘要和固定恢复期限所有者。Polygon 切割、Mask mutation 与 `mask_slice_restore` 直接消费该合同，恢复下层不再反向导入切割编排。原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
+`annotation_slice_contracts` 持有纯错误、摘要、固定恢复期限与 `AnnotationSlicePort`，`mask_mutation_contract` 持有 `MaskMutationPort` 和原 Mask 错误。三个 HTTP 命令只传任务/actor/operation UUID、原请求模型及 `AuditOriginContext`；`application/mask_annotation_slices.py` 私有绑定原 Session、actor 和 access，再调用原 SQL owner。HTTP 保留原错误回滚和成功提交位置，Mask Repair 内部继续调用同一私有 SQL 实现。Polygon/Mask 重放仍先于可编辑性检查，恢复下层不反向导入切割编排；原 JSON 编码、409/410 等错误、30 天截止和非缩短 revision 保留不变，操作账本仍只存 Mask 版本及摘要引用。
 
 `mask_formats.registry` 只定义登记、查询、过滤和版本快照原语，不在查询时导入或注册内置实现。`mask_formats.catalog.registry` 在明确的装配模块绑定原描述符及具体 adapter；HTTP、格式导入 worker 和导出消费者直接导入该实例。package root 不重导出或 eager-load catalog，adapter 也不反向导入 registry；格式 ID、能力、选项、版本和原有输入输出不变。
 

@@ -21,6 +21,7 @@ from app.db.models.annotation_operation import (
     AnnotationLineageEdge,
     AnnotationOperation,
 )
+from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
@@ -256,7 +257,7 @@ async def test_commit_undo_redo_preserve_ids_provenance_parent_attributes_and_de
     prediction_id = source.parent_prediction_id
     service = AnnotationSliceService(db_session)
     payload = _payload(source)
-    result = await service.commit(task.id, payload, actor)
+    result = await service._commit(task.id, payload, actor)
     created = await db_session.get(Annotation, result.created_annotation_id)
     assert result.source_annotation_id == source.id
     assert source.version == 2 and created.version == 1
@@ -283,19 +284,21 @@ async def test_commit_undo_redo_preserve_ids_provenance_parent_attributes_and_de
     assert abs(signed_area(source.geometry["points"])) >= abs(
         signed_area(created.geometry["points"])
     )
-    replay = await service.commit(task.id, payload, actor)
+    replay = await service._commit(task.id, payload, actor)
     assert replay.idempotent_replay and replay.operation_id == result.operation_id
     undo_payload = _restore(result)
-    undone = await service.restore(task.id, result.operation_id, undo_payload, actor)
+    undone = await service._restore(task.id, result.operation_id, undo_payload, actor)
     assert source.geometry == original and source.version == 3
     assert (
         not created.is_active and created.version == 2 and task.total_annotations == 2
     )
-    same = await service.restore(task.id, result.operation_id, undo_payload, actor)
+    same = await service._restore(task.id, result.operation_id, undo_payload, actor)
     assert same.idempotent_replay and same.operation_id == undone.operation_id
-    no_op = await service.restore(task.id, result.operation_id, _restore(undone), actor)
+    no_op = await service._restore(
+        task.id, result.operation_id, _restore(undone), actor
+    )
     assert no_op.no_op and no_op.result_versions == undone.result_versions
-    redone = await service.restore(
+    redone = await service._restore(
         task.id, result.operation_id, _restore(undone, "after"), actor
     )
     assert (
@@ -321,23 +324,23 @@ async def test_slice_commit_and_restore_replay_after_task_becomes_locked(
     task, source, _ = await _seed(db_session, actor)
     service = AnnotationSliceService(db_session)
     payload = _payload(source)
-    result = await service.commit(task.id, payload, actor)
+    result = await service._commit(task.id, payload, actor)
 
     task.status = "completed"
     await db_session.flush()
-    commit_replay = await service.commit(task.id, payload, actor)
+    commit_replay = await service._commit(task.id, payload, actor)
     assert commit_replay.idempotent_replay
 
     task.status = "pending"
     await db_session.flush()
     restore_payload = _restore(result)
-    restored = await service.restore(
+    restored = await service._restore(
         task.id, result.operation_id, restore_payload, actor
     )
 
     task.status = "completed"
     await db_session.flush()
-    restore_replay = await service.restore(
+    restore_replay = await service._restore(
         task.id, result.operation_id, restore_payload, actor
     )
     assert restore_replay.idempotent_replay
@@ -409,7 +412,7 @@ async def test_commit_rejects_without_annotation_or_ledger_changes(
     before = deepcopy(source.geometry)
     count = await db_session.scalar(select(func.count()).select_from(Annotation))
     with pytest.raises((AnnotationSliceError, HTTPException)):
-        await AnnotationSliceService(db_session).commit(target_task_id, payload, actor)
+        await AnnotationSliceService(db_session)._commit(target_task_id, payload, actor)
     assert source.geometry == before and source.version == 1
     assert (
         await db_session.scalar(select(func.count()).select_from(Annotation)) == count
@@ -438,7 +441,7 @@ async def test_restore_rejects_atomically_and_does_not_advance_ledger(
     actor, _ = super_admin
     task, source, _ = await _seed(db_session, actor)
     service = AnnotationSliceService(db_session)
-    result = await service.commit(task.id, _payload(source), actor)
+    result = await service._commit(task.id, _payload(source), actor)
     created = await db_session.get(Annotation, result.created_annotation_id)
     original = await db_session.get(AnnotationOperation, result.operation_id)
     payload = _restore(result)
@@ -461,7 +464,7 @@ async def test_restore_rejects_atomically_and_does_not_advance_ledger(
             )
         )
     elif failure == "inactive_child_output_locked":
-        result = await service.restore(task.id, result.operation_id, payload, actor)
+        result = await service._restore(task.id, result.operation_id, payload, actor)
         payload = _restore(result, "after")
         created.is_locked = True
     elif failure == "expired":
@@ -469,7 +472,7 @@ async def test_restore_rejects_atomically_and_does_not_advance_ledger(
     elif failure == "unsupported_operation":
         original.kind = "split_components"
     elif failure == "different_key_content":
-        first = await service.restore(
+        first = await service._restore(
             task.id, result.slice_operation_id, payload, actor
         )
         payload = _restore(first, "after", idempotency_key=payload.idempotency_key)
@@ -483,7 +486,7 @@ async def test_restore_rejects_atomically_and_does_not_advance_ledger(
         select(func.count()).select_from(AnnotationOperation)
     )
     with pytest.raises(AnnotationSliceError):
-        await service.restore(task.id, original.id, payload, actor)
+        await service._restore(task.id, original.id, payload, actor)
     assert all(
         (row.geometry, row.is_active, row.version) == before[row.id]
         for row in (source, created)
@@ -510,7 +513,7 @@ async def test_idempotency_content_conflict_and_unexpected_failure_roll_back(
                     "log",
                     AsyncMock(side_effect=RuntimeError("audit unavailable")),
                 )
-                await service.commit(task.id, payload, actor)
+                await service._commit(task.id, payload, actor)
     await db_session.refresh(source)
     assert source.geometry == CONCAVE and source.version == 1
     await db_session.refresh(task)
@@ -520,10 +523,10 @@ async def test_idempotency_content_conflict_and_unexpected_failure_roll_back(
         == 0
     )
     assert await db_session.scalar(select(func.count()).select_from(Annotation)) == 1
-    await service.commit(task.id, payload, actor)
+    await service._commit(task.id, payload, actor)
     payload.cut_path = [(0, 0.3), (1, 0.3)]
     with pytest.raises(AnnotationSliceError, match="幂等键"):
-        await service.commit(task.id, payload, actor)
+        await service._commit(task.id, payload, actor)
 
 
 async def test_routes_validate_shape_authorization_and_return_saved_versions(
@@ -559,6 +562,23 @@ async def test_routes_validate_shape_authorization_and_return_saved_versions(
     )
     assert undo.status_code == 200, undo.text
     assert undo.json()["active_annotation_ids"] == [str(source.id)]
+    restore_path = (
+        f"/api/v1/tasks/{task.id}/annotations/slices/{result['operation_id']}:restore"
+    )
+    audit_rows = (
+        await db_session.scalars(
+            select(AuditLog).where(
+                AuditLog.target_id.in_(
+                    [result["operation_id"], undo.json()["operation_id"]]
+                )
+            )
+        )
+    ).all()
+    assert len(audit_rows) == 2
+    assert {row.path for row in audit_rows} == {url, restore_path}
+    assert all(
+        row.method == "POST" and str(row.ip) == "127.0.0.1" for row in audit_rows
+    )
 
 
 @pytest.mark.parametrize(
@@ -609,7 +629,7 @@ async def test_concurrent_replay_and_child_creation_wait_for_restore(
 
     async def commit():
         async with maker() as db:
-            result = await AnnotationSliceService(db).commit(task.id, payload, actor)
+            result = await AnnotationSliceService(db)._commit(task.id, payload, actor)
             await db.commit()
             return result
 
@@ -621,7 +641,7 @@ async def test_concurrent_replay_and_child_creation_wait_for_restore(
             True,
         ]
         async with maker() as restoring:
-            await AnnotationSliceService(restoring).restore(
+            await AnnotationSliceService(restoring)._restore(
                 task.id, first.operation_id, _restore(first), actor
             )
             started = asyncio.Event()

@@ -1186,7 +1186,7 @@ async def execute_repair_shard(
             reference=dict(item["result_reference"]),
             rle=dict(item["result_rle"]),
         )
-        response = await mutation_service.commit(task_id, payload, actor)
+        response = await mutation_service._commit(task_id, payload, actor)
         after_version = int(response.result_versions[target_id])
         progressed.add(target_id)
         from app.services.mask_qc.service import resolve_repair_issue
@@ -1413,7 +1413,7 @@ async def rollback_repair_shard(
             for_update=False,
         )
         payload = _execution_rollback_payload(item=item, current_members=members)
-        await mutation_service.commit(uuid.UUID(str(item["task_id"])), payload, actor)
+        await mutation_service._commit(uuid.UUID(str(item["task_id"])), payload, actor)
     return len(entries)
 
 

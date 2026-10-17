@@ -368,7 +368,18 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="annotation_slice_contracts",
         legacy_facades=(),
-        allowed_app_imports=(),
+        allowed_app_imports=(
+            "app.schemas.annotation_slice",
+            "app.services.audit_origin_contract",
+        ),
+    ),
+    DomainSpec(
+        package="mask_mutation_contract",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.schemas.mask_mutation",
+            "app.services.audit_origin_contract",
+        ),
     ),
     DomainSpec(package="annotation_slice", legacy_facades=()),
     DomainSpec(package="mask_slice_restore", legacy_facades=()),

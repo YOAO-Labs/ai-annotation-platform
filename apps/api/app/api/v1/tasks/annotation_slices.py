@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks._shared import require_task_annotation_write
+from app.application.mask_annotation_slices import _AnnotationSliceSqlAdapter
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.annotation_slice import (
@@ -11,9 +12,9 @@ from app.schemas.annotation_slice import (
     AnnotationSliceRestoreRequest,
     PolygonSliceCommitRequest,
 )
-from app.services.workspace_contract import ProjectAccess
-from app.services.annotation_slice import AnnotationSliceService
+from app.services.audit import audit_origin_from_request
 from app.services.annotation_slice_contracts import AnnotationSliceError
+from app.services.workspace_contract import ProjectAccess
 
 router = APIRouter()
 
@@ -33,8 +34,13 @@ async def commit_polygon_slice(
 ) -> AnnotationSliceResponse:
     """Split one saved simple image Polygon in an atomic, idempotent transaction."""
     try:
-        response = await AnnotationSliceService(db).commit(
-            task_id, payload, current_user, request=request, access=access
+        response = await _AnnotationSliceSqlAdapter(
+            db, task_id=task_id, actor=current_user, access=access
+        ).commit_polygon(
+            task_id=task_id,
+            actor_id=current_user.id,
+            payload=payload,
+            audit_origin=audit_origin_from_request(request),
         )
     except AnnotationSliceError as exc:
         await db.rollback()
@@ -59,8 +65,14 @@ async def restore_annotation_slice(
 ) -> AnnotationSliceResponse:
     """Restore ledger-owned slice snapshots with the complete last result versions."""
     try:
-        response = await AnnotationSliceService(db).restore(
-            task_id, operation_id, payload, current_user, request=request, access=access
+        response = await _AnnotationSliceSqlAdapter(
+            db, task_id=task_id, actor=current_user, access=access
+        ).restore(
+            task_id=task_id,
+            operation_id=operation_id,
+            actor_id=current_user.id,
+            payload=payload,
+            audit_origin=audit_origin_from_request(request),
         )
     except AnnotationSliceError as exc:
         await db.rollback()

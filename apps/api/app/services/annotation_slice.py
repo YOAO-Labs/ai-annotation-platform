@@ -30,6 +30,7 @@ from app.services.annotation_slice_contracts import (
     SLICE_RESTORE_TTL as _SLICE_RESTORE_TTL,
     annotation_slice_digest as _annotation_slice_digest,
 )
+from app.services.audit_origin_contract import AuditOriginContext
 from app.services.audit import AuditAction, AuditService
 from app.services.polygon_slice import PolygonSliceGeometryError, slice_polygon
 from app.services.task_lock import TaskLockConflictError
@@ -155,7 +156,7 @@ class AnnotationSliceService:
         task: Task,
         actor: User,
         operation: AnnotationOperation,
-        request: Any,
+        origin: AuditOriginContext | None,
         detail: dict,
     ) -> None:
         self.db.add(operation)
@@ -168,20 +169,20 @@ class AnnotationSliceService:
             action=AuditAction.ANNOTATION_SLICE,
             target_type="annotation_operation",
             target_id=operation.id,
-            request=request,
+            origin=origin,
             status_code=200,
             detail={"task_id": str(task.id), **detail},
         )
         await AnnotationService(self.db)._update_task_stats(task.id)
         await heartbeat_task_lock_for_legacy_video(self.db, task, actor.id)
 
-    async def commit(
+    async def _commit(
         self,
         task_id: uuid.UUID,
         payload: PolygonSliceCommitRequest,
         actor: User,
         *,
-        request: Any = None,
+        origin: AuditOriginContext | None = None,
         access: Any = None,
     ) -> AnnotationSliceResponse:
         task, access = await self._lock_task(task_id, actor, access=access)
@@ -278,7 +279,7 @@ class AnnotationSliceService:
             task=task,
             actor=actor,
             operation=operation,
-            request=request,
+            origin=origin,
             detail={"kind": "slice_polygon", "result_versions": versions},
         )
         self.db.add_all(
@@ -297,14 +298,14 @@ class AnnotationSliceService:
         await self.db.flush()
         return response
 
-    async def restore(
+    async def _restore(
         self,
         task_id: uuid.UUID,
         operation_id: uuid.UUID,
         payload: AnnotationSliceRestoreRequest,
         actor: User,
         *,
-        request: Any = None,
+        origin: AuditOriginContext | None = None,
         access: Any = None,
     ) -> AnnotationSliceResponse:
         task, access = await self._lock_task(task_id, actor, access=access)
@@ -426,7 +427,7 @@ class AnnotationSliceService:
             task=task,
             actor=actor,
             operation=restore_operation,
-            request=request,
+            origin=origin,
             detail=restore_operation.report,
         )
         if not no_op:

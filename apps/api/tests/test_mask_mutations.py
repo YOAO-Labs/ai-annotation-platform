@@ -16,6 +16,7 @@ from app.db.models.annotation_operation import (
     AnnotationLineageEdge,
     AnnotationOperation,
 )
+from app.db.models.audit_log import AuditLog
 from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
@@ -24,8 +25,8 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.schemas.mask_mutation import MaskMutationCommitRequest, MaskMutationScope
+from app.services.mask_mutation_contract import MaskMutationError
 from app.services.mask_mutation import (
-    MaskMutationError,
     MaskMutationService,
     _AlgebraBudget,
     _combine_rles,
@@ -349,6 +350,11 @@ async def test_copy_component_commits_once_and_replays_same_response(
     assert len(body["created_annotations"]) == 1
     assert body["lineage_edges"][0]["source_annotation_id"] == str(source.id)
     assert "geometry" not in body["created_annotations"][0]
+    audit = await db_session.get(AuditLog, body["audit_id"])
+    assert audit is not None
+    assert audit.method == "POST"
+    assert audit.path == f"/api/v1/tasks/{task.id}/annotations/mask-mutations:commit"
+    assert str(audit.ip) == "127.0.0.1"
 
     replay = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations/mask-mutations:commit",
@@ -738,7 +744,7 @@ async def test_strict_overlap_failure_rolls_back_created_annotation(
         async with db_session.begin_nested():
             from app.schemas.mask_mutation import MaskMutationCommitRequest
 
-            await MaskMutationService(db_session).commit(
+            await MaskMutationService(db_session)._commit(
                 task.id,
                 MaskMutationCommitRequest.model_validate(request),
                 user,
