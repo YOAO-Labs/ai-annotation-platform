@@ -10,12 +10,21 @@
 from __future__ import annotations
 
 import uuid
+from ipaddress import ip_address
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_audit_contract import ProjectDeletionAuditContext
+from aap_assets_source.connections_contract import (
+    CreateConnectionRequest,
+    DeleteConnectionRequest,
+    ReadConnectionRequest,
+    TestConnectionRequest,
+    UpdateConnectionRequest,
+)
 from app.config import settings
-from app.core.crypto import ConnectorCryptoNotConfigured
 from app.db.enums import UserRole
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_roles
@@ -29,15 +38,9 @@ from app.schemas.storage_connection import (
     StorageConnectionUpdate,
 )
 from app.services import connector_guard
-from app.services.audit import AuditAction, AuditService
-from app.services.storage_connection import (
-    ConnectorAccessDenied,
-    ConnectorValidationError,
-    StorageConnectionService,
-    assert_connection_admin,
-    assert_connection_usable,
-    to_out_dict,
-)
+from app.middleware.request_id import request_id_var
+from app.services.audit import AuditAction, AuditService, audit_origin_from_request
+from app.services.assets_connections import AssetsConnectionsGateway
 from app.services.system_settings_service import SystemSettingsService
 
 router = APIRouter()
@@ -45,14 +48,29 @@ router = APIRouter()
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
 
-def _crypto_guard(exc: ConnectorCryptoNotConfigured) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+def _connection_audit_context(request: Request) -> ProjectDeletionAuditContext:
+    origin = audit_origin_from_request(request)
+    try:
+        ip = str(ip_address(origin.ip)) if origin.ip else None
+    except ValueError:
+        ip = None
+    return ProjectDeletionAuditContext(
+        method=origin.method,
+        path=origin.path,
+        ip=ip,
+        request_id=request_id_var.get()[:36] or None,
     )
 
 
-def _denied(exc: connector_guard.ConnectorHostDenied) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+def _connection_out(connection) -> StorageConnectionOut:
+    return StorageConnectionOut.model_validate(connection.model_dump(mode="python"))
+
+
+def _connection_request(model: type[BaseModel], **values):
+    try:
+        return model(**values)
+    except (ValidationError, TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="连接器请求无效") from None
 
 
 # ---- 主机白名单（仅 super_admin）。先于 /{conn_id} 注册避免被路径吞掉。----
@@ -135,54 +153,40 @@ async def list_connections(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    is_super = user.role == UserRole.SUPER_ADMIN
-    conns = await StorageConnectionService.list_visible(
-        db, all_scopes=is_super, user_id=user.id
-    )
-    return [to_out_dict(c) for c in conns]
+    connections = await AssetsConnectionsGateway(db).list_connections(user.id)
+    return [_connection_out(connection) for connection in connections]
 
 
 @router.post("", response_model=StorageConnectionOut, status_code=201)
 async def create_connection(
     payload: StorageConnectionCreate,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     if payload.scope == "global":
         if user.role != UserRole.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="仅超级管理员可建全局连接器")
 
-    try:
-        conn = await StorageConnectionService.create(
-            db,
+    operation_id = idempotency_key or uuid.uuid4()
+    result = await AssetsConnectionsGateway(db).create_connection(
+        _connection_request(
+            CreateConnectionRequest,
+            operation_id=operation_id,
+            actor_id=user.id,
             name=payload.name,
             kind=payload.kind,
             config=payload.config,
             secret=payload.secret,
             scope=payload.scope,
-            created_by=user.id,
+            audit_context=_connection_audit_context(request),
         )
-    except ConnectorValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except connector_guard.ConnectorHostDenied as e:
-        raise _denied(e)
-    except ConnectorCryptoNotConfigured as e:
-        raise _crypto_guard(e)
-
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.STORAGE_CONNECTION_CREATE,
-        target_type="storage_connection",
-        target_id=str(conn.id),
-        request=request,
-        status_code=201,
-        detail={"kind": conn.kind, "scope": conn.scope},
     )
-    await db.commit()
-    await db.refresh(conn)
-    return to_out_dict(conn)
+    response.headers["Idempotency-Key"] = str(result.operation_id)
+    assert result.connection is not None
+    return _connection_out(result.connection)
 
 
 @router.get("/{conn_id}", response_model=StorageConnectionOut)
@@ -191,14 +195,12 @@ async def get_connection(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conn = await StorageConnectionService.get(db, conn_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="连接器不存在")
-    try:
-        assert_connection_usable(user, conn)
-    except ConnectorAccessDenied:
-        raise HTTPException(status_code=404, detail="连接器不存在")
-    return to_out_dict(conn)
+    result = await AssetsConnectionsGateway(db).read_connection(
+        _connection_request(
+            ReadConnectionRequest, actor_id=user.id, connection_id=conn_id
+        )
+    )
+    return _connection_out(result.connection)
 
 
 @router.patch("/{conn_id}", response_model=StorageConnectionOut)
@@ -206,97 +208,73 @@ async def update_connection(
     conn_id: uuid.UUID,
     payload: StorageConnectionUpdate,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    conn = await StorageConnectionService.get(db, conn_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="连接器不存在")
-    try:
-        assert_connection_admin(user, conn)
-    except ConnectorAccessDenied as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    try:
-        conn = await StorageConnectionService.update(
-            db, conn, name=payload.name, config=payload.config, secret=payload.secret
+    operation_id = idempotency_key or uuid.uuid4()
+    result = await AssetsConnectionsGateway(db).update_connection(
+        _connection_request(
+            UpdateConnectionRequest,
+            operation_id=operation_id,
+            actor_id=user.id,
+            connection_id=conn_id,
+            name=payload.name,
+            config=payload.config,
+            secret=payload.secret,
+            audit_context=_connection_audit_context(request),
         )
-    except ConnectorValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except connector_guard.ConnectorHostDenied as e:
-        raise _denied(e)
-    except ConnectorCryptoNotConfigured as e:
-        raise _crypto_guard(e)
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.STORAGE_CONNECTION_UPDATE,
-        target_type="storage_connection",
-        target_id=str(conn.id),
-        request=request,
-        status_code=200,
-        detail={"secret_rotated": payload.secret is not None},
     )
-    await db.commit()
-    await db.refresh(conn)
-    return to_out_dict(conn)
+    response.headers["Idempotency-Key"] = str(result.operation_id)
+    assert result.connection is not None
+    return _connection_out(result.connection)
 
 
 @router.delete("/{conn_id}", status_code=204)
 async def delete_connection(
     conn_id: uuid.UUID,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    conn = await StorageConnectionService.get(db, conn_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="连接器不存在")
-    try:
-        assert_connection_admin(user, conn)
-    except ConnectorAccessDenied as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    await StorageConnectionService.delete(db, conn)
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.STORAGE_CONNECTION_DELETE,
-        target_type="storage_connection",
-        target_id=str(conn_id),
-        request=request,
-        status_code=204,
+    operation_id = idempotency_key or uuid.uuid4()
+    await AssetsConnectionsGateway(db).delete_connection(
+        _connection_request(
+            DeleteConnectionRequest,
+            operation_id=operation_id,
+            actor_id=user.id,
+            connection_id=conn_id,
+            audit_context=_connection_audit_context(request),
+        )
     )
-    await db.commit()
+    response.headers["Idempotency-Key"] = str(operation_id)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.post("/{conn_id}/test", response_model=StorageConnectionTestResult)
 async def test_connection(
     conn_id: uuid.UUID,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    conn = await StorageConnectionService.get(db, conn_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="连接器不存在")
-    try:
-        assert_connection_usable(user, conn)
-    except ConnectorAccessDenied:
-        raise HTTPException(status_code=404, detail="连接器不存在")
-    try:
-        ok, message, count = await StorageConnectionService.test_connection(db, conn)
-    except connector_guard.ConnectorHostDenied as e:
-        raise _denied(e)
-    except ConnectorCryptoNotConfigured as e:
-        raise _crypto_guard(e)
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.STORAGE_CONNECTION_TEST,
-        target_type="storage_connection",
-        target_id=str(conn_id),
-        request=request,
-        status_code=200,
-        detail={"ok": ok},
+    operation_id = idempotency_key or uuid.uuid4()
+    result = await AssetsConnectionsGateway(db).test_connection(
+        _connection_request(
+            TestConnectionRequest,
+            operation_id=operation_id,
+            actor_id=user.id,
+            connection_id=conn_id,
+            audit_context=_connection_audit_context(request),
+        )
     )
-    await db.commit()
-    return StorageConnectionTestResult(ok=ok, message=message, sample_count=count)
+    response.headers["Idempotency-Key"] = str(result.operation_id)
+    return StorageConnectionTestResult(
+        ok=result.ok, message=result.message, sample_count=result.sample_count
+    )

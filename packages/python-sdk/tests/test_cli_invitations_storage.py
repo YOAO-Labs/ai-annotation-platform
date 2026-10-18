@@ -89,7 +89,7 @@ def test_mutating_or_external_commands_require_yes_before_client(
 def test_storage_secret_stdin_is_not_echoed(command, monkeypatch):
     secret_value = "SFTP-PRIVATE-SECRET-DO-NOT-ECHO"
     if command == "create":
-        api = SimpleNamespace(create=lambda _body: CONNECTION)
+        api = SimpleNamespace(create=lambda _body, **_kwargs: CONNECTION)
         args = ["create", "--body", "-", "--yes", "--json"]
         body = {
             "name": "archive",
@@ -98,7 +98,7 @@ def test_storage_secret_stdin_is_not_echoed(command, monkeypatch):
             "secret": {"password": secret_value},
         }
     else:
-        api = SimpleNamespace(update=lambda _id, _body: CONNECTION)
+        api = SimpleNamespace(update=lambda _id, _body, **_kwargs: CONNECTION)
         args = ["update", CONNECTION_ID, "--body", "-", "--yes", "--json"]
         body = {"secret": {"password": secret_value}}
     monkeypatch.setattr(
@@ -115,10 +115,111 @@ def test_storage_secret_stdin_is_not_echoed(command, monkeypatch):
     assert json.loads(result.stdout)["secret_set"] is True
 
 
+def test_storage_connection_cli_forwards_caller_idempotency_keys(monkeypatch):
+    key = "24000209-03c1-45bd-a2fb-90216c2d80c8"
+    sent = []
+
+    def create(_body, *, idempotency_key=None):
+        sent.append(("create", idempotency_key))
+        return CONNECTION
+
+    def update(_id, _body, *, idempotency_key=None):
+        sent.append(("update", idempotency_key))
+        return CONNECTION
+
+    def delete(_id, *, idempotency_key=None):
+        sent.append(("delete", idempotency_key))
+
+    def test(_id, *, idempotency_key=None):
+        sent.append(("test", idempotency_key))
+        return StorageConnectionTestResult(ok=True, message="连接成功", sample_count=1)
+
+    api = SimpleNamespace(
+        create=create,
+        update=update,
+        delete=delete,
+        test=test,
+    )
+    monkeypatch.setattr(
+        storage_cli,
+        "get_client",
+        lambda *_args: nullcontext(SimpleNamespace(storage_connections=api)),
+    )
+
+    create_result = runner.invoke(
+        storage_cli.app,
+        ["create", "--body", "-", "--yes", "--idempotency-key", key, "--json"],
+        input=json.dumps(
+            {
+                "name": "archive",
+                "kind": "s3",
+                "config": {"endpoint": "https://s3.example.test", "bucket": "data"},
+                "secret": {"access_key": "AK-private", "secret_key": "SK-private"},
+            }
+        ),
+    )
+    update_result = runner.invoke(
+        storage_cli.app,
+        [
+            "update",
+            CONNECTION_ID,
+            "--body",
+            "-",
+            "--yes",
+            "--idempotency-key",
+            key,
+            "--json",
+        ],
+        input=json.dumps({"name": "renamed"}),
+    )
+    delete_result = runner.invoke(
+        storage_cli.app,
+        ["delete", CONNECTION_ID, "--yes", "--idempotency-key", key, "--json"],
+    )
+    test_result = runner.invoke(
+        storage_cli.app,
+        ["test", CONNECTION_ID, "--yes", "--idempotency-key", key, "--json"],
+    )
+
+    assert [
+        create_result.exit_code,
+        update_result.exit_code,
+        delete_result.exit_code,
+        test_result.exit_code,
+    ] == [0, 0, 0, 0]
+    assert sent == [
+        ("create", key),
+        ("update", key),
+        ("delete", key),
+        ("test", key),
+    ]
+    assert "AK-private" not in create_result.stdout
+    assert "SK-private" not in create_result.stdout
+
+
+def test_storage_connection_cli_rejects_invalid_idempotency_key_before_client(
+    monkeypatch,
+):
+    opened = []
+    monkeypatch.setattr(
+        storage_cli,
+        "get_client",
+        lambda *_args: opened.append(True) or nullcontext(SimpleNamespace()),
+    )
+
+    result = runner.invoke(
+        storage_cli.app,
+        ["delete", CONNECTION_ID, "--yes", "--idempotency-key", "not-a-uuid", "--json"],
+    )
+
+    assert result.exit_code == 2
+    assert opened == []
+
+
 def test_storage_negative_connection_result_is_json_not_cli_exception(monkeypatch):
     api = SimpleNamespace(
-        test=lambda _id: StorageConnectionTestResult(
-            ok=False, message="connection refused", sample_count=None
+        test=lambda _id, **_kwargs: StorageConnectionTestResult(
+            ok=False, message="连接失败: ConnectionError", sample_count=None
         )
     )
     monkeypatch.setattr(
@@ -132,7 +233,7 @@ def test_storage_negative_connection_result_is_json_not_cli_exception(monkeypatc
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == {
         "ok": False,
-        "message": "connection refused",
+        "message": "连接失败: ConnectionError",
         "sample_count": None,
     }
 

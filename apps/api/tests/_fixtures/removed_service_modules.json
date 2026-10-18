@@ -869,7 +869,7 @@
           "names": ["SourceAdapter", "SourceObject", "SourcePathError"]
         }
       ],
-      "consumer_modules": ["app.api.v1.datasets", "app.services.storage_connection"],
+      "consumer_modules": ["app.api.v1.datasets"],
       "frozen_symbols": [
         "SourceAdapter",
         "SourceObject",
@@ -1043,6 +1043,40 @@
       ],
       "consumer_modules": ["app.api.v1.datasets", "app.services.assets_spatial"],
       "frozen_symbols": ["AxisSniffResult", "AxisSnifferService"]
+    },
+    {
+      "facade_module": "app.services.storage_connection",
+      "public_module": "app.services.assets_connections",
+      "exports": [
+        {
+          "module": "app.services.assets_connections",
+          "names": ["AssetsConnectionsGateway"]
+        },
+        {
+          "module": "aap_assets_source.connectors.management",
+          "names": [
+            "ConnectorValidationError",
+            "public_config",
+            "validate_config",
+            "validate_secret"
+          ]
+        },
+        {
+          "module": "aap_assets_source.connectors.probe",
+          "names": ["probe_connection"]
+        }
+      ],
+      "consumer_modules": ["app.api.v1.storage_connections", "app.services.assets_connections"],
+      "frozen_symbols": [
+        "ConnectorValidationError",
+        "ConnectorAccessDenied",
+        "can_use_connection",
+        "assert_connection_usable",
+        "assert_connection_admin",
+        "StorageConnectionService",
+        "target_host",
+        "to_out_dict"
+      ]
     }
   ]
 }

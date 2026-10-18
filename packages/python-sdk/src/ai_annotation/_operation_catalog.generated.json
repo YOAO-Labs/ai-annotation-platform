@@ -2449,6 +2449,23 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
@@ -22470,6 +22487,23 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
@@ -33819,7 +33853,25 @@
       "cli_aliases": [
         "storage-connections.create"
       ],
-      "parameters": [],
+      "parameters": [
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ],
       "responses": {
         "201": {
           "description": "Successful Response",
@@ -33879,6 +33931,23 @@
             "title": "Conn Id",
             "type": "string",
             "format": "uuid"
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -54526,6 +54595,13 @@
           "annotation": "StorageConnectionCreate",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "StorageConnection",
@@ -54557,6 +54633,13 @@
           "kind": "positional_or_keyword",
           "annotation": "IdLike",
           "required": true,
+          "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
           "default": null
         }
       ],
@@ -54718,6 +54801,13 @@
           "annotation": "IdLike",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "StorageConnectionTestResult",
@@ -54756,6 +54846,13 @@
           "kind": "positional_or_keyword",
           "annotation": "StorageConnectionUpdate",
           "required": true,
+          "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
           "default": null
         }
       ],
@@ -84176,6 +84273,17 @@
           "description": "确认创建连接器"
         },
         {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
+        },
+        {
           "name": "json_output",
           "kind": "option",
           "options": [
@@ -84216,6 +84324,17 @@
           "default": false,
           "type": "bool",
           "description": "跳过确认"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",
@@ -84332,6 +84451,17 @@
           "description": "确认发起外部连接测试"
         },
         {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
+        },
+        {
           "name": "json_output",
           "kind": "option",
           "options": [
@@ -84383,6 +84513,17 @@
           "default": false,
           "type": "bool",
           "description": "确认更新或轮换密钥"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",

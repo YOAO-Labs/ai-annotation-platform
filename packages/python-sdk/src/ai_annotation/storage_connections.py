@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from ai_annotation._http import HttpTransport
+from ai_annotation._http import HttpTransport, _idempotency_headers
 from ai_annotation.storage_connection_models import (
     ConnectorAllowlist,
     ConnectorAllowlistUpdate,
@@ -26,11 +26,17 @@ class StorageConnections:
         resp = self._http.request("GET", "/storage-connections")
         return [StorageConnection.model_validate(item) for item in resp.json()]
 
-    def create(self, body: StorageConnectionCreate) -> StorageConnection:
+    def create(
+        self,
+        body: StorageConnectionCreate,
+        *,
+        idempotency_key: IdLike | None = None,
+    ) -> StorageConnection:
         resp = self._http.request(
             "POST",
             "/storage-connections",
             json=body.model_dump(mode="json", exclude_unset=True),
+            headers=_idempotency_headers(idempotency_key),
         )
         return StorageConnection.model_validate(resp.json())
 
@@ -39,20 +45,35 @@ class StorageConnections:
         return StorageConnection.model_validate(resp.json())
 
     def update(
-        self, conn_id: IdLike, body: StorageConnectionUpdate
+        self,
+        conn_id: IdLike,
+        body: StorageConnectionUpdate,
+        *,
+        idempotency_key: IdLike | None = None,
     ) -> StorageConnection:
         resp = self._http.request(
             "PATCH",
             f"/storage-connections/{conn_id}",
             json=body.model_dump(mode="json", exclude_unset=True),
+            headers=_idempotency_headers(idempotency_key),
         )
         return StorageConnection.model_validate(resp.json())
 
-    def delete(self, conn_id: IdLike) -> None:
-        self._http.request("DELETE", f"/storage-connections/{conn_id}")
+    def delete(self, conn_id: IdLike, *, idempotency_key: IdLike | None = None) -> None:
+        self._http.request(
+            "DELETE",
+            f"/storage-connections/{conn_id}",
+            headers=_idempotency_headers(idempotency_key),
+        )
 
-    def test(self, conn_id: IdLike) -> StorageConnectionTestResult:
-        resp = self._http.request("POST", f"/storage-connections/{conn_id}/test")
+    def test(
+        self, conn_id: IdLike, *, idempotency_key: IdLike | None = None
+    ) -> StorageConnectionTestResult:
+        resp = self._http.request(
+            "POST",
+            f"/storage-connections/{conn_id}/test",
+            headers=_idempotency_headers(idempotency_key),
+        )
         return StorageConnectionTestResult.model_validate(resp.json())
 
     def get_allowlist(self) -> ConnectorAllowlist:

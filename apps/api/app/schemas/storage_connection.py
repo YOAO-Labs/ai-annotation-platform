@@ -19,7 +19,7 @@ StorageScope = Literal["global", "owner"]
 class StorageConnectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     kind: StorageKind
-    # 非密钥配置：见 service 的 _validate_config 校验必填项。
+    # 非密钥配置：见 Assets source 的 management validator 校验必填项。
     #   s3   → {endpoint, bucket, region?, base_prefix?, use_ssl?}
     #   sftp → {host, port?, username, base_path?, auth_type("password"|"key")}
     config: dict

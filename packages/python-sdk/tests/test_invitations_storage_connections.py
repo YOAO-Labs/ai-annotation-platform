@@ -8,6 +8,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from ai_annotation.errors import APIStatusError
 from ai_annotation.invitation_models import (
     Invitation,
     InvitationEmailSent,
@@ -183,6 +184,7 @@ def test_storage_connection_create_forbids_unknown_config_keys(client, respx_moc
     route = respx_mock.post(f"{API}/storage-connections").mock(
         return_value=httpx.Response(201, json=CONNECTION)
     )
+    operation_id = str(uuid4())
     body = StorageConnectionCreate(
         name="Backups",
         kind="s3",
@@ -194,9 +196,12 @@ def test_storage_connection_create_forbids_unknown_config_keys(client, respx_moc
         secret={"access_key": "AK-private", "secret_key": "SK-private"},
     )
 
-    connection = StorageConnections(client._http).create(body)
+    connection = StorageConnections(client._http).create(
+        body, idempotency_key=operation_id
+    )
 
     sent = json.loads(route.calls.last.request.content)
+    assert route.calls.last.request.headers["Idempotency-Key"] == operation_id
     assert sent["config"]["region"] == "us-east-1"
     assert sent["secret"] == {"access_key": "AK-private", "secret_key": "SK-private"}
     assert connection.secret_set is True
@@ -223,17 +228,20 @@ def test_storage_connection_update_preserves_unset_and_explicit_null(
         return_value=httpx.Response(200, json=CONNECTION)
     )
 
+    operation_id = str(uuid4())
     StorageConnections(client._http).update(
         conn_id=CONNECTION_ID,
         body=StorageConnectionUpdate(
             name=None, secret={"access_key": "AK", "secret_key": "SK"}
         ),
+        idempotency_key=operation_id,
     )
 
     assert json.loads(route.calls.last.request.content) == {
         "name": None,
         "secret": {"access_key": "AK", "secret_key": "SK"},
     }
+    assert route.calls.last.request.headers["Idempotency-Key"] == operation_id
 
 
 def test_storage_connection_nonsecret_routes_and_negative_test_result(
@@ -250,7 +258,11 @@ def test_storage_connection_nonsecret_routes_and_negative_test_result(
     ).mock(
         return_value=httpx.Response(
             200,
-            json={"ok": False, "message": "connection refused", "sample_count": None},
+            json={
+                "ok": False,
+                "message": "连接失败: ConnectionError",
+                "sample_count": None,
+            },
         )
     )
     allowlist_route = respx_mock.get(f"{API}/storage-connections/allowlist").mock(
@@ -279,12 +291,14 @@ def test_storage_connection_nonsecret_routes_and_negative_test_result(
         return_value=httpx.Response(204)
     )
     client_api = StorageConnections(client._http)
+    test_key, delete_key = str(uuid4()), str(uuid4())
 
     assert str(client_api.list()[0].id) == CONNECTION_ID
     assert client_api.get(CONNECTION_ID).secret_set is True
-    result = client_api.test(CONNECTION_ID)
+    result = client_api.test(CONNECTION_ID, idempotency_key=test_key)
     assert result.ok is False
     assert result.sample_count is None
+    assert test_route.calls.last.request.headers["Idempotency-Key"] == test_key
     assert client_api.get_allowlist().entries == ["example.test"]
     assert (
         client_api.update_allowlist(
@@ -294,7 +308,8 @@ def test_storage_connection_nonsecret_routes_and_negative_test_result(
     )
     assert client_api.reset_allowlist().source == "environment"
     assert client_api.deployment_sftp_preset().enabled is False
-    assert client_api.delete(CONNECTION_ID) is None
+    assert client_api.delete(CONNECTION_ID, idempotency_key=delete_key) is None
+    assert deleted.calls.last.request.headers["Idempotency-Key"] == delete_key
     assert all(
         route.call_count == 1
         for route in (
@@ -308,6 +323,25 @@ def test_storage_connection_nonsecret_routes_and_negative_test_result(
             deleted,
         )
     )
+
+
+def test_storage_connection_mutations_are_not_retried_after_uncertain_response(
+    client, respx_mock
+):
+    route = respx_mock.post(f"{API}/storage-connections").mock(
+        return_value=httpx.Response(503, json={"detail": "owner unavailable"})
+    )
+    body = StorageConnectionCreate(
+        name="Backups",
+        kind="s3",
+        config={"endpoint": "https://s3.example.test", "bucket": "data"},
+        secret={"access_key": "AK", "secret_key": "SK"},
+    )
+
+    with pytest.raises(APIStatusError):
+        StorageConnections(client._http).create(body, idempotency_key=str(uuid4()))
+
+    assert route.call_count == 1
 
 
 def test_allowlist_update_limits_match_api_contract():

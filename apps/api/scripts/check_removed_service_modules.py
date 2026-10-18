@@ -2,14 +2,14 @@
 """Production-image artifact scanner for removed legacy service modules.
 
 Run inside the production API container (no volume mounts, no .venv) to verify
-that the 23 legacy service modules physically deleted in v0.23.2 are absent from
+that all removed legacy service modules are absent from
 the image: no source, stub, or cached bytecode, and every import form fails.
 
 Usage (inside the image)::
 
     python /app/scripts/check_removed_service_modules.py --artifact-root /app
 
-Exit code: 0 if all 23 modules are confirmed absent, 1 otherwise.
+Exit code: 0 if all removed modules are confirmed absent, 1 otherwise.
 """
 
 from __future__ import annotations

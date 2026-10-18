@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import typer
 
@@ -58,17 +59,29 @@ def create(
         ..., "--body", help="JSON 请求文件；用 - 从 stdin 读取"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认创建连接器"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出脱敏后的裸 JSON"),
 ) -> None:
     """创建 S3 或 SFTP 连接器。secret 只从请求体输入，不会从 API 响应回读。"""
     with cli_errors(json_output):
         body = read_json_body(body_path, StorageConnectionCreate)
+        if idempotency_key is not None:
+            try:
+                idempotency_key = str(UUID(idempotency_key))
+            except ValueError as exc:
+                raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     confirm_destructive(
         f"确认创建 {body.kind} 连接器 {body.name} ({body.scope})?", yes, json_output
     )
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            result = client.storage_connections.create(body)
+            result = client.storage_connections.create(
+                body, idempotency_key=idempotency_key
+            )
     print_learning_result(result, json_output)
 
 
@@ -79,6 +92,11 @@ def update(
         ..., "--body", help="JSON PATCH 文件；用 - 从 stdin 读取"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认更新或轮换密钥"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出脱敏后的裸 JSON"),
 ) -> None:
     """部分更新连接器；非 null secret 会整体轮换现有凭据。"""
@@ -88,12 +106,19 @@ def update(
             value is not None for value in body.model_dump(exclude_unset=True).values()
         ):
             raise typer.BadParameter("至少提供一个非 null 更新字段")
+        if idempotency_key is not None:
+            try:
+                idempotency_key = str(UUID(idempotency_key))
+            except ValueError as exc:
+                raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     confirm_destructive(
         f"确认更新连接器 {connection_id} 并按需轮换密钥?", yes, json_output
     )
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            result = client.storage_connections.update(connection_id, body)
+            result = client.storage_connections.update(
+                connection_id, body, idempotency_key=idempotency_key
+            )
     print_learning_result(result, json_output)
 
 
@@ -101,13 +126,25 @@ def update(
 def delete(
     connection_id: str = typer.Argument(..., help="连接器 UUID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出回执 JSON"),
 ) -> None:
     """删除当前账号有权管理的连接器。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     confirm_destructive(f"确认删除连接器 {connection_id}?", yes, json_output)
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            client.storage_connections.delete(connection_id)
+            client.storage_connections.delete(
+                connection_id, idempotency_key=idempotency_key
+            )
     print_learning_result(None, json_output)
 
 
@@ -115,9 +152,19 @@ def delete(
 def test_connection(
     connection_id: str = typer.Argument(..., help="连接器 UUID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认发起外部连接测试"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出测试结果 JSON"),
 ) -> None:
     """通过 API 测试连接；HTTP 200 且 ok=false 表示连通性测试失败。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     confirm_destructive(
         f"确认连接 {connection_id} 配置的外部存储主机并读取最多 20 条样本?",
         yes,
@@ -125,7 +172,9 @@ def test_connection(
     )
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            result = client.storage_connections.test(connection_id)
+            result = client.storage_connections.test(
+                connection_id, idempotency_key=idempotency_key
+            )
     print_learning_result(result, json_output)
 
 
