@@ -21,6 +21,7 @@ from app.services.dataset_task_facts import (
     TaskLabelingSourceFact,
     freeze_source_json,
 )
+from app.services.labeling_scene import read_spatial_item_facts
 
 
 class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
@@ -70,7 +71,14 @@ class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
             .scalar_subquery()
         )
         stmt = (
-            select(Task, DatasetItem, Project.tool_bindings, annotation_json)
+            select(
+                Task,
+                DatasetItem.id,
+                DatasetItem.width,
+                DatasetItem.height,
+                Project.tool_bindings,
+                annotation_json,
+            )
             .join(Project, Project.id == Task.project_id)
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
             .where(Task.project_id == project_id)
@@ -85,54 +93,62 @@ class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
         rows = await db.stream(
             stmt.execution_options(populate_existing=True, yield_per=128)
         )
-        task_facts = []
+        source_rows = []
         tool_bindings: JsonObject | None = None
         first_row = True
         try:
             async for row in rows:
-                task, item, raw_bindings, annotation_summary = row
+                task, item_id, width, height, raw_bindings, annotation_summary = row
                 if first_row:
                     tool_bindings = typing_cast(
                         JsonObject, freeze_source_json(raw_bindings)
                     )
                     first_row = False
-                raw_annotations = annotation_summary["selected"] or ()
-                annotation_count = annotation_summary["count"]
-                annotations = tuple(
-                    AnnotationSourceFact(
-                        id=annotation["id"],
-                        version=annotation["version"],
-                        class_name=annotation["class_name"],
-                        tool_unit_id=annotation["tool_unit_id"],
-                        geometry=freeze_source_json(annotation["geometry"]),
-                    )
-                    for annotation in raw_annotations
-                )
-                current_skip = (
-                    task.skipped_at is not None and task.skipped_at == task.submitted_at
-                )
-                reviewed = task.status == "completed" and task.reviewed_at is not None
-                task_facts.append(
-                    TaskLabelingSourceFact(
-                        task_id=task.id,
-                        task_version=task.version,
-                        file_type=task.file_type,
-                        reviewed=reviewed,
-                        unusable=current_skip
-                        and task.skip_reason in {"image_corrupt", "unclear", "other"},
-                        reviewed_negative=reviewed
-                        and current_skip
-                        and task.skip_reason == "no_target"
-                        and annotation_count == 0,
-                        excluded_annotation_count=annotation_count - len(annotations),
-                        dataset_item_id=task.dataset_item_id,
-                        file_path=task.file_path,
-                        scene_id=item.scene_id if item else None,
-                        width=item.width if item else None,
-                        height=item.height if item else None,
-                        annotations=annotations,
-                    )
-                )
+                source_rows.append((task, item_id, width, height, annotation_summary))
         finally:
             await rows.close()
+
+        item_facts, _ = await read_spatial_item_facts(
+            db, [item_id for _, item_id, *_ in source_rows if item_id is not None]
+        )
+        task_facts = []
+        for task, item_id, width, height, annotation_summary in source_rows:
+            item = item_facts.get(item_id) if item_id is not None else None
+            raw_annotations = annotation_summary["selected"] or ()
+            annotation_count = annotation_summary["count"]
+            annotations = tuple(
+                AnnotationSourceFact(
+                    id=annotation["id"],
+                    version=annotation["version"],
+                    class_name=annotation["class_name"],
+                    tool_unit_id=annotation["tool_unit_id"],
+                    geometry=freeze_source_json(annotation["geometry"]),
+                )
+                for annotation in raw_annotations
+            )
+            current_skip = (
+                task.skipped_at is not None and task.skipped_at == task.submitted_at
+            )
+            reviewed = task.status == "completed" and task.reviewed_at is not None
+            task_facts.append(
+                TaskLabelingSourceFact(
+                    task_id=task.id,
+                    task_version=task.version,
+                    file_type=task.file_type,
+                    reviewed=reviewed,
+                    unusable=current_skip
+                    and task.skip_reason in {"image_corrupt", "unclear", "other"},
+                    reviewed_negative=reviewed
+                    and current_skip
+                    and task.skip_reason == "no_target"
+                    and annotation_count == 0,
+                    excluded_annotation_count=annotation_count - len(annotations),
+                    dataset_item_id=task.dataset_item_id,
+                    file_path=task.file_path,
+                    scene_id=item.scene_id if item else None,
+                    width=width,
+                    height=height,
+                    annotations=annotations,
+                )
+            )
         return ProjectTaskSourceFacts(tool_bindings, tuple(task_facts))

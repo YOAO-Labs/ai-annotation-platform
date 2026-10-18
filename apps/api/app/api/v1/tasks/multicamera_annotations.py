@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import NoReturn
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
@@ -14,8 +13,6 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write_strict,
 )
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.multicamera_annotation import (
@@ -36,15 +33,14 @@ from app.services.multicamera_annotation import (
     create_camera_member,
     delete_camera_member,
     list_camera_members,
-    load_linked_camera_item,
     restore_camera_member,
     update_camera_member,
 )
 from app.services.workspace_contract import ProjectAccess
-from app.services.sensor_calibration import (
-    SensorCalibrationError,
-    list_calibration_revisions,
-    update_calibration,
+from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
+from aap_assets_catalog.spatial_contract import (
+    ReadCameraTargetRequest,
+    UpdateCalibrationRequest,
 )
 
 
@@ -88,7 +84,9 @@ async def get_camera_members(
             include_inactive=include_inactive,
             projection_camera_role=projection_camera_role,
         )
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
+    except AssetsSpatialGatewayError:
+        raise
+    except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)
     return CameraAnnotationMemberList(
         items=items,
@@ -128,7 +126,9 @@ async def post_camera_member(
             expected_calibration_digest=payload.expected_calibration_digest,
         )
         out = await camera_member_out(db, task=task, member=member)
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
+    except AssetsSpatialGatewayError:
+        raise
+    except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)
     await AuditService.log(
         db,
@@ -179,7 +179,9 @@ async def patch_camera_member(
             expected_calibration_digest=payload.expected_calibration_digest,
         )
         out = await camera_member_out(db, task=task, member=member)
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
+    except AssetsSpatialGatewayError:
+        raise
+    except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)
     await AuditService.log(
         db,
@@ -222,7 +224,9 @@ async def remove_camera_member(
             expected_track_revision=payload.expected_track_revision,
         )
         out = await camera_member_out(db, task=task, member=member)
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
+    except AssetsSpatialGatewayError:
+        raise
+    except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)
     await AuditService.log(
         db,
@@ -267,7 +271,9 @@ async def restore_deleted_camera_member(
             expected_calibration_digest=payload.expected_calibration_digest,
         )
         out = await camera_member_out(db, task=task, member=member)
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
+    except AssetsSpatialGatewayError:
+        raise
+    except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)
     await AuditService.log(
         db,
@@ -300,9 +306,19 @@ async def get_camera_calibration_history(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
     try:
-        item = await load_linked_camera_item(db, task=task, camera_role=camera_role)
-        revisions = await list_calibration_revisions(db, item)
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
+        target = await AssetsSpatialGateway(db).read_camera_target(
+            ReadCameraTargetRequest(
+                actor_id=current_user.id,
+                task_id=task.id,
+                camera_role=camera_role,
+            )
+        )
+        revisions = await AssetsSpatialGateway(db).read_calibration_history(
+            target.dataset_item_id
+        )
+    except AssetsSpatialGatewayError:
+        raise
+    except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)
     current = revisions[0]
     return SensorCalibrationHistoryOut(
@@ -325,15 +341,27 @@ async def get_camera_calibration_history(
     "/{task_id}/point-cloud/cameras/{camera_role}/calibration",
     response_model=SensorCalibrationRevisionOut,
     dependencies=[Depends(require_scopes("annotations:write"))],
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the committed calibration update.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def patch_camera_calibration(
     task_id: uuid.UUID,
     camera_role: str,
     payload: SensorCalibrationUpdate,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_strict),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
@@ -345,49 +373,31 @@ async def patch_camera_calibration(
             status_code=403, detail="Only the project owner can update calibration"
         )
     try:
-        item = await load_linked_camera_item(db, task=task, camera_role=camera_role)
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
-        _raise_domain_error(exc)
-    if not access.is_super_admin:
-        cross_project_id = await db.scalar(
-            select(Task.project_id)
-            .join(TaskDatasetItemLink, TaskDatasetItemLink.task_id == Task.id)
-            .where(TaskDatasetItemLink.dataset_item_id == item.id)
-            .where(Task.project_id != task.project_id)
-            .limit(1)
-        )
-        if cross_project_id is not None:
-            raise HTTPException(
-                status_code=403,
-                detail="Only a super admin can update calibration shared across projects",
+        gateway = AssetsSpatialGateway(db)
+        result = await gateway.update_calibration(
+            UpdateCalibrationRequest(
+                operation_id=idempotency_key or uuid.uuid4(),
+                actor_id=current_user.id,
+                task_id=task.id,
+                camera_role=camera_role,
+                expected_revision=payload.expected_revision,
+                expected_digest=payload.expected_digest,
+                calibration=payload.calibration,
+                audit_context={
+                    "path": str(request.url.path),
+                    "method": request.method,
+                    "request_id": request.headers.get("x-request-id"),
+                    "user_agent": request.headers.get("user-agent"),
+                    "remote_addr": request.client.host if request.client else None,
+                },
             )
-    try:
-        state = await update_calibration(
-            db,
-            dataset_item_id=item.id,
-            calibration=payload.calibration,
-            expected_revision=payload.expected_revision,
-            expected_digest=payload.expected_digest,
-            actor_id=current_user.id,
         )
-    except (MulticameraAnnotationError, SensorCalibrationError) as exc:
+    except AssetsSpatialGatewayError:
+        raise
+    except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.SENSOR_CALIBRATION_UPDATE,
-        target_type="dataset_item",
-        target_id=item.id,
-        request=request,
-        status_code=200,
-        detail={
-            "task_id": str(task.id),
-            "camera_role": camera_role,
-            "revision": state.revision,
-            "digest": state.digest,
-        },
-    )
-    await db.commit()
+    state = result.state
+    response.headers["Idempotency-Key"] = str(result.operation_id)
     return SensorCalibrationRevisionOut(
         dataset_item_id=state.dataset_item_id,
         revision=state.revision,

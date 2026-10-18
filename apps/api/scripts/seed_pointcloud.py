@@ -100,6 +100,8 @@ async def seed_pointcloud(
     from app.db.models.project import Project
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
+    from aap_assets_catalog.spatial_contract import SetDatasetAxisRequest
+    from app.services.assets_spatial import AssetsSpatialGateway
 
     existing = await db.scalar(
         select(Project).where(Project.display_id == project_display_id)
@@ -128,10 +130,19 @@ async def seed_pointcloud(
         name=dataset_name,
         data_type="point_cloud",
         created_by=owner_id,
-        metadata_={"axis_convention": axis_convention},
     )
     db.add(ds)
     await db.flush()
+    await AssetsSpatialGateway(db).set_dataset_axis(
+        SetDatasetAxisRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=ds.id,
+            axis_convention=axis_convention,
+        ),
+        same_session_native=True,
+        commit=False,
+    )
+    await db.refresh(ds, attribute_names=["metadata_"])
 
     bucket = storage_service.datasets_bucket
 

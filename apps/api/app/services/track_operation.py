@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.schemas.track_operation import TrackOperationRequest, TrackSummary
-from app.services.scene import get_scene_frame_task_map, resolve_task_scene_frames
+from app.services.labeling_scene import (
+    get_scene_frame_task_map,
+    resolve_task_scene_frames,
+)
 
 
 CONTRACT_VERSION = 1

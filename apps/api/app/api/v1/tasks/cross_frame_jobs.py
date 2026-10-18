@@ -32,7 +32,10 @@ from app.services.cross_frame_job import (
     singleflight_key,
     snapshot_sources,
 )
-from app.services.scene import get_scene_frame_task_map, resolve_task_scene_frames
+from app.services.labeling_scene import (
+    get_scene_frame_task_map,
+    resolve_task_scene_frames,
+)
 
 
 router = APIRouter()

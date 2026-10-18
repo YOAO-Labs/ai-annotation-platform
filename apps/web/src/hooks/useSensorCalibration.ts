@@ -79,8 +79,13 @@ export function useSensorCalibration({
     return results.every((result) => result.status === "fulfilled");
   };
   const update = useMutation({
-    mutationFn: (payload: SensorCalibrationUpdate) =>
-      tasksApi.updateSensorCalibration(taskId!, cameraRole!, payload),
+    mutationFn: ({
+      payload,
+      idempotencyKey,
+    }: {
+      payload: SensorCalibrationUpdate;
+      idempotencyKey: string;
+    }) => tasksApi.updateSensorCalibration(taskId!, cameraRole!, payload, idempotencyKey),
     onSuccess: (updated) => {
       queryClient.setQueryData<SensorCalibrationHistoryOut>(queryKey, (current) => ({
         current_revision: updated.revision,

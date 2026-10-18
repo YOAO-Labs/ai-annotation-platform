@@ -10,13 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
+from app.db.models.dataset import ProjectDataset
 from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
     PointCloudQualityRun,
 )
 from app.db.models.project import Project
-from app.db.models.scene_pose import SceneFramePose
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -33,11 +32,15 @@ from app.services.point_cloud_quality.config import (
     load_point_cloud_quality_config,
     point_cloud_quality_config_digest,
 )
-from app.services.scene import resolve_task_scene_frames
-from app.services.sensor_calibration import (
-    SensorCalibrationError,
-    resolve_calibration_states,
+from app.services.labeling_scene import resolve_task_scene_frames
+from app.services.labeling_scene import read_spatial_item_facts
+from aap_assets_catalog.spatial_contract import (
+    GetSceneRequest,
+    ReadPosesRequest,
+    SpatialFailure,
+    normalize_calibration_record,
 )
+from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
 
 
 MAX_QUALITY_TASKS = 5_000
@@ -88,18 +91,28 @@ async def build_source_snapshot(
 
     if request.scope == "scene_ids":
         requested_scene_ids = set(request.scene_ids)
-        linked_scene_ids = set(
+        dataset_ids = set(
             (
                 await db.execute(
-                    select(Scene.id)
-                    .join(ProjectDataset, ProjectDataset.dataset_id == Scene.dataset_id)
-                    .where(
-                        ProjectDataset.project_id == project.id,
-                        Scene.id.in_(requested_scene_ids),
+                    select(ProjectDataset.dataset_id).where(
+                        ProjectDataset.project_id == project.id
                     )
                 )
             ).scalars()
         )
+        gateway = AssetsSpatialGateway(db)
+        linked_scene_ids = set()
+        for scene_id in requested_scene_ids:
+            try:
+                scene = await gateway.get_scene(
+                    GetSceneRequest(actor_id=None, scene_id=scene_id)
+                )
+            except AssetsSpatialGatewayError as exc:
+                if exc.code == "scene_missing":
+                    continue
+                raise
+            if scene.scene.dataset_id in dataset_ids:
+                linked_scene_ids.add(scene_id)
         if linked_scene_ids != requested_scene_ids:
             raise PointCloudQualityError(404, "point_cloud_quality_scene_not_found")
         selected_scene_ids = requested_scene_ids
@@ -237,15 +250,14 @@ async def build_source_snapshot(
             )
         ).scalars()
     )
-    poses = list(
-        (
-            await db.execute(
-                select(SceneFramePose)
-                .where(SceneFramePose.scene_id.in_(selected_scene_ids))
-                .order_by(SceneFramePose.scene_id, SceneFramePose.frame_index)
-            )
-        ).scalars()
-    )
+    gateway = AssetsSpatialGateway(db)
+    poses = [
+        (scene_id, pose)
+        for scene_id in sorted(selected_scene_ids, key=str)
+        for pose in await gateway.read_poses(
+            ReadPosesRequest(actor_id=None, scene_id=scene_id)
+        )
+    ]
 
     selected_tasks = [task_by_id[value] for value in sorted(selected_task_ids, key=str)]
     direct_item_ids = {
@@ -270,39 +282,21 @@ async def build_source_snapshot(
         if role.startswith("camera_"):
             camera_links_by_task.setdefault(task_id, []).append((role, item_id))
     item_ids = direct_item_ids | {item_id for _, item_id, _ in all_link_rows}
-    items = list(
-        (
-            await db.execute(select(DatasetItem).where(DatasetItem.id.in_(item_ids)))
-        ).scalars()
-    )
-    item_by_id = {row.id: row for row in items}
-    datasets = list(
-        (
-            await db.execute(
-                select(Dataset).where(Dataset.id.in_({row.dataset_id for row in items}))
-            )
-        ).scalars()
-    )
-    dataset_by_id = {row.id: row for row in datasets}
+    item_by_id, _ = await read_spatial_item_facts(db, list(item_ids))
     calibration_by_item: dict[uuid.UUID, dict] = {}
     camera_item_ids = {
         item_id for links in camera_links_by_task.values() for _, item_id in links
     }
-    camera_items = [
-        item
-        for item_id in camera_item_ids
-        if (item := item_by_id.get(item_id)) is not None
-    ]
-    try:
-        calibration_states = await resolve_calibration_states(db, camera_items)
-    except SensorCalibrationError:
-        # A malformed legacy item must not prevent the remaining scene snapshot.
-        calibration_states = {}
-        for item in camera_items:
-            try:
-                calibration_states.update(await resolve_calibration_states(db, [item]))
-            except SensorCalibrationError:
-                continue
+    calibration_states = {}
+    for record in await gateway.read_calibrations(
+        [item_id for item_id in camera_item_ids if item_id in item_by_id]
+    ):
+        try:
+            calibration_states[record.dataset_item_id] = normalize_calibration_record(
+                record
+            )
+        except SpatialFailure:
+            continue
     for item_id, state in calibration_states.items():
         calibration_by_item[item_id] = {
             "revision": state.revision,
@@ -328,11 +322,9 @@ async def build_source_snapshot(
                         "file_path": item.file_path,
                         "content_hash": item.content_hash,
                         "file_size": item.file_size,
-                        "axis_convention": (
-                            dataset_by_id[item.dataset_id].metadata_ or {}
-                        ).get("axis_convention", "iso_8855"),
+                        "axis_convention": item.axis_convention or "iso_8855",
                     }
-                    if item is not None and item.dataset_id in dataset_by_id
+                    if item is not None
                     else None
                 ),
                 "cameras": [
@@ -421,11 +413,11 @@ async def build_source_snapshot(
                 "version": row.version,
             }
         )
-    for row in poses:
+    for scene_id, row in poses:
         records.append(
             {
                 "kind": "pose",
-                "scene_id": str(row.scene_id),
+                "scene_id": str(scene_id),
                 "frame_index": row.frame_index,
                 "ego_translation": row.ego_translation,
                 "ego_rotation": row.ego_rotation,
@@ -477,10 +469,8 @@ async def create_quality_run(
     snapshot, scope_json = await build_source_snapshot(
         db, project=project, request=request
     )
-    from app.services.scene import lock_scene_source_references
-
-    if not await lock_scene_source_references(
-        db, (uuid.UUID(value) for value in scope_json["scene_ids"])
+    if not await AssetsSpatialGateway(db).lock_scene_source_references(
+        [uuid.UUID(value) for value in scope_json["scene_ids"]]
     ):
         raise PointCloudQualityError(409, "point_cloud_quality_source_changed")
     source_digest = canonical_digest(snapshot)
@@ -697,12 +687,7 @@ async def refresh_issue_staleness_bulk(
         if (source_item_id := (issue.evidence or {}).get("camera_item_id"))
     }
     item_ids = pointcloud_item_ids | camera_item_ids
-    items = {
-        row.id: row
-        for row in (
-            await db.execute(select(DatasetItem).where(DatasetItem.id.in_(item_ids)))
-        ).scalars()
-    }
+    items, _ = await read_spatial_item_facts(db, list(item_ids))
     track_ids = {
         issue.scene_track_id for issue in issues if issue.scene_track_id is not None
     }
@@ -729,20 +714,16 @@ async def refresh_issue_staleness_bulk(
                 )
             ).all()
         }
-    camera_items = [items[item_id] for item_id in camera_item_ids if item_id in items]
-    try:
-        camera_calibration_states = await resolve_calibration_states(db, camera_items)
-    except SensorCalibrationError:
-        # Keep malformed legacy camera metadata local to that camera while retaining
-        # one-query behavior for the normal path.
-        camera_calibration_states = {}
-        for item in camera_items:
-            try:
-                camera_calibration_states.update(
-                    await resolve_calibration_states(db, [item])
-                )
-            except SensorCalibrationError:
-                continue
+    camera_calibration_states = {}
+    for record in await AssetsSpatialGateway(db).read_calibrations(
+        [item_id for item_id in camera_item_ids if item_id in items]
+    ):
+        try:
+            camera_calibration_states[record.dataset_item_id] = (
+                normalize_calibration_record(record)
+            )
+        except SpatialFailure:
+            continue
     camera_calibration_digests: dict[uuid.UUID, str | None] = {
         item_id: (
             state.digest

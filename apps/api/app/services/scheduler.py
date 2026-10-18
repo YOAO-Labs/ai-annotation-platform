@@ -6,7 +6,6 @@ from sqlalchemy import select, func, or_, and_, false
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ProjectRole
-from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -16,7 +15,7 @@ from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services.project_access import is_privileged_for_project
-from app.services.scene import resolve_primary_item_id
+from app.services.labeling_scene import read_spatial_item_facts, resolve_primary_item_id
 from app.services.task_lock import TaskLockService, assert_task_user_active
 
 _PRIMARY_LIDAR_ROLE = "primary_lidar"
@@ -338,46 +337,50 @@ async def _next_same_scene_task(
     primary_item_id = await resolve_primary_item_id(db, recent_task)
     if primary_item_id is None:
         return None
-    item = await db.get(DatasetItem, primary_item_id)
+    item_facts, _ = await read_spatial_item_facts(db, [primary_item_id])
+    item = item_facts.get(primary_item_id)
     if item is None or item.scene_id is None or item.frame_index is None:
         return None
-
-    next_items = (
+    direct_rows = (
         await db.execute(
-            select(DatasetItem.id, DatasetItem.frame_index)
-            .where(
-                DatasetItem.scene_id == item.scene_id,
-                DatasetItem.frame_index.is_not(None),
-                DatasetItem.frame_index > item.frame_index,
-            )
-            .order_by(DatasetItem.frame_index)
+            select(Task.id, Task.dataset_item_id)
+            .where(Task.project_id == project.id)
+            .where(Task.dataset_item_id.is_not(None))
         )
     ).all()
+    link_rows = (
+        await db.execute(
+            select(Task.id, TaskDatasetItemLink.dataset_item_id)
+            .join(Task, Task.id == TaskDatasetItemLink.task_id)
+            .where(Task.project_id == project.id)
+            .where(TaskDatasetItemLink.role == _PRIMARY_LIDAR_ROLE)
+        )
+    ).all()
+    item_facts, _ = await read_spatial_item_facts(
+        db,
+        [item_id for _, item_id in (*direct_rows, *link_rows) if item_id is not None],
+    )
+    primary = item_facts.get(primary_item_id)
+    if primary is None or primary.scene_id is None or primary.frame_index is None:
+        return None
+    next_items = sorted(
+        (
+            (item_id, item.frame_index)
+            for item_id, item in item_facts.items()
+            if item.scene_id == primary.scene_id
+            and item.frame_index is not None
+            and item.frame_index > primary.frame_index
+        ),
+        key=lambda row: (row[1], str(row[0])),
+    )
     if not next_items:
         return None
-    next_item_ids = [r[0] for r in next_items]
 
-    # 双路径反查 item → task(直挂 dataset_item_id / primary_lidar link)
     item_to_task: dict[uuid.UUID, uuid.UUID] = {}
-    for tid, diid in (
-        await db.execute(
-            select(Task.id, Task.dataset_item_id).where(
-                Task.dataset_item_id.in_(next_item_ids)
-            )
-        )
-    ).all():
+    for tid, diid in direct_rows:
         if diid is not None:
             item_to_task[diid] = tid
-    for diid, tid in (
-        await db.execute(
-            select(
-                TaskDatasetItemLink.dataset_item_id, TaskDatasetItemLink.task_id
-            ).where(
-                TaskDatasetItemLink.dataset_item_id.in_(next_item_ids),
-                TaskDatasetItemLink.role == _PRIMARY_LIDAR_ROLE,
-            )
-        )
-    ).all():
+    for tid, diid in link_rows:
         item_to_task.setdefault(diid, tid)
 
     ordered_task_ids: list[uuid.UUID] = []

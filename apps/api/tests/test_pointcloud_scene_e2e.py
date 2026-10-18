@@ -12,6 +12,7 @@ dataset task-creation workflow，校验:
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import uuid
 from pathlib import Path, PurePosixPath
@@ -83,12 +84,30 @@ def _patch_calib_read(monkeypatch):
     """get_object(Key=<ds>/calib/camera/<cam>.json) 返回夹具该相机的真实字节。"""
     _, _, calib_paths = _scan_fixture()
 
-    def _fake_get_object(*, Bucket: str, Key: str):
-        cam = PurePosixPath(Key).stem
-        data = Path(calib_paths[cam]).read_bytes()
-        return {"Body": io.BytesIO(data)}
+    def _bytes(key: str) -> bytes:
+        cam = PurePosixPath(key).stem
+        return Path(calib_paths[cam]).read_bytes()
+
+    def _fake_get_object(*, Bucket: str, Key: str, IfMatch=None):
+        data = _bytes(Key)
+        etag = f'"{hashlib.md5(data, usedforsecurity=False).hexdigest()}"'
+        return {"Body": io.BytesIO(data), "ContentLength": len(data), "ETag": etag}
+
+    def _fake_head_object(*, Bucket: str, Key: str, IfMatch=None):
+        data = _bytes(Key)
+        return {
+            "ContentLength": len(data),
+            "ETag": f'"{hashlib.md5(data, usedforsecurity=False).hexdigest()}"',
+        }
 
     monkeypatch.setattr(storage_service.client, "get_object", _fake_get_object)
+    monkeypatch.setattr(storage_service.client, "head_object", _fake_head_object)
+    monkeypatch.setattr(
+        storage_service.spatial_source_client, "get_object", _fake_get_object
+    )
+    monkeypatch.setattr(
+        storage_service.spatial_source_client, "head_object", _fake_head_object
+    )
 
 
 async def test_scene_import_end_to_end(db_session, _patch_calib_read):

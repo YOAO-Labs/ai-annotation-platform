@@ -37166,7 +37166,7 @@
       },
       "SensorCalibration": {
         "additionalProperties": false,
-        "description": "v0.13.1 · 相机标定。extrinsic row-major 4x4 外参(16), intrinsic row-major\n3x3 内参(9), rect 为 KITTI 可选矫正矩阵 4x4(16)。存进 DatasetItem.metadata_\n的 \"calibration\" key。投影: extrinsic·[x,y,z,1] → xyz → intrinsic·xyz → 透视除法。",
+        "description": "相机标定。extrinsic row-major 4x4 外参(16), intrinsic row-major\n3x3 内参(9), rect 为 KITTI 可选矫正矩阵 4x4(16)。存进 DatasetItem.metadata_\n的 \"calibration\" key。投影: extrinsic·[x,y,z,1] → xyz → intrinsic·xyz → 透视除法。",
         "properties": {
           "extrinsic": {
             "items": {
@@ -58743,7 +58743,7 @@
     },
     "/api/v1/datasets/{dataset_id}/scenes/backfill": {
       "post": {
-        "description": "v0.14.0 · 对 dataset 跑 scene_inference,补 scene + frame_index。\n\n幂等:dataset 已有 scene → 直接返回(notes 提示)。\ndry_run:不写库,返回会创建 / 赋值的统计。",
+        "description": "v0.14.0 · 对 dataset 跑 scene layout backfill,补 scene + frame_index。\n\n幂等:dataset 已有 scene → 直接返回(notes 提示)。\ndry_run:不写库,返回会创建 / 赋值的统计。",
         "operationId": "backfill_scenes_endpoint_api_v1_datasets__dataset_id__scenes_backfill_post",
         "parameters": [
           {
@@ -58778,6 +58778,23 @@
               "title": "Dry Run",
               "type": "boolean"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -58787,7 +58804,16 @@
                 "schema": {}
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the committed scene layout.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -77798,6 +77824,23 @@
               "title": "Scene Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -77819,7 +77862,16 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the committed scene update.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -81557,6 +81609,23 @@
               "title": "Camera Role",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -81578,7 +81647,16 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the committed calibration update.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

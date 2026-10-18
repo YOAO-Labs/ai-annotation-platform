@@ -91,13 +91,22 @@ describe("useSensorCalibration", () => {
         ])?.cameras[0]?.calibration_revision,
       ).toBe(2),
     );
+    const payload = {
+      calibration: updated.calibration,
+      expected_revision: 2,
+      expected_digest: "b".repeat(64),
+    };
+    const idempotencyKey = "57d0e28b-fcb5-44ea-8fd2-b85fd0fd960a";
     await act(async () => {
-      await view.result.current.update.mutateAsync({
-        calibration: updated.calibration,
-        expected_revision: 2,
-        expected_digest: "b".repeat(64),
-      });
+      await view.result.current.update.mutateAsync({ payload, idempotencyKey });
     });
+
+    expect(tasksApi.updateSensorCalibration).toHaveBeenCalledWith(
+      "task-1",
+      "camera_front",
+      payload,
+      idempotencyKey,
+    );
 
     expect(
       queryClient.getQueryData<SensorCalibrationHistoryOut>(

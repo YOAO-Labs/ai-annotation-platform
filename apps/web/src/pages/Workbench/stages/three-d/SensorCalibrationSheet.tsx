@@ -178,6 +178,7 @@ export function SensorCalibrationSheet({
   const [baseDigest, setBaseDigest] = useState(digest);
   const [submitIssue, setSubmitIssue] = useState<string | null>(null);
   const [hasConflict, setHasConflict] = useState(false);
+  const pendingIntent = useRef<{ payload: string; idempotencyKey: string } | null>(null);
   const previousScope = useRef<{
     taskId: string | null;
     cameraRole: string | null;
@@ -206,6 +207,7 @@ export function SensorCalibrationSheet({
     setBaseDigest(digest);
     setSubmitIssue(null);
     setHasConflict(false);
+    pendingIntent.current = null;
   }, [cameraRole, taskId, open, calibration, digest, revision]);
 
   useEffect(() => {
@@ -221,18 +223,30 @@ export function SensorCalibrationSheet({
     setBaseDigest(currentDigest);
     setSubmitIssue(null);
     setHasConflict(false);
+    pendingIntent.current = null;
     setEditing(true);
   };
 
   const submit = async () => {
     if (!parsedDraft.ok || changedParts.length === 0) return;
     setSubmitIssue(null);
+    const payload = {
+      calibration: parsedDraft.value,
+      expected_revision: baseRevision,
+      expected_digest: baseDigest,
+    };
+    const identity = JSON.stringify(payload);
+    let intent = pendingIntent.current;
+    if (!intent || intent.payload !== identity) {
+      intent = { payload: identity, idempotencyKey: crypto.randomUUID() };
+      pendingIntent.current = intent;
+    }
     try {
       const updated = await sensorCalibration.update.mutateAsync({
-        calibration: parsedDraft.value,
-        expected_revision: baseRevision,
-        expected_digest: baseDigest,
+        payload,
+        idempotencyKey: intent.idempotencyKey,
       });
+      pendingIntent.current = null;
       setEditing(false);
       setDraft(formatCalibrationDraft(updated.calibration));
       setBaseRevision(updated.revision);
@@ -248,6 +262,7 @@ export function SensorCalibrationSheet({
       });
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
+        pendingIntent.current = null;
         setHasConflict(true);
         const refreshed = await sensorCalibration.refreshRelated();
         if (!refreshed) {

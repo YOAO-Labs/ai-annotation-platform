@@ -150,9 +150,12 @@ describe("SensorCalibrationSheet", () => {
     fireEvent.click(screen.getByText("追加 revision"));
     await waitFor(() =>
       expect(mutateAsync).toHaveBeenCalledWith({
-        calibration: next,
-        expected_revision: 2,
-        expected_digest: "b".repeat(64),
+        payload: {
+          calibration: next,
+          expected_revision: 2,
+          expected_digest: "b".repeat(64),
+        },
+        idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
       }),
     );
     expect(toastPushMock).toHaveBeenCalledWith(
@@ -167,9 +170,12 @@ describe("SensorCalibrationSheet", () => {
     fireEvent.click(screen.getByText("追加 revision"));
     await waitFor(() =>
       expect(mutateAsync).toHaveBeenCalledWith({
-        calibration: BASELINE,
-        expected_revision: 2,
-        expected_digest: "b".repeat(64),
+        payload: {
+          calibration: BASELINE,
+          expected_revision: 2,
+          expected_digest: "b".repeat(64),
+        },
+        idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
       }),
     );
   });
@@ -192,6 +198,23 @@ describe("SensorCalibrationSheet", () => {
     expect(screen.getByText("追加 revision")).toBeDisabled();
     fireEvent.click(screen.getByText("追加 revision"));
     expect(mutateAsync).toHaveBeenCalledOnce();
+  });
+
+  it("不确定的响应重试时复用同一幂等键", async () => {
+    mutateAsync.mockRejectedValueOnce(new Error("connection lost"));
+    renderSheet();
+    fireEvent.click(screen.getByText("编辑当前标定"));
+    const textarea = screen.getByLabelText("标定 JSON");
+    const next = { ...CURRENT, intrinsic: [140, 0, 50, 0, 100, 40, 0, 0, 1] };
+    fireEvent.change(textarea, { target: { value: JSON.stringify(next) } });
+    fireEvent.click(screen.getByText("追加 revision"));
+    await screen.findByText(/connection lost/);
+    const firstKey = mutateAsync.mock.calls[0][0].idempotencyKey;
+
+    fireEvent.click(screen.getByText("追加 revision"));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
+
+    expect(mutateAsync.mock.calls[1][0].idempotencyKey).toBe(firstKey);
   });
 
   it("后台刷新保留草稿，用户可显式基于最新版重新编辑", () => {

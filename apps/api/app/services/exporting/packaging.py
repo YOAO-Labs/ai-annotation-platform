@@ -34,16 +34,22 @@ from posixpath import splitext
 from typing import Any, AsyncIterator
 
 import numpy as np
-from sqlalchemy import select, tuple_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.scene_pose import SceneFramePose
 from aap_assets_catalog.spatial_values import SensorCalibration
+from aap_assets_catalog.spatial_values import FramePose
+from aap_assets_catalog.spatial_contract import (
+    GetSceneRequest,
+    ReadPosesRequest,
+    SpatialItem,
+    SpatialScene,
+    normalize_calibration_record,
+)
 from app.services.exporting.service import (
     ExportService,
     UnsupportedExportError,
@@ -91,7 +97,8 @@ from aap_workspace_contract import (
     derive_attribute_schema,
     derive_classes_list,
 )
-from app.services.sensor_calibration import resolve_calibration_states
+from app.services.assets_spatial import AssetsSpatialGateway
+from app.services.labeling_scene import read_spatial_item_facts
 from app.services.storage import storage_service
 from app.services.mask_formats.catalog import registry as mask_format_registry
 from app.services.mask_formats.image_export import (
@@ -428,13 +435,13 @@ if __name__ == "__main__":
 _FETCH_NUSCENES_MEDIA_TEMPLATE = _FETCH_TRUSTED_MEDIA_TEMPLATE
 
 
-def _dataset_name_for_task(task: Task, item: DatasetItem | None) -> str:
+def _dataset_name_for_task(task: Task, item: SpatialItem | None) -> str:
     """数据集名 = file_path 首段（Web/scan 导入时 file_path = key 含 dataset 前缀）。"""
     path = (task.file_path or "").lstrip("/")
     return path.split("/", 1)[0] if "/" in path else ""
 
 
-def _label_rel(task: Task, item: DatasetItem | None) -> str:
+def _label_rel(task: Task, item: SpatialItem | None) -> str:
     """label 相对路径（去 dataset 前缀，去扩展名）。"""
     dataset_name = _dataset_name_for_task(task, item)
     rel = relative_path_from_file_path(task.file_path, dataset_name)
@@ -543,7 +550,7 @@ def _yolo_target_lines(
 # 迭代器（生产由 ExportService.iter_export_chunks 流式产出，测试可喂内存 chunk），ZIP 落盘
 # tempfile 而非 io.BytesIO 攒整包，内存与 task 数解耦。
 ExportChunkIter = AsyncIterator[
-    tuple[list[Task], dict[uuid.UUID, list[Annotation]], dict[uuid.UUID, DatasetItem]]
+    tuple[list[Task], dict[uuid.UUID, list[Annotation]], dict[uuid.UUID, SpatialItem]]
 ]
 
 
@@ -718,7 +725,7 @@ async def build_export_zip(
         has_yolo = bool(yolo_targets)
         # COCO 需 DatasetItem 真值尺寸算像素坐标；仅在请求 coco 时累积全量 items
         # （coco 本身单文档全量物化，O(N) items 不额外恶化）。纯 YOLO 不累积，保持流式。
-        dataset_items_all: dict[uuid.UUID, DatasetItem] | None = (
+        dataset_items_all: dict[uuid.UUID, SpatialItem] | None = (
             {} if "coco" in targets else None
         )
 
@@ -940,15 +947,15 @@ def _build_video_yolo_data_yaml(classes_list: list[str]) -> str:
 # ── v0.14.7 · LiDAR 标准训练格式导出 ─────────────────────────────────
 
 
-def _lidar_frame_key(task: Task, item: DatasetItem | None) -> str:
+def _lidar_frame_key(task: Task, item: SpatialItem | None) -> str:
     rel = _label_rel(task, item)
     return rel or task.display_id
 
 
-def _calibration_for_item(item: DatasetItem | None) -> SensorCalibration | None:
+def _calibration_for_item(item: SpatialItem | None) -> SensorCalibration | None:
     if item is None:
         return None
-    raw = (item.metadata_ or {}).get("calibration")
+    raw = (item.metadata or {}).get("calibration")
     if raw is None:
         return None
     if not calibration_is_valid(raw):
@@ -970,27 +977,33 @@ def _camera_name(link: TaskDatasetItemLink) -> str:
 async def _load_lidar_link_items(
     svc: ExportService,
     tasks: list[Task],
-) -> dict[uuid.UUID, dict[str, tuple[TaskDatasetItemLink, DatasetItem]]]:
+) -> dict[uuid.UUID, dict[str, tuple[TaskDatasetItemLink, SpatialItem]]]:
     task_ids = [task.id for task in tasks]
     if not task_ids:
         return {}
     result = await svc.db.execute(
-        select(TaskDatasetItemLink, DatasetItem)
-        .join(DatasetItem, DatasetItem.id == TaskDatasetItemLink.dataset_item_id)
+        select(TaskDatasetItemLink)
         .where(TaskDatasetItemLink.task_id.in_(task_ids))
         .order_by(TaskDatasetItemLink.role)
     )
-    out: dict[uuid.UUID, dict[str, tuple[TaskDatasetItemLink, DatasetItem]]] = {}
-    for link, item in result.all():
+    links = list(result.scalars())
+    item_facts, _ = await read_spatial_item_facts(
+        svc.db, [link.dataset_item_id for link in links]
+    )
+    out: dict[uuid.UUID, dict[str, tuple[TaskDatasetItemLink, SpatialItem]]] = {}
+    for link in links:
+        item = item_facts.get(link.dataset_item_id)
+        if item is None:
+            continue
         out.setdefault(link.task_id, {})[link.role] = (link, item)
     return out
 
 
 def _primary_lidar_item(
     task: Task,
-    links_by_task: dict[uuid.UUID, dict[str, tuple[TaskDatasetItemLink, DatasetItem]]],
-    dataset_items: dict[uuid.UUID, DatasetItem],
-) -> DatasetItem | None:
+    links_by_task: dict[uuid.UUID, dict[str, tuple[TaskDatasetItemLink, SpatialItem]]],
+    dataset_items: dict[uuid.UUID, SpatialItem],
+) -> SpatialItem | None:
     """v0.24 · chunk 内解析 task 的主点云 item(与导出循环 primary_item 同规则)。
 
     优先 primary_lidar link,回退 task.dataset_item_id;nuScenes pose 按
@@ -1216,8 +1229,8 @@ async def _build_lidar_export_zip(
                 ]
 
                 async def hash_camera_item(
-                    item: DatasetItem,
-                ) -> tuple[DatasetItem, tuple[int, str]]:
+                    item: SpatialItem,
+                ) -> tuple[SpatialItem, tuple[int, str]]:
                     return item, await asyncio.to_thread(
                         _hash_dataset_object, item.file_path
                     )
@@ -1245,17 +1258,20 @@ async def _build_lidar_export_zip(
                     and member.sensor_dataset_item_id in camera_items_by_id
                 }
                 if member_item_ids:
-                    multicamera_calibration_states = await resolve_calibration_states(
-                        svc.db,
-                        [camera_items_by_id[item_id] for item_id in member_item_ids],
-                    )
+                    calibration_records = await AssetsSpatialGateway(
+                        svc.db
+                    ).read_calibrations(sorted(member_item_ids, key=str))
+                    multicamera_calibration_states = {
+                        record.dataset_item_id: normalize_calibration_record(record)
+                        for record in calibration_records
+                    }
             axis_by_task = (
                 await svc._axis_convention_by_task(tasks)
                 if {"kitti", "nuscenes"} & set(targets)
                 else {}
             )
-            scenes_by_id: dict[uuid.UUID, Scene] = {}
-            poses_by_frame: dict[tuple[uuid.UUID, int], SceneFramePose] = {}
+            scenes_by_id: dict[uuid.UUID, SpatialScene] = {}
+            poses_by_frame: dict[tuple[uuid.UUID, int], FramePose] = {}
             if "nuscenes" in targets:
                 # v0.24 · pose 查询按 chunk 内主点云的 (scene, frame) 对过滤:
                 # 大 scene 跨多个 1000-task chunk 时,逐 chunk 全量拉 scene pose
@@ -1273,29 +1289,21 @@ async def _build_lidar_export_zip(
                         chunk_pose_pairs.add(
                             (chunk_primary.scene_id, chunk_primary.frame_index)
                         )
-                if chunk_scene_ids:
-                    scenes_by_id = {
-                        scene.id: scene
-                        for scene in (
-                            await svc.db.execute(
-                                select(Scene).where(Scene.id.in_(chunk_scene_ids))
-                            )
-                        ).scalars()
-                    }
-                if chunk_pose_pairs:
-                    poses_by_frame = {
-                        (pose.scene_id, pose.frame_index): pose
-                        for pose in (
-                            await svc.db.execute(
-                                select(SceneFramePose).where(
-                                    tuple_(
-                                        SceneFramePose.scene_id,
-                                        SceneFramePose.frame_index,
-                                    ).in_(chunk_pose_pairs)
-                                )
-                            )
-                        ).scalars()
-                    }
+                gateway = AssetsSpatialGateway(svc.db)
+                for scene_id in sorted(chunk_scene_ids, key=str):
+                    scene_result = await gateway.get_scene(
+                        GetSceneRequest(actor_id=None, scene_id=scene_id)
+                    )
+                    scenes_by_id[scene_id] = scene_result.scene
+                pairs_by_scene: dict[uuid.UUID, set[int]] = {}
+                for scene_id, frame_index in chunk_pose_pairs:
+                    pairs_by_scene.setdefault(scene_id, set()).add(frame_index)
+                for scene_id, wanted_indexes in pairs_by_scene.items():
+                    for pose in await gateway.read_poses(
+                        ReadPosesRequest(actor_id=None, scene_id=scene_id)
+                    ):
+                        if pose.frame_index in wanted_indexes:
+                            poses_by_frame[(scene_id, pose.frame_index)] = pose
             for task in tasks:
                 linked = links_by_task.get(task.id, {})
                 primary_item = _primary_lidar_item(task, links_by_task, dataset_items)
@@ -1350,7 +1358,7 @@ async def _build_lidar_export_zip(
                             zf.writestr(
                                 f"{prefix}calib_raw/{cam}/{frame_key}.json",
                                 json.dumps(
-                                    (item.metadata_ or {}).get("calibration") or {},
+                                    (item.metadata or {}).get("calibration") or {},
                                     ensure_ascii=False,
                                     indent=2,
                                 ),
@@ -1449,7 +1457,7 @@ async def _build_lidar_export_zip(
                         raise UnsupportedExportError(
                             f"nuscenes_frame_pose_missing:{task.id}"
                         )
-                    source_primary = (primary_item.metadata_ or {}).get(
+                    source_primary = (primary_item.metadata or {}).get(
                         "nuscenes_export"
                     )
                     if not isinstance(source_primary, dict):
@@ -1464,7 +1472,7 @@ async def _build_lidar_export_zip(
                     for role, item in sorted(sensor_items.items()):
                         if role != "primary_lidar" and not role.startswith("camera_"):
                             continue
-                        source = (item.metadata_ or {}).get("nuscenes_export")
+                        source = (item.metadata or {}).get("nuscenes_export")
                         if not isinstance(source, dict):
                             raise UnsupportedExportError(
                                 f"nuscenes_sensor_contract_missing:{task.id}:{role}"
@@ -1602,7 +1610,7 @@ async def _build_lidar_export_zip(
                     elif target == "pointmask":
                         source_point_count = None
                         if primary_item is not None:
-                            source_point_count = (primary_item.metadata_ or {}).get(
+                            source_point_count = (primary_item.metadata or {}).get(
                                 "point_count"
                             )
                         zf.writestr(
@@ -1909,15 +1917,15 @@ if __name__ == "__main__":
 '''
 
 
-def _video_seq_name(task: Task, item: DatasetItem | None) -> str:
+def _video_seq_name(task: Task, item: SpatialItem | None) -> str:
     """sequence 名 = 数据集内相对路径去扩展名（保留层级，去重靠相对路径）。"""
     return _label_rel(task, item)
 
 
-def _video_meta(item: DatasetItem | None) -> dict:
+def _video_meta(item: SpatialItem | None) -> dict:
     if not item:
         return {}
-    v = (item.metadata_ or {}).get("video")
+    v = (item.metadata or {}).get("video")
     return v if isinstance(v, dict) else {}
 
 

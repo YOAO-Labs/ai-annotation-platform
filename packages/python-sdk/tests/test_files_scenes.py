@@ -118,6 +118,7 @@ def test_scene_get_and_trajectory_preserve_empty_pose_envelope(client, respx_moc
 def test_scene_update_omits_unset_fields_and_preserves_explicit_null(
     client, respx_mock
 ):
+    idempotency_key = str(uuid4())
     route = respx_mock.patch(f"{API}/scenes/{SCENE_ID}").mock(
         return_value=httpx.Response(200, json={**SCENE, "name": "renamed"})
     )
@@ -125,12 +126,14 @@ def test_scene_update_omits_unset_fields_and_preserves_explicit_null(
     result = Scenes(client._http).update(
         SCENE_ID,
         SceneUpdate(name="renamed", source_format=None),
+        idempotency_key=idempotency_key,
     )
 
     assert json.loads(route.calls.last.request.content) == {
         "name": "renamed",
         "source_format": None,
     }
+    assert route.calls.last.request.headers["Idempotency-Key"] == idempotency_key
     assert result.name == "renamed"
 
 

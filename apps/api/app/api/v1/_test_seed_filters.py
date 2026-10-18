@@ -7,6 +7,7 @@ membership by calling the filtering implementation under test.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1115,8 +1116,14 @@ async def _seed_lidar(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], prefix: str
 ) -> FilteringLidarManifest:
     from app.api.v1._test_seed import _make_test_pcd_frames
-    from app.db.models.dataset import Scene
-    from app.db.models.scene_pose import SceneFramePose
+    from aap_assets_catalog.spatial_contract import (
+        AssignItemsRequest,
+        CreateSceneRequest,
+        SceneAssignment,
+        UpsertPosesRequest,
+    )
+    from aap_assets_catalog.spatial_values import FramePose
+    from app.services.assets_spatial import AssetsSpatialGateway
     from app.db.models.project_member import ProjectMember
     from app.db.models.project_task_view import ProjectTaskView
     from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -1159,16 +1166,19 @@ async def _seed_lidar(
         file_count=6,
         is_temporal=True,
     )
-    scene = Scene(
-        display_id=ids.display("SCN-E2E-FILTER-L"),
-        dataset_id=dataset.id,
-        name="Filter Scene",
-        source_format="nuscenes",
-        source_metadata={"fixture_source": "filtering"},
-        created_by=admin.id,
+    spatial = AssetsSpatialGateway(db)
+    scene_result = await spatial.create_scene(
+        CreateSceneRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=dataset.id,
+            name="Filter Scene",
+            source_format="nuscenes",
+            source_metadata={"fixture_source": "filtering"},
+            created_by=admin.id,
+        ),
+        same_session_native=True,
     )
-    db.add(scene)
-    await db.flush()
+    scene = scene_result.scene
     frames, _, _ = _make_test_pcd_frames()
     camera = b'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#223344"/></svg>'
     calibration = {
@@ -1213,6 +1223,8 @@ async def _seed_lidar(
         reviewer_id=None,
     )
     tasks = []
+    assignments = []
+    pose_facts = []
     for frame_index in range(3):
         item = await _create_item(
             db,
@@ -1222,8 +1234,6 @@ async def _seed_lidar(
             file_type="point_cloud",
             width=None,
             height=None,
-            scene_id=scene.id,
-            frame_index=frame_index,
         )
         camera_item = await _create_item(
             db,
@@ -1233,8 +1243,6 @@ async def _seed_lidar(
             file_type="image",
             width=640,
             height=480,
-            scene_id=scene.id,
-            frame_index=frame_index,
             metadata={"calibration": calibration},
         )
         batch = visible_batch if frame_index < 2 else hidden_batch
@@ -1263,9 +1271,8 @@ async def _seed_lidar(
             ]
         )
         tasks.append(task)
-        db.add(
-            SceneFramePose(
-                scene_id=scene.id,
+        pose_facts.append(
+            FramePose(
                 frame_index=frame_index,
                 timestamp_us=frame_index * 100000,
                 ego_translation=[0, 0, 0],
@@ -1273,7 +1280,35 @@ async def _seed_lidar(
                 source_metadata={},
             )
         )
+        assignments.extend(
+            [
+                SceneAssignment(
+                    item_id=item.id,
+                    scene_id=scene.id,
+                    frame_index=frame_index,
+                ),
+                SceneAssignment(
+                    item_id=camera_item.id,
+                    scene_id=scene.id,
+                    frame_index=frame_index,
+                ),
+            ]
+        )
     await db.flush()
+    await spatial.assign_items(
+        AssignItemsRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=dataset.id,
+            assignments=assignments,
+        ),
+        same_session_native=True,
+    )
+    await spatial.upsert_poses(
+        UpsertPosesRequest(
+            operation_id=uuid.uuid4(), scene_id=scene.id, poses=pose_facts
+        ),
+        same_session_native=True,
+    )
     track_refs = [f"filter-track-{index + 1:03d}" for index in range(101)]
     for track_ref in track_refs:
         track = await ensure_scene_track(

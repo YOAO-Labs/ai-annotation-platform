@@ -472,17 +472,30 @@ def backfill_scenes(
     mode: str = typer.Option("auto", "--mode", help="single | per_subdirectory | auto"),
     dry_run: bool = typer.Option(False, "--dry-run", help="只返回推断结果，不写入"),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认回填场景"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """推断 scene 与 frame_index；dry-run 可先检查结果。"""
     if mode not in {"single", "per_subdirectory", "auto"}:
         raise typer.BadParameter("--mode 必须是 single、per_subdirectory 或 auto")
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     with cli_errors(json_output):
         if not dry_run:
             confirm_destructive("确认写入场景和帧索引?", yes, json_output)
         with get_client(json_output) as client:
             result = client.datasets.backfill_scenes(
-                dataset_id, mode=mode, dry_run=dry_run
+                dataset_id,
+                mode=mode,
+                dry_run=dry_run,
+                idempotency_key=idempotency_key,
             )
     print_learning_result(result, json_output)
 

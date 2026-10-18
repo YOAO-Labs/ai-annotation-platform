@@ -33,6 +33,8 @@ from app.services.screenshot_seed_spec import (
     USER_SPECS,
     resolve_project_spec,
 )
+from aap_assets_catalog.spatial_contract import SetDatasetAxisRequest
+from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.storage import storage_service
 
 try:
@@ -962,6 +964,7 @@ async def reconcile_screenshot_seed(
                 f"{display_id}: screenshot task display id is already used by another task"
             )
 
+    axis_updates: list[tuple[uuid.UUID, str]] = []
     for logical_key, (project, dataset, tasks) in resources.items():
         project_state = PROJECT_STATE[logical_key]
         dataset_state = DATASET_STATE[logical_key]
@@ -986,10 +989,8 @@ async def reconcile_screenshot_seed(
         dataset.description = dataset_state["description"]
         dataset.data_type = dataset_state["data_type"]
         dataset.created_by = users[project_state["owner"]].id
-        metadata = dict(dataset.metadata_ or {})
         if "axis_convention" in dataset_state:
-            metadata["axis_convention"] = dataset_state["axis_convention"]
-        dataset.metadata_ = metadata
+            axis_updates.append((dataset.id, dataset_state["axis_convention"]))
         dataset.file_count = (
             await db.scalar(
                 select(func.count())
@@ -1034,6 +1035,24 @@ async def reconcile_screenshot_seed(
     await _reconcile_annotations(db, image_project, image_tasks, users)
     _sync_counters(image_project, image_batches, image_tasks)
     await _pin_screenshot_timestamps(db, resources)
+    await db.flush()
+    spatial = AssetsSpatialGateway(db)
+    for dataset_id, axis_convention in axis_updates:
+        await spatial.set_dataset_axis(
+            SetDatasetAxisRequest(
+                operation_id=uuid.uuid4(),
+                dataset_id=dataset_id,
+                axis_convention=axis_convention,
+            ),
+            same_session_native=True,
+            commit=False,
+        )
+        dataset = next(
+            dataset
+            for _project, dataset, _tasks in resources.values()
+            if dataset.id == dataset_id
+        )
+        await db.refresh(dataset, attribute_names=["metadata_"])
     await db.commit()
     return {
         "projects": len(resources),

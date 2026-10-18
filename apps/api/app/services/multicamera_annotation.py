@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -16,17 +15,22 @@ from app.schemas.multicamera_annotation import (
     CameraProjectionResidual,
     NormalizedCameraBbox,
 )
+from aap_assets_catalog.spatial_contract import (
+    LockCalibrationFactsRequest,
+    ReadItemsRequest,
+    SpatialItem,
+    SpatialFailure,
+    CalibrationState,
+    normalize_calibration_record,
+)
+from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.annotation_evidence import record_annotation_actor
 from app.services.pointcloud_projection import (
     ProjectionCamera,
     project_iso_box,
     projection_residual,
 )
-from app.services.scene import resolve_task_scene_frames
-from app.services.sensor_calibration import (
-    SensorCalibrationState,
-    resolve_calibration_states,
-)
+from app.services.labeling_scene import resolve_task_scene_frames
 
 
 class MulticameraAnnotationError(ValueError):
@@ -37,9 +41,9 @@ class MulticameraAnnotationError(ValueError):
 
 @dataclass(frozen=True)
 class CameraContext:
-    item: DatasetItem
+    item: SpatialItem
     role: str
-    calibration: SensorCalibrationState
+    calibration: CalibrationState
     axis_convention: str
 
     @property
@@ -89,7 +93,7 @@ async def load_camera_context(
 
 async def load_linked_camera_item(
     db: AsyncSession, *, task: Task, camera_role: str
-) -> DatasetItem:
+) -> SpatialItem:
     if not camera_role.startswith("camera_"):
         raise MulticameraAnnotationError(
             "camera_role_not_linked", "camera role is not linked to this task"
@@ -101,7 +105,14 @@ async def load_linked_camera_item(
             .where(TaskDatasetItemLink.role == camera_role)
         )
     ).scalar_one_or_none()
-    item = await db.get(DatasetItem, link.dataset_item_id) if link is not None else None
+    if link is None:
+        raise MulticameraAnnotationError(
+            "camera_role_not_linked", "camera role is not linked to this task"
+        )
+    page = await AssetsSpatialGateway(db).read_items(
+        ReadItemsRequest(item_ids=[link.dataset_item_id])
+    )
+    item = next((item for item in page.items if item.id == link.dataset_item_id), None)
     if item is None:
         raise MulticameraAnnotationError(
             "camera_role_not_linked", "camera role is not linked to this task"
@@ -131,27 +142,33 @@ async def load_camera_contexts(
     primary_link = links_by_role.get("primary_lidar")
     if primary_link is not None:
         item_ids.add(primary_link.dataset_item_id)
-    items = list(
-        (
-            await db.execute(select(DatasetItem).where(DatasetItem.id.in_(item_ids)))
-        ).scalars()
+    item_facts = (
+        await AssetsSpatialGateway(db).read_items(
+            ReadItemsRequest(item_ids=list(item_ids))
+        )
+        if item_ids
+        else None
     )
-    items_by_id = {item.id: item for item in items}
+    items_by_id = {item.id: item for item in item_facts.items} if item_facts else {}
     axis_convention = "iso_8855"
     if primary_link is not None:
         primary = items_by_id.get(primary_link.dataset_item_id)
         if primary is not None:
-            dataset = await db.get(Dataset, primary.dataset_id)
-            if dataset is not None:
-                axis_convention = str(
-                    (dataset.metadata_ or {}).get("axis_convention") or "iso_8855"
-                )
+            axis_convention = primary.axis_convention or "iso_8855"
     camera_items = [
         item
         for link in selected_links
         if (item := items_by_id.get(link.dataset_item_id)) is not None
     ]
-    states = await resolve_calibration_states(db, camera_items)
+    records = await AssetsSpatialGateway(db).read_calibrations(
+        [item.id for item in camera_items]
+    )
+    states: dict[uuid.UUID, CalibrationState] = {}
+    for record in records:
+        try:
+            states[record.dataset_item_id] = normalize_calibration_record(record)
+        except SpatialFailure as exc:
+            raise MulticameraAnnotationError(exc.code, exc.code) from exc
     contexts = {}
     for link in selected_links:
         item = items_by_id.get(link.dataset_item_id)
@@ -169,6 +186,42 @@ async def load_camera_contexts(
             axis_convention=axis_convention,
         )
     return contexts
+
+
+async def _lock_camera_calibration(
+    db: AsyncSession,
+    *,
+    task: Task,
+    actor_id: uuid.UUID | None,
+    context: CameraContext,
+) -> CameraContext:
+    record = await AssetsSpatialGateway(db).lock_calibration_facts(
+        LockCalibrationFactsRequest(
+            actor_id=actor_id,
+            task_id=task.id,
+            camera_role=context.role,
+            dataset_item_id=context.item.id,
+            expected_source_snapshot=context.calibration.source_snapshot or {},
+        )
+    )
+    try:
+        state = normalize_calibration_record(record)
+    except (SpatialFailure, ValueError, TypeError) as exc:
+        code = getattr(exc, "code", "camera_calibration_invalid")
+        raise MulticameraAnnotationError(code, code) from exc
+    if (
+        state.revision != context.calibration.revision
+        or state.digest != context.calibration.digest
+    ):
+        raise MulticameraAnnotationError(
+            "calibration_revision_conflict", "camera calibration changed"
+        )
+    return CameraContext(
+        item=context.item,
+        role=context.role,
+        calibration=state,
+        axis_convention=context.axis_convention,
+    )
 
 
 async def _load_source_box(
@@ -220,7 +273,7 @@ async def _lock_track(
 
 
 def _assert_calibration(
-    state: SensorCalibrationState, expected_revision: int, expected_digest: str
+    state: CalibrationState, expected_revision: int, expected_digest: str
 ) -> None:
     if state.revision != expected_revision or state.digest != expected_digest.lower():
         raise MulticameraAnnotationError(
@@ -251,6 +304,9 @@ async def create_camera_member(
     )
     track = await _lock_track(db, source.scene_track_id, expected_track_revision)
     context = await load_camera_context(db, task=task, camera_role=camera_role)
+    context = await _lock_camera_calibration(
+        db, task=task, actor_id=actor_id, context=context
+    )
     _assert_calibration(
         context.calibration,
         expected_calibration_revision,
@@ -337,6 +393,9 @@ async def update_camera_member(
         )
     track = await _lock_track(db, member.scene_track_id, expected_track_revision)
     context = await load_camera_context(db, task=task, camera_role=member.sensor_role)
+    context = await _lock_camera_calibration(
+        db, task=task, actor_id=actor_id, context=context
+    )
     _assert_calibration(
         context.calibration,
         expected_calibration_revision,
@@ -435,6 +494,9 @@ async def restore_camera_member(
         )
     track = await _lock_track(db, member.scene_track_id, expected_track_revision)
     context = await load_camera_context(db, task=task, camera_role=member.sensor_role)
+    context = await _lock_camera_calibration(
+        db, task=task, actor_id=actor_id, context=context
+    )
     _assert_calibration(
         context.calibration,
         expected_calibration_revision,

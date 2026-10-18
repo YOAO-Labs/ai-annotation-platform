@@ -40,7 +40,6 @@ from sqlalchemy import (
     cast,
     func,
     literal,
-    not_,
     select,
     union_all,
 )
@@ -67,6 +66,7 @@ from app.services.project_kind import project_kind
 from app.services.prediction import to_internal_shape
 from app.services.project_access import is_privileged_for_project
 from app.services.feedback import unresolved_issue_count_sq
+from app.services.assets_spatial_views import spatial_item_references
 from app.services.data_management.views import (
     compile_filter,
     visible_tasks_stmt,
@@ -406,13 +406,14 @@ class DataManagerService:
                 await self.db.scalar(
                     select(func.count(TaskDatasetItemLink.id))
                     .join(
-                        DatasetItem,
-                        DatasetItem.id == TaskDatasetItemLink.dataset_item_id,
+                        spatial_item_references,
+                        spatial_item_references.c.item_id
+                        == TaskDatasetItemLink.dataset_item_id,
                     )
                     .where(
                         camera_clause,
-                        not_(
-                            DatasetItem.metadata_.has_key("calibration")  # noqa: W601
+                        spatial_item_references.c.calibration_metadata_present.is_(
+                            False
                         ),
                     )
                 )
@@ -436,15 +437,15 @@ class DataManagerService:
                 .scalar_subquery()
             )
             scene_ids = (
-                select(DatasetItem.scene_id)
+                select(spatial_item_references.c.scene_id)
                 .select_from(Task)
                 .join(matched_ids, matched_ids.c.id == Task.id)
                 .join(
-                    DatasetItem,
-                    DatasetItem.id
+                    spatial_item_references,
+                    spatial_item_references.c.item_id
                     == func.coalesce(Task.dataset_item_id, primary_item_id),
                 )
-                .where(DatasetItem.scene_id.is_not(None))
+                .where(spatial_item_references.c.scene_id.is_not(None))
                 .subquery()
             )
             kind_metrics.update(

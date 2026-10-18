@@ -1,12 +1,16 @@
-"""ORM adapter coverage for applying portable scene-layout plans."""
+"""Assets owner scene planning and layout mutation regressions."""
 
 from __future__ import annotations
 
 import uuid
 
-
-from app.db.models.dataset import Dataset, DatasetItem, Scene
-from app.services import scene_inference as si
+from app.db.models.dataset import Dataset, DatasetItem
+from aap_assets_catalog.spatial_contract import (
+    BackfillScenesRequest,
+    CreateSceneRequest,
+    ReadItemsRequest,
+)
+from app.services.assets_spatial import AssetsSpatialGateway
 
 
 async def _make_dataset(db, owner_id, name="ds-test"):
@@ -33,8 +37,26 @@ async def _add_item(db, dataset_id, file_path, file_type="point_cloud"):
     return item
 
 
+async def _backfill(db, dataset_id, *, mode="auto", dry_run=False):
+    return await AssetsSpatialGateway(db).backfill_scenes(
+        BackfillScenesRequest(
+            operation_id=uuid.uuid4(),
+            actor_id=None,
+            dataset_id=dataset_id,
+            mode=mode,
+            dry_run=dry_run,
+        ),
+        commit=False,
+    )
+
+
+async def _facts(db, dataset_id):
+    return await AssetsSpatialGateway(db).read_items(
+        ReadItemsRequest(dataset_id=dataset_id), same_session_native=True
+    )
+
+
 async def test_infer_single_scene_sustech_layout(db_session, super_admin):
-    """整 dataset 是 SUSTech 单 scene 布局:auto → single scene + frame_index。"""
     user, _ = super_admin
     ds = await _make_dataset(db_session, user.id, name="pc-scene")
     items = []
@@ -52,24 +74,25 @@ async def test_infer_single_scene_sustech_layout(db_session, super_admin):
         "other",
     )
 
-    res = await si.infer_and_apply(db_session, dataset_id=ds.id, mode="auto")
+    result = await _backfill(db_session, ds.id)
+    assert result.created_scenes == 1
+    assert result.assigned_items >= 7
 
-    assert res.created_scenes == 1
-    assert res.assigned_items >= 7  # 3 lidar + 3 cam + 1 calib
-
-    # 每个 lidar 拿到 frame_index 0/1/2
-    refreshed = [await db_session.get(DatasetItem, it.id) for it in items]
+    facts = await _facts(db_session, ds.id)
+    items_by_id = {item.id: item for item in facts.items}
     lidar_frames = sorted(
-        it.frame_index for it in refreshed if it.file_type == "point_cloud"
+        items_by_id[item.id].frame_index
+        for item in items
+        if item.file_type == "point_cloud"
+    )
+    camera_frames = sorted(
+        items_by_id[item.id].frame_index for item in items if item.file_type == "image"
     )
     assert lidar_frames == [0, 1, 2]
-    # cam 与 lidar 共享 frame_index
-    cam_frames = sorted(it.frame_index for it in refreshed if it.file_type == "image")
-    assert cam_frames == [0, 1, 2]
+    assert camera_frames == [0, 1, 2]
 
 
 async def test_infer_multi_scene_per_subdirectory(db_session, super_admin):
-    """顶层多 scene 名 → per_subdirectory,每 scene 独立 frame_index。"""
     user, _ = super_admin
     ds = await _make_dataset(db_session, user.id, name="multi")
     items_a, items_b = [], []
@@ -82,95 +105,88 @@ async def test_infer_multi_scene_per_subdirectory(db_session, super_admin):
             await _add_item(db_session, ds.id, f"multi/scene_b/lidar/{stem}.pcd")
         )
 
-    res = await si.infer_and_apply(db_session, dataset_id=ds.id, mode="auto")
+    result = await _backfill(db_session, ds.id)
+    assert result.created_scenes == 2
 
-    assert res.created_scenes == 2
-
-    # scene_a 0..1,scene_b 0..2,独立编号
-    refreshed_a = [await db_session.get(DatasetItem, it.id) for it in items_a]
-    refreshed_b = [await db_session.get(DatasetItem, it.id) for it in items_b]
-    assert sorted(it.frame_index for it in refreshed_a) == [0, 1]
-    assert sorted(it.frame_index for it in refreshed_b) == [0, 1, 2]
-    # scene_id 不串
-    assert {it.scene_id for it in refreshed_a}.isdisjoint(
-        {it.scene_id for it in refreshed_b}
-    )
+    facts = await _facts(db_session, ds.id)
+    items_by_id = {item.id: item for item in facts.items}
+    frames_a = [items_by_id[item.id].frame_index for item in items_a]
+    frames_b = [items_by_id[item.id].frame_index for item in items_b]
+    scenes_a = {items_by_id[item.id].scene_id for item in items_a}
+    scenes_b = {items_by_id[item.id].scene_id for item in items_b}
+    assert sorted(frames_a) == [0, 1]
+    assert sorted(frames_b) == [0, 1, 2]
+    assert scenes_a.isdisjoint(scenes_b)
 
 
 async def test_infer_flat_image_dataset(db_session, super_admin):
-    """纯图像 dataset:每个 item 1 帧,自然排序 0..N-1。"""
     user, _ = super_admin
     ds = await _make_dataset(db_session, user.id, name="img-seq")
-    items = []
-    # 故意乱序加入,验证自然排序
-    for fn in ["frame_00010.jpg", "frame_00001.jpg", "frame_00002.jpg"]:
-        items.append(await _add_item(db_session, ds.id, f"img-seq/{fn}", "image"))
+    items = [
+        await _add_item(db_session, ds.id, f"img-seq/{filename}", "image")
+        for filename in ["frame_00010.jpg", "frame_00001.jpg", "frame_00002.jpg"]
+    ]
 
-    res = await si.infer_and_apply(db_session, dataset_id=ds.id, mode="single")
-
-    assert res.created_scenes == 1
-    refreshed_list = []
-    for it in items:
-        refreshed_list.append(await db_session.get(DatasetItem, it.id))
-    refreshed = sorted(refreshed_list, key=lambda it: it.frame_index)
-    # 自然排序后 00001=0, 00002=1, 00010=2
-    assert [it.file_name for it in refreshed] == [
+    result = await _backfill(db_session, ds.id, mode="single")
+    assert result.created_scenes == 1
+    facts = await _facts(db_session, ds.id)
+    ordered = sorted(
+        (
+            next(item for item in facts.items if item.id == seeded.id)
+            for seeded in items
+        ),
+        key=lambda item: item.frame_index,
+    )
+    assert [item.file_name for item in ordered] == [
         "frame_00001.jpg",
         "frame_00002.jpg",
         "frame_00010.jpg",
     ]
-    assert [it.frame_index for it in refreshed] == [0, 1, 2]
+    assert [item.frame_index for item in ordered] == [0, 1, 2]
 
 
 async def test_infer_idempotent_when_scene_exists(db_session, super_admin):
-    """dataset 已有 scene → 整体跳过,不重复创建。"""
     user, _ = super_admin
     ds = await _make_dataset(db_session, user.id)
     await _add_item(db_session, ds.id, f"{ds.name}/lidar/000001.pcd")
 
-    res1 = await si.infer_and_apply(db_session, dataset_id=ds.id, mode="single")
-    assert res1.created_scenes == 1
+    first = await _backfill(db_session, ds.id, mode="single")
+    assert first.created_scenes == 1
+    second = await _backfill(db_session, ds.id, mode="single")
+    assert second.created_scenes == 0
+    assert any("idempotent" in note for note in second.notes)
 
-    res2 = await si.infer_and_apply(db_session, dataset_id=ds.id, mode="single")
-    assert res2.created_scenes == 0
-    assert any("idempotent" in n for n in res2.notes)
 
-
-async def test_infer_partial_migration_skipped(db_session, super_admin):
-    """部分 items 已有 scene_id → 跳过,notes 报警。"""
+async def test_backfill_skips_existing_scene(db_session, super_admin):
     user, _ = super_admin
     ds = await _make_dataset(db_session, user.id)
-    it1 = await _add_item(db_session, ds.id, f"{ds.name}/lidar/000001.pcd")
-    it2 = await _add_item(db_session, ds.id, f"{ds.name}/lidar/000002.pcd")
-    # 手动给 it1 挂 scene_id(模拟"部分迁移")
-    other_scene = Scene(
-        display_id=f"SCN-{uuid.uuid4().hex[:6]}",
-        dataset_id=ds.id,
-        name="manual",
+    await _add_item(db_session, ds.id, f"{ds.name}/lidar/000001.pcd")
+    await AssetsSpatialGateway(db_session).create_scene(
+        CreateSceneRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=ds.id,
+            name="manual",
+            source_format=None,
+            source_metadata={},
+            created_by=user.id,
+        ),
+        same_session_native=True,
     )
-    db_session.add(other_scene)
-    await db_session.flush()
-    # 此时 dataset 已有 scene → 整体 idempotent 跳过(优先级更高)
-    res = await si.infer_and_apply(db_session, dataset_id=ds.id, mode="single")
-    assert res.created_scenes == 0
-    # 第二种 path:dataset 无 scene 但部分 item 有 scene_id 时走 partial migration;
-    # 由于 idempotent path 已生效,本测试主要 cover idempotent。partial migration 路径
-    # 在生产中实际不太可能出现(scene_id 来自 scene)。
-    assert it1 is not None and it2 is not None
+
+    result = await _backfill(db_session, ds.id, mode="single")
+    assert result.created_scenes == 0
 
 
 async def test_infer_dry_run_no_writes(db_session, super_admin):
-    """dry_run=True 不写库。"""
     user, _ = super_admin
     ds = await _make_dataset(db_session, user.id, name="dry")
     item = await _add_item(db_session, ds.id, "dry/lidar/000001.pcd")
 
-    res = await si.infer_and_apply(
-        db_session, dataset_id=ds.id, mode="single", dry_run=True
-    )
-    assert res.dry_run is True
-    assert res.created_scenes == 1  # 计数但未实际写
+    result = await _backfill(db_session, ds.id, mode="single", dry_run=True)
+    assert result.dry_run is True
+    assert result.created_scenes == 1
 
-    refreshed = await db_session.get(DatasetItem, item.id)
-    assert refreshed.scene_id is None
-    assert refreshed.frame_index is None
+    facts = await _facts(db_session, ds.id)
+    unchanged = next(row for row in facts.items if row.id == item.id)
+    assert unchanged.scene_id is None
+    assert unchanged.frame_index is None

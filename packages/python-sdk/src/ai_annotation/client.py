@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 from uuid import UUID, uuid4
 
-from ai_annotation._http import HttpTransport, _drop_none
+from ai_annotation._http import HttpTransport, _drop_none, _idempotency_headers
 from ai_annotation.batch_operation_models import (
     AdminBatchLockRequest,
     BatchAssignmentPreviewRequest,
@@ -181,11 +181,7 @@ IdLike = str | UUID
 
 
 def _dataset_idempotency_header(value: IdLike | None) -> dict[str, str]:
-    try:
-        key = uuid4() if value is None else UUID(str(value))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("idempotency_key must be a UUID") from exc
-    return {"Idempotency-Key": str(key)}
+    return _idempotency_headers(uuid4() if value is None else value)
 
 
 _JOB_TERMINAL = frozenset({"completed", "failed", "cancelled"})
@@ -505,11 +501,13 @@ class Datasets:
         *,
         mode: str = "auto",
         dry_run: bool = False,
+        idempotency_key: IdLike | None = None,
     ) -> DatasetBackfillScenesResult:
         response = self._http.request(
             "POST",
             f"/datasets/{dataset_id}/scenes/backfill",
             params={"mode": mode, "dry_run": dry_run},
+            headers=_idempotency_headers(idempotency_key),
         )
         return DatasetBackfillScenesResult.model_validate(response.json())
 

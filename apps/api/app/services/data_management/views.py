@@ -52,23 +52,21 @@ from sqlalchemy import (
     Select,
     case,
     func,
-    not_,
     or_,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
-from app.db.models.dataset import DatasetItem
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.project_task_view import ProjectTaskView
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
+from app.services.assets_spatial_views import spatial_item_references
 
 
 DEFAULT_COLUMNS = [
@@ -493,13 +491,14 @@ def _camera_count_sq() -> ColumnElement[int]:
 
 
 def _calibration_issue_count_sq() -> ColumnElement[int]:
+    item = spatial_item_references.alias("calibration_issue_item")
     return (
         select(func.count(TaskDatasetItemLink.id))
-        .join(DatasetItem, DatasetItem.id == TaskDatasetItemLink.dataset_item_id)
+        .join(item, item.c.item_id == TaskDatasetItemLink.dataset_item_id)
         .where(
             TaskDatasetItemLink.task_id == Task.id,
             TaskDatasetItemLink.role.like("camera_%"),
-            not_(DatasetItem.metadata_.has_key("calibration")),  # noqa: W601
+            item.c.calibration_metadata_present.is_(False),
         )
         .scalar_subquery()
     )
@@ -507,12 +506,12 @@ def _calibration_issue_count_sq() -> ColumnElement[int]:
 
 def _scene_total_frames_sq() -> ColumnElement[int | None]:
     scene_id = _scene_id_sq()
-    scene_item = aliased(DatasetItem)
+    scene_item = spatial_item_references.alias("scene_frame_count_item")
     return (
-        select(func.count(func.distinct(scene_item.frame_index)))
+        select(func.count(func.distinct(scene_item.c.frame_index)))
         .where(
-            scene_item.scene_id == scene_id,
-            scene_item.frame_index.is_not(None),
+            scene_item.c.scene_id == scene_id,
+            scene_item.c.frame_index.is_not(None),
         )
         .correlate(Task)
         .scalar_subquery()

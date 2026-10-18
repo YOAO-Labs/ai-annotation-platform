@@ -17,7 +17,7 @@ from app.schemas.scene import (
     SceneTimelineResponse,
     SceneTimelineTrackOccurrence,
 )
-from app.services.scene import (
+from app.services.labeling_scene import (
     get_scene_timeline_annotation_summaries,
     get_scene_timeline_window,
 )

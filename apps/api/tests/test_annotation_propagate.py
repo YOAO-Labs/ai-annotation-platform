@@ -421,20 +421,24 @@ async def test_propagate_endpoint_annotation_task_mismatch_404(
 async def _seed_poses(db, scene_id, frames: int, step: float = 2.0):
     """直线轨迹: 帧 i 的 ego 在世界系 x = i*step,无旋转。"""
     from aap_assets_catalog.spatial_values import FramePose
-    from app.services import scene_pose as scene_pose_svc
+    from aap_assets_catalog.spatial_contract import UpsertPosesRequest
+    from app.services.assets_spatial import AssetsSpatialGateway
 
-    await scene_pose_svc.upsert_frame_poses(
-        db,
-        scene_id=scene_id,
-        poses=[
-            FramePose(
-                frame_index=i,
-                timestamp_us=i * 500000,
-                ego_translation=[i * step, 0.0, 0.0],
-                ego_rotation=[1.0, 0.0, 0.0, 0.0],
-            )
-            for i in range(frames)
-        ],
+    await AssetsSpatialGateway(db).upsert_poses(
+        UpsertPosesRequest(
+            operation_id=uuid.uuid4(),
+            scene_id=scene_id,
+            poses=[
+                FramePose(
+                    frame_index=i,
+                    timestamp_us=i * 500000,
+                    ego_translation=[i * step, 0.0, 0.0],
+                    ego_rotation=[1.0, 0.0, 0.0, 0.0],
+                )
+                for i in range(frames)
+            ],
+        ),
+        same_session_native=True,
     )
 
 

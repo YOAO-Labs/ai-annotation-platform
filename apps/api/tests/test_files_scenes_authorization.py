@@ -10,7 +10,8 @@ from sqlalchemy import func, select
 from app.core.security import create_access_token
 from app.db.models.dataset import Dataset
 from app.db.models.task import Task
-from app.services import scene as scene_svc
+from aap_assets_catalog.spatial_contract import CreateSceneRequest, GetSceneRequest
+from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.api_key_service import _create_key_for_owner
 from tests.factory import create_membership, create_project, create_task, create_user
 
@@ -32,6 +33,21 @@ async def _dataset(db_session, creator_id):
     db_session.add(dataset)
     await db_session.flush()
     return dataset
+
+
+async def _create_scene(db, dataset_id, name):
+    result = await AssetsSpatialGateway(db).create_scene(
+        CreateSceneRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=dataset_id,
+            name=name,
+            source_format=None,
+            source_metadata={},
+            created_by=None,
+        ),
+        same_session_native=True,
+    )
+    return result.scene
 
 
 async def test_file_upload_init_denies_project_member_before_task_or_storage(
@@ -261,9 +277,7 @@ async def test_scene_reads_enforce_dataset_scope_for_api_keys(
 ):
     owner, _ = super_admin
     dataset = await _dataset(db_session, owner.id)
-    scene = await scene_svc.create_scene(
-        db_session, dataset_id=dataset.id, name="scope"
-    )
+    scene = await _create_scene(db_session, dataset.id, "scope")
     _, no_scope_token = await _create_key_for_owner(
         db_session, owner.id, "scene-none", []
     )
@@ -290,12 +304,8 @@ async def test_scene_patch_requires_dataset_manager_and_preserves_name_conflict(
 ):
     manager, manager_token = project_admin
     dataset = await _dataset(db_session, manager.id)
-    scene = await scene_svc.create_scene(
-        db_session, dataset_id=dataset.id, name="first"
-    )
-    other = await scene_svc.create_scene(
-        db_session, dataset_id=dataset.id, name="second"
-    )
+    scene = await _create_scene(db_session, dataset.id, "first")
+    other = await _create_scene(db_session, dataset.id, "second")
     viewer = await create_user(
         db_session, "viewer", f"scene-viewer-{uuid.uuid4()}@test.local", "Viewer"
     )
@@ -306,8 +316,10 @@ async def test_scene_patch_requires_dataset_manager_and_preserves_name_conflict(
         headers=_headers(viewer),
     )
     assert denied.status_code == 403
-    await db_session.refresh(scene)
-    assert scene.name == "first"
+    unchanged = await AssetsSpatialGateway(db_session).get_scene(
+        GetSceneRequest(actor_id=None, scene_id=scene.id)
+    )
+    assert unchanged.scene.name == "first"
 
     allowed = await httpx_client.patch(
         f"/api/v1/scenes/{scene.id}",
@@ -323,5 +335,7 @@ async def test_scene_patch_requires_dataset_manager_and_preserves_name_conflict(
         headers={"Authorization": f"Bearer {manager_token}"},
     )
     assert duplicate.status_code == 409
-    await db_session.refresh(scene)
-    assert scene.name == "changed"
+    updated = await AssetsSpatialGateway(db_session).get_scene(
+        GetSceneRequest(actor_id=None, scene_id=scene.id)
+    )
+    assert updated.scene.name == "changed"

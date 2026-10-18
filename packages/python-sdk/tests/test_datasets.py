@@ -734,13 +734,18 @@ def test_dataset_operation_routes_and_typed_responses(client, respx_mock):
             },
         )
     )
+    scene_idempotency_key = str(uuid4())
     scene_result = client.datasets.backfill_scenes(
-        DS_ID, mode="per_subdirectory", dry_run=True
+        DS_ID,
+        mode="per_subdirectory",
+        dry_run=True,
+        idempotency_key=scene_idempotency_key,
     )
     scene_params = scenes.calls.last.request.url.params
     assert scene_result.created_scenes == 2
     assert scene_params["mode"] == "per_subdirectory"
     assert scene_params["dry_run"].lower() == "true"
+    assert scenes.calls.last.request.headers["Idempotency-Key"] == scene_idempotency_key
 
     connection_id = str(uuid4())
     job_id = str(uuid4())

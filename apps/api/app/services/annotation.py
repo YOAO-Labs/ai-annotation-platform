@@ -1134,30 +1134,24 @@ class AnnotationService:
     async def _resolve_axis_convention(self, task: Task) -> str | None:
         """v0.14.1 · 取 task 主 dataset_item 所在 dataset 的 axis_convention。
         无主 item / 无 metadata key → None(前端按 iso_8855 identity 处理)。"""
-        from app.db.models.dataset import Dataset
-        from app.services.scene import resolve_primary_item_id
+        from app.services.labeling_scene import resolve_primary_item_id
+        from app.services.labeling_scene import read_spatial_item_facts
 
         primary_item_id = await resolve_primary_item_id(self.db, task)
         if primary_item_id is None:
             return None
-        from app.db.models.dataset import DatasetItem
-
-        item = await self.db.get(DatasetItem, primary_item_id)
-        if item is None:
-            return None
-        dataset = await self.db.get(Dataset, item.dataset_id)
-        if dataset is None:
-            return None
-        return (dataset.metadata_ or {}).get("axis_convention")
+        item_facts, _ = await read_spatial_item_facts(self.db, [primary_item_id])
+        item = item_facts.get(primary_item_id)
+        return item.axis_convention if item is not None else None
 
     async def _frame_pose(self, scene_id, frame_index):
         """v0.15.1 · 取 (scene_id, frame_index) 的 ego pose;任一参数缺/无行 → None。"""
         if scene_id is None or frame_index is None:
             return None
-        from app.services import scene_pose as scene_pose_svc
+        from app.services.assets_spatial import AssetsSpatialGateway
 
-        return await scene_pose_svc.get_frame_pose(
-            self.db, scene_id=scene_id, frame_index=frame_index
+        return await AssetsSpatialGateway(self.db).read_frame_pose(
+            scene_id, frame_index
         )
 
     async def _propagate(
@@ -1233,25 +1227,29 @@ class AnnotationService:
             raise HTTPException(status_code=422, detail="跨 project propagate 不被允许")
 
         # 同 scene 校验: 两侧主 item 必须解析到相同且非空的 scene_id。
-        from app.db.models.dataset import DatasetItem
-        from app.services.scene import resolve_primary_item_id
+        from app.services.labeling_scene import resolve_primary_item_id
+        from app.services.labeling_scene import read_spatial_item_facts
 
         src_item_id = await resolve_primary_item_id(self.db, src_task)
         target_item_id = await resolve_primary_item_id(self.db, target_task)
-        src_scene_id = None
-        target_scene_id = None
-        src_frame_index = None
-        target_frame_index = None
-        if src_item_id is not None:
-            src_item = await self.db.get(DatasetItem, src_item_id)
-            if src_item is not None:
-                src_scene_id = src_item.scene_id
-                src_frame_index = src_item.frame_index
-        if target_item_id is not None:
-            target_item = await self.db.get(DatasetItem, target_item_id)
-            if target_item is not None:
-                target_scene_id = target_item.scene_id
-                target_frame_index = target_item.frame_index
+        item_facts, _ = await read_spatial_item_facts(
+            self.db,
+            [
+                item_id
+                for item_id in (src_item_id, target_item_id)
+                if item_id is not None
+            ],
+        )
+        src_item = item_facts.get(src_item_id) if src_item_id is not None else None
+        target_item = (
+            item_facts.get(target_item_id) if target_item_id is not None else None
+        )
+        src_scene_id = src_item.scene_id if src_item is not None else None
+        target_scene_id = target_item.scene_id if target_item is not None else None
+        src_frame_index = src_item.frame_index if src_item is not None else None
+        target_frame_index = (
+            target_item.frame_index if target_item is not None else None
+        )
         if (
             src_scene_id is None
             or target_scene_id is None
@@ -1513,11 +1511,12 @@ class AnnotationService:
         """
         from fastapi import HTTPException
 
-        from app.db.models.dataset import DatasetItem
-        from app.services import scene_pose as scene_pose_svc
+        from aap_assets_catalog.spatial_contract import ReadPosesRequest
+        from app.services.assets_spatial import AssetsSpatialGateway
         from app.services.ego_transform import interpolate_psr
-        from app.services.scene import (
+        from app.services.labeling_scene import (
             get_scene_frame_task_map,
+            read_spatial_item_facts,
             resolve_primary_item_id,
         )
 
@@ -1542,7 +1541,8 @@ class AnnotationService:
             item_id = await resolve_primary_item_id(self.db, task)
             if item_id is None:
                 return None, None
-            item = await self.db.get(DatasetItem, item_id)
+            item_facts, _ = await read_spatial_item_facts(self.db, [item_id])
+            item = item_facts.get(item_id)
             if item is None:
                 return None, None
             return item.scene_id, item.frame_index
@@ -1616,7 +1616,9 @@ class AnnotationService:
 
         trajectory = {
             p.frame_index: p
-            for p in await scene_pose_svc.get_trajectory(self.db, from_scene)
+            for p in await AssetsSpatialGateway(self.db).read_poses(
+                ReadPosesRequest(actor_id=None, scene_id=from_scene)
+            )
         }
         psr_a = {
             "center": box_from.geometry["center"],

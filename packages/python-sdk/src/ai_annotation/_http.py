@@ -11,6 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpx
 
@@ -29,6 +30,15 @@ API_PREFIX = "/api/v1"
 
 def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
+
+
+def _idempotency_headers(value: str | UUID | None) -> dict[str, str]:
+    if value is None:
+        return {}
+    try:
+        return {"Idempotency-Key": str(UUID(str(value)))}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("idempotency_key must be a UUID") from exc
 
 
 _STATUS_ERROR_MAP: dict[int, type[APIStatusError]] = {

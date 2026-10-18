@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import uuid
 
@@ -441,10 +442,23 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
 
 
 def _patch_get_object(monkeypatch, payload: dict):
-    def fake_get_object(*, Bucket, Key):  # noqa: N803 (boto3 kwarg names)
-        return {"Body": io.BytesIO(json.dumps(payload).encode())}
+    body = json.dumps(payload).encode()
+    etag = f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()}"'
+
+    def fake_get_object(*, Bucket, Key, IfMatch=None):  # noqa: N803 (boto3 kwarg names)
+        return {"Body": io.BytesIO(body), "ContentLength": len(body), "ETag": etag}
+
+    def fake_head_object(*, Bucket, Key, IfMatch=None):  # noqa: N803
+        return {"ContentLength": len(body), "ETag": etag}
 
     monkeypatch.setattr(storage_service.client, "get_object", fake_get_object)
+    monkeypatch.setattr(storage_service.client, "head_object", fake_head_object)
+    monkeypatch.setattr(
+        storage_service.spatial_source_client, "get_object", fake_get_object
+    )
+    monkeypatch.setattr(
+        storage_service.spatial_source_client, "head_object", fake_head_object
+    )
 
 
 async def test_attach_calibration_writes_metadata(db_session, super_admin, monkeypatch):

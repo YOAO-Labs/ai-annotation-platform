@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset, DatasetItem, Scene
+from aap_assets_catalog.spatial_contract import SpatialItem
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
@@ -36,6 +36,8 @@ from aap_workspace_contract import (
     sanitize_annotation_attributes,
 )
 from app.services.prediction import to_internal_shape
+from app.services.labeling_scene import read_spatial_item_facts
+from app.services.assets_spatial_views import spatial_scene_references
 from aap_assets_catalog.axis_convention import (
     AxisFrame,
     transform_box_geometry_axis_frame,
@@ -175,10 +177,10 @@ def _bbox_geometry(annotation: Annotation) -> dict | None:
     return geometry
 
 
-def _video_metadata(item: DatasetItem | None) -> dict:
+def _video_metadata(item: SpatialItem | None) -> dict:
     if not item:
         return {}
-    metadata = item.metadata_ or {}
+    metadata = item.metadata or {}
     video = metadata.get("video")
     return video if isinstance(video, dict) else {}
 
@@ -415,40 +417,27 @@ class ExportService:
 
     async def _load_dataset_items(
         self, tasks: list[Task]
-    ) -> dict[uuid.UUID, DatasetItem]:
+    ) -> dict[uuid.UUID, SpatialItem]:
         item_ids = [t.dataset_item_id for t in tasks if t.dataset_item_id]
         if not item_ids:
             return {}
-        result = await self.db.execute(
-            select(DatasetItem).where(DatasetItem.id.in_(item_ids))
-        )
-        return {item.id: item for item in result.scalars().all()}
+        item_facts, _ = await read_spatial_item_facts(self.db, item_ids)
+        return item_facts
 
     async def _axis_convention_by_task(
         self,
         tasks: list[Task],
     ) -> dict[uuid.UUID, str | None]:
         dataset_items = await self._load_dataset_items(tasks)
-        dataset_ids = {
-            item.dataset_id
-            for item in dataset_items.values()
-            if item.dataset_id is not None
-        }
-        if not dataset_ids:
+        if not dataset_items:
             return {}
-        result = await self.db.execute(
-            select(Dataset).where(Dataset.id.in_(dataset_ids))
-        )
-        datasets = {ds.id: ds for ds in result.scalars().all()}
         out: dict[uuid.UUID, str | None] = {}
         for task in tasks:
             if not task.dataset_item_id:
                 continue
             item = dataset_items.get(task.dataset_item_id)
-            if item is None:
-                continue
-            ds = datasets.get(item.dataset_id)
-            out[task.id] = (ds.metadata_ or {}).get("axis_convention") if ds else None
+            if item is not None:
+                out[task.id] = item.axis_convention
         return out
 
     async def iter_export_chunks(
@@ -461,7 +450,7 @@ class ExportService:
         video_scope: VideoExportScope | None = None,
     ) -> AsyncIterator[
         tuple[
-            list[Task], dict[uuid.UUID, list[Annotation]], dict[uuid.UUID, DatasetItem]
+            list[Task], dict[uuid.UUID, list[Annotation]], dict[uuid.UUID, SpatialItem]
         ]
     ]:
         """v0.12.1 · B6-1 · 按 task 分块惰性产出 (tasks, ann_by_task, dataset_items)。
@@ -563,7 +552,7 @@ class ExportService:
             dataset_items = await self._load_dataset_items(tasks)
             yield tasks, ann_by_task, dataset_items
             # v0.12.1 · 释放 session 身份映射，否则分块加载的 Task/Annotation/DatasetItem
-            # ORM 行会全部滞留 identity map，内存仍随 task 数线性增长（B6-1 失效）。
+            # ORM Task/Annotation 行会全部滞留 identity map，内存仍随 task 数线性增长。
             # 消费方在本轮已写盘完成；expunge 后已加载属性仍可读（expire_on_commit=False），
             # 不影响 dataset_items_all 等后续引用。
             self.db.expunge_all()
@@ -745,7 +734,7 @@ class ExportService:
         batch_id: uuid.UUID | None = None,
         include_attributes: bool = True,
         video_frame_mode: str = "keyframes",
-        dataset_items: dict[uuid.UUID, DatasetItem] | None = None,
+        dataset_items: dict[uuid.UUID, SpatialItem] | None = None,
         axis_frame: AxisFrame = "iso",
         video_scope: VideoExportScope | None = None,
     ) -> str:
@@ -1105,12 +1094,16 @@ class ExportService:
         }
         scene_track_entries: list[AAPSceneTrackEntry] = []
         if exported_scene_track_ids:
+            scene_reference = spatial_scene_references.alias("export_scene")
             scene_track_rows = (
                 await self.db.execute(
-                    select(SceneTrack, Scene.name)
-                    .join(Scene, Scene.id == SceneTrack.scene_id)
+                    select(SceneTrack, scene_reference.c.scene_name)
+                    .join(
+                        scene_reference,
+                        scene_reference.c.scene_id == SceneTrack.scene_id,
+                    )
                     .where(SceneTrack.id.in_(exported_scene_track_ids))
-                    .order_by(Scene.name, SceneTrack.track_id)
+                    .order_by(scene_reference.c.scene_name, SceneTrack.track_id)
                 )
             ).all()
             interval_rows = list(

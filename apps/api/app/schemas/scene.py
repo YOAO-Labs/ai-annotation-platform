@@ -90,7 +90,7 @@ class SceneTimelineResponse(BaseModel):
 
 
 class InferenceResult(BaseModel):
-    """scene_inference.infer_and_apply 返回值;backfill 脚本 / API 共用。"""
+    """Public response shape for the Assets-owned scene backfill workflow."""
 
     dataset_id: UUID
     created_scenes: int

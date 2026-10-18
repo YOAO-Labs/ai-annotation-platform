@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from unittest.mock import AsyncMock, MagicMock
 import uuid
 import zipfile
 
@@ -16,6 +15,7 @@ from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
+from aap_assets_catalog.spatial_contract import UpdateCalibrationRequest
 from app.schemas.multicamera_annotation import NormalizedCameraBbox
 from app.services.multicamera_annotation import (
     MulticameraAnnotationError,
@@ -29,10 +29,7 @@ from app.services.multicamera_annotation import (
 from app.services.exporting.lidar_preflight import preflight_lidar_export
 from app.services.exporting.packaging import build_export_zip
 from app.services.scene_track_domain import bind_annotation_to_scene_track
-from app.services.sensor_calibration import (
-    list_calibration_revisions,
-    update_calibration,
-)
+from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.task_dataset_link import link_items
 from app.workers.export import _multicamera_coco_scope_digest
 from tests.factory import create_project
@@ -62,6 +59,29 @@ def _calibration(*, cx: float = 100) -> SensorCalibration:
             "intrinsic": [100, 0, cx, 0, 100, 60, 0, 0, 1],
         }
     )
+
+
+async def _update_calibration(
+    db,
+    *,
+    task: Task,
+    actor_id: uuid.UUID,
+    calibration: SensorCalibration,
+    expected_revision: int,
+    expected_digest: str,
+):
+    result = await AssetsSpatialGateway(db).update_calibration(
+        UpdateCalibrationRequest(
+            operation_id=uuid.uuid4(),
+            actor_id=actor_id,
+            task_id=task.id,
+            camera_role="camera_front",
+            calibration=calibration,
+            expected_revision=expected_revision,
+            expected_digest=expected_digest,
+        )
+    )
+    return result.state
 
 
 async def _seed(db, owner_id: uuid.UUID):
@@ -209,13 +229,13 @@ async def test_camera_member_lifecycle_and_calibration_staleness(
     assert duplicate.value.code == "camera_member_exists"
 
     changed = _calibration(cx=110)
-    changed_state = await update_calibration(
+    changed_state = await _update_calibration(
         db_session,
-        dataset_item_id=camera.id,
+        task=task,
+        actor_id=user.id,
         calibration=changed,
         expected_revision=1,
         expected_digest=baseline_digest,
-        actor_id=user.id,
     )
     assert changed_state.revision == 2
     stale = await camera_member_out(db_session, task=task, member=member)
@@ -282,13 +302,13 @@ async def test_multicamera_coco_preflight_allows_stale_manual_relation(
         expected_calibration_revision=1,
         expected_calibration_digest=baseline_digest,
     )
-    await update_calibration(
+    await _update_calibration(
         db_session,
-        dataset_item_id=camera.id,
+        task=task,
+        actor_id=user.id,
         calibration=_calibration(cx=120),
         expected_revision=1,
         expected_digest=baseline_digest,
-        actor_id=user.id,
     )
     monkeypatch.setattr(
         "app.services.exporting.lidar_preflight.storage_service.verify_upload",
@@ -540,53 +560,34 @@ async def test_calibration_history_keeps_virtual_baseline_and_append_only_order(
     user, _ = super_admin
     _task, camera, _source, _track = await _seed(db_session, user.id)
 
-    baseline = await list_calibration_revisions(db_session, camera)
+    baseline = await AssetsSpatialGateway(db_session).read_calibration_history(
+        camera.id
+    )
     assert [item.revision for item in baseline] == [1]
     assert baseline[0].created_at is None
     assert baseline[0].digest == calibration_digest(_calibration())
 
-    second = await update_calibration(
+    second = await _update_calibration(
         db_session,
-        dataset_item_id=camera.id,
+        task=_task,
+        actor_id=user.id,
         calibration=_calibration(cx=110),
         expected_revision=1,
         expected_digest=baseline[0].digest,
-        actor_id=user.id,
     )
-    await update_calibration(
+    await _update_calibration(
         db_session,
-        dataset_item_id=camera.id,
+        task=_task,
+        actor_id=user.id,
         calibration=_calibration(cx=120),
         expected_revision=second.revision,
         expected_digest=second.digest,
-        actor_id=user.id,
     )
 
-    history = await list_calibration_revisions(db_session, camera)
+    history = await AssetsSpatialGateway(db_session).read_calibration_history(camera.id)
     assert [item.revision for item in history] == [3, 2, 1]
     assert [item.calibration.intrinsic[2] for item in history] == [120, 110, 100]
     assert all(item.created_at is not None for item in history)
-
-
-async def test_virtual_calibration_history_uses_one_consistent_read():
-    item = DatasetItem(
-        id=uuid.uuid4(),
-        dataset_id=uuid.uuid4(),
-        file_name="front.jpg",
-        file_path="mm/front.jpg",
-        file_type="image",
-        metadata_={"calibration": _calibration().model_dump(mode="json")},
-    )
-    db = AsyncMock()
-    result = MagicMock()
-    result.scalars.return_value = []
-    db.execute.return_value = result
-
-    history = await list_calibration_revisions(db, item)
-
-    assert [entry.revision for entry in history] == [1]
-    assert history[0].created_at is None
-    db.execute.assert_awaited_once()
 
 
 async def test_camera_calibration_history_http_and_noop_update(

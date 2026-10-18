@@ -14,10 +14,19 @@ from app.db.models.dataset import (
     Dataset,
     DatasetItem,
     ProjectDataset,
-    Scene,
     VideoFrameIndex,
 )
+from aap_assets_catalog.spatial_contract import (
+    ProvenanceEntry,
+    ReadItemsRequest,
+    RecordCalibrationProvenanceRequest,
+    SetDatasetAxisRequest,
+    canonical_calibration_document,
+    normalize_calibration_record,
+)
+from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.display_id import next_display_id
+from app.services.assets_spatial_views import spatial_item_references
 from app.services.project_kind import (
     dataset_has_scenes,
     media_kind_aliases,
@@ -28,9 +37,6 @@ from app.services.task_creation_contract import (
     decode_creation_reply,
 )
 
-# v0.13.11 · 用于 DatasetService.update 区分「未传参」与「显式传 None」(后者表示清除
-# metadata_["axis_convention"]，回退到默认 iso_8855)。
-_UNSET: object = object()
 log = logging.getLogger(__name__)
 
 
@@ -119,7 +125,6 @@ class DatasetService:
                 is_temporal=True,
                 created_by=owner_id,
                 metadata_={
-                    "axis_convention": axis_convention,
                     "source": {
                         "format": "nuscenes",
                         "version": version,
@@ -131,12 +136,27 @@ class DatasetService:
                 },
             )
             self.db.add(dataset)
-            if flush:
-                await self.db.flush()
+            await self.db.flush()
+            await AssetsSpatialGateway(self.db).set_dataset_axis(
+                SetDatasetAxisRequest(
+                    operation_id=uuid.uuid4(),
+                    dataset_id=dataset.id,
+                    axis_convention=axis_convention,
+                ),
+                same_session_native=True,
+                commit=False,
+            )
+            await self.db.refresh(dataset, attribute_names=["metadata_"])
             return NuScenesDatasetImport(
                 dataset=dataset, storage_root=storage_root, needs_pcd_upgrade=False
             )
 
+        from app.services.assets_catalog import AssetsCatalogGateway
+        from aap_assets_catalog import GetDatasetRequest
+
+        catalog_dataset = await AssetsCatalogGateway(self.db).get(
+            GetDatasetRequest(actor_id=owner_id, dataset_id=dataset.id)
+        )
         metadata = dict(dataset.metadata_ or {})
         existing_source = metadata.get("source")
         stored_root = (
@@ -176,15 +196,13 @@ class DatasetService:
         needs_pcd_upgrade = not isinstance(existing_source, dict) or (
             existing_source.get("pcd_encoding") != pcd_encoding
         )
-        existing_axis = metadata.get("axis_convention")
+        existing_axis = catalog_dataset.dataset.axis_convention
         if existing_axis and existing_axis != axis_convention:
             raise ValueError(
                 f"dataset {dataset.display_id} axis_convention={existing_axis!r} "
                 f"cannot accept --frame {frame} ({axis_convention!r}); "
                 "use a different --dataset-name to avoid mixing sensor and ego frames"
             )
-        if not existing_axis:
-            metadata["axis_convention"] = axis_convention
         metadata["source"] = {
             "format": "nuscenes",
             "version": version,
@@ -195,8 +213,17 @@ class DatasetService:
         }
         dataset.metadata_ = metadata
         dataset.is_temporal = True
-        if flush:
-            await self.db.flush()
+        await self.db.flush()
+        await AssetsSpatialGateway(self.db).set_dataset_axis(
+            SetDatasetAxisRequest(
+                operation_id=uuid.uuid4(),
+                dataset_id=dataset.id,
+                axis_convention=axis_convention,
+            ),
+            same_session_native=True,
+            commit=False,
+        )
+        await self.db.refresh(dataset, attribute_names=["metadata_"])
         return NuScenesDatasetImport(
             dataset=dataset,
             storage_root=storage_root,
@@ -222,18 +249,30 @@ class DatasetService:
             data_type_cond = Dataset.data_type.in_(media_kind_aliases(data_type))
             q = q.where(data_type_cond)
             count_q = count_q.where(data_type_cond)
-        if has_scenes is not None:
-            scenes_exists = (
-                select(Scene.id).where(Scene.dataset_id == Dataset.id).limit(1).exists()
+        has_scenes_map: dict[uuid.UUID, bool] = {}
+        if has_scenes is None:
+            total = (await self.db.execute(count_q)).scalar() or 0
+            result = await self.db.execute(
+                q.order_by(Dataset.created_at.desc()).limit(limit).offset(offset)
             )
-            q = q.where(scenes_exists if has_scenes else ~scenes_exists)
-            count_q = count_q.where(scenes_exists if has_scenes else ~scenes_exists)
-
-        total = (await self.db.execute(count_q)).scalar() or 0
-        result = await self.db.execute(
-            q.order_by(Dataset.created_at.desc()).limit(limit).offset(offset)
-        )
-        datasets = result.scalars().all()
+            datasets = result.scalars().all()
+        else:
+            candidates = list(
+                (await self.db.execute(q.order_by(Dataset.created_at.desc())))
+                .scalars()
+                .all()
+            )
+            for candidate in candidates:
+                has_scenes_map[candidate.id] = await dataset_has_scenes(
+                    self.db, candidate.id
+                )
+            matching = [
+                candidate
+                for candidate in candidates
+                if has_scenes_map[candidate.id] is has_scenes
+            ]
+            total = len(matching)
+            datasets = matching[offset : offset + limit]
 
         ds_ids = [ds.id for ds in datasets]
 
@@ -256,22 +295,30 @@ class DatasetService:
             )
             sz_map = {r[0]: int(r[1]) for r in sz_rows.all()}
 
-            scene_rows = await self.db.execute(
-                select(Scene.dataset_id)
-                .where(Scene.dataset_id.in_(ds_ids))
-                .group_by(Scene.dataset_id)
+            axis_rows = await self.db.execute(
+                select(
+                    spatial_item_references.c.dataset_id,
+                    func.max(spatial_item_references.c.axis_convention),
+                )
+                .where(spatial_item_references.c.dataset_id.in_(ds_ids))
+                .group_by(spatial_item_references.c.dataset_id)
             )
-            has_scenes_map = {r[0]: True for r in scene_rows.all()}
+            axis_map = {row[0]: row[1] for row in axis_rows.all()}
+
+            for ds_id in ds_ids:
+                if ds_id not in has_scenes_map:
+                    has_scenes_map[ds_id] = await dataset_has_scenes(self.db, ds_id)
         else:
             pc_map: dict = {}
             sz_map: dict = {}
-            has_scenes_map: dict = {}
+            axis_map: dict = {}
+            has_scenes_map = {}
 
         items = []
         for ds in datasets:
             items.append(
                 {
-                    **_dataset_dict(ds),
+                    **_dataset_dict(ds, axis_map.get(ds.id)),
                     "project_count": pc_map.get(ds.id, 0),
                     "total_size": sz_map.get(ds.id, 0),
                     "has_scenes": has_scenes_map.get(ds.id, False),
@@ -301,9 +348,14 @@ class DatasetService:
                 )
             )
         ).scalar() or 0
+        axis_convention = await self.db.scalar(
+            select(func.max(spatial_item_references.c.axis_convention)).where(
+                spatial_item_references.c.dataset_id == ds.id
+            )
+        )
         has_scenes = await dataset_has_scenes(self.db, ds.id)
         return {
-            **_dataset_dict(ds),
+            **_dataset_dict(ds, axis_convention),
             "project_count": pc,
             "total_size": int(total_size),
             "has_scenes": has_scenes,
@@ -316,7 +368,6 @@ class DatasetService:
         data_type: str,
         user_id: uuid.UUID,
         *,
-        axis_convention: str | None = None,
         is_temporal: bool = False,
     ) -> Dataset:
         ensure_dataset_storage_name_is_writable(name)
@@ -331,9 +382,6 @@ class DatasetService:
             "is_temporal": is_temporal,
             "created_by": user_id,
         }
-        # v0.13.11 · 仅当显式给定时写 metadata，否则走 server_default '{}'。
-        if axis_convention is not None:
-            kwargs["metadata_"] = {"axis_convention": axis_convention}
         ds = Dataset(**kwargs)
         self.db.add(ds)
         await self.db.flush()
@@ -346,8 +394,6 @@ class DatasetService:
         dataset_id: uuid.UUID,
         name: str | None,
         description: str | None,
-        *,
-        axis_convention=_UNSET,
     ) -> Dataset | None:
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
@@ -357,15 +403,6 @@ class DatasetService:
             ds.name = name
         if description is not None:
             ds.description = description
-        # v0.13.11 · sentinel 区分「未传」/「显式 None」/「具体值」。
-        # JSONB in-place mutation 不被 SQLAlchemy dirty-track，必须赋值整对象。
-        if axis_convention is not _UNSET:
-            meta = dict(ds.metadata_ or {})
-            if axis_convention is None:
-                meta.pop("axis_convention", None)
-            else:
-                meta["axis_convention"] = axis_convention
-            ds.metadata_ = meta
         await self.db.flush()
         return ds
 
@@ -513,33 +550,44 @@ class DatasetService:
             item.content_hash = content_hash
 
     async def record_nuscenes_calibration_digests(self, dataset_id: uuid.UUID) -> None:
-        from aap_assets_catalog.spatial_values import (
-            SensorCalibration,
-            calibration_digest,
+        gateway = AssetsSpatialGateway(self.db)
+        items = await gateway.read_items(
+            ReadItemsRequest(dataset_id=dataset_id), same_session_native=True
         )
-
-        camera_items = list(
-            (
-                await self.db.execute(
-                    select(DatasetItem)
-                    .where(DatasetItem.dataset_id == dataset_id)
-                    .where(DatasetItem.file_type == "image")
-                )
-            ).scalars()
-        )
-        for item in camera_items:
-            metadata = dict(item.metadata_ or {})
-            source = metadata.get("nuscenes_export")
-            calibration = metadata.get("calibration")
-            if not isinstance(source, dict) or calibration is None:
+        camera_ids = [
+            item.id
+            for item in items.items
+            if item.file_type == "image"
+            and isinstance(item.metadata.get("nuscenes_export"), dict)
+            and item.metadata.get("calibration") is not None
+        ]
+        if not camera_ids:
+            return
+        records = await gateway.read_calibrations(camera_ids, same_session_native=True)
+        entries = []
+        for record in records:
+            if record.error is not None:
                 continue
-            source = dict(source)
-            source.setdefault(
-                "platform_calibration_digest",
-                calibration_digest(SensorCalibration.model_validate(calibration)),
+            state = normalize_calibration_record(record)
+            entries.append(
+                ProvenanceEntry(
+                    dataset_item_id=state.dataset_item_id,
+                    calibration=state.calibration,
+                    digest=state.digest,
+                    canonical_document=canonical_calibration_document(
+                        state.calibration
+                    ),
+                    source_snapshot=state.source_snapshot,
+                )
             )
-            metadata["nuscenes_export"] = source
-            item.metadata_ = metadata
+        for start in range(0, len(entries), 100):
+            await gateway.record_calibration_provenance(
+                RecordCalibrationProvenanceRequest(
+                    operation_id=uuid.uuid4(),
+                    dataset_id=dataset_id,
+                    entries=entries[start : start + 100],
+                )
+            )
 
     async def recount_items(self, dataset_id: uuid.UUID) -> int:
         count = int(
@@ -712,7 +760,7 @@ class DatasetService:
             raise ValueError("声明为时序数据集但未识别出任何 scene,请检查目录结构")
 
 
-def _dataset_dict(ds: Dataset) -> dict:
+def _dataset_dict(ds: Dataset, axis_convention: str | None = None) -> dict:
     return {
         "id": ds.id,
         "display_id": ds.display_id,
@@ -724,8 +772,7 @@ def _dataset_dict(ds: Dataset) -> dict:
         "file_count": ds.file_count,
         "total_size": 0,  # 调用方会覆盖
         "created_by": ds.created_by,
-        # v0.13.11 · 派生自 metadata_["axis_convention"], None = 视作 iso_8855。
-        "axis_convention": (ds.metadata_ or {}).get("axis_convention"),
+        "axis_convention": axis_convention,
         "created_at": ds.created_at,
         "updated_at": ds.updated_at,
     }

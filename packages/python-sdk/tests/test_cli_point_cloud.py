@@ -104,8 +104,12 @@ def _install_fake(monkeypatch, calls):
             calls.append(("member-restore", task_id, member_id, body))
             return _member()
 
-        def update_calibration(self, task_id, camera_role, body):
-            calls.append(("calibration-update", task_id, camera_role, body))
+        def update_calibration(
+            self, task_id, camera_role, body, *, idempotency_key=None
+        ):
+            calls.append(
+                ("calibration-update", task_id, camera_role, body, idempotency_key)
+            )
             return _calibration_revision()
 
     class FakeClient:
@@ -142,6 +146,42 @@ def test_manifest_text_does_not_print_short_lived_signed_urls(monkeypatch):
     assert "signature=short-lived" not in result.output
     assert "有效 3600s" in result.output
     assert calls == [("manifest", TASK_ID)]
+
+
+def test_calibration_update_cli_passes_saved_idempotency_key(monkeypatch, tmp_path):
+    calls = []
+    _install_fake(monkeypatch, calls)
+    body_file = tmp_path / "calibration.json"
+    body_file.write_text(
+        json.dumps(
+            {
+                "calibration": {"extrinsic": [0] * 16, "intrinsic": [1] * 9},
+                "expected_revision": 2,
+                "expected_digest": DIGEST,
+            }
+        ),
+        encoding="utf-8",
+    )
+    idempotency_key = str(uuid4())
+
+    result = runner.invoke(
+        point_cloud_cli.app,
+        [
+            "calibration-update",
+            TASK_ID,
+            "camera_front",
+            str(body_file),
+            "--yes",
+            "--json",
+            "--idempotency-key",
+            idempotency_key,
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls[0][0] == "calibration-update"
+    assert calls[0][-1] == idempotency_key
 
 
 @pytest.mark.parametrize(

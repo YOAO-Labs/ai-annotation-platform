@@ -183,6 +183,11 @@ def _use_local_source_runtime(monkeypatch) -> None:
     monkeypatch.setattr(settings, "assets_source_token", "")
 
 
+def _patch_storage_clients(monkeypatch, client: _FakeDatasetSourceStorage) -> None:
+    monkeypatch.setattr(storage_service, "client", client)
+    monkeypatch.setattr(storage_service, "spatial_source_client", client)
+
+
 # ──────────────────────────── test cases ─────────────────────────────────────
 
 
@@ -249,7 +254,7 @@ async def test_upload_zip_preserves_subdirectories(
     _use_local_source_runtime(monkeypatch)
 
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
 
     ds = await _create_dataset(
         httpx_client, token, f"pc-d1-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -302,7 +307,7 @@ async def test_upload_zip_zipslip_rejected(
     _use_local_source_runtime(monkeypatch)
 
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
 
     ds = await _create_dataset(
         httpx_client, token, f"pc-slip-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -351,7 +356,7 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
     _use_local_source_runtime(monkeypatch)
 
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
 
     # ── 情况 A：内容不同，两条都入库 ──
     ds_a = await _create_dataset(
@@ -420,7 +425,7 @@ async def test_upload_zip_rollback_retains_old_and_new_immutable_source_bytes(
     _, token = super_admin
     _use_local_source_runtime(monkeypatch)
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
     ds = await _create_dataset(
         httpx_client, token, f"immutable-{uuid.uuid4().hex[:6]}", "other"
     )
@@ -496,7 +501,7 @@ async def test_upload_zip_scene_auto_inferred(
     _use_local_source_runtime(monkeypatch)
 
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
 
     ds = await _create_dataset(
         httpx_client, token, f"scene-auto-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -567,7 +572,7 @@ async def test_upload_zip_multi_scene_per_subdirectory(
     _use_local_source_runtime(monkeypatch)
 
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
 
     ds = await _create_dataset(
         httpx_client, token, f"multi-scene-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -612,7 +617,7 @@ async def test_upload_zip_notes_reserved_role_top_level_mix(
     _use_local_source_runtime(monkeypatch)
 
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
 
     ds = await _create_dataset(
         httpx_client, token, f"mixed-top-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -644,7 +649,7 @@ async def test_upload_zip_temporal_validation_rejects_empty_archive(
     _use_local_source_runtime(monkeypatch)
 
     fake_client = _FakeDatasetSourceStorage()
-    monkeypatch.setattr(storage_service, "client", fake_client)
+    _patch_storage_clients(monkeypatch, fake_client)
 
     ds = await _create_dataset(
         httpx_client,

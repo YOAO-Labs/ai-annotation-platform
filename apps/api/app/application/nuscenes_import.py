@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.db.models.project import Project
 from app.services.dataset import DatasetService
-from app.services.pointcloud_import import attach_calibration
 from app.services.project_workspace import create_import_project, find_import_project
 
 
@@ -45,7 +44,6 @@ class NuScenesImportWorkflow:
             commit_calibration=False,
             commit_task_chunks=False,
         )
-        await attach_calibration(self.db, dataset_id=dataset_id)
         await assets.record_nuscenes_calibration_digests(dataset_id)
         await assets.recount_items(dataset_id)
         return project

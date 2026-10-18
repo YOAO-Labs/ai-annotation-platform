@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import boto3
 from botocore.exceptions import ClientError
+from aap_assets_catalog.object_signer import create_source_read_client
 
 from app.config import settings
 
@@ -44,6 +45,12 @@ class StorageService:
             endpoint_url=f"{scheme}://{settings.minio_endpoint}",
             aws_access_key_id=settings.minio_access_key,
             aws_secret_access_key=settings.minio_secret_key,
+        )
+        self.spatial_source_client = create_source_read_client(
+            endpoint_url=f"{scheme}://{settings.minio_endpoint}",
+            region_name="us-east-1",
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
         )
         self.bucket = settings.minio_bucket
         self.datasets_bucket = settings.minio_datasets_bucket

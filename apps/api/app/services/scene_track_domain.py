@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.annotation import Annotation
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
-from app.services.scene import get_scene_frame_task_map, resolve_task_scene_frames
+from app.services.labeling_scene import (
+    get_scene_frame_task_map,
+    resolve_task_scene_frames,
+)
 
 
 TEMPORAL_ROLES = frozenset({"keyframe", "derived", "sample"})

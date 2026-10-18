@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import Dataset, Scene
+from app.db.models.dataset import Dataset
 from app.db.models.project import Project
+from app.services.assets_spatial import AssetsSpatialGateway
 
 
 @dataclass(frozen=True)
@@ -81,7 +81,4 @@ def kind_mismatch_detail(project: ProjectKind, dataset: DatasetKind) -> str | No
 
 
 async def dataset_has_scenes(db: AsyncSession, dataset_id: uuid.UUID) -> bool:
-    row = await db.execute(
-        select(Scene.id).where(Scene.dataset_id == dataset_id).limit(1)
-    )
-    return row.scalar_one_or_none() is not None
+    return await AssetsSpatialGateway(db).has_scenes(dataset_id)

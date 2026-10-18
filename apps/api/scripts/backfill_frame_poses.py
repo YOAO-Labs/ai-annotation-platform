@@ -45,9 +45,13 @@ async def backfill_frame_poses(
     """
     from sqlalchemy import select
 
-    from app.db.models.dataset import Dataset, Scene
+    from app.db.models.dataset import Dataset
+    from aap_assets_catalog.spatial_contract import (
+        ListScenesRequest,
+        UpsertPosesRequest,
+    )
     from aap_assets_catalog.spatial_values import FramePose
-    from app.services import scene_pose as scene_pose_svc
+    from app.services.assets_spatial import AssetsSpatialGateway
 
     try:
         dataset_id = uuid.UUID(dataset_ref)
@@ -57,18 +61,13 @@ async def backfill_frame_poses(
     if ds is None:
         raise ValueError(f"dataset {dataset_ref!r} 不存在")
 
-    scenes = (
-        (
-            await db.execute(
-                select(Scene)
-                .where(Scene.dataset_id == ds.id)
-                .where(Scene.source_format == "nuscenes")
-                .order_by(Scene.name)
-            )
+    scenes = [
+        scene
+        for scene in await AssetsSpatialGateway(db).list_scenes(
+            ListScenesRequest(actor_id=None, dataset_id=ds.id)
         )
-        .scalars()
-        .all()
-    )
+        if scene.source_format == "nuscenes"
+    ]
     if not scenes:
         raise ValueError(
             f"dataset {ds.display_id} 下无 source_format=nuscenes 的 scene"
@@ -140,7 +139,13 @@ async def backfill_frame_poses(
                 )
             )
 
-        await scene_pose_svc.upsert_frame_poses(db, scene_id=scene.id, poses=poses)
+        await AssetsSpatialGateway(db).upsert_poses(
+            UpsertPosesRequest(
+                operation_id=uuid.uuid4(),
+                scene_id=scene.id,
+                poses=poses,
+            )
+        )
         report.append({"name": scene.name, "poses": len(poses)})
 
     return report

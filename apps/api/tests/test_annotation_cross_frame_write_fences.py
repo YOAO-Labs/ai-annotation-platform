@@ -667,17 +667,17 @@ async def test_interpolation_rechecks_only_non_skipped_mid_tasks_after_preflight
             await setup.commit()
 
     path, body = _request_path_and_body("interpolate_range", world)
-    from app.services import scene_pose
+    from app.services.assets_spatial import AssetsSpatialGateway
 
-    original = scene_pose.get_trajectory
+    original = AssetsSpatialGateway.read_poses
 
     def install_trajectory_gate(reached, resume):
-        async def paused(db, scene_id):
+        async def paused(gateway, request):
             reached.set()
             await asyncio.wait_for(resume.wait(), timeout=10)
-            return await original(db, scene_id)
+            return await original(gateway, request)
 
-        monkeypatch.setattr(scene_pose, "get_trajectory", paused)
+        monkeypatch.setattr(AssetsSpatialGateway, "read_poses", paused)
 
     async def submit_mid_task(writer):
         await _move_task_to_review(

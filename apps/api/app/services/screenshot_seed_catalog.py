@@ -39,6 +39,8 @@ from app.services.screenshot_seed_spec import (
     parse_backend_requirements,
 )
 from app.services.storage import storage_service
+from app.services.assets_spatial import AssetsSpatialGateway
+from app.services.labeling_scene import read_spatial_item_facts
 
 
 SCHEMA_VERSION = 1
@@ -216,14 +218,6 @@ async def _resolve_dataset_and_tasks(
         issues.append(
             f"{spec.dataset_display_id}: screenshot seed ownership marker is stale"
         )
-    if (
-        spec.axis_convention
-        and (dataset.metadata_ or {}).get("axis_convention") != spec.axis_convention
-    ):
-        issues.append(
-            f"{spec.dataset_display_id}: axis_convention must be {spec.axis_convention}"
-        )
-
     dataset_items = list(
         (
             await db.execute(
@@ -244,6 +238,29 @@ async def _resolve_dataset_and_tasks(
         )
     if dataset.file_count != len(dataset_items):
         issues.append(f"{spec.dataset_display_id}: file_count is stale")
+    spatial_items, _ = await read_spatial_item_facts(
+        db, [item.id for item in dataset_items]
+    )
+    if spec.axis_convention and any(
+        spatial_items.get(item.id) is None
+        or spatial_items[item.id].axis_convention != spec.axis_convention
+        for item in dataset_items
+    ):
+        issues.append(
+            f"{spec.dataset_display_id}: axis_convention must be {spec.axis_convention}"
+        )
+    camera_item_ids = [
+        item.id
+        for item in dataset_items
+        if spec.data_type == "lidar"
+        and item.file_path.startswith(f"{spec.storage_prefix}camera/")
+    ]
+    calibration_records = await AssetsSpatialGateway(db).read_calibrations(
+        camera_item_ids
+    )
+    calibrations_by_item = {
+        record.dataset_item_id: record for record in calibration_records
+    }
     for item in dataset_items:
         if not item.file_path.startswith(spec.storage_prefix) or not item.content_hash:
             issues.append(
@@ -268,9 +285,10 @@ async def _resolve_dataset_and_tasks(
             f"{spec.storage_prefix}camera/"
         ):
             try:
-                SensorCalibration.model_validate(
-                    (item.metadata_ or {}).get("calibration")
-                )
+                record = calibrations_by_item[item.id]
+                if record.error is not None:
+                    raise ValueError(record.error)
+                SensorCalibration.model_validate(record.calibration)
             except ValidationError:
                 issues.append(
                     f"{spec.dataset_display_id}: camera {item.file_path} has no valid calibration"

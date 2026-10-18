@@ -263,7 +263,7 @@ async def get_task_neighbors(
     历史未 backfill / 无 scene_id 的 task → 200 + 空 prev/next(与首末帧一致)。
     scene_id 非空但 frame_index NULL(异常)→ 409。
     """
-    from app.services.scene import (
+    from app.services.labeling_scene import (
         SceneFrameIndexInconsistent,
         get_neighbors_for_task,
     )

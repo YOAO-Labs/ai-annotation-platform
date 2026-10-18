@@ -68,7 +68,6 @@ from app.schemas.dataset import (
 )
 from app.schemas.project import ProjectOut
 from app.services.audit import AuditAction, AuditService
-from app.services.axis_sniffer import AxisSnifferService
 from app.services.dataset import DatasetService
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
@@ -309,25 +308,33 @@ async def update_dataset(
 async def sniff_axis_convention(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(*_MANAGERS)),
+    current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    from aap_assets_catalog.spatial_contract import SniffAxisRequest
+    from app.services.assets_spatial import (
+        AssetsSpatialGateway,
+        AssetsSpatialGatewayError,
+    )
 
-    result = await AxisSnifferService(db).sniff_dataset(dataset_id)
-    if result is None:
+    try:
+        result = await AssetsSpatialGateway(db).sniff_axis(
+            SniffAxisRequest(actor_id=current_user.id, dataset_id=dataset_id)
+        )
+    except AssetsSpatialGatewayError as exc:
+        if exc.code == "dataset_missing":
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        raise
+    if result.result is None:
         return SniffAxisConventionResponse()
     return SniffAxisConventionResponse(
-        best=result.best,
-        score=result.score,
-        candidates=result.candidates,
-        source=result.source,
-        camera_role=result.camera_role,
-        camera_item_id=result.camera_item_id,
-        per_camera=result.per_camera,
-        agreement=result.agreement,
+        best=result.result.best,
+        score=result.result.score,
+        candidates=result.result.candidates,
+        source=result.result.source,
+        camera_role=result.result.camera_role,
+        camera_item_id=result.result.camera_item_id,
+        per_camera=result.result.per_camera,
+        agreement=result.result.agreement,
     )
 
 
@@ -763,9 +770,20 @@ async def backfill_media_endpoint(
 @router.post(
     "/{dataset_id}/scenes/backfill",
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the committed scene layout.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def backfill_scenes_endpoint(
     dataset_id: uuid.UUID,
+    response: Response,
     mode: str = Query(
         "auto",
         description="single / per_subdirectory / auto",
@@ -774,33 +792,46 @@ async def backfill_scenes_endpoint(
     dry_run: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    """v0.14.0 · 对 dataset 跑 scene_inference,补 scene + frame_index。
+    """v0.14.0 · 对 dataset 跑 scene layout backfill,补 scene + frame_index。
 
     幂等:dataset 已有 scene → 直接返回(notes 提示)。
     dry_run:不写库,返回会创建 / 赋值的统计。
     """
     from app.schemas.scene import InferenceResult
-    from app.services.scene_inference import infer_and_apply
+    from app.services.assets_spatial import AssetsSpatialGateway
+    from app.services.assets_spatial import AssetsSpatialGatewayError
+    from aap_assets_catalog.spatial_contract import BackfillScenesRequest
 
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    operation_id = idempotency_key or uuid.uuid4()
 
     try:
-        result: InferenceResult = await infer_and_apply(
-            db,
-            dataset_id=dataset_id,
-            mode=mode,
-            dry_run=dry_run,  # type: ignore[arg-type]
+        layout = await AssetsSpatialGateway(db).backfill_scenes(
+            BackfillScenesRequest(
+                operation_id=operation_id,
+                actor_id=current_user.id,
+                dataset_id=dataset_id,
+                mode=mode,
+                dry_run=dry_run,
+            )
         )
+    except AssetsSpatialGatewayError as exc:
+        if exc.code == "dataset_missing":
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if not dry_run:
-        await db.commit()
-    return result
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return InferenceResult(
+        dataset_id=dataset_id,
+        created_scenes=layout.created_scenes,
+        assigned_items=layout.assigned_items,
+        skipped_items=layout.skipped_items,
+        dry_run=layout.dry_run,
+        notes=list(layout.notes),
+    )
 
 
 @router.delete(

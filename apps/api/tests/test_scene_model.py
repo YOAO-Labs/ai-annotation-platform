@@ -1,4 +1,4 @@
-"""v0.14.0 · Scene model + service CRUD 烟雾测试。"""
+"""Assets owner Scene capability and public route regressions."""
 
 from __future__ import annotations
 
@@ -7,7 +7,15 @@ import uuid
 import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem
-from app.services import scene as scene_svc
+from aap_assets_catalog.spatial_contract import (
+    AssignItemsRequest,
+    CreateSceneRequest,
+    GetSceneRequest,
+    ListScenesRequest,
+    ReadItemsRequest,
+    SceneAssignment,
+)
+from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
 
 
 async def _make_dataset(db, owner_id, name="ds-scene-test"):
@@ -22,11 +30,28 @@ async def _make_dataset(db, owner_id, name="ds-scene-test"):
     return ds
 
 
+async def _create_scene(
+    db, dataset_id, name, *, created_by=None, source_format=None, source_metadata=None
+):
+    result = await AssetsSpatialGateway(db).create_scene(
+        CreateSceneRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=dataset_id,
+            name=name,
+            source_format=source_format,
+            source_metadata=source_metadata or {},
+            created_by=created_by,
+        ),
+        same_session_native=True,
+    )
+    return result.scene
+
+
 async def test_create_scene_assigns_display_id(db_session, super_admin):
     ds = await _make_dataset(db_session, super_admin[0].id)
-    scene = await scene_svc.create_scene(
+    scene = await _create_scene(
         db_session,
-        dataset_id=ds.id,
+        ds.id,
         name="alpha",
         source_format="manual",
         created_by=super_admin[0].id,
@@ -39,15 +64,16 @@ async def test_create_scene_assigns_display_id(db_session, super_admin):
 
 async def test_create_scene_name_conflict(db_session, super_admin):
     ds = await _make_dataset(db_session, super_admin[0].id)
-    await scene_svc.create_scene(db_session, dataset_id=ds.id, name="dup")
+    await _create_scene(db_session, ds.id, "dup")
 
-    with pytest.raises(scene_svc.SceneNameConflict):
-        await scene_svc.create_scene(db_session, dataset_id=ds.id, name="dup")
+    with pytest.raises(AssetsSpatialGatewayError) as conflict:
+        await _create_scene(db_session, ds.id, "dup")
+    assert conflict.value.code == "scene_conflict"
 
 
 async def test_assign_items_to_scene_writes_frame_index(db_session, super_admin):
     ds = await _make_dataset(db_session, super_admin[0].id)
-    scene = await scene_svc.create_scene(db_session, dataset_id=ds.id, name="s")
+    scene = await _create_scene(db_session, ds.id, "s")
 
     items = []
     for i in range(3):
@@ -61,19 +87,34 @@ async def test_assign_items_to_scene_writes_frame_index(db_session, super_admin)
         await db_session.flush()
         items.append(item)
 
-    updated = await scene_svc.assign_items_to_scene(
-        db_session, scene_id=scene.id, items_in_order=items
+    result = await AssetsSpatialGateway(db_session).assign_items(
+        AssignItemsRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=ds.id,
+            assignments=[
+                SceneAssignment(item_id=item.id, scene_id=scene.id, frame_index=index)
+                for index, item in enumerate(items)
+            ],
+        ),
+        same_session_native=True,
     )
-    assert updated == 3
-    assert [it.frame_index for it in items] == [0, 1, 2]
-    assert all(it.scene_id == scene.id for it in items)
+    assert result.assigned_items == 3
+    facts = await AssetsSpatialGateway(db_session).read_items(
+        ReadItemsRequest(item_ids=[item.id for item in items]),
+        same_session_native=True,
+    )
+    assert [item.frame_index for item in facts.items] == [0, 1, 2]
+    assert all(item.scene_id == scene.id for item in facts.items)
 
 
 async def test_list_for_dataset_returns_ordered(db_session, super_admin):
     ds = await _make_dataset(db_session, super_admin[0].id)
-    s1 = await scene_svc.create_scene(db_session, dataset_id=ds.id, name="s1")
-    s2 = await scene_svc.create_scene(db_session, dataset_id=ds.id, name="s2")
-    scenes = await scene_svc.list_for_dataset(db_session, ds.id)
+    s1 = await _create_scene(db_session, ds.id, "s1")
+    s2 = await _create_scene(db_session, ds.id, "s2")
+    scenes = await AssetsSpatialGateway(db_session).list_scenes(
+        ListScenesRequest(actor_id=None, dataset_id=ds.id),
+        same_session_native=True,
+    )
     assert [s.id for s in scenes] == [s1.id, s2.id]
 
 
@@ -107,17 +148,17 @@ async def test_scenes_api_get_and_patch(app_module, test_engine):
         db.add_all([owner, actor])
         await db.flush()
         dataset = await _make_dataset(db, owner.id)
-        scene = await scene_svc.create_scene(
+        scene = await _create_scene(
             db,
-            dataset_id=dataset.id,
+            dataset.id,
             name="orig",
             source_format="manual",
             source_metadata={"before": True},
             created_by=owner.id,
         )
-        duplicate = await scene_svc.create_scene(
+        duplicate = await _create_scene(
             db,
-            dataset_id=dataset.id,
+            dataset.id,
             name="taken",
             source_format="manual",
             source_metadata={"untouched": True},
@@ -137,7 +178,11 @@ async def test_scenes_api_get_and_patch(app_module, test_engine):
 
     async def persisted_scene():
         async with sessions() as observer:
-            return await observer.get(Scene, scene_id)
+            return (
+                await AssetsSpatialGateway(observer).get_scene(
+                    GetSceneRequest(actor_id=None, scene_id=scene_id)
+                )
+            ).scene
 
     try:
         transport = ASGITransport(app=app_module)
@@ -269,9 +314,9 @@ async def test_scenes_api_patch_rolls_back_failed_commit(app_module, test_engine
         db.add(user)
         await db.flush()
         dataset = await _make_dataset(db, user.id)
-        scene = await scene_svc.create_scene(
+        scene = await _create_scene(
             db,
-            dataset_id=dataset.id,
+            dataset.id,
             name="before-commit-failure",
             source_format="manual",
             source_metadata={"before": True},
@@ -330,7 +375,11 @@ async def test_scenes_api_patch_rolls_back_failed_commit(app_module, test_engine
         assert response.status_code == 500
 
         async with sessions() as observer:
-            stored = await observer.get(Scene, scene_id)
+            stored = (
+                await AssetsSpatialGateway(observer).get_scene(
+                    GetSceneRequest(actor_id=None, scene_id=scene_id)
+                )
+            ).scene
             assert stored.name == "before-commit-failure"
             assert stored.source_format == "manual"
             assert stored.source_metadata == {"before": True}

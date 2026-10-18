@@ -414,10 +414,16 @@ export const tasksApi = {
       init,
     ),
 
-  updateSensorCalibration: (taskId: string, cameraRole: string, payload: SensorCalibrationUpdate) =>
+  updateSensorCalibration: (
+    taskId: string,
+    cameraRole: string,
+    payload: SensorCalibrationUpdate,
+    idempotencyKey: string,
+  ) =>
     apiClient.patch<SensorCalibrationRevisionOut>(
       `/tasks/${taskId}/point-cloud/cameras/${encodeURIComponent(cameraRole)}/calibration`,
       payload,
+      { headers: { "Idempotency-Key": idempotencyKey } },
     ),
 
   // v0.14.0 · scene 内前后 k 个邻居 task(跨帧导航 backing)。

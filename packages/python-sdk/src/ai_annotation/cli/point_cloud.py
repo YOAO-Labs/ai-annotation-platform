@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import typer
 from rich.table import Table
@@ -262,11 +263,21 @@ def calibration_update(
         ..., help="SensorCalibrationUpdate JSON 文件，或 - 从 stdin 读取"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认更新共享传感器标定"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """更新 DatasetItem 标定；共享数据集跨项目时服务端只允许 super_admin。"""
     with cli_errors(json_output):
         body = read_json_body(body_file, SensorCalibrationUpdate)
+        if idempotency_key is not None:
+            try:
+                idempotency_key = str(UUID(idempotency_key))
+            except ValueError as exc:
+                raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
         confirm_destructive(
             f"确认更新 {camera_role} 标定 (expected r{body.expected_revision}, "
             f"digest={body.expected_digest[:12]}…)?",
@@ -274,7 +285,12 @@ def calibration_update(
             json_output,
         )
         with get_client(json_output) as client:
-            result = client.point_cloud.update_calibration(task_id, camera_role, body)
+            result = client.point_cloud.update_calibration(
+                task_id,
+                camera_role,
+                body,
+                idempotency_key=idempotency_key,
+            )
     data = result.model_dump(mode="json")
     if json_output:
         print_json(data)

@@ -1,38 +1,35 @@
-"""SQL adapter for Assets facts used by the point-cloud manifest."""
+"""Bind point-cloud manifest asset facts to the Assets spatial gateway."""
 
 from __future__ import annotations
 
 import uuid
-from copy import deepcopy
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import Dataset, DatasetItem, Scene
+from aap_assets_catalog.spatial_contract import (
+    ReadItemsRequest,
+    ReadLayoutRequest,
+    ReadPosesRequest,
+    SpatialFailure,
+    SpatialItem,
+)
 from aap_assets_catalog.spatial_values import FramePose
-from app.services import scene_pose
+
+from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.assets_point_cloud_manifest_contract import (
     PointCloudManifestAssetsReader,
     PointCloudManifestCalibrationFact,
     PointCloudManifestItemFact,
     PointCloudManifestPrimaryContextFacts,
 )
-from app.services.sensor_calibration import (
-    SensorCalibrationError,
-    resolve_calibration_state,
-)
 
 
 class SqlAlchemyPointCloudManifestAssetsReader(PointCloudManifestAssetsReader):
-    """Bind manifest asset reads to the route's existing AsyncSession.
-
-    Keep loaded DatasetItem rows private: current calibration resolution consumes
-    its ORM item, while the application boundary receives only scalar facts.
-    """
+    """Read Catalog facts while keeping ORM/provider types behind the gateway."""
 
     def __init__(self, db: AsyncSession) -> None:
-        self._db = db
-        self._items: dict[uuid.UUID, DatasetItem] = {}
+        self._gateway = AssetsSpatialGateway(db)
+        self._items: dict[uuid.UUID, SpatialItem] = {}
 
     async def read_items(
         self, dataset_item_ids: tuple[uuid.UUID, ...]
@@ -40,16 +37,10 @@ class SqlAlchemyPointCloudManifestAssetsReader(PointCloudManifestAssetsReader):
         if not dataset_item_ids:
             self._items = {}
             return ()
-        rows = (
-            (
-                await self._db.execute(
-                    select(DatasetItem).where(DatasetItem.id.in_(dataset_item_ids))
-                )
-            )
-            .scalars()
-            .all()
+        page = await self._gateway.read_items(
+            ReadItemsRequest(item_ids=list(dataset_item_ids))
         )
-        self._items = {item.id: item for item in rows}
+        self._items = {item.id: item for item in page.items}
         return tuple(
             PointCloudManifestItemFact(
                 dataset_item_id=item.id,
@@ -57,19 +48,20 @@ class SqlAlchemyPointCloudManifestAssetsReader(PointCloudManifestAssetsReader):
                 width=item.width,
                 height=item.height,
             )
-            for item in rows
+            for item in page.items
         )
 
     async def read_camera_calibration(
         self, dataset_item_id: uuid.UUID
     ) -> PointCloudManifestCalibrationFact | None:
-        item = self._items.get(dataset_item_id)
-        if item is None:
+        if dataset_item_id not in self._items:
             return None
         try:
-            state = await resolve_calibration_state(self._db, item)
-        except SensorCalibrationError:
-            return None
+            state = await self._gateway.read_calibration_state(dataset_item_id)
+        except SpatialFailure as exc:
+            if exc.code in {"camera_calibration_missing", "camera_calibration_invalid"}:
+                return None
+            raise
         return PointCloudManifestCalibrationFact(
             calibration=state.calibration,
             revision=state.revision,
@@ -82,45 +74,45 @@ class SqlAlchemyPointCloudManifestAssetsReader(PointCloudManifestAssetsReader):
         item = self._items.get(primary_item_id)
         if item is None:
             return None
-
-        axis_convention = None
-        dataset = await self._db.get(Dataset, item.dataset_id)
-        if dataset is not None:
-            axis_convention = (dataset.metadata_ or {}).get("axis_convention")
-
-        scene_id_out = None
-        scene_name_out = None
-        frame_index_out = None
-        scene_total_frames_out = None
-        ego_pose_out: FramePose | None = None
-        if item.scene_id is not None:
-            scene = await self._db.get(Scene, item.scene_id)
+        scene_id = item.scene_id
+        scene_name = None
+        frame_index = None
+        scene_total_frames = None
+        ego_pose: FramePose | None = None
+        if scene_id is not None:
+            layout = await self._gateway.read_layout(
+                ReadLayoutRequest(actor_id=None, dataset_id=item.dataset_id)
+            )
+            scene = next(
+                (scene for scene in layout.scenes if scene.id == scene_id), None
+            )
             if scene is not None:
-                scene_id_out = scene.id
-                scene_name_out = scene.name
-                frame_index_out = item.frame_index
-                total_row = await self._db.execute(
-                    select(func.count(func.distinct(DatasetItem.frame_index)))
-                    .where(DatasetItem.scene_id == scene.id)
-                    .where(DatasetItem.frame_index.is_not(None))
+                scene_name = scene.name
+                frame_index = item.frame_index
+                scene_total_frames = len(
+                    {
+                        row.frame_index
+                        for row in layout.items
+                        if row.scene_id == scene_id and row.frame_index is not None
+                    }
                 )
-                scene_total_frames_out = total_row.scalar() or 0
-                if item.frame_index is not None:
-                    ego_pose_out = await scene_pose.get_frame_pose(
-                        self._db,
-                        scene_id=scene.id,
-                        frame_index=item.frame_index,
-                    )
-                    if ego_pose_out is not None:
-                        ego_pose_out.source_metadata = deepcopy(
-                            ego_pose_out.source_metadata
+                if frame_index is not None:
+                    poses = await self._gateway.read_poses(
+                        ReadPosesRequest(
+                            actor_id=None,
+                            scene_id=scene_id,
+                            after_frame_index=frame_index - 1,
+                            page_size=1,
                         )
+                    )
+                    if poses and poses[0].frame_index == frame_index:
+                        ego_pose = poses[0]
 
         return PointCloudManifestPrimaryContextFacts(
-            axis_convention=axis_convention,
-            scene_id=scene_id_out,
-            scene_name=scene_name_out,
-            frame_index=frame_index_out,
-            scene_total_frames=scene_total_frames_out,
-            ego_pose=ego_pose_out,
+            axis_convention=item.axis_convention,
+            scene_id=scene_id,
+            scene_name=scene_name,
+            frame_index=frame_index,
+            scene_total_frames=scene_total_frames,
+            ego_pose=ego_pose,
         )

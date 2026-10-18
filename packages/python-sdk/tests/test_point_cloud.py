@@ -286,6 +286,7 @@ def test_camera_member_create_update_delete_restore_use_exact_routes_and_cas(
 
 
 def test_calibration_update_uses_revision_digest_cas_once(client, respx_mock):
+    idempotency_key = str(uuid4())
     route = respx_mock.patch(
         f"{API}/tasks/{TASK_ID}/point-cloud/cameras/camera_front/calibration"
     ).mock(return_value=httpx.Response(200, json=_revision()))
@@ -298,7 +299,12 @@ def test_calibration_update_uses_revision_digest_cas_once(client, respx_mock):
         expected_digest=CALIBRATION_DIGEST,
     )
 
-    result = PointCloud(client._http).update_calibration(TASK_ID, "camera_front", body)
+    result = PointCloud(client._http).update_calibration(
+        TASK_ID,
+        "camera_front",
+        body,
+        idempotency_key=idempotency_key,
+    )
 
     assert isinstance(result, SensorCalibrationRevision)
     assert result.revision == 2
@@ -307,6 +313,7 @@ def test_calibration_update_uses_revision_digest_cas_once(client, respx_mock):
         "expected_revision": 1,
         "expected_digest": CALIBRATION_DIGEST,
     }
+    assert route.calls.last.request.headers["Idempotency-Key"] == idempotency_key
 
 
 def test_camera_request_models_are_strict_and_preserve_fixed_matrix_shapes():

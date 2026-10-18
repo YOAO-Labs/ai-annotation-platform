@@ -1,6 +1,6 @@
 """v0.14.0 · 一次性脚本:对历史 dataset 补 scene + frame_index。
 
-薄包装 services.scene_inference.infer_and_apply,加 CLI / 日志 / 错误码退出。
+通过 Assets Spatial owner 回填 scene,并提供 CLI / 日志 / 错误码退出。
 
 用法:
     cd apps/api
@@ -30,27 +30,33 @@ import logging
 import sys
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from aap_assets_catalog.spatial_contract import (
+    BackfillScenesRequest,
+    LayoutMutationResult,
+)
 from app.config import settings
-from app.db.models.dataset import Dataset, Scene
-from app.schemas.scene import InferenceResult
-from app.services.scene_inference import infer_and_apply
+from app.db.models.dataset import Dataset
+from app.services.assets_spatial import AssetsSpatialGateway
+from app.services.assets_spatial_views import spatial_scene_references
 
 logger = logging.getLogger("backfill_scenes")
 
 
-async def _datasets_missing_scene(db: AsyncSession) -> list[Dataset]:
+async def _datasets_missing_scene(db: AsyncSession) -> list[uuid.UUID]:
     """返回所有"无 scene"的 dataset。"""
-    sub = select(Scene.dataset_id).distinct().subquery()
+    sub = select(spatial_scene_references.c.dataset_id).distinct().subquery()
     rows = await db.execute(
-        select(Dataset).where(Dataset.id.notin_(select(sub.c.dataset_id)))
+        select(Dataset.id).where(
+            ~exists(select(sub.c.dataset_id).where(sub.c.dataset_id == Dataset.id))
+        )
     )
-    return list(rows.scalars().all())
+    return list(rows.scalars())
 
 
-def _print_result(res: InferenceResult) -> None:
+def _print_result(res: LayoutMutationResult) -> None:
     logger.info(
         "dataset=%s created_scenes=%s assigned_items=%s skipped_items=%s dry_run=%s",
         res.dataset_id,
@@ -83,7 +89,7 @@ async def _run(
                 logger.info("no datasets missing scene; nothing to do")
                 await engine.dispose()
                 return 0
-            targets = [d.id for d in datasets]
+            targets = datasets
             logger.info("found %d dataset(s) missing scene", len(targets))
         else:
             assert dataset_ids is not None
@@ -91,11 +97,14 @@ async def _run(
 
         for did in targets:
             try:
-                res = await infer_and_apply(
-                    db,
-                    dataset_id=did,
-                    mode=mode,
-                    dry_run=dry_run,  # type: ignore[arg-type]
+                res = await AssetsSpatialGateway(db).backfill_scenes(
+                    BackfillScenesRequest(
+                        operation_id=uuid.uuid4(),
+                        actor_id=None,
+                        dataset_id=did,
+                        mode=mode,
+                        dry_run=dry_run,
+                    )
                 )
             except ValueError as exc:
                 logger.error("dataset=%s failed: %s", did, exc)
@@ -104,8 +113,6 @@ async def _run(
                 await db.rollback()
                 continue
             _print_result(res)
-            if not dry_run:
-                await db.commit()
 
     await engine.dispose()
     return 1 if error_count else 0

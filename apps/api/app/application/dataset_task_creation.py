@@ -11,7 +11,9 @@ from app.services.labeling_task_creation_contract import (
     TaskCreationCounts,
 )
 from app.services.labeling_tasks import LabelingTaskService
-from app.services.pointcloud_import import attach_calibration, prepare_pointcloud_frames
+from aap_assets_catalog.spatial_contract import PreparePointcloudRequest
+from app.services.assets_spatial import AssetsSpatialGateway
+from app.services.pointcloud_import import prepare_pointcloud_frames
 from app.services.project_access import lock_creation_project_manager
 from app.services.system_settings_service import SystemSettingsService
 from app.services.task_creation_contract import (
@@ -173,15 +175,23 @@ class DatasetTaskCreationWorkflow:
         if operation.state == "accepted":
             frames = None
             if operation.mode == "pointcloud":
-                await attach_calibration(self.db, dataset_id=operation.dataset_id)
+                await AssetsSpatialGateway(self.db).prepare_pointcloud(
+                    PreparePointcloudRequest(
+                        creation_operation_id=operation.operation_id
+                    ),
+                    same_session_native=not commit_calibration,
+                    commit=commit_calibration,
+                )
                 if commit_calibration:
-                    # Calibration retains its pre-task commit, including replays.
+                    # Keep accepted preparation durable before Labeling starts task chunks.
                     await self.db.commit()
                     operation = await self.labeling.read_dataset_task_creation(
                         operation.operation_id
                     )
                 prepared = await prepare_pointcloud_frames(
-                    self.db, dataset_id=operation.dataset_id
+                    self.db,
+                    creation_operation_id=operation.operation_id,
+                    same_session_native=not commit_calibration,
                 )
                 frames = [
                     {

@@ -19,7 +19,6 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import Scene
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -36,7 +35,8 @@ from app.services.scene_track_domain import (
     SceneTrackIntegrityError,
     bind_annotation_to_scene_track,
 )
-from app.services.scene import get_scene_frame_task_map
+from app.services.assets_spatial_views import spatial_scene_references
+from app.services.labeling_scene import get_scene_frame_task_map
 from app.services.raster_mask_storage import (
     assert_raster_mask_write_enabled,
     resolve_mask_reference_objects,
@@ -128,14 +128,15 @@ async def _apply_imported_scene_tracks(
 ) -> None:
     """Replace member-derived envelopes with exported authoritative intervals."""
     for entry in envelope.scene_tracks:
+        scene = spatial_scene_references.alias("import_scene")
         query = (
             select(SceneTrack)
-            .join(Scene, Scene.id == SceneTrack.scene_id)
+            .join(scene, scene.c.scene_id == SceneTrack.scene_id)
             .where(SceneTrack.project_id == project_id)
             .where(SceneTrack.track_id == entry.track_id)
         )
         if entry.scene_name is not None:
-            query = query.where(Scene.name == entry.scene_name)
+            query = query.where(scene.c.scene_name == entry.scene_name)
         tracks = list((await db.execute(query.with_for_update())).scalars())
         if len(tracks) != 1:
             result.errors.append(

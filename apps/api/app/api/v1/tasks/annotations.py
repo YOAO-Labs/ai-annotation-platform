@@ -186,7 +186,7 @@ async def get_neighbor_annotations(
     (`task_access.visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)
     仍返回 frame 占位但 `annotations=[]`,不外泄他人 batch 的框几何。
     """
-    from app.services.scene import (
+    from app.services.labeling_scene import (
         SceneFrameIndexInconsistent,
         get_neighbors_for_task,
     )

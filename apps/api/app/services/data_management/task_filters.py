@@ -33,7 +33,6 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
-from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -56,6 +55,7 @@ from app.services.project_access import is_privileged_for_project
 from app.services.scheduler import task_visibility_clause
 from app.services.feedback import unresolved_issue_count_sq
 from app.services.task_discussion import task_comment_count_sq
+from app.services.assets_spatial_views import spatial_item_references
 
 _STRING_OPS = {"eq", "ne", "in"}
 
@@ -1006,10 +1006,11 @@ def _primary_item_id_sq() -> ColumnElement[uuid.UUID | None]:
 
 
 def _scene_id_sq() -> ColumnElement[uuid.UUID | None]:
+    item = spatial_item_references.alias("scene_filter_item")
     return (
-        select(DatasetItem.scene_id)
+        select(item.c.scene_id)
         .where(
-            DatasetItem.id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
         .correlate(Task)
@@ -1018,10 +1019,11 @@ def _scene_id_sq() -> ColumnElement[uuid.UUID | None]:
 
 
 def _scene_frame_sq() -> ColumnElement[int | None]:
+    item = spatial_item_references.alias("frame_filter_item")
     return (
-        select(DatasetItem.frame_index)
+        select(item.c.frame_index)
         .where(
-            DatasetItem.id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
         .correlate(Task)
@@ -1030,10 +1032,12 @@ def _scene_frame_sq() -> ColumnElement[int | None]:
 
 
 def _scene_name_sq() -> ColumnElement[str | None]:
-    scene_id = _scene_id_sq()
+    item = spatial_item_references.alias("scene_name_filter_item")
     return (
-        select(Scene.name)
-        .where(Scene.id == scene_id)
+        select(item.c.scene_name)
+        .where(
+            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+        )
         .limit(1)
         .correlate(Task)
         .scalar_subquery()
@@ -1041,10 +1045,11 @@ def _scene_name_sq() -> ColumnElement[str | None]:
 
 
 def _dataset_id_sq() -> ColumnElement[uuid.UUID | None]:
+    item = spatial_item_references.alias("dataset_filter_item")
     return (
-        select(DatasetItem.dataset_id)
+        select(item.c.dataset_id)
         .where(
-            DatasetItem.id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
         .correlate(Task)
@@ -1053,10 +1058,11 @@ def _dataset_id_sq() -> ColumnElement[uuid.UUID | None]:
 
 
 def _dataset_file_type_sq() -> ColumnElement[str | None]:
+    item = spatial_item_references.alias("file_type_filter_item")
     return (
-        select(DatasetItem.file_type)
+        select(item.c.file_type)
         .where(
-            DatasetItem.id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
         .correlate(Task)

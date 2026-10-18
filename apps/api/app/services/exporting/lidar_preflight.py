@@ -6,14 +6,13 @@ import asyncio
 import math
 import uuid
 from pathlib import PurePosixPath
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.project import Project
-from app.db.models.scene_pose import SceneFramePose
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -25,7 +24,14 @@ from app.schemas.export import (
 )
 from aap_assets_catalog.axis_convention import R_NORM
 from aap_workspace_contract import derive_classes_list
-from app.services.sensor_calibration import resolve_calibration_states
+from app.services.labeling_scene import read_spatial_item_facts
+from app.services.assets_spatial import AssetsSpatialGateway
+from aap_assets_catalog.spatial_contract import (
+    ReadPosesRequest,
+    SpatialFailure,
+    SpatialItem,
+    normalize_calibration_record,
+)
 from app.services.storage import storage_service
 
 
@@ -72,7 +78,7 @@ def _rotation_is_orthonormal(matrix: list[float]) -> bool:
     )
 
 
-def _frame_key(task: Task, item: DatasetItem | None) -> str:
+def _frame_key(task: Task, item) -> str:
     path = (task.file_path or "").lstrip("/")
     parts = path.split("/", 1)
     relative = parts[1] if len(parts) == 2 else path
@@ -316,44 +322,63 @@ async def preflight_lidar_export(
             )
 
     task_query = (
-        select(Task, DatasetItem, Dataset)
-        .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-        .outerjoin(Dataset, Dataset.id == DatasetItem.dataset_id)
+        select(Task)
         .where(Task.project_id == project_id)
         .order_by(Task.sequence_order, Task.created_at, Task.id)
     )
     if batch_id is not None:
         task_query = task_query.where(Task.batch_id == batch_id)
-    task_rows = list((await db.execute(task_query)).all())
-    tasks = [row[0] for row in task_rows]
+    tasks = list((await db.execute(task_query)).scalars())
     tasks_by_id = {task.id: task for task in tasks}
     task_ids = [task.id for task in tasks]
-    links_by_task: dict[uuid.UUID, dict[str, DatasetItem]] = {}
+    links_by_task: dict[uuid.UUID, dict[str, Any]] = {}
     camera_link_rows_by_task: dict[
-        uuid.UUID, list[tuple[TaskDatasetItemLink, DatasetItem]]
+        uuid.UUID, list[tuple[TaskDatasetItemLink, Any]]
     ] = {}
     camera_roles: set[str] = set()
+    item_ids = {task.dataset_item_id for task in tasks if task.dataset_item_id}
+    all_links: list[TaskDatasetItemLink] = []
     for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
         chunk_ids = task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
-        link_rows = (
-            await db.execute(
-                select(TaskDatasetItemLink, DatasetItem)
-                .join(
-                    DatasetItem, DatasetItem.id == TaskDatasetItemLink.dataset_item_id
+        link_rows = list(
+            (
+                await db.execute(
+                    select(TaskDatasetItemLink)
+                    .where(TaskDatasetItemLink.task_id.in_(chunk_ids))
+                    .order_by(TaskDatasetItemLink.role)
                 )
-                .where(
-                    TaskDatasetItemLink.task_id.in_(chunk_ids),
-                )
-                .order_by(TaskDatasetItemLink.role)
-            )
-        ).all()
-        for link, item in link_rows:
-            links_by_task.setdefault(link.task_id, {})[link.role] = item
+            ).scalars()
+        )
+        for link in link_rows:
+            all_links.append(link)
+            item_ids.add(link.dataset_item_id)
             if link.role.startswith("camera_"):
                 camera_roles.add(link.role)
-                camera_link_rows_by_task.setdefault(link.task_id, []).append(
-                    (link, item)
+    spatial_items, scenes_by_id = await read_spatial_item_facts(db, list(item_ids))
+    for link in all_links:
+        item = spatial_items.get(link.dataset_item_id)
+        if item is None:
+            continue
+        links_by_task.setdefault(link.task_id, {})[link.role] = item
+        if link.role.startswith("camera_"):
+            camera_link_rows_by_task.setdefault(link.task_id, []).append((link, item))
+    task_rows = [
+        (
+            task,
+            spatial_items.get(
+                task.dataset_item_id
+                or next(
+                    (
+                        item.id
+                        for role, item in links_by_task.get(task.id, {}).items()
+                        if role == "primary_lidar"
+                    ),
+                    None,
                 )
+            ),
+        )
+        for task in tasks
+    ]
 
     if needs_kitti and selected_role is None:
         add_issue(
@@ -380,7 +405,7 @@ async def preflight_lidar_export(
             len(rows) for rows in camera_link_rows_by_task.values()
         )
         total_media_bytes = 0
-        camera_assets: dict[uuid.UUID, tuple[DatasetItem, dict]] = {}
+        camera_assets: dict[uuid.UUID, tuple[SpatialItem, dict]] = {}
         for task in tasks:
             common = {
                 "task_id": task.id,
@@ -565,8 +590,18 @@ async def preflight_lidar_export(
                 if member.sensor_dataset_item_id in camera_assets
             }
             try:
-                await resolve_calibration_states(db, list(member_items.values()))
-            except (ValueError, TypeError):
+                calibration_records = await AssetsSpatialGateway(db).read_calibrations(
+                    list(member_items)
+                )
+                if len(calibration_records) != len(member_items):
+                    raise ValueError("camera calibration is missing")
+                for record in calibration_records:
+                    state = normalize_calibration_record(record)
+                    if not calibration_is_valid(
+                        state.calibration.model_dump(mode="json")
+                    ):
+                        raise ValueError("camera calibration is invalid")
+            except (SpatialFailure, ValueError, TypeError):
                 add_issue(
                     LidarExportIssue(
                         code="multicamera_coco_calibration_invalid",
@@ -649,8 +684,8 @@ async def preflight_lidar_export(
                     )
 
         async def verify_camera_asset(
-            item: DatasetItem, common: dict
-        ) -> tuple[DatasetItem, dict, dict | None]:
+            item, common: dict
+        ) -> tuple[Any, dict, dict | None]:
             head = await asyncio.to_thread(
                 storage_service.verify_upload,
                 item.file_path,
@@ -680,36 +715,39 @@ async def preflight_lidar_export(
 
     scene_ids = {
         item.scene_id
-        for _task, item, _dataset in task_rows
+        for _task, item in task_rows
         if item is not None and item.scene_id is not None
     }
-    scenes_by_id: dict[uuid.UUID, Scene] = {}
-    poses_by_frame: dict[tuple[uuid.UUID, int], SceneFramePose] = {}
-    all_scene_tasks: dict[uuid.UUID, list[tuple[Task, DatasetItem]]] = {}
+    poses_by_frame: dict[tuple[uuid.UUID, int], Any] = {}
+    all_scene_tasks: dict[uuid.UUID, list[tuple[Task, Any]]] = {}
     if needs_nuscenes and scene_ids:
-        scenes_by_id = {
-            scene.id: scene
-            for scene in (
-                await db.execute(select(Scene).where(Scene.id.in_(scene_ids)))
-            ).scalars()
-        }
+        gateway = AssetsSpatialGateway(db)
         poses_by_frame = {
-            (pose.scene_id, pose.frame_index): pose
-            for pose in (
-                await db.execute(
-                    select(SceneFramePose).where(SceneFramePose.scene_id.in_(scene_ids))
-                )
-            ).scalars()
+            (scene_id, pose.frame_index): pose
+            for scene_id in scene_ids
+            for pose in await gateway.read_poses(
+                ReadPosesRequest(actor_id=None, scene_id=scene_id)
+            )
         }
         full_rows = (
             await db.execute(
-                select(Task, DatasetItem)
-                .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+                select(Task, Task.dataset_item_id)
                 .where(Task.project_id == project_id)
-                .where(DatasetItem.scene_id.in_(scene_ids))
+                .where(Task.dataset_item_id.is_not(None))
             )
         ).all()
-        for full_task, full_item in full_rows:
+        full_items, scenes_by_id = await read_spatial_item_facts(
+            db, [item_id for _task, item_id in full_rows]
+        )
+        scenes_by_id = {
+            scene_id: scene
+            for scene_id, scene in scenes_by_id.items()
+            if scene_id in scene_ids
+        }
+        for full_task, item_id in full_rows:
+            full_item = full_items.get(item_id)
+            if full_item is None or full_item.scene_id not in scene_ids:
+                continue
             all_scene_tasks.setdefault(full_item.scene_id, []).append(
                 (full_task, full_item)
             )
@@ -722,10 +760,15 @@ async def preflight_lidar_export(
     ]
     calibration_states = {}
     if needs_nuscenes and camera_items:
-        try:
-            calibration_states = await resolve_calibration_states(db, camera_items)
-        except (ValueError, TypeError):
-            calibration_states = {}
+        for record in await AssetsSpatialGateway(db).read_calibrations(
+            [item.id for item in camera_items]
+        ):
+            try:
+                calibration_states[record.dataset_item_id] = (
+                    normalize_calibration_record(record)
+                )
+            except (SpatialFailure, ValueError, TypeError):
+                continue
 
     invalid_boxes_by_task: dict[uuid.UUID, list[uuid.UUID]] = {}
     box_counts_by_task: dict[uuid.UUID, int] = {}
@@ -810,7 +853,7 @@ async def preflight_lidar_export(
     total_pcd_bytes = 0
     pcd_size_exceeded = False
     if needs_nuscenes:
-        for task, primary_item, _dataset in task_rows:
+        for task, primary_item in task_rows:
             if primary_item is None:
                 continue
             try:
@@ -824,7 +867,7 @@ async def preflight_lidar_export(
             box_count = box_counts_by_task.get(task.id, 0)
             if box_count == 0:
                 continue
-            raw_point_count = (primary_item.metadata_ or {}).get("point_count")
+            raw_point_count = (primary_item.metadata or {}).get("point_count")
             try:
                 metadata_point_count = max(int(raw_point_count), 0)
             except (TypeError, ValueError):
@@ -855,8 +898,8 @@ async def preflight_lidar_export(
                 )
             )
 
-    selected_tasks_by_scene: dict[uuid.UUID, list[tuple[Task, DatasetItem]]] = {}
-    for task, primary_item, dataset in task_rows:
+    selected_tasks_by_scene: dict[uuid.UUID, list[tuple[Task, Any]]] = {}
+    for task, primary_item in task_rows:
         frame_key = _frame_key(task, primary_item)
         common = {
             "task_id": task.id,
@@ -881,7 +924,7 @@ async def preflight_lidar_export(
                     )
                 )
             convention = (
-                (dataset.metadata_ or {}).get("axis_convention") if dataset else None
+                primary_item.axis_convention if primary_item is not None else None
             )
             if convention is None:
                 add_issue(
@@ -936,8 +979,9 @@ async def preflight_lidar_export(
                             **common,
                         )
                     )
-                if not calibration_is_valid(
-                    (camera_item.metadata_ or {}).get("calibration")
+                current_calibration = calibration_states.get(camera_item.id)
+                if current_calibration is None or not calibration_is_valid(
+                    current_calibration.calibration.model_dump(mode="json")
                 ):
                     add_issue(
                         LidarExportIssue(
@@ -1077,7 +1121,7 @@ async def preflight_lidar_export(
         for role, item in sensor_items.items():
             if role != "primary_lidar" and not role.startswith("camera_"):
                 continue
-            source = (item.metadata_ or {}).get("nuscenes_export")
+            source = (item.metadata or {}).get("nuscenes_export")
             if not isinstance(source, dict):
                 add_issue(
                     LidarExportIssue(
@@ -1264,7 +1308,7 @@ async def preflight_lidar_export(
                 continue
             ordered = sorted(all_rows, key=lambda row: int(row[1].frame_index))
             source_samples = [
-                ((item.metadata_ or {}).get("nuscenes_export") or {}).get("sample")
+                ((item.metadata or {}).get("nuscenes_export") or {}).get("sample")
                 for _task, item in ordered
             ]
             tokens = [

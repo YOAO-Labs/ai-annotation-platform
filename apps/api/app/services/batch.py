@@ -25,7 +25,7 @@ from app.services.progress import (
     publish_batch_status_change,
 )
 from app.services.workspace_contract import membership_role_compatible
-from app.services.scene import resolve_task_scene_frames
+from app.services.labeling_scene import resolve_task_scene_frames
 from app.services.labeling_write_scope import LabelingBatchWriteScope
 from app.services.labeling_write_guard import lock_labeling_batch_write
 from app.services.task_lock import TaskLockService

@@ -5,7 +5,7 @@ from __future__ import annotations
 from urllib.parse import quote
 from uuid import UUID
 
-from ai_annotation._http import HttpTransport, _drop_none
+from ai_annotation._http import HttpTransport, _drop_none, _idempotency_headers
 from ai_annotation.point_cloud_models import (
     CameraAnnotationMember,
     CameraAnnotationMemberCreate,
@@ -173,6 +173,8 @@ class PointCloud:
         task_id: IdLike,
         camera_role: str,
         body: SensorCalibrationUpdate,
+        *,
+        idempotency_key: IdLike | None = None,
     ) -> SensorCalibrationRevision:
         """Append a calibration revision using expected revision and digest CAS.
 
@@ -187,5 +189,6 @@ class PointCloud:
             "PATCH",
             f"/tasks/{task_id}/point-cloud/cameras/{camera_role}/calibration",
             json=body.model_dump(mode="json"),
+            headers=_idempotency_headers(idempotency_key),
         )
         return SensorCalibrationRevision.model_validate(response.json())

@@ -30,9 +30,7 @@ from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
-from app.db.models.dataset import DatasetItem, Scene, SensorCalibrationRevision
 from app.db.models.project import Project
-from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
@@ -49,6 +47,9 @@ from app.schemas.export import LidarExportOptions
 from app.db.models.notification import Notification
 from app.services.notification import NotificationService
 from app.services.data_management.task_filters import visible_tasks_stmt
+from app.services.assets_spatial import AssetsSpatialGateway
+from app.services.labeling_scene import read_spatial_item_facts
+from aap_assets_catalog.spatial_contract import ReadPosesRequest, SpatialItem
 from app.services.storage import storage_service
 from app.workers.celery_app import celery_app
 
@@ -245,42 +246,15 @@ async def _nuscenes_scope_digest(
         if item_id is not None
     }
     ordered_item_ids = sorted(item_ids, key=str)
-    items = []
-    for start in range(0, len(ordered_item_ids), 1000):
-        items.extend(
-            list(
-                (
-                    await db.execute(
-                        select(DatasetItem).where(
-                            DatasetItem.id.in_(ordered_item_ids[start : start + 1000])
-                        )
-                    )
-                ).scalars()
-            )
-        )
-    scene_ids = {item.scene_id for item in items if item.scene_id is not None}
-    ordered_scene_ids = sorted(scene_ids, key=str)
-    scenes = []
-    poses = []
-    for start in range(0, len(ordered_scene_ids), 1000):
-        scene_id_chunk = ordered_scene_ids[start : start + 1000]
-        scenes.extend(
-            list(
-                (
-                    await db.execute(select(Scene).where(Scene.id.in_(scene_id_chunk)))
-                ).scalars()
-            )
-        )
-        poses.extend(
-            list(
-                (
-                    await db.execute(
-                        select(SceneFramePose).where(
-                            SceneFramePose.scene_id.in_(scene_id_chunk)
-                        )
-                    )
-                ).scalars()
-            )
+    items_by_id, scenes_by_id = await read_spatial_item_facts(db, ordered_item_ids)
+    gateway = AssetsSpatialGateway(db)
+    poses_by_scene: dict[uuid.UUID, list] = {}
+    for scene_id in sorted(
+        {item.scene_id for item in items_by_id.values() if item.scene_id is not None},
+        key=str,
+    ):
+        poses_by_scene[scene_id] = await gateway.read_poses(
+            ReadPosesRequest(actor_id=None, scene_id=scene_id)
         )
     return canonical_digest(
         {
@@ -314,32 +288,31 @@ async def _nuscenes_scope_digest(
                     "width": item.width,
                     "height": item.height,
                     "content_hash": item.content_hash,
-                    "metadata": item.metadata_,
-                    "updated_at": item.updated_at,
+                    "metadata": item.metadata,
                 }
-                for item in sorted(items, key=lambda row: str(row.id))
+                for item in sorted(items_by_id.values(), key=lambda row: str(row.id))
             ],
             "scenes": [
                 {
                     "id": scene.id,
                     "source_format": scene.source_format,
                     "source_metadata": scene.source_metadata,
-                    "updated_at": scene.updated_at,
                 }
-                for scene in sorted(scenes, key=lambda row: str(row.id))
+                for scene in sorted(scenes_by_id.values(), key=lambda row: str(row.id))
             ],
             "poses": [
                 {
-                    "scene_id": pose.scene_id,
+                    "scene_id": scene_id,
                     "frame_index": pose.frame_index,
                     "timestamp_us": pose.timestamp_us,
                     "ego_translation": pose.ego_translation,
                     "ego_rotation": pose.ego_rotation,
                     "source_metadata": pose.source_metadata,
                 }
-                for pose in sorted(
-                    poses, key=lambda row: (str(row.scene_id), row.frame_index)
+                for scene_id, scene_poses in sorted(
+                    poses_by_scene.items(), key=lambda row: str(row[0])
                 )
+                for pose in sorted(scene_poses, key=lambda row: row.frame_index)
             ],
         }
     )
@@ -360,40 +333,23 @@ async def _multicamera_coco_scope_digest(
             list(
                 (
                     await db.execute(
-                        select(TaskDatasetItemLink, DatasetItem)
-                        .join(
-                            DatasetItem,
-                            DatasetItem.id == TaskDatasetItemLink.dataset_item_id,
-                        )
-                        .where(
+                        select(TaskDatasetItemLink).where(
                             TaskDatasetItemLink.task_id.in_(
                                 task_ids[start : start + 1000]
                             ),
                             TaskDatasetItemLink.role.like("camera\\_%", escape="\\"),
                         )
                     )
-                ).all()
-            )
-        )
-    item_ids = {item.id for _link, item in rows}
-    ordered_item_ids = sorted(item_ids, key=str)
-    calibration_rows = []
-    for start in range(0, len(ordered_item_ids), 1000):
-        calibration_rows.extend(
-            list(
-                (
-                    await db.execute(
-                        select(SensorCalibrationRevision).where(
-                            SensorCalibrationRevision.dataset_item_id.in_(
-                                ordered_item_ids[start : start + 1000]
-                            )
-                        )
-                    )
                 ).scalars()
             )
         )
+    item_ids = {link.dataset_item_id for link in rows}
+    ordered_item_ids = sorted(item_ids, key=str)
+    calibration_rows = await AssetsSpatialGateway(db).read_calibrations(
+        ordered_item_ids, include_history=True
+    )
 
-    async def head_item(item: DatasetItem) -> tuple[uuid.UUID, dict | None]:
+    async def head_item(item: SpatialItem) -> tuple[uuid.UUID, dict | None]:
         head = await asyncio.to_thread(
             storage_service.verify_upload,
             item.file_path,
@@ -401,7 +357,7 @@ async def _multicamera_coco_scope_digest(
         )
         return item.id, head
 
-    items_by_id = {item.id: item for _link, item in rows}
+    items_by_id, _ = await read_spatial_item_facts(db, ordered_item_ids)
     media_heads: dict[uuid.UUID, dict | None] = {}
     items = list(items_by_id.values())
     for start in range(0, len(items), 32):
@@ -418,7 +374,11 @@ async def _multicamera_coco_scope_digest(
                     "dataset_item_id": row.dataset_item_id,
                     "revision": row.revision,
                     "digest": row.digest,
-                    "calibration": row.calibration,
+                    "calibration": (
+                        row.calibration.model_dump(mode="json")
+                        if row.calibration is not None
+                        else None
+                    ),
                 }
                 for row in sorted(
                     calibration_rows,

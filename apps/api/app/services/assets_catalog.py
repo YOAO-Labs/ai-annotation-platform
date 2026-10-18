@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, TypeVar
+from typing import Callable, Literal, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
@@ -340,8 +340,19 @@ class AssetsCatalogGateway:
         *,
         decoder: Callable[[object, type[_RESULT]], _RESULT] = _decode,
         local_errors_unavailable: bool = False,
+        namespace: Literal["catalog", "spatial"] = "catalog",
+        same_session_native: bool = False,
+        remote_only: bool = False,
     ) -> tuple[_RESULT, bool]:
-        peer = _peer_url()
+        if same_session_native and remote_only:
+            raise ValueError("A native same-session call cannot be remote-only")
+        peer = None if same_session_native else _peer_url()
+        if remote_only and peer is None:
+            raise CatalogGatewayError(
+                "unavailable",
+                "Assets spatial workflow requires its configured owner",
+                503,
+            )
         if peer is None:
             # Native capability call shares the caller's transaction and actor identity.
             try:
@@ -362,7 +373,7 @@ class AssetsCatalogGateway:
             ) as client:
                 async with client.stream(
                     "POST",
-                    f"{peer}/v1/catalog/{operation}",
+                    f"{peer}/v1/{namespace}/{operation}",
                     headers={
                         "Authorization": f"Bearer {settings.assets_catalog_token}",
                         "Content-Type": "application/json",
