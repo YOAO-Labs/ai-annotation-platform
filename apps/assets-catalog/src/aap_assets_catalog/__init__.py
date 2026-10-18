@@ -16,6 +16,18 @@ from .contract import (
     UpdateDatasetRequest,
     decode_reply,
 )
+from .associations_contract import (
+    ASSOCIATIONS_SCHEMA,
+    AssociationFailure,
+    AssociationFailureCode,
+    DatasetProjectsResult,
+    LinkedProjectSnapshot,
+    ListDatasetProjectsRequest,
+    ListProjectDatasetsRequest,
+    ProjectDatasetSummary,
+    ProjectDatasetsResult,
+    decode_associations_reply,
+)
 
 __all__ = [
     "CatalogFailure",
@@ -32,4 +44,14 @@ __all__ = [
     "ListItemsRequest",
     "UpdateDatasetRequest",
     "decode_reply",
+    "ASSOCIATIONS_SCHEMA",
+    "AssociationFailure",
+    "AssociationFailureCode",
+    "DatasetProjectsResult",
+    "LinkedProjectSnapshot",
+    "ListDatasetProjectsRequest",
+    "ListProjectDatasetsRequest",
+    "ProjectDatasetSummary",
+    "ProjectDatasetsResult",
+    "decode_associations_reply",
 ]

@@ -149,9 +149,13 @@ def test_item_public_projection_removes_only_internal_signing_key() -> None:
 
 def test_core_import_does_not_load_server_or_api_modules() -> None:
     source_dir = Path(__file__).parents[1] / "src"
+    workspace_source_dir = (
+        Path(__file__).parents[2] / "_shared" / "workspace_contract" / "src"
+    )
     script = (
         "import sys; "
         f"sys.path.insert(0, {str(source_dir)!r}); "
+        f"sys.path.insert(0, {str(workspace_source_dir)!r}); "
         "import aap_assets_catalog; "
         "forbidden = {'fastapi', 'asyncpg', 'boto3', 'sqlalchemy', 'app'}; "
         "assert not forbidden.intersection(sys.modules)"

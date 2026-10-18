@@ -3,7 +3,7 @@ name = "aap-assets-catalog"
 version = "0.1.0"
 description = "Standalone Assets catalog control-plane runtime and frozen contract"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.10.0"]
+dependencies = ["aap-workspace-contract>=0.1.0", "pydantic>=2.10.0"]
 
 [project.optional-dependencies]
 server = [
@@ -27,6 +27,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

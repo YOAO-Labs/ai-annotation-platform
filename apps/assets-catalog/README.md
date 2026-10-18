@@ -1,7 +1,8 @@
 # Assets catalog runtime
 
 `aap-assets-catalog` is a private Python control plane for the Assets catalog.
-Its core contract depends only on Pydantic. The server uses asyncpg and boto3;
+Its core contract depends on Pydantic and the Pydantic-only
+`aap-workspace-contract` value package. The server uses asyncpg and boto3;
 it does not import the API application, SQLAlchemy models, Celery, Redis, or ML
 packages.
 

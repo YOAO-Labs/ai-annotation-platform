@@ -13,8 +13,11 @@ RUN python -m pip install --no-cache-dir "uv==0.11.29" \
     && useradd --system --uid 10002 --gid assets-catalog --home-dir /nonexistent assets-catalog
 
 WORKDIR /app
-COPY apps/assets-catalog/pyproject.toml apps/assets-catalog/uv.lock ./
-COPY apps/assets-catalog/src/ ./src/
+COPY apps/assets-catalog/pyproject.toml apps/assets-catalog/uv.lock ./apps/assets-catalog/
+COPY apps/assets-catalog/src/ ./apps/assets-catalog/src/
+COPY apps/_shared/workspace_contract/pyproject.toml ./apps/_shared/workspace_contract/
+COPY apps/_shared/workspace_contract/src/ ./apps/_shared/workspace_contract/src/
+WORKDIR /app/apps/assets-catalog
 RUN uv venv /opt/venv \
     && uv sync --locked --no-dev --extra server --no-editable \
     && chown -R 10002:10002 /app /opt/venv
