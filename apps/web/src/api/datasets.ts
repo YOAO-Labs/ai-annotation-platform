@@ -150,19 +150,23 @@ export const datasetsApi = {
   uploadZip: (
     id: string,
     file: File,
+    options: { idempotencyKey: string },
     onProgress?: (pct: number) => void,
   ): Promise<{
     added: number;
+    deduped: number;
     skipped: number;
     errors: Array<{ name: string; error: string }>;
     total_in_zip: number;
     linked_tasks: number;
+    scene_inference_notes: string[];
   }> => {
     return new Promise((resolve, reject) => {
       const token = localStorage.getItem("token");
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `/api/v1/datasets/${id}/items/upload-zip`);
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.setRequestHeader("Idempotency-Key", options.idempotencyKey);
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) onProgress((e.loaded / e.total) * 100);
       };
@@ -191,9 +195,11 @@ export const datasetsApi = {
     });
   },
 
-  scanItems: (id: string) =>
+  scanItems: (id: string, options: { idempotencyKey: string }) =>
     apiClient.post<{ status: string; new_items: number; linked_tasks: number }>(
       `/datasets/${id}/items/scan`,
+      undefined,
+      { headers: { "Idempotency-Key": options.idempotencyKey } },
     ),
 
   backfillDimensions: (id: string, batch = 50) =>

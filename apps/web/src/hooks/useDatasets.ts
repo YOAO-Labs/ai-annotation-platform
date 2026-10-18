@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { datasetsApi, type DatasetCreatePayload, type DatasetUpdatePayload } from "../api/datasets";
 import {
   storageConnectionsApi,
@@ -85,9 +86,25 @@ export function useDatasetItems(
 
 export function useScanDatasetItems(datasetId: string) {
   const qc = useQueryClient();
+  const attemptRef = useRef<{ datasetId: string; key: string } | null>(null);
   return useMutation({
-    mutationFn: () => datasetsApi.scanItems(datasetId),
-    onSuccess: () => {
+    mutationFn: (request?: { idempotencyKey?: string }) => {
+      const key =
+        request?.idempotencyKey ??
+        (attemptRef.current?.datasetId === datasetId
+          ? attemptRef.current.key
+          : crypto.randomUUID());
+      attemptRef.current = { datasetId, key };
+      return datasetsApi.scanItems(datasetId, { idempotencyKey: key });
+    },
+    retry: false,
+    onSuccess: (_result, request) => {
+      if (
+        attemptRef.current?.datasetId === datasetId &&
+        (!request?.idempotencyKey || attemptRef.current.key === request.idempotencyKey)
+      ) {
+        attemptRef.current = null;
+      }
       qc.invalidateQueries({ queryKey: ["datasets"] });
       qc.invalidateQueries({ queryKey: ["dataset-items", datasetId] });
       qc.invalidateQueries({ queryKey: ["tasks"] });

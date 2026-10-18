@@ -5977,20 +5977,6 @@
         "title": "Body_upload_avatar_api_v1_auth_me_avatar_post",
         "type": "object"
       },
-      "Body_upload_zip_api_v1_datasets__dataset_id__items_upload_zip_post": {
-        "properties": {
-          "file": {
-            "contentMediaType": "application/octet-stream",
-            "title": "File",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file"
-        ],
-        "title": "Body_upload_zip_api_v1_datasets__dataset_id__items_upload_zip_post",
-        "type": "object"
-      },
       "Box3DGeometry": {
         "additionalProperties": true,
         "description": "v0.13.0 · LiDAR 3D 框。center/size/rotation 各为长度 3 的列表\n(x,y,z 米 / 长宽高 / 绕各轴弧度)。extra=\"allow\" 容纳标定/属性等扩展字段。",
@@ -58103,6 +58089,7 @@
     },
     "/api/v1/datasets/{dataset_id}/items/scan": {
       "post": {
+        "description": "同步扫描数据集旧存储前缀，只导入新文件。",
         "operationId": "scan_items_api_v1_datasets__dataset_id__items_scan_post",
         "parameters": [
           {
@@ -58114,6 +58101,23 @@
               "title": "Dataset Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -58123,7 +58127,16 @@
                 "schema": {}
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to reconcile a lost response.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -58315,7 +58328,7 @@
     },
     "/api/v1/datasets/{dataset_id}/items/upload-zip": {
       "post": {
-        "description": "前端 multipart 上传单个 ZIP 包，由后端解压并把每个文件入库 + 上传到 MinIO。\n\n限制：≤ 200MB 整包、≤ 5000 文件、单文件 ≤ 100MB；自动跳过 macOS 元数据（__MACOSX/）\n与隐藏文件（.DS_Store 等）；同名文件以路径 hash 后缀去重。",
+        "description": "同步导入一个 ZIP，返回新增/去重/跳过、逐文件失败和场景推断结果。\n\n压缩包最多 200 MiB、5000 个文件；单文件最多 100 MiB，压缩比最多 100。\n响应不确定时使用相同文件和 Idempotency-Key 重放已完成回执。",
         "operationId": "upload_zip_api_v1_datasets__dataset_id__items_upload_zip_post",
         "parameters": [
           {
@@ -58327,13 +58340,39 @@
               "title": "Dataset Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_zip_api_v1_datasets__dataset_id__items_upload_zip_post"
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
               }
             }
           },
@@ -58346,7 +58385,16 @@
                 "schema": {}
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to reconcile a lost response.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

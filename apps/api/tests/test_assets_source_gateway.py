@@ -1,4 +1,5 @@
 import json
+import io
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -6,6 +7,7 @@ from uuid import UUID
 import httpx
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 from starlette.responses import Response
 
 from aap_assets_source.contract import (
@@ -16,6 +18,12 @@ from aap_assets_source.contract import (
     UploadOutcome,
 )
 from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
+from aap_assets_source.ingest_contract import (
+    INGEST_SCHEMA,
+    SCAN_REQUEST_DIGEST,
+    IngestCommand,
+    IngestReceipt,
+)
 from aap_assets_source.legacy_upload_contract import (
     LegacyUploadCompletion,
     LegacyUploadLockRequest,
@@ -29,6 +37,7 @@ from app.services.assets_source import (
     AssetsSourceGatewayError,
     _LegacyUploadData,
     _LocalStoragePort,
+    encode_ingest_public_result,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -39,6 +48,62 @@ ITEM = UUID("30000000-0000-4000-8000-000000000003")
 OPERATION = UUID("40000000-0000-4000-8000-000000000004")
 OTHER_ITEM = UUID("50000000-0000-4000-8000-000000000005")
 TOKEN = "source-test-token-" + ("x" * 32)
+
+
+def _ingest_reply(command: IngestCommand, *, kind: str) -> dict:
+    receipt = IngestReceipt(
+        operation_id=command.operation_id,
+        actor_id=command.actor_id,
+        dataset_id=command.dataset_id,
+        kind=kind,
+        request_digest=SCAN_REQUEST_DIGEST if kind == "scan" else "a" * 64,
+        added=0,
+        deduped=0,
+        skipped=0,
+        errors=[],
+        error_count=0,
+        total_in_zip=0 if kind == "zip" else None,
+        linked_tasks=0,
+        scene_inference_notes=[],
+    )
+    return {
+        "schema": INGEST_SCHEMA,
+        "ok": True,
+        "data": receipt.model_dump(mode="json"),
+    }
+
+
+def _multipart_request(payload: bytes) -> Request:
+    boundary = b"assets-ingest-test"
+    body = (
+        b"--" + boundary + b"\r\n"
+        b'Content-Disposition: form-data; name="file"; filename="scene.zip"\r\n'
+        b"Content-Type: application/zip\r\n\r\n"
+        + payload
+        + b"\r\n--"
+        + boundary
+        + b"--\r\n"
+    )
+    sent = False
+
+    async def receive():
+        nonlocal sent
+        if sent:
+            return {"type": "http.disconnect"}
+        sent = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/datasets/items/upload-zip",
+            "headers": [
+                (b"content-type", b"multipart/form-data; boundary=" + boundary)
+            ],
+        },
+        receive,
+    )
 
 
 @pytest.mark.parametrize(
@@ -222,6 +287,34 @@ async def test_local_gateway_composes_the_shared_runtime_workflow(monkeypatch):
 
     assert isinstance(gateway._local_workflow(), UploadWorkflow)
     assert not gateway.is_remote
+
+
+async def test_local_ingest_uses_shared_workflow_sql_port_and_explicit_bucket(
+    monkeypatch,
+):
+    from aap_assets_source_runtime.ingest_storage import IngestStorage
+    from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+    from app.services.assets_source_ingest import DatasetSourceIngestData
+
+    monkeypatch.setattr(settings, "assets_source_url", "")
+    monkeypatch.setattr(settings, "assets_source_token", "")
+    client = object()
+    storage = SimpleNamespace(
+        client=client,
+        datasets_bucket="source-datasets",
+        media_cache_bucket="source-cache",
+    )
+    db = AsyncMock()
+    gateway = AssetsSourceGateway(db, storage=storage)
+
+    workflow = gateway._local_ingest_workflow()
+
+    assert isinstance(workflow, IngestWorkflow)
+    assert isinstance(workflow._data, DatasetSourceIngestData)
+    assert isinstance(workflow._storage, IngestStorage)
+    assert workflow._storage._client is client
+    assert workflow._storage.datasets_bucket == "source-datasets"
+    db.scalar.assert_not_awaited()
 
 
 async def test_remote_response_limit_is_enforced(monkeypatch):
@@ -498,3 +591,295 @@ async def test_delete_route_does_not_commit_local_session_for_remote_owner(monke
         idempotency_key=None,
     )
     db.commit.assert_not_awaited()
+
+
+class _SizedReadStream(io.BytesIO):
+    def read(self, size=-1):
+        assert size >= 0, "ZIP forwarding must not read the full archive at once"
+        return super().read(size)
+
+
+async def test_remote_ingest_zip_streams_raw_bytes_and_never_falls_back(monkeypatch):
+    monkeypatch.setattr(settings, "assets_source_url", "http://source.internal:8767")
+    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+    command = IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+    )
+    seen = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_ingest_reply(command, kind="zip"))
+
+    db = AsyncMock()
+    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    receipt = await gateway.ingest_zip(command, _SizedReadStream(b"zip bytes"))
+
+    assert receipt.kind == "zip"
+    assert len(seen) == 1
+    request = seen[0]
+    assert request.url.path == "/v1/source/upload-zip"
+    assert dict(request.url.params) == {
+        "operation_id": str(OPERATION),
+        "actor_id": str(ACTOR),
+        "dataset_id": str(DATASET),
+    }
+    assert request.headers["content-type"] == "application/zip"
+    assert request.headers["authorization"] == f"Bearer {TOKEN}"
+    assert request.content == b"zip bytes"
+    db.scalar.assert_not_awaited()
+
+
+async def test_remote_ingest_scan_sends_typed_command_and_receipt(monkeypatch):
+    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
+    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+    command = IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+    )
+    seen = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_ingest_reply(command, kind="scan"))
+
+    db = AsyncMock()
+    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    receipt = await gateway.ingest_scan(command)
+
+    assert receipt.kind == "scan"
+    assert len(seen) == 1
+    assert seen[0].url.path == "/v1/source/scan"
+    assert seen[0].headers["content-type"] == "application/json"
+    assert json.loads(seen[0].content) == command.model_dump(mode="json")
+    db.scalar.assert_not_awaited()
+
+
+async def test_remote_ingest_preserves_archive_failure_and_maps_bad_reply(monkeypatch):
+    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
+    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+    command = IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+    )
+    failure = {
+        "schema": INGEST_SCHEMA,
+        "ok": False,
+        "error": {
+            "code": "resource_budget_exceeded",
+            "detail": {
+                "reason": "resource_budget_exceeded",
+                "message": "ZIP package exceeds the compressed-byte limit",
+                "budget": "compressed_bytes",
+                "limit": 209715200,
+                "observed": 209715201,
+            },
+        },
+    }
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(413, json=failure)
+
+    db = AsyncMock()
+    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    with pytest.raises(AssetsSourceGatewayError) as raised:
+        await gateway.ingest_zip(command, _SizedReadStream(b"zip"))
+    assert raised.value.status_code == 413
+    assert raised.value.detail == failure["error"]["detail"]
+    db.scalar.assert_not_awaited()
+
+    async def bad_reply(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"schema": INGEST_SCHEMA, "ok": "yes"})
+
+    bad_gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(bad_reply))
+    with pytest.raises(AssetsSourceGatewayError) as bad:
+        await bad_gateway.ingest_scan(command)
+    assert bad.value.status_code == 502
+    db.scalar.assert_not_awaited()
+
+
+async def test_zip_route_commits_after_receipt_validation_and_echoes_key(monkeypatch):
+    command_data = []
+    uploaded = []
+
+    class Gateway:
+        is_remote = False
+
+        async def ingest_zip(self, command, source):
+            command_data.append(command)
+            uploaded.append(source.read())
+            return IngestReceipt.model_validate(
+                _ingest_reply(command, kind="zip")["data"]
+            )
+
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+
+    response = await dataset_routes.upload_zip(
+        DATASET,
+        _multipart_request(b"zip bytes"),
+        db,
+        SimpleNamespace(id=ACTOR),
+        idempotency_key=OPERATION,
+    )
+
+    assert uploaded == [b"zip bytes"]
+    assert command_data[0].operation_id == OPERATION
+    assert command_data[0].actor_id == ACTOR
+    assert command_data[0].dataset_id == DATASET
+    assert json.loads(response.body) == {
+        "added": 0,
+        "deduped": 0,
+        "skipped": 0,
+        "errors": [],
+        "total_in_zip": 0,
+        "linked_tasks": 0,
+        "scene_inference_notes": [],
+    }
+    assert response.headers["Idempotency-Key"] == str(OPERATION)
+    db.commit.assert_awaited_once()
+    db.rollback.assert_not_awaited()
+
+
+async def test_scan_route_does_not_commit_remote_session(monkeypatch):
+    command_data = []
+
+    class Gateway:
+        is_remote = True
+
+        async def ingest_scan(self, command):
+            command_data.append(command)
+            return IngestReceipt.model_validate(
+                _ingest_reply(command, kind="scan")["data"]
+            )
+
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+
+    response = await dataset_routes.scan_items(
+        DATASET,
+        db,
+        SimpleNamespace(id=ACTOR),
+        idempotency_key=OPERATION,
+    )
+
+    assert command_data[0].operation_id == OPERATION
+    assert json.loads(response.body) == {
+        "status": "ok",
+        "new_items": 0,
+        "linked_tasks": 0,
+    }
+    assert response.headers["Idempotency-Key"] == str(OPERATION)
+    db.commit.assert_not_awaited()
+    db.rollback.assert_not_awaited()
+
+
+async def test_ingest_public_response_is_size_bounded(monkeypatch):
+    command = IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+    )
+    receipt = IngestReceipt.model_validate(_ingest_reply(command, kind="zip")["data"])
+    monkeypatch.setattr("app.services.assets_source.MAX_SOURCE_RESPONSE_BYTES", 1)
+
+    with pytest.raises(AssetsSourceGatewayError) as raised:
+        encode_ingest_public_result(receipt)
+
+    assert raised.value.status_code == 502
+
+
+@pytest.mark.parametrize(
+    ("code", "detail", "status", "public_detail"),
+    [
+        (
+            "reserved_namespace",
+            None,
+            422,
+            "Dataset name uses a reserved storage namespace",
+        ),
+        (
+            "temporal_scenes_missing",
+            None,
+            422,
+            "声明为时序数据集但未识别出任何 scene,请检查目录结构",
+        ),
+        (
+            "scene_conflict",
+            {
+                "reason": "scene_conflict",
+                "message": "Scene name already exists",
+                "conflicts_with": "scene-a",
+            },
+            409,
+            {"reason": "scene_conflict", "conflicts_with": "scene-a"},
+        ),
+        ("operation_conflict", None, 409, {"reason": "operation_conflict"}),
+    ],
+)
+async def test_ingest_public_error_status_and_detail_mapping(
+    monkeypatch, code, detail, status, public_detail
+):
+    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
+    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+    command = IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+    )
+    error = {"code": code}
+    if detail is not None:
+        error["detail"] = detail
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status,
+            json={"schema": INGEST_SCHEMA, "ok": False, "error": error},
+        )
+
+    db = AsyncMock()
+    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    with pytest.raises(AssetsSourceGatewayError) as raised:
+        await gateway.ingest_scan(command)
+
+    assert raised.value.status_code == status
+    assert raised.value.detail == public_detail
+    db.scalar.assert_not_awaited()
+
+
+async def test_remote_ingest_transport_failure_is_503_without_local_fallback(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
+    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+    command = IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+    )
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("source is offline")
+
+    db = AsyncMock()
+    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    with pytest.raises(AssetsSourceGatewayError) as raised:
+        await gateway.ingest_scan(command)
+
+    assert raised.value.status_code == 503
+    db.scalar.assert_not_awaited()
+
+    async def unavailable(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="source unavailable")
+
+    unavailable_gateway = AssetsSourceGateway(
+        db, transport=httpx.MockTransport(unavailable)
+    )
+    with pytest.raises(AssetsSourceGatewayError) as unavailable_error:
+        await unavailable_gateway.ingest_scan(command)
+    assert unavailable_error.value.status_code == 503
+    db.scalar.assert_not_awaited()

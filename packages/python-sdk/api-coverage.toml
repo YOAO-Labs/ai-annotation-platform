@@ -120,6 +120,7 @@ watched_tags = ["*"]
 "POST /api/v1/datasets/{dataset_id}/backfill-dimensions" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/backfill-media" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/import-from-connection" = { status = "covered" }
+# Synchronous source ingest accepts an optional caller UUID; SDK and CLI never retry it automatically.
 "POST /api/v1/datasets/{dataset_id}/items/scan" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/items/upload-complete/{item_id}" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/items/upload-init" = { status = "covered" }

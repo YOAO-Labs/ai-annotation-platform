@@ -153,14 +153,58 @@ describe("datasetsApi · endpoint 契约", () => {
   });
 
   it("scan / backfill", () => {
-    datasetsApi.scanItems("d1");
-    expect(post).toHaveBeenCalledWith("/datasets/d1/items/scan");
+    const idempotencyKey = "35d9bbf7-2410-4d34-9ca0-6cb9b13ea83b";
+    datasetsApi.scanItems("d1", { idempotencyKey });
+    expect(post).toHaveBeenCalledWith("/datasets/d1/items/scan", undefined, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
     datasetsApi.backfillDimensions("d1");
     expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-dimensions?batch=50");
     datasetsApi.backfillDimensions("d1", 200);
     expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-dimensions?batch=200");
     datasetsApi.backfillMedia("d1");
     expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-media");
+  });
+
+  it("uploadZip sends the saved key on one progress-enabled XHR", async () => {
+    class TestXMLHttpRequest {
+      status = 200;
+      responseText = JSON.stringify({
+        added: 1,
+        deduped: 0,
+        skipped: 0,
+        errors: [],
+        total_in_zip: 1,
+        linked_tasks: 1,
+        scene_inference_notes: [],
+      });
+      upload = { onprogress: null as ((event: ProgressEvent) => void) | null };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      open = vi.fn();
+      setRequestHeader = vi.fn();
+      send = vi.fn(() => this.onload?.());
+    }
+
+    let xhr: TestXMLHttpRequest | undefined;
+    vi.stubGlobal(
+      "XMLHttpRequest",
+      vi.fn(() => {
+        xhr = new TestXMLHttpRequest();
+        return xhr;
+      }),
+    );
+    try {
+      const idempotencyKey = "7b14b573-3203-4d64-8b51-6ab7b5fbe4cb";
+      await datasetsApi.uploadZip("d1", new File(["zip"], "scene.zip"), {
+        idempotencyKey,
+      });
+      expect(xhr?.open).toHaveBeenCalledWith("POST", "/api/v1/datasets/d1/items/upload-zip");
+      expect(xhr?.setRequestHeader).toHaveBeenCalledWith("Idempotency-Key", idempotencyKey);
+      expect(xhr?.send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("deleteItem / link / unlink / preview-unlink", () => {

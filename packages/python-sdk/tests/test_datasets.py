@@ -619,9 +619,67 @@ def test_upload_zip(client, respx_mock, tmp_path):
     content = route.calls.last.request.content
     assert b'name="file"' in content
     assert b'filename="data.zip"' in content
+    assert route.calls.last.request.headers.get("Idempotency-Key") is None
     assert isinstance(result, ZipUploadResult)
     assert result.added == 3
     assert result.skipped == 1
+
+
+def test_ingest_operations_reuse_only_caller_supplied_keys(
+    client, respx_mock, tmp_path
+):
+    key = str(uuid4())
+    z = tmp_path / "data.zip"
+    z.write_bytes(b"PK\x03\x04fakezip")
+    upload = respx_mock.post(f"{API}/datasets/{DS_ID}/items/upload-zip").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "added": 0,
+                "deduped": 0,
+                "skipped": 0,
+                "errors": [],
+                "total_in_zip": 0,
+                "linked_tasks": 0,
+                "scene_inference_notes": [],
+            },
+        )
+    )
+    scan = respx_mock.post(f"{API}/datasets/{DS_ID}/items/scan").mock(
+        return_value=httpx.Response(
+            200, json={"status": "ok", "new_items": 0, "linked_tasks": 0}
+        )
+    )
+
+    client.datasets.upload_zip(DS_ID, z, idempotency_key=key)
+    client.datasets.upload_zip(DS_ID, z, idempotency_key=key)
+    client.datasets.scan_items(DS_ID, idempotency_key=key)
+
+    assert [call.request.headers["Idempotency-Key"] for call in upload.calls] == [
+        key,
+        key,
+    ]
+    assert scan.calls.last.request.headers["Idempotency-Key"] == key
+    assert all(b"fakezip" in call.request.content for call in upload.calls)
+
+
+def test_ingest_invalid_idempotency_key_sends_no_request(client, respx_mock, tmp_path):
+    z = tmp_path / "data.zip"
+    z.write_bytes(b"PK\x03\x04fakezip")
+    upload = respx_mock.post(f"{API}/datasets/{DS_ID}/items/upload-zip").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    scan = respx_mock.post(f"{API}/datasets/{DS_ID}/items/scan").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    with pytest.raises(ValueError, match="idempotency_key must be a UUID"):
+        client.datasets.upload_zip(DS_ID, z, idempotency_key="invalid")
+    with pytest.raises(ValueError, match="idempotency_key must be a UUID"):
+        client.datasets.scan_items(DS_ID, idempotency_key="invalid")
+
+    assert upload.call_count == 0
+    assert scan.call_count == 0
 
 
 def test_link_project_async(client, respx_mock):
@@ -711,6 +769,7 @@ def test_dataset_operation_routes_and_typed_responses(client, respx_mock):
     )
     assert client.datasets.scan_items(DS_ID).new_items == 3
     assert scan.called
+    assert scan.calls.last.request.headers.get("Idempotency-Key") is None
 
     camera_item_id = str(uuid4())
     sniff = respx_mock.post(f"{API}/datasets/{DS_ID}/sniff-axis-convention").mock(

@@ -196,7 +196,8 @@ aap projects update <project-id> --name demo-v2
 
 aap datasets create --name demo-ds
 aap datasets upload <dataset-id> ./imgs            # 目录/单文件逐个上传(进度条)
-aap datasets upload <dataset-id> ./data.zip --zip  # ZIP 整包上传
+aap datasets upload <dataset-id> ./data.zip --zip --idempotency-key <saved-uuid>
+aap datasets scan-items <dataset-id> --idempotency-key <saved-uuid> --yes
 aap datasets link <dataset-id> <project-id>        # 异步建任务时自动等待 job
 aap datasets preview-unlink <dataset-id> <project-id>
 aap datasets unlink <dataset-id> <project-id> --yes --idempotency-key <saved-uuid>
@@ -222,6 +223,9 @@ aap service-pools topology --json                  # 路由拓扑的机器可读
 
 aap tui        # 按需加载的终端监控与轻运维台；需要 [tui] extras
 ```
+
+ZIP 上传和存储扫描均为同步操作。调用前生成并保存一个 UUID；响应不确定时继续传入相同的
+`--idempotency-key`。SDK 和 CLI 不会自动生成键，也不会自动重试这两个 POST。
 
 所有命令支持 `--json`:输出裸 JSON、无 rich 装饰/进度条,退出码非 0 表示失败,供 CI/脚本使用。破坏性命令的 JSON 模式必须显式传 `--yes`；本地确认不会绕过服务端权限。错误默认写到 stderr 文本提示；根选项 `--error-format json` 可选择结构化错误，成功输出与退出码约定不变。
 

@@ -533,8 +533,19 @@ class Datasets:
         )
         return DatasetImportFromConnectionResult.model_validate(response.json())
 
-    def scan_items(self, dataset_id: IdLike) -> DatasetScanItemsResult:
-        response = self._http.request("POST", f"/datasets/{dataset_id}/items/scan")
+    def scan_items(
+        self, dataset_id: IdLike, *, idempotency_key: IdLike | None = None
+    ) -> DatasetScanItemsResult:
+        """Scan synchronously; reuse a caller-saved UUID after an uncertain response."""
+        response = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/items/scan",
+            headers=(
+                _dataset_idempotency_header(idempotency_key)
+                if idempotency_key is not None
+                else None
+            ),
+        )
         return DatasetScanItemsResult.model_validate(response.json())
 
     def sniff_axis_convention(self, dataset_id: IdLike) -> DatasetSniffAxisResult:
@@ -627,14 +638,26 @@ class Datasets:
                 on_progress(i + 1, len(files), path.name)
         return items
 
-    def upload_zip(self, dataset_id: IdLike, zip_path: str | Path) -> ZipUploadResult:
-        """multipart 上传单个 ZIP 包, 后端解压入库 (≤200MB / ≤5000 文件)。"""
+    def upload_zip(
+        self,
+        dataset_id: IdLike,
+        zip_path: str | Path,
+        *,
+        idempotency_key: IdLike | None = None,
+    ) -> ZipUploadResult:
+        """Upload one ZIP synchronously; reuse a caller-saved UUID after uncertainty."""
         path = Path(zip_path)
+        headers = (
+            _dataset_idempotency_header(idempotency_key)
+            if idempotency_key is not None
+            else None
+        )
         with path.open("rb") as f:
             resp = self._http.request(
                 "POST",
                 f"/datasets/{dataset_id}/items/upload-zip",
                 files={"file": (path.name, f, "application/zip")},
+                headers=headers,
             )
         return ZipUploadResult.model_validate(resp.json())
 

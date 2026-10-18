@@ -10,13 +10,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import uuid
 import zipfile
+from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select
+from botocore.exceptions import ClientError
 
+from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 
@@ -30,16 +35,101 @@ def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-class _FakePutOnlyClient:
-    """仅实现 put_object 的 fake storage client（用于 upload_zip 路径）。"""
+class _FakeDatasetSourceStorage:
+    """Small S3 fake for immutable ZIP publications and legacy observations."""
 
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.parts: dict[str, list[bytes]] = {}
+        self.deleted: list[str] = []
+        self._next_upload_id = 0
 
-    def put_object(self, *, Bucket, Key, Body, ContentType=None):
-        self.objects[Key] = bytes(Body)
+    @staticmethod
+    def _etag(body: bytes) -> str:
+        return f'"{hashlib.md5(body).hexdigest()}"'
+
+    def put_object(self, *, Bucket, Key, Body, ContentType=None, IfNoneMatch=None):
+        if hasattr(Body, "read"):
+            Body = Body.read()
+        body = Body if isinstance(Body, bytes) else bytes(Body)
+        if Key in self.objects:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
+        self.objects[Key] = body
+
+    def head_object(self, *, Bucket, Key, IfMatch=None):
+        body = self.objects.get(Key)
+        if body is None:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        etag = self._etag(body)
+        if IfMatch is not None and IfMatch != etag:
+            raise ClientError({"Error": {"Code": "412"}}, "HeadObject")
+        return {"ContentLength": len(body), "ETag": etag}
+
+    def get_object(self, *, Bucket, Key, Range=None, IfMatch=None):
+        metadata = self.head_object(Bucket=Bucket, Key=Key, IfMatch=IfMatch)
+        body = self.objects[Key]
+        if Range:
+            start, end = Range.removeprefix("bytes=").split("-", 1)
+            body = body[int(start) : int(end) + 1]
+        return {**metadata, "Body": io.BytesIO(body)}
+
+    def list_objects_v2(self, *, Bucket, Prefix, ContinuationToken=None, MaxKeys=1000):
+        keys = sorted(
+            key
+            for key in self.objects
+            if key.startswith(Prefix) and not key.endswith("/")
+        )
+        if ContinuationToken:
+            keys = [key for key in keys if key > ContinuationToken]
+        page = keys[:MaxKeys]
+        return {
+            "Contents": [
+                {
+                    "Key": key,
+                    "Size": len(self.objects[key]),
+                    "ETag": self._etag(self.objects[key]),
+                }
+                for key in page
+            ],
+            "IsTruncated": len(keys) > MaxKeys,
+            **({"NextContinuationToken": page[-1]} if len(keys) > MaxKeys else {}),
+        }
+
+    def get_paginator(self, operation_name):
+        assert operation_name == "list_objects_v2"
+        client = self
+
+        class Paginator:
+            def paginate(self, **parameters):
+                yield client.list_objects_v2(**parameters)
+
+        return Paginator()
+
+    def create_multipart_upload(self, *, Bucket, Key, ContentType, IfNoneMatch="*"):
+        self._next_upload_id += 1
+        upload_id = str(self._next_upload_id)
+        self.parts[upload_id] = []
+        return {"UploadId": upload_id}
+
+    def upload_part(self, *, Bucket, Key, PartNumber, UploadId, Body):
+        self.parts[UploadId].append(bytes(Body))
+        return {"ETag": f'"part-{PartNumber}"'}
+
+    def complete_multipart_upload(
+        self, *, Bucket, Key, UploadId, MultipartUpload, IfNoneMatch="*"
+    ):
+        if Key in self.objects:
+            raise ClientError(
+                {"Error": {"Code": "PreconditionFailed"}}, "CompleteMultipartUpload"
+            )
+        self.objects[Key] = b"".join(self.parts.pop(UploadId))
+        return {"ETag": self._etag(self.objects[Key])}
+
+    def abort_multipart_upload(self, *, Bucket, Key, UploadId):
+        self.parts.pop(UploadId, None)
 
     def delete_object(self, *, Bucket, Key):
+        self.deleted.append(Key)
         self.objects.pop(Key, None)
 
     def head_bucket(self, *, Bucket):
@@ -73,8 +163,24 @@ async def _create_dataset(
     return resp.json()
 
 
-def _noop(*args, **kwargs):
-    return None
+def _assert_zip_storage_paths(
+    ds_id: str, rows: list[DatasetItem], expected: set[str]
+) -> None:
+    logical_paths = {
+        (item.metadata_ or {}).get("source_ingest", {}).get("relpath"): item
+        for item in rows
+    }
+    assert set(logical_paths) == expected
+    for relpath, item in logical_paths.items():
+        key_parts = item.file_path.split("/", 4)
+        assert key_parts[:3] == ["dataset-sources", ds_id, str(item.id)]
+        assert uuid.UUID(key_parts[3])
+        assert key_parts[4] == relpath
+
+
+def _use_local_source_runtime(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "assets_source_url", "")
+    monkeypatch.setattr(settings, "assets_source_token", "")
 
 
 # ──────────────────────────── test cases ─────────────────────────────────────
@@ -140,16 +246,15 @@ async def test_upload_zip_preserves_subdirectories(
 ):
     """上传含子目录的 zip → DatasetItem.file_path 保留完整子路径，不拍平。"""
     user, token = super_admin
+    _use_local_source_runtime(monkeypatch)
 
-    fake_client = _FakePutOnlyClient()
+    fake_client = _FakeDatasetSourceStorage()
     monkeypatch.setattr(storage_service, "client", fake_client)
-    monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
 
     ds = await _create_dataset(
         httpx_client, token, f"pc-d1-{uuid.uuid4().hex[:6]}", "point_cloud"
     )
     ds_id = ds["id"]
-    ds_name = ds["name"]
 
     zip_bytes = _make_zip(
         {
@@ -168,7 +273,7 @@ async def test_upload_zip_preserves_subdirectories(
     body = resp.json()
     assert body["added"] == 3, body
 
-    # 查 DB：file_path 应含子目录
+    # Logical paths preserve the ZIP subtree under immutable publications.
     rows = (
         (
             await db_session.execute(
@@ -178,14 +283,15 @@ async def test_upload_zip_preserves_subdirectories(
         .scalars()
         .all()
     )
-    file_paths = {item.file_path for item in rows}
-    assert f"{ds_name}/lidar/000970.pcd" in file_paths
-    assert f"{ds_name}/camera/front/000970.jpg" in file_paths
-    assert f"{ds_name}/calib/camera/front.json" in file_paths
-
-    # 旧拍平行为（basename only）不应存在
-    assert f"{ds_name}/000970.pcd" not in file_paths
-    assert f"{ds_name}/000970.jpg" not in file_paths
+    _assert_zip_storage_paths(
+        ds_id,
+        rows,
+        {
+            "lidar/000970.pcd",
+            "camera/front/000970.jpg",
+            "calib/camera/front.json",
+        },
+    )
 
 
 async def test_upload_zip_zipslip_rejected(
@@ -193,20 +299,20 @@ async def test_upload_zip_zipslip_rejected(
 ):
     """ZIP 含 '../etc/passwd' 的 entry 被跳过，正常 entry 正常入库。"""
     user, token = super_admin
+    _use_local_source_runtime(monkeypatch)
 
-    fake_client = _FakePutOnlyClient()
+    fake_client = _FakeDatasetSourceStorage()
     monkeypatch.setattr(storage_service, "client", fake_client)
-    monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
 
     ds = await _create_dataset(
         httpx_client, token, f"pc-slip-{uuid.uuid4().hex[:6]}", "point_cloud"
     )
     ds_id = ds["id"]
-    ds_name = ds["name"]
 
     zip_bytes = _make_zip(
         {
             "../etc/passwd": b"root:x:0:0",
+            ".DS_Store": b"metadata",
             "lidar/a.pcd": b"legit-pcd",
         }
     )
@@ -220,8 +326,9 @@ async def test_upload_zip_zipslip_rejected(
     body = resp.json()
     # 正常文件入库
     assert body["added"] == 1, body
-    # 恶意 entry 跳过
-    assert body["skipped"] == 1, body
+    # Unsafe and hidden entries are skipped and excluded from total_in_zip.
+    assert body["skipped"] == 2, body
+    assert body["total_in_zip"] == 1, body
 
     rows = (
         (
@@ -233,7 +340,7 @@ async def test_upload_zip_zipslip_rejected(
         .all()
     )
     assert len(rows) == 1
-    assert rows[0].file_path == f"{ds_name}/lidar/a.pcd"
+    _assert_zip_storage_paths(ds_id, rows, {"lidar/a.pcd"})
 
 
 async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
@@ -241,17 +348,16 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
 ):
     """跨子目录同名文件：内容不同 → 两条都入库；内容相同 → 只入 1 条（deduped==1）。"""
     user, token = super_admin
+    _use_local_source_runtime(monkeypatch)
 
-    fake_client = _FakePutOnlyClient()
+    fake_client = _FakeDatasetSourceStorage()
     monkeypatch.setattr(storage_service, "client", fake_client)
-    monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
 
     # ── 情况 A：内容不同，两条都入库 ──
     ds_a = await _create_dataset(
         httpx_client, token, f"dedup-a-{uuid.uuid4().hex[:6]}", "image"
     )
     ds_a_id = ds_a["id"]
-    ds_a_name = ds_a["name"]
 
     zip_bytes_a = _make_zip(
         {
@@ -278,9 +384,11 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
         .scalars()
         .all()
     )
-    paths_a = {r.file_path for r in rows_a}
-    assert f"{ds_a_name}/camera/front/000970.jpg" in paths_a
-    assert f"{ds_a_name}/camera/left/000970.jpg" in paths_a
+    _assert_zip_storage_paths(
+        ds_a_id,
+        rows_a,
+        {"camera/front/000970.jpg", "camera/left/000970.jpg"},
+    )
 
     # ── 情况 B：内容完全相同，只入 1 条 ──
     ds_b = await _create_dataset(
@@ -306,15 +414,89 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
     assert body_b["deduped"] == 1, body_b
 
 
+async def test_upload_zip_rollback_retains_old_and_new_immutable_source_bytes(
+    httpx_client, db_session, super_admin, monkeypatch
+):
+    _, token = super_admin
+    _use_local_source_runtime(monkeypatch)
+    fake_client = _FakeDatasetSourceStorage()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+    ds = await _create_dataset(
+        httpx_client, token, f"immutable-{uuid.uuid4().hex[:6]}", "other"
+    )
+    ds_id = ds["id"]
+
+    first_bytes = b"old source bytes"
+    first_response = await httpx_client.post(
+        f"/api/v1/datasets/{ds_id}/items/upload-zip",
+        headers={**_bearer(token), "Idempotency-Key": str(uuid.uuid4())},
+        files={
+            "file": (
+                "first.zip",
+                _make_zip({"nested/asset.bin": first_bytes}),
+                "application/zip",
+            )
+        },
+    )
+    assert first_response.status_code == 200, first_response.text
+    first_item = (
+        await db_session.execute(
+            select(DatasetItem).where(DatasetItem.dataset_id == uuid.UUID(ds_id))
+        )
+    ).scalar_one()
+    old_key = first_item.file_path
+    assert fake_client.objects[old_key] == first_bytes
+
+    monkeypatch.setattr(
+        db_session,
+        "commit",
+        AsyncMock(side_effect=SQLAlchemyError("forced outer commit failure")),
+    )
+    replacement_bytes = b"new source bytes"
+    failed_response = await httpx_client.post(
+        f"/api/v1/datasets/{ds_id}/items/upload-zip",
+        headers={**_bearer(token), "Idempotency-Key": str(uuid.uuid4())},
+        files={
+            "file": (
+                "replacement.zip",
+                _make_zip({"nested/asset.bin": replacement_bytes}),
+                "application/zip",
+            )
+        },
+    )
+
+    assert failed_response.status_code == 503, failed_response.text
+    publication_keys = [
+        key
+        for key in fake_client.objects
+        if key.startswith(f"dataset-sources/{ds_id}/")
+        and key.endswith("/nested/asset.bin")
+    ]
+    assert len(publication_keys) == 2, publication_keys
+    assert fake_client.objects[old_key] == first_bytes
+    assert replacement_bytes in [fake_client.objects[key] for key in publication_keys]
+    assert fake_client.deleted == []
+    rows = (
+        (
+            await db_session.execute(
+                select(DatasetItem).where(DatasetItem.dataset_id == uuid.UUID(ds_id))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [item.id for item in rows] == [first_item.id]
+
+
 async def test_upload_zip_scene_auto_inferred(
     httpx_client, db_session, super_admin, monkeypatch
 ):
     """SUSTech 布局 zip 上传后自动建 1 个 scene，lidar items 得到 frame_index 0 和 1。"""
     user, token = super_admin
+    _use_local_source_runtime(monkeypatch)
 
-    fake_client = _FakePutOnlyClient()
+    fake_client = _FakeDatasetSourceStorage()
     monkeypatch.setattr(storage_service, "client", fake_client)
-    monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
 
     ds = await _create_dataset(
         httpx_client, token, f"scene-auto-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -372,6 +554,7 @@ async def test_upload_zip_scene_auto_inferred(
         .all()
     )
     assert len(lidar_items) == 2
+    assert {item.file_type for item in lidar_items} == {"other"}
     lidar_frame_indices = sorted(it.frame_index for it in lidar_items)
     assert lidar_frame_indices == [0, 1], lidar_frame_indices
 
@@ -381,10 +564,10 @@ async def test_upload_zip_multi_scene_per_subdirectory(
 ):
     """顶层两个非角色子目录各含 lidar → 建 2 个 scene。"""
     user, token = super_admin
+    _use_local_source_runtime(monkeypatch)
 
-    fake_client = _FakePutOnlyClient()
+    fake_client = _FakeDatasetSourceStorage()
     monkeypatch.setattr(storage_service, "client", fake_client)
-    monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
 
     ds = await _create_dataset(
         httpx_client, token, f"multi-scene-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -426,10 +609,10 @@ async def test_upload_zip_notes_reserved_role_top_level_mix(
 ):
     """顶层混用角色名与 scene 名时,响应 notes 指出保留目录名冲突。"""
     user, token = super_admin
+    _use_local_source_runtime(monkeypatch)
 
-    fake_client = _FakePutOnlyClient()
+    fake_client = _FakeDatasetSourceStorage()
     monkeypatch.setattr(storage_service, "client", fake_client)
-    monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
 
     ds = await _create_dataset(
         httpx_client, token, f"mixed-top-{uuid.uuid4().hex[:6]}", "point_cloud"
@@ -453,32 +636,15 @@ async def test_upload_zip_notes_reserved_role_top_level_mix(
     assert any("保留角色目录" in note and "import-formats.md" in note for note in notes)
 
 
-async def test_upload_zip_temporal_validation_failure_cleans_storage(
+async def test_upload_zip_temporal_validation_rejects_empty_archive(
     httpx_client, db_session, super_admin, monkeypatch
 ):
-    """时序数据集 scene 校验失败(422) → 本次已写入 MinIO 的对象必须被清理,不留孤儿。
-
-    构造:is_temporal=True 的 dataset,zip 只含根级文件(无子目录)→ scene_inference
-    推不出任何 scene → assert_temporal_dataset_has_scenes 抛 422。断言 fake storage
-    中已无残留对象,且 DatasetItem 因事务 rollback 未落库。
-    """
+    """Temporal ZIPs without importable files fail the owner-side scene guard."""
     user, token = super_admin
+    _use_local_source_runtime(monkeypatch)
 
-    fake_client = _FakePutOnlyClient()
+    fake_client = _FakeDatasetSourceStorage()
     monkeypatch.setattr(storage_service, "client", fake_client)
-    monkeypatch.setattr(storage_service, "read_image_dimensions_from_bytes", _noop)
-
-    # auto 模式下根级帧序列会塌缩成单 scene,无法稳定触发"无 scene"分支;
-    # 直接把 scene_inference 短路成不建 scene,真实跑后续 422 + 清理逻辑。
-    from app.services import scene_inference as _scene_inference
-
-    class _NoScene:
-        notes: list[str] = []
-
-    async def _infer_noop(*_args, **_kwargs):
-        return _NoScene()
-
-    monkeypatch.setattr(_scene_inference, "infer_and_apply", _infer_noop)
 
     ds = await _create_dataset(
         httpx_client,
@@ -489,12 +655,7 @@ async def test_upload_zip_temporal_validation_failure_cleans_storage(
     )
     ds_id = ds["id"]
 
-    zip_bytes = _make_zip(
-        {
-            "frame_000.jpg": b"img0",
-            "frame_001.jpg": b"img1",
-        }
-    )
+    zip_bytes = _make_zip({})
 
     resp = await httpx_client.post(
         f"/api/v1/datasets/{ds_id}/items/upload-zip",
@@ -502,11 +663,11 @@ async def test_upload_zip_temporal_validation_failure_cleans_storage(
         files={"file": ("flat.zip", zip_bytes, "application/zip")},
     )
     assert resp.status_code == 422, resp.text
+    assert (
+        resp.json()["detail"] == "声明为时序数据集但未识别出任何 scene,请检查目录结构"
+    )
 
-    # 本次上传写入的对象应被清理,不留孤儿;dataset 创建时的文件夹占位
-    # ("{name}/" 空对象)属于 dataset 本身,不在本次清理范围内,允许保留。
-    leftover_files = [k for k in fake_client.objects if not k.endswith("/")]
-    assert leftover_files == [], leftover_files
+    assert [key for key in fake_client.objects if not key.endswith("/")] == []
 
     # 事务 rollback,DatasetItem 不应落库
     rows = (

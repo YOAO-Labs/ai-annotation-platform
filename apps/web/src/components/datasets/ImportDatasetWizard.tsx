@@ -30,9 +30,12 @@ const ZIP_MAX_BYTES = 200 * 1024 * 1024;
 
 interface ZipResult {
   added: number;
+  deduped: number;
   skipped: number;
   errors: Array<{ name: string; error: string }>;
   total_in_zip: number;
+  linked_tasks: number;
+  scene_inference_notes: string[];
 }
 
 interface Props {
@@ -109,6 +112,11 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
   const tickRef = useRef(0);
   const createAttemptRef = useRef<{ request: string; key: string } | null>(null);
   const connectionImportAttemptRef = useRef<{ request: string; key: string } | null>(null);
+  const zipUploadAttemptRef = useRef<{
+    datasetId: string;
+    file: File;
+    key: string;
+  } | null>(null);
   const [, force] = useState(0);
 
   useEffect(() => {
@@ -139,6 +147,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
       setRunning(false);
       createAttemptRef.current = null;
       connectionImportAttemptRef.current = null;
+      zipUploadAttemptRef.current = null;
       createDataset.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -284,8 +293,20 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
     setZipResult(null);
     setZipError(null);
 
+    let attempt = zipUploadAttemptRef.current;
+    if (!attempt || attempt.datasetId !== dsId || attempt.file !== zipFile) {
+      attempt = { datasetId: dsId, file: zipFile, key: crypto.randomUUID() };
+      zipUploadAttemptRef.current = attempt;
+    }
+
     try {
-      const res = await datasetsApi.uploadZip(dsId, zipFile, (pct) => setZipProgress(pct));
+      const res = await datasetsApi.uploadZip(
+        dsId,
+        zipFile,
+        { idempotencyKey: attempt.key },
+        (pct) => setZipProgress(pct),
+      );
+      zipUploadAttemptRef.current = null;
       setZipResult(res);
       onUploaded?.(dsId, res.added);
       pushToast({
@@ -408,7 +429,10 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
             setMode(m);
             // 切换模式时清掉对侧选择
             if (m !== "files") setFiles([]);
-            if (m !== "zip") setZipFile(null);
+            if (m !== "zip") {
+              setZipFile(null);
+              zipUploadAttemptRef.current = null;
+            }
             if (m !== "connection") {
               setConnectionId("");
               setSourcePath("");
@@ -424,7 +448,10 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
           recursive={recursive}
           includeGlobs={includeGlobs}
           onAddFiles={handleAddFiles}
-          onSetZip={(f) => setZipFile(f)}
+          onSetZip={(f) => {
+            setZipFile(f);
+            zipUploadAttemptRef.current = null;
+          }}
           onSetConnectionId={setConnectionId}
           onSetSourcePath={handleSetSourcePath}
           onSetRecursive={setRecursive}
@@ -454,6 +481,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
             running={running}
             result={zipResult}
             error={zipError}
+            onRetry={startZipUpload}
             onClose={onClose}
             onView={() => {
               const id = targetDatasetId;
@@ -1108,6 +1136,7 @@ function Step3Zip({
   running,
   result,
   error,
+  onRetry,
   onClose,
   onView,
 }: {
@@ -1116,6 +1145,7 @@ function Step3Zip({
   running: boolean;
   result: ZipResult | null;
   error: string | null;
+  onRetry: () => void;
   onClose: () => void;
   onView: () => void;
 }) {
@@ -1183,6 +1213,11 @@ function Step3Zip({
       {error && <div className={styles.zipError}>{error}</div>}
 
       <div className={styles.actions}>
+        {error && (
+          <Button onClick={onRetry} disabled={running}>
+            重试上传
+          </Button>
+        )}
         <Button onClick={onClose}>关闭</Button>
         <Button variant="primary" onClick={onView} disabled={running}>
           查看数据集

@@ -53,6 +53,102 @@ def test_new_cli_commands_have_valid_help():
             assert result.exit_code == 0, (name, result.output, result.exception)
 
 
+def test_zip_and_scan_cli_pass_saved_ingest_keys(
+    client, monkeypatch, respx_mock, tmp_path
+):
+    _patch_cli_clients(monkeypatch, client)
+    key = str(uuid4())
+    zip_path = tmp_path / "data.zip"
+    zip_path.write_bytes(b"PK\x03\x04fakezip")
+    upload = respx_mock.post(f"{API}/datasets/{DATASET_ID}/items/upload-zip").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "added": 0,
+                "deduped": 0,
+                "skipped": 0,
+                "errors": [],
+                "total_in_zip": 0,
+                "linked_tasks": 0,
+                "scene_inference_notes": [],
+            },
+        )
+    )
+    scan = respx_mock.post(f"{API}/datasets/{DATASET_ID}/items/scan").mock(
+        return_value=httpx.Response(
+            200, json={"status": "ok", "new_items": 0, "linked_tasks": 0}
+        )
+    )
+
+    uploaded = runner.invoke(
+        datasets_app,
+        [
+            "upload",
+            DATASET_ID,
+            str(zip_path),
+            "--zip",
+            "--idempotency-key",
+            key,
+            "--json",
+        ],
+        env=ENV,
+    )
+    scanned = runner.invoke(
+        datasets_app,
+        ["scan-items", DATASET_ID, "--yes", "--idempotency-key", key, "--json"],
+        env=ENV,
+    )
+
+    assert uploaded.exit_code == 0, uploaded.output
+    assert scanned.exit_code == 0, scanned.output
+    assert json.loads(uploaded.stdout) == {
+        "added": 0,
+        "deduped": 0,
+        "skipped": 0,
+        "errors": [],
+        "total_in_zip": 0,
+        "linked_tasks": 0,
+        "scene_inference_notes": [],
+    }
+    assert json.loads(scanned.stdout) == {
+        "status": "ok",
+        "new_items": 0,
+        "linked_tasks": 0,
+    }
+    assert upload.calls.last.request.headers["Idempotency-Key"] == key
+    assert scan.calls.last.request.headers["Idempotency-Key"] == key
+
+
+def test_invalid_ingest_cli_key_fails_before_any_request(
+    client, monkeypatch, respx_mock, tmp_path
+):
+    _patch_cli_clients(monkeypatch, client)
+    zip_path = tmp_path / "data.zip"
+    zip_path.write_bytes(b"PK\x03\x04fakezip")
+    upload = respx_mock.post(f"{API}/datasets/{DATASET_ID}/items/upload-zip").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    scan = respx_mock.post(f"{API}/datasets/{DATASET_ID}/items/scan").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    uploaded = runner.invoke(
+        datasets_app,
+        ["upload", DATASET_ID, str(zip_path), "--zip", "--idempotency-key", "bad"],
+        env=ENV,
+    )
+    scanned = runner.invoke(
+        datasets_app,
+        ["scan-items", DATASET_ID, "--idempotency-key", "bad"],
+        env=ENV,
+    )
+
+    assert uploaded.exit_code == 2
+    assert scanned.exit_code == 2
+    assert upload.call_count == 0
+    assert scan.call_count == 0
+
+
 def test_dimension_failures_preserve_receipt_and_fail_cli(respx_mock):
     route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/backfill-dimensions").respond(
         200, json={"processed": 2, "failed": 1, "remaining_hint": True}

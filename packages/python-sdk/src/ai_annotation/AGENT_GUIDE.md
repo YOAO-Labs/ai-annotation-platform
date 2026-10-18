@@ -99,6 +99,8 @@ Task files use three explicit stages: files.upload_init, files.upload_content, t
 
 Scenes belong to the global dataset catalogue. list/get/trajectory require datasets:read for API keys, and list is an unpaginated array. Trajectory contains ordered ego poses, not annotations. Metadata updates require platform manager role; send only explicit fields, null is currently no-op and an empty source_metadata map clears it. No CAS revision is available. Do not infer project privacy or resend an entire GET response as a patch.
 
+datasets.upload_zip and datasets.scan_items are synchronous receipt operations. ZIP upload requires an active account with datasets:write; scan additionally requires a platform manager. Pass a caller-generated UUID idempotency_key and preserve it after an uncertain response. The SDK and CLI do not generate keys or retry either POST automatically.
+
 ## Account, administration and operations
 
 Use auth/account/avatars for explicit identity, preference and avatar flows; Client.me remains available. Auth JWT results never replace Client credentials or saved configuration. Refresh/logout require JWT, not API keys. Keep returned credentials deliberately; do not log successful secret-bearing JSON. Repr hides passwords/tokens, while intentional serialization retains the actual API fields. CLI one-time secret results require --json or --show-secret before mutation. Invitation creation/resend does not email; resend rotates the token, send-email sends the current one.

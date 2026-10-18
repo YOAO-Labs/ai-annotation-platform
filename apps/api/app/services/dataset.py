@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import logging
-import mimetypes
-import os
 import uuid
-from typing import Any, AsyncIterator, BinaryIO, Literal, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import select, func, delete, text, update
@@ -25,15 +22,11 @@ from app.services.project_kind import (
     dataset_has_scenes,
     media_kind_aliases,
 )
-from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.task_creation_contract import (
     DatasetAssociationFacts,
     decode_creation_reply,
 )
-
-_STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
-_IMAGE_HEAD_BYTES = 256 * 1024
 
 # v0.13.11 · 用于 DatasetService.update 区分「未传参」与「显式传 None」(后者表示清除
 # metadata_["axis_convention"]，回退到默认 iso_8855)。
@@ -48,18 +41,6 @@ def ensure_dataset_storage_name_is_writable(name: str) -> None:
             status_code=422,
             detail="Dataset name uses a reserved storage namespace",
         )
-
-
-@dataclass(frozen=True)
-class IngestOutcome:
-    status: Literal["added", "skipped", "error"]
-    relpath: str
-    item_id: uuid.UUID | None = None
-    file_type: str | None = None
-    file_size: int | None = None
-    content_hash: str | None = None
-    reason: str | None = None
-    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -573,148 +554,6 @@ class DatasetService:
         await self.db.flush()
         return count
 
-    async def ingest_one(
-        self,
-        dataset_id: uuid.UUID,
-        relpath: str,
-        stream: BinaryIO | None = None,
-        *,
-        size: int | None = None,
-        storage_key: str | None = None,
-        content_hash_hint: str | None = None,
-        dest_relpath: str | None = None,
-    ) -> IngestOutcome:
-        """Ingest one source object into a dataset.
-
-        `storage_key` is for objects already present in the datasets bucket (scan);
-        otherwise `stream` is copied into that bucket in chunks while hashing.
-
-        `dest_relpath` 给定时（连接器/扫描导入）保留源子目录结构作为 file_name 与
-        storage_key 后缀（如 `a/img.jpg`）；不给时退回纯文件名（basename），其它调用零影响。
-        """
-        ds = await self.db.get(Dataset, dataset_id)
-        if not ds:
-            return IngestOutcome(
-                status="error", relpath=relpath, error="dataset missing"
-            )
-        try:
-            ensure_dataset_storage_name_is_writable(ds.name)
-        except HTTPException as exc:
-            return IngestOutcome(
-                status="error",
-                relpath=relpath,
-                error=str(exc.detail),
-            )
-
-        source_name = (
-            _safe_relpath(dest_relpath) if dest_relpath else _safe_basename(relpath)
-        )
-        final_name = await self._unique_file_name(dataset_id, source_name)
-        base_for_ext = os.path.basename(final_name)
-        ext = base_for_ext.rsplit(".", 1)[-1].lower() if "." in base_for_ext else ""
-        file_type = _infer_file_type_from_ext(ext)
-        uploaded_storage = False
-
-        if storage_key:
-            duplicate_path = await self._find_by_file_path(dataset_id, storage_key)
-            if duplicate_path is not None:
-                return IngestOutcome(
-                    status="skipped",
-                    relpath=relpath,
-                    reason="file_path_exists",
-                    item_id=duplicate_path.id,
-                )
-            content_hash = content_hash_hint if _is_md5(content_hash_hint) else None
-            file_size = size
-            head_bytes = b""
-        else:
-            if stream is None:
-                return IngestOutcome(
-                    status="error", relpath=relpath, error="stream missing"
-                )
-            storage_key = f"{ds.name}/{final_name}"
-            content_type = (
-                mimetypes.guess_type(final_name)[0] or "application/octet-stream"
-            )
-            content_hash, file_size, head_bytes = self._upload_stream_to_dataset_bucket(
-                storage_key,
-                stream,
-                content_type=content_type,
-            )
-            uploaded_storage = True
-
-        if content_hash:
-            existing = await self.find_by_hash(dataset_id, content_hash)
-            if existing is not None:
-                if uploaded_storage:
-                    try:
-                        storage_service.delete_object(
-                            storage_key, bucket=storage_service.datasets_bucket
-                        )
-                    except Exception:
-                        pass
-                return IngestOutcome(
-                    status="skipped",
-                    relpath=relpath,
-                    item_id=existing.id,
-                    file_type=existing.file_type,
-                    file_size=file_size,
-                    content_hash=content_hash,
-                    reason="content_hash_exists",
-                )
-
-        width: int | None = None
-        height: int | None = None
-        if file_type == "image":
-            dims = (
-                storage_service.read_image_dimensions_from_bytes(head_bytes)
-                if head_bytes
-                else None
-            )
-            if dims is None:
-                dims = storage_service.read_image_dimensions(
-                    storage_key,
-                    bucket=storage_service.datasets_bucket,
-                )
-            if dims:
-                width, height = dims
-
-        item = await self.add_item(
-            dataset_id=dataset_id,
-            file_name=final_name,
-            file_path=storage_key,
-            file_type=file_type,
-            file_size=file_size,
-            content_hash=content_hash,
-            width=width,
-            height=height,
-        )
-        return IngestOutcome(
-            status="added",
-            relpath=relpath,
-            item_id=item.id,
-            file_type=file_type,
-            file_size=file_size,
-            content_hash=content_hash,
-        )
-
-    async def enqueue_media_for_items(
-        self, item_ids: list[uuid.UUID], *, dispatcher: MediaJobDispatcher
-    ) -> None:
-        unique_item_ids = list(dict.fromkeys(item_ids))
-        if not unique_item_ids:
-            return
-        rows = await self.db.execute(
-            select(DatasetItem.id, DatasetItem.file_type).where(
-                DatasetItem.id.in_(unique_item_ids)
-            )
-        )
-        for item_id, file_type in rows.all():
-            if file_type == "image":
-                dispatcher.dispatch_thumbnail(item_id)
-            elif file_type == "video":
-                dispatcher.dispatch_video_metadata(item_id)
-
     async def set_item_dimensions(
         self, item_id: uuid.UUID, dimensions: tuple[int, int]
     ) -> None:
@@ -826,139 +665,6 @@ class DatasetService:
         if thumbnail_path is not None:
             item.thumbnail_path = thumbnail_path
 
-    async def _find_by_file_path(
-        self, dataset_id: uuid.UUID, file_path: str
-    ) -> DatasetItem | None:
-        result = await self.db.execute(
-            select(DatasetItem).where(
-                DatasetItem.dataset_id == dataset_id,
-                DatasetItem.file_path == file_path,
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def _unique_file_name(self, dataset_id: uuid.UUID, file_name: str) -> str:
-        existing_rows = await self.db.execute(
-            select(DatasetItem.file_name).where(DatasetItem.dataset_id == dataset_id)
-        )
-        existing = {row[0] for row in existing_rows.all() if row[0]}
-        if file_name not in existing:
-            return file_name
-        stem, ext = os.path.splitext(file_name)
-        i = 1
-        while f"{stem}-{i}{ext}" in existing:
-            i += 1
-        return f"{stem}-{i}{ext}"
-
-    def _upload_stream_to_dataset_bucket(
-        self,
-        storage_key: str,
-        stream: BinaryIO,
-        *,
-        content_type: str,
-    ) -> tuple[str, int, bytes]:
-        client = storage_service.client
-        bucket = storage_service.datasets_bucket
-        md5 = hashlib.md5()
-        head = bytearray()
-        total = 0
-        part_number = 1
-        parts: list[dict] = []
-        upload_id: str | None = None
-
-        resp = client.create_multipart_upload(
-            Bucket=bucket,
-            Key=storage_key,
-            ContentType=content_type,
-        )
-        upload_id = resp["UploadId"]
-        try:
-            while True:
-                chunk = stream.read(_STREAM_UPLOAD_CHUNK_BYTES)
-                if not chunk:
-                    break
-                if isinstance(chunk, str):
-                    chunk = chunk.encode()
-                elif not isinstance(chunk, bytes):
-                    chunk = bytes(chunk)
-                total += len(chunk)
-                md5.update(chunk)
-                if len(head) < _IMAGE_HEAD_BYTES:
-                    remaining = _IMAGE_HEAD_BYTES - len(head)
-                    head.extend(chunk[:remaining])
-                part = client.upload_part(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    PartNumber=part_number,
-                    UploadId=upload_id,
-                    Body=chunk,
-                )
-                parts.append({"ETag": part["ETag"], "PartNumber": part_number})
-                part_number += 1
-
-            if parts:
-                client.complete_multipart_upload(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    UploadId=upload_id,
-                    MultipartUpload={"Parts": parts},
-                )
-            else:
-                client.abort_multipart_upload(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    UploadId=upload_id,
-                )
-                upload_id = None
-                client.put_object(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    Body=b"",
-                    ContentType=content_type,
-                )
-        except Exception:
-            if upload_id is not None:
-                try:
-                    client.abort_multipart_upload(
-                        Bucket=bucket,
-                        Key=storage_key,
-                        UploadId=upload_id,
-                    )
-                except Exception:
-                    pass
-            raise
-
-        return md5.hexdigest(), total, bytes(head)
-
-    # ── Scan & import from bucket ─────────────────────────────────────────
-
-    async def iter_scan_and_import(
-        self, dataset_id: uuid.UUID
-    ) -> AsyncIterator[IngestOutcome]:
-        ds = await self.db.get(Dataset, dataset_id)
-        if ds is None:
-            return
-        ensure_dataset_storage_name_is_writable(ds.name)
-
-        prefix = f"{ds.name}/"
-        objects = storage_service.list_objects(
-            prefix, bucket=storage_service.datasets_bucket
-        )
-        for obj in objects:
-            key: str = obj["key"]
-            if key.endswith("/"):
-                continue
-            etag = obj.get("etag") or ""
-            rel_under_ds = key[len(prefix) :] if key.startswith(prefix) else key
-            yield await self.ingest_one(
-                dataset_id,
-                key,
-                size=obj.get("size"),
-                storage_key=key,
-                content_hash_hint=etag if _is_md5(etag) else None,
-                dest_relpath=rel_under_ds,
-            )
-
     # ── Project linking ─────────────────────────────────────────────────────
 
     async def associate_project(
@@ -1002,41 +708,6 @@ class DatasetService:
             return
         if not await dataset_has_scenes(self.db, dataset_id):
             raise ValueError("声明为时序数据集但未识别出任何 scene,请检查目录结构")
-
-
-_IMAGE_EXTS = {"jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif", "gif", "svg"}
-_VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm"}
-# v0.13.0 · 点云联合标注地基 (0.13.0-3): 放开点云扩展名 → file_type=point_cloud。
-_POINTCLOUD_EXTS = {"pcd", "bin", "las", "ply"}
-
-
-def _safe_basename(relpath: str) -> str:
-    normalized = (relpath or "").replace("\\", "/").rstrip("/")
-    name = os.path.basename(normalized)
-    return name or f"source-{uuid.uuid4().hex}"
-
-
-def _safe_relpath(relpath: str) -> str:
-    """归一化相对路径并保留子目录层级；遇到空 / 含 `..` 的不安全路径退回 basename。"""
-    raw = (relpath or "").replace("\\", "/").strip().strip("/")
-    parts = [p for p in raw.split("/") if p not in {"", "."}]
-    if not parts or any(p == ".." for p in parts):
-        return _safe_basename(relpath)
-    return "/".join(parts)
-
-
-def _is_md5(value: str | None) -> bool:
-    return bool(value and len(value) == 32)
-
-
-def _infer_file_type_from_ext(ext: str) -> str:
-    if ext in _IMAGE_EXTS:
-        return "image"
-    if ext in _VIDEO_EXTS:
-        return "video"
-    if ext in _POINTCLOUD_EXTS:
-        return "point_cloud"
-    return "other"
 
 
 def _dataset_dict(ds: Dataset) -> dict:

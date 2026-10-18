@@ -323,9 +323,21 @@ def upload(
     dataset_id: str = typer.Argument(..., help="数据集 ID"),
     path: Path = typer.Argument(..., exists=True, help="文件 / 目录 / ZIP 包路径"),
     zip_: bool = typer.Option(False, "--zip", help="按 ZIP 整包上传 (后端解压入库)"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """上传文件到数据集: 目录逐文件上传, --zip 则整包上传。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
+        if not zip_:
+            raise typer.BadParameter("--idempotency-key 仅支持 --zip")
     if zip_:
         if not path.is_file():
             print_error(
@@ -336,7 +348,9 @@ def upload(
             raise typer.Exit(code=1)
         with cli_errors(json_output):
             with get_client(json_output) as client:
-                result = client.datasets.upload_zip(dataset_id, path)
+                result = client.datasets.upload_zip(
+                    dataset_id, path, idempotency_key=idempotency_key
+                )
         if json_output:
             print_json(result.model_dump(mode="json"))
         else:
@@ -477,13 +491,25 @@ def backfill_scenes(
 def scan_items(
     dataset_id: str = typer.Argument(..., help="数据集 ID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认扫描并导入文件"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """扫描数据集存储前缀并导入新文件。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     with cli_errors(json_output):
         confirm_destructive("确认扫描并导入数据集新文件?", yes, json_output)
         with get_client(json_output) as client:
-            result = client.datasets.scan_items(dataset_id)
+            result = client.datasets.scan_items(
+                dataset_id, idempotency_key=idempotency_key
+            )
     print_learning_result(result, json_output)
 
 

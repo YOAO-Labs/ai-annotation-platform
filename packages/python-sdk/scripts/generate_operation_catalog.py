@@ -978,8 +978,13 @@ for _namespace, _methods, _note in [
     ),
     (
         "datasets",
+        "upload_zip",
+        "Active account with datasets:write. Synchronously imports one ZIP and returns the added/deduped/skipped/error receipt. Pass a caller-saved UUID idempotency_key to reconcile an uncertain response; SDK and CLI do not generate or retry automatically.",
+    ),
+    (
+        "datasets",
         "scan_items",
-        "Platform manager. Synchronously scans/imports items and may enqueue media generation; new_items and linked_tasks describe that scan, not completed thumbnails or inference.",
+        "Platform manager. Synchronously scans/imports items; new_items and linked_tasks describe the scan, not completed media work. Pass a caller-saved UUID idempotency_key to reconcile an uncertain response; SDK and CLI do not generate or retry automatically.",
     ),
     (
         "datasets",

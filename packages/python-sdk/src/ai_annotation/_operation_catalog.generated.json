@@ -25111,7 +25111,7 @@
       "path": "/api/v1/datasets/{dataset_id}/items/scan",
       "operation_id": "scan_items_api_v1_datasets__dataset_id__items_scan_post",
       "summary": "Scan Items",
-      "description": null,
+      "description": "同步扫描数据集旧存储前缀，只导入新文件。",
       "tags": [
         "datasets"
       ],
@@ -25131,6 +25131,23 @@
             "title": "Dataset Id",
             "type": "string",
             "format": "uuid"
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -25307,7 +25324,7 @@
       "path": "/api/v1/datasets/{dataset_id}/items/upload-zip",
       "operation_id": "upload_zip_api_v1_datasets__dataset_id__items_upload_zip_post",
       "summary": "Upload Zip",
-      "description": "前端 multipart 上传单个 ZIP 包，由后端解压并把每个文件入库 + 上传到 MinIO。\n\n限制：≤ 200MB 整包、≤ 5000 文件、单文件 ≤ 100MB；自动跳过 macOS 元数据（__MACOSX/）\n与隐藏文件（.DS_Store 等）；同名文件以路径 hash 后缀去重。",
+      "description": "同步导入一个 ZIP，返回新增/去重/跳过、逐文件失败和场景推断结果。\n\n压缩包最多 200 MiB、5000 个文件；单文件最多 100 MiB，压缩比最多 100。\n响应不确定时使用相同文件和 Idempotency-Key 重放已完成回执。",
       "tags": [
         "datasets"
       ],
@@ -25327,6 +25344,23 @@
             "title": "Dataset Id",
             "type": "string",
             "format": "uuid"
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -25350,7 +25384,7 @@
         "content": {
           "multipart/form-data": {
             "schema": {
-              "$ref": "#/components/schemas/Body_upload_zip_api_v1_datasets__dataset_id__items_upload_zip_post"
+              "type": "object"
             }
           }
         }
@@ -45138,6 +45172,13 @@
           "annotation": "IdLike",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "DatasetScanItemsResult",
@@ -45152,7 +45193,7 @@
       "calls": [],
       "external_http": false,
       "constraints": [
-        "Platform manager. Synchronously scans/imports items and may enqueue media generation; new_items and linked_tasks describe that scan, not completed thumbnails or inference."
+        "Platform manager. Synchronously scans/imports items; new_items and linked_tasks describe the scan, not completed media work. Pass a caller-saved UUID idempotency_key to reconcile an uncertain response; SDK and CLI do not generate or retry automatically."
       ],
       "cli_aliases": [
         "datasets.scan-items"
@@ -45438,6 +45479,13 @@
           "annotation": "str | Path",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "ZipUploadResult",
@@ -45453,6 +45501,9 @@
       ],
       "calls": [],
       "external_http": false,
+      "constraints": [
+        "Active account with datasets:write. Synchronously imports one ZIP and returns the added/deduped/skipped/error receipt. Pass a caller-saved UUID idempotency_key to reconcile an uncertain response; SDK and CLI do not generate or retry automatically."
+      ],
       "cli_aliases": [
         "datasets.upload"
       ]
@@ -68665,6 +68716,17 @@
           "description": "确认扫描并导入文件"
         },
         {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
+        },
+        {
           "name": "json_output",
           "kind": "option",
           "options": [
@@ -68891,6 +68953,17 @@
           "default": false,
           "type": "bool",
           "description": "按 ZIP 整包上传 (后端解压入库)"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",

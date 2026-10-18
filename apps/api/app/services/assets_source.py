@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import NoReturn, TypeVar
+from typing import BinaryIO, NoReturn, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
@@ -31,6 +31,13 @@ from aap_assets_source.legacy_upload_contract import (
     LegacyUploadState,
     decode_legacy_upload_reply,
 )
+from aap_assets_source.ingest_contract import (
+    IngestCommand,
+    IngestFailure,
+    IngestReceipt,
+    decode_ingest_reply,
+    require_ingest_scope,
+)
 from aap_assets_source.upload_contract import DatasetUploadFailure
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
@@ -42,7 +49,8 @@ from app.services.storage import StorageService, storage_service
 
 _RESULT = TypeVar("_RESULT", bound=BaseModel)
 _MAX_REQUEST_BYTES = 1 * 1024 * 1024
-_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+MAX_SOURCE_RESPONSE_BYTES = 16 * 1024 * 1024
+_MAX_RESPONSE_BYTES = MAX_SOURCE_RESPONSE_BYTES
 _TRANSIENT_SOURCE_CODES = {"source_busy", "account_busy", "dataset_busy"}
 _RETAINED_SOURCE_CODES = {
     "source_in_use",
@@ -173,6 +181,97 @@ def _raise_failure(exc: SourceFailure, *, operation: str) -> NoReturn:
     raise AssetsSourceGatewayError(
         "invalid_response", "Assets source returned an invalid response", 502
     ) from None
+
+
+def _raise_ingest_failure(exc: IngestFailure, *, kind: str) -> NoReturn:
+    code = exc.code
+    if code in {"archive_invalid", "archive_unsafe", "resource_budget_exceeded"}:
+        detail = (
+            exc.detail.model_dump(mode="json", exclude_none=True)
+            if exc.detail is not None
+            else {"reason": code, "message": "ZIP archive is invalid"}
+        )
+        status = (
+            413
+            if detail.get("reason")
+            in {"resource_budget_exceeded", "archive_compression_ratio_exceeded"}
+            else 400
+        )
+        raise AssetsSourceGatewayError(code, detail, status) from None
+    if code == "account_not_active":
+        raise AssetsSourceGatewayError(
+            code,
+            "账号已停用或不存在",
+            401,
+            {"WWW-Authenticate": "Bearer"},
+        ) from None
+    if code == "dataset_missing":
+        raise AssetsSourceGatewayError(code, "Dataset not found", 404) from None
+    if code == "invalid_account_role":
+        raise AssetsSourceGatewayError(code, "账号角色无效，访问被拒绝", 403) from None
+    if code == "catalog_manager_required":
+        raise AssetsSourceGatewayError(code, "仅素材库管理员可扫描素材", 403) from None
+    if code == "reserved_namespace":
+        raise AssetsSourceGatewayError(
+            code, "Dataset name uses a reserved storage namespace", 422
+        ) from None
+    if code == "temporal_scenes_missing":
+        raise AssetsSourceGatewayError(
+            code, "声明为时序数据集但未识别出任何 scene,请检查目录结构", 422
+        ) from None
+    if code == "invalid_request":
+        raise AssetsSourceGatewayError(
+            code,
+            "上传参数无效" if kind == "zip" else "Invalid source request",
+            422,
+        ) from None
+    if code in {
+        "account_busy",
+        "dataset_busy",
+        "source_busy",
+        "operation_conflict",
+        "operation_missing",
+        "lease_lost",
+        "scene_conflict",
+    }:
+        detail = {"reason": code}
+        if exc.detail is not None and exc.detail.conflicts_with is not None:
+            detail["conflicts_with"] = exc.detail.conflicts_with
+        raise AssetsSourceGatewayError(code, detail, 409) from None
+    if code in {"service_unavailable", "storage_unavailable"}:
+        raise AssetsSourceGatewayError(
+            code, "Assets source service is unavailable", 503
+        ) from None
+    raise AssetsSourceGatewayError(
+        "invalid_response", "Assets source returned an invalid response", 502
+    ) from None
+
+
+async def _stream_binary(source: BinaryIO):
+    while True:
+        chunk = await asyncio.to_thread(source.read, 64 * 1024)
+        if not chunk:
+            return
+        yield chunk if isinstance(chunk, bytes) else bytes(chunk)
+
+
+def encode_ingest_public_result(receipt: IngestReceipt) -> bytes:
+    try:
+        body = json.dumps(
+            receipt.public_result(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise AssetsSourceGatewayError(
+            "invalid_response", "Assets source returned an invalid response", 502
+        ) from None
+    if len(body) > MAX_SOURCE_RESPONSE_BYTES:
+        raise AssetsSourceGatewayError(
+            "invalid_response", "Assets source returned an invalid response", 502
+        )
+    return body
 
 
 class _LocalStoragePort:
@@ -430,6 +529,116 @@ class AssetsSourceGateway:
             _raise_failure(SourceFailure("invalid_response"), operation="delete")
         return result
 
+    async def ingest_zip(
+        self, command: IngestCommand, source: BinaryIO
+    ) -> IngestReceipt:
+        if self._peer is not None:
+            result = await self._remote_ingest("upload-zip", command, source=source)
+        else:
+            try:
+                result = await self._local_ingest_workflow().upload_zip(command, source)
+            except IngestFailure as exc:
+                _raise_ingest_failure(exc, kind="zip")
+            except SQLAlchemyError as exc:
+                raise self._unavailable() from exc
+            except (ValidationError, ValueError, TypeError, KeyError):
+                raise self._invalid_response() from None
+        return self._validate_ingest_result(result, command, kind="zip")
+
+    async def ingest_scan(self, command: IngestCommand) -> IngestReceipt:
+        if self._peer is not None:
+            result = await self._remote_ingest("scan", command)
+        else:
+            try:
+                result = await self._local_ingest_workflow().scan(command)
+            except IngestFailure as exc:
+                _raise_ingest_failure(exc, kind="scan")
+            except SQLAlchemyError as exc:
+                raise self._unavailable() from exc
+            except (ValidationError, ValueError, TypeError, KeyError):
+                raise self._invalid_response() from None
+        return self._validate_ingest_result(result, command, kind="scan")
+
+    async def _remote_ingest(
+        self,
+        endpoint: str,
+        command: IngestCommand,
+        *,
+        source: BinaryIO | None = None,
+    ) -> IngestReceipt:
+        kind = "zip" if source is not None else "scan"
+        headers = {
+            "Authorization": f"Bearer {settings.assets_source_token}",
+            "Accept": "application/json",
+        }
+        params = None
+        if source is not None:
+            headers["Content-Type"] = "application/zip"
+            params = {
+                "operation_id": str(command.operation_id),
+                "actor_id": str(command.actor_id),
+                "dataset_id": str(command.dataset_id),
+            }
+            content = _stream_binary(source)
+        else:
+            headers["Content-Type"] = "application/json"
+            content = _encode_request(command)
+        try:
+            async with httpx.AsyncClient(
+                timeout=settings.assets_source_timeout_seconds,
+                trust_env=False,
+                follow_redirects=False,
+                transport=self._transport,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self._peer}/v1/source/{endpoint}",
+                    params=params,
+                    headers=headers,
+                    content=content,
+                ) as response:
+                    if response.status_code >= 500:
+                        if response.status_code == 502:
+                            raise self._invalid_response()
+                        raise self._unavailable()
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        .split(";", 1)[0]
+                        .strip()
+                        .lower()
+                    )
+                    if content_type != "application/json":
+                        raise self._invalid_response()
+                    try:
+                        payload = json.loads(await _read_response(response))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        raise self._invalid_response() from None
+                    try:
+                        result = decode_ingest_reply(payload, IngestReceipt)
+                    except IngestFailure as exc:
+                        _raise_ingest_failure(exc, kind=kind)
+                    if response.status_code != 200 or result is None:
+                        raise self._invalid_response()
+        except AssetsSourceGatewayError:
+            raise
+        except (httpx.HTTPError, OSError) as exc:
+            raise self._unavailable() from exc
+        return self._validate_ingest_result(result, command, kind=kind)
+
+    @staticmethod
+    def _validate_ingest_result(
+        result: IngestReceipt, command: IngestCommand, *, kind: str
+    ) -> IngestReceipt:
+        try:
+            require_ingest_scope(command, result)
+        except IngestFailure as exc:
+            _raise_ingest_failure(exc, kind=kind)
+        if result.kind != kind:
+            raise AssetsSourceGatewayError(
+                "invalid_response", "Assets source returned an invalid response", 502
+            )
+        return result
+
     async def _remote(
         self,
         endpoint: str,
@@ -483,6 +692,17 @@ class AssetsSourceGateway:
             deletion_data=DatasetSourceDeletionData(self._db),
             storage=_LocalStoragePort(self._storage),
             cleanup_bucket=self._cleanup_bucket,
+        )
+
+    def _local_ingest_workflow(self):
+        from aap_assets_source_runtime.ingest_storage import IngestStorage
+        from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+
+        from app.services.assets_source_ingest import DatasetSourceIngestData
+
+        return IngestWorkflow(
+            data=DatasetSourceIngestData(self._db),
+            storage=IngestStorage(self._storage.client, self._storage.datasets_bucket),
         )
 
     def _invalidate_upload_counters(self, dataset_id) -> None:

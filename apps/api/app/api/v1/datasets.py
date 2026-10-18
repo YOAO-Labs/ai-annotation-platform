@@ -1,20 +1,16 @@
-import hashlib
-import io
-import mimetypes
 import uuid
-from pathlib import PurePosixPath
 
 from fastapi import (
     APIRouter,
     Depends,
-    File,
     Header,
     HTTPException,
     Query,
     Request,
     Response,
-    UploadFile,
 )
+from starlette.datastructures import UploadFile as StarletteUploadFile
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_assets_source.contract import (
@@ -23,6 +19,11 @@ from aap_assets_source.contract import (
     UploadInitRequest,
 )
 from aap_assets_source.import_contract import ImportLimits
+from aap_assets_source.ingest_contract import (
+    IngestCommand,
+    IngestReceipt,
+    ZIP_MAX_BYTES,
+)
 from aap_assets_source.connectors.base import SourcePathError
 from aap_assets_source.connectors.host_guard import ConnectorHostDenied
 from aap_assets_source.connectors.registry import (
@@ -66,24 +67,19 @@ from app.schemas.dataset import (
 from app.schemas.project import ProjectOut
 from app.services.audit import AuditAction, AuditService
 from app.services.axis_sniffer import AxisSnifferService
-from app.services.dataset import (
-    DatasetService,
-    ensure_dataset_storage_name_is_writable,
-)
+from app.services.dataset import DatasetService
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_deletion import (
     unlink_dataset_from_project,
     preview_dataset_unlink,
 )
-from app.services.assets_source import AssetsSourceGateway
+from app.services.assets_source import (
+    AssetsSourceGateway,
+    encode_ingest_public_result,
+)
 from app.services.assets_import import DatasetImportCapabilities
 from app.services.media_job_dispatch import MediaJobDispatcher
-from app.services.mask_formats.safe_archive import (
-    ArchiveLimits,
-    ArchiveSafetyError,
-    SafeZipArchive,
-)
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
 from aap_audit_contract import ProjectDeletionAuditContext
@@ -505,324 +501,131 @@ async def upload_complete(
     return {"status": "ok", **outcome.result.model_dump(mode="json")}
 
 
-_ZIP_MAX_BYTES = 200 * 1024 * 1024  # 200 MB
-_ZIP_MAX_ENTRIES = 5000  # 防 zip bomb：限制条目数
-_PER_FILE_MAX_BYTES = 100 * 1024 * 1024  # 单文件 100MB 上限
-
-
-def _normalize_zip_relpath(name: str) -> str | None:
-    """把 ZIP entry 名规范化为安全的相对路径。
-
-    - 统一 Windows 反斜杠为正斜杠。
-    - 拒绝绝对路径（以 "/" 开头或含 Windows 盘符段）。
-    - 拒绝 ".." 段（zip-slip 防护）。
-    - 跳过 macOS 元数据（__MACOSX/）、隐藏文件（任意段以 "." 开头）、空 basename。
-    - 返回规范化的 forward-slash 相对路径；不合法则返回 None。
-    """
-    # 统一斜杠
-    name = name.replace("\\", "/")
-
-    # macOS 元数据目录
-    if name.startswith("__MACOSX/"):
-        return None
-
-    p = PurePosixPath(name)
-
-    # 拒绝绝对路径
-    if p.is_absolute():
-        return None
-
-    parts = p.parts
-    # 空路径
-    if not parts:
-        return None
-
-    # 拒绝 ".." 段（zip-slip）
-    if ".." in parts:
-        return None
-
-    # Windows 盘符段（如 "C:"）
-    if any(len(part) == 2 and part[1] == ":" for part in parts):
-        return None
-
-    # 隐藏文件 / 隐藏目录：任意路径段以 "." 开头
-    if any(part.startswith(".") for part in parts):
-        return None
-
-    # 空 basename
-    basename = p.name
-    if not basename:
-        return None
-
-    # 返回规范化路径字符串（str(PurePosixPath) 不会带前导 "/"）
-    return str(p)
+async def _ingest_public_response(
+    db: AsyncSession,
+    gateway: AssetsSourceGateway,
+    receipt: IngestReceipt,
+    operation_id: uuid.UUID,
+) -> Response:
+    try:
+        body = encode_ingest_public_result(receipt)
+        if not gateway.is_remote:
+            await db.commit()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        raise HTTPException(503, detail="Assets source service is unavailable") from exc
+    except Exception:
+        await db.rollback()
+        raise
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Idempotency-Key": str(operation_id)},
+    )
 
 
 @router.post(
     "/{dataset_id}/items/upload-zip",
     dependencies=[Depends(require_scopes("datasets:write"))],
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["file"],
+                        "properties": {"file": {"type": "string", "format": "binary"}},
+                    }
+                }
+            },
+        }
+    },
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to reconcile a lost response.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def upload_zip(
     dataset_id: uuid.UUID,
-    file: UploadFile = File(...),
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
+    current_user: User = Depends(get_current_user),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    """前端 multipart 上传单个 ZIP 包，由后端解压并把每个文件入库 + 上传到 MinIO。
+    """同步导入一个 ZIP，返回新增/去重/跳过、逐文件失败和场景推断结果。
 
-    限制：≤ 200MB 整包、≤ 5000 文件、单文件 ≤ 100MB；自动跳过 macOS 元数据（__MACOSX/）
-    与隐藏文件（.DS_Store 等）；同名文件以路径 hash 后缀去重。
+    压缩包最多 200 MiB、5000 个文件；单文件最多 100 MiB，压缩比最多 100。
+    响应不确定时使用相同文件和 Idempotency-Key 重放已完成回执。
     """
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-
-    # 同一 dataset 的并发 upload-zip 用事务级 advisory lock 串行化:否则两个请求会
-    # 并行写 item + 各自跑 scene_inference,撞 SceneNameConflict(被吞成 notes 仍返回
-    # 200)且产生半建状态。xact 锁在本请求 commit/rollback 时自动释放。
-    from sqlalchemy import text
-
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-        {"k": str(dataset_id)},
+    operation_id = idempotency_key or uuid.uuid4()
+    command = IngestCommand(
+        operation_id=operation_id,
+        actor_id=current_user.id,
+        dataset_id=dataset_id,
     )
-
-    raw = await file.read()
-    if len(raw) > _ZIP_MAX_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                f"ZIP 包超过 {_ZIP_MAX_BYTES // 1024 // 1024}MB 限制。"
-                "浏览器向导只适合单个原生 scene；多 scene / nuScenes 等大包请使用转换脚本。"
-                "格式说明见 docs-site/user-guide/datasets/import-formats.md"
-            ),
-        )
-
     try:
-        archive = SafeZipArchive(
-            io.BytesIO(raw),
-            ArchiveLimits(
-                max_files=_ZIP_MAX_ENTRIES,
-                max_entry_bytes=_PER_FILE_MAX_BYTES,
-                max_total_bytes=_ZIP_MAX_BYTES,
-                max_compression_ratio=100,
-            ),
-            skip_unsafe_paths=True,
-        )
-    except ArchiveSafetyError as exc:
-        status_code = (
-            413
-            if exc.code
-            in {
-                "resource_budget_exceeded",
-                "archive_compression_ratio_exceeded",
-            }
-            else 400
-        )
-        raise HTTPException(
-            status_code=status_code,
-            detail={"reason": exc.code, "message": str(exc), **exc.detail},
-        ) from exc
-
-    infos = archive.entries
-
-    added = 0
-    deduped = 0
-    skipped: list[str] = list(archive.skipped_paths)
-    errors: list[dict] = []
-    written_keys: list[str] = []  # 已写入 MinIO 的对象 key，校验失败时回滚清理
-    new_image_item_ids: list[uuid.UUID] = []
-    new_video_item_ids: list[uuid.UUID] = []
-    new_item_ids: list[uuid.UUID] = []
-    zip_top_level_dirs: set[str] = set()
-
-    from sqlalchemy import select as sa_select
-    from app.db.models.dataset import DatasetItem
-
-    # 收集已有 hash，用于内容去重（仅按 content_hash 去重，保留子目录同名文件）
-    hash_rows = await db.execute(
-        sa_select(DatasetItem.content_hash).where(
-            DatasetItem.dataset_id == dataset_id, DatasetItem.content_hash.isnot(None)
-        )
-    )
-    existing_hashes: set[str] = {r[0] for r in hash_rows.all()}
-    ensure_dataset_storage_name_is_writable(ds.name)
-
-    for info in infos:
-        name = info.source_name
-        safe_relpath = info.normalized_path
-        safe_parts = PurePosixPath(safe_relpath).parts
-        if safe_relpath.startswith("__MACOSX/") or any(
-            part.startswith(".") for part in safe_parts
-        ):
-            skipped.append(name)
-            continue
-        if len(safe_parts) >= 2:
-            zip_top_level_dirs.add(safe_parts[0])
-
-        try:
-            with archive.open(safe_relpath) as source:
-                data = source.read(_PER_FILE_MAX_BYTES + 1)
-            if len(data) > _PER_FILE_MAX_BYTES:
-                raise ArchiveSafetyError(
-                    "resource_budget_exceeded",
-                    "ZIP entry exceeded the streaming byte limit",
+        gateway = AssetsSourceGateway(db)
+        async with request.form(max_files=1, max_fields=0) as form:
+            file = form.get("file")
+            if not isinstance(file, StarletteUploadFile):
+                raise HTTPException(422, detail="Field required: file")
+            if file.size is not None and file.size > ZIP_MAX_BYTES:
+                raise HTTPException(
+                    413,
+                    detail=(
+                        f"ZIP 包超过 {ZIP_MAX_BYTES // 1024 // 1024}MB 限制。"
+                        "浏览器向导只适合单个原生 scene；多 scene / nuScenes 等大包请使用转换脚本。"
+                        "格式说明见 docs-site/user-guide/datasets/import-formats.md"
+                    ),
                 )
-        except Exception as e:  # noqa: BLE001
-            errors.append({"name": name, "error": f"解压失败: {e}"})
-            continue
-
-        content_hash = hashlib.md5(data).hexdigest()
-        if content_hash in existing_hashes:
-            deduped += 1
-            continue
-        existing_hashes.add(content_hash)
-
-        basename = PurePosixPath(safe_relpath).name
-        content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
-        file_type = _infer_file_type(content_type)
-        storage_key = f"{ds.name}/{safe_relpath}"
-
-        try:
-            storage_service.client.put_object(
-                Bucket=storage_service.datasets_bucket,
-                Key=storage_key,
-                Body=data,
-                ContentType=content_type,
-            )
-        except Exception as e:  # noqa: BLE001
-            errors.append({"name": name, "error": f"对象存储写入失败: {e}"})
-            continue
-        written_keys.append(storage_key)
-
-        width: int | None = None
-        height: int | None = None
-        if file_type == "image":
-            dims = storage_service.read_image_dimensions_from_bytes(data)
-            if dims:
-                width, height = dims
-
-        item = await svc.add_item(
-            dataset_id=dataset_id,
-            file_name=basename,
-            file_path=storage_key,
-            file_type=file_type,
-            file_size=len(data),
-            content_hash=content_hash,
-            width=width,
-            height=height,
-        )
-        added += 1
-        new_item_ids.append(item.id)
-        if file_type == "image":
-            new_image_item_ids.append(item.id)
-        elif file_type == "video":
-            new_video_item_ids.append(item.id)
-
-    archive.close()
-    linked_tasks = await DatasetTaskCreationWorkflow(db).append_items(
-        dataset_id, new_item_ids
-    )
-
-    # v0.14.0 · 上传完跑 scene_inference(mode="auto"):
-    # - SUSTechPOINTS 单 scene zip(顶层 lidar/ camera/ calib/)→ 1 scene
-    # - 顶层若干非角色子目录(nuScenes 多 scene)→ N scene
-    # - 纯 image / video 帧序列 → 1 scene + 自然排序 frame_index
-    # 幂等:若 dataset 已有 scene → 整体跳过(下次上传不重赋)。
-    scene_inference_notes: list[str] = []
-    if added > 0:
-        from app.services import scene_inference as _scene_inference
-
-        reserved_top_levels = sorted(
-            d for d in zip_top_level_dirs if _scene_inference._is_role_dir_name(d)
-        )
-        non_role_top_levels = sorted(
-            d for d in zip_top_level_dirs if not _scene_inference._is_role_dir_name(d)
-        )
-        if reserved_top_levels and non_role_top_levels:
-            scene_inference_notes.append(
-                "ZIP 顶层同时包含保留角色目录 "
-                f"({', '.join(reserved_top_levels)}) 与 scene 目录 "
-                f"({', '.join(non_role_top_levels)}); "
-                "多 scene 顶层目录不要使用 lidar/camera/calib/image/video 等角色名。"
-                "格式说明见 docs-site/user-guide/datasets/import-formats.md"
-            )
-        try:
-            inf = await _scene_inference.infer_and_apply(
-                db, dataset_id=dataset_id, mode="auto"
-            )
-            scene_inference_notes.extend(inf.notes)
-        except ValueError as exc:
-            # 超过 scene 上限 / 其他可恢复错误:不阻断 upload,把 notes 透回前端
-            scene_inference_notes.append(f"scene_inference skipped: {exc}")
-
-    try:
-        await svc.assert_temporal_dataset_has_scenes(dataset_id)
-    except ValueError as exc:
-        # 校验失败 → 事务将 rollback，但本次已写入 MinIO 的对象不在事务内，
-        # 需显式删除，否则变成孤儿对象。
+            receipt = await gateway.ingest_zip(command, file.file)
+    except Exception:
         await db.rollback()
-        for key in written_keys:
-            try:
-                storage_service.delete_object(
-                    key, bucket=storage_service.datasets_bucket
-                )
-            except Exception:  # noqa: BLE001
-                pass
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    await db.commit()
-
-    for iid in new_image_item_ids:
-        media_dispatcher.dispatch_thumbnail(iid)
-    for iid in new_video_item_ids:
-        media_dispatcher.dispatch_video_metadata(iid)
-
-    return {
-        "added": added,
-        "deduped": deduped,
-        "skipped": len(skipped),
-        "errors": errors,
-        "total_in_zip": len(infos),
-        "linked_tasks": linked_tasks,
-        "scene_inference_notes": scene_inference_notes,
-    }
+        raise
+    return await _ingest_public_response(db, gateway, receipt, operation_id)
 
 
 @router.post(
     "/{dataset_id}/items/scan",
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to reconcile a lost response.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def scan_items(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    workflow = DatasetTaskCreationWorkflow(db)
-    outcomes = []
-    linked_tasks = 0
-    async for outcome in svc.iter_scan_and_import(dataset_id):
-        outcomes.append(outcome)
-        if outcome.status == "added" and outcome.item_id is not None:
-            linked_tasks += await workflow.append_items(dataset_id, [outcome.item_id])
-    new_ids = [
-        outcome.item_id
-        for outcome in outcomes
-        if outcome.status == "added" and outcome.item_id is not None
-    ]
-    await db.commit()
-
-    if new_ids:
-        await svc.enqueue_media_for_items(new_ids, dispatcher=media_dispatcher)
-
-    return {"status": "ok", "new_items": len(new_ids), "linked_tasks": linked_tasks}
+    """同步扫描数据集旧存储前缀，只导入新文件。"""
+    operation_id = idempotency_key or uuid.uuid4()
+    command = IngestCommand(
+        operation_id=operation_id,
+        actor_id=current_user.id,
+        dataset_id=dataset_id,
+    )
+    try:
+        gateway = AssetsSourceGateway(db)
+        receipt = await gateway.ingest_scan(command)
+    except Exception:
+        await db.rollback()
+        raise
+    return await _ingest_public_response(db, gateway, receipt, operation_id)
 
 
 @router.post(

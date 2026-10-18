@@ -49,7 +49,15 @@ vi.mock("@/api/datasets", () => ({
   datasetsApi: {
     uploadInit: vi.fn().mockResolvedValue({ upload_url: "http://fake/upload", item_id: "item1" }),
     uploadComplete: vi.fn().mockResolvedValue(undefined),
-    uploadZip: vi.fn().mockResolvedValue({ added: 5, skipped: 0, errors: [], total_in_zip: 5 }),
+    uploadZip: vi.fn().mockResolvedValue({
+      added: 5,
+      deduped: 0,
+      skipped: 0,
+      errors: [],
+      total_in_zip: 5,
+      linked_tasks: 5,
+      scene_inference_notes: [],
+    }),
   },
 }));
 
@@ -105,12 +113,30 @@ function pickFile() {
   fireEvent.change(fileInput);
 }
 
+function pickZipFile() {
+  const fileInput = document.querySelector(
+    'input[type="file"][accept=".zip,application/zip"]',
+  ) as HTMLInputElement;
+  const file = new File(["zip bytes"], "scene.zip", { type: "application/zip" });
+  Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+  fireEvent.change(fileInput);
+}
+
 describe("ImportDatasetWizard", () => {
   beforeEach(() => {
     mockCreateDatasetMutateAsync.mockReset().mockResolvedValue({ id: "ds-new", name: "Test DS" });
     mockCreateDatasetReset.mockReset();
     mockImportFromConnectionMutateAsync.mockReset();
     mockPushToast.mockReset();
+    vi.mocked(datasetsApi.uploadZip).mockReset().mockResolvedValue({
+      added: 5,
+      deduped: 0,
+      skipped: 0,
+      errors: [],
+      total_in_zip: 5,
+      linked_tasks: 5,
+      scene_inference_notes: [],
+    });
   });
 
   it("keeps separate phase keys when the queue worker repeats uncertain initialization", async () => {
@@ -136,6 +162,36 @@ describe("ImportDatasetWizard", () => {
     expect(initKeys[1]).toBe(initKeys[0]);
     expect(completeKey).toMatch(/^[0-9a-f-]{36}$/);
     expect(completeKey).not.toBe(initKeys[0]);
+  });
+
+  it("reuses the ZIP key after an uncertain upload response and offers a manual retry", async () => {
+    const uploadZip = vi.mocked(datasetsApi.uploadZip);
+    uploadZip.mockReset().mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({
+      added: 1,
+      deduped: 0,
+      skipped: 0,
+      errors: [],
+      total_in_zip: 1,
+      linked_tasks: 1,
+      scene_inference_notes: [],
+    });
+    renderUI({ datasetId: "existing-ds" });
+    fireEvent.click(screen.getByRole("button", { name: /ZIP 包/ }));
+    pickZipFile();
+    fireEvent.click(screen.getByRole("button", { name: /上传 ZIP/ }));
+
+    await waitFor(() => expect(uploadZip).toHaveBeenCalledTimes(1));
+    const first = uploadZip.mock.calls[0];
+    const key = first[2].idempotencyKey;
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /重试上传/ })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /重试上传/ }));
+    await waitFor(() => expect(uploadZip).toHaveBeenCalledTimes(2));
+    expect(uploadZip.mock.calls[1][2]).toEqual({ idempotencyKey: key });
+    await waitFor(() => expect(screen.getByText("解包完成")).toBeInTheDocument());
   });
 
   it("初始渲染: step1 显示「选择来源」, 文件模式未选文件时「下一步」禁用", () => {
