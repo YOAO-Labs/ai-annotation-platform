@@ -37,6 +37,12 @@ MODULE_ROLES = (
     "assets_code",
     "labeling_code",
     "jobs_code",
+    "learning_code",
+    "inference_code",
+    "insights_code",
+    "diagnostics_code",
+    "export_code",
+    "audit_code",
     "append_client",
 )
 SQL_ARTIFACTS = (
@@ -46,12 +52,21 @@ SQL_ARTIFACTS = (
     "0193_task_creation_jobs.sql",
     "0194_initial_task_creation.sql",
     "0195_task_append_timestamp.sql",
+    "0196_project_deletion_retention.sql",
+    "0197_project_labeling_delete.sql",
+    "0198_project_owned_cleanup_contract.sql",
+    "0199_project_deletion.sql",
+    "0200_deleted_project_job_scope.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
     "0192_creation_authority.schema.json",
     "0193_task_creation_jobs.schema.json",
     "0194_task_creation.schema.json",
+    "0196_project_deletion_retention.schema.json",
+    "0197_project_labeling_delete.schema.json",
+    "0198_project_owned_cleanup_contract.schema.json",
+    "0199_project_deletion.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -63,6 +78,11 @@ TEST_FILES = (
     "tests/test_task_creation_bindings.py",
     "tests/test_task_creation_runtime.py",
     "tests/test_task_creation_handoff.py",
+    "tests/test_project_owned_cleanup_contract.py",
+    "tests/test_project_labeling_delete_contract.py",
+    "tests/test_project_deletion_retention.py",
+    "tests/test_deleted_project_job_scope.py",
+    "tests/test_project_deletion_data.py",
     "tests/test_pointcloud_box3d_annotation.py",
     "tests/test_pointcloud_import.py",
     "tests/test_pointcloud_manifest.py",
@@ -274,6 +294,18 @@ def _create_module_roles(
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE jobs_code NOLOGIN NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE learning_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE inference_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE insights_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE diagnostics_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE export_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE audit_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE append_client LOGIN "
             f"PASSWORD '{append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
@@ -326,6 +358,20 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_labeling_v1.prepare_dataset_task_creation(NULL::uuid, NULL::jsonb);\n"
         "SELECT aap_labeling_v1.read_dataset_task_creation(NULL::uuid);\n"
         "SELECT aap_labeling_v1.advance_dataset_task_creation(NULL::uuid, NULL::integer);\n"
+        "SELECT aap_identity_v1.lock_audit_actor(NULL::uuid);\n"
+        "SELECT aap_learning_v1.guard_project_deletion(NULL::uuid);\n"
+        "SELECT aap_workspace_v1.delete_project(NULL::uuid, NULL::uuid, NULL::uuid, NULL::jsonb);\n"
+        "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
+        "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
+        "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT aap_inference_v1.clear_project_ml_backend_pool(:'project_id'::uuid);\n"
+        "SELECT aap_inference_v1.clear_project_pipelines(:'project_id'::uuid);\n"
+        "SELECT aap_insights_v1.clear_project_task_views(:'project_id'::uuid);\n"
+        "SELECT aap_diagnostics_v1.detach_project_references(:'project_id'::uuid);\n"
+        "SELECT aap_export_v1.clear_project_export_artifacts(:'project_id'::uuid);\n"
+        "SELECT aap_jobs_v1.detach_project_references(:'project_id'::uuid);\n"
+        "SELECT aap_learning_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT aap_labeling_v1.delete_project_owned_records(:'project_id'::uuid);\n"
         "SELECT aap_labeling_v1.append_dataset_items("
         ":'dataset_id'::uuid, ARRAY[]::uuid[], :'operation_id'::uuid);\n"
         "ROLLBACK;\n"
@@ -342,6 +388,7 @@ def _install_and_rollback_frozen_sql(
             "expected_database": database,
             "dataset_id": str(uuid4()),
             "operation_id": str(uuid4()),
+            "project_id": str(uuid4()),
         },
     )
     responses: dict[str, list[dict]] = {}
@@ -360,6 +407,7 @@ def _install_and_rollback_frozen_sql(
 
     expected_errors = {
         "aap-active-actor/v1": "account_not_active",
+        "aap-audit-actor/v1": "account_not_active",
         "aap-project-manager/v1": "account_not_active",
         "aap-dataset-association/v1": "account_not_active",
         "aap-task-creation-items/v1": "invalid_request",
@@ -369,6 +417,8 @@ def _install_and_rollback_frozen_sql(
         "aap-task-creation-job/v1": "invalid_request",
         "aap-task-creation-job-finish/v1": "invalid_request",
         "aap-task-creation/v1": "invalid_request",
+        "aap-project-delete-retention/v1": "invalid_request",
+        "aap-project-delete/v1": "invalid_request",
     }
     if any(
         not any(
@@ -381,6 +431,17 @@ def _install_and_rollback_frozen_sql(
         raise RuntimeError(
             "native frozen-SQL contract probes returned unexpected errors"
         )
+    if not any(
+        response.get("ok") is True and response.get("data") == {}
+        for response in responses.get("aap-project-delete-retention/v1", [])
+    ):
+        raise RuntimeError("native Learning retention guard probe did not succeed")
+    if not any(
+        response.get("ok") is True
+        and response.get("data") == {"deleted_tasks": 0, "deleted_annotations": 0}
+        for response in responses.get("aap-project-labeling-delete/v1", [])
+    ):
+        raise RuntimeError("native Labeling project-delete probe did not succeed")
 
     rollback_state = _psql(
         container_id,
@@ -396,9 +457,22 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_assets_v1') IS NULL "
             "AND to_regnamespace('aap_labeling_v1') IS NULL "
             "AND to_regnamespace('aap_jobs_v1') IS NULL "
+            "AND to_regnamespace('aap_learning_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_v1') IS NULL "
+            "AND to_regnamespace('aap_insights_v1') IS NULL "
+            "AND to_regnamespace('aap_diagnostics_v1') IS NULL "
+            "AND to_regnamespace('aap_export_v1') IS NULL "
+            "AND to_regnamespace('aap_audit_v1') IS NULL "
             "AND to_regclass('public.task_append_operations') IS NULL "
             "AND to_regclass('public.task_creation_operations') IS NULL "
-            "AND to_regclass('public.task_creation_chunks') IS NULL;\n"
+            "AND to_regclass('public.task_creation_chunks') IS NULL "
+            "AND to_regclass('public.project_deletion_operations') IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute "
+            "WHERE attrelid = 'public.async_jobs'::pg_catalog.regclass "
+            "AND attname = 'retained_project_id' AND NOT attisdropped) "
+            "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger "
+            "WHERE tgrelid = 'public.async_jobs'::pg_catalog.regclass "
+            "AND tgname = 'async_jobs_retain_project_scope' AND NOT tgisinternal);\n"
         ),
         variables={"expected_database": database},
     )
@@ -578,8 +652,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0195"]:
-            raise RuntimeError("module-data acceptance requires migration head 0195")
+        if heads != ["0200"]:
+            raise RuntimeError("module-data acceptance requires migration head 0200")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -651,6 +725,12 @@ def main(argv: list[str] | None = None) -> int:
                 "assets_owner": "assets_code",
                 "labeling_owner": "labeling_code",
                 "jobs_owner": "jobs_code",
+                "learning_owner": "learning_code",
+                "inference_owner": "inference_code",
+                "insights_owner": "insights_code",
+                "diagnostics_owner": "diagnostics_code",
+                "export_owner": "export_code",
+                "audit_owner": "audit_code",
                 "workflow_role": "append_client",
             },
         )

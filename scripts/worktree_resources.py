@@ -400,6 +400,7 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1 TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "
                     "aap_workspace_v1.lock_project_manager(uuid, uuid), "
+                    "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
                     "aap_assets_v1.lock_dataset_reference(uuid), "
                     "aap_assets_v1.lock_current_association(uuid, uuid), "
                     "aap_assets_v1.associate_project(uuid, uuid, uuid), "

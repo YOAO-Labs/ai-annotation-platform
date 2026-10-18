@@ -2,7 +2,10 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v assets_owner=assets_code -v labeling_owner=labeling_code
---   -v jobs_owner=jobs_code -v workflow_role=append_client
+--   -v jobs_owner=jobs_code -v learning_owner=learning_code
+--   -v inference_owner=inference_code -v insights_owner=insights_code
+--   -v diagnostics_owner=diagnostics_code -v export_owner=export_code
+--   -v audit_owner=audit_code -v workflow_role=append_client
 --   -f infra/docker/module-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -13,6 +16,12 @@ SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
 SELECT set_config('aap.assets_owner', :'assets_owner', true);
 SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
 SELECT set_config('aap.jobs_owner', :'jobs_owner', true);
+SELECT set_config('aap.learning_owner', :'learning_owner', true);
+SELECT set_config('aap.inference_owner', :'inference_owner', true);
+SELECT set_config('aap.insights_owner', :'insights_owner', true);
+SELECT set_config('aap.diagnostics_owner', :'diagnostics_owner', true);
+SELECT set_config('aap.export_owner', :'export_owner', true);
+SELECT set_config('aap.audit_owner', :'audit_owner', true);
 SELECT set_config('aap.workflow_role', :'workflow_role', true);
 
 DO $$
@@ -24,6 +33,12 @@ DECLARE
         current_setting('aap.assets_owner'),
         current_setting('aap.labeling_owner'),
         current_setting('aap.jobs_owner'),
+        current_setting('aap.learning_owner'),
+        current_setting('aap.inference_owner'),
+        current_setting('aap.insights_owner'),
+        current_setting('aap.diagnostics_owner'),
+        current_setting('aap.export_owner'),
+        current_setting('aap.audit_owner'),
         current_setting('aap.workflow_role')
     ];
 BEGIN
@@ -31,7 +46,7 @@ BEGIN
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 6 THEN
+    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 12 THEN
         RAISE EXCEPTION 'Module owners and caller must be distinct roles';
     END IF;
     FOREACH role_name IN ARRAY role_names LOOP
@@ -52,33 +67,89 @@ BEGIN
 END $$;
 
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_workspace_v1, aap_assets_v1,
-    aap_labeling_v1, aap_jobs_v1 FROM PUBLIC;
+    aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_assets_v1, aap_labeling_v1, aap_jobs_v1 FROM PUBLIC;
+    aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_audit_v1 FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
 GRANT USAGE ON SCHEMA public TO :"identity_owner", :"workspace_owner",
-    :"assets_owner", :"labeling_owner", :"jobs_owner";
+    :"assets_owner", :"labeling_owner", :"jobs_owner", :"learning_owner",
+    :"inference_owner", :"insights_owner", :"diagnostics_owner",
+    :"export_owner", :"audit_owner";
 
 -- Identity and Workspace provide only the current actor/project facts needed
 -- to retain their row locks through the caller-owned transaction.
-GRANT SELECT (id, role, is_active), UPDATE (id)
+GRANT SELECT (id, role, is_active, email), UPDATE (id)
     ON public.users TO :"identity_owner";
-GRANT SELECT (id, owner_id, data_type, scene_mode), UPDATE (id)
-    ON public.projects TO :"workspace_owner";
-GRANT SELECT (project_id, user_id, role), UPDATE (id)
+GRANT SELECT (id, owner_id, data_type, scene_mode, display_id, name), UPDATE (id),
+    DELETE ON public.projects TO :"workspace_owner";
+GRANT SELECT (project_id, user_id, role), UPDATE (id), DELETE
     ON public.project_members TO :"workspace_owner";
+GRANT SELECT (source_project_id), UPDATE (source_project_id)
+    ON public.project_templates TO :"workspace_owner";
+GRANT SELECT (operation_id, actor_id, project_id, request, result, created_at),
+    INSERT (operation_id, actor_id, project_id, request, result), UPDATE (operation_id)
+    ON public.project_deletion_operations TO :"workspace_owner";
+GRANT SELECT (id), INSERT (
+    actor_id, actor_email, actor_role, action, target_type, target_id,
+    method, path, status_code, ip, request_id, detail_json
+) ON public.audit_logs TO :"audit_owner";
+GRANT USAGE ON SEQUENCE public.audit_logs_id_seq TO :"audit_owner";
 
 -- Assets association and source locks use only the listed source columns.
 GRANT SELECT (id, data_type), UPDATE (id)
     ON public.datasets TO :"assets_owner";
 GRANT SELECT (id, project_id, dataset_id), INSERT (id, project_id, dataset_id),
     UPDATE (id) ON public.project_datasets TO :"assets_owner";
+GRANT DELETE ON public.project_datasets TO :"assets_owner";
 GRANT SELECT (dataset_id) ON public.scenes TO :"assets_owner";
 GRANT SELECT (id, dataset_id, file_name, file_path, file_type), UPDATE (id)
     ON public.dataset_items TO :"assets_owner";
+GRANT SELECT (project_id), DELETE ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (task_id), DELETE ON public.image_pyramid_assets TO :"assets_owner";
 
 -- Labeling owns all task creation mutations, counter writes, and receipts.
-GRANT SELECT (id, project_id, dataset_item_id) ON public.tasks TO :"labeling_owner";
+GRANT SELECT (id, project_id, dataset_item_id), UPDATE (id), DELETE
+    ON public.tasks TO :"labeling_owner";
+GRANT SELECT (id, project_id), UPDATE (id), DELETE
+    ON public.task_batches TO :"labeling_owner";
+GRANT SELECT (id, project_id, task_id), DELETE
+    ON public.predictions TO :"labeling_owner";
+GRANT SELECT (id, project_id, task_id), DELETE
+    ON public.failed_predictions TO :"labeling_owner";
+GRANT SELECT (prediction_id, failed_prediction_id), DELETE
+    ON public.prediction_metas TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, task_id, parent_annotation_id, parent_prediction_id
+), UPDATE (parent_annotation_id, parent_prediction_id), DELETE
+    ON public.annotations TO :"labeling_owner";
+GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
+    UPDATE (thread_parent_id), DELETE
+    ON public.annotation_feedbacks TO :"labeling_owner";
+GRANT SELECT (task_id, annotation_id), DELETE
+    ON public.annotation_drafts TO :"labeling_owner";
+GRANT SELECT (task_id), DELETE ON public.task_locks TO :"labeling_owner";
+GRANT SELECT (project_id, annotation_id), DELETE
+    ON public.annotation_comments TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE ON public.task_events TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE ON public.mask_review_scopes TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE ON public.mask_qc_issues TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE ON public.mask_qc_runs TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE
+    ON public.point_cloud_quality_issues TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE
+    ON public.point_cloud_quality_evaluations TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE
+    ON public.point_cloud_quality_runs TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE
+    ON public.mask_annotation_revisions TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE
+    ON public.mask_repair_batches TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE
+    ON public.mask_format_imports TO :"labeling_owner";
+GRANT SELECT (project_id), DELETE ON public.scene_tracks TO :"labeling_owner";
 GRANT INSERT (
     id, project_id, dataset_item_id, display_id, file_name, file_path, file_type,
     tags, status, assignee_is_override, is_labeled, overlap, total_annotations,
@@ -111,23 +182,57 @@ GRANT INSERT (id, kind, project_id, user_id, status, progress_pct, payload, resu
     ON public.async_jobs TO :"jobs_owner";
 GRANT UPDATE (
     status, progress_pct, result, error_message, celery_task_id, started_at,
-    completed_at, updated_at
+    completed_at, updated_at, project_id, retained_project_id
 ) ON public.async_jobs TO :"jobs_owner";
+
+-- Learning holds project retention evidence, task-derived streams and recipes.
+GRANT SELECT (project_id) ON public.active_learning_rounds TO :"learning_owner";
+GRANT SELECT (task_id) ON public.active_learning_pool_members,
+    public.active_learning_candidates TO :"learning_owner";
+GRANT SELECT (project_id) ON public.training_studies,
+    public.trained_model_versions, public.project_model_selections,
+    public.project_model_releases, public.model_decisions,
+    public.sample_evaluation_runs, public.learning_policies,
+    public.training_dataset_versions, public.training_runs,
+    public.training_previews, public.learning_triggers
+    TO :"learning_owner";
+GRANT SELECT (project_id), DELETE ON public.project_task_datasets,
+    public.training_recipes, public.training_recipe_revisions
+    TO :"learning_owner";
+
+-- Other owners expose only their project cleanup predicates and row mutations.
+GRANT SELECT (project_id), DELETE ON public.project_ml_backend_pool,
+    public.project_pipelines TO :"inference_owner";
+GRANT SELECT (project_id), DELETE ON public.project_task_views TO :"insights_owner";
+GRANT SELECT (project_id, task_id), UPDATE (project_id, task_id)
+    ON public.bug_reports TO :"diagnostics_owner";
+GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 
 -- Cross-owner function calls share one PostgreSQL transaction and retain the
 -- dataset -> current authority -> association -> Jobs/Labeling lock order.
-GRANT USAGE ON SCHEMA aap_identity_v1 TO :"identity_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_identity_v1
+    TO :"identity_owner", :"workspace_owner", :"audit_owner";
 GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
     :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
-    :"jobs_owner", :"workflow_role";
+    :"jobs_owner", :"workspace_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"labeling_owner", :"jobs_owner",
-    :"workflow_role";
+    :"assets_owner", :"learning_owner", :"diagnostics_owner",
+    :"workspace_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
-    :"workflow_role";
+    :"workspace_owner", :"workflow_role";
+GRANT USAGE ON SCHEMA aap_learning_v1 TO :"learning_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_insights_v1 TO :"insights_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_diagnostics_v1
+    TO :"diagnostics_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_export_v1 TO :"export_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_audit_v1 TO :"audit_owner", :"workspace_owner";
 
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)
+    TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
@@ -143,6 +248,12 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid)
     TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid)
     TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_task_references(uuid)
+    TO :"assets_owner", :"learning_owner", :"diagnostics_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_project_owned_records(uuid)
+    TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid),
     aap_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer),
     aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb),
@@ -161,15 +272,39 @@ GRANT EXECUTE ON FUNCTION aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid,
     aap_jobs_v1.fail_task_creation_job(uuid, uuid, text),
     aap_jobs_v1.cancel_task_creation_job(uuid, uuid)
     TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.detach_project_references(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_learning_v1.lock_project_deletion(uuid),
+    aap_learning_v1.guard_project_deletion(uuid),
+    aap_learning_v1.delete_project_owned_records(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid),
+    aap_inference_v1.clear_project_pipelines(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_insights_v1.clear_project_task_views(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_diagnostics_v1.detach_project_references(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.record_project_deletion(
+    uuid, uuid, uuid, text, text, bigint, bigint, jsonb
+) TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
+    TO :"workflow_role";
 
 -- Keep schemas owned by the migrator; NOLOGIN code owners cannot replace code.
 GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA aap_identity_v1 FROM :"identity_owner";
 
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1._project_delete_failure(text) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
+    OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
 
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
@@ -178,6 +313,8 @@ ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"ass
 ALTER FUNCTION aap_assets_v1.lock_append_sources(uuid, uuid[]) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_task_creation_items(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
+    OWNER TO :"assets_owner";
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
@@ -188,6 +325,9 @@ ALTER FUNCTION aap_labeling_v1.accept_dataset_task_creation(
 ALTER FUNCTION aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb) OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.read_dataset_task_creation(uuid) OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.advance_dataset_task_creation(uuid, integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.project_task_references(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.delete_project_owned_records(uuid)
+    OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
@@ -201,17 +341,77 @@ ALTER FUNCTION aap_jobs_v1.update_task_creation_progress(uuid, uuid, bigint, big
 ALTER FUNCTION aap_jobs_v1.finish_task_creation_job(uuid, uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.fail_task_creation_job(uuid, uuid, text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.cancel_task_creation_job(uuid, uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.detach_project_references(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.retain_async_job_project_scope() OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+
+GRANT CREATE ON SCHEMA aap_learning_v1 TO :"learning_owner";
+ALTER FUNCTION aap_learning_v1.lock_project_deletion(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION aap_learning_v1.guard_project_deletion(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION aap_learning_v1.delete_project_owned_records(uuid)
+    OWNER TO :"learning_owner";
+REVOKE CREATE ON SCHEMA aap_learning_v1 FROM :"learning_owner";
+
+GRANT CREATE ON SCHEMA aap_inference_v1 TO :"inference_owner";
+ALTER FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_v1.clear_project_pipelines(uuid)
+    OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA aap_inference_v1 FROM :"inference_owner";
+
+GRANT CREATE ON SCHEMA aap_insights_v1 TO :"insights_owner";
+ALTER FUNCTION aap_insights_v1.clear_project_task_views(uuid)
+    OWNER TO :"insights_owner";
+REVOKE CREATE ON SCHEMA aap_insights_v1 FROM :"insights_owner";
+
+GRANT CREATE ON SCHEMA aap_diagnostics_v1 TO :"diagnostics_owner";
+ALTER FUNCTION aap_diagnostics_v1.detach_project_references(uuid)
+    OWNER TO :"diagnostics_owner";
+REVOKE CREATE ON SCHEMA aap_diagnostics_v1 FROM :"diagnostics_owner";
+
+GRANT CREATE ON SCHEMA aap_export_v1 TO :"export_owner";
+ALTER FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
+    OWNER TO :"export_owner";
+REVOKE CREATE ON SCHEMA aap_export_v1 FROM :"export_owner";
+
+GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.record_project_deletion(
+    uuid, uuid, uuid, text, text, bigint, bigint, jsonb
+) OWNER TO :"audit_owner";
+REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 
 DO $$
 DECLARE
     target text;
 BEGIN
     FOREACH target IN ARRAY ARRAY[
-        'public.users', 'public.projects', 'public.project_members', 'public.datasets',
-        'public.scenes', 'public.dataset_items', 'public.project_datasets',
-        'public.tasks', 'public.task_dataset_item_links', 'public.task_append_operations',
-        'public.task_creation_operations', 'public.task_creation_chunks', 'public.async_jobs'
+        'public.users', 'public.projects', 'public.project_members',
+        'public.project_templates', 'public.project_deletion_operations',
+        'public.audit_logs', 'public.datasets', 'public.scenes',
+        'public.dataset_items', 'public.project_datasets',
+        'public.storage_connections', 'public.image_pyramid_assets',
+        'public.tasks', 'public.task_batches', 'public.task_locks',
+        'public.predictions', 'public.prediction_metas', 'public.failed_predictions',
+        'public.annotations', 'public.annotation_feedbacks', 'public.annotation_drafts',
+        'public.annotation_comments', 'public.task_events',
+        'public.scene_tracks', 'public.mask_review_scopes',
+        'public.mask_qc_runs', 'public.mask_qc_issues',
+        'public.mask_annotation_revisions', 'public.mask_repair_batches',
+        'public.mask_format_imports', 'public.point_cloud_quality_runs',
+        'public.point_cloud_quality_issues', 'public.point_cloud_quality_evaluations',
+        'public.task_append_operations',
+        'public.task_creation_operations', 'public.task_creation_chunks',
+        'public.active_learning_rounds', 'public.active_learning_pool_members',
+        'public.active_learning_candidates', 'public.training_studies',
+        'public.trained_model_versions', 'public.project_model_selections',
+        'public.project_model_releases', 'public.model_decisions',
+        'public.sample_evaluation_runs', 'public.learning_policies',
+        'public.training_dataset_versions', 'public.training_runs',
+        'public.training_previews', 'public.learning_triggers',
+        'public.project_task_datasets', 'public.training_recipes',
+        'public.training_recipe_revisions', 'public.project_ml_backend_pool',
+        'public.project_pipelines', 'public.project_task_views',
+        'public.bug_reports', 'public.export_artifacts', 'public.async_jobs'
     ] LOOP
         IF has_any_column_privilege(current_setting('aap.workflow_role'), target, 'SELECT,INSERT,UPDATE,REFERENCES')
            OR has_table_privilege(current_setting('aap.workflow_role'), target, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
@@ -225,7 +425,13 @@ BEGIN
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_workspace_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_assets_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_labeling_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_jobs_v1', 'CREATE') THEN
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_jobs_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_learning_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_inference_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_insights_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_diagnostics_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_export_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Caller must not hold schema or database CREATE privileges';
     END IF;
 
@@ -238,6 +444,58 @@ BEGIN
        OR has_function_privilege(current_setting('aap.workflow_role'),
         'aap_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller must not execute Jobs-internal capabilities';
+    END IF;
+
+    IF has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_identity_v1.lock_active_actor(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_workspace_v1.lock_project_reference(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.lock_dataset_reference(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.lock_current_association(uuid,uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.lock_append_sources(uuid,uuid[])', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.lock_task_creation_items(uuid,uuid[])', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_identity_v1.lock_audit_actor(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_workspace_v1._project_delete_failure(text)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.delete_project_owned_records(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_labeling_v1.project_task_references(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_labeling_v1.delete_project_owned_records(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_jobs_v1.detach_project_references(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_jobs_v1.retain_async_job_project_scope()', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_learning_v1.lock_project_deletion(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_learning_v1.guard_project_deletion(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_learning_v1.delete_project_owned_records(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_inference_v1.clear_project_ml_backend_pool(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_inference_v1.clear_project_pipelines(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_insights_v1.clear_project_task_views(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_diagnostics_v1.detach_project_references(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_export_v1.clear_project_export_artifacts(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_audit_v1.record_project_deletion(uuid,uuid,uuid,text,text,bigint,bigint,jsonb)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'Caller must use only the public project deletion capability';
+    END IF;
+
+    IF NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'Caller is missing the public project deletion capability';
     END IF;
 END $$;
 COMMIT;
