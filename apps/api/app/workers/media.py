@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any
 
 from aap_assets_media.contract import (
@@ -26,6 +27,19 @@ from app.workers.celery_app import celery_app
 VIDEO_MEDIA_DRAIN_LIMIT = 32
 
 
+@asynccontextmanager
+async def _celery_media_gateway():
+    if settings.assets_media_url:
+        async with media_gateway() as gateway:
+            yield gateway
+        return
+    from app.workers._db import task_session_factory
+
+    async with task_session_factory() as session_factory:
+        async with media_gateway(session_factory=session_factory) as gateway:
+            yield gateway
+
+
 def _wake_accepted_image_pool() -> None:
     """Legacy ID-only deliveries may drain, but cannot admit work themselves."""
     from app.workers.image_pyramid import execute_image_media
@@ -46,20 +60,16 @@ async def _schedule_video_work(
     operation_id: uuid.UUID,
     force: bool = False,
 ) -> None:
-    from app.workers._db import task_session
-
-    async with task_session() as db:
-        async with media_gateway(db) as gateway:
-            await gateway.call(
-                "schedule_video_media",
-                ScheduleWorkRequest(
-                    operation_id=operation_id,
-                    dataset_item_id=item_id,
-                    spec=spec,
-                    force=force,
-                ),
-            )
-        await db.commit()
+    async with _celery_media_gateway() as gateway:
+        await gateway.call(
+            "schedule_video_media",
+            ScheduleWorkRequest(
+                operation_id=operation_id,
+                dataset_item_id=item_id,
+                spec=spec,
+                force=force,
+            ),
+        )
 
 
 async def _schedule_video_metadata(item_id: str, operation_id: uuid.UUID) -> None:
@@ -76,26 +86,22 @@ async def _schedule_video_chunks(
     unique_ids = sorted(set(int(chunk_id) for chunk_id in chunk_ids))
     if not unique_ids:
         return
-    from app.workers._db import task_session
-
     item_uuid = uuid.UUID(item_id)
-    async with task_session() as db:
-        async with media_gateway(db) as gateway:
-            for chunk_id in unique_ids:
-                await gateway.call(
-                    "schedule_video_media",
-                    ScheduleWorkRequest(
-                        operation_id=_celery_operation_id(
-                            task_id, f"{item_id}:chunk:{chunk_id}"
-                        ),
-                        dataset_item_id=item_uuid,
-                        spec=ChunkSpec(
-                            chunk_id=chunk_id,
-                            chunk_size_frames=max(1, settings.video_chunk_size_frames),
-                        ),
+    async with _celery_media_gateway() as gateway:
+        for chunk_id in unique_ids:
+            await gateway.call(
+                "schedule_video_media",
+                ScheduleWorkRequest(
+                    operation_id=_celery_operation_id(
+                        task_id, f"{item_id}:chunk:{chunk_id}"
                     ),
-                )
-        await db.commit()
+                    dataset_item_id=item_uuid,
+                    spec=ChunkSpec(
+                        chunk_id=chunk_id,
+                        chunk_size_frames=max(1, settings.video_chunk_size_frames),
+                    ),
+                ),
+            )
 
 
 async def _schedule_video_frames(
@@ -109,27 +115,23 @@ async def _schedule_video_frames(
     }
     if not requests:
         return
-    from app.workers._db import task_session
-
     item_uuid = uuid.UUID(item_id)
-    async with task_session() as db:
-        async with media_gateway(db) as gateway:
-            for frame_index, width, format_ in sorted(requests):
-                await gateway.call(
-                    "schedule_video_media",
-                    ScheduleWorkRequest(
-                        operation_id=_celery_operation_id(
-                            task_id, f"{item_id}:frame:{frame_index}:{width}:{format_}"
-                        ),
-                        dataset_item_id=item_uuid,
-                        spec=FrameSpec(
-                            frame_index=frame_index,
-                            width=width,
-                            format=format_,
-                        ),
+    async with _celery_media_gateway() as gateway:
+        for frame_index, width, format_ in sorted(requests):
+            await gateway.call(
+                "schedule_video_media",
+                ScheduleWorkRequest(
+                    operation_id=_celery_operation_id(
+                        task_id, f"{item_id}:frame:{frame_index}:{width}:{format_}"
                     ),
-                )
-        await db.commit()
+                    dataset_item_id=item_uuid,
+                    spec=FrameSpec(
+                        frame_index=frame_index,
+                        width=width,
+                        format=format_,
+                    ),
+                ),
+            )
 
 
 async def _schedule_video_backfill(dataset_id: str, operation_id: uuid.UUID) -> None:
@@ -144,23 +146,34 @@ async def _schedule_video_backfill(dataset_id: str, operation_id: uuid.UUID) -> 
 
 async def _execute_video_media(job_id: str | None) -> None:
     requested_job_id = uuid.UUID(job_id) if job_id else None
-    async with media_execution_session() as executor:
-        # A remote owner runs its own poller. Local mode keeps one executor for the
-        # whole drain so verified source downloads remain reusable across jobs.
-        if executor is None:
-            return
-        for _ in range(VIDEO_MEDIA_DRAIN_LIMIT):
-            executed = await executor.execute_once(job_id=requested_job_id)
-            if not executed:
+    if settings.assets_media_url:
+        return
+    from app.workers._db import task_session_factory
+
+    async with task_session_factory() as session_factory:
+        async with media_execution_session(session_factory=session_factory) as executor:
+            # A remote owner runs its own poller. Local mode keeps one executor
+            # for the whole drain so verified source downloads remain reusable.
+            if executor is None:
                 return
-            requested_job_id = None
+            for _ in range(VIDEO_MEDIA_DRAIN_LIMIT):
+                executed = await executor.execute_once(job_id=requested_job_id)
+                if not executed:
+                    return
+                requested_job_id = None
     execute_video_media.delay(None)
 
 
 async def _maintain_video_media() -> None:
-    usage = await maintain_video_media()
-    if usage is None:
+    if settings.assets_media_url:
         return
+    from app.workers._db import task_session_factory
+
+    async with task_session_factory() as session_factory:
+        usage = await maintain_video_media(session_factory=session_factory)
+        if usage is None:
+            return
+    execute_video_media.delay(None)
     VIDEO_FRAME_ASSET_BYTES.labels(asset_type="frame").set(usage.frame_bytes)
     VIDEO_FRAME_ASSET_BYTES.labels(asset_type="chunk").set(usage.chunk_bytes)
 

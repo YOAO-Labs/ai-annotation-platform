@@ -72,10 +72,14 @@ class SqlAlchemyMediaDatabase:
 
 
 class _IndependentMediaDatabase:
+    def __init__(self, session_factory=None):
+        self.session_factory = session_factory
+
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
         from app.db.base import async_session
 
-        async with async_session() as db:
+        factory = self.session_factory or async_session
+        async with factory() as db:
             return await SqlAlchemyMediaDatabase(db).call(operation, request)
 
 
@@ -144,13 +148,13 @@ async def _wake(job_id: UUID | None, generation: int):
         raise
 
 
-def _executor():
+def _executor(*, session_factory=None):
     from app.services.media_probe import configured_probe_client
     from aap_assets_media_runtime.config import MediaExecutionSettings
     from aap_assets_media_runtime.worker import MediaExecutor
 
     return MediaExecutor(
-        _IndependentMediaDatabase(),
+        _IndependentMediaDatabase(session_factory),
         media_storage(),
         uuid4(),
         settings=MediaExecutionSettings(
@@ -162,10 +166,18 @@ def _executor():
 
 
 class MediaGateway:
-    def __init__(self, provider, *, caller_transaction=False, local_execution=True):
+    def __init__(
+        self,
+        provider,
+        *,
+        caller_transaction=False,
+        local_execution=True,
+        session_factory=None,
+    ):
         self.provider = provider
         self.caller_transaction = caller_transaction
         self.local_execution = local_execution
+        self.session_factory = session_factory
         self._executor = None
 
     def __getattr__(self, name):
@@ -190,7 +202,11 @@ class MediaGateway:
         if not self.local_execution:
             return False
         if self._executor is None:
-            self._executor = _executor()
+            self._executor = (
+                _executor()
+                if self.session_factory is None
+                else _executor(session_factory=self.session_factory)
+            )
         return await self._executor.execute_once(job_id=job_id) is not None
 
     async def source_references(self, requests, *, raw_only=False):
@@ -285,8 +301,33 @@ class MediaGateway:
 
 
 def media_gateway(
-    db: AsyncSession | None = None, *, caller_transaction: bool = False
+    db: AsyncSession | None = None,
+    *,
+    caller_transaction: bool = False,
+    session_factory=None,
 ) -> MediaGateway:
+    independent_session_factory = session_factory
+    if (
+        not caller_transaction
+        and not settings.assets_media_url
+        and independent_session_factory is None
+        and db is not None
+    ):
+        from sqlalchemy.ext.asyncio import (
+            AsyncConnection,
+            AsyncSession,
+            async_sessionmaker,
+        )
+
+        bind = db.engine if isinstance(db, AsyncConnection) else db.bind
+        if isinstance(bind, AsyncConnection):
+            bind = bind.engine
+        if bind is None:
+            raise ValueError("independent media calls require a bound database session")
+        independent_session_factory = async_sessionmaker(
+            bind, class_=AsyncSession, expire_on_commit=False
+        )
+
     if settings.assets_media_url:
         if caller_transaction:
             raise c.MediaFailure("invalid_request")
@@ -303,7 +344,7 @@ def media_gateway(
                 raise ValueError("caller transaction requires a database session")
             database = SqlAlchemyMediaDatabase(db, commit=False)
         else:
-            database = _IndependentMediaDatabase()
+            database = _IndependentMediaDatabase(independent_session_factory)
         provider = MediaControl(
             database,
             media_storage(control=True),
@@ -313,24 +354,25 @@ def media_gateway(
         provider,
         caller_transaction=caller_transaction,
         local_execution=not bool(settings.assets_media_url),
+        session_factory=independent_session_factory,
     )
 
 
 @asynccontextmanager
-async def media_execution_session():
+async def media_execution_session(*, session_factory=None):
     if settings.assets_media_url:
         yield None
         return
-    executor = _executor()
+    executor = _executor(session_factory=session_factory)
     try:
         yield executor
     finally:
         await executor.close()
 
 
-async def run_media_job(job_id: UUID | None = None) -> bool:
+async def run_media_job(job_id: UUID | None = None, *, session_factory=None) -> bool:
     """Run one accepted local job; a remote provider is never executed locally."""
-    async with media_execution_session() as executor:
+    async with media_execution_session(session_factory=session_factory) as executor:
         return (
             False
             if executor is None
@@ -338,8 +380,8 @@ async def run_media_job(job_id: UUID | None = None) -> bool:
         )
 
 
-async def maintain_video_media():
-    async with media_execution_session() as executor:
+async def maintain_video_media(*, session_factory=None):
+    async with media_execution_session(session_factory=session_factory) as executor:
         return None if executor is None else await executor.maintenance_once()
 
 
