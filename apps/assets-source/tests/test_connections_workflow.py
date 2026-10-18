@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from cryptography.fernet import Fernet
@@ -482,3 +482,42 @@ async def test_delete_uses_atomic_owner_command_without_credentials_or_policy():
     )
     assert result.connection is None and result.action == "delete"
     assert native.calls == ["delete"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field", ["kind", "scope", "project_id", "created_by", "created_at", "name"]
+)
+async def test_update_rejects_changed_captured_immutable_fields(field):
+    native = Native()
+    original = native.update_storage_connection
+    changed = {
+        "kind": "sftp",
+        "scope": "global",
+        "project_id": uuid4(),
+        "created_by": uuid4(),
+        "created_at": native.record.created_at + timedelta(seconds=1),
+        "name": "unrequested name",
+    }
+
+    async def corrupt(request):
+        result = await original(request)
+        return result.model_copy(
+            update={
+                "connection": result.connection.model_copy(
+                    update={field: changed[field]}
+                )
+            }
+        )
+
+    native.update_storage_connection = corrupt
+    with pytest.raises(ConnectionFailure) as failure:
+        await workflow(native, key="").invoke(
+            "update",
+            UpdateConnectionRequest(
+                operation_id=uuid4(),
+                actor_id=native.actor_id,
+                connection_id=native.connection_id,
+            ),
+        )
+    assert failure.value.code == "invalid_response"

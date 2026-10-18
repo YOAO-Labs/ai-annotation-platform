@@ -111,6 +111,15 @@ async def test_s3_probe_hides_sdk_error_text_and_closes_client(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_s3_probe_never_falls_back_to_ambient_credentials(monkeypatch):
+    client, arguments = _install_s3(monkeypatch)
+    await probe_connection("s3", _s3_config(), {}, allowlist=["8.8.8.0/24"])
+    assert arguments["aws_access_key_id"] == ""
+    assert arguments["aws_secret_access_key"] == ""
+    assert client.closed
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("key_count", "expected_count"), [(25, 20), (-1, 0)])
 async def test_s3_probe_clamps_sample_count(monkeypatch, key_count, expected_count):
     client, _ = _install_s3(monkeypatch, response={"KeyCount": key_count})

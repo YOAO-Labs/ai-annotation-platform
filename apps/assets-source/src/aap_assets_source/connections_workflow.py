@@ -105,6 +105,8 @@ class ConnectionsNativePort(Protocol):
 
 
 def _public_record(record: NativeConnectionFacts) -> ConnectionRecord:
+    if record.scope not in {"global", "owner", "project"}:
+        raise ConnectionFailure("invalid_response")
     return ConnectionRecord.model_validate(
         {
             **record.model_dump(),
@@ -350,6 +352,11 @@ class ConnectionsWorkflow:
                 audit_context=request.audit_context,
             ),
         )
+        for name in ("id", "kind", "scope", "project_id", "created_by", "created_at"):
+            if getattr(result.connection, name) != getattr(capture.connection, name):
+                raise ConnectionFailure("invalid_response")
+        if request.name is None and result.connection.name != capture.connection.name:
+            raise ConnectionFailure("invalid_response")
         return _public_mutation(result)
 
     async def delete_connection(

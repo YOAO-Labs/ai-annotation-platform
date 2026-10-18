@@ -120,6 +120,7 @@
               "type": "object"
             },
             "scope": {
+              "enum": ["global", "owner", "project"],
               "title": "Scope",
               "type": "string"
             },
@@ -282,6 +283,7 @@
               "type": "object"
             },
             "scope": {
+              "enum": ["global", "owner", "project"],
               "title": "Scope",
               "type": "string"
             },
@@ -465,6 +467,7 @@
               "type": "object"
             },
             "scope": {
+              "enum": ["global", "owner", "project"],
               "title": "Scope",
               "type": "string"
             },
@@ -792,6 +795,7 @@
               "type": "object"
             },
             "scope": {
+              "enum": ["global", "owner", "project"],
               "title": "Scope",
               "type": "string"
             },
@@ -1105,6 +1109,7 @@
               "type": "object"
             },
             "scope": {
+              "enum": ["global", "owner", "project"],
               "title": "Scope",
               "type": "string"
             },

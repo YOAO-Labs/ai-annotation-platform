@@ -149,6 +149,12 @@ def test_connection_input_rejects_non_json_values_and_hides_credential_repr():
         CreateConnectionRequest(**{**values, "secret": {"password": float("nan")}})
 
 
+def test_native_connection_rejects_unsupported_scope():
+    raw = _facts().model_dump()
+    with pytest.raises(ValidationError):
+        NativeConnectionFacts.model_validate({**raw, "scope": "unsupported"})
+
+
 def test_connection_pages_require_progress_and_correct_completion():
     actor_id = uuid4()
     connection = _facts()

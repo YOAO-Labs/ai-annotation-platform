@@ -72,8 +72,8 @@ def _probe_s3(config: dict[str, Any], secret: dict[str, Any]) -> int:
     client = boto3.client(
         "s3",
         endpoint_url=endpoint,
-        aws_access_key_id=secret.get("access_key"),
-        aws_secret_access_key=secret.get("secret_key"),
+        aws_access_key_id=secret.get("access_key") or "",
+        aws_secret_access_key=secret.get("secret_key") or "",
         region_name=config.get("region"),
         config=BotoConfig(
             connect_timeout=10, read_timeout=15, retries={"max_attempts": 1}

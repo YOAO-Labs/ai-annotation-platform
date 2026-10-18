@@ -57,7 +57,7 @@ class NativeConnectionFacts(_Value):
     name: StrictStr
     kind: ConnectionKind
     config: dict[str, Any]
-    scope: StrictStr
+    scope: Literal["global", "owner", "project"]
     project_id: UUID | None
     secret_set: StrictBool
     created_by: UUID | None
