@@ -2282,7 +2282,11 @@ BEGIN
            OR pg_catalog.jsonb_typeof(p_selection -> 'failed_only') IS DISTINCT FROM 'boolean'
            OR (p_selection ? 'intent' AND pg_catalog.jsonb_typeof(p_selection -> 'intent') IS DISTINCT FROM 'string')
            OR v_intent NOT IN ('access', 'task_frame_retry')
-           OR (v_intent = 'task_frame_retry' AND (p_task_id IS NULL OR p_selection -> 'force' <> 'true'::jsonb OR p_selection -> 'failed_only' = 'true'::jsonb))
+           OR (v_intent = 'task_frame_retry' AND (
+               p_task_id IS NULL
+               OR (p_selection -> 'force' = 'true'::jsonb
+                   AND p_selection -> 'failed_only' = 'true'::jsonb)
+           ))
            OR EXISTS (
                SELECT 1 FROM pg_catalog.jsonb_array_elements(p_selection -> 'frame_indices') AS entry(value)
                WHERE pg_catalog.jsonb_typeof(entry.value) IS DISTINCT FROM 'number'

@@ -1157,9 +1157,10 @@ BEGIN
             PERFORM aap_assets_v1._media_queue_key(v_old_key, 'source_changed');
         END IF;
         INSERT INTO public.video_frame_cache (
-            dataset_item_id, frame_index, width, format, storage_key, byte_size,
+            id, dataset_item_id, frame_index, width, format, storage_key, byte_size,
             status, error, source_generation, timetable_revision, last_accessed_at
         ) VALUES (
+            pg_catalog.gen_random_uuid(),
             v_item.id,
             (v_job.spec ->> 'frame_index')::integer,
             (v_job.spec ->> 'width')::integer,
@@ -1182,11 +1183,12 @@ BEGIN
             PERFORM aap_assets_v1._media_queue_key(v_old_key, 'source_changed');
         END IF;
         INSERT INTO public.video_chunks (
-            dataset_item_id, chunk_id, start_frame, end_frame,
+            id, dataset_item_id, chunk_id, start_frame, end_frame,
             start_pts_ms, end_pts_ms, storage_key, byte_size, generation_mode,
             diagnostics, status, error, source_generation, timetable_revision,
             last_accessed_at
         ) VALUES (
+            pg_catalog.gen_random_uuid(),
             v_item.id, v_chunk_id, v_chunk_start, v_chunk_end,
             NULLIF(p_result ->> 'start_pts_ms', '')::integer,
             NULLIF(p_result ->> 'end_pts_ms', '')::integer,
@@ -1285,10 +1287,11 @@ BEGIN
             DELETE FROM public.video_frame_indices AS frame
             WHERE frame.dataset_item_id = v_item.id;
             INSERT INTO public.video_frame_indices (
-                dataset_item_id, frame_index, pts_ms, is_keyframe, pict_type, byte_offset
+                id, dataset_item_id, frame_index, pts_ms, is_keyframe, pict_type, byte_offset
             )
             SELECT
-                v_item.id, staged.frame_index, staged.pts_ms, staged.is_keyframe,
+                pg_catalog.gen_random_uuid(), v_item.id,
+                staged.frame_index, staged.pts_ms, staged.is_keyframe,
                 staged.pict_type, staged.byte_offset
             FROM public.asset_media_timetable_staging AS staged
             WHERE staged.job_id = p_job_id
@@ -1333,10 +1336,11 @@ BEGIN
             );
         IF p_result -> 'poster' IS NOT NULL AND p_result -> 'poster' <> 'null'::jsonb THEN
             INSERT INTO public.video_frame_cache (
-                dataset_item_id, frame_index, width, format, storage_key, byte_size,
+                id, dataset_item_id, frame_index, width, format, storage_key, byte_size,
                 status, error, source_generation, timetable_revision, last_accessed_at
             ) VALUES (
-                v_item.id, 0, 512, 'webp', p_result #>> '{poster,key}',
+                pg_catalog.gen_random_uuid(), v_item.id, 0, 512, 'webp',
+                p_result #>> '{poster,key}',
                 (p_result #>> '{poster,byte_size}')::bigint,
                 'ready', NULL, v_item.media_source_generation,
                 COALESCE(v_next_timetable_revision, v_item.media_timetable_revision),

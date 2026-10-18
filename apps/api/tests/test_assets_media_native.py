@@ -64,7 +64,13 @@ def _data(reply: dict) -> dict:
     return reply["data"]
 
 
-async def _seed_video(db_session, *, actor_id: uuid.UUID, dataset_id: uuid.UUID):
+async def _seed_video(
+    db_session,
+    *,
+    actor_id: uuid.UUID,
+    dataset_id: uuid.UUID,
+    video_metadata: dict | None = None,
+):
     item_id = uuid.uuid4()
     db_session.add(
         DatasetItem(
@@ -75,7 +81,12 @@ async def _seed_video(db_session, *, actor_id: uuid.UUID, dataset_id: uuid.UUID)
             file_type="video",
             file_size=100,
             content_hash="a" * 64,
-            metadata_={"video": {"legacy_extension": {"keep": True}}},
+            metadata_={
+                "video": {
+                    "legacy_extension": {"keep": True},
+                    **(video_metadata or {}),
+                }
+            },
         )
     )
     await db_session.flush()
@@ -272,7 +283,12 @@ async def test_timetable_publish_and_late_finish_retain_attempt_prefix(db_sessio
 async def test_failed_attempt_late_fail_reopens_prefix_sweep(db_session):
     actor_id = await _seed_actor(db_session)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id, data_type="video")
-    item_id = await _seed_video(db_session, actor_id=actor_id, dataset_id=dataset_id)
+    item_id = await _seed_video(
+        db_session,
+        actor_id=actor_id,
+        dataset_id=dataset_id,
+        video_metadata={"frame_count": 1, "fps": 30.0},
+    )
     job_id = await _seed_job(
         db_session,
         item_id=item_id,

@@ -272,6 +272,129 @@ async def test_ensure_video_media_fences_stale_source_before_creating_cache_or_w
     assert accepted["data"]["assets"][0]["status"] == "pending"
 
 
+async def test_task_frame_retry_accepts_failed_only_and_forced_selection_shapes(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session, role="super_admin")
+    _, item_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="video",
+        name="task-frame-retry",
+        metadata={"video": {"frame_count": 3, "fps": 30, "width": 640, "height": 360}},
+    )
+    project = await create_project(
+        db_session,
+        owner_id=actor_id,
+        name=f"media-frame-retry-{uuid4().hex[:8]}",
+        type_key="video",
+    )
+    task_id = uuid4()
+    db_session.add(
+        Task(
+            id=task_id,
+            project_id=project.id,
+            dataset_item_id=item_id,
+            display_id=f"T-MEDIA-{task_id.hex[:12]}",
+            file_name="task-frame-retry.mp4",
+            file_path=f"native-test/{item_id}",
+            file_type="video",
+        )
+    )
+    await db_session.flush()
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items "
+            "SET media_materialized_generation=media_source_generation WHERE id=:item"
+        ),
+        {"item": item_id},
+    )
+    source = _object(
+        await db_session.scalar(
+            _READ_SOURCE, {"actor": actor_id, "item": item_id, "task": task_id}
+        )
+    )
+    assert source["ok"] is True
+    snapshot = source["data"]["source_snapshot"]
+    await db_session.execute(
+        text(
+            "INSERT INTO public.video_frame_cache "
+            "(id,dataset_item_id,frame_index,width,format,status,error,source_generation,"
+            "timetable_revision,created_at,updated_at) "
+            "VALUES (:id,:item,0,512,'webp','failed','decode failed',1,0,now(),now())"
+        ),
+        {"id": uuid4(), "item": item_id},
+    )
+    selection = {
+        "kind": "frames",
+        "intent": "task_frame_retry",
+        "expected_source_snapshot": snapshot,
+        "frame_indices": [0],
+        "width": 512,
+        "format": "webp",
+        "force": False,
+        "failed_only": True,
+    }
+    params = {
+        "actor": actor_id,
+        "item": item_id,
+        "task": task_id,
+        "selection": json.dumps(selection),
+    }
+    failed_only = _object(await db_session.scalar(_ENSURE, params))
+    assert failed_only["ok"] is True
+    assert len(failed_only["data"]["assets"]) == 1
+    first_asset = failed_only["data"]["assets"][0]
+    assert first_asset["status"] == "failed"
+    assert first_asset["job_id"] is not None
+    assert first_asset["generation"] == 1
+
+    forced_selection = {
+        **selection,
+        "force": True,
+        "failed_only": False,
+    }
+    forced = _object(
+        await db_session.scalar(
+            _ENSURE,
+            {**params, "selection": json.dumps(forced_selection)},
+        )
+    )
+    assert forced["ok"] is True
+    assert len(forced["data"]["assets"]) == 1
+    forced_asset = forced["data"]["assets"][0]
+    assert forced_asset["job_id"] == first_asset["job_id"]
+    assert forced_asset["generation"] == 2
+    assert forced_asset["status"] == "pending"
+
+    unfiltered = _object(
+        await db_session.scalar(
+            _ENSURE,
+            {
+                **params,
+                "selection": json.dumps(
+                    {**selection, "force": False, "failed_only": False}
+                ),
+            },
+        )
+    )
+    assert unfiltered["ok"] is True
+    assert unfiltered["data"]["assets"][0]["generation"] == 2
+
+    _error(
+        await db_session.scalar(
+            _ENSURE,
+            {
+                **params,
+                "selection": json.dumps(
+                    {**selection, "force": True, "failed_only": True}
+                ),
+            },
+        ),
+        "invalid_request",
+    )
+
+
 async def test_manager_request_replays_receipt_while_implicit_schedule_does_not_add_one(
     db_session,
 ):
