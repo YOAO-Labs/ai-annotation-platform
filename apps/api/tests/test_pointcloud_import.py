@@ -312,10 +312,10 @@ async def test_lidar_replay_commits_calibration_without_new_tasks(
         "intrinsic": [value + 1 for value in range(9)],
     }
     first_expected = SensorCalibration.model_validate(first_calibration).model_dump(
-        mode="json"
+        mode="json", exclude_none=True
     )
     updated_expected = SensorCalibration.model_validate(updated_calibration).model_dump(
-        mode="json"
+        mode="json", exclude_none=True
     )
     workflow = DatasetTaskCreationWorkflow(db_session)
     _patch_get_object(monkeypatch, first_calibration)

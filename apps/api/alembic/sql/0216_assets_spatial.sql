@@ -2617,7 +2617,7 @@ BEGIN
         v_calibration := v_update -> 'calibration';
         UPDATE public.dataset_items AS item SET
             metadata = COALESCE(item.metadata, '{}'::jsonb)
-                || jsonb_build_object('calibration', v_calibration),
+                || jsonb_build_object('calibration', jsonb_strip_nulls(v_calibration)),
             updated_at = now()
         WHERE item.id = v_item_id AND item.dataset_id = v_dataset_id;
         v_calibrated := v_calibrated + 1;
