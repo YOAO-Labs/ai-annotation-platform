@@ -7,7 +7,7 @@ import math
 import os
 from pathlib import Path
 import re
-from typing import Mapping
+from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from pydantic import TypeAdapter, ValidationError
@@ -80,6 +80,7 @@ class MediaWorkerConfig:
     storage: MediaStorageConfig
     poll_seconds: float = 5.0
     execution: MediaExecutionSettings = field(default_factory=MediaExecutionSettings)
+    probe_client: Any | None = field(default=None, repr=False)
 
 
 def _secret(environment: Mapping[str, str], name: str) -> str:
@@ -172,6 +173,33 @@ def _positive_float(
     return value
 
 
+def _probe_timeout(environment: Mapping[str, str]) -> float:
+    name = "MEDIA_PROBE_TIMEOUT_SECONDS"
+    try:
+        value = float(environment.get(name, "90"))
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be a positive finite number") from exc
+    if not math.isfinite(value) or not 0 < value <= 3600:
+        raise ConfigurationError(f"{name} must be greater than 0 and at most 3600")
+    return value
+
+
+def _probe_client(environment: Mapping[str, str]):
+    timeout = _probe_timeout(environment)
+    url = environment.get("MEDIA_PROBE_URL", "")
+    if not url:
+        return None
+    token = _secret(environment, "MEDIA_PROBE_TOKEN")
+    from aap_media_probe.client import MediaProbeClient, MediaProbeError
+
+    try:
+        return MediaProbeClient(url, token, timeout)
+    except MediaProbeError as exc:
+        raise ConfigurationError(
+            "Invalid media-probe URL or service credential"
+        ) from exc
+
+
 def _positive_int(
     environment: Mapping[str, str],
     name: str,
@@ -241,4 +269,5 @@ def load_config(environment: Mapping[str, str] | None = None) -> MediaWorkerConf
                 values, "ASSETS_MEDIA_CHUNK_TTL_DAYS", "30", maximum=3650
             ),
         ),
+        probe_client=_probe_client(values),
     )

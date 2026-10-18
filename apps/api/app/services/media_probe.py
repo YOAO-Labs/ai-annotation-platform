@@ -56,6 +56,11 @@ def _remote_client() -> MediaProbeClient | None:
     )
 
 
+def configured_probe_client() -> MediaProbeClient | None:
+    """Return the selected remote client, or ``None`` for local probing."""
+    return _remote_client()
+
+
 def probe_video_file(path: str | Path) -> dict:
     client = _remote_client()
     if client is None:

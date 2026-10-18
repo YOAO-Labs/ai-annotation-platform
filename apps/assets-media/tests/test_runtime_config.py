@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from aap_media_probe.client import MediaProbeClient
 from aap_assets_media_runtime.config import (
     ConfigurationError,
     load_config,
@@ -37,12 +38,65 @@ def test_worker_config_uses_its_separate_database_login():
     environment["ASSETS_MEDIA_WORKER_DATABASE_URL"] = (
         "postgresql://asset_media_worker:secret@postgres/annotation"
     )
+    environment["MEDIA_PROBE_TOKEN"] = "unused-token"
     config = load_config(environment)
     assert "asset_media_worker" in config.database_url
     assert config.poll_seconds == 5
     assert config.execution.lease_seconds == 1200
     assert config.execution.frame_ttl_days == 14
     assert config.execution.chunk_ttl_days == 30
+    assert config.probe_client is None
+
+
+def test_worker_config_selects_explicit_remote_media_probe_without_fallback():
+    environment = _storage_environment()
+    environment["ASSETS_MEDIA_WORKER_DATABASE_URL"] = (
+        "postgresql://asset_media_worker:secret@postgres/annotation"
+    )
+    environment["MEDIA_PROBE_URL"] = "http://probe.internal:8080/base"
+    environment["MEDIA_PROBE_TOKEN"] = "probe-secret-" + "t" * 40
+    environment["MEDIA_PROBE_TIMEOUT_SECONDS"] = "12.5"
+
+    config = load_config(environment)
+
+    assert isinstance(config.probe_client, MediaProbeClient)
+    assert "probe-secret" not in repr(config)
+    assert config.probe_client._timeout_seconds == 12.5
+    assert config.probe_client._base_url == "http://probe.internal:8080/base"
+
+
+def test_worker_config_requires_credentials_for_selected_remote_probe(tmp_path: Path):
+    environment = _storage_environment()
+    environment["ASSETS_MEDIA_WORKER_DATABASE_URL"] = (
+        "postgresql://asset_media_worker:secret@postgres/annotation"
+    )
+    environment["MEDIA_PROBE_URL"] = "http://probe.internal"
+    with pytest.raises(ConfigurationError, match="MEDIA_PROBE_TOKEN"):
+        load_config(environment)
+
+    token_file = tmp_path / "media-probe-token"
+    token_file.write_text("probe-secret-" + "t" * 40 + "\n", encoding="utf-8")
+    environment["MEDIA_PROBE_TOKEN_FILE"] = str(token_file)
+    config = load_config(environment)
+    assert isinstance(config.probe_client, MediaProbeClient)
+    assert "probe-secret" not in repr(config)
+
+    environment["MEDIA_PROBE_TOKEN"] = "probe-secret-" + "t" * 40
+    with pytest.raises(ConfigurationError, match="Set only one"):
+        load_config(environment)
+
+
+def test_worker_config_rejects_invalid_selected_probe_without_local_fallback():
+    environment = _storage_environment()
+    environment["ASSETS_MEDIA_WORKER_DATABASE_URL"] = (
+        "postgresql://asset_media_worker:secret@postgres/annotation"
+    )
+    environment["MEDIA_PROBE_URL"] = "file:///tmp/probe"
+    environment["MEDIA_PROBE_TOKEN"] = "probe-secret-" + "t" * 40
+
+    with pytest.raises(ConfigurationError, match="Invalid media-probe") as failure:
+        load_config(environment)
+    assert "probe-secret" not in str(failure.value)
 
 
 def test_secret_source_is_exclusive_and_empty_values_fail(tmp_path: Path):

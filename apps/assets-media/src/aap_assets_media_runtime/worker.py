@@ -39,6 +39,7 @@ from aap_assets_media.contract import (
 from .config import MediaExecutionSettings, load_config
 from .database import MediaDatabase
 from .processing import (
+    MediaProbe,
     MediaProcessingError,
     ProcessedArtifact,
     ProcessedWork,
@@ -283,11 +284,13 @@ class MediaExecutor:
         *,
         settings: MediaExecutionSettings | None = None,
         source_cache: VerifiedSourceCache | None = None,
+        probe_client: MediaProbe | None = None,
     ) -> None:
         self.database = database
         self.storage = storage
         self.worker_id = worker_id or uuid4()
         self.settings = settings or MediaExecutionSettings()
+        self.probe_client = probe_client
         self.source_cache = source_cache or VerifiedSourceCache()
         self._owns_source_cache = source_cache is None
 
@@ -364,6 +367,7 @@ class MediaExecutor:
                             Path(output),
                             verified.identity,
                             verified.sha256,
+                            probe_client=self.probe_client,
                         )
                     )
                     try:
@@ -632,6 +636,7 @@ async def _run_worker(*, once: bool, job_id: UUID | None) -> None:
         database,
         storage,
         settings=config.execution,
+        probe_client=config.probe_client,
     )
     try:
         if once:

@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 import subprocess
 import tempfile
-from typing import Any, Sequence
+from typing import Any, Protocol, Sequence
 
 from aap_assets_media.contract import (
     Artifact,
@@ -66,6 +66,16 @@ class ProcessedWork:
     result: WorkResult
     artifacts: tuple[ProcessedArtifact, ...] = ()
     timetable_rows: tuple[FrameEntry, ...] = ()
+
+
+class MediaProbe(Protocol):
+    def probe_video_file(self, path: str | Path) -> dict[str, Any]: ...
+
+    def probe_video_frame_timetable(self, path: str | Path) -> list[dict[str, Any]]: ...
+
+    def probe_chunk_samples(
+        self, path: str | Path, start_frame: int
+    ) -> list[dict[str, Any]]: ...
 
 
 def _run_ffmpeg(args: list[str], *, timeout: int, error: str) -> None:
@@ -431,6 +441,8 @@ def process_claim(
     output_dir: Path,
     source_identity: ObjectIdentity,
     source_sha256: str,
+    *,
+    probe_client: MediaProbe | None = None,
 ) -> ProcessedWork:
     """Run one accepted non-backfill job and return its typed publication result."""
     if claim.source is None or claim.output_prefix is None:
@@ -438,17 +450,29 @@ def process_claim(
     output_dir.mkdir(parents=True, exist_ok=True)
     if isinstance(claim.spec, MetadataSpec):
         return _process_metadata(
-            claim, source_path, output_dir, source_identity, source_sha256
+            claim,
+            source_path,
+            output_dir,
+            source_identity,
+            source_sha256,
+            probe_client,
         )
     if isinstance(claim.spec, TimetableSpec):
-        return _process_timetable(claim, source_path, source_identity, source_sha256)
+        return _process_timetable(
+            claim, source_path, source_identity, source_sha256, probe_client
+        )
     if isinstance(claim.spec, FrameSpec):
         return _process_frame(
             claim, source_path, output_dir, source_identity, source_sha256
         )
     if isinstance(claim.spec, ChunkSpec):
         return _process_chunk(
-            claim, source_path, output_dir, source_identity, source_sha256
+            claim,
+            source_path,
+            output_dir,
+            source_identity,
+            source_sha256,
+            probe_client,
         )
     raise MediaProcessingError("invalid_request", "Unsupported media work kind")
 
@@ -459,6 +483,7 @@ def _process_metadata(
     output_dir: Path,
     source_identity: ObjectIdentity,
     source_sha256: str,
+    probe_client: MediaProbe | None,
 ) -> ProcessedWork:
     assert claim.source is not None and isinstance(claim.spec, MetadataSpec)
     spec = claim.spec
@@ -472,7 +497,11 @@ def _process_metadata(
     probe_error: str | None = None
 
     try:
-        metadata = probe_video_file(source_path)
+        metadata = (
+            probe_client.probe_video_file(source_path)
+            if probe_client is not None
+            else probe_video_file(source_path)
+        )
         patch.update(metadata)
         clear_errors.append("probe_error")
     except Exception as exc:
@@ -484,7 +513,11 @@ def _process_metadata(
             patch["frame_timetable_error"] = "Video metadata probe failed"
         else:
             try:
-                rows = probe_video_frame_timetable(source_path)
+                rows = (
+                    probe_client.probe_video_frame_timetable(source_path)
+                    if probe_client is not None
+                    else probe_video_frame_timetable(source_path)
+                )
                 timetable_rows = tuple(FrameEntry.model_validate(row) for row in rows)
                 timetable_total = len(rows)
                 patch["frame_timetable_frame_count"] = timetable_total
@@ -551,10 +584,15 @@ def _process_timetable(
     source_path: Path,
     source_identity: ObjectIdentity,
     source_sha256: str,
+    probe_client: MediaProbe | None,
 ) -> ProcessedWork:
     assert claim.spec is not None and isinstance(claim.spec, TimetableSpec)
     try:
-        full_rows = probe_video_frame_timetable(source_path)
+        full_rows = (
+            probe_client.probe_video_frame_timetable(source_path)
+            if probe_client is not None
+            else probe_video_frame_timetable(source_path)
+        )
         rows = select_sparse_anchor_rows(full_rows, claim.spec.sparse_stride)
         timetable = tuple(FrameEntry.model_validate(row) for row in rows)
         metadata_patch = {"frame_timetable_frame_count": len(full_rows)}
@@ -613,6 +651,7 @@ def _process_chunk(
     output_dir: Path,
     source_identity: ObjectIdentity,
     source_sha256: str,
+    probe_client: MediaProbe | None,
 ) -> ProcessedWork:
     assert isinstance(claim.spec, ChunkSpec)
     source = claim.source
@@ -679,7 +718,11 @@ def _process_chunk(
 
     sample_rows: list[dict[str, Any]] = []
     try:
-        samples = probe_chunk_samples(path, start_frame)
+        samples = (
+            probe_client.probe_chunk_samples(path, start_frame)
+            if probe_client is not None
+            else probe_chunk_samples(path, start_frame)
+        )
         if samples:
             codec_string, description = _extract_decoder_config(path)
             diagnostics["codec_string"] = codec_string or _webcodecs_codec_string(
@@ -713,6 +756,7 @@ async def probe_source_timetable(
     storage: MediaStorage,
     *,
     sparse_stride: int = 1,
+    probe_client: MediaProbe | None = None,
 ) -> list[FrameEntry]:
     """Probe an authorized source without publishing timetable rows or artifacts."""
     if (
@@ -738,7 +782,12 @@ async def probe_source_timetable(
             source.content_hash, path, digest
         ):
             raise MediaFailure("source_changed")
-        rows = await asyncio.to_thread(probe_video_frame_timetable, path)
+        probe_frames = (
+            probe_client.probe_video_frame_timetable
+            if probe_client is not None
+            else probe_video_frame_timetable
+        )
+        rows = await asyncio.to_thread(probe_frames, path)
         if await storage.head_source(source.file_path) != identity:
             raise MediaFailure("source_changed")
         return [

@@ -218,6 +218,21 @@ def test_unconfigured_peer_keeps_local_probe(source, monkeypatch):
     assert seen == [source]
 
 
+def test_configured_client_factory_matches_existing_settings_selection(monkeypatch):
+    monkeypatch.setattr(media_probe.settings, "media_probe_url", "")
+    monkeypatch.setattr(media_probe.settings, "media_probe_token", "unused")
+    assert media_probe.configured_probe_client() is None
+
+    monkeypatch.setattr(media_probe.settings, "media_probe_url", "http://probe.local")
+    monkeypatch.setattr(media_probe.settings, "media_probe_token", "t" * 40)
+    monkeypatch.setattr(media_probe.settings, "media_probe_timeout_seconds", 12.5)
+    client = media_probe.configured_probe_client()
+    assert isinstance(client, media_probe.MediaProbeClient)
+    assert client._base_url == "http://probe.local"
+    assert client._timeout_seconds == 12.5
+    assert "t" * 40 not in repr(client)
+
+
 @pytest.mark.parametrize(
     "url,token",
     [

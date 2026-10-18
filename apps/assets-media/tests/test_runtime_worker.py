@@ -320,7 +320,13 @@ async def test_executor_reuses_verified_source_across_frame_jobs(monkeypatch):
     claims = [_claim(source, generation=1), _claim(source, generation=2)]
     database = _Database(claims)
 
-    def fake_process(claim, source_path, output_dir, identity, source_sha256):
+    selected_probe = object()
+    observed_probe_clients = []
+
+    def fake_process(
+        claim, source_path, output_dir, identity, source_sha256, *, probe_client=None
+    ):
+        observed_probe_clients.append(probe_client)
         body = b"frame image"
         output = output_dir / "frame.webp"
         output.write_bytes(body)
@@ -341,6 +347,7 @@ async def test_executor_reuses_verified_source_across_frame_jobs(monkeypatch):
         database,
         storage,
         settings=MediaExecutionSettings(lease_seconds=30),
+        probe_client=selected_probe,
     )
 
     first = await executor.execute_once()
@@ -350,6 +357,7 @@ async def test_executor_reuses_verified_source_across_frame_jobs(monkeypatch):
     assert second is not None and second.outcome == "published"
     assert storage.downloads == 1
     assert len(storage.uploads) == 2
+    assert observed_probe_clients == [selected_probe, selected_probe]
     assert [name for name, _ in database.calls].count("finish_video_media") == 2
     await executor.close()
 
@@ -373,7 +381,7 @@ async def test_executor_stages_timetable_in_bounded_pages(monkeypatch):
     monkeypatch.setattr(
         worker,
         "process_claim",
-        lambda *_args: ProcessedWork(
+        lambda *_args, **_kwargs: ProcessedWork(
             MetadataResult(
                 kind="video_timetable",
                 source_identity=storage.identity,
@@ -453,6 +461,37 @@ async def test_real_probe_verifies_source_and_returns_sparse_source_frame_number
     assert storage.heads == 2
 
 
+@pytest.mark.asyncio
+async def test_source_timetable_uses_selected_probe_client(tmp_path):
+    storage = _Storage()
+    source = _source(
+        storage,
+        content_hash=hashlib.sha256(storage.body).hexdigest(),
+    )
+
+    class _Probe:
+        calls = 0
+
+        def probe_video_frame_timetable(self, path):
+            self.calls += 1
+            assert Path(path).read_bytes() == storage.body
+            return [
+                {"frame_index": 0, "pts_ms": 0, "is_keyframe": True},
+                {"frame_index": 1, "pts_ms": 200, "is_keyframe": False},
+                {"frame_index": 2, "pts_ms": 400, "is_keyframe": True},
+            ]
+
+    probe = _Probe()
+    rows = await probe_source_timetable(
+        source, storage, sparse_stride=2, probe_client=probe
+    )
+
+    assert [row.frame_index for row in rows] == [0, 2]
+    assert probe.calls == 1
+    assert storage.downloads == 1
+    assert storage.heads == 2
+
+
 def test_real_chunk_path_smartcopies_keyframe_aligned_h264(tmp_path):
     clip_path = _h264_fixture(tmp_path)
     from aap_media_probe.probe import probe_video_file, probe_video_frame_timetable
@@ -520,6 +559,144 @@ def test_real_chunk_path_smartcopies_keyframe_aligned_h264(tmp_path):
     assert frame_result.result.kind == "frame"
     assert frame_result.artifacts[0].path.suffix == ".jpeg"
     assert frame_result.artifacts[0].path.is_file()
+
+
+def test_processing_uses_selected_probe_client_for_all_published_probe_operations(
+    monkeypatch, tmp_path
+):
+    import aap_assets_media_runtime.processing as processing
+
+    storage = _Storage()
+    source = _source(storage)
+    rows = [
+        {"frame_index": index, "pts_ms": index * 200, "is_keyframe": index == 0}
+        for index in range(3)
+    ]
+    samples = [
+        {
+            "frame_index": 0,
+            "pts_ms": 0,
+            "duration_ms": 200,
+            "is_keyframe": True,
+            "size_bytes": 12,
+            "offset_in_chunk": 40,
+        }
+    ]
+
+    class _Probe:
+        def __init__(self):
+            self.calls = []
+
+        def probe_video_file(self, _path):
+            self.calls.append("metadata")
+            return {
+                "codec": "h264",
+                "fps": 5.0,
+                "frame_count": 3,
+                "width": 64,
+                "height": 48,
+                "duration_ms": 600,
+            }
+
+        def probe_video_frame_timetable(self, _path):
+            self.calls.append("frames")
+            return rows
+
+        def probe_chunk_samples(self, _path, start_frame):
+            self.calls.append("packets")
+            assert start_frame == 0
+            return samples
+
+    probe = _Probe()
+    monkeypatch.setattr(
+        processing,
+        "probe_video_file",
+        lambda *_args: pytest.fail("remote selection must not invoke local ffprobe"),
+    )
+    monkeypatch.setattr(
+        processing,
+        "probe_video_frame_timetable",
+        lambda *_args: pytest.fail("remote selection must not invoke local ffprobe"),
+    )
+    monkeypatch.setattr(
+        processing,
+        "probe_chunk_samples",
+        lambda *_args: pytest.fail("remote selection must not invoke local ffprobe"),
+    )
+
+    metadata_job = uuid4()
+    metadata_token = uuid4()
+    metadata_claim = MediaClaim(
+        job_id=metadata_job,
+        generation=1,
+        lease_token=metadata_token,
+        lease_expires_at="2026-10-19T00:00:00Z",
+        source=source,
+        spec=MetadataSpec(
+            generate_playback=False, generate_poster=False, probe_timetable=True
+        ),
+        output_prefix=f"media-assets/{metadata_job}/g1/a{metadata_token}/",
+        timetable_revision=0,
+        timing=WorkTiming(),
+    )
+    metadata_result = process_claim(
+        metadata_claim,
+        tmp_path / "source.mp4",
+        tmp_path / "metadata-output",
+        storage.identity,
+        hashlib.sha256(storage.body).hexdigest(),
+        probe_client=probe,
+    )
+    assert metadata_result.result.kind == "video_metadata"
+    assert len(metadata_result.timetable_rows) == 3
+
+    chunk_job = uuid4()
+    chunk_token = uuid4()
+    chunk_claim = MediaClaim(
+        job_id=chunk_job,
+        generation=1,
+        lease_token=chunk_token,
+        lease_expires_at="2026-10-19T00:00:00Z",
+        source=source.model_copy(
+            update={
+                "video_metadata": {
+                    "codec": "h264",
+                    "fps": 5.0,
+                    "width": 64,
+                    "height": 48,
+                }
+            }
+        ),
+        spec=ChunkSpec(chunk_id=0, chunk_size_frames=3),
+        output_prefix=f"media-assets/{chunk_job}/g1/a{chunk_token}/",
+        timetable_revision=0,
+        timing=WorkTiming(
+            start_frame=0,
+            end_frame=2,
+            anchors=[
+                FrameEntry.model_validate(rows[0]),
+                FrameEntry.model_validate(rows[2]),
+            ],
+            is_keyframe=True,
+        ),
+    )
+    monkeypatch.setattr(
+        processing,
+        "extract_video_chunk_smart_copy",
+        lambda _source, output, _start, _duration: Path(output).write_bytes(b"chunk"),
+    )
+    chunk_result = process_claim(
+        chunk_claim,
+        tmp_path / "source.mp4",
+        tmp_path / "chunk-output",
+        storage.identity,
+        hashlib.sha256(storage.body).hexdigest(),
+        probe_client=probe,
+    )
+
+    assert chunk_result.result.kind == "chunk"
+    assert chunk_result.result.diagnostics["samples"] == samples
+    assert probe.calls == ["metadata", "frames", "packets"]
 
 
 def test_sparse_timetable_helpers_keep_source_indices_and_interpolate_pts():
