@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from aap_assets_images import contract as c
+from aap_assets_images.geometry import build_manifest
 from aap_assets_images.policy import ImagePolicy
 
 
@@ -53,41 +54,17 @@ def manifest(
     source_sha="b" * 64,
     overview_sha="c" * 64,
 ):
-    return c.ImagePyramidManifest(
-        **{
-            "schema": c.PYRAMID_SCHEMA,
-            "generation": generation,
-            "sourceFingerprint": "sha256:" + source_sha,
-            "normalizationVersion": "exif-autorotate-srgb-v1",
-            "width": 2,
-            "height": 1,
-            "tileSize": 512,
-            "overlap": 1,
-            "format": "webp",
-            "levels": [
-                {
-                    "level": 0,
-                    "scaleFactor": 1,
-                    "width": 2,
-                    "height": 1,
-                    "columns": 1,
-                    "rows": 1,
-                },
-                {
-                    "level": 1,
-                    "scaleFactor": 2,
-                    "width": 1,
-                    "height": 1,
-                    "columns": 1,
-                    "rows": 1,
-                },
-            ],
-            "overview": {
-                "width": 2,
-                "height": 1,
-                "contentDigest": "sha256:" + overview_sha,
-            },
-        }
+    return c.ImagePyramidManifest.model_validate(
+        build_manifest(
+            generation=generation,
+            source_fingerprint="sha256:" + source_sha,
+            width=2,
+            height=1,
+            overview_width=2,
+            overview_height=1,
+            overview_digest="sha256:" + overview_sha,
+            policy=ImagePolicy(),
+        )
     )
 
 
@@ -127,6 +104,23 @@ def pyramid_result(prefix, *, source_identity=None, source_sha="b" * 64):
         tile_count=2,
         retained_bytes=43,
     )
+
+
+def test_actual_geometry_manifest_wire_keeps_prefixed_sha256_digests():
+    generated = build_manifest(
+        generation=3,
+        source_fingerprint="sha256:" + "b" * 64,
+        width=2,
+        height=1,
+        overview_width=2,
+        overview_height=1,
+        overview_digest="sha256:" + "c" * 64,
+        policy=ImagePolicy(),
+    )
+    parsed = c.ImagePyramidManifest.model_validate(generated)
+    assert parsed.model_dump(mode="json", by_alias=True) == generated
+    assert parsed.source_fingerprint == "sha256:" + "b" * 64
+    assert parsed.overview.content_digest == "sha256:" + "c" * 64
 
 
 def test_image_schema_operation_signatures_and_http_artifacts_are_frozen():
