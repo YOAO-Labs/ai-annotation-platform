@@ -7,15 +7,17 @@ it does not import the API application, SQLAlchemy models, Celery, Redis, or ML
 packages.
 
 The service exposes the frozen internal operations `POST /v1/catalog/list`,
-`/get`, `/items`, `/create`, and `/update`. Every operation requires the
-gateway's dedicated `Authorization: Bearer ...` credential. The caller supplies
+`/get`, `/items`, `/create`, `/update`, `/dataset-projects`, and
+`/project-datasets`. The last two return the two current Assets association
+projections in the separate `aap-assets-associations/v1` envelope. Every
+operation requires the gateway's dedicated `Authorization: Bearer ...` credential. The caller supplies
 `actor_id` only from its already verified principal; it must never copy the
 field from user input. The Assets SQL functions recheck active status and
 current manager role in the write transaction. User API-key scopes and public
 HTTP errors remain the gateway's responsibility.
 
 The PostgreSQL login is checked on startup. It must have only `EXECUTE` on the
-five catalog functions, no table/column/sequence grants, no other owner-schema
+seven catalog and association functions, no table/column/sequence grants, no other owner-schema
 access, no role memberships, and no database or schema creation rights. A
 failed or broadened login prevents startup.
 

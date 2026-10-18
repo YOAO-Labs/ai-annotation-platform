@@ -14,6 +14,12 @@ from .contract import (
     ListItemsRequest,
     UpdateDatasetRequest,
 )
+from .associations_contract import (
+    DatasetProjectsResult,
+    ListDatasetProjectsRequest,
+    ListProjectDatasetsRequest,
+    ProjectDatasetsResult,
+)
 from .config import CatalogConfig
 from .database import CatalogDatabase
 from .object_signer import CatalogObjectSigner
@@ -45,6 +51,16 @@ class CatalogService:
         self, request: UpdateDatasetRequest
     ) -> DatasetMutationResult:
         return await self._database.update_dataset(request)
+
+    async def list_dataset_projects(
+        self, request: ListDatasetProjectsRequest
+    ) -> DatasetProjectsResult:
+        return await self._database.list_dataset_projects(request)
+
+    async def list_project_datasets(
+        self, request: ListProjectDatasetsRequest
+    ) -> ProjectDatasetsResult:
+        return await self._database.list_project_datasets(request)
 
     def _sign_item(self, item: CatalogItem) -> CatalogItem:
         try:

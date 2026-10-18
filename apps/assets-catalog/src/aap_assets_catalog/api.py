@@ -27,6 +27,14 @@ from .contract import (
     ListItemsRequest,
     UpdateDatasetRequest,
 )
+from .associations_contract import (
+    ASSOCIATIONS_SCHEMA,
+    AssociationFailure,
+    DatasetProjectsResult,
+    ListDatasetProjectsRequest,
+    ListProjectDatasetsRequest,
+    ProjectDatasetsResult,
+)
 
 logger = logging.getLogger("aap_assets_catalog")
 
@@ -168,6 +176,22 @@ def _failure(code: str) -> dict[str, Any]:
     }
 
 
+def _association_success(data: Any) -> dict[str, Any]:
+    return {
+        "schema": ASSOCIATIONS_SCHEMA,
+        "ok": True,
+        "data": data.model_dump(mode="json"),
+    }
+
+
+def _association_failure(code: str) -> dict[str, Any]:
+    return {
+        "schema": ASSOCIATIONS_SCHEMA,
+        "ok": False,
+        "error": {"code": code},
+    }
+
+
 async def _require_gateway(request: Request) -> None:
     authorization = request.headers.get("authorization", "")
     scheme, separator, token = authorization.partition(" ")
@@ -228,6 +252,12 @@ def create_app(
     ) -> JSONResponse:
         return JSONResponse(status_code=200, content=_failure(exc.code))
 
+    @app.exception_handler(AssociationFailure)
+    async def association_failure_handler(
+        _request: Request, exc: AssociationFailure
+    ) -> JSONResponse:
+        return JSONResponse(status_code=200, content=_association_failure(exc.code))
+
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(
         _request: Request, _exc: RequestValidationError
@@ -285,5 +315,19 @@ def create_app(
             await request.app.state.runtime.catalog.update_dataset(body)
         )
         return _success(result)
+
+    @app.post("/v1/catalog/dataset-projects", dependencies=[Depends(_require_gateway)])
+    async def list_dataset_projects(request: Request, body: ListDatasetProjectsRequest):
+        result: DatasetProjectsResult = (
+            await request.app.state.runtime.catalog.list_dataset_projects(body)
+        )
+        return _association_success(result)
+
+    @app.post("/v1/catalog/project-datasets", dependencies=[Depends(_require_gateway)])
+    async def list_project_datasets(request: Request, body: ListProjectDatasetsRequest):
+        result: ProjectDatasetsResult = (
+            await request.app.state.runtime.catalog.list_project_datasets(body)
+        )
+        return _association_success(result)
 
     return app

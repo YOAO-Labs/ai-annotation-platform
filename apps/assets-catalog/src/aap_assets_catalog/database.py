@@ -1,4 +1,4 @@
-"""asyncpg binding for the five public Assets catalog SQL capabilities."""
+"""asyncpg binding for the seven public Assets catalog SQL capabilities."""
 
 from __future__ import annotations
 
@@ -22,6 +22,14 @@ from .contract import (
     UpdateDatasetRequest,
     decode_reply,
 )
+from .associations_contract import (
+    AssociationFailure,
+    DatasetProjectsResult,
+    ListDatasetProjectsRequest,
+    ListProjectDatasetsRequest,
+    ProjectDatasetsResult,
+    decode_associations_reply,
+)
 
 LIST_DATASETS_SQL = """
 SELECT aap_assets_v1.list_catalog_datasets(
@@ -44,14 +52,22 @@ SELECT aap_assets_v1.update_catalog_dataset(
     $1::uuid, $2::uuid, $3::uuid, $4::jsonb
 )
 """
+LIST_DATASET_PROJECTS_SQL = """
+SELECT aap_assets_v1.list_dataset_projects($1::uuid, $2::uuid)
+"""
+LIST_PROJECT_DATASETS_SQL = """
+SELECT aap_assets_v1.list_project_datasets($1::uuid, $2::uuid)
+"""
 
-EXPECTED_CATALOG_FUNCTIONS = frozenset(
+EXPECTED_ASSET_FUNCTIONS = frozenset(
     {
         "list_catalog_datasets(uuid,text,text,boolean,integer,bigint)",
         "get_catalog_dataset(uuid,uuid)",
         "list_catalog_items(uuid,uuid,integer,bigint)",
         "create_catalog_dataset(uuid,uuid,jsonb)",
         "update_catalog_dataset(uuid,uuid,uuid,jsonb)",
+        "list_dataset_projects(uuid,uuid)",
+        "list_project_datasets(uuid,uuid)",
     }
 )
 
@@ -62,7 +78,9 @@ WITH expected(signature) AS (
         ('get_catalog_dataset(uuid,uuid)'::text),
         ('list_catalog_items(uuid,uuid,integer,bigint)'::text),
         ('create_catalog_dataset(uuid,uuid,jsonb)'::text),
-        ('update_catalog_dataset(uuid,uuid,uuid,jsonb)'::text)
+        ('update_catalog_dataset(uuid,uuid,uuid,jsonb)'::text),
+        ('list_dataset_projects(uuid,uuid)'::text),
+        ('list_project_datasets(uuid,uuid)'::text)
 ),
 target_login AS (
     SELECT role_row.*
@@ -330,6 +348,36 @@ class CatalogDatabase:
             request.native_payload(),
         )
 
+    async def list_dataset_projects(
+        self, request: ListDatasetProjectsRequest
+    ) -> DatasetProjectsResult:
+        result = await self._association_call(
+            LIST_DATASET_PROJECTS_SQL,
+            DatasetProjectsResult,
+            request.actor_id,
+            request.dataset_id,
+        )
+        if result.dataset_id != request.dataset_id:
+            raise DataContractError(
+                "Assets associations response escaped the requested dataset scope"
+            )
+        return result
+
+    async def list_project_datasets(
+        self, request: ListProjectDatasetsRequest
+    ) -> ProjectDatasetsResult:
+        result = await self._association_call(
+            LIST_PROJECT_DATASETS_SQL,
+            ProjectDatasetsResult,
+            request.actor_id,
+            request.project_id,
+        )
+        if result.project_id != request.project_id:
+            raise DataContractError(
+                "Assets associations response escaped the requested project scope"
+            )
+        return result
+
     async def _call(
         self,
         sql: str,
@@ -374,3 +422,39 @@ class CatalogDatabase:
             if size > self._max_reply_bytes:
                 return True
         return False
+
+    async def _association_call(
+        self,
+        sql: str,
+        result_type: type[_ResultModel],
+        *arguments: Any,
+    ) -> _ResultModel:
+        async with self._pool.acquire(
+            timeout=self._acquire_timeout_seconds
+        ) as connection:
+            async with connection.transaction():
+                raw_result = await connection.fetchval(sql, *arguments)
+                if isinstance(raw_result, str):
+                    if len(raw_result.encode("utf-8")) > self._max_reply_bytes:
+                        raise DataContractError(
+                            "Assets associations reply exceeds the response budget"
+                        )
+                    try:
+                        raw_result = json.loads(raw_result)
+                    except json.JSONDecodeError as exc:
+                        raise DataContractError(
+                            "Assets associations returned invalid JSON"
+                        ) from exc
+                if self._encoded_size_exceeds_budget(raw_result):
+                    raise DataContractError(
+                        "Assets associations reply exceeds the response budget"
+                    )
+                try:
+                    decoded = decode_associations_reply(raw_result, result_type)
+                except AssociationFailure:
+                    raise
+                except (TypeError, ValueError, ValidationError) as exc:
+                    raise DataContractError(
+                        "Assets associations returned a reply outside the frozen contract"
+                    ) from exc
+        return decoded

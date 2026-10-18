@@ -12,8 +12,14 @@ from aap_assets_catalog.contract import (
     ListDatasetsRequest,
     ListItemsRequest,
 )
+from aap_assets_catalog.associations_contract import (
+    ASSOCIATIONS_SCHEMA,
+    AssociationFailure,
+    ListDatasetProjectsRequest,
+    ListProjectDatasetsRequest,
+)
 from aap_assets_catalog.database import (
-    EXPECTED_CATALOG_FUNCTIONS,
+    EXPECTED_ASSET_FUNCTIONS,
     ROLE_PREFLIGHT_SQL,
     CatalogDatabase,
     DataContractError,
@@ -156,15 +162,17 @@ async def test_create_passes_canonical_default_payload_and_maps_typed_error() ->
 
 
 @pytest.mark.asyncio
-async def test_role_preflight_fails_closed_and_names_exact_five_functions() -> None:
-    assert EXPECTED_CATALOG_FUNCTIONS == {
+async def test_role_preflight_fails_closed_and_names_exact_seven_functions() -> None:
+    assert EXPECTED_ASSET_FUNCTIONS == {
         "list_catalog_datasets(uuid,text,text,boolean,integer,bigint)",
         "get_catalog_dataset(uuid,uuid)",
         "list_catalog_items(uuid,uuid,integer,bigint)",
         "create_catalog_dataset(uuid,uuid,jsonb)",
         "update_catalog_dataset(uuid,uuid,uuid,jsonb)",
+        "list_dataset_projects(uuid,uuid)",
+        "list_project_datasets(uuid,uuid)",
     }
-    for signature in EXPECTED_CATALOG_FUNCTIONS:
+    for signature in EXPECTED_ASSET_FUNCTIONS:
         assert signature in ROLE_PREFLIGHT_SQL
     normalized_preflight = " ".join(ROLE_PREFLIGHT_SQL.split())
     assert "membership.member = login_role.oid" in normalized_preflight
@@ -237,3 +245,74 @@ async def test_oversized_native_item_reply_rolls_back_before_publication() -> No
             ListItemsRequest(actor_id=uuid4(), dataset_id=dataset_id)
         )
     assert connection.transaction_events == ["rollback"]
+
+
+@pytest.mark.asyncio
+async def test_association_read_calls_use_exact_argument_order_and_envelope() -> None:
+    actor_id = uuid4()
+    dataset_id = uuid4()
+    project_id = uuid4()
+    dataset_projects = _Connection(
+        {
+            "schema": ASSOCIATIONS_SCHEMA,
+            "ok": True,
+            "data": {"dataset_id": str(dataset_id), "projects": []},
+        }
+    )
+    database = CatalogDatabase(_Pool(dataset_projects))
+
+    dataset_result = await database.list_dataset_projects(
+        ListDatasetProjectsRequest(actor_id=actor_id, dataset_id=dataset_id)
+    )
+
+    assert dataset_result.dataset_id == dataset_id
+    assert "aap_assets_v1.list_dataset_projects" in dataset_projects.calls[0][0]
+    assert dataset_projects.calls[0][1] == (actor_id, dataset_id)
+
+    project_datasets = _Connection(
+        {
+            "schema": ASSOCIATIONS_SCHEMA,
+            "ok": True,
+            "data": {"project_id": str(project_id), "datasets": []},
+        }
+    )
+    database = CatalogDatabase(_Pool(project_datasets))
+    project_result = await database.list_project_datasets(
+        ListProjectDatasetsRequest(actor_id=actor_id, project_id=project_id)
+    )
+
+    assert project_result.project_id == project_id
+    assert "aap_assets_v1.list_project_datasets" in project_datasets.calls[0][0]
+    assert project_datasets.calls[0][1] == (actor_id, project_id)
+
+
+@pytest.mark.asyncio
+async def test_association_failure_and_parent_scope_mismatch_fail_closed() -> None:
+    actor_id = uuid4()
+    project_id = uuid4()
+    failed = _Connection(
+        {
+            "schema": ASSOCIATIONS_SCHEMA,
+            "ok": False,
+            "error": {"code": "project_missing"},
+        }
+    )
+    database = CatalogDatabase(_Pool(failed))
+    with pytest.raises(AssociationFailure, match="project_missing"):
+        await database.list_project_datasets(
+            ListProjectDatasetsRequest(actor_id=actor_id, project_id=project_id)
+        )
+    assert failed.transaction_events == ["rollback"]
+
+    escaped = _Connection(
+        {
+            "schema": ASSOCIATIONS_SCHEMA,
+            "ok": True,
+            "data": {"project_id": str(uuid4()), "datasets": []},
+        }
+    )
+    database = CatalogDatabase(_Pool(escaped))
+    with pytest.raises(DataContractError, match="requested project scope"):
+        await database.list_project_datasets(
+            ListProjectDatasetsRequest(actor_id=actor_id, project_id=project_id)
+        )

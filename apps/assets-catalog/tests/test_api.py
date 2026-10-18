@@ -6,6 +6,14 @@ import pytest
 
 from aap_assets_catalog.api import create_app
 from aap_assets_catalog.config import CatalogConfig
+from aap_assets_catalog.associations_contract import (
+    ASSOCIATIONS_SCHEMA,
+    AssociationFailure,
+    DatasetProjectsResult,
+    ListDatasetProjectsRequest,
+    ListProjectDatasetsRequest,
+    ProjectDatasetsResult,
+)
 from aap_assets_catalog.contract import (
     CATALOG_SCHEMA,
     CatalogFailure,
@@ -72,12 +80,19 @@ class _Catalog:
     def __init__(self):
         self.calls = []
         self.fail_code = None
+        self.association_fail_code = None
         self.error_message = None
         self.large_metadata = False
 
     def _raise_if_configured(self):
         if self.fail_code:
             raise CatalogFailure(self.fail_code)
+        if self.error_message:
+            raise RuntimeError(self.error_message)
+
+    def _raise_association_if_configured(self):
+        if self.association_fail_code:
+            raise AssociationFailure(self.association_fail_code)
         if self.error_message:
             raise RuntimeError(self.error_message)
 
@@ -146,6 +161,20 @@ class _Catalog:
             actor_id=request.actor_id,
             dataset=_summary(request.actor_id),
         )
+
+    async def list_dataset_projects(
+        self, request: ListDatasetProjectsRequest
+    ) -> DatasetProjectsResult:
+        self.calls.append(("dataset-projects", request))
+        self._raise_association_if_configured()
+        return DatasetProjectsResult(dataset_id=request.dataset_id, projects=[])
+
+    async def list_project_datasets(
+        self, request: ListProjectDatasetsRequest
+    ) -> ProjectDatasetsResult:
+        self.calls.append(("project-datasets", request))
+        self._raise_association_if_configured()
+        return ProjectDatasetsResult(project_id=request.project_id, datasets=[])
 
 
 class _Runtime:
@@ -295,6 +324,56 @@ def test_get_items_create_and_update_use_versioned_response_envelopes(
     ]
     update_request = catalog.calls[-1][1]
     assert update_request.patch.native_payload() == {"axis_convention": None}
+
+
+def test_association_routes_use_their_own_versioned_success_and_failure_envelopes(
+    client_factory,
+) -> None:
+    client, catalog, _runtime = client_factory()
+    actor_id, dataset_id, project_id = uuid4(), uuid4(), uuid4()
+    authorization = {"Authorization": f"Bearer {_TOKEN}"}
+
+    dataset_result = client.post(
+        "/v1/catalog/dataset-projects",
+        json={"actor_id": str(actor_id), "dataset_id": str(dataset_id)},
+        headers=authorization,
+    )
+    assert dataset_result.status_code == 200
+    assert dataset_result.json() == {
+        "schema": ASSOCIATIONS_SCHEMA,
+        "ok": True,
+        "data": {"dataset_id": str(dataset_id), "projects": []},
+    }
+
+    project_result = client.post(
+        "/v1/catalog/project-datasets",
+        json={"actor_id": str(actor_id), "project_id": str(project_id)},
+        headers=authorization,
+    )
+    assert project_result.status_code == 200
+    assert project_result.json() == {
+        "schema": ASSOCIATIONS_SCHEMA,
+        "ok": True,
+        "data": {"project_id": str(project_id), "datasets": []},
+    }
+
+    catalog.association_fail_code = "project_missing"
+    failure = client.post(
+        "/v1/catalog/project-datasets",
+        json={"actor_id": str(actor_id), "project_id": str(project_id)},
+        headers=authorization,
+    )
+    assert failure.status_code == 200
+    assert failure.json() == {
+        "schema": ASSOCIATIONS_SCHEMA,
+        "ok": False,
+        "error": {"code": "project_missing"},
+    }
+    assert [name for name, _request in catalog.calls] == [
+        "dataset-projects",
+        "project-datasets",
+        "project-datasets",
+    ]
 
 
 def test_business_failures_are_typed_but_unexpected_errors_are_sanitized(
