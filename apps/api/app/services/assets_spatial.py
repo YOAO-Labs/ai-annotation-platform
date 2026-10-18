@@ -399,22 +399,21 @@ class AssetsSpatialGateway:
     async def read_pose_pairs(
         self, pairs: set[tuple[uuid.UUID, int]]
     ) -> dict[tuple[uuid.UUID, int], FramePose]:
-        ordered = sorted(pairs)
-        poses = {}
-        for start in range(0, len(ordered), 200):
-            result = await self.read_spatial_pose_pairs(
-                ReadPosePairsRequest(
-                    pairs=[
-                        PosePair(scene_id=scene_id, frame_index=frame_index)
-                        for scene_id, frame_index in ordered[start : start + 200]
-                    ]
-                )
+        if not pairs:
+            return {}
+        # Keep the export chunk in one native snapshot when poses change concurrently.
+        result = await self.read_spatial_pose_pairs(
+            ReadPosePairsRequest(
+                pairs=[
+                    PosePair(scene_id=scene_id, frame_index=frame_index)
+                    for scene_id, frame_index in sorted(pairs)
+                ]
             )
-            for pose in result.poses:
-                poses[(pose.scene_id, pose.frame_index)] = FramePose.model_validate(
-                    pose
-                )
-        return poses
+        )
+        return {
+            (pose.scene_id, pose.frame_index): FramePose.model_validate(pose)
+            for pose in result.poses
+        }
 
     async def lock_spatial_calibration_facts(
         self, request: LockCalibrationFactsRequest

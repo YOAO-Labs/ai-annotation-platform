@@ -297,20 +297,37 @@ async def test_pose_pair_reads_bound_each_request_to_its_exact_chunk(monkeypatch
         captured.append(
             [(uuid.UUID(pair["scene_id"]), pair["frame_index"]) for pair in pairs]
         )
+        generation = len(captured)
         return httpx.Response(
             200,
             json=_wire(
-                PosePairsResult(pairs=pairs, poses=[], snapshot_digest="a" * 64)
+                PosePairsResult(
+                    pairs=pairs,
+                    poses=[
+                        {
+                            **pair,
+                            "timestamp_us": pair["frame_index"],
+                            "ego_translation": [float(generation), 0.0, 0.0],
+                            "ego_rotation": [1.0, 0.0, 0.0, 0.0],
+                            "source_metadata": {},
+                        }
+                        for pair in pairs
+                        if pair["frame_index"] % 17 != 0
+                    ],
+                    snapshot_digest=str(generation) * 64,
+                )
             ),
         )
 
     _mock_http(monkeypatch, handler)
-    wanted = {(scene_id, index) for index in range(201)}
-    assert (
-        await AssetsSpatialGateway(AsyncMock(spec=AsyncSession)).read_pose_pairs(wanted)
-        == {}
-    )
-    assert [len(chunk) for chunk in captured] == [200, 1]
+    gateway = AssetsSpatialGateway(AsyncMock(spec=AsyncSession))
+    assert await gateway.read_pose_pairs(set()) == {}
+    assert captured == []
+    wanted = {(scene_id, index) for index in range(1000)}
+    poses = await gateway.read_pose_pairs(wanted)
+    assert set(poses) == {pair for pair in wanted if pair[1] % 17 != 0}
+    assert {tuple(pose.ego_translation) for pose in poses.values()} == {(1.0, 0.0, 0.0)}
+    assert all(pose.timestamp_us == pair[1] for pair, pose in poses.items())
     assert {pair for chunk in captured for pair in chunk} == wanted
 
 

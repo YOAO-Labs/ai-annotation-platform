@@ -27,7 +27,7 @@ Accepted point-cloud preparation uses the saved operation, association generatio
 
 Ordinary remote calls commit inside the independent service. Deliberate caller-owned atomic composition uses the same published native capabilities on the caller's existing SQL connection, including when a remote URL is configured. This mode is explicit and is not an automatic fallback after remote failure. It does not transfer an ORM session to the provider. Preexisting caller transaction locks remain owned by that caller; spatial capture adds no locks across object I/O.
 
-Ordinary point-cloud creation commits its accepted operation before the remote preparation owner reads it. The explicit native preparation binding never commits; nuScenes imports retain preparation, task creation and provenance in one outer transaction. Export reads only the selected Scene/frame pairs for each chunk, preserving missing poses without repeated full-trajectory reads.
+Ordinary point-cloud creation commits its accepted operation before the remote preparation owner reads it. The explicit native preparation binding never commits; nuScenes imports retain preparation, task creation and provenance in one outer transaction. Export reads the selected Scene/frame pairs for each chunk in one native snapshot, preserving missing poses without repeated full-trajectory reads.
 
 Preserve the post-task nuScenes calibration provenance write through a narrow owner capability. It may only fill a missing `nuscenes_export.platform_calibration_digest`, after source/CAS and canonical-document checks. It cannot overwrite an existing provenance digest or become a general metadata mutation endpoint.
 
