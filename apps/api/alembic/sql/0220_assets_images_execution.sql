@@ -2644,7 +2644,10 @@ BEGIN
               AND generation.generation IS DISTINCT FROM asset.building_generation
               AND (generation.lease_expires_at IS NULL
                    OR generation.lease_expires_at <= pg_catalog.clock_timestamp())
-              AND generation.updated_at <= pg_catalog.clock_timestamp()
+              AND GREATEST(
+                    generation.updated_at,
+                    COALESCE(generation.last_accessed_at, generation.updated_at)
+                  ) <= pg_catalog.clock_timestamp()
                     - pg_catalog.make_interval(hours => COALESCE(
                         (generation.policy ->> 'gc_grace_hours')::integer, 24
                     ))
@@ -2653,7 +2656,10 @@ BEGIN
                     WHERE garbage.prefix = 'image-pyramids/' || asset.id::text
                         || '/g' || generation.generation::text || '/'
               )
-            ORDER BY generation.updated_at, generation.asset_id, generation.generation
+            ORDER BY GREATEST(
+                         generation.updated_at,
+                         COALESCE(generation.last_accessed_at, generation.updated_at)
+                     ), generation.asset_id, generation.generation
             LIMIT (p_batch_size - v_work)
         LOOP
             v_work := v_work + 1;
@@ -2714,12 +2720,25 @@ BEGIN
             IF v_policy IS NULL THEN
                 RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'image_invalid_response';
             END IF;
+            IF GREATEST(
+                    v_generation.updated_at,
+                    COALESCE(v_generation.last_accessed_at, v_generation.updated_at)
+               ) > pg_catalog.clock_timestamp()
+                    - pg_catalog.make_interval(hours => (v_policy ->> 'gc_grace_hours')::integer) THEN
+                CONTINUE;
+            END IF;
             v_prefix := 'image-pyramids/' || v_candidate.asset_id::text
                 || '/g' || v_candidate.generation::text || '/';
             PERFORM aap_assets_v1._queue_image_garbage(
                 v_prefix, 'generation_retired',
-                GREATEST(pg_catalog.clock_timestamp(), v_generation.updated_at
-                    + pg_catalog.make_interval(hours => (v_policy ->> 'gc_grace_hours')::integer))
+                GREATEST(
+                    pg_catalog.clock_timestamp(),
+                    GREATEST(
+                        v_generation.updated_at,
+                        COALESCE(v_generation.last_accessed_at, v_generation.updated_at)
+                    )
+                        + pg_catalog.make_interval(hours => (v_policy ->> 'gc_grace_hours')::integer)
+                )
             );
             v_retired := v_retired + 1;
         END LOOP;
@@ -2850,7 +2869,10 @@ BEGIN
               AND generation.generation IS DISTINCT FROM asset.building_generation
               AND (generation.lease_expires_at IS NULL
                    OR generation.lease_expires_at <= pg_catalog.clock_timestamp())
-              AND generation.updated_at <= pg_catalog.clock_timestamp()
+              AND GREATEST(
+                    generation.updated_at,
+                    COALESCE(generation.last_accessed_at, generation.updated_at)
+                  ) <= pg_catalog.clock_timestamp()
                     - pg_catalog.make_interval(hours => COALESCE(
                         (generation.policy ->> 'gc_grace_hours')::integer, 24
                     ))

@@ -65,6 +65,11 @@ _RECONCILE = text(
     "SELECT aap_assets_v1.reconcile_image_media("
     "CAST(:candidates AS jsonb), :batch_size)"
 )
+_READ_GENERATION = text(
+    "SELECT aap_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
+    "CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
+    "CAST(:generation AS integer), CAST(:profile_version AS text))"
+)
 
 
 def _reply(value):
@@ -578,6 +583,21 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     assert generation is not None and generation.status == "ready"
     assert generation.manifest == manifest
     assert generation.retained_bytes == 33
+    projection = _data(
+        _reply(
+            await db_session.scalar(
+                _READ_GENERATION,
+                {
+                    "actor_id": actor_id,
+                    "task_id": None,
+                    "item_id": item_id,
+                    "generation": public_generation,
+                    "profile_version": "pyramid-v1",
+                },
+            )
+        )
+    )
+    assert projection["pyramid"]["status"] == "ready"
 
     refresh_id, _ = await _enqueue(
         db_session, source, _spec("pyramid", source, policy=policy), force=True

@@ -389,7 +389,6 @@ BEGIN
        OR p_facts ->> 'source_snapshot' !~ '^[0-9a-f]{64}$'
        OR pg_catalog.jsonb_typeof(p_facts -> 'source_drifted') IS DISTINCT FROM 'boolean'
        OR pg_catalog.jsonb_typeof(p_facts -> 'upload_ready') IS DISTINCT FROM 'boolean'
-       OR p_facts -> 'upload_ready' IS DISTINCT FROM 'true'::jsonb
        OR (p_facts -> 'project_id' <> 'null'::jsonb
            AND pg_catalog.jsonb_typeof(p_facts -> 'project_id') IS DISTINCT FROM 'string')
        OR (p_facts -> 'dataset_item_id' <> 'null'::jsonb
@@ -426,7 +425,8 @@ BEGIN
         AND (p_facts ->> 'upload_ready')::boolean
         AND aap_assets_v1._image_thumbnail_key_valid(p_facts ->> 'thumbnail_path')
         THEN p_facts ->> 'thumbnail_path' END;
-    IF v_identity IS NOT NULL AND NOT v_drifted THEN
+    IF v_identity IS NOT NULL AND NOT v_drifted
+       AND (p_facts ->> 'upload_ready')::boolean THEN
         SELECT candidate.width, candidate.height
         INTO v_width, v_height
         FROM (
@@ -945,6 +945,9 @@ BEGIN
     IF v_source ->> 'source_snapshot' IS DISTINCT FROM p_expected_snapshot THEN
         RETURN aap_assets_v1._image_reply(NULL, 'source_changed');
     END IF;
+    IF v_source -> 'upload_ready' IS DISTINCT FROM 'true'::jsonb THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'source_not_ready');
+    END IF;
     IF v_source -> 'source_drifted' = 'true'::jsonb THEN RETURN v_reply; END IF;
     v_current := v_source -> 'object_identity';
     v_drift := (v_source -> 'file_size' <> 'null'::jsonb
@@ -1178,7 +1181,9 @@ BEGIN
     v_status := v_generation.status;
     v_current := COALESCE(v_generation.source_generation = v_source_generation
         AND v_generation.source_snapshot = v_source_snapshot
-        AND v_generation.source_identity = v_source_snapshot
+        AND v_generation.source_identity = aap_assets_v1._image_exec_legacy_identity(
+            p_source -> 'object_identity'
+        )
         AND NOT v_source_drifted AND v_upload_ready
         AND p_source -> 'object_identity' <> 'null'::jsonb, false);
     IF v_status = 'ready' AND NOT v_current THEN
@@ -3246,6 +3251,21 @@ DECLARE
     v_source jsonb;
     v_projection jsonb;
     v_selected_profile text;
+    v_asset_id uuid;
+    v_active_generation integer;
+    v_last_accessed_at timestamptz;
+    v_generation_policy jsonb;
+    v_policy jsonb;
+    v_accessed_at timestamptz;
+    v_retention_until timestamptz;
+    v_asset_prefix text;
+    v_generation_prefix text;
+    v_attempt_prefix text;
+    v_prefix text;
+    v_prefixes text[];
+    v_garbage public.asset_image_garbage%ROWTYPE;
+    v_garbage_error text;
+    v_touch_access boolean;
 BEGIN
     IF p_actor_id IS NULL OR ((p_task_id IS NULL) = (p_dataset_item_id IS NULL))
        OR (p_generation IS NOT NULL AND p_generation < 1)
@@ -3269,6 +3289,117 @@ BEGIN
         RETURN aap_assets_v1._image_reply(
             NULL, CASE WHEN p_generation IS NOT NULL THEN 'asset_missing' ELSE 'invalid_response' END
         );
+    END IF;
+    IF p_generation IS NOT NULL
+       AND v_projection ->> 'status' = 'ready'
+       AND v_projection ->> 'generation' = p_generation::text THEN
+        BEGIN
+            v_asset_id := (v_projection ->> 'asset_id')::uuid;
+            SELECT asset.active_generation, generation.last_accessed_at,
+                   generation.policy
+            INTO v_active_generation, v_last_accessed_at, v_generation_policy
+            FROM public.image_pyramid_assets AS asset
+            JOIN public.image_pyramid_generations AS generation
+              ON generation.asset_id = asset.id
+            WHERE asset.id = v_asset_id
+              AND asset.profile_version = v_selected_profile
+              AND generation.generation = p_generation
+              AND generation.status = 'ready'
+              AND generation.source_generation = (v_source ->> 'source_generation')::bigint
+              AND generation.source_snapshot = v_source ->> 'source_snapshot'
+              AND generation.source_identity = aap_assets_v1._image_exec_legacy_identity(
+                    v_source -> 'object_identity'
+              )
+            FOR UPDATE OF asset, generation NOWAIT;
+            IF NOT FOUND THEN
+                RETURN aap_assets_v1._image_reply(NULL, 'asset_missing');
+            END IF;
+
+            v_policy := aap_assets_v1._image_policy(
+                COALESCE(v_generation_policy, '{}'::jsonb)
+            );
+            IF v_policy IS NULL THEN
+                RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+            END IF;
+            v_asset_prefix := 'image-pyramids/' || v_asset_id::text || '/';
+            v_generation_prefix := v_asset_prefix || 'g' || p_generation::text || '/';
+            v_attempt_prefix := pg_catalog.regexp_replace(
+                v_projection ->> 'manifest_key', 'manifest\.json$', ''
+            );
+            IF v_attempt_prefix IS NULL
+               OR (v_attempt_prefix <> v_generation_prefix
+                   AND (pg_catalog.left(v_attempt_prefix, pg_catalog.char_length(v_generation_prefix))
+                            IS DISTINCT FROM v_generation_prefix
+                        OR NOT aap_assets_v1._image_garbage_prefix_valid(v_attempt_prefix))) THEN
+                RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+            END IF;
+            v_prefixes := ARRAY[v_asset_prefix, v_generation_prefix, v_attempt_prefix];
+            v_touch_access := v_last_accessed_at IS NULL
+                OR v_last_accessed_at < pg_catalog.clock_timestamp() - interval '10 minutes';
+            IF v_touch_access THEN
+                v_accessed_at := pg_catalog.clock_timestamp();
+            ELSE
+                v_accessed_at := v_last_accessed_at;
+            END IF;
+            v_retention_until := v_accessed_at + pg_catalog.make_interval(
+                hours => (v_policy ->> 'gc_grace_hours')::integer
+            );
+            BEGIN
+                FOR v_prefix IN
+                    SELECT DISTINCT candidate.prefix
+                    FROM pg_catalog.unnest(v_prefixes) AS candidate(prefix)
+                    ORDER BY candidate.prefix
+                LOOP
+                    IF NOT pg_catalog.pg_try_advisory_xact_lock(
+                        pg_catalog.hashtextextended('aap-image-garbage:' || v_prefix, 0)
+                    ) THEN
+                        v_garbage_error := 'operation_busy';
+                        RAISE lock_not_available USING MESSAGE = 'image garbage scope is busy';
+                    END IF;
+                END LOOP;
+                FOR v_garbage IN
+                    SELECT garbage.*
+                    FROM public.asset_image_garbage AS garbage
+                    WHERE garbage.prefix = ANY(v_prefixes)
+                    ORDER BY garbage.prefix
+                    FOR UPDATE NOWAIT
+                LOOP
+                    IF v_garbage.completed_at IS NOT NULL
+                       OR v_garbage.last_ack_token IS NOT NULL THEN
+                        v_garbage_error := 'asset_missing';
+                        RAISE lock_not_available USING MESSAGE = 'image generation was collected';
+                    ELSIF v_garbage.lease_token IS NOT NULL THEN
+                        v_garbage_error := 'source_busy';
+                        RAISE lock_not_available USING MESSAGE = 'image generation cleanup is active';
+                    END IF;
+                END LOOP;
+                IF v_touch_access THEN
+                    UPDATE public.image_pyramid_generations AS generation
+                    SET last_accessed_at = v_accessed_at
+                    WHERE generation.asset_id = v_asset_id
+                      AND generation.generation = p_generation;
+                END IF;
+                IF v_active_generation IS DISTINCT FROM p_generation THEN
+                    PERFORM aap_assets_v1._queue_image_garbage(
+                        v_generation_prefix, 'generation_retired', v_retention_until
+                    );
+                END IF;
+                UPDATE public.asset_image_garbage AS garbage
+                SET not_before = GREATEST(garbage.not_before, v_retention_until)
+                WHERE garbage.prefix = ANY(v_prefixes)
+                  AND garbage.completed_at IS NULL
+                  AND garbage.lease_token IS NULL
+                  AND garbage.not_before < v_retention_until;
+            EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+                RETURN aap_assets_v1._image_reply(
+                    NULL, COALESCE(v_garbage_error, 'operation_busy')
+                );
+            END;
+        EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+            RETURN aap_assets_v1._image_reply(NULL, 'operation_busy');
+        WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+            RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+        END;
     END IF;
     RETURN aap_assets_v1._image_reply(
         pg_catalog.jsonb_build_object('source', v_source, 'pyramid', v_projection), NULL

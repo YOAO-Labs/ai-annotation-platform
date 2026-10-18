@@ -323,7 +323,7 @@ async def test_pyramid_reads_select_the_requested_profile(db_session):
             ImagePyramidGeneration(
                 asset_id=asset.id,
                 generation=1,
-                source_identity=bound["source_snapshot"],
+                source_identity="etag:profile-read:bytes:2048",
                 source_fingerprint=None,
                 status="failed",
                 width=4000 if asset is v1_asset else 1800,
@@ -527,6 +527,109 @@ async def test_task_source_reads_newest_current_ready_image_dimensions(db_sessio
     )
     assert changed["source_generation"] == current["source_generation"] + 1
     assert (changed["width"], changed["height"]) == (None, None)
+
+
+async def test_uploading_task_remains_summarizable_but_cannot_publish_image_facts(
+    db_session,
+):
+    from tests.test_image_source_authorities import _seed_image_task
+
+    actor_id = await _seed_actor(db_session, role="employee")
+    task = await _seed_image_task(db_session, actor_id=actor_id)
+    identity = {"etag": "uploading-task-image", "byte_size": 4096}
+    initial = _data(await _read(db_session, actor_id, None, task_id=task.id))
+    bound = _data(
+        await _observe(
+            db_session,
+            actor_id,
+            initial,
+            identity,
+            task_id=task.id,
+        )
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO public.asset_image_jobs "
+            "(job_id,kind,owner_kind,owner_id,slot_key,spec,status,source_generation,"
+            "source_snapshot,source_facts,result,updated_at) "
+            "VALUES (:job_id,'dimensions','task',:task_id,'dimensions:preview',"
+            "CAST(:spec AS jsonb),'ready',:source_generation,:source_snapshot,"
+            "CAST(:source_facts AS jsonb),CAST(:result AS jsonb),clock_timestamp())"
+        ),
+        {
+            "job_id": uuid4(),
+            "task_id": task.id,
+            "spec": json.dumps(
+                {
+                    "kind": "dimensions",
+                    "expected_source_snapshot": bound["source_snapshot"],
+                }
+            ),
+            "source_generation": bound["source_generation"],
+            "source_snapshot": bound["source_snapshot"],
+            "source_facts": json.dumps({"object_identity": identity}),
+            "result": json.dumps(
+                {
+                    "kind": "dimensions",
+                    "width": 640,
+                    "height": 480,
+                    "source_identity": identity,
+                }
+            ),
+        },
+    )
+    task.status = "uploading"
+    await db_session.flush()
+
+    source = _data(await _read(db_session, actor_id, None, task_id=task.id))
+    assert source["upload_ready"] is False
+    assert source["source_snapshot"] == bound["source_snapshot"]
+    assert source["width"] is None and source["height"] is None
+    summary = _data(
+        await db_session.scalar(
+            _READ_SUMMARIES,
+            {
+                "actor_id": actor_id,
+                "selectors": json.dumps(
+                    [{"task_id": str(task.id), "dataset_item_id": None}]
+                ),
+                "profile_version": None,
+            },
+        )
+    )["items"][0]
+    assert summary["source"]["upload_ready"] is False
+    assert summary["source"]["width"] is None
+    assert summary["source"]["height"] is None
+
+    _error(
+        await db_session.scalar(
+            _PREPARE,
+            {
+                "operation_id": uuid4(),
+                "actor_id": actor_id,
+                "task_id": task.id,
+                "item_id": None,
+                "purpose": "dimensions",
+                "snapshot": source["source_snapshot"],
+                "policy": "{}",
+                "force": False,
+            },
+        ),
+        "source_not_ready",
+    )
+    _error(
+        await db_session.scalar(
+            _OBSERVE_SOURCE,
+            {
+                "actor_id": actor_id,
+                "task_id": task.id,
+                "item_id": None,
+                "snapshot": source["source_snapshot"],
+                "identity": json.dumps(identity),
+            },
+        ),
+        "source_not_ready",
+    )
 
 
 async def test_retry_receipt_replays_before_ready_and_new_retry_is_rejected(db_session):

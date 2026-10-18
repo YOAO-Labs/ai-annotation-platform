@@ -109,6 +109,27 @@ BEGIN
             OR pg_catalog.left('image-pyramids/' || generation.asset_id::text || '/g' || generation.generation::text || '/', pg_catalog.char_length(p_prefix)) = p_prefix
         )
     ) THEN RETURN true; END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.image_pyramid_generations AS generation
+        WHERE generation.status = 'ready'
+          AND generation.last_accessed_at > pg_catalog.statement_timestamp()
+              - pg_catalog.make_interval(hours => COALESCE(
+                    (generation.policy ->> 'gc_grace_hours')::integer, 24
+                ))
+          AND (
+                p_prefix = 'image-pyramids/' || generation.asset_id::text || '/'
+                OR p_prefix = 'image-pyramids/' || generation.asset_id::text
+                    || '/g' || generation.generation::text || '/'
+                OR p_prefix = generation.output_prefix
+                OR pg_catalog.left(
+                    'image-pyramids/' || generation.asset_id::text || '/g'
+                        || generation.generation::text || '/',
+                    pg_catalog.char_length(p_prefix)
+                ) = p_prefix
+                OR pg_catalog.left(generation.output_prefix, pg_catalog.char_length(p_prefix))
+                    = p_prefix
+          )
+    ) THEN RETURN true; END IF;
     RETURN EXISTS (
         SELECT 1 FROM public.asset_image_jobs AS job
         WHERE job.status = 'running' AND job.lease_expires_at > pg_catalog.statement_timestamp()
