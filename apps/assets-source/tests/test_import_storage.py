@@ -197,7 +197,7 @@ async def test_published_image_identity_is_captured_from_final_object_head() -> 
     )
 
     assert identity.model_dump(mode="json") == {
-        "etag": '"published-etag"',
+        "etag": "published-etag",
         "byte_size": 4,
         "version_id": "v1",
     }

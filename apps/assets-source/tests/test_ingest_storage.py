@@ -130,7 +130,7 @@ async def test_legacy_image_observation_is_conditional_and_uses_valid_md5_etag()
     )
     assert (facts.width, facts.height) == (19, 7)
     assert facts.object_identity == ObjectIdentity(
-        etag=etag, byte_size=len(image_bytes)
+        etag=etag.strip().strip('"'), byte_size=len(image_bytes)
     )
     assert s3.calls[0][1]["IfMatch"] == etag
     assert s3.calls[1][1]["Range"] == "bytes=0-262143"
@@ -156,7 +156,7 @@ async def test_zip_image_publisher_heads_the_final_object_for_sidecar_identity()
     )
 
     assert facts.object_identity == ObjectIdentity(
-        etag='"published-final"', byte_size=len(image_bytes)
+        etag="published-final", byte_size=len(image_bytes)
     )
     assert [call[0] for call in s3.calls] == ["put", "head"]
 

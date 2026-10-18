@@ -371,7 +371,7 @@ async def test_modern_upload_copies_conditionally_before_native_acceptance() -> 
     assert admission["item_id"] == item_id
     assert admission["publication_id"] == intent.publication_id
     assert admission["file_path"] == intent.file_path
-    assert admission["object_identity"].etag == '"0123456789abcdef0123456789abcdef"'
+    assert admission["object_identity"].etag == "0123456789abcdef0123456789abcdef"
 
 
 @pytest.mark.asyncio

@@ -265,12 +265,22 @@ def test_object_identity_is_taken_from_final_head_and_checks_expected_size():
         {"ContentLength": 3, "ETag": '"final"', "VersionId": "v7"},
         expected_size=3,
     )
-    assert identity == c.ObjectIdentity(etag='"final"', byte_size=3, version_id="v7")
+    assert identity == c.ObjectIdentity(etag="final", byte_size=3, version_id="v7")
 
     with pytest.raises(c.ImageFailure, match="source_changed"):
         object_identity_from_head(
             {"ContentLength": 4, "ETag": "final"}, expected_size=3
         )
+
+    for invalid_version in (123, "", "v" * 256, "bad\nversion"):
+        with pytest.raises(c.ImageFailure, match="invalid_response"):
+            object_identity_from_head(
+                {
+                    "ContentLength": 3,
+                    "ETag": '"final"',
+                    "VersionId": invalid_version,
+                }
+            )
 
 
 @pytest.mark.asyncio

@@ -134,7 +134,7 @@ async def test_verified_upload_becomes_pending(
     assert len(_ImageAdmission.calls) == 1
     assert _ImageAdmission.calls[0]["task_id"] == task_id
     assert _ImageAdmission.calls[0]["file_path"] == task.file_path
-    assert _ImageAdmission.calls[0]["object_identity"].etag == '"task-source"'
+    assert _ImageAdmission.calls[0]["object_identity"].etag == "task-source"
 
 
 async def test_image_admission_failure_rolls_back_task_pending_transition(

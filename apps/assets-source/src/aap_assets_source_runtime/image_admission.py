@@ -51,16 +51,22 @@ def object_identity_from_head(
         raise c.ImageFailure("invalid_response")
     if expected_size is not None and byte_size != expected_size:
         raise c.ImageFailure("source_changed")
-    if not isinstance(etag, str) or not etag or len(etag) > 255:
+    if not isinstance(etag, str):
         raise c.ImageFailure("invalid_response")
-    if any(ord(char) < 32 or ord(char) == 127 for char in etag):
+    etag = etag.strip().strip('"')
+    if (
+        not etag
+        or len(etag) > 255
+        or any(ord(char) < 32 or ord(char) == 127 for char in etag)
+    ):
         raise c.ImageFailure("invalid_response")
     if version_id is not None and (
         not isinstance(version_id, str)
+        or not version_id
         or len(version_id) > 255
         or any(ord(char) < 32 or ord(char) == 127 for char in version_id)
     ):
-        version_id = None
+        raise c.ImageFailure("invalid_response")
     try:
         return c.ObjectIdentity(
             etag=etag,
